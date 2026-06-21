@@ -6,7 +6,8 @@
 
 #[cfg(feature = "sql")]
 use crate::db::executor::delete::{
-    DeleteProjection, DeleteProjectionBounds, execute_structural_delete_projection_core,
+    DeleteProjection, DeleteProjectionBounds, execute_structural_delete_count_core_with_bounds,
+    execute_structural_delete_projection_core,
 };
 use crate::{
     db::{
@@ -100,16 +101,6 @@ where
         result
     }
 
-    /// Execute one structural delete projection plan and return structural row
-    /// values for one outer projection/rendering surface.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn execute_structural_projection(
-        self,
-        plan: PreparedExecutionPlan<E>,
-    ) -> Result<DeleteProjection, InternalError> {
-        self.execute_structural_projection_with_bounds(plan, DeleteProjectionBounds::unbounded())
-    }
-
     /// Execute one structural delete projection plan with an optional
     /// pre-commit row bound for bounded SQL exposure policies.
     #[cfg(feature = "sql")]
@@ -177,6 +168,45 @@ where
                 &self.db,
                 store,
                 &prepared,
+                apply_delete_commit_window_for_type::<E>,
+            )?;
+
+            // Phase 3: return only the final affected-row count.
+            set_rows_from_len(&mut span, usize::try_from(row_count).unwrap_or(usize::MAX));
+
+            Ok(row_count)
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
+
+        result
+    }
+
+    /// Execute one delete plan and return only the affected-row count while
+    /// checking the selected-row bound before the commit window.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn execute_count_with_bounds(
+        self,
+        plan: PreparedExecutionPlan<E>,
+        bounds: DeleteProjectionBounds,
+    ) -> Result<u32, InternalError> {
+        let mut span = Span::<E>::new(ExecKind::Delete);
+        let result = (|| {
+            // Phase 1: prepare authority, store access, and delete execution inputs once.
+            let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
+            record_plan_metrics(
+                prepared.authority.entity.entity_path(),
+                &prepared.logical_plan,
+            );
+
+            // Phase 2: run the structural delete-count core with the SQL
+            // exposure-policy bound before applying the commit payload.
+            let row_count = execute_structural_delete_count_core_with_bounds(
+                &self.db,
+                store,
+                &prepared,
+                bounds,
                 apply_delete_commit_window_for_type::<E>,
             )?;
 

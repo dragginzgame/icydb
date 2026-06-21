@@ -1,4 +1,8 @@
 use super::*;
+use crate::db::{
+    SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+    SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
+};
 
 type NameAgeRows = Vec<(String, u64)>;
 
@@ -53,6 +57,90 @@ fn remaining_session_name_age_rows(session: &DbSession<SessionSqlCanister>) -> N
     execute_sql_name_age_rows(session, "SELECT * FROM SessionSqlEntity ORDER BY age ASC")
 }
 
+const PUBLIC_DELETE_WRITE_ROWS: [(u64, &str, u64); 4] = [
+    (1, "Ada", 21),
+    (2, "Bea", 22),
+    (3, "Cid", 23),
+    (4, "Dee", 24),
+];
+
+fn seed_public_delete_write_entities(session: &DbSession<SessionSqlCanister>) {
+    for (id, name, age) in PUBLIC_DELETE_WRITE_ROWS {
+        session
+            .insert(SessionSqlWriteEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("public DELETE fixture insert should succeed");
+    }
+}
+
+fn public_delete_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
+    statement_projection_rows::<SessionSqlWriteEntity>(
+        session,
+        "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
+    )
+    .expect("post-delete public SQL projection should succeed")
+}
+
+fn public_delete_fixture_row(id: u64) -> Vec<Value> {
+    let Some((_, name, age)) = PUBLIC_DELETE_WRITE_ROWS
+        .iter()
+        .find(|(fixture_id, _, _)| *fixture_id == id)
+    else {
+        panic!("unknown public DELETE fixture id {id}");
+    };
+
+    vec![
+        Value::Nat64(id),
+        Value::Text((*name).to_string()),
+        Value::Nat64(*age),
+    ]
+}
+
+fn public_delete_fixture_rows(ids: &[u64]) -> Vec<Vec<Value>> {
+    ids.iter().copied().map(public_delete_fixture_row).collect()
+}
+
+fn public_primary_key_delete_plan(sql: &str) -> SqlPublicPrimaryKeyDeletePlan {
+    let report = classify_sql_delete_policy(
+        sql,
+        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
+        SqlDeletePolicyContext::new(&["id"]),
+    )
+    .expect("public primary-key DELETE SQL should parse");
+
+    let Some(SqlValidatedDeletePlan::PublicPrimaryKeyOnly(plan)) = report.plan else {
+        panic!("public primary-key DELETE SQL should produce a primary-key plan");
+    };
+
+    plan
+}
+
+fn public_bounded_delete_plan_with_row_cap(
+    sql: &str,
+    max_returning_rows: Option<u32>,
+) -> SqlPublicBoundedDeletePlan {
+    let report = classify_sql_delete_policy(
+        sql,
+        SqlDeleteExposurePolicy::PublicBoundedDeterministic,
+        SqlDeletePolicyContext {
+            primary_key_fields: &["id"],
+            max_public_bounded_limit: 10,
+            max_returning_rows,
+            max_returning_response_bytes: None,
+        },
+    )
+    .expect("public bounded DELETE SQL should parse");
+
+    let Some(SqlValidatedDeletePlan::PublicBoundedDeterministic(plan)) = report.plan else {
+        panic!("public bounded DELETE SQL should produce a bounded plan");
+    };
+
+    plan
+}
+
 // Run one SQL DELETE statement through unified statement and return only the
 // affected-row count from the traditional mutation result surface.
 fn execute_sql_statement_delete_count(session: &DbSession<SessionSqlCanister>, sql: &str) -> u32 {
@@ -65,6 +153,110 @@ fn execute_sql_statement_delete_count(session: &DbSession<SessionSqlCanister>, s
             panic!("DELETE SQL statement execution should return count payload, got {other:?}")
         }
     }
+}
+
+#[test]
+fn execute_validated_sql_public_primary_key_delete_plan_deletes_one_row() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+    let plan = public_primary_key_delete_plan("DELETE FROM SessionSqlWriteEntity WHERE id = 1");
+
+    let payload = session
+        .execute_validated_sql_public_primary_key_delete::<SessionSqlWriteEntity>(&plan)
+        .expect("validated public primary-key DELETE should execute");
+
+    let SqlStatementResult::Count { row_count } = payload else {
+        panic!("validated public primary-key DELETE should return a count payload");
+    };
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(&[2, 3, 4]),
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_delete_count_rejects_bound_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+    let mut plan = public_bounded_delete_plan_with_row_cap(
+        "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 2",
+        None,
+    );
+    plan.execution_bounds.max_staged_rows = Some(1);
+
+    let err = session
+        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .expect_err("stricter validated DELETE bound should reject before commit");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(&[1, 2, 3, 4]),
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_delete_returning_rejects_row_cap_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+    let plan = public_bounded_delete_plan_with_row_cap(
+        "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 2 RETURNING id",
+        Some(1),
+    );
+
+    let err = session
+        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .expect_err("stricter validated DELETE RETURNING row cap should reject before commit");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(&[1, 2, 3, 4]),
+    );
+}
+
+#[test]
+fn execute_sql_public_bounded_delete_derives_context_and_deletes_limited_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+
+    let payload = session
+        .execute_sql_public_bounded_delete::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 2",
+        )
+        .expect("schema-derived public bounded DELETE should execute");
+
+    let SqlStatementResult::Count { row_count } = payload else {
+        panic!("schema-derived public bounded DELETE should return a count payload");
+    };
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(&[3, 4]),
+    );
+}
+
+#[test]
+fn execute_sql_public_primary_key_delete_rejects_non_pk_where_without_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+
+    session
+        .execute_sql_public_primary_key_delete::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE age = 21",
+        )
+        .expect_err("public primary-key DELETE should reject non-primary-key predicates");
+
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(&[1, 2, 3, 4]),
+    );
 }
 
 #[test]

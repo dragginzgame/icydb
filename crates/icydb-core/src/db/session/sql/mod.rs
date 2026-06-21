@@ -9,10 +9,12 @@ mod cache;
 mod compile;
 mod compile_cache;
 mod compiled;
+mod delete_policy;
 mod execute;
 mod projection;
 mod result;
 mod update_policy;
+mod write_policy;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::diagnostics::StoreCounterSnapshot;
@@ -72,6 +74,13 @@ pub(in crate::db::session::sql) use compile::{
 pub(in crate::db) use compiled::{
     CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
     SqlGlobalAggregateCountPlanCacheEntry, SqlProjectionContract,
+};
+pub use delete_policy::{
+    SqlAdminBulkDeletePlan, SqlDeleteExecutionBounds, SqlDeleteExposurePolicy,
+    SqlDeleteOrderPolicy, SqlDeletePolicyContext, SqlDeletePolicyRejection, SqlDeletePolicyReport,
+    SqlDeleteReturningBounds, SqlDeleteReturningPolicy, SqlDeleteStatementClassification,
+    SqlDeleteWherePolicy, SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan,
+    SqlSessionCurrentDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
 };
 pub use result::SqlStatementResult;
 pub(in crate::db) use update_policy::SqlUpdateExecutionBounds;

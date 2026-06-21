@@ -86,6 +86,7 @@ pub(in crate::db) use select::{
     bind_lowered_sql_delete_query_structural_with_schema,
     bind_lowered_sql_query_structural_with_schema,
     bind_lowered_sql_select_query_structural_with_schema,
+    bind_sql_delete_statement_structural_with_schema,
     bind_sql_update_selector_query_structural_with_schema,
 };
 

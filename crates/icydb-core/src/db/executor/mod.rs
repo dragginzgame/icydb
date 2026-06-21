@@ -69,7 +69,7 @@ pub(in crate::db::executor) use covering::{
     map_covering_projection_pairs,
 };
 pub(super) use delete::DeleteExecutor;
-#[cfg(all(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use delete::DeleteProjectionBounds;
 pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;

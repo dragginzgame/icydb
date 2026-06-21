@@ -753,6 +753,18 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural_with_schema(
     ))
 }
 
+/// Bind one parsed SQL DELETE statement with an explicit schema projection.
+pub(in crate::db) fn bind_sql_delete_statement_structural_with_schema(
+    model: &'static EntityModel,
+    statement: SqlDeleteStatement,
+    consistency: MissingRowPolicy,
+    schema: &SchemaInfo,
+) -> Result<StructuralQuery, SqlLoweringError> {
+    let base_query = lower_delete_shape(statement)?;
+
+    bind_lowered_sql_delete_query_structural_with_schema(model, base_query, consistency, schema)
+}
+
 /// Bind one SQL UPDATE selector with an explicit schema projection.
 ///
 /// This mirrors the base-query read boundary used by cached SELECT/DELETE

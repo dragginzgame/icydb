@@ -127,19 +127,26 @@ Status: active.
   an internal row-bound contract and verifies it after delete preparation but
   before the commit-window bridge; broad SQL DELETE remains unbounded until a
   public DELETE exposure policy exists.
+- H6 / D7 / F6 third slice: SQL DELETE has a non-executing exposure-policy
+  classifier matching the UPDATE policy split for broad session writes,
+  generated query/DDL rejection, public primary-key-only deletes, public
+  bounded deterministic deletes, and future admin/bulk routing. UPDATE and
+  DELETE now share primary-key WHERE proof, canonical primary-key ordering
+  proof, narrow RETURNING classification, and row-bound combination helpers.
+- H6 / D7 / F6 fourth slice: policy-validated public DELETE execution adapters
+  now consume `SqlPublicPrimaryKeyDeletePlan` and `SqlPublicBoundedDeletePlan`,
+  bind parsed DELETE statements through the accepted schema, and pass staged-row
+  / RETURNING row bounds into the delete executor before the commit window for
+  both count-only and RETURNING deletes.
 
 ## Current Slice
 
-- H6 / D7 / F6 second slice: staged-row execution bounds for
-  policy-validated public bounded UPDATE are implemented and locally validated.
-- H6 / D7 / F6 second slice: DELETE RETURNING has a pre-commit executor hook
-  for bounded policies, but there is still no generated/public DELETE policy
-  surface; broad session/admin write behavior remains unbounded and unchanged.
+- H6 / D7 / F6 fourth slice: public DELETE execution is available only through
+  validated primary-key and bounded deterministic plan variants. Broad
+  session/admin SQL DELETE behavior remains unchanged and unbounded.
 
 ## Next Candidates
 
-- H6 / D7 / F6: design the generated/public DELETE exposure policy before
-  wiring the DELETE RETURNING row-bound hook into any user-facing route.
 - H6 / D7 / F6: rerun the live PocketIC SQL write materialization matrix in a
   healthy PocketIC environment after the staged-row bound guard lands, record
   heap/journaled deltas, and only then decide whether chunked mutation

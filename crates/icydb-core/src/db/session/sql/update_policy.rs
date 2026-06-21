@@ -7,20 +7,24 @@
 
 use crate::db::{
     QueryError,
-    sql::parser::{
-        SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlReturningProjection, SqlStatement,
-        SqlUpdateStatement, parse_sql_with_attribution,
+    session::sql::write_policy::{
+        DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
+        SqlWriteOrderProof, SqlWriteReturningShape, SqlWriteWhereProof, classify_write_order_proof,
+        classify_write_returning_shape, classify_write_where_proof, combined_optional_row_bound,
+        contains_field, current_table_field_name,
     },
+    sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
 };
-use std::collections::BTreeSet;
 
 /// Default generated/public bounded SQL `UPDATE` row target limit.
 #[doc(hidden)]
-pub(in crate::db) const DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT: u32 = 100;
+pub(in crate::db) const DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT: u32 =
+    DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT;
 
 /// Default generated/public SQL `UPDATE RETURNING` projection payload budget.
 #[doc(hidden)]
-pub(in crate::db) const DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES: u32 = 1_048_576;
+pub(in crate::db) const DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES: u32 =
+    DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES;
 
 /// SQL `UPDATE` exposure policy selected by a caller before execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -614,7 +618,7 @@ fn returning_bounds(
             }
         };
 
-        returning_row_bound(policy_max_rows, context.max_returning_rows)
+        combined_optional_row_bound(policy_max_rows, context.max_returning_rows)
     } else {
         None
     };
@@ -622,22 +626,6 @@ fn returning_bounds(
     SqlUpdateReturningBounds {
         max_rows,
         max_response_bytes: context.max_returning_response_bytes,
-    }
-}
-
-const fn returning_row_bound(
-    policy_max_rows: Option<u32>,
-    configured_max_rows: Option<u32>,
-) -> Option<u32> {
-    match (policy_max_rows, configured_max_rows) {
-        (Some(policy), Some(configured)) => Some(if policy < configured {
-            policy
-        } else {
-            configured
-        }),
-        (Some(policy), None) => Some(policy),
-        (None, Some(configured)) => Some(configured),
-        (None, None) => None,
     }
 }
 
@@ -708,19 +696,15 @@ fn where_policy(
     statement: &SqlUpdateStatement,
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlUpdateWherePolicy {
-    let Some(predicate) = statement.predicate.as_ref() else {
-        return SqlUpdateWherePolicy::Missing;
-    };
-
-    if primary_key_equality_proof(
-        predicate,
+    match classify_write_where_proof(
+        statement.predicate.as_ref(),
         statement.entity.as_str(),
         statement.table_alias.as_deref(),
         context.primary_key_fields,
     ) {
-        SqlUpdateWherePolicy::PrimaryKeyEquality
-    } else {
-        SqlUpdateWherePolicy::Other
+        SqlWriteWhereProof::Missing => SqlUpdateWherePolicy::Missing,
+        SqlWriteWhereProof::PrimaryKeyEquality => SqlUpdateWherePolicy::PrimaryKeyEquality,
+        SqlWriteWhereProof::Other => SqlUpdateWherePolicy::Other,
     }
 }
 
@@ -728,143 +712,24 @@ fn order_policy(
     statement: &SqlUpdateStatement,
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlUpdateOrderPolicy {
-    if statement.order_by.is_empty() {
-        return SqlUpdateOrderPolicy::Missing;
-    }
-    if statement.order_by.len() != context.primary_key_fields.len() {
-        return SqlUpdateOrderPolicy::Other;
-    }
-
-    let mut all_canonical = true;
-    let mut saw_descending = false;
-    for (term, primary_key) in statement
-        .order_by
-        .iter()
-        .zip(context.primary_key_fields.iter().copied())
-    {
-        let ordered_field = simple_field_name(
-            &term.field,
-            statement.entity.as_str(),
-            statement.table_alias.as_deref(),
-        );
-        all_canonical &= ordered_field.is_some_and(|field| field == primary_key);
-        saw_descending |= matches!(term.direction, SqlOrderDirection::Desc);
-    }
-
-    if !all_canonical {
-        SqlUpdateOrderPolicy::Other
-    } else if saw_descending {
-        SqlUpdateOrderPolicy::DescendingPrimaryKey
-    } else {
-        SqlUpdateOrderPolicy::CanonicalPrimaryKey
+    match classify_write_order_proof(
+        statement.order_by.as_slice(),
+        statement.entity.as_str(),
+        statement.table_alias.as_deref(),
+        context.primary_key_fields,
+    ) {
+        SqlWriteOrderProof::Missing => SqlUpdateOrderPolicy::Missing,
+        SqlWriteOrderProof::CanonicalPrimaryKey => SqlUpdateOrderPolicy::CanonicalPrimaryKey,
+        SqlWriteOrderProof::DescendingPrimaryKey => SqlUpdateOrderPolicy::DescendingPrimaryKey,
+        SqlWriteOrderProof::Other => SqlUpdateOrderPolicy::Other,
     }
 }
 
 const fn returning_policy(statement: &SqlUpdateStatement) -> SqlUpdateReturningPolicy {
-    match &statement.returning {
-        None => SqlUpdateReturningPolicy::None,
-        Some(SqlReturningProjection::All) => SqlUpdateReturningPolicy::NarrowAll,
-        Some(SqlReturningProjection::Fields(_)) => SqlUpdateReturningPolicy::NarrowFields,
-    }
-}
-
-fn primary_key_equality_proof(
-    predicate: &SqlExpr,
-    entity: &str,
-    table_alias: Option<&str>,
-    primary_key_fields: &[&str],
-) -> bool {
-    if primary_key_fields.is_empty() {
-        return false;
-    }
-
-    let mut observed = BTreeSet::new();
-    for leaf in conjunctive_leaves(predicate) {
-        let Some(field) = primary_key_equality_field(leaf, entity, table_alias) else {
-            return false;
-        };
-        if !contains_field(primary_key_fields, field) || !observed.insert(field.to_string()) {
-            return false;
-        }
-    }
-
-    primary_key_fields
-        .iter()
-        .all(|primary_key| observed.contains(*primary_key))
-}
-
-fn conjunctive_leaves(expr: &SqlExpr) -> Vec<&SqlExpr> {
-    match expr {
-        SqlExpr::Binary {
-            op: SqlExprBinaryOp::And,
-            left,
-            right,
-        } => {
-            let mut leaves = conjunctive_leaves(left);
-            leaves.extend(conjunctive_leaves(right));
-            leaves
-        }
-        SqlExpr::Field(_)
-        | SqlExpr::FieldPath { .. }
-        | SqlExpr::Aggregate(_)
-        | SqlExpr::Literal(_)
-        | SqlExpr::Param { .. }
-        | SqlExpr::Membership { .. }
-        | SqlExpr::NullTest { .. }
-        | SqlExpr::Like { .. }
-        | SqlExpr::FunctionCall { .. }
-        | SqlExpr::Unary { .. }
-        | SqlExpr::Binary { .. }
-        | SqlExpr::Case { .. } => vec![expr],
-    }
-}
-
-fn primary_key_equality_field<'a>(
-    expr: &'a SqlExpr,
-    entity: &str,
-    table_alias: Option<&str>,
-) -> Option<&'a str> {
-    let SqlExpr::Binary {
-        op: SqlExprBinaryOp::Eq,
-        left,
-        right,
-    } = expr
-    else {
-        return None;
-    };
-
-    let left_field = simple_field_name(left, entity, table_alias);
-    let right_field = simple_field_name(right, entity, table_alias);
-    match (left_field, right_field) {
-        (Some(field), None) => comparable_constant(right).then_some(field),
-        (None, Some(field)) => comparable_constant(left).then_some(field),
-        (Some(_), Some(_)) | (None, None) => None,
-    }
-}
-
-fn simple_field_name<'a>(
-    expr: &'a SqlExpr,
-    entity: &str,
-    table_alias: Option<&str>,
-) -> Option<&'a str> {
-    match expr {
-        SqlExpr::Field(field) => current_table_field_name(field.as_str(), entity, table_alias),
-        SqlExpr::FieldPath { root, segments } if segments.len() == 1 => {
-            let qualifier_matches =
-                table_alias.is_some_and(|alias| root == alias) || root == entity;
-            qualifier_matches.then_some(segments[0].as_str())
-        }
-        SqlExpr::FieldPath { .. }
-        | SqlExpr::Aggregate(_)
-        | SqlExpr::Literal(_)
-        | SqlExpr::Param { .. }
-        | SqlExpr::Membership { .. }
-        | SqlExpr::NullTest { .. }
-        | SqlExpr::Like { .. }
-        | SqlExpr::FunctionCall { .. }
-        | SqlExpr::Unary { .. }
-        | SqlExpr::Binary { .. }
-        | SqlExpr::Case { .. } => None,
+    match classify_write_returning_shape(statement.returning.as_ref()) {
+        SqlWriteReturningShape::None => SqlUpdateReturningPolicy::None,
+        SqlWriteReturningShape::NarrowAll => SqlUpdateReturningPolicy::NarrowAll,
+        SqlWriteReturningShape::NarrowFields => SqlUpdateReturningPolicy::NarrowFields,
     }
 }
 
@@ -874,31 +739,6 @@ fn assignment_field_name<'a>(statement: &SqlUpdateStatement, field: &'a str) -> 
         statement.entity.as_str(),
         statement.table_alias.as_deref(),
     )
-}
-
-fn current_table_field_name<'a>(
-    field: &'a str,
-    entity: &str,
-    table_alias: Option<&str>,
-) -> Option<&'a str> {
-    let Some((qualifier, leaf)) = field.split_once('.') else {
-        return Some(field);
-    };
-    if leaf.contains('.') {
-        return None;
-    }
-
-    let qualifier_matches =
-        table_alias.is_some_and(|alias| qualifier == alias) || qualifier == entity;
-    qualifier_matches.then_some(leaf)
-}
-
-const fn comparable_constant(expr: &SqlExpr) -> bool {
-    matches!(expr, SqlExpr::Literal(_) | SqlExpr::Param { .. })
-}
-
-fn contains_field(fields: &[&str], field: &str) -> bool {
-    fields.contains(&field)
 }
 
 #[cfg(test)]

@@ -62,14 +62,19 @@ pub use icydb_core::db::{
 #[cfg(feature = "sql")]
 #[doc(hidden)]
 pub use icydb_core::db::{
-    SqlAdminBulkUpdatePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
-    SqlSessionCurrentUpdatePlan, SqlStatementShellSurface, SqlStatementSurface,
-    SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdateOrderPolicy,
-    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
-    SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
-    SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
-    sql_statement_dispatch, sql_statement_entity_name, sql_statement_shell_surface,
-    sql_statement_surface,
+    SqlAdminBulkDeletePlan, SqlAdminBulkUpdatePlan, SqlDeleteExecutionBounds,
+    SqlDeleteExposurePolicy, SqlDeleteOrderPolicy, SqlDeletePolicyContext,
+    SqlDeletePolicyRejection, SqlDeletePolicyReport, SqlDeleteReturningBounds,
+    SqlDeleteReturningPolicy, SqlDeleteStatementClassification, SqlDeleteWherePolicy,
+    SqlPublicBoundedDeletePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan,
+    SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentDeletePlan, SqlSessionCurrentUpdatePlan,
+    SqlStatementShellSurface, SqlStatementSurface, SqlUpdateAssignmentPolicy,
+    SqlUpdateExposurePolicy, SqlUpdateOrderPolicy, SqlUpdatePolicyContext,
+    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateReturningBounds,
+    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
+    SqlValidatedDeletePlan, SqlValidatedUpdatePlan, classify_sql_delete_policy,
+    classify_sql_update_policy, sql_statement_dispatch, sql_statement_entity_name,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]

@@ -190,10 +190,18 @@ fn validate_structural_delete_projection_bounds(
     projection: &DeleteProjection,
     bounds: DeleteProjectionBounds,
 ) -> Result<(), InternalError> {
+    validate_structural_delete_row_count_bounds(projection.row_count(), bounds)
+}
+
+#[cfg(feature = "sql")]
+fn validate_structural_delete_row_count_bounds(
+    row_count: u32,
+    bounds: DeleteProjectionBounds,
+) -> Result<(), InternalError> {
     let Some(max_rows) = bounds.row_limit() else {
         return Ok(());
     };
-    if projection.row_count() <= max_rows {
+    if row_count <= max_rows {
         return Ok(());
     }
 
@@ -245,10 +253,36 @@ pub(in crate::db::executor::delete) fn execute_structural_delete_count_core<C>(
 where
     C: CanisterKind,
 {
+    execute_structural_delete_count_core_with_optional_bounds(
+        db,
+        store,
+        prepared,
+        None,
+        apply_delete_commit,
+    )
+}
+
+fn execute_structural_delete_count_core_with_optional_bounds<C>(
+    db: &Db<C>,
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+    #[cfg_attr(not(feature = "sql"), allow(unused_variables))] max_rows: Option<u32>,
+    apply_delete_commit: DeleteCommitApplyFn<C>,
+) -> Result<u32, InternalError>
+where
+    C: CanisterKind,
+{
     // Phase 1: run the shared structural delete-count core.
     let Some((row_count, commit)) = prepare_structural_delete_count(db, store, prepared)? else {
         return Ok(0);
     };
+    #[cfg(feature = "sql")]
+    if let Some(max_rows) = max_rows {
+        validate_structural_delete_row_count_bounds(
+            row_count,
+            DeleteProjectionBounds::max_rows(max_rows),
+        )?;
+    }
 
     // Phase 2: apply the already prepared delete commit payload through the
     // caller-provided commit-window bridge.
@@ -260,4 +294,26 @@ where
     )?;
 
     Ok(row_count)
+}
+
+// Execute one structural delete count with SQL policy row bounds checked before
+// the typed commit-window bridge.
+#[cfg(feature = "sql")]
+pub(in crate::db::executor::delete) fn execute_structural_delete_count_core_with_bounds<C>(
+    db: &Db<C>,
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+    bounds: DeleteProjectionBounds,
+    apply_delete_commit: DeleteCommitApplyFn<C>,
+) -> Result<u32, InternalError>
+where
+    C: CanisterKind,
+{
+    execute_structural_delete_count_core_with_optional_bounds(
+        db,
+        store,
+        prepared,
+        bounds.row_limit(),
+        apply_delete_commit,
+    )
 }

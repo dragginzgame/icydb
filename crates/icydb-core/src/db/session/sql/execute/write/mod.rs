@@ -3,8 +3,9 @@ mod update;
 
 use crate::{
     db::{
-        DbSession, PersistedRow, Query, QueryError,
+        DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::{FieldSlot, StructuralPatch},
+        executor::DeleteProjectionBounds,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
             SchemaInfo, accepted_commit_schema_fingerprint,
@@ -14,14 +15,19 @@ use crate::{
         session::{
             AcceptedSaveContract, accepted_save_contract_for_descriptor,
             sql::{
-                SqlStatementResult,
+                SqlDeleteExecutionBounds, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
+                SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan, SqlStatementResult,
+                SqlValidatedDeletePlan, classify_sql_delete_policy,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, validate_sql_returning_projection_fields,
                 },
             },
         },
-        sql::parser::SqlReturningProjection,
+        sql::{
+            lowering::bind_sql_delete_statement_structural_with_schema,
+            parser::{SqlDeleteStatement, SqlReturningProjection},
+        },
     },
     metrics::sink::{MetricsEvent, SqlWriteKind, record},
     traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
@@ -360,11 +366,55 @@ fn record_sql_write_metrics(
     });
 }
 
+const fn optional_min_u32(left: Option<u32>, right: Option<u32>) -> Option<u32> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(if left < right { left } else { right }),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
+}
+
+fn sql_delete_projection_bounds(
+    execution_bounds: Option<SqlDeleteExecutionBounds>,
+    returning: bool,
+) -> DeleteProjectionBounds {
+    let Some(execution_bounds) = execution_bounds else {
+        return DeleteProjectionBounds::unbounded();
+    };
+
+    let max_rows = if returning {
+        optional_min_u32(
+            execution_bounds.max_staged_rows,
+            execution_bounds.returning.max_rows,
+        )
+    } else {
+        execution_bounds.max_staged_rows
+    };
+
+    max_rows.map_or_else(
+        DeleteProjectionBounds::unbounded,
+        DeleteProjectionBounds::max_rows,
+    )
+}
+
 impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
         &self,
         query: &crate::db::query::intent::StructuralQuery,
         returning: Option<&SqlReturningProjection>,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_sql_delete_statement_with_execution_bounds::<E>(query, returning, None)
+    }
+
+    fn execute_sql_delete_statement_with_execution_bounds<E>(
+        &self,
+        query: &crate::db::query::intent::StructuralQuery,
+        returning: Option<&SqlReturningProjection>,
+        execution_bounds: Option<SqlDeleteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -375,7 +425,14 @@ impl<C: CanisterKind> DbSession<C> {
         // delete lane does not hop through projection shaping it will discard.
         match returning {
             None => {
-                let row_count = self.execute_delete_count(&typed_query)?;
+                let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
+                let bounds = sql_delete_projection_bounds(execution_bounds, false);
+                let row_count = self
+                    .with_metrics(|| {
+                        self.delete_executor::<E>()
+                            .execute_count_with_bounds(plan, bounds)
+                    })
+                    .map_err(QueryError::execute)?;
                 record_sql_write_metrics(
                     E::PATH,
                     SqlWriteKind::Delete,
@@ -395,10 +452,11 @@ impl<C: CanisterKind> DbSession<C> {
                 // terminal once, then shape the requested outbound row contract
                 // from executor-materialized rows at the SQL write boundary.
                 let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
+                let bounds = sql_delete_projection_bounds(execution_bounds, true);
                 let deleted = self
                     .with_metrics(|| {
                         self.delete_executor::<E>()
-                            .execute_structural_projection(plan)
+                            .execute_structural_projection_with_bounds(plan, bounds)
                     })
                     .map_err(QueryError::execute)?;
                 let (rows, row_count) = deleted.into_rows_and_count();
@@ -417,6 +475,134 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             }
         }
+    }
+
+    fn sql_delete_query_from_statement<E>(
+        schema_info: &SchemaInfo,
+        statement: &SqlDeleteStatement,
+    ) -> Result<crate::db::query::intent::StructuralQuery, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        bind_sql_delete_statement_structural_with_schema(
+            E::MODEL,
+            statement.clone(),
+            MissingRowPolicy::Ignore,
+            schema_info,
+        )
+        .map_err(QueryError::from_sql_lowering_error)
+    }
+
+    fn schema_derived_sql_delete_plan<E>(
+        &self,
+        sql: &str,
+        policy: SqlDeleteExposurePolicy,
+    ) -> Result<SqlValidatedDeletePlan, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
+        let context = SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
+        let report = classify_sql_delete_policy(sql, policy, context)?;
+        let Some(plan) = report.plan else {
+            return Err(QueryError::unsupported_query());
+        };
+
+        Ok(plan)
+    }
+
+    fn execute_validated_sql_delete_statement<E>(
+        &self,
+        statement: &SqlDeleteStatement,
+        execution_bounds: SqlDeleteExecutionBounds,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
+        validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
+        let authority = Self::accepted_entity_authority_for_schema::<E>(&schema)
+            .map_err(QueryError::execute)?;
+        let schema_info = authority
+            .accepted_schema_info()
+            .ok_or_else(QueryError::invariant)?;
+        let query = Self::sql_delete_query_from_statement::<E>(schema_info, statement)?;
+
+        self.execute_sql_delete_statement_with_execution_bounds::<E>(
+            &query,
+            statement.returning.as_ref(),
+            Some(execution_bounds),
+        )
+    }
+
+    /// Execute a policy-validated public primary-key SQL `DELETE` plan.
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_primary_key_delete<E>(
+        &self,
+        plan: &SqlPublicPrimaryKeyDeletePlan,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds)
+    }
+
+    /// Execute a policy-validated bounded deterministic SQL `DELETE` plan.
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_bounded_delete<E>(
+        &self,
+        plan: &SqlPublicBoundedDeletePlan,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds)
+    }
+
+    /// Classify and execute one public primary-key-only SQL `DELETE`.
+    #[doc(hidden)]
+    pub fn execute_sql_public_primary_key_delete<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let plan = self.schema_derived_sql_delete_plan::<E>(
+            sql,
+            SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
+        )?;
+        let SqlValidatedDeletePlan::PublicPrimaryKeyOnly(plan) = plan else {
+            return Err(QueryError::invariant());
+        };
+
+        self.execute_validated_sql_public_primary_key_delete::<E>(&plan)
+    }
+
+    /// Classify and execute one bounded deterministic public SQL `DELETE`.
+    #[doc(hidden)]
+    pub fn execute_sql_public_bounded_delete<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let plan = self.schema_derived_sql_delete_plan::<E>(
+            sql,
+            SqlDeleteExposurePolicy::PublicBoundedDeterministic,
+        )?;
+        let SqlValidatedDeletePlan::PublicBoundedDeterministic(plan) = plan else {
+            return Err(QueryError::invariant());
+        };
+
+        self.execute_validated_sql_public_bounded_delete::<E>(&plan)
     }
 }
 

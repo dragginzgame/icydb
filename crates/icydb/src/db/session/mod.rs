@@ -411,6 +411,69 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    /// Execute one policy-validated public primary-key SQL `DELETE` plan.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_primary_key_delete<E>(
+        &self,
+        plan: &crate::db::SqlPublicPrimaryKeyDeletePlan,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner
+                .execute_validated_sql_public_primary_key_delete::<E>(plan)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
+    /// Execute one public primary-key-only SQL `DELETE` against one entity type.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_sql_public_primary_key_delete<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner.execute_sql_public_primary_key_delete::<E>(sql)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
+    /// Execute one policy-validated bounded deterministic SQL `DELETE` plan.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_bounded_delete<E>(
+        &self,
+        plan: &crate::db::SqlPublicBoundedDeletePlan,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner
+                .execute_validated_sql_public_bounded_delete::<E>(plan)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
+    /// Execute one bounded deterministic public SQL `DELETE`.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_sql_public_bounded_delete<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner.execute_sql_public_bounded_delete::<E>(sql)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
     /// Execute one supported SQL DDL statement against one concrete entity type.
     #[cfg(feature = "sql")]
     pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>

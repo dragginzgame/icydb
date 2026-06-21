@@ -19,7 +19,9 @@ pub(in crate::db::executor::delete) use runtime::{
 };
 pub(in crate::db::executor::delete) use structural_projection::execute_structural_delete_count_core;
 #[cfg(feature = "sql")]
-pub(in crate::db::executor::delete) use structural_projection::execute_structural_delete_projection_core;
+pub(in crate::db::executor::delete) use structural_projection::{
+    execute_structural_delete_count_core_with_bounds, execute_structural_delete_projection_core,
+};
 pub(in crate::db::executor::delete) use typed::{
     package_typed_delete_rows, prepare_typed_delete_core,
 };

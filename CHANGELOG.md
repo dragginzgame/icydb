@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.9` continues the query-engine audit by adding policy-validated public
+  `DELETE` execution for primary-key and bounded deterministic shapes, with
+  accepted-schema binding and pre-commit staged-row/RETURNING bounds.
+
 - `0.184.8` continues the query-engine audit by enforcing public bounded
   `UPDATE` staged-row caps, adding a pre-commit `DELETE RETURNING` bound
   contract, and reducing journaled stable-store bucket amplification.
