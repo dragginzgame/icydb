@@ -1,26 +1,128 @@
 use crate::{
     db::{
         query::plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
-        sql::parser::{SqlProjection, SqlSelectItem},
         sql::{
             identifier::split_qualified_identifier,
             lowering::{
                 AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
+                aggregate::extend_unique_sql_select_item_aggregate_calls,
                 expr::{SqlExprPhase, lower_sql_expr},
                 select::order::LoweredSqlOrderTerm,
             },
+            parser::{SqlAggregateCall, SqlProjection, SqlSelectItem},
         },
     },
     model::entity::EntityModel,
 };
 
+///
+/// LoweredSqlProjectionSelection
+///
+/// SQL-local projection wrapper that keeps expression analyses beside lowered
+/// projection fields until schema-bound SQL capability validation consumes
+/// them.
+///
+
+#[derive(Clone, Debug)]
+pub(super) struct LoweredSqlProjectionSelection {
+    selection: ProjectionSelection,
+    expr_analyses: Vec<LoweredExprAnalysis>,
+}
+
+impl LoweredSqlProjectionSelection {
+    #[must_use]
+    pub(super) const fn all() -> Self {
+        Self {
+            selection: ProjectionSelection::All,
+            expr_analyses: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub(super) const fn fields(fields: Vec<FieldId>) -> Self {
+        Self {
+            selection: ProjectionSelection::Fields(fields),
+            expr_analyses: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub(super) fn exprs(fields: Vec<ProjectionField>, analyses: Vec<LoweredExprAnalysis>) -> Self {
+        debug_assert_eq!(
+            fields.len(),
+            analyses.len(),
+            "lowered SQL projection analysis must stay aligned with projection fields",
+        );
+        Self {
+            selection: ProjectionSelection::Exprs(fields),
+            expr_analyses: analyses,
+        }
+    }
+
+    #[must_use]
+    pub(super) const fn selection(&self) -> &ProjectionSelection {
+        &self.selection
+    }
+
+    #[must_use]
+    pub(super) const fn expr_analyses(&self) -> &[LoweredExprAnalysis] {
+        self.expr_analyses.as_slice()
+    }
+
+    #[must_use]
+    pub(super) fn into_selection(self) -> ProjectionSelection {
+        self.selection
+    }
+
+    fn is_grouped_canonical_identity(&self, group_by: &[String]) -> bool {
+        matches!(
+            &self.selection,
+            ProjectionSelection::Exprs(fields)
+                if grouped_projection_is_canonical_identity(fields.as_slice(), group_by)
+        )
+    }
+}
+
+///
+/// LoweredGroupedProjection
+///
+/// SQL-local grouped projection artifact that keeps the projection and the
+/// first-seen unique aggregate calls from the same analyzed expression pass.
+///
+
+#[derive(Clone, Debug)]
+pub(super) struct LoweredGroupedProjection {
+    selection: LoweredSqlProjectionSelection,
+    aggregate_calls: Vec<SqlAggregateCall>,
+}
+
+impl LoweredGroupedProjection {
+    #[must_use]
+    pub(super) const fn aggregate_calls(&self) -> &[SqlAggregateCall] {
+        self.aggregate_calls.as_slice()
+    }
+
+    #[must_use]
+    pub(super) fn into_projection_selection(
+        self,
+        allow_identity_fast_path: bool,
+        group_by: &[String],
+    ) -> LoweredSqlProjectionSelection {
+        if allow_identity_fast_path && self.selection.is_grouped_canonical_identity(group_by) {
+            LoweredSqlProjectionSelection::all()
+        } else {
+            self.selection
+        }
+    }
+}
+
 pub(super) fn lower_scalar_projection_selection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
     distinct: bool,
-) -> Result<ProjectionSelection, SqlLoweringError> {
+) -> Result<LoweredSqlProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
-        return Ok(ProjectionSelection::All);
+        return Ok(LoweredSqlProjectionSelection::all());
     };
 
     if items.iter().any(SqlSelectItem::contains_aggregate) {
@@ -28,35 +130,47 @@ pub(super) fn lower_scalar_projection_selection(
     }
 
     if let Some(field_ids) = direct_scalar_field_selection(items.as_slice(), projection_aliases) {
-        return Ok(ProjectionSelection::Fields(field_ids));
+        return Ok(LoweredSqlProjectionSelection::fields(field_ids));
     }
 
-    let fields = items
-        .into_iter()
-        .enumerate()
-        .map(|(index, item)| {
-            lower_projection_field(
-                item,
-                projection_aliases.get(index).and_then(Option::as_deref),
-                SqlExprPhase::Scalar,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut fields = Vec::with_capacity(items.len());
+    let mut projection_facts = Vec::with_capacity(items.len());
+    for (index, item) in items.into_iter().enumerate() {
+        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::Scalar, None)?;
+        let (expr, expr_facts) = analyzed.into_parts();
+        fields.push(ProjectionField::Scalar {
+            expr,
+            alias: projection_aliases
+                .get(index)
+                .and_then(Option::as_deref)
+                .map(Alias::new),
+        });
+        projection_facts.push(expr_facts);
+    }
 
     if distinct && fields.is_empty() {
-        return Ok(ProjectionSelection::Exprs(fields));
+        return Ok(LoweredSqlProjectionSelection::exprs(
+            fields,
+            projection_facts,
+        ));
     }
 
-    Ok(ProjectionSelection::Exprs(fields))
+    Ok(LoweredSqlProjectionSelection::exprs(
+        fields,
+        projection_facts,
+    ))
 }
 
-pub(super) fn lower_grouped_projection_selection(
+pub(super) fn lower_grouped_projection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
     group_by: &[String],
-    allow_identity_fast_path: bool,
     model: &'static EntityModel,
-) -> Result<ProjectionSelection, SqlLoweringError> {
+) -> Result<LoweredGroupedProjection, SqlLoweringError> {
+    if group_by.is_empty() {
+        return Err(SqlLoweringError::unsupported_select_group_by());
+    }
+
     let SqlProjection::Items(items) = projection else {
         return Err(SqlLoweringError::grouped_projection_requires_explicit_list());
     };
@@ -64,41 +178,44 @@ pub(super) fn lower_grouped_projection_selection(
 
     let mut seen_aggregate = false;
     let mut fields = Vec::with_capacity(items.len());
+    let mut projection_facts = Vec::with_capacity(items.len());
+    let mut aggregate_calls = Vec::new();
 
     for (index, item) in items.into_iter().enumerate() {
         let analyzed =
             lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, Some(model))?;
-        let analysis = analyzed.analysis();
-        let contains_aggregate = analysis.contains_aggregate();
+        let expr_facts = analyzed.analysis();
+        let contains_aggregate = expr_facts.contains_aggregate();
         if seen_aggregate && !contains_aggregate {
             return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
                 index,
             ));
         }
-        validate_grouped_projection_expr(index, grouped_field_names.as_slice(), analysis)?;
+        validate_grouped_projection_expr(index, grouped_field_names.as_slice(), expr_facts)?;
         seen_aggregate |= contains_aggregate;
+        if contains_aggregate {
+            extend_unique_sql_select_item_aggregate_calls(&mut aggregate_calls, &item);
+        }
 
+        let (expr, expr_facts) = analyzed.into_parts();
         fields.push(ProjectionField::Scalar {
-            expr: analyzed.into_expr(),
+            expr,
             alias: projection_aliases
                 .get(index)
                 .and_then(Option::as_deref)
                 .map(Alias::new),
         });
+        projection_facts.push(expr_facts);
     }
 
     if !seen_aggregate {
         return Err(SqlLoweringError::grouped_projection_requires_aggregate());
     }
 
-    if allow_identity_fast_path
-        && projection_aliases.iter().all(Option::is_none)
-        && grouped_projection_is_canonical_identity(fields.as_slice(), group_by)
-    {
-        return Ok(ProjectionSelection::All);
-    }
-
-    Ok(ProjectionSelection::Exprs(fields))
+    Ok(LoweredGroupedProjection {
+        selection: LoweredSqlProjectionSelection::exprs(fields, projection_facts),
+        aggregate_calls,
+    })
 }
 
 // Validate one grouped projection expression against grouped-key authority
@@ -240,17 +357,6 @@ pub(super) fn direct_scalar_field_selection(
             SqlSelectItem::Field(_) | SqlSelectItem::Aggregate(_) | SqlSelectItem::Expr(_) => None,
         })
         .collect()
-}
-
-fn lower_projection_field(
-    item: SqlSelectItem,
-    alias: Option<&str>,
-    phase: SqlExprPhase,
-) -> Result<ProjectionField, SqlLoweringError> {
-    Ok(ProjectionField::Scalar {
-        expr: lower_select_item_expr(&item, phase)?,
-        alias: alias.map(Alias::new),
-    })
 }
 
 pub(in crate::db::sql::lowering) fn lower_select_item_expr(

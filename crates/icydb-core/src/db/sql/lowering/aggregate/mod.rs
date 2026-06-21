@@ -27,7 +27,7 @@ pub(in crate::db::sql::lowering) use command::{
     compile_sql_global_aggregate_command_from_prepared_for_model_only,
 };
 pub(in crate::db::sql::lowering) use grouped::{
-    extend_unique_sql_expr_aggregate_calls, grouped_projection_aggregate_calls,
+    extend_unique_sql_expr_aggregate_calls, extend_unique_sql_select_item_aggregate_calls,
     resolve_having_aggregate_expr_index,
 };
 pub(in crate::db::sql::lowering) use lowering::{

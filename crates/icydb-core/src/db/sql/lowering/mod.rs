@@ -57,7 +57,7 @@ pub(crate) use aggregate::{
     bind_lowered_sql_explain_global_aggregate_structural_with_schema,
 };
 pub(in crate::db::sql::lowering) use analysis::{
-    AnalyzedLoweredExpr, LoweredExprAnalysis, analyze_lowered_expr,
+    AnalyzedLoweredExpr, LoweredExprAnalysis, LoweredExprSourceRef, analyze_lowered_expr,
 };
 #[cfg(test)]
 pub(in crate::db::sql::lowering) use order_expr::{

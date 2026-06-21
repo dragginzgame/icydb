@@ -9,11 +9,8 @@ mod order;
 mod projection;
 
 use crate::db::sql::lowering::{
-    SqlLoweringError,
-    aggregate::{
-        extend_unique_sql_expr_aggregate_calls, grouped_projection_aggregate_calls,
-        lower_grouped_aggregate_call,
-    },
+    LoweredExprAnalysis, LoweredExprSourceRef, SqlLoweringError,
+    aggregate::{extend_unique_sql_expr_aggregate_calls, lower_grouped_aggregate_call},
     predicate::{
         derive_sql_where_expr_predicate_subset, lower_sql_scalar_where_bool_expr,
         lower_sql_where_bool_expr, lower_sql_where_expr,
@@ -46,7 +43,7 @@ use crate::db::sql::lowering::select::{
     aggregate::lower_having_clauses,
     order::{LoweredSqlOrderTerm, apply_order_terms_structural},
     projection::{
-        lower_grouped_projection_selection, lower_scalar_projection_selection,
+        LoweredSqlProjectionSelection, lower_grouped_projection, lower_scalar_projection_selection,
         validate_distinct_order_terms_against_projection,
     },
 };
@@ -167,7 +164,7 @@ impl LoweredSqlFilter {
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredSelectShape {
-    projection_selection: ProjectionSelection,
+    projection_selection: LoweredSqlProjectionSelection,
     grouped_aggregates: Vec<AggregateExpr>,
     group_by_fields: Vec<String>,
     distinct: bool,
@@ -286,19 +283,21 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
     }
 
     let (projection_selection, grouped_aggregates, normalized_distinct) = if is_grouped {
-        let projection_aggregates =
-            grouped_projection_aggregate_calls(&projection, group_by.as_slice(), model)?;
-        let mut grouped_aggregates = projection_aggregates.clone();
-        for expr in having.as_slice() {
-            extend_unique_sql_expr_aggregate_calls(&mut grouped_aggregates, expr);
-        }
-        let projection_selection = lower_grouped_projection_selection(
+        let grouped_projection = lower_grouped_projection(
             projection,
             projection_aliases.as_slice(),
             group_by.as_slice(),
-            projection_aggregates.len() == grouped_aggregates.len(),
             model,
         )?;
+        let projection_aggregate_count = grouped_projection.aggregate_calls().len();
+        let mut grouped_aggregates = grouped_projection.aggregate_calls().to_vec();
+        for expr in having.as_slice() {
+            extend_unique_sql_expr_aggregate_calls(&mut grouped_aggregates, expr);
+        }
+        let projection_selection = grouped_projection.into_projection_selection(
+            projection_aggregate_count == grouped_aggregates.len(),
+            group_by.as_slice(),
+        );
         let grouped_aggregates = lower_grouped_aggregate_calls(grouped_aggregates, model, schema)?;
         (projection_selection, grouped_aggregates, false)
     } else {
@@ -311,7 +310,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
     let order_by = lower_order_terms(order_by)?;
     if normalized_distinct {
         validate_distinct_order_terms_against_projection(
-            &projection_selection,
+            projection_selection.selection(),
             order_by.as_slice(),
             model,
         )?;
@@ -392,7 +391,7 @@ fn apply_lowered_select_shape_with_schema(
     if distinct {
         query = query.distinct();
     }
-    query = query.projection_selection(projection_selection);
+    query = query.projection_selection(projection_selection.into_selection());
     for aggregate in grouped_aggregates {
         query = query.aggregate(aggregate);
     }
@@ -432,9 +431,9 @@ fn lower_grouped_aggregate_calls(
 fn normalize_select_star_projection(
     schema: &SchemaInfo,
     model: &'static EntityModel,
-    selection: ProjectionSelection,
-) -> Result<ProjectionSelection, SqlLoweringError> {
-    if !matches!(selection, ProjectionSelection::All)
+    selection: LoweredSqlProjectionSelection,
+) -> Result<LoweredSqlProjectionSelection, SqlLoweringError> {
+    if !matches!(selection.selection(), ProjectionSelection::All)
         || schema.first_non_sql_selectable_field().is_none()
     {
         return Ok(selection);
@@ -451,7 +450,7 @@ fn normalize_select_star_projection(
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
-    Ok(ProjectionSelection::Fields(fields))
+    Ok(LoweredSqlProjectionSelection::fields(fields))
 }
 
 // Validate SQL field-capability rules that can safely use the accepted schema
@@ -459,7 +458,7 @@ fn normalize_select_star_projection(
 // until live layout authority exists.
 fn validate_select_sql_capabilities(
     schema: &SchemaInfo,
-    projection_selection: &ProjectionSelection,
+    projection_selection: &LoweredSqlProjectionSelection,
     group_by_fields: &[String],
     order_by: &[LoweredSqlOrderTerm],
 ) -> Result<(), SqlLoweringError> {
@@ -475,9 +474,9 @@ fn validate_select_sql_capabilities(
 // from entering projection planning through accepted live schema metadata.
 fn validate_projection_sql_capabilities(
     schema: &SchemaInfo,
-    selection: &ProjectionSelection,
+    selection: &LoweredSqlProjectionSelection,
 ) -> Result<(), SqlLoweringError> {
-    match selection {
+    match selection.selection() {
         ProjectionSelection::All => {
             if schema.first_non_sql_selectable_field().is_some() {
                 return Err(SqlLoweringError::unsupported_select_projection());
@@ -489,8 +488,13 @@ fn validate_projection_sql_capabilities(
             }
         }
         ProjectionSelection::Exprs(fields) => {
-            for field in fields {
-                validate_projection_expr_sql_capabilities(schema, field.expr())?;
+            debug_assert_eq!(
+                fields.len(),
+                selection.expr_analyses().len(),
+                "lowered SQL projection analyses must stay aligned for validation",
+            );
+            for analysis in selection.expr_analyses() {
+                validate_projection_expr_sql_capabilities(schema, analysis)?;
             }
         }
     }
@@ -503,20 +507,20 @@ fn validate_projection_sql_capabilities(
 // whose schema-owned SQL capabilities cannot support result projection.
 fn validate_projection_expr_sql_capabilities(
     schema: &SchemaInfo,
-    expr: &Expr,
+    analysis: &LoweredExprAnalysis,
 ) -> Result<(), SqlLoweringError> {
-    expr.try_for_each_tree_expr(&mut |node| match node {
-        Expr::Field(field) => ensure_sql_selectable_field(schema, field.as_str()),
-        Expr::FieldPath(path) => ensure_sql_selectable_field_path(schema, path),
-        Expr::Literal(_)
-        | Expr::FunctionCall { .. }
-        | Expr::Unary { .. }
-        | Expr::Binary { .. }
-        | Expr::Aggregate(_)
-        | Expr::Case { .. } => Ok(()),
-        #[cfg(test)]
-        Expr::Alias { .. } => Ok(()),
-    })
+    for source_ref in analysis.source_refs() {
+        match source_ref {
+            LoweredExprSourceRef::Direct(field) => {
+                ensure_sql_selectable_field(schema, field.as_str())?;
+            }
+            LoweredExprSourceRef::Path(path) => {
+                ensure_sql_selectable_field_path(schema, path)?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // Apply one nested SELECT/source-field capability check and keep unknown-field

@@ -13,7 +13,7 @@ use crate::db::{
             expr::SqlExprPhase,
             select::lower_analyzed_select_item_expr,
         },
-        parser::SqlProjection,
+        parser::{SqlExpr, SqlProjection},
     },
 };
 
@@ -27,6 +27,7 @@ use crate::db::{
 pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminals {
     terminal_interner: GlobalAggregateTerminalInterner,
     pub(in crate::db::sql::lowering::aggregate) projection: ProjectionSpec,
+    output_order_targets: Vec<SqlExpr>,
     #[cfg(test)]
     pub(in crate::db::sql::lowering::aggregate) output_remap: Vec<usize>,
 }
@@ -53,6 +54,7 @@ impl LoweredSqlGlobalAggregateTerminals {
         }
 
         let mut terminal_interner = GlobalAggregateTerminalInterner::with_capacity(items.len());
+        let mut output_order_targets = Vec::<SqlExpr>::with_capacity(items.len());
         #[cfg(test)]
         let mut output_remap = Vec::<usize>::with_capacity(items.len());
         let mut fields = Vec::<ProjectionField>::with_capacity(items.len());
@@ -65,6 +67,10 @@ impl LoweredSqlGlobalAggregateTerminals {
             let analysis = analyzed.analysis();
             if !analysis.contains_aggregate() || analysis.references_direct_fields() {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());
+            }
+            output_order_targets.push(SqlExpr::from_select_item(&item));
+            if let Some(alias) = projection_aliases.get(index).and_then(Option::as_deref) {
+                output_order_targets.push(SqlExpr::Field(Alias::new(alias).as_str().to_string()));
             }
 
             let direct_terminal_index = terminal_interner.collect_from_analysis(
@@ -93,6 +99,7 @@ impl LoweredSqlGlobalAggregateTerminals {
         Ok(Self {
             terminal_interner,
             projection: lower_global_aggregate_projection(fields),
+            output_order_targets,
             #[cfg(test)]
             output_remap: if saw_wrapped_projection {
                 Vec::new()
@@ -100,6 +107,10 @@ impl LoweredSqlGlobalAggregateTerminals {
                 output_remap
             },
         })
+    }
+
+    pub(in crate::db::sql::lowering::aggregate) const fn output_order_targets(&self) -> &[SqlExpr] {
+        self.output_order_targets.as_slice()
     }
 
     pub(in crate::db::sql::lowering::aggregate) fn intern_having_terminal_index(

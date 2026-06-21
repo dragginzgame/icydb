@@ -1,5 +1,8 @@
 use crate::{
-    db::query::{builder::AggregateExpr, plan::expr::Expr},
+    db::query::{
+        builder::AggregateExpr,
+        plan::expr::{Expr, FieldPath},
+    },
     model::entity::EntityModel,
 };
 
@@ -44,6 +47,36 @@ impl AnalyzedLoweredExpr {
     pub(in crate::db::sql::lowering) fn into_expr(self) -> Expr {
         self.expr
     }
+
+    /// Consume the artifact and return the lowered expression with the
+    /// analysis derived from that exact expression.
+    #[must_use]
+    pub(in crate::db::sql::lowering) fn into_parts(self) -> (Expr, LoweredExprAnalysis) {
+        (self.expr, self.analysis)
+    }
+}
+
+///
+/// LoweredExprSourceRef
+///
+/// One field source reference discovered while analyzing a lowered SQL
+/// expression. This lets schema-bound SQL validation consume the same analysis
+/// proof instead of walking projection expressions again.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::sql::lowering) enum LoweredExprSourceRef {
+    Direct(String),
+    Path(FieldPath),
+}
+
+impl LoweredExprSourceRef {
+    const fn root(&self) -> &str {
+        match self {
+            Self::Direct(field) => field.as_str(),
+            Self::Path(path) => path.root().as_str(),
+        }
+    }
 }
 
 ///
@@ -62,8 +95,7 @@ impl AnalyzedLoweredExpr {
 #[derive(Clone, Debug, Default)]
 pub(in crate::db::sql::lowering) struct LoweredExprAnalysis {
     aggregate_refs: Vec<AggregateExpr>,
-    direct_field_roots: Vec<String>,
-    contains_field_path: bool,
+    source_refs: Vec<LoweredExprSourceRef>,
     first_unknown_field: Option<String>,
 }
 
@@ -86,7 +118,7 @@ impl LoweredExprAnalysis {
     /// outside aggregate-owned subtrees.
     #[must_use]
     pub(in crate::db::sql::lowering) const fn references_direct_fields(&self) -> bool {
-        !self.direct_field_roots.is_empty()
+        !self.source_refs.is_empty()
     }
 
     /// Return whether all analyzed field references are direct leaves from the
@@ -97,11 +129,10 @@ impl LoweredExprAnalysis {
         &self,
         allowed: &[&str],
     ) -> bool {
-        !self.contains_field_path
-            && self
-                .direct_field_roots
-                .iter()
-                .all(|field| allowed.contains(&field.as_str()))
+        self.source_refs.iter().all(|source_ref| match source_ref {
+            LoweredExprSourceRef::Direct(field) => allowed.contains(&field.as_str()),
+            LoweredExprSourceRef::Path(_) => false,
+        })
     }
 
     /// Borrow the first unknown field discovered during left-to-right tree walk.
@@ -119,16 +150,23 @@ impl LoweredExprAnalysis {
         model: &EntityModel,
     ) -> Option<&str> {
         self.first_unknown_field().or_else(|| {
-            self.direct_field_roots
-                .iter()
-                .find(|field| model.resolve_field_slot(field.as_str()).is_none())
-                .map(String::as_str)
+            self.source_refs.iter().find_map(|source_ref| {
+                let root = source_ref.root();
+                model.resolve_field_slot(root).is_none().then_some(root)
+            })
         })
+    }
+
+    /// Borrow field source references in traversal order.
+    #[must_use]
+    pub(in crate::db::sql::lowering) const fn source_refs(&self) -> &[LoweredExprSourceRef] {
+        self.source_refs.as_slice()
     }
 
     /// Record one field leaf while preserving the first unknown-field diagnostic.
     fn visit_field(&mut self, field: &str, model: Option<&EntityModel>) {
-        self.direct_field_roots.push(field.to_string());
+        self.source_refs
+            .push(LoweredExprSourceRef::Direct(field.to_string()));
         if self.first_unknown_field.is_none()
             && model.is_some_and(|model| model.resolve_field_slot(field).is_none())
         {
@@ -136,9 +174,14 @@ impl LoweredExprAnalysis {
         }
     }
 
-    fn visit_field_path(&mut self, field: &str, model: Option<&EntityModel>) {
-        self.contains_field_path = true;
-        self.visit_field(field, model);
+    fn visit_field_path(&mut self, path: &FieldPath, model: Option<&EntityModel>) {
+        self.source_refs
+            .push(LoweredExprSourceRef::Path(path.clone()));
+        if self.first_unknown_field.is_none()
+            && model.is_some_and(|model| model.resolve_field_slot(path.root().as_str()).is_none())
+        {
+            self.first_unknown_field = Some(path.root().as_str().to_string());
+        }
     }
 
     fn visit_aggregate(&mut self, aggregate: &AggregateExpr) {
@@ -156,8 +199,7 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
 ) -> LoweredExprAnalysis {
     let mut analysis = LoweredExprAnalysis {
         aggregate_refs: Vec::new(),
-        direct_field_roots: Vec::new(),
-        contains_field_path: false,
+        source_refs: Vec::new(),
         first_unknown_field: None,
     };
 
@@ -167,7 +209,7 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
             Ok::<(), ()>(())
         }
         Expr::FieldPath(path) => {
-            analysis.visit_field_path(path.root().as_str(), model);
+            analysis.visit_field_path(path, model);
             Ok::<(), ()>(())
         }
         Expr::Aggregate(aggregate) => {
@@ -196,7 +238,9 @@ mod tests {
                     expr::{BinaryOp, Expr, FieldId, FieldPath, Function},
                 },
             },
-            sql::lowering::analysis::{AnalyzedLoweredExpr, analyze_lowered_expr},
+            sql::lowering::analysis::{
+                AnalyzedLoweredExpr, LoweredExprSourceRef, analyze_lowered_expr,
+            },
         },
         model::field::FieldKind,
         traits::EntitySchema,
@@ -341,6 +385,33 @@ mod tests {
         assert!(
             !analysis.references_direct_fields(),
             "aggregate input fields are aggregate-owned and must not count as outer direct-field leakage",
+        );
+    }
+
+    #[test]
+    fn lowered_expr_analysis_records_source_refs_for_schema_bound_consumers() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("age"))),
+            right: Box::new(Expr::FieldPath(FieldPath::new(
+                "profile",
+                vec!["score".to_string()],
+            ))),
+        };
+
+        let analysis = analyze_lowered_expr(&expr, None);
+
+        assert_eq!(
+            analysis.source_refs(),
+            &[
+                LoweredExprSourceRef::Direct("age".to_string()),
+                LoweredExprSourceRef::Path(FieldPath::new("profile", vec!["score".to_string()])),
+            ],
+            "analysis should preserve direct/path source references in expression traversal order",
+        );
+        assert!(
+            !analysis.references_only_direct_fields(&["age", "profile"]),
+            "field paths remain non-direct even when their root field is allowed",
         );
     }
 }

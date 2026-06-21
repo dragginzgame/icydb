@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.10` continues the query-engine audit by carrying SQL projection
+  expression analysis through SELECT validation, grouped aggregate discovery,
+  and global aggregate output-order filtering to remove duplicate expression
+  walks without changing projection semantics.
+
 - `0.184.9` continues the query-engine audit by adding policy-validated public
   `DELETE` execution for primary-key and bounded deterministic shapes, with
   accepted-schema binding and pre-commit staged-row/RETURNING bounds.

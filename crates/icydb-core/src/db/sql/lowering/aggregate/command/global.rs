@@ -75,14 +75,12 @@ impl LoweredSqlGlobalAggregateCommand {
             );
         }
         let projection_for_having = projection.clone();
-        let order_by = strip_inert_global_aggregate_output_order_terms(
-            order_by,
-            &projection_for_having,
-            projection_aliases.as_slice(),
-        )?;
-
         let mut lowered_terminals =
             LoweredSqlGlobalAggregateTerminals::from_projection(projection, &projection_aliases)?;
+        let order_by = strip_inert_global_aggregate_output_order_terms(
+            order_by,
+            lowered_terminals.output_order_targets(),
+        );
         let having =
             lower_global_aggregate_having_expr(having, &projection_for_having, |aggregate| {
                 lowered_terminals.intern_having_terminal_index(aggregate)

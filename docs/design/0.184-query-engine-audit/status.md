@@ -117,8 +117,13 @@ Status: active.
   streaming/chunked mutation redesign. INSERT SELECT staged-row attribution is
   covered by core SQL write tests because the live heap/journaled perf fixtures
   use explicit Int32 primary keys and reject computed primary-key insertion by
-  design. The local sandbox could not complete the live PocketIC run because
-  the pinned PocketIC server binary is unavailable in the local cache.
+  design. After the staged-row bound guard landed, the live PocketIC rerun
+  completed with the pinned local 14.0.0 binary and confirmed broad SQL write
+  materialization remains visible rather than failing the endpoint:
+  heap UPDATE count/RETURNING at roughly 98.3M/99.1M instructions, heap DELETE
+  count/RETURNING at roughly 354.4M/357.5M, journaled UPDATE count/RETURNING at
+  roughly 100.3M/100.2M, and journaled DELETE count/RETURNING at roughly
+  357.4M/360.0M for the 32-row fixture.
 - H6 / D7 / F6 second slice: policy-validated public bounded UPDATE plans now
   carry explicit staged-row execution bounds beside RETURNING bounds, and
   UPDATE execution verifies staged candidate rows before opening the mutation
@@ -138,19 +143,30 @@ Status: active.
   bind parsed DELETE statements through the accepted schema, and pass staged-row
   / RETURNING row bounds into the delete executor before the commit window for
   both count-only and RETURNING deletes.
+- H3 / F7 tenth slice: lowered SQL projection expressions now carry their
+  `LoweredExprAnalysis` through the SELECT schema-binding seam, and projection
+  source-field capability validation consumes the recorded direct/path source
+  references instead of walking projection expressions again.
+- H3 / F7 eleventh slice: grouped SELECT projection lowering now produces both
+  the SQL-local projection artifact and the stable first-seen aggregate-call
+  list from the same analyzed expression pass, removing the separate grouped
+  projection aggregate collector.
+- H3 / F7 twelfth slice: global aggregate terminal lowering now records the
+  aggregate output expressions and aliases that make singleton-result ORDER BY
+  terms inert, so output-order stripping no longer re-analyzes the projection.
 
 ## Current Slice
 
-- H6 / D7 / F6 fourth slice: public DELETE execution is available only through
-  validated primary-key and bounded deterministic plan variants. Broad
-  session/admin SQL DELETE behavior remains unchanged and unbounded.
+- H3 / F7 twelfth slice: global aggregate singleton-output ORDER BY stripping
+  now consumes terminal-lowering facts instead of analyzing projection items
+  separately. The core `ProjectionSelection` contract remains unchanged.
 
 ## Next Candidates
 
-- H6 / D7 / F6: rerun the live PocketIC SQL write materialization matrix in a
-  healthy PocketIC environment after the staged-row bound guard lands, record
-  heap/journaled deltas, and only then decide whether chunked mutation
-  preparation needs a separate design slice.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.
+- H6 / D7 / F6: design chunked mutation preparation separately if broad
+  session/admin SQL writes become a product requirement. The current evidence
+  supports keeping public writes policy-bounded rather than widening broad
+  mutation execution in the query-engine audit line.
