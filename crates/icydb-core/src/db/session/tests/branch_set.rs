@@ -1335,6 +1335,10 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
         attribution.index_store_entry_reads <= 16,
         "sparse collection page should prune missing prefixes and scan only existing collection entries, got {attribution:?}",
     );
+    assert!(
+        attribution.index_store_range_scan_calls <= 1,
+        "sparse collection page should prune empty prefixes before range traversal, got {attribution:?}",
+    );
 }
 
 #[cfg(feature = "diagnostics")]

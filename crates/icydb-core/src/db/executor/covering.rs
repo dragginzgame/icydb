@@ -205,6 +205,22 @@ where
     if active_specs.is_empty() {
         return Ok(Vec::new());
     }
+    if active_specs.len() == 1 {
+        let Some((spec, scan_contract, store)) = active_specs.pop() else {
+            return Err(InternalError::query_executor_invariant());
+        };
+
+        return resolve_covering_projection_components_for_index_bounds(
+            store,
+            entity_tag,
+            scan_contract,
+            (spec.lower(), spec.upper()),
+            IndexScanContinuationInput::new(None, direction),
+            limit,
+            component_indices.as_ref(),
+            predicate_execution,
+        );
+    }
 
     let chunk_entries = covering_branch_component_chunk_entries(limit, active_specs.len());
     let mut streams = Vec::with_capacity(active_specs.len());
