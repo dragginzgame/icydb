@@ -109,22 +109,38 @@ pub(super) fn try_prepare_scalar_terminal_preflight<'plan>(
                 }
             },
         ),
-        ScalarTerminalBoundaryRequest::Exists => try_prepare_index_prefix_cardinality_preflight(
-            plan,
-            false,
-            |authority, logical_plan, prefixes| {
-                PreparedScalarTerminalPreflight::ExistsIndexPrefixCardinality {
-                    authority,
-                    logical_plan,
-                    prefixes,
-                }
-            },
-        ),
-        ScalarTerminalBoundaryRequest::IdTerminal { .. }
+        ScalarTerminalBoundaryRequest::Exists
+            if exists_index_prefix_cardinality_preflight_supported(plan.logical_plan()) =>
+        {
+            try_prepare_index_prefix_cardinality_preflight(
+                plan,
+                false,
+                |authority, logical_plan, prefixes| {
+                    PreparedScalarTerminalPreflight::ExistsIndexPrefixCardinality {
+                        authority,
+                        logical_plan,
+                        prefixes,
+                    }
+                },
+            )
+        }
+        ScalarTerminalBoundaryRequest::Exists
+        | ScalarTerminalBoundaryRequest::IdTerminal { .. }
         | ScalarTerminalBoundaryRequest::IdBySlot { .. }
         | ScalarTerminalBoundaryRequest::NthBySlot { .. }
         | ScalarTerminalBoundaryRequest::MedianBySlot { .. }
         | ScalarTerminalBoundaryRequest::MinMaxBySlot { .. } => None,
+    }
+}
+
+fn exists_index_prefix_cardinality_preflight_supported(logical_plan: &AccessPlannedQuery) -> bool {
+    match logical_plan
+        .access
+        .as_path()
+        .and_then(|path| path.as_index_multi_lookup_contract())
+    {
+        Some((_index, values)) => values.len() > 1,
+        None => false,
     }
 }
 

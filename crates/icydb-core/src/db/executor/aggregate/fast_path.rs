@@ -294,7 +294,7 @@ impl ExecutionKernel {
             return Ok(None);
         };
 
-        if !Self::secondary_extrema_probe_may_be_inconclusive(
+        if !Self::secondary_probe_may_be_inconclusive(
             inputs.consistency(),
             inputs.kind.aggregate_kind(),
             probe_fetch_hint,
@@ -428,10 +428,10 @@ impl ExecutionKernel {
         kind.zero_output()
     }
 
-    // Ignore can skip stale leading index entries. If a bounded Min/Max
-    // probe returns None exactly at the fetch boundary, the outcome is
-    // inconclusive and must retry unbounded.
-    const fn secondary_extrema_probe_may_be_inconclusive(
+    // Ignore can skip stale leading index entries. If a bounded secondary
+    // probe reaches the fetch boundary without proving a terminal result, retry
+    // unbounded so stale candidates do not become terminal answers.
+    const fn secondary_probe_may_be_inconclusive(
         consistency: MissingRowPolicy,
         kind: AggregateKind,
         probe_fetch_hint: Option<usize>,
@@ -441,10 +441,6 @@ impl ExecutionKernel {
         if !matches!(consistency, MissingRowPolicy::Ignore) {
             return false;
         }
-        if !kind.is_extrema() {
-            return false;
-        }
-
         let Some(fetch) = probe_fetch_hint else {
             return false;
         };
@@ -453,5 +449,9 @@ impl ExecutionKernel {
         }
 
         kind.is_unresolved_extrema_output(probe_output)
+            || matches!(
+                (kind, probe_output),
+                (AggregateKind::Exists, ScalarAggregateOutput::Exists(false))
+            )
     }
 }

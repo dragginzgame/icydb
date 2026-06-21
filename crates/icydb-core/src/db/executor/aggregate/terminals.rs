@@ -35,6 +35,7 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
+        predicate::MissingRowPolicy,
         query::builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
         registry::StoreHandle,
     },
@@ -399,9 +400,8 @@ where
                     prepared,
                 }
             }
-            ScalarTerminalBoundaryRequest::Exists => PreparedScalarTerminalBoundary {
-                op: PreparedScalarTerminalOp::Exists,
-                strategy: derive_exists_terminal_fast_path_contract_for_model(
+            ScalarTerminalBoundaryRequest::Exists => {
+                let strategy = derive_exists_terminal_fast_path_contract_for_model(
                     &prepared.logical_plan,
                     prepared.execution_preparation.strict_mode().is_some(),
                 )
@@ -412,13 +412,23 @@ where
                             PreparedScalarTerminalStrategy::ExistingRows { direction }
                         }
                     },
-                ),
-                window_provably_empty: {
-                    let lowered_access = prepared.lowered_access()?;
-                    prepared.window_is_provably_empty(&lowered_access)
-                },
-                prepared,
-            },
+                );
+                let strategy = if matches!(prepared.consistency(), MissingRowPolicy::Ignore) {
+                    PreparedScalarTerminalStrategy::KernelAggregate
+                } else {
+                    strategy
+                };
+
+                PreparedScalarTerminalBoundary {
+                    op: PreparedScalarTerminalOp::Exists,
+                    strategy,
+                    window_provably_empty: {
+                        let lowered_access = prepared.lowered_access()?;
+                        prepared.window_is_provably_empty(&lowered_access)
+                    },
+                    prepared,
+                }
+            }
             ScalarTerminalBoundaryRequest::IdTerminal { kind } => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::IdTerminal { kind },
                 strategy: PreparedScalarTerminalStrategy::KernelAggregate,

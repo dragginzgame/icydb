@@ -71,6 +71,11 @@ impl LoadExplainPreparation {
             ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
         let predicate_index_capability =
             execution_preparation_predicate_index_capability(&execution_preparation)
+                .or_else(|| {
+                    plan.predicate_pushdown_diagnostics()
+                        .access_path_fully_applied()
+                        .then_some(IndexPredicateCapability::FullyIndexable)
+                })
                 .or_else(|| fallback_explain_predicate_index_capability_for_plan(plan));
         let strict_predicate_compatible =
             covering_strict_predicate_compatible(plan, predicate_index_capability);

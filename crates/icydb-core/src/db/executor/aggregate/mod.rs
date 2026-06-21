@@ -25,6 +25,7 @@ pub(in crate::db::executor::aggregate) mod value_reducer;
 
 use crate::{
     db::{
+        access::AccessPathKind,
         data::DataRow,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
@@ -41,6 +42,7 @@ use crate::{
             validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
+        predicate::MissingRowPolicy,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -254,7 +256,7 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
     {
         let kind = state.dispatch.aggregate.kind();
-        let dispatch = state.dispatch;
+        let mut dispatch = state.dispatch;
         let prepared = state.prepared;
 
         // Phase 1: let eager reducers consume their owned dispatch state directly
@@ -282,9 +284,19 @@ impl ExecutionKernel {
         // Phase 2: continue through the canonical aggregate streaming fold
         // with the original prepared dispatch state and prepared aggregate inputs.
         let fold_mode = dispatch.route_plan.aggregate_fold_mode;
-        let physical_fetch_hint = dispatch.route_plan.scan_hints.physical_fetch_hint;
         let authority = prepared.authority.clone();
         let lowered_access = prepared.lowered_access()?;
+        if matches!(scalar_terminal_kind, ScalarTerminalKind::Exists)
+            && matches!(prepared.consistency(), MissingRowPolicy::Ignore)
+            && lowered_access
+                .executable()
+                .shape_facts()
+                .single_path_facts()
+                .is_some_and(|facts| matches!(facts.kind(), AccessPathKind::IndexPrefix))
+        {
+            dispatch.route_plan.scan_hints.physical_fetch_hint = None;
+        }
+        let physical_fetch_hint = dispatch.route_plan.scan_hints.physical_fetch_hint;
 
         let fast_path_inputs = AggregateFastPathInputs {
             logical_plan: &prepared.logical_plan,

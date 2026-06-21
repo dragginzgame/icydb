@@ -461,6 +461,13 @@ impl PredicatePushdownDiagnostics {
     pub(in crate::db) const fn reason_label(self) -> &'static str {
         self.reason.label()
     }
+
+    /// Return whether the selected access path fully proves the predicate.
+    #[must_use]
+    pub(in crate::db) const fn access_path_fully_applied(self) -> bool {
+        matches!(self.outcome, PredicatePushdownOutcome::Full)
+            && matches!(self.reason, PredicatePushdownReason::AccessPathApplied)
+    }
 }
 
 impl PredicatePushdownOutcome {
