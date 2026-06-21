@@ -709,6 +709,15 @@ fn grouped_aggregate_execution_node_descriptor(
             node_type,
             execution_mode,
         );
+    node.node_properties
+        .insert("aggregate_contract", Value::from("grouped"));
+    node.node_properties.insert(
+        "aggregate_physical",
+        Value::from(match grouped_observability.grouped_execution_mode() {
+            GroupedExecutionMode::HashMaterialized => "hash_materialized",
+            GroupedExecutionMode::OrderedMaterialized => "ordered_materialized",
+        }),
+    );
     annotate_grouped_route_node_properties(&mut node, route_plan);
 
     Some(node)

@@ -115,8 +115,35 @@ selection, direct-count metadata, shared-plan fallback, or grouped execution.
 
 ## Next Code Slice Candidate
 
-Extend EXPLAIN/cache diagnostics to name the aggregate semantic contract and the
-chosen physical implementation separately. That is the next useful step toward
-making direct prefix-cardinality COUNT, scalar aggregate terminal execution,
-hash grouped, and ordered grouped look like implementations of one aggregate
-contract rather than unrelated execution lanes.
+EXPLAIN execution now names the aggregate semantic contract and chosen physical
+implementation for singleton scalar aggregate terminals and grouped
+hash/ordered materialization nodes.
+
+Direct prefix-cardinality COUNT EXPLAIN now reuses the conservative
+planning-only prefix-spec derivation to report metadata eligibility and prefix
+count. It does not execute metadata lookups and does not claim the shortcut is
+guaranteed when metadata is stale; runtime attribution remains the exact source
+for `scalar_aggregate.sink_mode=IndexPrefixCardinality`.
+
+The next design question is whether cache/explain identity should carry a
+first-class aggregate operator DTO shared by singleton and grouped explain
+assembly, or whether these descriptor properties are enough until a runtime
+execution merge is justified.
+
+## Deferred DTO Gate
+
+Do not add the first-class aggregate operator DTO just to make the design look
+complete. Add it only when it deletes a real duplicate consumer or becomes a
+shared runtime/explain handoff.
+
+Accept the DTO when at least one of these is true:
+
+- it deletes duplicate logic from both global and grouped aggregate paths;
+- it becomes the single input to EXPLAIN assembly for singleton and grouped
+  aggregates;
+- it carries cache/fingerprint identity that prevents a real misclassification
+  risk;
+- it becomes the runtime handoff for both singleton and grouped execution.
+
+Until one of those gates is met, keep the current descriptor properties and
+runtime attribution as the lightweight aggregate contract surface.

@@ -302,7 +302,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
         (projection_selection, grouped_aggregates, false)
     } else {
         let projection_selection =
-            lower_scalar_projection_selection(projection, projection_aliases.as_slice(), distinct)?;
+            lower_scalar_projection_selection(projection, projection_aliases.as_slice())?;
         (projection_selection, Vec::new(), distinct)
     };
 

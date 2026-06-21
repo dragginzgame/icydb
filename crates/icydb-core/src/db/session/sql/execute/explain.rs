@@ -3,6 +3,7 @@
 //! Does not own: planner/executor route policy or diagnostics DTO definitions.
 //! Boundary: renders lowered SQL explain statements through session visibility and route facts.
 
+use super::global_aggregate::is_direct_count_rows_global_aggregate;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -13,7 +14,9 @@ use crate::{
         },
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
-            explain::{ExplainAggregateTerminalPlan, FinalizedQueryDiagnostics},
+            explain::{
+                ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, FinalizedQueryDiagnostics,
+            },
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
         },
@@ -32,6 +35,7 @@ use crate::{
         },
     },
     traits::CanisterKind,
+    value::Value,
 };
 
 ///
@@ -157,6 +161,7 @@ impl<C: CanisterKind> DbSession<C> {
                 command,
                 authority,
                 accepted_schema,
+                schema_info,
             );
         }
 
@@ -313,6 +318,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: StructuralSqlGlobalAggregateCommand,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
+        schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
         let strategies = command.strategies();
 
@@ -354,6 +360,12 @@ impl<C: CanisterKind> DbSession<C> {
                                     render_scalar_projection_expr_plan_label(filter_expr).into(),
                                 );
                             }
+                            self.annotate_global_aggregate_direct_count_metadata_eligibility(
+                                &mut execution,
+                                &command,
+                                &authority,
+                                schema_info,
+                            )?;
                             let terminal_plan = ExplainAggregateTerminalPlan::new(
                                 query_explain,
                                 strategy.aggregate_kind(),
@@ -382,5 +394,44 @@ impl<C: CanisterKind> DbSession<C> {
                     |plan| Ok(plan.explain().render_json_canonical()),
                 ),
         }
+    }
+
+    fn annotate_global_aggregate_direct_count_metadata_eligibility(
+        &self,
+        execution: &mut ExplainExecutionDescriptor,
+        command: &StructuralSqlGlobalAggregateCommand,
+        authority: &EntityAuthority,
+        schema_info: &SchemaInfo,
+    ) -> Result<(), QueryError> {
+        if !is_direct_count_rows_global_aggregate(
+            command.strategies(),
+            command.projection(),
+            command.having(),
+        ) || !command.query().direct_count_cardinality_prefix_candidate()
+        {
+            return Ok(());
+        }
+
+        let visible_indexes =
+            self.visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
+        let prefix_specs = Self::direct_count_cardinality_prefix_specs_for_accepted_authority(
+            authority,
+            command.query(),
+            &visible_indexes,
+            schema_info,
+        )?;
+        let prefix_count = prefix_specs.as_ref().map_or(0, Vec::len);
+        execution.node_properties.insert(
+            "aggregate_direct_count_metadata_eligible",
+            Value::from(prefix_count != 0),
+        );
+        if prefix_count != 0 {
+            execution.node_properties.insert(
+                "aggregate_direct_count_prefixes",
+                Value::from(u64::try_from(prefix_count).unwrap_or(u64::MAX)),
+            );
+        }
+
+        Ok(())
     }
 }

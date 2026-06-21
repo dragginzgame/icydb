@@ -290,9 +290,7 @@ fn branch_in_clause_implies_required(
         CompareOp::Ne => branch_values
             .iter()
             .all(|branch_value| !values_equal(branch_value, cmp.value())),
-        CompareOp::In => branch_values
-            .iter()
-            .all(|branch_value| list_contains_value(cmp.value(), branch_value)),
+        CompareOp::In => list_contains_all_values(cmp.value(), branch_values),
         CompareOp::NotIn => branch_values
             .iter()
             .all(|branch_value| !list_contains_value(cmp.value(), branch_value)),
@@ -314,6 +312,21 @@ fn list_contains_value(list: &Value, value: &Value) -> bool {
     values
         .iter()
         .any(|candidate| values_equal(candidate, value))
+}
+
+fn list_contains_all_values(list: &Value, required_values: &[Value]) -> bool {
+    let Value::List(values) = list else {
+        return false;
+    };
+    if values == required_values {
+        return true;
+    }
+
+    required_values.iter().all(|value| {
+        values
+            .iter()
+            .any(|candidate| values_equal(candidate, value))
+    })
 }
 
 fn values_equal(left: &Value, right: &Value) -> bool {

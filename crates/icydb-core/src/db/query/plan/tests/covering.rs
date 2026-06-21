@@ -9,8 +9,9 @@ use crate::{
         direction::Direction,
         predicate::{MissingRowPolicy, Predicate},
         query::plan::{
-            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder, OrderDirection,
-            OrderSpec, covering_read_execution_plan_from_fields,
+            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
+            CoveringReadFieldSource, OrderDirection, OrderSpec,
+            covering_read_execution_plan_from_fields,
             covering_read_execution_plan_from_fields_with_primary_key_names,
             expr::{FieldId, ProjectionSelection},
             index_covering_existing_rows_terminal_eligible,
@@ -174,6 +175,67 @@ fn covering_read_execution_plan_marks_secondary_load_shapes_as_planner_proven() 
     );
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "rank");
+}
+
+#[test]
+fn covering_read_execution_plan_marks_multi_lookup_pk_projection_as_planner_proven() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexMultiLookup {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                COVERING_READ_INDEX,
+            ),
+            values: vec![Value::Nat64(7), Value::Nat64(8)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
+    });
+
+    let covering = covering_read_execution_plan(&plan, "id", true)
+        .expect("multi-lookup PK-only projection should derive one covering plan");
+
+    assert_eq!(covering.prefix_len, 1);
+    assert_eq!(
+        covering.order_contract,
+        CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::ProvenByPlanner
+    );
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::PrimaryKey { component_index: 0 },
+    );
+}
+
+#[test]
+fn covering_read_execution_plan_decodes_multi_lookup_prefix_field_from_index_components() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexMultiLookup {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                COVERING_READ_INDEX,
+            ),
+            values: vec![Value::Nat64(7), Value::Nat64(8)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("group")]);
+
+    let covering = covering_read_execution_plan(&plan, "id", true)
+        .expect("multi-lookup prefix-field projection should derive one covering plan");
+
+    assert_eq!(covering.prefix_len, 1);
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::IndexComponent { component_index: 0 },
+        "multi-lookup prefix values vary per branch and must not be treated as one constant",
+    );
 }
 
 #[test]

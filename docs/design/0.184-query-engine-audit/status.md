@@ -154,6 +154,10 @@ Status: active.
 - H3 / F7 twelfth slice: global aggregate terminal lowering now records the
   aggregate output expressions and aliases that make singleton-result ORDER BY
   terms inert, so output-order stripping no longer re-analyzes the projection.
+- H3 / F7 thirteenth slice: scalar SELECT projection lowering now lets the
+  shared `SqlExprPhase::Scalar` expression lowerer reject aggregate leaves,
+  removing the projection-local parser aggregate pre-scan and a redundant
+  DISTINCT empty-projection branch.
 - D1 / F3 first aggregate-architecture slice: the shared aggregate operator
   migration is scoped in `shared-aggregate-operator.md`, and the global
   aggregate session adapter now prepares one private structural aggregate
@@ -161,23 +165,83 @@ Status: active.
   instead of reconstructing terminals, projection labels, fixed scales, HAVING,
   and schema info inline. The direct-count cardinality fast path and grouped
   execution behavior are unchanged.
+- D1 / F3 second aggregate-architecture slice: aggregate EXPLAIN execution
+  nodes now expose `aggregate_contract` and `aggregate_physical` properties for
+  singleton scalar terminals and grouped hash/ordered materialization, so the
+  semantic aggregate contract is visible separately from the chosen physical
+  implementation. Direct prefix-cardinality COUNT EXPLAIN now also reports
+  conservative metadata eligibility and prefix count when the same no-metadata
+  planning proof can derive exact prefix specs; runtime scalar-aggregate
+  `sink_mode` remains the exact execution attribution.
+- H7 first slice: scalar materialization lane metrics now report retained-slot
+  layout executions, retained value count, and byte-length-only retained value
+  count, giving late-materialization work an execution-owned footprint before
+  any new runtime path is introduced.
+- H7 second slice: retained-slot footprint now flows through normal
+  diagnostics `KernelRowAttribution` and SQL perf-matrix samples, so late
+  materialization pressure can be ranked from existing attribution reports.
+- Large literal `IN` first slice: SQL membership lowering, predicate bridge
+  recovery, truth-set compilation, and scalar evaluation now keep membership as
+  a compact `IN_LIST` function instead of expanding into left-deep boolean
+  chains. A filtered matrix rerun dropped sparse token
+  `collection_id IN (...)` page compile work from about 1.67B instructions to
+  about 3.3M total compile / 2.2M lower, and the matching count compile from
+  about 846M to about 3.3M total compile / 2.3M lower.
+- Large literal `IN` second slice: index multi-lookup routes can now admit
+  key-only / index-covered projections into the covering path. The sparse token
+  `collection_id IN (...) ORDER BY id LIMIT 50` page still scans 256 index
+  entries because the available `(collection_id, stage, id)` index cannot prove
+  global primary-key order for a collection-only lookup, but it no longer opens
+  row storage for the key-only projection.
+- Large literal `IN` third slice: residual access-proof stripping now handles
+  identical canonical branch-value sets in linear time, and finalized static
+  planning skips compiling preparation predicates when the selected access path
+  proves the whole filter. The sparse token page rerun dropped from about
+  103.7M to about 40.6M total instructions, with planner work down from about
+  78.7M to about 15.8M while retaining zero row-store reads and the same 256
+  index-entry scan.
+- Large literal `IN` fourth slice: index-prefix-family routes whose consumed
+  prefix leaves the primary-key fields as the exact remaining index suffix can
+  now prove primary-key `ORDER BY` without a materialized sort. This admits
+  order-compatible multi-lookup shapes such as `bucket IN (...) ORDER BY id`
+  on `(bucket, id)` while still rejecting sparse collection-only lookups on
+  `(collection_id, stage, id)`.
 
 ## Current Slice
 
-- D1 / F3 first aggregate-architecture slice: complete. The runtime change is
-  deliberately limited to the global aggregate session adapter envelope; it
-  does not move grouped execution or direct-count metadata behind the shared
-  contract yet.
+- Large literal `IN` follow-up: complete for compile/lowering blow-up and the
+  obvious key-only row-hydration hole, with the order-compatible
+  primary-key-suffix index route now covered. The filtered sparse token matrix
+  still reports about 40.6M total instructions for the existing
+  `(collection_id, stage, id)` page path, with about 3.3M in compile work,
+  about 15.8M in planner/route work, 256 index-entry reads, and zero
+  `data_store.get` calls. The matching count remains metadata-backed at about
+  4.8M total instructions with no index-entry scan and no row-store reads.
 
 ## Next Candidates
 
-- D1 / F3: extend aggregate diagnostics/cache identity to distinguish the
-  semantic aggregate contract from physical implementations such as direct
-  prefix-cardinality COUNT, scalar aggregate terminal execution, hash grouped,
-  and ordered grouped.
+- Sparse literal `IN` page routing beyond covering: after compact membership
+  lowering and multi-lookup covering admission, the remaining page cost is now
+  specific to using `(collection_id, stage, id)` for
+  `collection_id IN (...) ORDER BY id`; an order-compatible index such as
+  `(collection_id, id)` is admitted by the current route proof. Lowering the
+  existing index shape further needs prefix-distinct metadata that can safely
+  enumerate branch values, or a future branch-tree route that proves global
+  primary-key order without materializing all active collection rows.
+- D1 / F3: decide whether cache/explain identity should eventually carry a
+  first-class aggregate operator DTO shared by singleton global aggregate and
+  grouped aggregate explain assembly, or whether the current additive
+  descriptor properties are sufficient until a runtime execution merge is
+  justified. The DTO gate is recorded in `shared-aggregate-operator.md`: do
+  not add it until it deletes duplicate global/grouped logic, becomes the
+  shared EXPLAIN/runtime handoff, or prevents a real cache/fingerprint
+  misclassification risk.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.
+- H7: use retained-slot footprint metrics to identify a repeated shape that
+  still falls back to full-row retention, over-retains slots, or performs
+  avoidable row-store reads before adding a new materialization path.
 - H6 / D7 / F6: design chunked mutation preparation separately if broad
   session/admin SQL writes become a product requirement. The current evidence
   supports keeping public writes policy-bounded rather than widening broad

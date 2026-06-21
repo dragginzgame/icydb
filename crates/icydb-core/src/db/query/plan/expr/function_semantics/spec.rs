@@ -203,6 +203,13 @@ impl Function {
             Self::Contains | Self::EndsWith | Self::StartsWith => {
                 FunctionSpec::strict_text_bool_result(&[0, 1])
             }
+            Self::InList => FunctionSpec::new(
+                FunctionCategory::Collection,
+                FunctionNullBehavior::NullObserving,
+                FunctionDeterminism::Deterministic,
+                FunctionTypeInferenceShape::Membership,
+                GENERAL_SCALAR_FUNCTION_SURFACES,
+            ),
             Self::IsEmpty | Self::IsMissing | Self::IsNotEmpty | Self::IsNotNull | Self::IsNull => {
                 FunctionSpec::null_observing_unary_bool_predicate()
             }
@@ -325,6 +332,7 @@ impl Function {
                 Some(BooleanFunctionShape::FieldPredicate)
             }
             Self::CollectionContains => Some(BooleanFunctionShape::CollectionContains),
+            Self::InList => Some(BooleanFunctionShape::Membership),
             Self::Abs
             | Self::Cbrt
             | Self::Ceiling
@@ -519,6 +527,7 @@ impl Function {
             Self::Replace => ScalarEvalFunctionShape::ReplaceText,
             Self::Substring => ScalarEvalFunctionShape::SubstringText,
             Self::Round | Self::Trunc => ScalarEvalFunctionShape::NumericScale,
+            Self::InList => ScalarEvalFunctionShape::Membership,
         }
     }
 
@@ -551,6 +560,7 @@ impl Function {
             | Self::IsMissing
             | Self::IsEmpty
             | Self::IsNotEmpty
+            | Self::InList
             | Self::Trim
             | Self::Ltrim
             | Self::Rtrim

@@ -5,7 +5,10 @@
 //! Boundary: keeps SELECT plan-to-result adaptation out of the SQL execution hub.
 
 #[cfg(feature = "diagnostics")]
-use crate::db::session::sql::{SqlExecutePhaseAttribution, measure_sql_stage};
+use crate::db::session::{
+    query::QueryPlanCompilePhaseAttribution,
+    sql::{SqlExecutePhaseAttribution, measure_sql_stage},
+};
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
@@ -186,6 +189,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "diagnostics")]
     const fn grouped_select_execute_phase_attribution(
         planner_local_instructions: u64,
+        plan_compile_attribution: QueryPlanCompilePhaseAttribution,
         execute_local_instructions: u64,
         store_local_instructions: u64,
         response_finalization_local_instructions: u64,
@@ -193,12 +197,12 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> SqlExecutePhaseAttribution {
         SqlExecutePhaseAttribution {
             planner_local_instructions,
-            planner_schema_info_local_instructions: 0,
-            planner_prepare_local_instructions: 0,
-            planner_cache_key_local_instructions: 0,
-            planner_cache_lookup_local_instructions: 0,
-            planner_plan_build_local_instructions: 0,
-            planner_cache_insert_local_instructions: 0,
+            planner_schema_info_local_instructions: plan_compile_attribution.schema_info,
+            planner_prepare_local_instructions: plan_compile_attribution.prepare,
+            planner_cache_key_local_instructions: plan_compile_attribution.cache_key,
+            planner_cache_lookup_local_instructions: plan_compile_attribution.cache_lookup,
+            planner_plan_build_local_instructions: plan_compile_attribution.plan_build,
+            planner_cache_insert_local_instructions: plan_compile_attribution.cache_insert,
             store_local_instructions,
             executor_invocation_local_instructions: execute_local_instructions
                 .saturating_sub(response_finalization_local_instructions),
@@ -221,6 +225,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "diagnostics")]
     const fn projection_select_execute_phase_attribution(
         planner_local_instructions: u64,
+        plan_compile_attribution: QueryPlanCompilePhaseAttribution,
         execute_local_instructions: u64,
         store_local_instructions: u64,
         response_finalization_local_instructions: u64,
@@ -229,12 +234,12 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> SqlExecutePhaseAttribution {
         SqlExecutePhaseAttribution {
             planner_local_instructions,
-            planner_schema_info_local_instructions: 0,
-            planner_prepare_local_instructions: 0,
-            planner_cache_key_local_instructions: 0,
-            planner_cache_lookup_local_instructions: 0,
-            planner_plan_build_local_instructions: 0,
-            planner_cache_insert_local_instructions: 0,
+            planner_schema_info_local_instructions: plan_compile_attribution.schema_info,
+            planner_prepare_local_instructions: plan_compile_attribution.prepare,
+            planner_cache_key_local_instructions: plan_compile_attribution.cache_key,
+            planner_cache_lookup_local_instructions: plan_compile_attribution.cache_lookup,
+            planner_plan_build_local_instructions: plan_compile_attribution.plan_build,
+            planner_cache_insert_local_instructions: plan_compile_attribution.cache_insert,
             store_local_instructions,
             executor_invocation_local_instructions: execute_local_instructions,
             executor_local_instructions: execute_local_instructions
@@ -260,6 +265,7 @@ impl<C: CanisterKind> DbSession<C> {
                 SharedPreparedExecutionPlan,
                 SqlProjectionContract,
                 SqlCacheAttribution,
+                QueryPlanCompilePhaseAttribution,
             ),
             QueryError,
         >,
@@ -276,7 +282,8 @@ impl<C: CanisterKind> DbSession<C> {
     {
         if query.has_grouping() {
             let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
-            let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
+            let (prepared_plan, projection, cache_attribution, plan_compile_attribution) =
+                resolved_query_plan?;
 
             let ((execute_local_instructions, store_local_instructions), statement_result) =
                 measure_execute_phase_with_physical_access(move || {
@@ -304,6 +311,7 @@ impl<C: CanisterKind> DbSession<C> {
                 cache_attribution,
                 Self::grouped_select_execute_phase_attribution(
                     planner_local_instructions,
+                    plan_compile_attribution,
                     execute_local_instructions,
                     store_local_instructions,
                     response_finalization_local_instructions,
@@ -313,7 +321,8 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
-        let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
+        let (prepared_plan, projection, cache_attribution, plan_compile_attribution) =
+            resolved_query_plan?;
 
         let ((execute_local_instructions, store_local_instructions), payload) =
             measure_execute_phase_with_physical_access(move || {
@@ -342,6 +351,7 @@ impl<C: CanisterKind> DbSession<C> {
             cache_attribution,
             Self::projection_select_execute_phase_attribution(
                 planner_local_instructions,
+                plan_compile_attribution,
                 execute_local_instructions,
                 store_local_instructions,
                 response_finalization_local_instructions,

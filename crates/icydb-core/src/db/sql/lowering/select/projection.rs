@@ -119,15 +119,10 @@ impl LoweredGroupedProjection {
 pub(super) fn lower_scalar_projection_selection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
-    distinct: bool,
 ) -> Result<LoweredSqlProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
         return Ok(LoweredSqlProjectionSelection::all());
     };
-
-    if items.iter().any(SqlSelectItem::contains_aggregate) {
-        return Err(SqlLoweringError::unsupported_select_projection());
-    }
 
     if let Some(field_ids) = direct_scalar_field_selection(items.as_slice(), projection_aliases) {
         return Ok(LoweredSqlProjectionSelection::fields(field_ids));
@@ -146,13 +141,6 @@ pub(super) fn lower_scalar_projection_selection(
                 .map(Alias::new),
         });
         projection_facts.push(expr_facts);
-    }
-
-    if distinct && fields.is_empty() {
-        return Ok(LoweredSqlProjectionSelection::exprs(
-            fields,
-            projection_facts,
-        ));
     }
 
     Ok(LoweredSqlProjectionSelection::exprs(

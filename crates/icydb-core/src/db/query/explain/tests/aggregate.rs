@@ -5,6 +5,7 @@ fn assert_aggregate_terminal_public_contract(
     expected_node_type: ExplainExecutionNodeType,
     expected_layer: &str,
     expected_execution_mode_detail: &str,
+    expected_physical: &str,
 ) {
     let execution = plan.execution();
     let node = plan.execution_node_descriptor();
@@ -35,6 +36,24 @@ fn assert_aggregate_terminal_public_contract(
             "\"execution_mode_detail\":\"{expected_execution_mode_detail}\""
         )),
         "aggregate terminal JSON explain must keep execution mode detail stable",
+    );
+    assert!(
+        text.contains("aggregate_contract=Text(\"singleton\")"),
+        "aggregate terminal text explain must identify the singleton aggregate contract",
+    );
+    assert!(
+        json.contains("\"aggregate_contract\":\"Text(\\\"singleton\\\")\""),
+        "aggregate terminal JSON explain must identify the singleton aggregate contract",
+    );
+    assert!(
+        text.contains(&format!("aggregate_physical=Text(\"{expected_physical}\")")),
+        "aggregate terminal text explain must identify the physical implementation",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"aggregate_physical\":\"Text(\\\"{expected_physical}\\\")\""
+        )),
+        "aggregate terminal JSON explain must identify the physical implementation",
     );
     assert!(
         json.contains("\"predicate_pushdown_mode\":\"none\""),
@@ -123,6 +142,7 @@ fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
         ExplainExecutionNodeType::AggregateSeekFirst,
         "aggregate",
         "materialized",
+        "scalar_seek_first",
     );
 }
 
@@ -189,6 +209,7 @@ fn explain_aggregate_terminal_standard_route_public_contract_is_stable() {
         ExplainExecutionNodeType::AggregateExists,
         "aggregate",
         "streaming",
+        "scalar_terminal",
     );
 }
 
@@ -229,5 +250,10 @@ fn explain_aggregate_terminal_filtered_route_surfaces_filter_shape() {
     assert!(
         json.contains("\"filter_expr\":\"Text(\\\"rank >= 10\\\")\""),
         "filtered aggregate terminal JSON explain should keep filter shape visible: {json}",
+    );
+    assert!(
+        text.contains("aggregate_contract=Text(\"singleton\")")
+            && text.contains("aggregate_physical=Text(\"scalar_terminal\")"),
+        "filtered aggregate terminal text explain should keep aggregate contract labels visible: {text}",
     );
 }

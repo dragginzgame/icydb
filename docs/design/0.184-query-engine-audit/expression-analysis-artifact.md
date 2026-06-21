@@ -134,6 +134,14 @@ analyze the projection before terminal lowering analyzes it again.
 Base-row ORDER BY terms still lower through the normal base-query tail after
 the inert output targets are filtered out.
 
+## Scalar Projection Phase Ownership
+
+Scalar projection lowering no longer pre-scans parser SELECT items for
+aggregate leaves. Aggregate rejection for scalar projections is owned by
+`SqlExprPhase::Scalar` at the shared SQL-expression lowering seam, so SELECT
+projection admission does not duplicate the parser aggregate walk before the
+lowered expression is analyzed.
+
 ## Deferred
 
 Do not grow this into a broad binder casually. The next extensions need an

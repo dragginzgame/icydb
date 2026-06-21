@@ -125,9 +125,7 @@ impl IndexShapeDetails {
 
     #[must_use]
     pub(in crate::db) fn key_field_at(&self, component_index: usize) -> Option<&str> {
-        self.index
-            .key_item_at(component_index)
-            .map(crate::db::access::SemanticIndexKeyItemRef::field)
+        self.index.key_field_at(component_index)
     }
 
     #[must_use]

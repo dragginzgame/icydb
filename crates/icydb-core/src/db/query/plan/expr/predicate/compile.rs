@@ -12,7 +12,7 @@ use crate::{
     db::{
         predicate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MembershipCompareLeaf,
-            Predicate, collapse_membership_compare_leaves,
+            Predicate, collapse_membership_compare_leaves, collapse_membership_values,
         },
         query::plan::expr::{
             BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
@@ -480,6 +480,7 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
         Some(BooleanFunctionShape::CollectionContains) => {
             compile_bool_collection_contains_truth_sets(args)
         }
+        Some(BooleanFunctionShape::Membership) => compile_bool_membership_truth_sets(args),
         Some(BooleanFunctionShape::TruthCoalesce) | None => {
             unreachable!("predicate compiler invariant")
         }
@@ -613,6 +614,129 @@ fn compile_bool_collection_contains_truth_sets(args: &[Expr]) -> (Predicate, Pre
     (when_true.clone(), Predicate::Not(Box::new(when_true)))
 }
 
+// Compile compact SQL membership without expanding it back into a large
+// OR/AND tree. The TRUE/FALSE sets mirror SQL three-valued membership:
+// NULL list entries can contribute UNKNOWN, but never TRUE.
+fn compile_bool_membership_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
+    let [target, Expr::Literal(Value::List(values))] = args else {
+        unreachable!("predicate compiler invariant")
+    };
+    let (field, target_coercion) = compile_bool_membership_target(target);
+    let non_null_values = values
+        .iter()
+        .filter(|value| !matches!(value, Value::Null))
+        .cloned()
+        .collect::<Vec<_>>();
+    let true_set =
+        compile_bool_membership_value_set(field.as_str(), target_coercion, &non_null_values, true);
+    let false_set = if values.iter().any(|value| matches!(value, Value::Null)) {
+        Predicate::False
+    } else {
+        compile_bool_membership_value_set(field.as_str(), target_coercion, &non_null_values, false)
+    };
+
+    (true_set, false_set)
+}
+
+fn compile_bool_membership_value_set(
+    field: &str,
+    target_coercion: Option<CoercionId>,
+    values: &[Value],
+    positive: bool,
+) -> Predicate {
+    if values.is_empty() {
+        return if positive {
+            Predicate::False
+        } else {
+            Predicate::True
+        };
+    }
+
+    let op = if positive {
+        CompareOp::Eq
+    } else {
+        CompareOp::Ne
+    };
+    let membership_op = if positive {
+        CompareOp::In
+    } else {
+        CompareOp::NotIn
+    };
+    let leaf_predicates = values
+        .iter()
+        .map(|value| {
+            let coercion =
+                target_coercion.unwrap_or_else(|| compare_literal_coercion(CompareOp::Eq, value));
+            Predicate::Compare(ComparePredicate::with_coercion(
+                field.to_string(),
+                op,
+                value.clone(),
+                coercion,
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    let Some(coercion) = shared_membership_coercion(field, values, target_coercion) else {
+        return if positive {
+            Predicate::Or(leaf_predicates)
+        } else {
+            Predicate::And(leaf_predicates)
+        };
+    };
+    let Some(compare) = collapse_membership_values(field, membership_op, values.to_vec(), coercion)
+    else {
+        return leaf_predicates.into_iter().next().unwrap_or(if positive {
+            Predicate::False
+        } else {
+            Predicate::True
+        });
+    };
+
+    Predicate::Compare(compare)
+}
+
+fn shared_membership_coercion(
+    _field: &str,
+    values: &[Value],
+    target_coercion: Option<CoercionId>,
+) -> Option<CoercionId> {
+    if values.len() < 2 {
+        return None;
+    }
+
+    let mut shared = None;
+    for value in values {
+        if !membership_value_is_in_safe(value) {
+            return None;
+        }
+        let coercion =
+            target_coercion.unwrap_or_else(|| compare_literal_coercion(CompareOp::Eq, value));
+        if let Some(current) = shared {
+            if current != coercion {
+                return None;
+            }
+        } else {
+            shared = Some(coercion);
+        }
+    }
+
+    shared
+}
+
+fn compile_bool_membership_target(expr: &Expr) -> (String, Option<CoercionId>) {
+    match expr {
+        Expr::Field(field) => (field.as_str().to_string(), None),
+        Expr::FunctionCall {
+            function: Function::Lower,
+            args,
+        } => match args.as_slice() {
+            [Expr::Field(field)] => (field.as_str().to_string(), Some(CoercionId::TextCasefold)),
+            _ => unreachable!("predicate compiler invariant"),
+        },
+        _ => unreachable!("predicate compiler invariant"),
+    }
+}
+
 // Project one canonical text target wrapper onto the runtime field/coercion
 // pair consumed by text predicate shells.
 fn compile_bool_text_target(expr: &Expr) -> (String, CoercionId) {
@@ -725,6 +849,14 @@ impl RuntimePredicateAdmission {
             Some(BooleanFunctionShape::CollectionContains) => {
                 matches!(args, [Expr::Field(_), Expr::Literal(_)])
             }
+            Some(BooleanFunctionShape::Membership) => {
+                matches!(
+                    args,
+                    [target, Expr::Literal(Value::List(values))]
+                        if Self::is_membership_target(target)
+                            && membership_values_are_predicate_admissible(target, values)
+                )
+            }
             Some(BooleanFunctionShape::TruthCoalesce) | None => false,
         }
     }
@@ -741,6 +873,33 @@ impl RuntimePredicateAdmission {
             _ => false,
         }
     }
+
+    fn is_membership_target(expr: &Expr) -> bool {
+        match expr {
+            Expr::Field(_) => true,
+            Expr::FunctionCall {
+                function: Function::Lower,
+                args,
+            } => matches!(args.as_slice(), [Expr::Field(_)]),
+            _ => false,
+        }
+    }
+}
+
+fn membership_values_are_predicate_admissible(target: &Expr, values: &[Value]) -> bool {
+    let casefold = matches!(
+        target,
+        Expr::FunctionCall {
+            function: Function::Lower,
+            ..
+        }
+    );
+
+    values.iter().all(|value| {
+        matches!(value, Value::Null)
+            || (membership_value_is_in_safe(value)
+                && (!casefold || matches!(value, Value::Text(_))))
+    })
 }
 
 const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {

@@ -326,6 +326,15 @@ impl ExplainAggregateTerminalPlan {
     /// Build an execution-node descriptor for aggregate terminal plans.
     #[must_use]
     pub fn execution_node_descriptor(&self) -> ExplainExecutionNodeDescriptor {
+        let mut node_properties = self.execution.node_properties.clone();
+        node_properties.insert("aggregate_contract", Value::from("singleton"));
+        node_properties.insert(
+            "aggregate_physical",
+            Value::from(scalar_aggregate_physical_label(
+                self.execution.ordering_source,
+            )),
+        );
+
         ExplainExecutionNodeDescriptor {
             node_type: match self.execution.ordering_source {
                 ExplainExecutionOrderingSource::IndexSeekFirst { .. } => {
@@ -352,8 +361,19 @@ impl ExplainAggregateTerminalPlan {
             covering_scan: Some(self.execution.covering_projection),
             rows_expected: None,
             children: Vec::new(),
-            node_properties: self.execution.node_properties.clone(),
+            node_properties,
         }
+    }
+}
+
+const fn scalar_aggregate_physical_label(
+    ordering_source: ExplainExecutionOrderingSource,
+) -> &'static str {
+    match ordering_source {
+        ExplainExecutionOrderingSource::IndexSeekFirst { .. } => "scalar_seek_first",
+        ExplainExecutionOrderingSource::IndexSeekLast { .. } => "scalar_seek_last",
+        ExplainExecutionOrderingSource::AccessOrder
+        | ExplainExecutionOrderingSource::Materialized => "scalar_terminal",
     }
 }
 

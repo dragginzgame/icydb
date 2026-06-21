@@ -1087,6 +1087,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
 fn grouped_execution_mode_context_is_stable() {
     let direct_facts = RouteCapabilityFacts {
         load_order_route_decision: LoadOrderRouteDecision::direct_streaming(),
+        ordered_index_leaf_stream_eligible: false,
         pk_order_fast_path_eligible: false,
         count_pushdown_shape_supported: false,
         composite_aggregate_fast_path_eligible: false,

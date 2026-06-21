@@ -139,6 +139,7 @@ pub(in crate::db) fn eval_projection_function_call_checked(
         ScalarEvalFunctionShape::SubstringText => eval_substring_text_function_call(function, args),
         ScalarEvalFunctionShape::NumericScale => eval_numeric_scale_function_call(function, args),
         ScalarEvalFunctionShape::OctetLength => eval_octet_length_function_call(function, args),
+        ScalarEvalFunctionShape::Membership => eval_membership_function_call(function, args),
     }
 }
 
@@ -516,6 +517,46 @@ fn eval_numeric_scale_function_call(
             Ok(value)
         }
     }
+}
+
+fn eval_membership_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, ProjectionFunctionEvalError> {
+    let target = required_function_arg(function, args, 0, "target")?;
+    let values = required_function_arg(function, args, 1, "values")?;
+
+    if args.len() != 2 {
+        return Err(QueryError::invariant().into());
+    }
+    if matches!(target, Value::Null) {
+        return Ok(Value::Null);
+    }
+
+    let Value::List(values) = values else {
+        return Err(QueryError::invariant().into());
+    };
+
+    let mut saw_null = false;
+    let mut matched = false;
+    for value in values {
+        if matches!(value, Value::Null) {
+            saw_null = true;
+            continue;
+        }
+
+        let comparison = eval_preview_compare_binary_expr(BinaryOp::Eq, target, value)
+            .map_err(ProjectionFunctionEvalError::from)?;
+        if matches!(comparison, Value::Bool(true)) {
+            matched = true;
+        }
+    }
+
+    Ok(match (matched, saw_null) {
+        (true, _) => Value::Bool(true),
+        (false, true) => Value::Null,
+        (false, false) => Value::Bool(false),
+    })
 }
 
 fn eval_preview_binary_expr(

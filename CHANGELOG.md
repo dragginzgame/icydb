@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.12` continues the query-engine audit by compacting large SQL
+  membership execution, admitting order-compatible multi-lookup pages without
+  materialized sorting, and adding aggregate/materialization diagnostics for
+  the next optimization slices.
+
+- `0.184.11` continues the query-engine audit by scoping the shared aggregate
+  operator migration and moving SQL global aggregate execution onto a small
+  prepared operator envelope without changing direct-count or grouped behavior.
+
 - `0.184.10` continues the query-engine audit by carrying SQL projection
   expression analysis through SELECT validation, grouped aggregate discovery,
   and global aggregate output-order filtering to remove duplicate expression

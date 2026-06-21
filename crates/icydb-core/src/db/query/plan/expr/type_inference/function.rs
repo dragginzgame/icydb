@@ -17,7 +17,8 @@ impl FunctionTypeInferenceShape {
             | Self::UnaryBoolPredicate
             | Self::CollectionContains
             | Self::DynamicCoalesce
-            | Self::DynamicNullIf => None,
+            | Self::DynamicNullIf
+            | Self::Membership => None,
             Self::TextResult {
                 text_positions,
                 numeric_positions,
@@ -54,9 +55,10 @@ impl FunctionTypeInferenceShape {
             Self::ByteLengthResult | Self::NumericResult { .. } | Self::NumericScaleResult => {
                 Some(ExprCoarseTypeFamily::Numeric)
             }
-            Self::UnaryBoolPredicate | Self::CollectionContains | Self::BoolResult { .. } => {
-                Some(ExprCoarseTypeFamily::Bool)
-            }
+            Self::UnaryBoolPredicate
+            | Self::CollectionContains
+            | Self::Membership
+            | Self::BoolResult { .. } => Some(ExprCoarseTypeFamily::Bool),
             Self::TextResult { .. } => Some(ExprCoarseTypeFamily::Text),
             Self::DynamicCoalesce | Self::DynamicNullIf => None,
         }
@@ -95,6 +97,11 @@ impl FunctionTypeInferenceShape {
 
                 Ok(ExprType::Bool)
             }
+            Self::Membership => {
+                validate_membership_function_args(function, args)?;
+
+                Ok(ExprType::Bool)
+            }
             Self::TextResult { .. } => {
                 validate_function_arg_families(function, args, self)?;
 
@@ -119,6 +126,19 @@ impl FunctionTypeInferenceShape {
             Self::DynamicNullIf => infer_nullif_function_type(function, args),
         }
     }
+}
+
+fn validate_membership_function_args(
+    function: Function,
+    args: &[ExprType],
+) -> Result<(), PlanError> {
+    validate_exact_function_arg_count(function, args.len(), 2)?;
+
+    if !matches!(args[1], ExprType::Collection) {
+        return Err(invalid_function_argument(function, 1, &args[1]));
+    }
+
+    Ok(())
 }
 
 /// Report whether planner typing classifies one scalar function as part of the

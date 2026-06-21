@@ -38,6 +38,9 @@ pub(super) fn access_preserves_primary_key_order_for_covering_window(
             primary_key_names.as_slice(),
         );
     }
+    if let Some((index, _values)) = plan.access.as_index_multi_lookup_contract_path() {
+        return index_suffix_matches_primary_key_order(index, 1, primary_key_names.as_slice());
+    }
     if let Some(spec) = plan.access.as_index_branch_set_spec_path() {
         return index_suffix_matches_primary_key_order(
             spec.index(),

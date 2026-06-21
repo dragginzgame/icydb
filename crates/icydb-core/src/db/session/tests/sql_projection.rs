@@ -242,17 +242,20 @@ fn execute_sql_projection_filtered_retained_rows_open_once_with_rejections() {
 fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows() {
     let session = seeded_projection_window_session();
 
-    let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<SessionSqlEntity>(
-            &session,
-            "SELECT name, age + age AS doubled \
-             FROM SessionSqlEntity \
-             WHERE name >= 'matrix' \
-             ORDER BY age DESC, id ASC \
-             LIMIT 2",
-        )
-        .expect("unindexed ordered scalar projection should execute")
-    });
+    let ((rows, projection_metrics), lane_metrics) =
+        crate::db::with_scalar_materialization_lane_metrics(|| {
+            with_sql_projection_materialization_metrics(|| {
+                statement_projection_rows::<SessionSqlEntity>(
+                    &session,
+                    "SELECT name, age + age AS doubled \
+                     FROM SessionSqlEntity \
+                     WHERE name >= 'matrix' \
+                     ORDER BY age DESC, id ASC \
+                     LIMIT 2",
+                )
+                .expect("unindexed ordered scalar projection should execute")
+            })
+        });
 
     assert_eq!(
         rows,
@@ -269,12 +272,32 @@ fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows(
         "unindexed ordered scalar projection should preserve SQL order",
     );
     assert_eq!(
-        metrics.slot_rows_path_hits, 1,
+        projection_metrics.slot_rows_path_hits, 1,
         "scalar projection should stay on retained slot rows",
     );
     assert_eq!(
-        metrics.data_rows_path_hits, 0,
+        projection_metrics.data_rows_path_hits, 0,
         "scalar projection should not carry full data rows",
+    );
+    assert_eq!(
+        lane_metrics.kernel_slots_only_path_hits, 1,
+        "scalar projection should execute through the slot-only kernel row lane",
+    );
+    assert_eq!(
+        lane_metrics.kernel_full_row_retained_path_hits, 0,
+        "scalar projection should not retain full data rows in the kernel lane",
+    );
+    assert_eq!(
+        lane_metrics.kernel_retained_layout_hits, 1,
+        "scalar projection should report one retained-slot layout",
+    );
+    assert_eq!(
+        lane_metrics.kernel_retained_slot_values, 3,
+        "scalar projection should retain name, age, and the primary-key order tie-break slot",
+    );
+    assert_eq!(
+        lane_metrics.kernel_retained_octet_length_values, 0,
+        "numeric/text scalar projection should not use byte-length-only retained values",
     );
 }
 

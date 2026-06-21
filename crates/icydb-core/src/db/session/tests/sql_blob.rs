@@ -537,6 +537,18 @@ fn sql_octet_length_reports_blob_byte_lengths() {
         lane_metrics.kernel_full_row_retained_path_hits, 0,
         "OCTET_LENGTH(blob) projection should not retain full blob rows",
     );
+    assert_eq!(
+        lane_metrics.kernel_retained_layout_hits, 1,
+        "OCTET_LENGTH(blob) projection should report one retained-slot layout",
+    );
+    assert_eq!(
+        lane_metrics.kernel_retained_slot_values, 4,
+        "OCTET_LENGTH(blob) projection should retain label, primary-key tie-break, and two blob length slots",
+    );
+    assert_eq!(
+        lane_metrics.kernel_retained_octet_length_values, 2,
+        "OCTET_LENGTH(blob) projection should retain blob fields as byte lengths",
+    );
 
     #[cfg(feature = "diagnostics")]
     {
@@ -554,6 +566,17 @@ fn sql_octet_length_reports_blob_byte_lengths() {
         assert_eq!(
             attribution.output_blob.rendered_hex_bytes, 0,
             "OCTET_LENGTH(blob) should not report blob hex response bytes",
+        );
+        let kernel = attribution
+            .kernel_row
+            .expect("OCTET_LENGTH(blob) should report kernel-row attribution");
+        assert_eq!(
+            kernel.retained_slot_values, 4,
+            "OCTET_LENGTH(blob) SQL attribution should expose retained slot footprint",
+        );
+        assert_eq!(
+            kernel.retained_octet_length_values, 2,
+            "OCTET_LENGTH(blob) SQL attribution should expose byte-length-only retained slots",
         );
     }
 }

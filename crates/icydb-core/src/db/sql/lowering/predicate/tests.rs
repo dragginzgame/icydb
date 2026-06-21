@@ -208,6 +208,33 @@ fn derive_where_predicate_subset_recovers_wide_membership_after_scalar_bool_lowe
 }
 
 #[test]
+fn lower_sql_where_bool_expr_keeps_membership_compact() {
+    let expr = parse_where_expr(
+        "SELECT * FROM users \
+         WHERE collection_id IN (\
+             '01KV5N439P0000000000000000', \
+             'missing-collection-000', \
+             'missing-collection-001', \
+             'missing-collection-002', \
+             'missing-collection-003'\
+         )",
+    );
+    let lowered =
+        lower_sql_where_bool_expr(&expr).expect("wide SQL membership WHERE shape should lower");
+    let Expr::FunctionCall { function, args } = lowered else {
+        panic!("SQL membership should lower to compact IN_LIST function");
+    };
+
+    assert_eq!(function, Function::InList);
+    let [Expr::Field(field), Expr::Literal(Value::List(values))] = args.as_slice() else {
+        panic!("compact SQL membership should retain target plus list literal");
+    };
+
+    assert_eq!(field, &FieldId::new("collection_id"));
+    assert_eq!(values.len(), 5);
+}
+
+#[test]
 fn derive_where_predicate_subset_recovers_folded_constant_compare_shapes() {
     let expr = parse_where_expr(
         "SELECT * FROM users WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NULL",

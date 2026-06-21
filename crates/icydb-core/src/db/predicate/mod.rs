@@ -56,7 +56,9 @@ pub(in crate::db) use rewrite::rewrite_field_identifiers;
 #[cfg(test)]
 pub(in crate::db) use fingerprint::predicate_fingerprint;
 pub(in crate::db) use fingerprint::{hash_predicate, predicate_fingerprint_normalized};
-pub(in crate::db) use membership::{MembershipCompareLeaf, collapse_membership_compare_leaves};
+pub(in crate::db) use membership::{
+    MembershipCompareLeaf, collapse_membership_compare_leaves, collapse_membership_values,
+};
 pub(in crate::db) use resolved::{
     ExecutableCompareOperand, ExecutableComparePredicate, ExecutablePredicate,
 };

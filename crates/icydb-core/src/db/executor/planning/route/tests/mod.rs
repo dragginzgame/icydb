@@ -129,6 +129,13 @@ static ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL: IndexModel = IndexModel::generate
     &ROUTE_CAPABILITY_COMPOSITE_INDEX_FIELDS,
     false,
 );
+static ROUTE_CAPABILITY_PK_SUFFIX_INDEX_FIELDS: [&str; 2] = ["rank", "id"];
+static ROUTE_CAPABILITY_PK_SUFFIX_INDEX_MODEL: IndexModel = IndexModel::generated(
+    "rank_id_idx",
+    RouteCapabilityTestStore::PATH,
+    &ROUTE_CAPABILITY_PK_SUFFIX_INDEX_FIELDS,
+    false,
+);
 
 crate::test_entity! {
     ident = RouteCapabilityEntity,
@@ -905,8 +912,28 @@ fn route_secondary_order_pushdown_uses_shared_compatibility_fact_for_asc_desc_an
     assert_shared_secondary_order_compatibility_matches_route_pushdown(&incompatible_plan, false);
 }
 
+fn multi_lookup_primary_key_order_plan(
+    index: IndexModel,
+    direction: OrderDirection,
+) -> AccessPlannedQuery {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexMultiLookup {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                index,
+            ),
+            values: vec![Value::Nat64(1), Value::Nat64(2)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field("id", direction)],
+    });
+
+    plan
+}
+
 #[test]
-fn route_primary_order_satisfaction_stays_primary_access_only() {
+fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     let mut primary_plan =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     primary_plan.scalar_plan_mut().order = Some(OrderSpec {
@@ -919,7 +946,7 @@ fn route_primary_order_satisfaction_stays_primary_access_only() {
         &finalized_plan_for_authority(route_capability_authority(), &primary_plan),
     ));
 
-    let mut index_plan = AccessPlannedQuery::new(
+    let mut non_suffix_index_plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
@@ -928,14 +955,42 @@ fn route_primary_order_satisfaction_stays_primary_access_only() {
         },
         MissingRowPolicy::Ignore,
     );
-    index_plan.scalar_plan_mut().order = Some(OrderSpec {
+    non_suffix_index_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![crate::db::query::plan::OrderTerm::field(
             "id",
             OrderDirection::Asc,
         )],
     });
     assert!(!super::access_order_satisfied_by_route_mode(
-        &finalized_plan_for_authority(route_capability_authority(), &index_plan),
+        &finalized_plan_for_authority(route_capability_authority(), &non_suffix_index_plan),
+    ));
+
+    let pk_suffix_plan = multi_lookup_primary_key_order_plan(
+        ROUTE_CAPABILITY_PK_SUFFIX_INDEX_MODEL,
+        OrderDirection::Asc,
+    );
+    let finalized_pk_suffix_plan =
+        finalized_plan_for_authority(route_capability_authority(), &pk_suffix_plan);
+    assert!(super::access_order_satisfied_by_route_mode(
+        &finalized_pk_suffix_plan
+    ));
+    let route_plan =
+        build_load_route_plan(&pk_suffix_plan).expect("pk-suffix route plan should build");
+    assert_eq!(
+        route_plan.load_order_route_mode(),
+        LoadOrderRouteMode::DirectStreaming
+    );
+    assert!(
+        route_plan.preserve_ordered_index_leaf_stream(),
+        "pk-suffix multi-lookup should preserve index leaf order for lazy merging",
+    );
+
+    let composite_suffix_plan = multi_lookup_primary_key_order_plan(
+        ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+        OrderDirection::Asc,
+    );
+    assert!(!super::access_order_satisfied_by_route_mode(
+        &finalized_plan_for_authority(route_capability_authority(), &composite_suffix_plan),
     ));
 }
 

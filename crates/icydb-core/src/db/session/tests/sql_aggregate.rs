@@ -1650,7 +1650,12 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
         (
             "execution aggregate explain",
             "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
-            vec!["AggregateCount execution_mode=", "node_id=0"],
+            vec![
+                "AggregateCount execution_mode=",
+                "node_id=0",
+                "aggregate_contract=Text(\"singleton\")",
+                "aggregate_physical=Text(\"scalar_terminal\")",
+            ],
             false,
         ),
         (

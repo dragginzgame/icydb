@@ -198,6 +198,9 @@ struct MatrixSample {
     kernel_row_row_read_local_instructions: u64,
     kernel_row_order_window_local_instructions: u64,
     kernel_row_page_window_local_instructions: u64,
+    kernel_row_retained_layout_hits: u64,
+    kernel_row_retained_slot_values: u64,
+    kernel_row_retained_octet_length_values: u64,
     data_store_get_calls: u64,
     index_store_get_calls: u64,
     index_store_range_scan_calls: u64,
@@ -1418,6 +1421,9 @@ const fn fill_matrix_projection_path_sample(
         sample.kernel_row_row_read_local_instructions = kernel.row_read_local_instructions;
         sample.kernel_row_order_window_local_instructions = kernel.order_window_local_instructions;
         sample.kernel_row_page_window_local_instructions = kernel.page_window_local_instructions;
+        sample.kernel_row_retained_layout_hits = kernel.retained_layout_hits;
+        sample.kernel_row_retained_slot_values = kernel.retained_slot_values;
+        sample.kernel_row_retained_octet_length_values = kernel.retained_octet_length_values;
     }
 }
 
@@ -1724,6 +1730,11 @@ fn append_kernel_row_hotspot_tables(output: &mut String, samples: &[MatrixSample
             sample.kernel_row_order_window_local_instructions
         }),
     );
+    append_kernel_row_table(
+        output,
+        "Top Kernel Row Retained Slot Values",
+        ranked_by(samples, |sample| sample.kernel_row_retained_slot_values),
+    );
 }
 
 fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
@@ -1836,6 +1847,11 @@ fn append_main_fixture_execution_hotspot_tables(output: &mut String, samples: &[
         ranked_main_fixture_by(samples, |sample| {
             sample.kernel_row_order_window_local_instructions
         }),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Main Fixture Kernel Row Retained Slot Values",
+        ranked_main_fixture_by(samples, |sample| sample.kernel_row_retained_slot_values),
     );
 }
 
@@ -2130,15 +2146,18 @@ fn append_kernel_row_table(output: &mut String, title: &str, samples: Vec<&Matri
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Scan | Key Stream | Row Read | Order Window | Page Window | SQL |"
+        "| Scenario | Surface | Scan | Key Stream | Row Read | Order Window | Page Window | Retained Layouts | Retained Values | Length Values | SQL |"
     )
     .expect("write to string should succeed");
-    writeln!(output, "|---|---|---:|---:|---:|---:|---:|---|")
-        .expect("write to string should succeed");
+    writeln!(
+        output,
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    )
+    .expect("write to string should succeed");
     for sample in samples {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.key,
             sample.surface,
             sample.kernel_row_scan_local_instructions,
@@ -2146,6 +2165,9 @@ fn append_kernel_row_table(output: &mut String, title: &str, samples: Vec<&Matri
             sample.kernel_row_row_read_local_instructions,
             sample.kernel_row_order_window_local_instructions,
             sample.kernel_row_page_window_local_instructions,
+            sample.kernel_row_retained_layout_hits,
+            sample.kernel_row_retained_slot_values,
+            sample.kernel_row_retained_octet_length_values,
             sample.sql.replace('|', "\\|"),
         )
         .expect("write to string should succeed");
@@ -2582,13 +2604,19 @@ fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
             700,
             120,
         ),
-        main_fixture_sample_with_kernel_scan(
-            "user.select.pk.all.pk_asc.limit1",
-            "user",
-            90,
-            5,
-            "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
-        ),
+        {
+            let mut sample = main_fixture_sample_with_kernel_scan(
+                "user.select.pk.all.pk_asc.limit1",
+                "user",
+                90,
+                5,
+                "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+            );
+            sample.kernel_row_retained_layout_hits = 1;
+            sample.kernel_row_retained_slot_values = 3;
+            sample.kernel_row_retained_octet_length_values = 1;
+            sample
+        },
     ];
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
@@ -2634,12 +2662,33 @@ fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
         "main fixture kernel-row hotspot section should keep ordinary fixture scenarios",
     );
     assert!(
+        main_fixture_kernel_section.contains("Retained Values"),
+        "main fixture kernel-row hotspot section should expose retained-slot footprint columns",
+    );
+    assert!(
         !main_fixture_kernel_section.contains("heap_user"),
         "main fixture kernel-row hotspot section should exclude heap storage mirror baselines",
     );
     assert!(
         !main_fixture_kernel_section.contains("journaled_user"),
         "main fixture kernel-row hotspot section should exclude journaled storage mirror baselines",
+    );
+
+    let main_fixture_retained_section = markdown
+        .split("## Top Main Fixture Kernel Row Retained Slot Values")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("main fixture retained-slot hotspot section should render");
+
+    assert!(
+        main_fixture_retained_section.contains("user.select.pk.all.pk_asc.limit1"),
+        "main fixture retained-slot hotspot section should rank ordinary fixture scenarios",
+    );
+    assert!(
+        main_fixture_retained_section.contains(
+            "| `user.select.pk.all.pk_asc.limit1` | user | 90 | 0 | 5 | 0 | 0 | 1 | 3 | 1 |"
+        ),
+        "main fixture retained-slot hotspot section should expose retained layout/value counts",
     );
 }
 
@@ -2866,6 +2915,9 @@ fn report_matrix_sample(
         kernel_row_row_read_local_instructions: 0,
         kernel_row_order_window_local_instructions: 0,
         kernel_row_page_window_local_instructions: 0,
+        kernel_row_retained_layout_hits: 0,
+        kernel_row_retained_slot_values: 0,
+        kernel_row_retained_octet_length_values: 0,
         data_store_get_calls: 1,
         index_store_get_calls: 0,
         index_store_range_scan_calls: 0,

@@ -298,6 +298,16 @@ fn assert_indexed_grouped_ordered_public_case(
             Some(&Value::from("none")),
             "{context} grouped aggregate node should inherit the same no-fallback planner state",
         );
+        assert_eq!(
+            grouped_node.node_properties().get("aggregate_contract"),
+            Some(&Value::from("grouped")),
+            "{context} grouped aggregate node should identify the grouped aggregate contract",
+        );
+        assert_eq!(
+            grouped_node.node_properties().get("aggregate_physical"),
+            Some(&Value::from("ordered_materialized")),
+            "{context} grouped aggregate node should identify the ordered grouped physical implementation",
+        );
     }
 }
 
@@ -586,6 +596,16 @@ fn grouped_select_lowering_explain_and_execution_project_grouped_fallback_public
             .get("grouped_plan_fallback_reason"),
         Some(&Value::from("group_key_order_unavailable")),
         "grouped aggregate node should inherit the same planner-owned grouped fallback reason",
+    );
+    assert_eq!(
+        grouped_node.node_properties().get("aggregate_contract"),
+        Some(&Value::from("grouped")),
+        "hash grouped aggregate node should identify the grouped aggregate contract",
+    );
+    assert_eq!(
+        grouped_node.node_properties().get("aggregate_physical"),
+        Some(&Value::from("hash_materialized")),
+        "hash grouped aggregate node should identify the hash grouped physical implementation",
     );
 }
 

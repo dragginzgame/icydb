@@ -174,7 +174,7 @@ fn is_direct_count_rows_strategy(strategies: &[PreparedSqlScalarAggregateStrateg
         && strategy.filter_expr().is_none()
 }
 
-fn is_direct_count_rows_global_aggregate(
+pub(super) fn is_direct_count_rows_global_aggregate(
     strategies: &[PreparedSqlScalarAggregateStrategy],
     projection: &ProjectionSpec,
     aggregate_filter: Option<&Expr>,

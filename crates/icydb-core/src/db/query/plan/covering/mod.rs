@@ -190,10 +190,7 @@ pub(in crate::db) fn covering_read_reason_code_for_load_plan(
     if plan.scalar_plan().order.is_some() {
         return "order_mat";
     }
-    let index_shape_supported = plan.access.as_index_prefix_contract_path().is_some()
-        || plan.access.as_index_branch_set_spec_path().is_some()
-        || plan.access.as_index_range_path().is_some();
-    if !index_shape_supported {
+    if !index_backed_covering_shape_supported(&plan.access) {
         return "access_not_cov";
     }
     if (plan.has_residual_filter_expr() || plan.has_residual_filter_predicate())
@@ -220,10 +217,7 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
         return false;
     }
 
-    let index_shape_supported = plan.access.as_index_prefix_contract_path().is_some()
-        || plan.access.as_index_branch_set_spec_path().is_some()
-        || plan.access.as_index_range_path().is_some();
-    if !index_shape_supported {
+    if !index_backed_covering_shape_supported(&plan.access) {
         return false;
     }
     if plan.scalar_plan().predicate.is_none() {
@@ -713,6 +707,13 @@ fn constant_covering_projection_value_from_prefix(
         })
 }
 
+fn index_backed_covering_shape_supported<K>(access: &AccessPlan<K>) -> bool {
+    access.as_index_prefix_contract_path().is_some()
+        || access.as_index_multi_lookup_contract_path().is_some()
+        || access.as_index_branch_set_spec_path().is_some()
+        || access.as_index_range_path().is_some()
+}
+
 ///
 /// IndexCoveringAccessFacts
 ///
@@ -739,6 +740,16 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: values,
             prefix_len: values.len(),
+            path_kind_is_range: false,
+        });
+    }
+    if let Some((index, _values)) = access.as_index_multi_lookup_contract_path() {
+        return Some(IndexCoveringAccessFacts {
+            order_terms: index_key_item_order_terms(index.key_items()),
+            coverable_component_fields: coverable_component_fields_for_contract(&index),
+            coverable_component_exprs: coverable_component_exprs_for_contract(&index),
+            prefix_values: &[],
+            prefix_len: 1,
             path_kind_is_range: false,
         });
     }

@@ -218,9 +218,11 @@ impl KeyAccessRuntime {
     // Resolve one single-prefix secondary-index scan as a dynamic ordered stream.
     fn resolve_index_prefix_stream(
         &self,
+        index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
+        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let [spec] = index_prefix_specs else {
             return Err(InternalError::query_executor_invariant());
@@ -228,14 +230,22 @@ impl KeyAccessRuntime {
         if lowered_index_prefix_is_proven_empty(self.store, spec) {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
+        let resume_anchor = if preserve_leaf_index_order {
+            continuation
+                .primary_key_boundary()
+                .map(|boundary| primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary))
+                .transpose()?
+        } else {
+            None
+        };
 
         Ok(OrderedKeyStreamBox::index_range(
             IndexRangeKeyStream::from_prefix(
                 self.store,
                 self.entity_tag,
                 spec,
-                direction,
-                None,
+                continuation.direction(),
+                resume_anchor,
                 index_fetch_hint,
                 ACCESS_SCAN_CHUNK_ENTRIES,
             ),
@@ -269,7 +279,7 @@ impl KeyAccessRuntime {
             }
             let branch_anchor = continuation
                 .primary_key_boundary()
-                .map(|boundary| branch_set_resume_anchor_for_prefix(index, spec, boundary))
+                .map(|boundary| primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary))
                 .transpose()?;
             active_specs.push((spec, branch_anchor));
         }
@@ -336,10 +346,12 @@ impl KeyAccessRuntime {
     // Resolve one multi-lookup secondary-index scan as lazily merged prefix streams.
     fn resolve_index_multi_lookup_stream(
         &self,
+        index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         value_count: usize,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
+        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         if index_prefix_specs.len() != value_count {
             return Err(InternalError::query_executor_invariant());
@@ -363,13 +375,23 @@ impl KeyAccessRuntime {
             branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
         let mut streams = Vec::with_capacity(active_specs.len());
         for spec in active_specs {
+            let branch_anchor = if preserve_leaf_index_order {
+                continuation
+                    .primary_key_boundary()
+                    .map(|boundary| {
+                        primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary)
+                    })
+                    .transpose()?
+            } else {
+                None
+            };
             streams.push(OrderedKeyStreamBox::index_range(
                 IndexRangeKeyStream::from_prefix(
                     self.store,
                     self.entity_tag,
                     spec,
-                    direction,
-                    None,
+                    continuation.direction(),
+                    branch_anchor,
                     index_fetch_hint,
                     branch_chunk_entries,
                 ),
@@ -378,7 +400,7 @@ impl KeyAccessRuntime {
 
         Ok(OrderedKeyStreamBox::merge_all(
             streams,
-            KeyOrderComparator::from_direction(direction),
+            KeyOrderComparator::from_direction(continuation.direction()),
         ))
     }
 
@@ -430,7 +452,7 @@ impl KeyAccessRuntime {
     }
 }
 
-fn branch_set_resume_anchor_for_prefix(
+fn primary_key_suffix_resume_anchor_for_prefix(
     index: &IndexShapeDetails,
     spec: &LoweredIndexPrefixSpec,
     primary_key_boundary: &CursorBoundary,
@@ -449,9 +471,10 @@ fn branch_set_resume_anchor_for_prefix(
     let suffix_len = key_arity.saturating_sub(prefix_len);
     let (primary_key, suffix_values) = primary_key_suffix_values(primary_key_boundary, suffix_len)?;
 
-    // Branch-set continuation is valid only for this slice's proven
-    // primary-key suffix. Fill that suffix from the cursor boundary so each
-    // branch resumes at the same global primary-key position.
+    // Prefix-family continuation is valid only when route planning has proven
+    // that the remaining index suffix is exactly the primary key. Fill that
+    // suffix from the cursor boundary so each prefix stream resumes at the
+    // same global primary-key position.
     Ok(
         IndexKey::new_from_existing_prefix_and_suffix_values_with_primary_key_value(
             &prefix_start,
@@ -913,13 +936,15 @@ fn resolve_index_physical_key_stream(
     runtime: &KeyAccessRuntime,
 ) -> Result<PhysicalKeyResolution, InternalError> {
     let (candidates, key_order_state) = match path {
-        ExecutionPathPayload::IndexPrefix { .. } => {
+        ExecutionPathPayload::IndexPrefix { index } => {
             if index_path_can_stream_in_final_order(request) {
                 return Ok(PhysicalKeyResolution::Stream(Box::new(
                     runtime.resolve_index_prefix_stream(
+                        index,
                         request.index_prefix_specs,
-                        request.continuation.direction(),
+                        request.continuation,
                         request.physical_fetch_hint,
+                        request.preserve_leaf_index_order,
                     )?,
                 )));
             }
@@ -931,14 +956,16 @@ fn resolve_index_physical_key_stream(
                 request.index_predicate_execution,
             )?
         }
-        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => {
+        ExecutionPathPayload::IndexMultiLookup { index, value_count } => {
             if index_path_can_stream_in_final_order(request) {
                 return Ok(PhysicalKeyResolution::Stream(Box::new(
                     runtime.resolve_index_multi_lookup_stream(
+                        index,
                         request.index_prefix_specs,
                         *value_count,
-                        request.continuation.direction(),
+                        request.continuation,
                         request.physical_fetch_hint,
+                        request.preserve_leaf_index_order,
                     )?,
                 )));
             }

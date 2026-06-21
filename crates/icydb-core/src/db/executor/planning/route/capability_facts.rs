@@ -14,7 +14,7 @@ use crate::db::{
     executor::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
         route::{
-            AggregateRouteShape, LoadOrderRouteDecision, LoadOrderRouteReason,
+            AggregateRouteShape, LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason,
             LoadTerminalFastPathContract, access_order_satisfied_by_route_mode,
             bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported,
             secondary_order_contract_active,
@@ -135,6 +135,7 @@ pub(in crate::db::executor) const fn paged_primary_key_numeric_fold_shape_suppor
 struct LoadRouteCapabilityFacts {
     residual_filter_present: bool,
     requires_post_access_sort: bool,
+    ordered_index_leaf_stream_eligible: bool,
     load_order_route_decision: LoadOrderRouteDecision,
 }
 
@@ -174,10 +175,20 @@ impl LoadRouteCapabilityFacts {
         } else {
             LoadOrderRouteDecision::direct_streaming()
         };
+        let ordered_index_leaf_stream_eligible = has_order
+            && access_order_satisfied_by_path
+            && access_shape_facts
+                .single_path_index_prefix_details()
+                .is_some()
+            && matches!(
+                load_order_route_decision.mode(),
+                LoadOrderRouteMode::DirectStreaming
+            );
 
         Self {
             residual_filter_present,
             requires_post_access_sort,
+            ordered_index_leaf_stream_eligible,
             load_order_route_decision,
         }
     }
@@ -195,6 +206,11 @@ impl LoadRouteCapabilityFacts {
     #[must_use]
     const fn load_order_route_decision(self) -> LoadOrderRouteDecision {
         self.load_order_route_decision
+    }
+
+    #[must_use]
+    const fn ordered_index_leaf_stream_eligible(self) -> bool {
+        self.ordered_index_leaf_stream_eligible
     }
 }
 
@@ -334,6 +350,8 @@ pub(super) fn derive_execution_capability_facts_for_model(
 
     RouteCapabilityFacts {
         load_order_route_decision: load_route_capability_facts.load_order_route_decision(),
+        ordered_index_leaf_stream_eligible: load_route_capability_facts
+            .ordered_index_leaf_stream_eligible(),
         pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported(plan),
         count_pushdown_shape_supported: aggregate_execution_policy.count_pushdown_shape_supported(),
         composite_aggregate_fast_path_eligible: aggregate_execution_policy

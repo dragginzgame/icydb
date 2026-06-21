@@ -335,6 +335,18 @@ fn expected_branch_ids(limit: usize) -> Vec<Ulid> {
 }
 
 #[cfg(feature = "diagnostics")]
+fn expected_collection_ids(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    [
+        9_090_u128, 9_095, 9_100, 9_105, 9_110, 9_120, 9_125, 9_130, 9_135, 9_140, 9_150, 9_155,
+        9_160, 9_170, 9_175, 9_180,
+    ]
+    .into_iter()
+    .take(limit)
+    .map(|id| outputs(vec![Value::Ulid(Ulid::from_u128(id))]))
+    .collect()
+}
+
+#[cfg(feature = "diagnostics")]
 fn expected_skew_branch_rows(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
     [10_000_u128, 10_010, 10_020, 10_030, 10_040, 10_050]
         .into_iter()
@@ -1262,6 +1274,66 @@ fn session_branch_set_sql_sparse_in_count_uses_direct_prefix_cardinality() {
     assert_eq!(
         attribution.cache.shared_query_plan_misses, 0,
         "direct sparse COUNT should not build a shared prepared-plan cache entry",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = format!(
+        "SELECT id \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN (\
+             '{BRANCH_COLLECTION}', \
+             'missing-collection-000', \
+             'missing-collection-001', \
+             'missing-collection-002', \
+             'missing-collection-003', \
+             'missing-collection-004'\
+         ) \
+         ORDER BY id ASC \
+         LIMIT 8",
+    );
+    let query = lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, &sql)
+        .unwrap_or_else(|err| panic!("sparse collection page SQL should lower: {err:?}"));
+    let descriptor = session
+        .explain_query_execution_with_visible_indexes(&query)
+        .unwrap_or_else(|err| panic!("sparse collection page SQL should explain: {err:?}"));
+
+    assert!(
+        explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::IndexMultiLookup
+        ),
+        "sparse collection page should use the multi-lookup route: {descriptor:?}",
+    );
+    assert!(
+        !explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::FullScan),
+        "sparse collection page should not use a full scan: {descriptor:?}",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("sparse collection page SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("sparse collection page SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_collection_ids(8),
+        "sparse collection page should match primary-key sorted collection rows",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "key-only sparse collection page should stay on covering index payloads",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= 16,
+        "sparse collection page should prune missing prefixes and scan only existing collection entries, got {attribution:?}",
     );
 }
 

@@ -30,7 +30,7 @@ use super::metrics::{
 #[cfg(any(test, feature = "diagnostics"))]
 use super::metrics::{
     record_kernel_data_row_path_hit, record_kernel_full_row_retained_path_hit,
-    record_kernel_slots_only_path_hit,
+    record_kernel_retained_slot_layout, record_kernel_slots_only_path_hit,
 };
 
 ///
@@ -146,7 +146,10 @@ fn execute_kernel_row_scan_inner(
             retained_slot_layout,
         } => {
             #[cfg(any(test, feature = "diagnostics"))]
-            record_kernel_full_row_retained_path_hit();
+            {
+                record_kernel_full_row_retained_path_hit();
+                record_kernel_retained_slot_layout(retained_slot_layout);
+            }
 
             execute_retained_kernel_scan(
                 key_stream,
@@ -169,7 +172,10 @@ fn execute_kernel_row_scan_inner(
             retained_slot_layout,
         } => {
             #[cfg(any(test, feature = "diagnostics"))]
-            record_kernel_full_row_retained_path_hit();
+            {
+                record_kernel_full_row_retained_path_hit();
+                record_kernel_retained_slot_layout(retained_slot_layout);
+            }
 
             execute_retained_kernel_scan(
                 key_stream,
@@ -192,7 +198,10 @@ fn execute_kernel_row_scan_inner(
             retained_slot_layout,
         } => {
             #[cfg(any(test, feature = "diagnostics"))]
-            record_kernel_slots_only_path_hit();
+            {
+                record_kernel_slots_only_path_hit();
+                record_kernel_retained_slot_layout(retained_slot_layout);
+            }
 
             execute_retained_kernel_scan(
                 key_stream,
@@ -215,7 +224,10 @@ fn execute_kernel_row_scan_inner(
             retained_slot_layout,
         } => {
             #[cfg(any(test, feature = "diagnostics"))]
-            record_kernel_slots_only_path_hit();
+            {
+                record_kernel_slots_only_path_hit();
+                record_kernel_retained_slot_layout(retained_slot_layout);
+            }
 
             execute_retained_kernel_scan(
                 key_stream,

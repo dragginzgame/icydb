@@ -4,11 +4,12 @@
 //! Boundary: route-owned access-shape assessment over validated logical+access plans.
 
 use crate::db::{
-    access::{AccessShapeFacts, SemanticIndexKeyItemsRef},
+    access::{AccessPathKind, AccessShapeFacts, IndexShapeDetails, SemanticIndexKeyItemsRef},
     executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
-        PlannerRouteProfile, access_satisfies_deterministic_secondary_order_contract,
+        OrderDirection, PlannerRouteProfile,
+        access_satisfies_deterministic_secondary_order_contract,
         deterministic_secondary_index_key_items_order_compatibility,
     },
 };
@@ -196,9 +197,11 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
     let planner_route_profile = plan.planner_route_profile();
     let has_order_fields = !order.fields.is_empty();
     // `ORDER BY primary_key` is satisfied by access shapes whose final stream
-    // order is already primary-key ordered. Secondary index paths stay ordered,
-    // but that order is owned by the index key, so they must not claim PK-order
-    // satisfaction merely because they are monotonic.
+    // order is already primary-key ordered. Most secondary index paths are
+    // ordered by their index keys, not by the primary key. The narrow exception
+    // is an ASC index-prefix family whose consumed prefix leaves the primary
+    // key as the exact remaining index suffix, so each prefix stream can be
+    // merged by decoded primary key without a materialized sort.
     let access_uses_index = access_shape_facts
         .single_path_index_prefix_details()
         .is_some()
@@ -207,8 +210,17 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
             .is_some();
     let primary_key_order_satisfied = order
         .primary_key_only_direction_fields(&plan.primary_key_names())
-        .is_some()
-        && !access_uses_index;
+        .is_some_and(|direction| {
+            if !access_uses_index {
+                return true;
+            }
+
+            matches!(direction, OrderDirection::Asc)
+                && index_prefix_family_preserves_primary_key_suffix_order(
+                    access_shape_facts,
+                    plan.primary_key_names().as_slice(),
+                )
+        });
     let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
             access_satisfies_deterministic_secondary_order_contract(
@@ -218,4 +230,46 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
         });
 
     has_order_fields && (primary_key_order_satisfied || secondary_pushdown_eligible)
+}
+
+fn index_prefix_family_preserves_primary_key_suffix_order(
+    access_shape_facts: &AccessShapeFacts,
+    primary_key_names: &[&str],
+) -> bool {
+    let Some(single_path) = access_shape_facts.single_path_facts() else {
+        return false;
+    };
+    if !matches!(
+        single_path.kind(),
+        AccessPathKind::IndexPrefix
+            | AccessPathKind::IndexMultiLookup
+            | AccessPathKind::IndexBranchSet
+    ) {
+        return false;
+    }
+
+    let Some(details) = single_path.index_prefix_details() else {
+        return false;
+    };
+
+    index_suffix_matches_primary_key_order(&details, primary_key_names)
+}
+
+fn index_suffix_matches_primary_key_order(
+    index: &IndexShapeDetails,
+    primary_key_names: &[&str],
+) -> bool {
+    let prefix_len = index.slot_arity();
+    let key_arity = index.key_arity();
+    if prefix_len >= key_arity {
+        return false;
+    }
+    if key_arity.saturating_sub(prefix_len) != primary_key_names.len() {
+        return false;
+    }
+
+    primary_key_names
+        .iter()
+        .enumerate()
+        .all(|(offset, name)| index.key_field_at(prefix_len + offset) == Some(*name))
 }

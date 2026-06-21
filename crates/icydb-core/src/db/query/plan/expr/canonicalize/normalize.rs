@@ -402,6 +402,14 @@ fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
             | BooleanFunctionShape::CollectionContains,
         )
         | None => Expr::FunctionCall { function, args },
+        Some(BooleanFunctionShape::Membership) => {
+            let [target, values] = <[Expr; 2]>::try_from(args).expect("query expression invariant");
+
+            Expr::FunctionCall {
+                function,
+                args: vec![normalize_bool_compare_operand(target), values],
+            }
+        }
     }
 }
 

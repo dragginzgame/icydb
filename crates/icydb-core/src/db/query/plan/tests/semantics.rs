@@ -244,6 +244,45 @@ fn finalized_static_contract_owns_applied_predicate_pushdown_label() {
 }
 
 #[test]
+fn finalized_static_contract_skips_preparation_compile_for_access_proven_predicate() {
+    let values = vec![Value::from("alpha"), Value::from("beta")];
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "tag",
+        CompareOp::In,
+        Value::List(values.clone()),
+        CoercionId::Strict,
+    ));
+    let access = AccessPlan::path(AccessPath::IndexMultiLookup {
+        index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+            INDEX_MODEL,
+        ),
+        values,
+    });
+    let mut plan = scalar_load_plan_with_predicate(Some(predicate), access);
+
+    plan.finalize_planner_route_profile_for_model(model_with_index());
+    plan.finalize_static_execution_planning_contract_for_model_only(model_with_index())
+        .expect("access-proven predicate should finalize");
+
+    assert!(
+        plan.execution_preparation_predicate().is_some(),
+        "diagnostic preparation predicate should remain visible",
+    );
+    assert!(
+        !plan.has_any_residual_filter(),
+        "index multi-lookup should prove the IN predicate",
+    );
+    assert!(
+        plan.execution_preparation_compiled_predicate().is_none(),
+        "access-proven predicates should not compile unused preparation programs",
+    );
+    assert!(
+        plan.effective_runtime_filter_program().is_none(),
+        "access-proven predicates should not leave a runtime filter",
+    );
+}
+
+#[test]
 fn finalized_static_contract_owns_full_scan_fallback_pushdown_reason_labels() {
     let full_scan = || AccessPlan::path(AccessPath::FullScan);
     let non_strict = Predicate::Compare(ComparePredicate::with_coercion(

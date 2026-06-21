@@ -610,6 +610,44 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+            crate::db::session::query::QueryPlanCompilePhaseAttribution,
+        ),
+        QueryError,
+    > {
+        let (prepared_plan, cache_attribution, plan_compile_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+                authority.clone(),
+                accepted_schema,
+                schema_fingerprint,
+                query,
+            )?;
+        let (prepared_plan, projection, cache_attribution) =
+            Self::sql_select_projection_from_prepared_plan(
+                prepared_plan,
+                authority,
+                cache_attribution,
+            );
+
+        Ok((
+            prepared_plan,
+            projection,
+            cache_attribution,
+            plan_compile_attribution,
+        ))
+    }
+
     // Resolve one typed SQL SELECT through accepted schema authority selected
     // at the session boundary.
     #[allow(

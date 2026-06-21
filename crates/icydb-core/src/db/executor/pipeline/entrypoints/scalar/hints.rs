@@ -15,7 +15,7 @@ use crate::db::executor::{ExecutionPlan, ScalarContinuationContext};
 enum UnpagedLoadHintStrategy {
     None,
     TopNSeekWindow { fetch: usize },
-    PreserveSecondaryOrder,
+    PreserveOrderedIndexLeafStream,
 }
 
 impl UnpagedLoadHintStrategy {
@@ -54,10 +54,10 @@ impl UnpagedLoadHintStrategy {
             return Self::TopNSeekWindow { fetch };
         }
 
-        if route_plan.secondary_fast_path_eligible()
+        if route_plan.preserve_ordered_index_leaf_stream()
             && route_plan.scan_hints.physical_fetch_hint.is_none()
         {
-            return Self::PreserveSecondaryOrder;
+            return Self::PreserveOrderedIndexLeafStream;
         }
 
         Self::None
@@ -70,7 +70,7 @@ impl UnpagedLoadHintStrategy {
                 route_plan.scan_hints.physical_fetch_hint = Some(fetch);
                 route_plan.scan_hints.load_scan_budget_hint = Some(fetch);
             }
-            Self::PreserveSecondaryOrder => {
+            Self::PreserveOrderedIndexLeafStream => {
                 route_plan.scan_hints.physical_fetch_hint = Some(usize::MAX);
             }
         }

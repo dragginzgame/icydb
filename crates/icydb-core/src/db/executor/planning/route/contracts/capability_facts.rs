@@ -30,6 +30,7 @@ pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteCapabilityFacts {
     pub(in crate::db::executor) load_order_route_decision: LoadOrderRouteDecision,
+    pub(in crate::db::executor) ordered_index_leaf_stream_eligible: bool,
     pub(in crate::db::executor) pk_order_fast_path_eligible: bool,
     pub(in crate::db::executor) count_pushdown_shape_supported: bool,
     pub(in crate::db::executor) composite_aggregate_fast_path_eligible: bool,

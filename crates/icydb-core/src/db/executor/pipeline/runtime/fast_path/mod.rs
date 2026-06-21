@@ -133,7 +133,7 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
         let fallback_fetch_hint = self
             .route_plan
             .fallback_physical_fetch_hint(self.kernel.inputs.stream_bindings().direction());
-        let preserve_leaf_index_order = self.route_plan.secondary_fast_path_eligible();
+        let preserve_leaf_index_order = self.route_plan.preserve_ordered_index_leaf_stream();
         let key_stream = self
             .kernel
             .inputs

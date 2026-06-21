@@ -238,6 +238,7 @@ pub(in crate::db) enum Function {
     EndsWith,
     Exp,
     Floor,
+    InList,
     IsEmpty,
     IsMissing,
     IsNotEmpty,
@@ -283,6 +284,7 @@ impl Function {
             Self::EndsWith => "ENDS_WITH",
             Self::Exp => "EXP",
             Self::Floor => "FLOOR",
+            Self::InList => "IN_LIST",
             Self::IsEmpty => "IS_EMPTY",
             Self::IsMissing => "IS_MISSING",
             Self::IsNotEmpty => "IS_NOT_EMPTY",
@@ -666,6 +668,7 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
         Function::Substring => Some(SupportedOrderFunctionShape::FieldOneOrTwoLiterals),
         Function::Round | Function::Trunc => Some(SupportedOrderFunctionShape::Round),
         Function::CollectionContains => None,
+        Function::InList => None,
     }
 }
 

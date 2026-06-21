@@ -108,8 +108,9 @@ impl ScalarRowRuntimeState {
     }
 
     // Read one canonical structural data row and drop it early when the
-    // residual filter rejects the retained slot values needed by scan-time
-    // filtering.
+    // residual filter rejects it. The retained-slot layout is a scan-mode
+    // proof owned by the caller; raw-row filtering reads through RowLayout
+    // directly and therefore does not decode the retained layout here.
     fn read_data_row_with_filter_program(
         &self,
         consistency: MissingRowPolicy,

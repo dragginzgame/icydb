@@ -35,6 +35,23 @@ use crate::{
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+fn reset_same_score_competing_candidate_scan_count_for_tests() {
+    SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+fn same_score_competing_candidate_scan_count_for_tests() -> u64 {
+    SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT.with(Cell::get)
+}
 
 pub(in crate::db) use self::model::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
@@ -289,6 +306,10 @@ fn rerank_access_plan_by_residual_burden_from_authority(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
+    if residual_burden_for_plan(plan).is_empty() {
+        return None;
+    }
+
     let preferred = preferred_same_score_competing_access_by_residual_burden(
         model,
         visible_indexes,
@@ -362,6 +383,10 @@ impl ResidualBurdenProfile {
             1 => AccessChoiceResidualBurden::PredicateOnly,
             _ => AccessChoiceResidualBurden::ScalarExpression,
         }
+    }
+
+    const fn is_empty(self) -> bool {
+        self.kind_rank == 0 && self.predicate_term_count == 0
     }
 }
 
@@ -502,6 +527,11 @@ fn same_score_competing_candidate_plans(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<ResidualComparableCandidate>> {
+    #[cfg(test)]
+    SAME_SCORE_COMPETING_CANDIDATE_SCAN_COUNT.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+
     let (family, chosen_index_name, chosen_score_hint) =
         chosen_access_shape_projection(&plan.access);
     if matches!(family, AccessChoiceFamily::NonIndex) {

@@ -3,6 +3,9 @@ use std::cell::Cell;
 #[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
 
+#[cfg(any(test, feature = "diagnostics"))]
+use super::{RetainedSlotLayout, RetainedSlotValueMode};
+
 #[cfg(feature = "diagnostics")]
 pub(super) use crate::db::diagnostics::measure_local_instruction_delta as measure_direct_data_row_phase;
 #[cfg(feature = "diagnostics")]
@@ -29,6 +32,9 @@ pub struct ScalarMaterializationLaneMetrics {
     pub kernel_data_row_path_hits: u64,
     pub kernel_full_row_retained_path_hits: u64,
     pub kernel_slots_only_path_hits: u64,
+    pub kernel_retained_layout_hits: u64,
+    pub kernel_retained_slot_values: u64,
+    pub kernel_retained_octet_length_values: u64,
 }
 
 ///
@@ -63,7 +69,6 @@ pub(in crate::db) struct DirectDataRowPhaseAttribution {
 ///
 
 #[cfg(feature = "diagnostics")]
-#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct KernelRowPhaseAttribution {
     pub(in crate::db) scan_local_instructions: u64,
@@ -71,6 +76,9 @@ pub(in crate::db) struct KernelRowPhaseAttribution {
     pub(in crate::db) row_read_local_instructions: u64,
     pub(in crate::db) order_window_local_instructions: u64,
     pub(in crate::db) page_window_local_instructions: u64,
+    pub(in crate::db) retained_layout_hits: u64,
+    pub(in crate::db) retained_slot_values: u64,
+    pub(in crate::db) retained_octet_length_values: u64,
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
@@ -104,6 +112,9 @@ std::thread_local! {
             row_read_local_instructions: 0,
             order_window_local_instructions: 0,
             page_window_local_instructions: 0,
+            retained_layout_hits: 0,
+            retained_slot_values: 0,
+            retained_octet_length_values: 0,
         })
     };
 }
@@ -157,6 +168,42 @@ pub(super) fn record_kernel_slots_only_path_hit() {
     update_scalar_materialization_lane_metrics(|metrics| {
         metrics.kernel_slots_only_path_hits = metrics.kernel_slots_only_path_hits.saturating_add(1);
     });
+}
+
+#[cfg(any(test, feature = "diagnostics"))]
+pub(super) fn record_kernel_retained_slot_layout(layout: &RetainedSlotLayout) {
+    let retained_values = usize_to_u64(layout.retained_value_count());
+    let octet_length_values = usize_to_u64(
+        layout
+            .value_modes()
+            .iter()
+            .filter(|mode| **mode == RetainedSlotValueMode::ScalarOctetLength)
+            .count(),
+    );
+
+    update_scalar_materialization_lane_metrics(|metrics| {
+        metrics.kernel_retained_layout_hits = metrics.kernel_retained_layout_hits.saturating_add(1);
+        metrics.kernel_retained_slot_values = metrics
+            .kernel_retained_slot_values
+            .saturating_add(retained_values);
+        metrics.kernel_retained_octet_length_values = metrics
+            .kernel_retained_octet_length_values
+            .saturating_add(octet_length_values);
+    });
+
+    #[cfg(feature = "diagnostics")]
+    update_kernel_row_phase_attribution(1, |current, _| {
+        current.retained_layout_hits = current.retained_layout_hits.saturating_add(1);
+        current.retained_slot_values = current.retained_slot_values.saturating_add(retained_values);
+        current.retained_octet_length_values = current
+            .retained_octet_length_values
+            .saturating_add(octet_length_values);
+    });
+}
+
+#[cfg(any(test, feature = "diagnostics"))]
+fn usize_to_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 ///

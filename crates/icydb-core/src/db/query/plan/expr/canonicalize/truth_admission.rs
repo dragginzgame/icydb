@@ -174,6 +174,7 @@ impl TruthAdmission {
                 Some(
                     BooleanFunctionShape::NullTest
                     | BooleanFunctionShape::FieldPredicate
+                    | BooleanFunctionShape::Membership
                     | BooleanFunctionShape::TextPredicate,
                 ) => true,
                 Some(BooleanFunctionShape::CollectionContains) | None => false,
@@ -269,6 +270,9 @@ pub(in crate::db::query::plan::expr::canonicalize) fn bool_function_args_match(
         }
         Some(BooleanFunctionShape::CollectionContains) => {
             matches!(args, [Expr::Field(_), Expr::Literal(_)])
+        }
+        Some(BooleanFunctionShape::Membership) => {
+            matches!(args, [target, Expr::Literal(Value::List(_))] if compare_arg(target))
         }
         None => false,
     }

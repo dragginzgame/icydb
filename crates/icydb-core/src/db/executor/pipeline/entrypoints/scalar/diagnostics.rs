@@ -33,7 +33,6 @@ use crate::{
 /// floor lives in runtime traversal or page finalization.
 ///
 
-#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) load_plan_local_instructions: u64,
@@ -56,6 +55,9 @@ pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) kernel_row_row_read_local_instructions: u64,
     pub(in crate::db) kernel_row_order_window_local_instructions: u64,
     pub(in crate::db) kernel_row_page_window_local_instructions: u64,
+    pub(in crate::db) kernel_row_retained_layout_hits: u64,
+    pub(in crate::db) kernel_row_retained_slot_values: u64,
+    pub(in crate::db) kernel_row_retained_octet_length_values: u64,
 }
 
 /// Execute one prepared scalar runtime bundle while reporting the internal
@@ -127,6 +129,10 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
                 .order_window_local_instructions,
             kernel_row_page_window_local_instructions: kernel_row_phase_attribution
                 .page_window_local_instructions,
+            kernel_row_retained_layout_hits: kernel_row_phase_attribution.retained_layout_hits,
+            kernel_row_retained_slot_values: kernel_row_phase_attribution.retained_slot_values,
+            kernel_row_retained_octet_length_values: kernel_row_phase_attribution
+                .retained_octet_length_values,
         },
     ))
 }

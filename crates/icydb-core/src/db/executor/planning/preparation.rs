@@ -13,7 +13,9 @@ use crate::db::{
         PredicateProgram, classify_predicate_capabilities,
         classify_predicate_capabilities_for_targets,
     },
-    query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
+    query::plan::{
+        AccessPlannedQuery, EffectiveRuntimeFilterProgram, covering_strict_predicate_compatible,
+    },
 };
 
 ///
@@ -231,6 +233,26 @@ impl ExecutionPreparation {
             strict_mode,
         }
     }
+}
+
+/// Resolve covering strict-predicate compatibility without building predicate
+/// capability state when the residual-filter contract already decides it.
+#[must_use]
+pub(in crate::db::executor) fn covering_strict_predicate_compatible_for_plan(
+    plan: &AccessPlannedQuery,
+) -> bool {
+    if !plan.has_residual_filter_predicate() {
+        return covering_strict_predicate_compatible(plan, None);
+    }
+
+    let execution_preparation =
+        ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
+    covering_strict_predicate_compatible(
+        plan,
+        execution_preparation
+            .predicate_capability_profile()
+            .map(PredicateCapabilityProfile::index),
+    )
 }
 
 // Derive one optional predicate capability snapshot from the compiled

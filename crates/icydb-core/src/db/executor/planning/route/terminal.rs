@@ -7,14 +7,14 @@ use crate::db::{
     access::LoweredAccess,
     direction::Direction,
     executor::{
-        EntityAuthority, ExecutionPreparation,
-        planning::preparation::slot_map_for_model_plan,
+        EntityAuthority,
+        planning::preparation::covering_strict_predicate_compatible_for_plan,
         route::{
             direct_primary_key_lookup_shape_supported, primary_key_stream_window_shape_supported,
         },
     },
     query::plan::{
-        AccessPlannedQuery, CoveringReadExecutionPlan, covering_strict_predicate_compatible,
+        AccessPlannedQuery, CoveringReadExecutionPlan,
         index_covering_existing_rows_terminal_eligible,
     },
 };
@@ -138,14 +138,7 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_plan(
         return None;
     }
 
-    let execution_preparation =
-        ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
-    let strict_predicate_compatible = covering_strict_predicate_compatible(
-        plan,
-        execution_preparation
-            .predicate_capability_profile()
-            .map(crate::db::predicate::PredicateCapabilityProfile::index),
-    );
+    let strict_predicate_compatible = covering_strict_predicate_compatible_for_plan(plan);
 
     derive_load_terminal_fast_path_contract(authority, plan, strict_predicate_compatible)
 }

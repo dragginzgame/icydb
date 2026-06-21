@@ -148,74 +148,28 @@ fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Ex
     }
 }
 
-// Convert one runtime membership compare back onto the planner OR-of-EQ /
-// AND-of-NE spine consumed by shared membership collapse.
+// Convert one runtime membership compare onto the compact planner membership
+// function consumed by shared predicate compilation.
 fn membership_compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
     let values = match compare.value() {
         Value::List(values) => values.as_slice(),
         _ => return Expr::Literal(Value::Bool(matches!(compare.op(), CompareOp::NotIn))),
     };
-
-    let shape = membership_bool_chain_shape(compare.op());
-
-    let mut values = values.iter();
-    let Some(first) = values.next() else {
-        return Expr::Literal(Value::Bool(shape.empty_result));
+    let expr = Expr::FunctionCall {
+        function: Function::InList,
+        args: vec![
+            casefold_field_expr(compare.field(), compare.coercion().id()),
+            Expr::Literal(Value::List(values.to_vec())),
+        ],
     };
 
-    let field = casefold_field_expr(compare.field(), compare.coercion().id());
-    let mut expr = Expr::Binary {
-        op: shape.compare_op,
-        left: Box::new(field.clone()),
-        right: Box::new(Expr::Literal(first.clone())),
-    };
-
-    for value in values {
-        expr = Expr::Binary {
-            op: shape.join_op,
-            left: Box::new(expr),
-            right: Box::new(Expr::Binary {
-                op: shape.compare_op,
-                left: Box::new(field.clone()),
-                right: Box::new(Expr::Literal(value.clone())),
-            }),
-        };
-    }
-
-    expr
-}
-
-///
-/// MembershipBoolChainShape
-///
-/// Local predicate-bridge shape for expanding compact runtime `IN` and
-/// `NOT IN` predicates onto the normalized boolean expression chains consumed
-/// by the shared membership-collapse path.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct MembershipBoolChainShape {
-    compare_op: BinaryOp,
-    join_op: BinaryOp,
-    empty_result: bool,
-}
-
-// Resolve the boolean-chain shape for compact membership predicates once so
-// expansion cannot drift between leaf compare, chain join, and empty-list
-// identity handling.
-fn membership_bool_chain_shape(op: CompareOp) -> MembershipBoolChainShape {
-    match op {
-        CompareOp::In => MembershipBoolChainShape {
-            compare_op: BinaryOp::Eq,
-            join_op: BinaryOp::Or,
-            empty_result: false,
-        },
-        CompareOp::NotIn => MembershipBoolChainShape {
-            compare_op: BinaryOp::Ne,
-            join_op: BinaryOp::And,
-            empty_result: true,
-        },
-        _ => unreachable!("predicate bridge invariant"),
+    if matches!(compare.op(), CompareOp::NotIn) {
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(expr),
+        }
+    } else {
+        expr
     }
 }
 

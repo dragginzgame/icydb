@@ -174,6 +174,7 @@ impl ProjectionFunctionCode {
     const ENDS_WITH: Self = Self(6);
     const EXP: Self = Self(7);
     const FLOOR: Self = Self(8);
+    const IN_LIST: Self = Self(38);
     const IS_EMPTY: Self = Self(9);
     const IS_MISSING: Self = Self(10);
     const IS_NOT_EMPTY: Self = Self(11);
@@ -215,6 +216,7 @@ impl ProjectionFunctionCode {
             Function::EndsWith => Self::ENDS_WITH,
             Function::Exp => Self::EXP,
             Function::Floor => Self::FLOOR,
+            Function::InList => Self::IN_LIST,
             Function::IsEmpty => Self::IS_EMPTY,
             Function::IsMissing => Self::IS_MISSING,
             Function::IsNotEmpty => Self::IS_NOT_EMPTY,

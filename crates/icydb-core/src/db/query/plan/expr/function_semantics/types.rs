@@ -79,6 +79,7 @@ pub(in crate::db::query::plan::expr) enum FunctionTypeInferenceShape {
     CollectionContains,
     DynamicCoalesce,
     DynamicNullIf,
+    Membership,
     NumericResult {
         text_positions: &'static [usize],
         numeric_positions: &'static [usize],
@@ -125,6 +126,7 @@ pub(in crate::db) enum FunctionSurface {
 pub(in crate::db::query::plan::expr) enum BooleanFunctionShape {
     CollectionContains,
     FieldPredicate,
+    Membership,
     NullTest,
     TextPredicate,
     TruthCoalesce,
@@ -317,6 +319,7 @@ pub(in crate::db::query::plan::expr) enum ScalarEvalFunctionShape {
     DynamicNullIf,
     BinaryNumeric,
     LeftRightText,
+    Membership,
     NonExecutableProjection,
     NullTest,
     PositionText,

@@ -592,8 +592,12 @@ fn project_static_execution_planning_contract_for_model(
     let execution_preparation_predicate = plan.execution_preparation_predicate();
     let residual_filter_predicate = derive_residual_filter_predicate(plan);
     let residual_filter_expr = derive_residual_filter_expr_for_model(model, plan);
-    let execution_preparation_compiled_predicate =
-        compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref());
+    let execution_preparation_compiled_predicate = should_compile_execution_preparation_predicate(
+        residual_filter_expr.as_ref(),
+        residual_filter_predicate.as_ref(),
+    )
+    .then(|| compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref()))
+    .flatten();
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
         schema_info,
         residual_filter_expr.as_ref(),
@@ -812,6 +816,17 @@ fn compile_optional_predicate(
     predicate: Option<&Predicate>,
 ) -> Option<PredicateProgram> {
     predicate.map(|predicate| PredicateProgram::compile_with_schema_info(schema_info, predicate))
+}
+
+// Avoid compiling large access-proven predicates into executor preparation.
+// When no residual filter survives, the chosen access route already enforces
+// the predicate and route/explain consumers can use the explicit residual
+// contract instead of recompiling access-bound literals.
+const fn should_compile_execution_preparation_predicate(
+    residual_filter_expr: Option<&Expr>,
+    residual_filter_predicate: Option<&Predicate>,
+) -> bool {
+    residual_filter_expr.is_some() || residual_filter_predicate.is_some()
 }
 
 // Resolve the grouped-only static planning semantics bundle once so grouped

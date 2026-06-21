@@ -99,7 +99,9 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
         .expect("filtered aggregate EXPLAIN EXECUTION should succeed while the index is ready");
     assert!(
         ready_explain.contains("AggregateCount execution_mode=")
-            && ready_explain.contains("access_strategy=IndexPrefix"),
+            && ready_explain.contains("access_strategy=IndexPrefix")
+            && ready_explain.contains("aggregate_direct_count_metadata_eligible=Bool(true)")
+            && ready_explain.contains("aggregate_direct_count_prefixes=Nat64(1)"),
         "ready filtered aggregate EXPLAIN EXECUTION should keep the planner-visible name index: {ready_explain}",
     );
     assert!(
@@ -119,11 +121,13 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
         .expect("filtered aggregate EXPLAIN EXECUTION should still succeed once the shared index becomes building");
     assert!(
         building_explain.contains("AggregateCount execution_mode=")
-            && building_explain.contains("access_strategy=FullScan"),
-        "building filtered aggregate EXPLAIN EXECUTION should fall back to FullScan once the name index becomes planner-invisible: {building_explain}",
+            && building_explain.contains("access_strategy=FullScan")
+            && building_explain.contains("aggregate_direct_count_metadata_eligible=Bool(false)"),
+        "building filtered aggregate EXPLAIN EXECUTION should fall back to FullScan and report metadata ineligibility once the name index becomes planner-invisible: {building_explain}",
     );
     assert!(
         !building_explain.contains("access_strategy=IndexPrefix")
+            && !building_explain.contains("aggregate_direct_count_prefixes=Nat64")
             && !building_explain.contains("authority_decision")
             && !building_explain.contains("authority_reason")
             && !building_explain.contains("index_state"),

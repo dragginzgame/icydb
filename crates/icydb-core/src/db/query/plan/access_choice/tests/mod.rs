@@ -14,6 +14,14 @@ use super::{
     },
 };
 use crate::{
+    db::{
+        access::{AccessPlan, SemanticIndexAccessContract},
+        predicate::{CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+        query::plan::{
+            AccessPlannedQuery, LoadSpec, LogicalPlanningInputs, QueryMode, build_logical_plan,
+            expr::ProjectionSelection, logical_query_from_logical_inputs,
+        },
+    },
     db::{predicate::CoercionId, schema::SchemaInfo},
     model::{
         entity::EntityModel,
@@ -667,6 +675,72 @@ fn chosen_selection_reason_prefers_lower_residual_burden_before_order_compatibil
         ),
         AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::ResidualBurdenPreferred),
         "residual-burden preference should surface before downstream order compatibility when structural scores already tie",
+    );
+}
+
+#[test]
+fn residual_free_rerank_skips_same_score_candidate_scan() {
+    let values = vec![
+        Value::Text("alice@example.com".to_string()),
+        Value::Text("bob@example.com".to_string()),
+        Value::Text("carol@example.com".to_string()),
+    ];
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::In,
+        Value::List(values.clone()),
+        CoercionId::Strict,
+    ));
+    let schema = schema();
+    let logical_inputs = LogicalPlanningInputs::new(
+        QueryMode::Load(LoadSpec::new()),
+        None,
+        false,
+        None,
+        false,
+        None,
+        None,
+    );
+    let logical = build_logical_plan(
+        schema,
+        logical_query_from_logical_inputs(
+            logical_inputs,
+            Some(predicate),
+            MissingRowPolicy::Ignore,
+        ),
+    );
+    let index =
+        SemanticIndexAccessContract::model_only_from_generated_index(ACCESS_CHOICE_RAW_INDEXES[0]);
+    let access: AccessPlan<Value> = AccessPlan::index_multi_lookup_from_contract(index, values);
+    let plan = AccessPlannedQuery::from_logical_access_and_projection(
+        logical,
+        access,
+        ProjectionSelection::All,
+    );
+    let visible_indexes = ACCESS_CHOICE_INDEX_REFS
+        .iter()
+        .copied()
+        .map(|index| SemanticIndexAccessContract::model_only_from_generated_index(*index))
+        .collect::<Vec<_>>();
+
+    assert!(
+        super::residual_burden_for_plan(&plan).is_empty(),
+        "the selected multi-lookup route proves the full IN predicate",
+    );
+
+    super::reset_same_score_competing_candidate_scan_count_for_tests();
+    let reranked = super::rerank_access_plan_by_residual_burden_from_authority(
+        &ACCESS_CHOICE_MODEL,
+        visible_indexes.as_slice(),
+        schema,
+        &plan,
+    );
+
+    assert!(reranked.is_none());
+    assert_eq!(
+        super::same_score_competing_candidate_scan_count_for_tests(),
+        0,
+        "residual-free routes cannot improve on residual burden and should not rescan candidates",
     );
 }
 

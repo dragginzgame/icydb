@@ -100,7 +100,9 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
         ScalarEvalFunctionShape::NullTest => {
             eval_null_test_function_call(function, &evaluated_args)
         }
-        ScalarEvalFunctionShape::NonExecutableProjection => None,
+        ScalarEvalFunctionShape::NonExecutableProjection | ScalarEvalFunctionShape::Membership => {
+            None
+        }
         ScalarEvalFunctionShape::UnaryText => {
             eval_unary_text_function_call(function, &evaluated_args)
         }

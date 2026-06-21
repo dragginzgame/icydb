@@ -72,6 +72,7 @@ impl ExecutionRoutePlan {
                     crate::db::executor::route::LoadOrderRouteDecision::materialized_fallback(
                         LoadOrderRouteReason::None,
                     ),
+                ordered_index_leaf_stream_eligible: false,
                 pk_order_fast_path_eligible: false,
                 count_pushdown_shape_supported: false,
                 composite_aggregate_fast_path_eligible: false,
@@ -184,6 +185,12 @@ impl ExecutionRoutePlan {
     /// Return whether secondary-prefix pushdown is enabled for this route.
     pub(in crate::db::executor) const fn secondary_fast_path_eligible(&self) -> bool {
         self.secondary_pushdown_applicability.is_eligible()
+    }
+
+    /// Return whether fallback stream resolution should preserve leaf index order.
+    pub(in crate::db::executor) const fn preserve_ordered_index_leaf_stream(&self) -> bool {
+        self.secondary_fast_path_eligible()
+            || self.capability_facts.ordered_index_leaf_stream_eligible
     }
 
     /// Return whether the plan shape supports direct PK ordered streaming fast path.

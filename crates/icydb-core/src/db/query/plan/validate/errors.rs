@@ -558,6 +558,7 @@ impl ExprPlanFunctionCode {
     pub const ENDS_WITH: Self = Self(6);
     pub const EXP: Self = Self(7);
     pub const FLOOR: Self = Self(8);
+    pub const IN_LIST: Self = Self(38);
     pub const IS_EMPTY: Self = Self(9);
     pub const IS_MISSING: Self = Self(10);
     pub const IS_NOT_EMPTY: Self = Self(11);
@@ -599,6 +600,7 @@ impl ExprPlanFunctionCode {
             Function::EndsWith => Self::ENDS_WITH,
             Function::Exp => Self::EXP,
             Function::Floor => Self::FLOOR,
+            Function::InList => Self::IN_LIST,
             Function::IsEmpty => Self::IS_EMPTY,
             Function::IsMissing => Self::IS_MISSING,
             Function::IsNotEmpty => Self::IS_NOT_EMPTY,

@@ -105,37 +105,22 @@ fn lower_sql_membership_expr(
     negated: bool,
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
-    let Some((first, rest)) = values.split_first() else {
-        unreachable!("sql lowering invariant");
+    let membership = Expr::FunctionCall {
+        function: Function::InList,
+        args: vec![
+            lower_sql_expr(expr, phase)?,
+            Expr::Literal(Value::List(values.to_vec())),
+        ],
     };
 
-    let compare_op = if negated {
-        SqlExprBinaryOp::Ne
+    if negated {
+        Ok(Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(membership),
+        })
     } else {
-        SqlExprBinaryOp::Eq
-    };
-    let join_op = if negated {
-        SqlExprBinaryOp::And
-    } else {
-        SqlExprBinaryOp::Or
-    };
-
-    let mut lowered =
-        lower_sql_binary_expr(compare_op, expr, &SqlExpr::Literal(first.clone()), phase)?;
-    for value in rest {
-        lowered = Expr::Binary {
-            op: lower_sql_binary_op(join_op),
-            left: Box::new(lowered),
-            right: Box::new(lower_sql_binary_expr(
-                compare_op,
-                expr,
-                &SqlExpr::Literal(value.clone()),
-                phase,
-            )?),
-        };
+        Ok(membership)
     }
-
-    Ok(lowered)
 }
 
 fn lower_sql_like_expr(

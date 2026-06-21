@@ -30,7 +30,7 @@ use crate::{
 use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "sql")]
-use crate::db::query::plan::covering_strict_predicate_compatible;
+use crate::db::executor::planning::preparation::covering_strict_predicate_compatible_for_plan;
 
 ///
 /// ExecutionFamily
@@ -333,16 +333,8 @@ impl PreparedExecutionPlanCore {
         self.residents
             .projection_covering_read_execution_plan
             .get_or_init(|| {
-                let execution_preparation = ExecutionPreparation::from_covering_route_plan(
-                    &self.residents.plan,
-                    slot_map_for_model_plan(&self.residents.plan),
-                );
-                let strict_predicate_compatible = covering_strict_predicate_compatible(
-                    &self.residents.plan,
-                    execution_preparation
-                        .predicate_capability_profile()
-                        .map(crate::db::predicate::PredicateCapabilityProfile::index),
-                );
+                let strict_predicate_compatible =
+                    covering_strict_predicate_compatible_for_plan(&self.residents.plan);
 
                 authority
                     .covering_read_execution_plan(&self.residents.plan, strict_predicate_compatible)
@@ -359,16 +351,8 @@ impl PreparedExecutionPlanCore {
         self.residents
             .hybrid_covering_read_plan
             .get_or_init(|| {
-                let execution_preparation = ExecutionPreparation::from_covering_route_plan(
-                    &self.residents.plan,
-                    slot_map_for_model_plan(&self.residents.plan),
-                );
-                let strict_predicate_compatible = covering_strict_predicate_compatible(
-                    &self.residents.plan,
-                    execution_preparation
-                        .predicate_capability_profile()
-                        .map(crate::db::predicate::PredicateCapabilityProfile::index),
-                );
+                let strict_predicate_compatible =
+                    covering_strict_predicate_compatible_for_plan(&self.residents.plan);
 
                 authority
                     .covering_hybrid_projection_plan(

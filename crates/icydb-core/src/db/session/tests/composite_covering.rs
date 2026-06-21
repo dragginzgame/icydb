@@ -174,6 +174,12 @@ const EXPLICIT_PK_SUFFIX_EXPECTED_EQUALITY_ASC: [ExplicitPkSuffixExpectedRow; 2]
     ExplicitPkSuffixExpectedRow::id_only(9_420),
 ];
 #[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_EXPECTED_MULTI_LOOKUP_ASC: [ExplicitPkSuffixExpectedRow; 3] = [
+    ExplicitPkSuffixExpectedRow::id_only(9_405),
+    ExplicitPkSuffixExpectedRow::id_only(9_420),
+    ExplicitPkSuffixExpectedRow::id_only(9_430),
+];
+#[cfg(feature = "diagnostics")]
 const EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_DESC: [ExplicitPkSuffixExpectedRow; 3] = [
     ExplicitPkSuffixExpectedRow::id_only(9_410),
     ExplicitPkSuffixExpectedRow::id_only(9_430),
@@ -230,6 +236,16 @@ fn expected_explicit_pk_suffix_rows(rows: &[ExplicitPkSuffixExpectedRow]) -> Vec
     rows.iter()
         .copied()
         .map(ExplicitPkSuffixExpectedRow::into_values)
+        .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_explicit_pk_suffix_output_rows(
+    rows: &[ExplicitPkSuffixExpectedRow],
+) -> Vec<Vec<crate::value::OutputValue>> {
+    rows.iter()
+        .copied()
+        .map(|row| outputs(row.into_values()))
         .collect()
 }
 
@@ -312,6 +328,79 @@ fn execute_sql_projection_explicit_primary_key_suffix_index_queries_avoid_store_
     for case in EXPLICIT_PK_SUFFIX_QUERY_CASES {
         assert_explicit_pk_suffix_query_avoids_store_gets(&session, case);
     }
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_explicit_primary_key_suffix_in_order_uses_lazy_multi_lookup() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_explicit_pk_suffix_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_430_u128, 20, "charlie"),
+            (9_410, 30, "delta"),
+            (9_420, 10, "bravo"),
+            (9_405, 10, "alpha"),
+        ],
+    );
+    let sql = "SELECT id FROM ExplicitPkSuffixIndexedSessionSqlEntity \
+               WHERE bucket IN (10, 20, 99) \
+               ORDER BY id ASC \
+               LIMIT 3";
+    let descriptor =
+        lower_select_query_for_tests::<ExplicitPkSuffixIndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("pk-suffix IN query should lower: {err}"))
+            .explain_execution()
+            .unwrap_or_else(|err| panic!("pk-suffix IN query should explain_execution: {err}"));
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexMultiLookup,
+        "pk-suffix IN query should use multi-lookup access",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "pk-suffix IN query should prove primary-key order from the index suffix",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_none(),
+        "pk-suffix IN query should not materialize-sort the lookup branches",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "key-only pk-suffix IN query should stay covering",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<ExplicitPkSuffixIndexedSessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("pk-suffix IN query should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("pk-suffix IN query should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_explicit_pk_suffix_output_rows(&EXPLICIT_PK_SUFFIX_EXPECTED_MULTI_LOOKUP_ASC),
+        "pk-suffix IN query should merge lookup branches by primary key",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "key-only pk-suffix IN query should avoid row-store get() calls",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= 6,
+        "pk-suffix IN query should keep index reads bounded by active lookup branches, got {attribution:?}",
+    );
 }
 
 #[test]

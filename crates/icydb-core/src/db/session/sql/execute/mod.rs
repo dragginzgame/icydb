@@ -16,6 +16,8 @@ mod write_returning;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::with_scalar_aggregate_terminal_attribution;
 #[cfg(feature = "diagnostics")]
+use crate::db::session::query::QueryPlanCompilePhaseAttribution;
+#[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 #[cfg(feature = "diagnostics")]
 use crate::error::InternalError;
@@ -231,7 +233,21 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { query, .. } => self
                 .execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(
                     query,
-                    || self.sql_select_prepared_plan_for_entity::<E>(query),
+                    || {
+                        let catalog = self
+                            .accepted_schema_catalog_context_for_query::<E>()
+                            .map_err(QueryError::execute)?;
+                        let authority = catalog
+                            .accepted_entity_authority_for::<E>()
+                            .map_err(QueryError::execute)?;
+
+                        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+                            query,
+                            authority,
+                            catalog.snapshot(),
+                            catalog.fingerprint(),
+                        )
+                    },
                 ),
             CompiledSqlCommand::GlobalAggregate { command, .. } => {
                 let catalog = self
@@ -287,6 +303,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 prepared_plan,
                                 projection,
                                 SqlCacheAttribution::shared_query_plan_cache_hit(),
+                                QueryPlanCompilePhaseAttribution::default(),
                             ));
                         }
 
@@ -299,13 +316,13 @@ impl<C: CanisterKind> DbSession<C> {
                         };
 
                         let resolved = self
-                            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-                            query,
-                            authority,
-                            context.accepted_schema(),
-                            context.schema_fingerprint(),
-                        );
-                        if let Ok((prepared_plan, projection, _)) = &resolved {
+                            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+                                query,
+                                authority,
+                                context.accepted_schema(),
+                                context.schema_fingerprint(),
+                            );
+                        if let Ok((prepared_plan, projection, _, _)) = &resolved {
                             context.command().set_cached_select_plan(
                                 context.schema_fingerprint_method_version(),
                                 context.schema_fingerprint(),

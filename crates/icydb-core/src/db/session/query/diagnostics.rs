@@ -106,6 +106,9 @@ pub struct KernelRowAttribution {
     pub row_read_local_instructions: u64,
     pub order_window_local_instructions: u64,
     pub page_window_local_instructions: u64,
+    pub retained_layout_hits: u64,
+    pub retained_slot_values: u64,
+    pub retained_octet_length_values: u64,
 }
 
 impl KernelRowAttribution {
@@ -118,6 +121,9 @@ impl KernelRowAttribution {
             row_read_local_instructions: phase.kernel_row_row_read_local_instructions,
             order_window_local_instructions: phase.kernel_row_order_window_local_instructions,
             page_window_local_instructions: phase.kernel_row_page_window_local_instructions,
+            retained_layout_hits: phase.kernel_row_retained_layout_hits,
+            retained_slot_values: phase.kernel_row_retained_slot_values,
+            retained_octet_length_values: phase.kernel_row_retained_octet_length_values,
         })
     }
 
@@ -135,6 +141,9 @@ impl KernelRowAttribution {
             row_read_local_instructions: phase.row_read_local_instructions,
             order_window_local_instructions: phase.order_window_local_instructions,
             page_window_local_instructions: phase.page_window_local_instructions,
+            retained_layout_hits: phase.retained_layout_hits,
+            retained_slot_values: phase.retained_slot_values,
+            retained_octet_length_values: phase.retained_octet_length_values,
         };
 
         if attribution.has_work() {
@@ -150,6 +159,9 @@ impl KernelRowAttribution {
             || self.row_read_local_instructions != 0
             || self.order_window_local_instructions != 0
             || self.page_window_local_instructions != 0
+            || self.retained_layout_hits != 0
+            || self.retained_slot_values != 0
+            || self.retained_octet_length_values != 0
     }
 }
 
