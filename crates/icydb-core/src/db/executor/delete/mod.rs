@@ -23,6 +23,6 @@ pub(in crate::db::executor::delete) use structural_projection::execute_structura
 pub(in crate::db::executor::delete) use typed::{
     package_typed_delete_rows, prepare_typed_delete_core,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use types::DeleteProjection;
 pub(in crate::db::executor) use types::DeleteRow;
+#[cfg(feature = "sql")]
+pub(in crate::db) use types::{DeleteProjection, DeleteProjectionBounds};

@@ -243,6 +243,10 @@ struct SqlWriteRowAttribution {
 struct SqlWriteStagedRows(usize);
 
 impl SqlWriteStagedRows {
+    const fn len(self) -> usize {
+        self.0
+    }
+
     fn attribution_after_mutation(
         self,
         mutated_rows: usize,
@@ -250,6 +254,23 @@ impl SqlWriteStagedRows {
     ) -> SqlWriteRowAttribution {
         SqlWriteRowAttribution::mutation_batch(self, mutated_rows, returning)
     }
+}
+
+fn validate_sql_write_staged_rows_bound(
+    staged_rows: SqlWriteStagedRows,
+    max_rows: Option<u32>,
+) -> Result<(), QueryError> {
+    let Some(max_rows) = max_rows else {
+        return Ok(());
+    };
+    let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
+    if staged_rows.len() <= max_rows {
+        return Ok(());
+    }
+
+    Err(QueryError::sql_write_boundary(
+        SqlWriteBoundaryCode::StagedRowsTooMany,
+    ))
 }
 
 impl SqlWriteRowAttribution {
@@ -396,5 +417,32 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SqlWriteStagedRows, validate_sql_write_staged_rows_bound};
+    use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
+
+    #[test]
+    fn sql_write_staged_row_bound_accepts_unbounded_and_within_limit() {
+        validate_sql_write_staged_rows_bound(SqlWriteStagedRows(2), None)
+            .expect("unbounded staged rows should be accepted");
+        validate_sql_write_staged_rows_bound(SqlWriteStagedRows(2), Some(2))
+            .expect("staged rows equal to the bound should be accepted");
+    }
+
+    #[test]
+    fn sql_write_staged_row_bound_rejects_over_limit() {
+        let err = validate_sql_write_staged_rows_bound(SqlWriteStagedRows(2), Some(1))
+            .expect_err("staged rows over the bound should reject");
+
+        assert_eq!(
+            err.diagnostic().detail(),
+            Some(&DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::StagedRowsTooMany,
+            }),
+        );
     }
 }

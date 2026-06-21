@@ -513,4 +513,6 @@ define_error_code_registry! {
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ReturningRowsTooMany });
     RUNTIME_BOUNDARY_SQL_INTROSPECTION_DISABLED = 185 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlIntrospectionDisabled });
+    SQL_WRITE_STAGED_ROWS_TOO_MANY = 186 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::StagedRowsTooMany });
 }

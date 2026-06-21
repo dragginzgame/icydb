@@ -7,6 +7,7 @@
 #[cfg(feature = "sql")]
 use crate::{
     db::executor::{
+        delete::DeleteProjectionBounds,
         delete::types::{DeletePreparation, DeleteProjection, PreparedDeleteProjection},
         projection::MaterializedProjectionRows,
     },
@@ -33,6 +34,8 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
+#[cfg(feature = "sql")]
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 // Decode structural delete rows, apply the shared delete post-access flow,
 // and then let the caller package the surviving kernel rows.
@@ -182,6 +185,23 @@ where
     })
 }
 
+#[cfg(feature = "sql")]
+fn validate_structural_delete_projection_bounds(
+    projection: &DeleteProjection,
+    bounds: DeleteProjectionBounds,
+) -> Result<(), InternalError> {
+    let Some(max_rows) = bounds.row_limit() else {
+        return Ok(());
+    };
+    if projection.row_count() <= max_rows {
+        return Ok(());
+    }
+
+    Err(InternalError::query_sql_write_boundary(
+        SqlWriteBoundaryCode::StagedRowsTooMany,
+    ))
+}
+
 // Execute one structural delete projection through the shared delete core
 // while leaving only the final typed commit-window bridge to the caller.
 #[cfg(feature = "sql")]
@@ -189,6 +209,7 @@ pub(in crate::db::executor::delete) fn execute_structural_delete_projection_core
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
+    bounds: DeleteProjectionBounds,
     apply_delete_commit: DeleteCommitApplyFn<C>,
 ) -> Result<DeleteProjection, InternalError>
 where
@@ -196,6 +217,7 @@ where
 {
     // Phase 1: run the shared structural delete projection core.
     let prepared_projection = prepare_structural_delete_projection(db, store, prepared)?;
+    validate_structural_delete_projection_bounds(&prepared_projection.projection, bounds)?;
     if prepared_projection.projection.row_count() == 0 {
         return Ok(prepared_projection.projection);
     }

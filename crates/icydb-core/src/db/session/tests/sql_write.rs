@@ -2060,14 +2060,24 @@ fn execute_validated_sql_public_bounded_update_plan_mutates_limited_rows() {
     let plan = public_bounded_update_plan(
         "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2",
     );
-    let result = session
-        .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
-        .expect("validated public bounded UPDATE plan should execute");
-    let SqlStatementResult::Count { row_count } = result else {
-        panic!("validated public bounded UPDATE should return count payload");
-    };
+    let mut row_count = None;
+    let events = capture_sql_write_events(|| {
+        let result = session
+            .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+            .expect("validated public bounded UPDATE plan should execute");
+        let SqlStatementResult::Count { row_count: count } = result else {
+            panic!("validated public bounded UPDATE should return count payload");
+        };
+        row_count = Some(count);
+    });
 
-    assert_eq!(row_count, 2);
+    assert_eq!(row_count, Some(2));
+    assert_single_sql_write_event(
+        events,
+        SessionSqlWriteEntity::PATH,
+        SqlWriteKind::Update,
+        [2, 2, 2, 0],
+    );
     assert_eq!(
         persisted_write_rows(&session),
         vec![

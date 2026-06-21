@@ -195,10 +195,7 @@ impl Storable for RawRow {
         self.0
     }
 
-    const BOUND: Bound = Bound::Bounded {
-        max_size: MAX_ROW_BYTES,
-        is_fixed_size: false,
-    };
+    const BOUND: Bound = Bound::Unbounded;
 }
 
 ///
@@ -215,6 +212,11 @@ mod tests {
         let bytes = vec![0u8; MAX_ROW_BYTES as usize + 1];
         let err = RawRow::try_new(bytes).unwrap_err();
         std::assert_matches!(err, RawRowError::TooLarge { .. });
+    }
+
+    #[test]
+    fn raw_row_storable_bound_does_not_amplify_stable_btree_nodes() {
+        assert_eq!(RawRow::BOUND, Bound::Unbounded);
     }
 
     #[test]

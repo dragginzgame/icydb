@@ -74,6 +74,7 @@ pub(in crate::db) use compiled::{
     SqlGlobalAggregateCountPlanCacheEntry, SqlProjectionContract,
 };
 pub use result::SqlStatementResult;
+pub(in crate::db) use update_policy::SqlUpdateExecutionBounds;
 #[cfg(test)]
 pub(in crate::db) use update_policy::{
     DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,

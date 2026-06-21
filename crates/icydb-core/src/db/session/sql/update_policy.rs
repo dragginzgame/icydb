@@ -184,6 +184,16 @@ pub struct SqlUpdateReturningBounds {
     pub max_response_bytes: Option<u32>,
 }
 
+/// Runtime execution bounds carried by a policy-validated SQL `UPDATE`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlUpdateExecutionBounds {
+    /// Maximum candidate rows the validated plan may stage before mutation.
+    pub max_staged_rows: Option<u32>,
+    /// Optional `RETURNING` row and response-size bounds.
+    pub returning: SqlUpdateReturningBounds,
+}
+
 /// Parsed `UPDATE` classification before a caller-selected exposure policy is applied.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -250,15 +260,21 @@ impl SqlValidatedUpdatePlan {
         }
     }
 
+    /// Return the execution bounds carried by this validated plan.
+    #[must_use]
+    pub const fn execution_bounds(&self) -> SqlUpdateExecutionBounds {
+        match self {
+            Self::SessionCurrent(plan) => plan.execution_bounds,
+            Self::PublicPrimaryKeyOnly(plan) => plan.execution_bounds,
+            Self::PublicBoundedDeterministic(plan) => plan.execution_bounds,
+            Self::AdminBulk(plan) => plan.execution_bounds,
+        }
+    }
+
     /// Return the `RETURNING` bounds carried by this validated plan.
     #[must_use]
     pub const fn returning_bounds(&self) -> SqlUpdateReturningBounds {
-        match self {
-            Self::SessionCurrent(plan) => plan.returning_bounds,
-            Self::PublicPrimaryKeyOnly(plan) => plan.returning_bounds,
-            Self::PublicBoundedDeterministic(plan) => plan.returning_bounds,
-            Self::AdminBulk(plan) => plan.returning_bounds,
-        }
+        self.execution_bounds().returning
     }
 
     /// Return the entity targeted by the policy-validated parsed update statement.
@@ -280,8 +296,8 @@ pub struct SqlSessionCurrentUpdatePlan {
     statement: SqlUpdateStatement,
     /// Shape classification admitted by the current session policy.
     pub classification: SqlUpdateStatementClassification,
-    /// `RETURNING` bounds attached to the admitted plan.
-    pub returning_bounds: SqlUpdateReturningBounds,
+    /// Runtime execution bounds attached to the admitted plan.
+    pub execution_bounds: SqlUpdateExecutionBounds,
 }
 
 /// Validated plan for public primary-key-only update.
@@ -293,8 +309,8 @@ pub struct SqlPublicPrimaryKeyUpdatePlan {
     pub classification: SqlUpdateStatementClassification,
     /// Primary-key fields proven by the policy, in canonical order.
     pub primary_key_fields: Vec<String>,
-    /// `RETURNING` bounds attached to the admitted plan.
-    pub returning_bounds: SqlUpdateReturningBounds,
+    /// Runtime execution bounds attached to the admitted plan.
+    pub execution_bounds: SqlUpdateExecutionBounds,
 }
 
 impl SqlPublicPrimaryKeyUpdatePlan {
@@ -314,8 +330,8 @@ pub struct SqlPublicBoundedUpdatePlan {
     pub limit: u32,
     /// Primary-key fields used for explicit canonical ordering.
     pub ordered_primary_key_fields: Vec<String>,
-    /// `RETURNING` bounds attached to the admitted plan.
-    pub returning_bounds: SqlUpdateReturningBounds,
+    /// Runtime execution bounds attached to the admitted plan.
+    pub execution_bounds: SqlUpdateExecutionBounds,
 }
 
 impl SqlPublicBoundedUpdatePlan {
@@ -331,8 +347,8 @@ pub struct SqlAdminBulkUpdatePlan {
     statement: SqlUpdateStatement,
     /// Shape classification admitted by the admin/bulk policy.
     pub classification: SqlUpdateStatementClassification,
-    /// `RETURNING` bounds attached to the admitted plan.
-    pub returning_bounds: SqlUpdateReturningBounds,
+    /// Runtime execution bounds attached to the admitted plan.
+    pub execution_bounds: SqlUpdateExecutionBounds,
 }
 
 /// Stable policy rejection for one classified SQL `UPDATE`.
@@ -507,13 +523,13 @@ fn validated_update_plan(
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlValidatedUpdatePlan {
-    let returning_bounds = returning_bounds(policy, classification, context);
+    let execution_bounds = execution_bounds(policy, classification, context);
     match policy {
         SqlUpdateExposurePolicy::SessionWriteCurrent => {
             SqlValidatedUpdatePlan::SessionCurrent(SqlSessionCurrentUpdatePlan {
                 statement: statement.clone(),
                 classification: classification.clone(),
-                returning_bounds,
+                execution_bounds,
             })
         }
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => {
@@ -525,7 +541,7 @@ fn validated_update_plan(
                     .iter()
                     .map(|field| (*field).to_string())
                     .collect(),
-                returning_bounds,
+                execution_bounds,
             })
         }
         SqlUpdateExposurePolicy::PublicBoundedDeterministic => {
@@ -540,16 +556,41 @@ fn validated_update_plan(
                     .iter()
                     .map(|field| (*field).to_string())
                     .collect(),
-                returning_bounds,
+                execution_bounds,
             })
         }
         SqlUpdateExposurePolicy::AdminBulk => {
             SqlValidatedUpdatePlan::AdminBulk(SqlAdminBulkUpdatePlan {
                 statement: statement.clone(),
                 classification: classification.clone(),
-                returning_bounds,
+                execution_bounds,
             })
         }
+        SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
+            unreachable!("generated policies never produce validated update plans")
+        }
+    }
+}
+
+fn execution_bounds(
+    policy: SqlUpdateExposurePolicy,
+    classification: &SqlUpdateStatementClassification,
+    context: SqlUpdatePolicyContext<'_>,
+) -> SqlUpdateExecutionBounds {
+    SqlUpdateExecutionBounds {
+        max_staged_rows: staged_row_bound(policy, classification),
+        returning: returning_bounds(policy, classification, context),
+    }
+}
+
+fn staged_row_bound(
+    policy: SqlUpdateExposurePolicy,
+    classification: &SqlUpdateStatementClassification,
+) -> Option<u32> {
+    match policy {
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => Some(1),
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic => classification.limit,
+        SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => None,
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated update plans")
         }
@@ -1140,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    fn update_policy_validated_plans_carry_returning_bounds() {
+    fn update_policy_validated_plans_carry_execution_and_returning_bounds() {
         let context = SqlUpdatePolicyContext {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &[],
@@ -1175,6 +1216,14 @@ mod tests {
                 max_rows: Some(10),
                 max_response_bytes: Some(4096),
             },
+        );
+        assert_eq!(
+            expect_plan(&primary_key).execution_bounds().max_staged_rows,
+            Some(1),
+        );
+        assert_eq!(
+            expect_plan(&bounded).execution_bounds().max_staged_rows,
+            Some(10),
         );
     }
 

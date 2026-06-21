@@ -21,6 +21,7 @@ use crate::{
     traits::Storable,
     types::EntityTag,
 };
+use ic_memory::stable_structures::storable::Bound;
 use std::borrow::Cow;
 use std::convert::Infallible;
 
@@ -44,6 +45,11 @@ fn raw_schema_snapshot_round_trips_payload_bytes() {
 
     assert_eq!(decoded.as_bytes(), &[1, 2, 3, 5, 8]);
     assert_eq!(decoded.into_bytes(), vec![1, 2, 3, 5, 8]);
+}
+
+#[test]
+fn raw_schema_snapshot_storable_bound_does_not_amplify_stable_btree_nodes() {
+    assert_eq!(RawSchemaSnapshot::BOUND, Bound::Unbounded);
 }
 
 #[test]

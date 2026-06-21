@@ -3,7 +3,7 @@ use super::{
     record_sql_write_metrics, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
     sql_write_key_from_literal, sql_write_patch_set_accepted_field,
-    sql_write_value_for_accepted_field,
+    sql_write_value_for_accepted_field, validate_sql_write_staged_rows_bound,
 };
 use crate::{
     db::{
@@ -14,7 +14,7 @@ use crate::{
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
         session::sql::{
             SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
-            SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlUpdateReturningBounds,
+            SqlUpdateExecutionBounds, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
             SqlValidatedUpdatePlan, classify_sql_update_policy,
             execute::write_returning::{
                 sql_write_statement_result, validate_sql_returning_bounds,
@@ -121,13 +121,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_sql_update_statement_with_returning_bounds::<E>(statement, None)
+        self.execute_sql_update_statement_with_execution_bounds::<E>(statement, None)
     }
 
-    fn execute_sql_update_statement_with_returning_bounds<E>(
+    fn execute_sql_update_statement_with_execution_bounds<E>(
         &self,
         statement: &SqlUpdateStatement,
-        returning_bounds: Option<SqlUpdateReturningBounds>,
+        execution_bounds: Option<SqlUpdateExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -159,6 +159,10 @@ impl<C: CanisterKind> DbSession<C> {
             rows.push(key, patch.clone());
         }
         let staged_rows = rows.staged_rows();
+        validate_sql_write_staged_rows_bound(
+            staged_rows,
+            execution_bounds.and_then(|bounds| bounds.max_staged_rows),
+        )?;
         let (
             row_decode_contract,
             mutation_row_decode_contract,
@@ -182,7 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 entities,
                                 statement.returning.as_ref(),
                                 &descriptor,
-                                returning_bounds,
+                                execution_bounds.map(|bounds| bounds.returning),
                             )
                         },
                     )
@@ -250,9 +254,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_sql_update_statement_with_returning_bounds::<E>(
+        self.execute_sql_update_statement_with_execution_bounds::<E>(
             plan.statement(),
-            Some(plan.returning_bounds),
+            Some(plan.execution_bounds),
         )
     }
 
@@ -265,9 +269,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_sql_update_statement_with_returning_bounds::<E>(
+        self.execute_sql_update_statement_with_execution_bounds::<E>(
             plan.statement(),
-            Some(plan.returning_bounds),
+            Some(plan.execution_bounds),
         )
     }
 

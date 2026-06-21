@@ -644,6 +644,7 @@ pub enum SqlWriteBoundaryCode {
     WriteOrderByUnsupportedShape,
     ReturningResponseTooLarge,
     ReturningRowsTooMany,
+    StagedRowsTooMany,
 }
 
 impl fmt::Debug for SqlWriteBoundaryCode {
@@ -892,7 +893,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 185);
+        assert_eq!(last, 186);
     }
 
     #[test]
@@ -924,7 +925,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 186, u16::MAX] {
+        for raw in [0, 187, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

@@ -6,7 +6,13 @@ use crate::{
     },
     testing::test_memory,
 };
+use ic_memory::stable_structures::{
+    Memory, VectorMemory,
+    memory_manager::{MemoryId, MemoryManager},
+};
 use std::ops::Bound;
+
+const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
 
 fn raw_key(entity: u64, id: u64) -> RawDataStoreKey {
     DecodedDataStoreKey::new(
@@ -35,6 +41,23 @@ fn seed_heap_store(entries: &[(u64, u64, u8)]) -> DataStore {
         store.insert_raw_for_test(raw_key(*entity, *id), raw_row(*row));
     }
     store
+}
+
+#[test]
+fn data_store_tiny_fold_stays_within_one_memory_manager_bucket() {
+    let memory = VectorMemory::default();
+    let manager = MemoryManager::init(memory.clone());
+    let mut store = DataStore::init_journaled(manager.get(MemoryId::new(23)));
+
+    store
+        .fold_recovered_journal_put(raw_key(1, 1), raw_row(7))
+        .expect("tiny folded row should persist");
+
+    assert!(
+        memory.size() <= SINGLE_MEMORY_MANAGER_BUCKET_PAGES,
+        "tiny data fold should not allocate extra MemoryManager buckets; pages={}",
+        memory.size()
+    );
 }
 
 fn collect_keys(store: &DataStore) -> Vec<RawDataStoreKey> {

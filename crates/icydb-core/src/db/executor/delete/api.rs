@@ -5,7 +5,9 @@
 //! Boundary: wraps prepared delete plans with metrics and final response shaping.
 
 #[cfg(feature = "sql")]
-use crate::db::executor::delete::{DeleteProjection, execute_structural_delete_projection_core};
+use crate::db::executor::delete::{
+    DeleteProjection, DeleteProjectionBounds, execute_structural_delete_projection_core,
+};
 use crate::{
     db::{
         Db, PersistedRow,
@@ -105,6 +107,17 @@ where
         self,
         plan: PreparedExecutionPlan<E>,
     ) -> Result<DeleteProjection, InternalError> {
+        self.execute_structural_projection_with_bounds(plan, DeleteProjectionBounds::unbounded())
+    }
+
+    /// Execute one structural delete projection plan with an optional
+    /// pre-commit row bound for bounded SQL exposure policies.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn execute_structural_projection_with_bounds(
+        self,
+        plan: PreparedExecutionPlan<E>,
+        bounds: DeleteProjectionBounds,
+    ) -> Result<DeleteProjection, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Delete);
         let result = (|| {
             // Phase 1: prepare authority, store access, and delete execution inputs once.
@@ -120,6 +133,7 @@ where
                 &self.db,
                 store,
                 &prepared,
+                bounds,
                 apply_delete_commit_window_for_type::<E>,
             )?;
             if projection.row_count() == 0 {

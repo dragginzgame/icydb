@@ -145,6 +145,35 @@ pub(in crate::db) struct DeleteProjection {
     rows: MaterializedProjectionRows,
 }
 
+/// Optional structural DELETE RETURNING row bounds checked before commit.
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::db) struct DeleteProjectionBounds {
+    max_rows: Option<u32>,
+}
+
+#[cfg(feature = "sql")]
+impl DeleteProjectionBounds {
+    /// Build an unbounded structural DELETE RETURNING execution contract.
+    #[must_use]
+    pub(in crate::db) const fn unbounded() -> Self {
+        Self { max_rows: None }
+    }
+
+    /// Build a structural DELETE RETURNING execution contract capped by rows.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn max_rows(max_rows: u32) -> Self {
+        Self {
+            max_rows: Some(max_rows),
+        }
+    }
+
+    pub(in crate::db::executor::delete) const fn row_limit(self) -> Option<u32> {
+        self.max_rows
+    }
+}
+
 #[cfg(feature = "sql")]
 impl DeleteProjection {
     #[must_use]

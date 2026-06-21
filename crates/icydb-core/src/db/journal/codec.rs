@@ -246,10 +246,7 @@ impl Storable for RawJournalBatch {
         self.0
     }
 
-    const BOUND: Bound = Bound::Bounded {
-        max_size: MAX_JOURNAL_BATCH_BYTES,
-        is_fixed_size: false,
-    };
+    const BOUND: Bound = Bound::Unbounded;
 }
 
 pub(in crate::db) fn encode_journal_batch(batch: &JournalBatch) -> Result<Vec<u8>, InternalError> {

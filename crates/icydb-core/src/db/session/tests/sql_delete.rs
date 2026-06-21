@@ -173,6 +173,51 @@ fn scalar_select_helper_rejects_delete_lane_on_typed_entity_surface() {
 }
 
 #[test]
+fn delete_returning_structural_row_bound_rejects_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("first-minor", 16), ("second-minor", 17), ("adult", 42)],
+    );
+
+    let compiled = session
+        .compile_sql_update::<SessionSqlEntity>(
+            "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC RETURNING name",
+        )
+        .expect("DELETE RETURNING should compile through the update surface");
+    let crate::db::session::sql::CompiledSqlCommand::Delete { query, .. } = compiled else {
+        panic!("DELETE RETURNING should compile to the delete command lane");
+    };
+    let typed_query = Query::<SessionSqlEntity>::from_inner(query.as_ref().clone());
+    let (plan, _) = session
+        .cached_prepared_query_plan_for_entity::<SessionSqlEntity>(&typed_query)
+        .expect("DELETE RETURNING query plan should prepare");
+    let result = session
+        .delete_executor::<SessionSqlEntity>()
+        .execute_structural_projection_with_bounds(
+            plan,
+            crate::db::executor::DeleteProjectionBounds::max_rows(1),
+        );
+    let Err(err) = result else {
+        panic!("row-bound DELETE RETURNING should reject before commit");
+    };
+
+    assert_sql_write_boundary_detail(
+        QueryError::execute(err),
+        SqlWriteBoundaryCode::StagedRowsTooMany,
+    );
+    assert_eq!(
+        remaining_session_name_age_rows(&session),
+        vec![
+            ("first-minor".to_string(), 16),
+            ("second-minor".to_string(), 17),
+            ("adult".to_string(), 42),
+        ],
+    );
+}
+
+#[test]
 fn fluent_delete_returns_count_without_materializing_deleted_rows() {
     reset_session_sql_store();
     let session = sql_session();

@@ -110,9 +110,6 @@ Status: active.
 - F2 / D3 seventh slice: strict index-prefilter observability remains
   route-owned but now flows through one `PredicateStageObservability` contract
   shared by execution-descriptor children and verbose diagnostics.
-
-## Current Slice
-
 - H6 / D7 / F6 first slice: SQL write metrics now carry staged-row counts
   beside matched, mutated, and RETURNING row counts, and broad write-shape
   guards plus a SQL perf-matrix hook cover broad UPDATE, UPDATE RETURNING,
@@ -122,12 +119,31 @@ Status: active.
   use explicit Int32 primary keys and reject computed primary-key insertion by
   design. The local sandbox could not complete the live PocketIC run because
   the pinned PocketIC server binary is unavailable in the local cache.
+- H6 / D7 / F6 second slice: policy-validated public bounded UPDATE plans now
+  carry explicit staged-row execution bounds beside RETURNING bounds, and
+  UPDATE execution verifies staged candidate rows before opening the mutation
+  commit window.
+- H6 / D7 / F6 second slice: structural DELETE RETURNING execution now accepts
+  an internal row-bound contract and verifies it after delete preparation but
+  before the commit-window bridge; broad SQL DELETE remains unbounded until a
+  public DELETE exposure policy exists.
+
+## Current Slice
+
+- H6 / D7 / F6 second slice: staged-row execution bounds for
+  policy-validated public bounded UPDATE are implemented and locally validated.
+- H6 / D7 / F6 second slice: DELETE RETURNING has a pre-commit executor hook
+  for bounded policies, but there is still no generated/public DELETE policy
+  surface; broad session/admin write behavior remains unbounded and unchanged.
 
 ## Next Candidates
 
-- H6 / D7 / F6: run the live PocketIC SQL write materialization matrix in a
-  healthy PocketIC environment, record the heap/journaled deltas, and only then
-  decide whether chunked mutation preparation needs a separate design slice.
+- H6 / D7 / F6: design the generated/public DELETE exposure policy before
+  wiring the DELETE RETURNING row-bound hook into any user-facing route.
+- H6 / D7 / F6: rerun the live PocketIC SQL write materialization matrix in a
+  healthy PocketIC environment after the staged-row bound guard lands, record
+  heap/journaled deltas, and only then decide whether chunked mutation
+  preparation needs a separate design slice.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.

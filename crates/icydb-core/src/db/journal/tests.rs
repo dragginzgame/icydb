@@ -2,8 +2,8 @@ use super::{
     FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
     JournalTailVisit,
     codec::{
-        JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_JOURNAL_BATCH_BYTES, RawJournalBatch,
-        decode_journal_batch, encode_journal_batch,
+        JOURNAL_BATCH_FORMAT_VERSION_CURRENT, RawJournalBatch, decode_journal_batch,
+        encode_journal_batch,
     },
 };
 use crate::{
@@ -13,8 +13,13 @@ use crate::{
     traits::Storable,
     types::EntityTag,
 };
-use ic_memory::stable_structures::storable::Bound;
+use ic_memory::stable_structures::{
+    Memory, VectorMemory,
+    memory_manager::{MemoryId, MemoryManager},
+};
 use std::borrow::Cow;
+
+const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
 
 fn raw_data_store_key(fill: u64) -> RawDataStoreKey {
     DecodedDataStoreKey::try_from_typed_key(EntityTag::new(1), &fill)
@@ -286,9 +291,26 @@ fn journal_tail_store_is_empty_before_append() {
 }
 
 #[test]
-fn journal_batch_storable_bound_matches_runtime_batch_limit() {
-    match RawJournalBatch::BOUND {
-        Bound::Bounded { max_size, .. } => assert_eq!(max_size, MAX_JOURNAL_BATCH_BYTES),
-        Bound::Unbounded => panic!("journal batches must remain bounded"),
-    }
+fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
+    let memory = VectorMemory::default();
+    let manager = MemoryManager::init(memory.clone());
+    let mut store = JournalTailStore::init(manager.get(MemoryId::new(17)));
+
+    store
+        .append_batch(&batch(1))
+        .expect("tiny batch should append");
+
+    assert!(
+        memory.size() <= SINGLE_MEMORY_MANAGER_BUCKET_PAGES,
+        "tiny journal append should not allocate extra MemoryManager buckets; pages={}",
+        memory.size()
+    );
+}
+
+#[test]
+fn journal_batch_storable_bound_does_not_amplify_stable_btree_nodes() {
+    assert_eq!(
+        RawJournalBatch::BOUND,
+        ic_memory::stable_structures::storable::Bound::Unbounded
+    );
 }

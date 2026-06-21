@@ -46,7 +46,6 @@ const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION: u8 = 3;
 const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBSCH";
 const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
 const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
-const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES_U32: u32 = 25;
 
 #[cfg(test)]
 thread_local! {
@@ -363,10 +362,7 @@ impl Storable for RawSchemaSnapshot {
         bytes
     }
 
-    const BOUND: StorableBound = StorableBound::Bounded {
-        max_size: MAX_SCHEMA_SNAPSHOT_BYTES + RAW_SCHEMA_SNAPSHOT_HEADER_BYTES_U32,
-        is_fixed_size: false,
-    };
+    const BOUND: StorableBound = StorableBound::Unbounded;
 }
 
 // Validate typed schema snapshots before they are encoded into the raw schema

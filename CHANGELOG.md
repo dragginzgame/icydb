@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- SQL write metrics now expose staged-row counts, with broad write-shape guards
-  and a PocketIC perf-matrix hook covering broad UPDATE, UPDATE RETURNING,
-  DELETE, and DELETE RETURNING materialization pressure.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.8` continues the query-engine audit by enforcing public bounded
+  `UPDATE` staged-row caps, adding a pre-commit `DELETE RETURNING` bound
+  contract, and reducing journaled stable-store bucket amplification.
+
+- `0.184.7` continues the query-engine audit by exposing SQL write staged-row
+  attribution and adding broad UPDATE/DELETE materialization guards for the
+  next boundedness slice.
 
 - `0.184.6` continues the query-engine audit by tightening global aggregate
   terminal interning and making SQL write row attribution/staging explicit for
