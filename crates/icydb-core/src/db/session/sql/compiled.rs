@@ -237,7 +237,7 @@ impl CompiledSqlCommand {
 
     /// Return whether this command returns result rows to the caller.
     #[must_use]
-    pub(in crate::db::session::sql) fn returns_rows(&self) -> bool {
+    pub(in crate::db::session::sql) const fn returns_rows(&self) -> bool {
         match self {
             Self::Select { .. } | Self::GlobalAggregate { .. } => true,
             Self::Delete { returning, .. } => returning.is_some(),

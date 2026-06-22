@@ -371,7 +371,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Compile SHOW ENTITIES without entity-bound preparation because the
     // command is catalog-backed and historically reports no compile sub-stages.
-    fn compile_show_entities(entity: Option<String>, verbose: bool) -> SqlCompileArtifacts {
+    const fn compile_show_entities(entity: Option<String>, verbose: bool) -> SqlCompileArtifacts {
         SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowEntities { entity, verbose },
             0,
@@ -383,13 +383,13 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Compile SHOW STORES without entity-bound preparation because the command
     // is catalog-wide and historically reports no compile sub-stages.
-    fn compile_show_stores(verbose: bool) -> SqlCompileArtifacts {
+    const fn compile_show_stores(verbose: bool) -> SqlCompileArtifacts {
         SqlCompileArtifacts::new(CompiledSqlCommand::ShowStores { verbose }, 0, 0, 0, 0)
     }
 
     // Compile SHOW MEMORY without entity-bound preparation because the command
     // is catalog-wide and historically reports no compile sub-stages.
-    fn compile_show_memory() -> SqlCompileArtifacts {
+    const fn compile_show_memory() -> SqlCompileArtifacts {
         SqlCompileArtifacts::new(CompiledSqlCommand::ShowMemory, 0, 0, 0, 0)
     }
 

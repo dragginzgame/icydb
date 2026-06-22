@@ -64,7 +64,7 @@ pub(in crate::db) struct SqlQueryShape {
 
 impl SqlQueryShape {
     #[must_use]
-    pub(in crate::db::session::sql) fn from_command(command: &CompiledSqlCommand) -> Self {
+    pub(in crate::db::session::sql) const fn from_command(command: &CompiledSqlCommand) -> Self {
         Self {
             is_aggregate: command.is_global_aggregate(),
             returns_rows: command.returns_rows(),
@@ -152,7 +152,7 @@ impl SqlCompileAttributionBuilder {
 impl SqlCompileArtifacts {
     // Build one compile artifact and derive the stable semantic shape from the
     // compiled command payload it describes.
-    pub(in crate::db::session::sql) fn new(
+    pub(in crate::db::session::sql) const fn new(
         command: CompiledSqlCommand,
         aggregate_lane_check: u64,
         prepare: u64,
