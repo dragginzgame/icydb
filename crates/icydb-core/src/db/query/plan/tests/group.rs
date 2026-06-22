@@ -1633,6 +1633,39 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
     );
 }
 
+#[test]
+fn grouped_executor_handoff_deduplicates_repeated_having_aggregate_leaves() {
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let aggregate = GroupAggregateSpec {
+        kind: AggregateKind::Count,
+        input_expr: None,
+        filter_expr: None,
+        distinct: false,
+    };
+    let aggregate_expr = group_aggregate_spec_expr(&aggregate);
+    let having_expr = grouped_having_compare_expr(
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Aggregate(aggregate_expr.clone())),
+            right: Box::new(Expr::Aggregate(aggregate_expr)),
+        },
+        CompareOp::Gt,
+        Value::Nat64(1),
+    );
+    let grouped = grouped_plan_with_having(base, vec!["rank"], vec![aggregate], Some(having_expr));
+
+    let finalized = finalized_grouped_plan(&grouped);
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
+
+    assert_eq!(
+        handoff.aggregate_specs().len(),
+        1,
+        "repeated HAVING aggregate leaves should reuse one grouped aggregate execution slot",
+    );
+    assert_eq!(handoff.aggregate_specs()[0].kind(), AggregateKind::Count);
+}
+
 type GroupedExecutorHandoffSnapshotVector = (
     Vec<String>,
     Vec<(AggregateKind, Option<String>)>,
@@ -1925,6 +1958,49 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_leaves_in_projection
     assert_eq!(handoff.grouped_aggregate_execution_specs().len(), 1);
     assert_eq!(handoff.aggregate_specs()[0].kind(), AggregateKind::Count);
     assert_eq!(handoff.aggregate_specs()[0].target_field(), None);
+}
+
+#[test]
+fn grouped_executor_handoff_keeps_preintroduced_aggregate_expr_in_aggregate_layout() {
+    let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    base.projection_selection = ProjectionSelection::Exprs(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("rank")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Aggregate(crate::db::count()),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Aggregate(crate::db::count())),
+            },
+            alias: None,
+        },
+    ]);
+
+    let grouped = grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            input_expr: None,
+            filter_expr: None,
+            distinct: false,
+        }],
+    );
+
+    let finalized = finalized_grouped_plan(&grouped);
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
+
+    assert_eq!(handoff.projection_layout().group_field_positions(), &[0]);
+    assert_eq!(handoff.projection_layout().aggregate_positions(), &[1, 2]);
+    assert_eq!(handoff.aggregate_specs().len(), 1);
+    assert_eq!(handoff.grouped_aggregate_execution_specs().len(), 1);
 }
 
 #[test]

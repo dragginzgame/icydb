@@ -41,9 +41,7 @@ use crate::{
             execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
             execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
         },
-        session::sql::projection::{
-            projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
-        },
+        session::sql::projection::projection_contract_from_projection_spec,
         session::{AcceptedSchemaCatalogContext, query::QueryPlanCacheAttribution},
         sql::{
             ddl::{PreparedSqlDdlCommand, prepare_sql_ddl_statement},
@@ -73,7 +71,7 @@ pub(in crate::db::session::sql) use compile::{
 };
 pub(in crate::db) use compiled::{
     CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
-    SqlGlobalAggregateCountPlanCacheEntry, SqlProjectionContract,
+    SqlGlobalAggregateCountPlanCacheEntry,
 };
 pub use delete_policy::{
     SqlAdminBulkDeletePlan, SqlDeleteExecutionBounds, SqlDeleteExposurePolicy,
@@ -82,6 +80,7 @@ pub use delete_policy::{
     SqlDeleteWherePolicy, SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan,
     SqlSessionCurrentDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
 };
+pub(in crate::db) use projection::SqlProjectionContract;
 pub use result::SqlStatementResult;
 pub(in crate::db) use update_policy::SqlUpdateExecutionBounds;
 #[cfg(test)]
@@ -695,10 +694,7 @@ impl<C: CanisterKind> DbSession<C> {
         let projection_spec = prepared_plan
             .logical_plan()
             .projection_spec(authority.model());
-        let projection = SqlProjectionContract::new(
-            projection_labels_from_projection_spec(&projection_spec),
-            projection_fixed_scales_from_projection_spec(&projection_spec),
-        );
+        let projection = projection_contract_from_projection_spec(&projection_spec);
 
         (
             prepared_plan,

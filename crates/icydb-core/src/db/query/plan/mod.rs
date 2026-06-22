@@ -70,6 +70,7 @@ pub(in crate::db) use covering::{
     covering_read_execution_plan_with_schema_info, covering_read_reason_code_for_load_plan,
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
+pub(in crate::db::query::plan) use group::extend_unique_grouped_aggregate_specs_from_expr;
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionRoute,
     PlannedProjectionLayout, grouped_aggregate_execution_specs,

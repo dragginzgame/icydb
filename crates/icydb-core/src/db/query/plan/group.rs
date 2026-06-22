@@ -58,21 +58,21 @@ pub(in crate::db) struct GroupedAggregateExecutionSpec {
 }
 
 ///
-/// GroupedProjectionAggregateScan
+/// GroupedAggregateExpressionScan
 ///
-/// Planner-local grouped projection aggregate scan result.
+/// Planner-local grouped aggregate expression scan result.
 /// This keeps aggregate-bearing expression classification and first-seen
 /// grouped aggregate slot introduction under one helper so grouped projection
-/// handoff does not walk the same expression tree twice.
+/// and HAVING handoff share the same uniqueness rule.
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct GroupedProjectionAggregateScan {
+pub(in crate::db::query::plan) struct GroupedAggregateExpressionScan {
     contains_aggregate: bool,
     introduced_aggregate_count: usize,
 }
 
-impl GroupedProjectionAggregateScan {
+impl GroupedAggregateExpressionScan {
     /// Build one empty grouped aggregate scan result.
     #[must_use]
     const fn none() -> Self {
@@ -974,10 +974,20 @@ fn grouped_projection_expression_preserves_identity(
 fn collect_grouped_projection_aggregate_scan(
     expr: &Expr,
     aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
-) -> GroupedProjectionAggregateScan {
+) -> GroupedAggregateExpressionScan {
+    extend_unique_grouped_aggregate_specs_from_expr(aggregate_specs, expr)
+        .expect("query group invariant")
+}
+
+pub(in crate::db::query::plan) fn extend_unique_grouped_aggregate_specs_from_expr(
+    aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
+    expr: &Expr,
+) -> Result<GroupedAggregateExpressionScan, InternalError> {
+    let mut contains_aggregate = false;
     let mut introduced_aggregate_count = 0usize;
 
     expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
+        contains_aggregate = true;
         introduced_aggregate_count =
             introduced_aggregate_count.saturating_add(push_unique_grouped_aggregate_spec(
                 aggregate_specs,
@@ -985,13 +995,14 @@ fn collect_grouped_projection_aggregate_scan(
             ));
 
         Ok::<(), InternalError>(())
-    })
-    .expect("query group invariant");
+    })?;
 
-    if expr.contains_aggregate() {
-        GroupedProjectionAggregateScan::found_aggregate(introduced_aggregate_count)
+    if contains_aggregate {
+        Ok(GroupedAggregateExpressionScan::found_aggregate(
+            introduced_aggregate_count,
+        ))
     } else {
-        GroupedProjectionAggregateScan::none()
+        Ok(GroupedAggregateExpressionScan::none())
     }
 }
 

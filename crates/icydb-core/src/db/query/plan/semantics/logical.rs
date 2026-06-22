@@ -21,9 +21,9 @@ use crate::{
                 CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
                 compile_scalar_projection_plan_with_schema,
             },
-            grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
-            grouped_cursor_policy_violation, grouped_plan_strategy,
-            lower_data_row_direct_projection_slots_with_schema,
+            extend_unique_grouped_aggregate_specs_from_expr, grouped_aggregate_execution_specs,
+            grouped_aggregate_specs_from_projection_spec, grouped_cursor_policy_violation,
+            grouped_plan_strategy, lower_data_row_direct_projection_slots_with_schema,
             lower_direct_projection_slots_with_schema, lower_projection_identity,
             lower_projection_intent, residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access_contract,
@@ -878,32 +878,10 @@ fn extend_grouped_having_aggregate_specs(
     grouped: &GroupPlan,
 ) -> Result<(), InternalError> {
     if let Some(having_expr) = grouped.having_expr.as_ref() {
-        collect_grouped_having_expr_aggregate_specs(aggregate_specs, having_expr)?;
+        extend_unique_grouped_aggregate_specs_from_expr(aggregate_specs, having_expr)?;
     }
 
     Ok(())
-}
-
-fn collect_grouped_having_expr_aggregate_specs(
-    aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
-    expr: &Expr,
-) -> Result<(), InternalError> {
-    if !expr.contains_aggregate() {
-        return Ok(());
-    }
-
-    expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
-        let aggregate_spec = GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr);
-
-        if aggregate_specs
-            .iter()
-            .all(|current| current != &aggregate_spec)
-        {
-            aggregate_specs.push(aggregate_spec);
-        }
-
-        Ok(())
-    })
 }
 
 fn projected_slot_mask_for_spec(

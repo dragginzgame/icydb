@@ -21,10 +21,9 @@ use crate::{
             AcceptedSchemaCatalogContext,
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlGlobalAggregateCountPlanCacheEntry,
-                SqlStatementResult,
+                SqlProjectionContract, SqlStatementResult,
                 projection::{
-                    projection_fixed_scales_from_projection_spec,
-                    projection_labels_from_projection_spec,
+                    projection_contract_from_projection_spec,
                     sql_projection_statement_result_from_value_rows,
                 },
             },
@@ -61,8 +60,7 @@ struct DirectCountCardinalityPlanProbe {
 
 struct PreparedStructuralAggregateOperator {
     request: StructuralAggregateRequest,
-    columns: Vec<String>,
-    fixed_scales: Vec<Option<u32>>,
+    projection: SqlProjectionContract,
 }
 
 impl PreparedStructuralAggregateOperator {
@@ -89,19 +87,17 @@ impl PreparedStructuralAggregateOperator {
 
         Ok(Self {
             request,
-            columns: projection_labels_from_projection_spec(projection),
-            fixed_scales: projection_fixed_scales_from_projection_spec(projection),
+            projection: projection_contract_from_projection_spec(projection),
         })
     }
 
-    fn into_parts(self) -> (StructuralAggregateRequest, Vec<String>, Vec<Option<u32>>) {
+    fn into_parts(self) -> (StructuralAggregateRequest, SqlProjectionContract) {
         let Self {
             request,
-            columns,
-            fixed_scales,
+            projection,
         } = self;
 
-        (request, columns, fixed_scales)
+        (request, projection)
     }
 }
 
@@ -189,8 +185,8 @@ fn direct_count_rows_statement_result(
     value: Value,
     cache_attribution: SqlCacheAttribution,
 ) -> (SqlStatementResult, SqlCacheAttribution) {
-    let columns = projection_labels_from_projection_spec(projection);
-    let fixed_scales = projection_fixed_scales_from_projection_spec(projection);
+    let (columns, fixed_scales) =
+        projection_contract_from_projection_spec(projection).into_components();
 
     (
         sql_projection_statement_result_from_value_rows(
@@ -504,7 +500,7 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_info = catalog.accepted_schema_info_for::<E>();
         let operator =
             PreparedStructuralAggregateOperator::from_global_command(command, schema_info)?;
-        let (request, columns, fixed_scales) = operator.into_parts();
+        let (request, projection) = operator.into_parts();
         let result = self
             .with_metrics(|| {
                 self.load_executor::<E>()
@@ -513,6 +509,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
         let rows = result.into_value_rows();
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
+        let (columns, fixed_scales) = projection.into_components();
 
         Ok((
             sql_projection_statement_result_from_value_rows(columns, fixed_scales, rows, row_count),

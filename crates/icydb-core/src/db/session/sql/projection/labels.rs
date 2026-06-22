@@ -4,6 +4,7 @@
 //! Does not own: projection execution or projection payload storage.
 //! Boundary: keeps SQL projection naming policy at the session boundary.
 
+use super::SqlProjectionContract;
 use crate::{
     db::{
         query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
@@ -88,6 +89,18 @@ pub(in crate::db::session::sql) fn projection_fixed_scales_from_projection_spec(
             }
         })
         .collect()
+}
+
+// Build the outward SQL projection contract from one frozen projection spec in
+// one owner-local place so SELECT and aggregate execution do not duplicate the
+// label/fixed-scale pairing.
+pub(in crate::db::session::sql) fn projection_contract_from_projection_spec(
+    projection: &ProjectionSpec,
+) -> SqlProjectionContract {
+    SqlProjectionContract::new(
+        projection_labels_from_projection_spec(projection),
+        projection_fixed_scales_from_projection_spec(projection),
+    )
 }
 
 // Attach SQL-facing projection labels and shell-facing projection runtime hints
