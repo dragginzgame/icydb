@@ -10,7 +10,9 @@ use crate::{
             pipeline::{
                 contracts::{ExecutionOutcomeMetrics, KernelRowsExecutionAttempt},
                 entrypoints::scalar::{
-                    execution::{attach_execution_stats_to_trace, execute_prepared_scalar_kernel},
+                    execution::{
+                        execute_prepared_scalar_kernel, finish_scalar_kernel_observability,
+                    },
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
@@ -46,7 +48,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
             )
         },
     )?;
-    let mut execution_stats = execution.execution_stats;
+    let execution_stats = execution.execution_stats;
     let mut execution_trace = execution.execution_trace;
     let execution_time_micros = execution.execution_time_micros;
     let KernelRowsExecutionAttempt {
@@ -59,9 +61,6 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
         distinct_keys_deduped,
     } = execution.attempt;
     let projected_rows = rows.len();
-    for row in &rows {
-        row_sink(row)?;
-    }
     let metrics = ExecutionOutcomeMetrics {
         optimization,
         rows_scanned,
@@ -70,15 +69,15 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
         index_predicate_keys_rejected,
         distinct_keys_deduped,
     };
-    if let Some(stats) = execution_stats.as_mut() {
-        stats.apply_scalar_outcome(
-            metrics.rows_scanned,
-            metrics.post_access_rows,
-            projected_rows,
-            metrics.distinct_keys_deduped,
-        );
+    for row in &rows {
+        row_sink(row)?;
     }
-    attach_execution_stats_to_trace(&mut execution_trace, execution_stats);
+    finish_scalar_kernel_observability(
+        &mut execution_trace,
+        execution_stats,
+        &metrics,
+        projected_rows,
+    );
 
     Ok((
         projected_rows,

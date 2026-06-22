@@ -12,7 +12,8 @@ use crate::{
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             pipeline::{
                 contracts::{
-                    ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputContext,
+                    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
+                    PreparedExecutionInputContext,
                 },
                 entrypoints::scalar::{
                     hints::apply_unpaged_top_n_seek_hints, runtime::PreparedScalarRouteRuntime,
@@ -49,6 +50,27 @@ pub(super) fn attach_execution_stats_to_trace(
     if let Some(trace) = execution_trace.as_mut() {
         trace.set_execution_stats(execution_stats.map(ExecutionProfileStats::into_execution_stats));
     }
+}
+
+// Finish scalar-kernel observability once for materialized page execution and
+// aggregate row-sink execution. Both terminals share the same scanned,
+// post-access, projected-row, distinct-key, and trace-stat contract.
+pub(super) fn finish_scalar_kernel_observability(
+    execution_trace: &mut Option<ExecutionTrace>,
+    execution_stats: Option<ExecutionProfileStats>,
+    metrics: &ExecutionOutcomeMetrics,
+    projected_rows: usize,
+) {
+    let mut execution_stats = execution_stats;
+    if let Some(stats) = execution_stats.as_mut() {
+        stats.apply_scalar_outcome(
+            metrics.rows_scanned,
+            metrics.post_access_rows,
+            projected_rows,
+            metrics.distinct_keys_deduped,
+        );
+    }
+    attach_execution_stats_to_trace(execution_trace, execution_stats);
 }
 
 // Apply route hints and continuation invariants shared by scalar materialized

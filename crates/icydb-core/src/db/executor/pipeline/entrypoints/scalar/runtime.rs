@@ -8,9 +8,10 @@ use std::sync::Arc;
 use crate::{
     db::{
         Db,
+        cursor::ValidatedCursor,
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation, PreparedScalarPlanCore,
-            ScalarContinuationContext,
+            EntityAuthority, ExecutionPlan, ExecutionPreparation, PreparedLoadPlan,
+            PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, ScalarContinuationContext,
             pipeline::contracts::{
                 CursorEmissionMode, PreparedExecutionProjection, ProjectionMaterializationMode,
             },
@@ -60,6 +61,165 @@ impl PreparedScalarRouteRuntime {
     pub(super) const fn entity_path(&self) -> &'static str {
         self.authority.entity_path()
     }
+}
+
+///
+/// InitialScalarPlanRuntimeOptions
+///
+/// InitialScalarPlanRuntimeOptions records the per-surface knobs for no-cursor
+/// scalar runtime preparation from a prepared load plan.
+///
+
+pub(super) struct InitialScalarPlanRuntimeOptions {
+    pub(super) unpaged_rows_mode: bool,
+    pub(super) projection_runtime_mode: ScalarProjectionRuntimeMode,
+    pub(super) suppress_route_scan_hints: bool,
+}
+
+// Prepare an initial no-cursor scalar runtime from a prepared load plan,
+// including the shared continuation-signature and scalar handoff extraction.
+pub(super) fn prepare_initial_scalar_route_runtime_from_plan<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+    options: InitialScalarPlanRuntimeOptions,
+) -> Result<PreparedScalarRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let continuation_signature = plan.continuation_signature_for_runtime()?;
+    let prepared = plan.into_scalar_runtime_handoff(
+        options.projection_runtime_mode,
+        CursorEmissionMode::Suppress,
+    )?;
+
+    prepare_initial_scalar_route_runtime_from_plan_handoff(
+        db,
+        debug,
+        prepared,
+        options,
+        continuation_signature,
+    )
+}
+
+// Prepare an initial no-cursor scalar runtime from a prepared load plan while
+// replacing the retained-slot layout for this execution only.
+#[cfg(feature = "sql")]
+pub(super) fn prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_layout<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+    retained_slot_layout: crate::db::executor::RetainedSlotLayout,
+    options: InitialScalarPlanRuntimeOptions,
+) -> Result<PreparedScalarRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let continuation_signature = plan.continuation_signature_for_runtime()?;
+    let prepared = plan.into_scalar_runtime_handoff_with_retained_slot_layout(
+        options.projection_runtime_mode,
+        CursorEmissionMode::Suppress,
+        retained_slot_layout,
+    )?;
+
+    prepare_initial_scalar_route_runtime_from_plan_handoff(
+        db,
+        debug,
+        prepared,
+        options,
+        continuation_signature,
+    )
+}
+
+fn prepare_initial_scalar_route_runtime_from_plan_handoff<C>(
+    db: &Db<C>,
+    debug: bool,
+    prepared: PreparedScalarRuntimeHandoff,
+    options: InitialScalarPlanRuntimeOptions,
+    continuation_signature: crate::db::cursor::ContinuationSignature,
+) -> Result<PreparedScalarRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let InitialScalarPlanRuntimeOptions {
+        unpaged_rows_mode,
+        projection_runtime_mode,
+        suppress_route_scan_hints,
+    } = options;
+    let continuation =
+        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
+
+    prepare_initial_scalar_route_runtime_from_handoff(
+        db,
+        debug,
+        prepared,
+        InitialScalarRuntimeOptions {
+            continuation,
+            unpaged_rows_mode,
+            projection_runtime_mode,
+            suppress_route_scan_hints,
+        },
+    )
+}
+
+///
+/// InitialScalarRuntimeOptions
+///
+/// InitialScalarRuntimeOptions records the per-surface knobs for no-cursor
+/// scalar runtime preparation after a caller has already produced a structural
+/// scalar runtime handoff.
+///
+
+pub(super) struct InitialScalarRuntimeOptions {
+    pub(super) continuation: ScalarContinuationContext,
+    pub(super) unpaged_rows_mode: bool,
+    pub(super) projection_runtime_mode: ScalarProjectionRuntimeMode,
+    pub(super) suppress_route_scan_hints: bool,
+}
+
+// Prepare an initial no-cursor scalar runtime from one structural handoff.
+// This keeps repeated initial-route planning and runtime option wiring out of
+// the materialized, retained-slot, and aggregate row-sink entrypoints.
+pub(super) fn prepare_initial_scalar_route_runtime_from_handoff<C>(
+    db: &Db<C>,
+    debug: bool,
+    prepared: PreparedScalarRuntimeHandoff,
+    options: InitialScalarRuntimeOptions,
+) -> Result<PreparedScalarRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let InitialScalarRuntimeOptions {
+        continuation,
+        unpaged_rows_mode,
+        projection_runtime_mode,
+        suppress_route_scan_hints,
+    } = options;
+    let prebuilt_route_plan = Some(
+        prepared
+            .plan_core
+            .get_or_init_initial_scalar_route_plan(prepared.authority.clone())?,
+    );
+
+    prepare_scalar_route_runtime_from_inputs(
+        db,
+        debug,
+        prepared.authority,
+        prepared.execution_preparation,
+        prepared.prepared_projection_contract,
+        prepared.retained_slot_layout,
+        prepared.plan_core,
+        ScalarPreparedRuntimeOptions {
+            continuation,
+            unpaged_rows_mode,
+            cursor_emission: CursorEmissionMode::Suppress,
+            projection_runtime_mode,
+            route_plan_family: ScalarRoutePlanFamily::Initial,
+            prebuilt_route_plan,
+            suppress_route_scan_hints,
+            plan_validation: ScalarPlanValidationMode::AlreadyValidated,
+        },
+    )
 }
 
 ///

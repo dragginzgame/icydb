@@ -209,14 +209,20 @@ Status: active.
 
 ## Current Slice
 
-- Large literal `IN` follow-up: complete for compile/lowering blow-up and the
-  obvious key-only row-hydration hole, with the order-compatible
-  primary-key-suffix index route now covered. The filtered sparse token matrix
-  still reports about 40.6M total instructions for the existing
-  `(collection_id, stage, id)` page path, with about 3.3M in compile work,
-  about 15.8M in planner/route work, 256 index-entry reads, and zero
-  `data_store.get` calls. The matching count remains metadata-backed at about
-  4.8M total instructions with no index-entry scan and no row-store reads.
+- F5 / D6 / H8 scalar-spine follow-up: materialized scalar pages and aggregate
+  row sinks now share one scalar kernel observability finalizer for scanned
+  rows, post-access rows, projected rows, distinct-key counts, and execution
+  trace stats. This deletes a small duplicate terminal-owned flow without
+  changing route selection, page materialization, aggregate row sinking, or
+  attribution field names.
+- F5 / D6 / H8 scalar-spine follow-up: initial no-cursor scalar runtime
+  preparation now consumes one structural runtime handoff helper shared by
+  materialized scalar pages, retained-slot SQL pages, and aggregate row sinks.
+  The diagnostics-only path keeps its explicit measured subphases so perf
+  attribution remains stable.
+- F5 / D6 / H8 scalar-spine follow-up: prepared-load callers now share the
+  continuation-signature extraction and scalar runtime handoff step before
+  initial runtime preparation, including the SQL retained-slot override path.
 
 ## Next Candidates
 

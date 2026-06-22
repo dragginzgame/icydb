@@ -12,7 +12,9 @@ use crate::{
                     ExecutionOutcomeMetrics, MaterializedExecutionPayload, StructuralCursorPage,
                 },
                 entrypoints::scalar::{
-                    execution::{attach_execution_stats_to_trace, execute_prepared_scalar_kernel},
+                    execution::{
+                        execute_prepared_scalar_kernel, finish_scalar_kernel_observability,
+                    },
                     finalize::finalize_scalar_structural_path_execution,
                     runtime::PreparedScalarRouteRuntime,
                 },
@@ -100,20 +102,17 @@ pub(super) fn execute_prepared_scalar_path_execution(
             )
         },
     )?;
-    let mut execution_stats = execution.execution_stats;
+    let execution_stats = execution.execution_stats;
     let mut execution_trace = execution.execution_trace;
     let execution_time_micros = execution.execution_time_micros;
     let materialized = execution.attempt;
     let (payload, metrics) = materialized.into_payload_and_metrics();
-    if let Some(stats) = execution_stats.as_mut() {
-        stats.apply_scalar_outcome(
-            metrics.rows_scanned,
-            metrics.post_access_rows,
-            payload.row_count(),
-            metrics.distinct_keys_deduped,
-        );
-    }
-    attach_execution_stats_to_trace(&mut execution_trace, execution_stats);
+    finish_scalar_kernel_observability(
+        &mut execution_trace,
+        execution_stats,
+        &metrics,
+        payload.row_count(),
+    );
 
     Ok((
         payload,
