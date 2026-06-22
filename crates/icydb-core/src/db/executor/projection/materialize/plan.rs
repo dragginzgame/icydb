@@ -146,6 +146,14 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) fn scalar_projection_contains_field_path(&self) -> bool {
+        self.scalar_projection_exprs()
+            .iter()
+            .any(CompiledExpr::contains_field_path)
+    }
+
+    #[must_use]
     pub(in crate::db::executor) const fn projection_is_model_identity(&self) -> bool {
         self.projection_is_model_identity
     }

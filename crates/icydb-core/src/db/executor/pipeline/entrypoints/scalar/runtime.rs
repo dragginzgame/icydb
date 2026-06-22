@@ -5,8 +5,6 @@
 
 use std::sync::Arc;
 
-#[cfg(feature = "sql")]
-use crate::db::query::plan::expr::CompiledExpr;
 use crate::{
     db::{
         Db,
@@ -275,10 +273,7 @@ fn initial_retained_slot_layout(
 
 #[cfg(feature = "sql")]
 fn projection_contract_requires_data_rows(shape: &PreparedProjectionContract) -> bool {
-    shape
-        .scalar_projection_exprs()
-        .iter()
-        .any(CompiledExpr::contains_field_path)
+    shape.scalar_projection_contains_field_path()
 }
 
 fn prepare_initial_scalar_route_runtime_from_plan_handoff<C>(
