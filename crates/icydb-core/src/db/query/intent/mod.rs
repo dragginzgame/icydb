@@ -15,7 +15,7 @@ mod state;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db) use access_requirement::AccessRequirements;
+pub(in crate::db::query::intent) use access_requirement::AccessRequirements;
 pub use access_requirement::{
     AccessRequirementError, AccessRequirementViolation, RequiredAccessPath,
 };

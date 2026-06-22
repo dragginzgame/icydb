@@ -210,7 +210,7 @@ impl FilterExpr {
     /// Lower this typed filter expression into the shared planner-owned boolean expression model.
     #[must_use]
     #[expect(clippy::too_many_lines)]
-    pub(in crate::db) fn lower_bool_expr_for_model(&self, model: &EntityModel) -> Expr {
+    pub(in crate::db::query) fn lower_bool_expr_for_model(&self, model: &EntityModel) -> Expr {
         match self {
             Self::True => Expr::Literal(Value::Bool(true)),
             Self::False => Expr::Literal(Value::Bool(false)),

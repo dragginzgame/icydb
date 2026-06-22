@@ -89,6 +89,7 @@ impl ExecutionRoutePlan {
             scan_hints: ScanHintPlan {
                 physical_fetch_hint: None,
                 load_scan_budget_hint: None,
+                index_prefix_child_expansion: None,
             },
             aggregate_fold_mode: AggregateFoldMode::ExistingRows,
             grouped_plan_strategy: None,

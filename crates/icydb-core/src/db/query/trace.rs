@@ -41,8 +41,8 @@ pub enum TraceReuseArtifactClass {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TraceReuseEvent {
-    pub(in crate::db) artifact_class: TraceReuseArtifactClass,
-    pub(in crate::db) hit: bool,
+    artifact_class: TraceReuseArtifactClass,
+    hit: bool,
 }
 
 impl TraceReuseEvent {
@@ -86,11 +86,11 @@ impl TraceReuseEvent {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryTracePlan {
-    pub(in crate::db) plan_hash: String,
-    pub(in crate::db) access_strategy: String,
-    pub(in crate::db) execution_family: Option<TraceExecutionFamily>,
-    pub(in crate::db) reuse: TraceReuseEvent,
-    pub(in crate::db) explain: ExplainPlan,
+    plan_hash: String,
+    access_strategy: String,
+    execution_family: Option<TraceExecutionFamily>,
+    reuse: TraceReuseEvent,
+    explain: ExplainPlan,
 }
 
 impl QueryTracePlan {

@@ -104,6 +104,11 @@ impl IndexShapeDetails {
     }
 
     #[must_use]
+    pub(in crate::db) fn index_contract(&self) -> SemanticIndexAccessContract {
+        self.index.clone()
+    }
+
+    #[must_use]
     pub(in crate::db) fn ordinal(&self) -> u16 {
         self.index.ordinal()
     }
@@ -136,6 +141,14 @@ impl IndexShapeDetails {
     #[must_use]
     pub(in crate::db) const fn slot_arity(&self) -> usize {
         self.slot_arity
+    }
+
+    #[must_use]
+    pub(in crate::db) fn with_slot_arity(&self, slot_arity: usize) -> Self {
+        Self {
+            index: self.index.clone(),
+            slot_arity,
+        }
     }
 }
 

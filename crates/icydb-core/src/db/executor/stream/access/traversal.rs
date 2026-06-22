@@ -9,6 +9,7 @@ use crate::{
             ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
+            route::IndexPrefixChildExpansionHint,
             stream::{
                 access::{
                     bindings::{
@@ -44,6 +45,7 @@ struct TraversalInputs<'a> {
     physical_fetch_hint: Option<usize>,
     index_predicate_execution: Option<crate::db::index::predicate::IndexPredicateExecution<'a>>,
     preserve_leaf_index_order: bool,
+    index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
 impl<'a> TraversalInputs<'a> {
@@ -136,6 +138,7 @@ impl TraversalRuntime {
             physical_fetch_hint,
             index_predicate_execution,
             preserve_leaf_index_order,
+            index_prefix_child_expansion: bindings.index_prefix_child_expansion,
         };
         let mut spec_cursor = inputs.spec_cursor();
         let key_stream =
@@ -172,6 +175,7 @@ impl TraversalRuntime {
             physical_fetch_hint: hints.physical_fetch_hint,
             index_predicate_execution: hints.predicate_execution,
             preserve_leaf_index_order: inputs.preserve_leaf_index_order,
+            index_prefix_child_expansion: inputs.index_prefix_child_expansion,
         })
     }
 }

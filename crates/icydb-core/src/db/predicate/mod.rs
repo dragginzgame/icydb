@@ -24,10 +24,7 @@ mod simplify;
 mod tests;
 
 use crate::{
-    db::{
-        query::predicate::{reject_unsupported_query_features, validate_predicate},
-        schema::SchemaInfo,
-    },
+    db::{query::predicate::validate_predicate, schema::SchemaInfo},
     model::field::FieldModel,
 };
 
@@ -44,10 +41,10 @@ pub(in crate::db) use capability::{
     classify_predicate_capabilities_for_targets, lower_index_compare_literal_for_target,
     lower_index_starts_with_prefix_for_target,
 };
-pub(crate) use coercion::CoercionSpec;
+pub(in crate::db) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
-pub(crate) use parser::parse_sql_predicate;
+pub(in crate::db) use parser::parse_sql_predicate;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use render::relabel_sql_predicate_field_root;
 #[cfg(any(test, feature = "sql"))]
@@ -82,6 +79,5 @@ pub fn validate_generated_index_predicate_fields(
     predicate: &Predicate,
 ) -> Result<(), String> {
     let schema = SchemaInfo::from_field_models(fields);
-    reject_unsupported_query_features(predicate).map_err(|_| "unsupported query feature")?;
     validate_predicate(&schema, predicate).map_err(|error| error.to_string())
 }

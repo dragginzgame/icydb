@@ -833,7 +833,7 @@ impl AccessPlannedQuery {
         self.explain_inner()
     }
 
-    pub(in crate::db::query::explain) fn explain_inner(&self) -> ExplainPlan {
+    fn explain_inner(&self) -> ExplainPlan {
         // Phase 1: project logical plan variant into scalar core + grouped metadata.
         let (logical, grouping) = match &self.logical {
             LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),

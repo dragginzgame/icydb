@@ -5,7 +5,10 @@
 
 use crate::db::{
     access::{AccessPathKind, AccessShapeFacts, IndexShapeDetails, SemanticIndexKeyItemsRef},
-    executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
+    direction::Direction,
+    executor::route::{
+        IndexPrefixChildExpansionHint, PushdownApplicability, SecondaryOrderPushdownRejection,
+    },
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
         OrderDirection, PlannerRouteProfile,
@@ -13,6 +16,8 @@ use crate::db::{
         deterministic_secondary_index_key_items_order_compatibility,
     },
 };
+
+const MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES: usize = 32;
 
 fn validated_secondary_order_contract(
     planner_route_profile: &PlannerRouteProfile,
@@ -202,24 +207,20 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
     // is an ASC index-prefix family whose consumed prefix leaves the primary
     // key as the exact remaining index suffix, so each prefix stream can be
     // merged by decoded primary key without a materialized sort.
-    let access_uses_index = access_shape_facts
-        .single_path_index_prefix_details()
-        .is_some()
-        || access_shape_facts
-            .single_path_index_range_details()
-            .is_some();
     let primary_key_order_satisfied = order
         .primary_key_only_direction_fields(&plan.primary_key_names())
         .is_some_and(|direction| {
-            if !access_uses_index {
-                return true;
-            }
+            let direction = match direction {
+                OrderDirection::Asc => Direction::Asc,
+                OrderDirection::Desc => Direction::Desc,
+            };
 
-            matches!(direction, OrderDirection::Asc)
-                && index_prefix_family_preserves_primary_key_suffix_order(
-                    access_shape_facts,
-                    plan.primary_key_names().as_slice(),
-                )
+            access_preserves_primary_key_order_for_route_direction_with_access_shape_facts(
+                plan,
+                access_shape_facts,
+                direction,
+                true,
+            )
         });
     let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
@@ -230,6 +231,52 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
         });
 
     has_order_fields && (primary_key_order_satisfied || secondary_pushdown_eligible)
+}
+
+/// Return whether the selected access route can produce primary-key order
+/// without relying on metadata-backed child-prefix expansion.
+#[must_use]
+pub(in crate::db::executor) fn access_preserves_primary_key_order_without_child_expansion(
+    plan: &AccessPlannedQuery,
+    direction: Direction,
+) -> bool {
+    let access_shape_facts = plan.access_shape_facts();
+
+    access_preserves_primary_key_order_for_route_direction_with_access_shape_facts(
+        plan,
+        &access_shape_facts,
+        direction,
+        false,
+    )
+}
+
+fn access_preserves_primary_key_order_for_route_direction_with_access_shape_facts(
+    plan: &AccessPlannedQuery,
+    access_shape_facts: &AccessShapeFacts,
+    direction: Direction,
+    allow_child_expansion: bool,
+) -> bool {
+    let access_uses_index = access_shape_facts
+        .single_path_index_prefix_details()
+        .is_some()
+        || access_shape_facts
+            .single_path_index_range_details()
+            .is_some();
+    if !access_uses_index {
+        return true;
+    }
+
+    matches!(direction, Direction::Asc)
+        && (index_prefix_family_preserves_primary_key_suffix_order(
+            access_shape_facts,
+            plan.primary_key_names().as_slice(),
+        ) || (allow_child_expansion
+            && ordered_child_prefix_expansion_target_for_primary_key_direction(
+                plan,
+                access_shape_facts,
+                direction,
+            )
+            .is_some()))
 }
 
 fn index_prefix_family_preserves_primary_key_suffix_order(
@@ -259,10 +306,86 @@ fn index_suffix_matches_primary_key_order(
     index: &IndexShapeDetails,
     primary_key_names: &[&str],
 ) -> bool {
-    let prefix_len = index.slot_arity();
+    index_suffix_matches_primary_key_order_from_prefix(index, index.slot_arity(), primary_key_names)
+}
+
+/// Return the expanded prefix length when a sparse multi-lookup prefix can be
+/// expanded by exactly one exact child slot so the remaining suffix is the
+/// primary-key order suffix.
+#[must_use]
+pub(in crate::db::executor::planning::route) fn ordered_child_prefix_expansion_target_for_route(
+    plan: &AccessPlannedQuery,
+    access_shape_facts: &AccessShapeFacts,
+) -> Option<usize> {
+    let direction = plan
+        .scalar_plan()
+        .order
+        .as_ref()?
+        .primary_key_only_direction_fields(&plan.primary_key_names())?;
+    if !matches!(direction, OrderDirection::Asc) {
+        return None;
+    }
+
+    ordered_child_prefix_expansion_target_for_primary_key_direction(
+        plan,
+        access_shape_facts,
+        Direction::Asc,
+    )
+}
+
+fn ordered_child_prefix_expansion_target_for_primary_key_direction(
+    plan: &AccessPlannedQuery,
+    access_shape_facts: &AccessShapeFacts,
+    direction: Direction,
+) -> Option<usize> {
+    if !matches!(direction, Direction::Asc) {
+        return None;
+    }
+
+    let single_path = access_shape_facts.single_path_facts()?;
+    if !matches!(single_path.kind(), AccessPathKind::IndexMultiLookup) {
+        return None;
+    }
+
+    let details = single_path.index_prefix_details()?;
+    let expanded_prefix_len = details.slot_arity().checked_add(1)?;
+    if expanded_prefix_len >= details.key_arity() {
+        return None;
+    }
+
+    index_suffix_matches_primary_key_order_from_prefix(
+        &details,
+        expanded_prefix_len,
+        plan.primary_key_names().as_slice(),
+    )
+    .then_some(expanded_prefix_len)
+}
+
+#[must_use]
+pub(in crate::db::executor) fn index_prefix_child_expansion_hint_for_plan(
+    plan: &AccessPlannedQuery,
+) -> Option<IndexPrefixChildExpansionHint> {
+    ordered_child_prefix_expansion_target_for_route(plan, &plan.access_shape_facts()).map(
+        |target_prefix_len| {
+            IndexPrefixChildExpansionHint::new(
+                target_prefix_len,
+                MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES,
+            )
+        },
+    )
+}
+
+fn index_suffix_matches_primary_key_order_from_prefix(
+    index: &IndexShapeDetails,
+    prefix_len: usize,
+    primary_key_names: &[&str],
+) -> bool {
     let key_arity = index.key_arity();
-    if prefix_len >= key_arity {
+    if prefix_len > key_arity {
         return false;
+    }
+    if prefix_len == key_arity {
+        return !primary_key_names.is_empty();
     }
     if key_arity.saturating_sub(prefix_len) != primary_key_names.len() {
         return false;

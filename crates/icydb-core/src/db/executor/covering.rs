@@ -153,6 +153,29 @@ where
     Err(InternalError::query_executor_invariant())
 }
 
+pub(in crate::db::executor) fn resolve_single_covering_projection_component_from_lowered_specs<F>(
+    entity_tag: EntityTag,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    index_range_specs: &[LoweredIndexRangeSpec],
+    direction: Direction,
+    component_index: usize,
+    resolve_store_for_index: F,
+) -> Result<CoveringProjectionComponentRows, InternalError>
+where
+    F: FnMut(&str) -> Result<StoreHandle, InternalError>,
+{
+    resolve_covering_projection_components_from_lowered_specs(
+        entity_tag,
+        index_prefix_specs,
+        index_range_specs,
+        direction,
+        usize::MAX,
+        &[component_index],
+        None,
+        resolve_store_for_index,
+    )
+}
+
 // Resolve a branch/multi-prefix covering projection as merged component
 // streams. This keeps the covering lane aligned with scalar branch execution:
 // each prefix owns its range cursor, merge order is primary-key comparator
@@ -658,15 +681,61 @@ pub(in crate::db::executor) fn map_covering_projection_pairs<T, F>(
 where
     F: FnMut(CoveringComponentValues) -> Result<Option<T>, InternalError>,
 {
-    let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
+    let capacity = raw_pairs.len();
+
+    fold_covering_projection_component_rows_in_window(
+        raw_pairs,
+        store,
+        consistency,
+        existing_row_mode,
+        CoveringProjectionComponentWindow::new(0, None),
+        Vec::with_capacity(capacity),
+        |mut projected_pairs, data_key, components| {
+            let Some(projected) = map_components(components)? else {
+                return Ok(None);
+            };
+            projected_pairs.push((data_key, projected));
+
+            Ok(Some(projected_pairs))
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct CoveringProjectionComponentWindow {
+    offset: usize,
+    limit: Option<usize>,
+}
+
+impl CoveringProjectionComponentWindow {
+    pub(in crate::db::executor) const fn new(offset: usize, limit: Option<usize>) -> Self {
+        Self { offset, limit }
+    }
+}
+
+// Fold one raw covering component stream through the same existing-row and
+// effective-window policy used by index-ordered covering terminals. The caller
+// owns terminal-specific decode/fold semantics; this helper owns stale-row
+// filtering and row-check attribution.
+pub(in crate::db::executor) fn fold_covering_projection_component_rows_in_window<T, F>(
+    raw_pairs: CoveringProjectionComponentRows,
+    store: StoreHandle,
+    consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
+    window: CoveringProjectionComponentWindow,
+    initial: T,
+    mut fold_component_row: F,
+) -> Result<Option<T>, InternalError>
+where
+    F: FnMut(T, DecodedDataStoreKey, CoveringComponentValues) -> Result<Option<T>, InternalError>,
+{
+    let mut accumulator = initial;
+    let mut present_rows = 0usize;
+    let mut emitted_rows = 0usize;
 
     for (data_key, _existence_witness, components) in raw_pairs {
-        // Keep the physical-access bucket scoped to the actual row-presence
-        // probe only. Planner-proven covering rows should not charge covering
-        // decode or terminal row mapping to `s`.
         if existing_row_mode.requires_row_presence_check() {
             record_row_check_covering_candidate_seen();
-
             let row_present = store.with_data(|data| {
                 read_row_presence_with_consistency_from_data_store(data, &data_key, consistency)
             })?;
@@ -675,16 +744,33 @@ where
             }
         }
 
-        let Some(projected) = map_components(components)? else {
+        if present_rows < window.offset {
+            present_rows = present_rows.saturating_add(1);
+            if existing_row_mode.requires_row_presence_check() {
+                record_row_check_row_emitted();
+            }
+            continue;
+        }
+        if window.limit.is_some_and(|limit| emitted_rows >= limit) {
+            present_rows = present_rows.saturating_add(1);
+            if existing_row_mode.requires_row_presence_check() {
+                record_row_check_row_emitted();
+            }
+            continue;
+        }
+
+        let Some(next_accumulator) = fold_component_row(accumulator, data_key, components)? else {
             return Ok(None);
         };
-        projected_pairs.push((data_key, projected));
+        accumulator = next_accumulator;
+        present_rows = present_rows.saturating_add(1);
+        emitted_rows = emitted_rows.saturating_add(1);
         if existing_row_mode.requires_row_presence_check() {
             record_row_check_row_emitted();
         }
     }
 
-    Ok(Some(projected_pairs))
+    Ok(Some(accumulator))
 }
 
 // Decode one canonical covering-index component payload into one runtime

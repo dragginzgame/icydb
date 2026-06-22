@@ -16,7 +16,7 @@ use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 
 #[derive(Debug)]
 #[expect(clippy::enum_variant_names)]
-pub enum StoreRegistryError {
+pub(in crate::db::registry) enum StoreRegistryError {
     /// Requested generated store path is not registered.
     StoreNotFound,
 
@@ -31,7 +31,7 @@ pub enum StoreRegistryError {
 }
 
 impl StoreRegistryError {
-    pub(crate) const fn class(&self) -> ErrorClass {
+    const fn class(&self) -> ErrorClass {
         match self {
             Self::StoreNotFound => ErrorClass::Internal,
             Self::StoreAlreadyRegistered

@@ -99,7 +99,7 @@ pub struct PagedGroupedExecutionWithTrace {
 impl PagedGroupedExecutionWithTrace {
     /// Construct one traced grouped paged execution payload.
     #[must_use]
-    pub const fn new(
+    pub(in crate::db) const fn new(
         rows: Vec<GroupedRow>,
         continuation_cursor: Option<Vec<u8>>,
         execution_trace: Option<ExecutionTrace>,

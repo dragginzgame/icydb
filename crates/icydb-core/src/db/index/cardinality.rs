@@ -124,6 +124,54 @@ impl IndexPrefixCardinality {
         ))
     }
 
+    #[must_use]
+    pub(super) fn exact_child_prefixes(
+        &self,
+        data_generation: u64,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        parent_components: &[Vec<u8>],
+        max_children: usize,
+    ) -> Option<Vec<Vec<Vec<u8>>>> {
+        if parent_components.is_empty()
+            || !self.decodable
+            || self.data_generation != Some(data_generation)
+        {
+            return None;
+        }
+
+        self.exact_child_prefixes_synchronized(key_kind, index_id, parent_components, max_children)
+    }
+
+    fn exact_child_prefixes_synchronized(
+        &self,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        parent_components: &[Vec<u8>],
+        max_children: usize,
+    ) -> Option<Vec<Vec<Vec<u8>>>> {
+        let child_len = parent_components.len().saturating_add(1);
+        let start = IndexPrefixCardinalityKey::new(key_kind, index_id, parent_components);
+        let mut children = Vec::new();
+
+        for (key, _count) in self.counts.range(start..) {
+            if !key.matches_identity(key_kind, index_id)
+                || !key.components_start_with(parent_components)
+            {
+                break;
+            }
+            if key.components.len() != child_len {
+                continue;
+            }
+            if children.len() == max_children {
+                return None;
+            }
+            children.push(key.components.clone());
+        }
+
+        Some(children)
+    }
+
     fn exact_count_synchronized(
         &self,
         key_kind: IndexKeyKind,
@@ -436,6 +484,14 @@ impl IndexPrefixCardinalityKey {
             index_id: *index_key.index_id(),
             components,
         }
+    }
+
+    fn matches_identity(&self, key_kind: IndexKeyKind, index_id: IndexId) -> bool {
+        self.key_kind == key_kind && self.index_id == index_id
+    }
+
+    fn components_start_with(&self, prefix: &[Vec<u8>]) -> bool {
+        self.components.starts_with(prefix)
     }
 }
 

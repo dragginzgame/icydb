@@ -13,8 +13,8 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey},
         executor::{
-            CoveringProjectionComponentRows, ExecutionKernel, PreparedAggregatePlan,
-            PreparedExecutionPlan,
+            CoveringProjectionComponentRows, CoveringProjectionComponentWindow, ExecutionKernel,
+            PreparedAggregatePlan, PreparedExecutionPlan,
             aggregate::{
                 AggregateKind, CoveringProjectionFacts, CoveringProjectionOrder, Expr,
                 FieldSlot as PlannedFieldSlot, PreparedAggregateSpec,
@@ -35,13 +35,12 @@ use crate::{
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
             decode_single_covering_projection_pairs, decode_single_covering_projection_value,
+            fold_covering_projection_component_rows_in_window,
             group::GroupKeySet,
             page_window_state,
             pipeline::contracts::LoadExecutor,
-            read_row_presence_with_consistency_from_data_store,
-            record_row_check_covering_candidate_seen, record_row_check_row_emitted,
             reorder_covering_projection_pairs,
-            resolve_covering_projection_components_from_lowered_specs, saturating_u32_len,
+            resolve_single_covering_projection_component_from_lowered_specs, saturating_u32_len,
             terminal::RowLayout,
         },
         predicate::MissingRowPolicy,
@@ -727,47 +726,24 @@ where
         raw_pairs: CoveringProjectionComponentRows,
         window: ScalarProjectionWindow,
     ) -> CoveringProjectionPairsResolution {
-        let mut projected_pairs = Vec::with_capacity(window.limit.unwrap_or(raw_pairs.len()));
-        let mut present_rows = 0usize;
-        let mut emitted_rows = 0usize;
+        let capacity = window.limit.unwrap_or(raw_pairs.len());
 
-        // Phase 1: preserve row-presence accounting over every covering
-        // candidate, but decode only rows that survive the effective
-        // OFFSET/LIMIT window.
-        for (data_key, _existence_witness, components) in raw_pairs {
-            record_row_check_covering_candidate_seen();
-            let row_present = prepared.store.with_data(|data| {
-                read_row_presence_with_consistency_from_data_store(
-                    data,
-                    &data_key,
-                    prepared.consistency(),
-                )
-            })?;
-            if !row_present {
-                continue;
-            }
+        fold_covering_projection_component_rows_in_window(
+            raw_pairs,
+            prepared.store,
+            prepared.consistency(),
+            covering_requires_row_presence_check(),
+            CoveringProjectionComponentWindow::new(window.offset, window.limit),
+            Vec::with_capacity(capacity),
+            |mut projected_pairs, data_key, components| {
+                let Some(value) = decode_single_covering_projection_value(components)? else {
+                    return Ok(None);
+                };
+                projected_pairs.push((data_key, value));
 
-            if present_rows < window.offset {
-                present_rows = present_rows.saturating_add(1);
-                record_row_check_row_emitted();
-                continue;
-            }
-            if window.limit.is_some_and(|limit| emitted_rows >= limit) {
-                present_rows = present_rows.saturating_add(1);
-                record_row_check_row_emitted();
-                continue;
-            }
-
-            let Some(value) = decode_single_covering_projection_value(components)? else {
-                return Ok(None);
-            };
-            projected_pairs.push((data_key, value));
-            present_rows = present_rows.saturating_add(1);
-            emitted_rows = emitted_rows.saturating_add(1);
-            record_row_check_row_emitted();
-        }
-
-        Ok(Some(projected_pairs))
+                Ok(Some(projected_pairs))
+            },
+        )
     }
 
     // Read one index-backed `(data_key, encoded_component)` stream for covering
@@ -777,14 +753,12 @@ where
         component_index: usize,
         direction: crate::db::direction::Direction,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        resolve_covering_projection_components_from_lowered_specs(
+        resolve_single_covering_projection_component_from_lowered_specs(
             prepared.authority.entity_tag(),
             prepared.index_prefix_specs.as_ref(),
             prepared.index_range_specs.as_ref(),
             direction,
-            usize::MAX,
-            &[component_index],
-            None,
+            component_index,
             |store_path| prepared.store_resolver.try_get_store(store_path),
         )
     }

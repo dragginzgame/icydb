@@ -8,7 +8,7 @@ use crate::{
         access::{ExecutionPathPayload, IndexShapeDetails},
         cursor::{CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput},
         data::{
-            DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
+            DataStore, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
             primary_key_value_from_structural_value,
         },
         direction::Direction,
@@ -17,11 +17,13 @@ use crate::{
             LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
             lowered_index_prefix_empty_bitmap, lowered_index_prefix_is_proven_empty,
             ordered_key_stream_from_materialized_keys,
-            pipeline::contracts::AccessScanContinuationInput,
+            pipeline::contracts::AccessScanContinuationInput, route::IndexPrefixChildExpansionHint,
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
         },
-        index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
+        index::{
+            IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, predicate::IndexPredicateExecution,
+        },
         key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
     },
@@ -74,6 +76,7 @@ pub(super) struct StructuralPhysicalStreamRequest<'a> {
     pub(super) physical_fetch_hint: Option<usize>,
     pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     pub(super) preserve_leaf_index_order: bool,
+    pub(super) index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
 ///
@@ -93,6 +96,7 @@ struct PhysicalStreamBindings<'a> {
     physical_fetch_hint: Option<usize>,
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     preserve_leaf_index_order: bool,
+    index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
 // Keep the historical physical-path invariant name stable for CI checks while
@@ -404,6 +408,107 @@ impl KeyAccessRuntime {
         ))
     }
 
+    fn expanded_index_multi_lookup_stream(
+        &self,
+        index: &IndexShapeDetails,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        continuation: AccessScanContinuationInput<'_>,
+        index_fetch_hint: Option<usize>,
+        expansion: IndexPrefixChildExpansionHint,
+    ) -> Result<Option<OrderedKeyStreamBox>, InternalError> {
+        if index.slot_arity().saturating_add(1) != expansion.target_prefix_len() {
+            return Err(InternalError::query_executor_invariant());
+        }
+        if expansion.target_prefix_len() >= index.key_arity() {
+            return Err(InternalError::query_executor_invariant());
+        }
+
+        let Some(expanded_specs) =
+            self.expanded_index_prefix_specs(index, index_prefix_specs, expansion)?
+        else {
+            return Ok(None);
+        };
+        if expanded_specs.is_empty() {
+            return Ok(Some(ordered_key_stream_from_materialized_keys(Vec::new())));
+        }
+
+        let expanded_index = index.with_slot_arity(expansion.target_prefix_len());
+        let branch_chunk_entries =
+            branch_stream_chunk_entries(index_fetch_hint, expanded_specs.len());
+        let mut streams = Vec::with_capacity(expanded_specs.len());
+        for spec in &expanded_specs {
+            let branch_anchor = continuation
+                .primary_key_boundary()
+                .map(|boundary| {
+                    primary_key_suffix_resume_anchor_for_prefix(&expanded_index, spec, boundary)
+                })
+                .transpose()?;
+            streams.push(OrderedKeyStreamBox::index_range(
+                IndexRangeKeyStream::from_prefix(
+                    self.store,
+                    self.entity_tag,
+                    spec,
+                    continuation.direction(),
+                    branch_anchor,
+                    index_fetch_hint,
+                    branch_chunk_entries,
+                ),
+            ));
+        }
+
+        Ok(Some(OrderedKeyStreamBox::merge_all(
+            streams,
+            KeyOrderComparator::from_direction(continuation.direction()),
+        )))
+    }
+
+    fn expanded_index_prefix_specs(
+        &self,
+        index: &IndexShapeDetails,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        expansion: IndexPrefixChildExpansionHint,
+    ) -> Result<Option<Vec<LoweredIndexPrefixSpec>>, InternalError> {
+        let total_cap = expansion.max_child_prefixes();
+        if total_cap == 0 {
+            return Ok(None);
+        }
+
+        let data_generation = self.store.with_data(DataStore::generation);
+        let index_id = IndexId::new(self.entity_tag, index.ordinal());
+        let mut expanded_specs = Vec::new();
+
+        for spec in index_prefix_specs {
+            if spec.prefix_components().len().saturating_add(1) != expansion.target_prefix_len() {
+                return Err(InternalError::query_executor_invariant());
+            }
+            let remaining = total_cap.saturating_sub(expanded_specs.len());
+            if remaining == 0 {
+                return Ok(None);
+            }
+            let Some(child_prefixes) = self.store.with_index(|store| {
+                store.exact_child_prefixes(
+                    data_generation,
+                    IndexKeyKind::User,
+                    index_id,
+                    spec.prefix_components(),
+                    remaining,
+                )
+            }) else {
+                return Ok(None);
+            };
+            for child_prefix in child_prefixes {
+                expanded_specs.push(LoweredIndexPrefixSpec::from_raw_component_prefix(
+                    self.entity_tag,
+                    index.index_contract(),
+                    IndexKeyKind::User,
+                    child_prefix,
+                )?);
+            }
+        }
+
+        Ok(Some(expanded_specs))
+    }
+
     // Resolve one secondary-index range scan.
     fn resolve_index_range(
         &self,
@@ -459,13 +564,26 @@ fn primary_key_suffix_resume_anchor_for_prefix(
 ) -> Result<RawIndexStoreKey, InternalError> {
     let prefix_len = index.slot_arity();
     let key_arity = index.key_arity();
-    if prefix_len >= key_arity {
+    if prefix_len > key_arity {
         return Err(InternalError::query_executor_invariant());
     }
 
     let prefix_start = lowered_prefix_start_key(spec)?;
     if prefix_start.component_count() != key_arity {
         return Err(InternalError::query_executor_invariant());
+    }
+    if prefix_len == key_arity {
+        let (primary_key, _values) =
+            primary_key_suffix_values(primary_key_boundary, primary_key_boundary.slots.len())?;
+        return Ok(
+            IndexKey::new_from_existing_prefix_and_suffix_values_with_primary_key_value(
+                &prefix_start,
+                prefix_len,
+                &[],
+                &primary_key,
+            )?
+            .to_raw(),
+        );
     }
 
     let suffix_len = key_arity.saturating_sub(prefix_len);
@@ -930,6 +1048,62 @@ const fn index_path_can_stream_in_final_order(request: PhysicalStreamBindings<'_
         && (request.preserve_leaf_index_order || request.physical_fetch_hint.is_some())
 }
 
+fn resolve_index_multi_lookup_physical_key_stream(
+    index: &IndexShapeDetails,
+    value_count: usize,
+    request: PhysicalStreamBindings<'_>,
+    runtime: &KeyAccessRuntime,
+) -> Result<PhysicalKeyResolution, InternalError> {
+    if let Some(expansion) = request.index_prefix_child_expansion {
+        if let Some(stream) = runtime.expanded_index_multi_lookup_stream(
+            index,
+            request.index_prefix_specs,
+            request.continuation,
+            request.physical_fetch_hint,
+            expansion,
+        )? {
+            return Ok(PhysicalKeyResolution::Stream(Box::new(stream)));
+        }
+
+        let (candidates, key_order_state) = runtime.resolve_index_multi_lookup(
+            request.index_prefix_specs,
+            value_count,
+            request.continuation.direction(),
+            request.index_predicate_execution,
+        )?;
+
+        return Ok(PhysicalKeyResolution::Materialized {
+            candidates,
+            key_order_state,
+        });
+    }
+
+    if index_path_can_stream_in_final_order(request) {
+        return Ok(PhysicalKeyResolution::Stream(Box::new(
+            runtime.resolve_index_multi_lookup_stream(
+                index,
+                request.index_prefix_specs,
+                value_count,
+                request.continuation,
+                request.physical_fetch_hint,
+                request.preserve_leaf_index_order,
+            )?,
+        )));
+    }
+
+    let (candidates, key_order_state) = runtime.resolve_index_multi_lookup(
+        request.index_prefix_specs,
+        value_count,
+        request.continuation.direction(),
+        request.index_predicate_execution,
+    )?;
+
+    Ok(PhysicalKeyResolution::Materialized {
+        candidates,
+        key_order_state,
+    })
+}
+
 fn resolve_index_physical_key_stream(
     path: &ExecutionPathPayload<'_, Value>,
     request: PhysicalStreamBindings<'_>,
@@ -957,25 +1131,20 @@ fn resolve_index_physical_key_stream(
             )?
         }
         ExecutionPathPayload::IndexMultiLookup { index, value_count } => {
-            if index_path_can_stream_in_final_order(request) {
-                return Ok(PhysicalKeyResolution::Stream(Box::new(
-                    runtime.resolve_index_multi_lookup_stream(
-                        index,
-                        request.index_prefix_specs,
-                        *value_count,
-                        request.continuation,
-                        request.physical_fetch_hint,
-                        request.preserve_leaf_index_order,
-                    )?,
-                )));
-            }
-
-            runtime.resolve_index_multi_lookup(
-                request.index_prefix_specs,
+            match resolve_index_multi_lookup_physical_key_stream(
+                index,
                 *value_count,
-                request.continuation.direction(),
-                request.index_predicate_execution,
-            )?
+                request,
+                runtime,
+            )? {
+                PhysicalKeyResolution::Stream(stream) => {
+                    return Ok(PhysicalKeyResolution::Stream(stream));
+                }
+                PhysicalKeyResolution::Materialized {
+                    candidates,
+                    key_order_state,
+                } => (candidates, key_order_state),
+            }
         }
         ExecutionPathPayload::IndexBranchSet {
             index,
@@ -1116,6 +1285,7 @@ impl ExecutionPathPayload<'_, Value> {
             physical_fetch_hint: request.physical_fetch_hint,
             index_predicate_execution: request.index_predicate_execution,
             preserve_leaf_index_order: request.preserve_leaf_index_order,
+            index_prefix_child_expansion: request.index_prefix_child_expansion,
         };
 
         resolve_physical_key_stream(self, bindings, &runtime)

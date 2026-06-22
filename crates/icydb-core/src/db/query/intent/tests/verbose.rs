@@ -390,6 +390,25 @@ fn deterministic_prefix_choice_diagnostics() -> BTreeMap<String, String> {
     verbose_diagnostics_map(&verbose)
 }
 
+fn deterministic_multi_lookup_choice_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("silver".to_string()),
+                Value::Text("gold".to_string()),
+            ]),
+            CoercionId::Strict,
+        )))
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
+        .explain_execution_verbose()
+        .expect("deterministic multi-lookup explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
 fn deterministic_range_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::And(vec![
@@ -838,6 +857,11 @@ fn explain_execution_verbose_order_compatible_choice_matrix() {
             "prefix choice",
             deterministic_prefix_choice_diagnostics,
             "IndexPrefix(",
+        ),
+        (
+            "multi-lookup choice",
+            deterministic_multi_lookup_choice_diagnostics,
+            "IndexMultiLookup(",
         ),
         (
             "range choice",

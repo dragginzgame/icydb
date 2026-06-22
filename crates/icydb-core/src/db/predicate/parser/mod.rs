@@ -22,7 +22,7 @@ use icydb_diagnostic_code::SqlFeatureCode;
 ///
 /// This is the core predicate parsing boundary used by schema/index contracts
 /// that need predicate semantics without a full SQL statement wrapper.
-pub(crate) fn parse_sql_predicate(sql: &str) -> Result<Predicate, SqlParseError> {
+pub(in crate::db) fn parse_sql_predicate(sql: &str) -> Result<Predicate, SqlParseError> {
     let tokens = tokenize_sql(sql)?;
     let mut cursor = SqlTokenCursor::new(tokens);
     let predicate = expression::parse_predicate_from_cursor(&mut cursor)?;

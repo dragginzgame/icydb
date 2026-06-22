@@ -62,6 +62,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
             index_prefix_specs: route.index_prefix_specs(),
             index_range_specs: route.index_range_specs(),
             continuation: AccessScanContinuationInput::new(None, route.direction()),
+            index_prefix_child_expansion: None,
         },
         execution_preparation: &execution_preparation,
         projection_materialization: ProjectionMaterializationMode::SharedValidation,

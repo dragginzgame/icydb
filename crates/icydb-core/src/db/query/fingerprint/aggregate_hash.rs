@@ -25,7 +25,7 @@ const AGGREGATE_FILTER_EXPR_ABSENT_TAG: u8 = 0x06;
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AggregateHashShape<'a> {
+pub(in crate::db::query::fingerprint) struct AggregateHashShape<'a> {
     kind: AggregateKind,
     target_field: Option<&'a str>,
     input_expr: Option<String>,
@@ -36,7 +36,7 @@ pub(in crate::db) struct AggregateHashShape<'a> {
 impl<'a> AggregateHashShape<'a> {
     /// Build one semantic grouped aggregate hash shape.
     #[must_use]
-    pub(in crate::db) const fn semantic(
+    pub(in crate::db::query::fingerprint) const fn semantic(
         kind: AggregateKind,
         target_field: Option<&'a str>,
         input_expr: Option<String>,
@@ -54,7 +54,7 @@ impl<'a> AggregateHashShape<'a> {
 }
 
 // Hash one grouped aggregate identity shape using the current structural encoding.
-pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
+pub(in crate::db::query::fingerprint) fn hash_group_aggregate_structural_fingerprint(
     hasher: &mut Sha256,
     shape: &AggregateHashShape<'_>,
 ) {

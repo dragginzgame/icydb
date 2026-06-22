@@ -10,7 +10,7 @@ mod registry;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use error::StoreRegistryError;
+pub(in crate::db::registry) use error::StoreRegistryError;
 pub(crate) use handle::StoreHandle;
 pub use handle::{
     StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,

@@ -562,6 +562,41 @@ fn assert_order_compatible_prefix_choice(
     );
 }
 
+fn assert_order_compatible_multi_lookup_choice(
+    model: &EntityModel,
+    predicate: &Predicate,
+    order: &[(&str, OrderDirection)],
+    expected_index_fields: &[&str],
+    expected_values: &[Value],
+    context: &str,
+) {
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
+    let planner_shape = plan_access_for_test_with_order(
+        model,
+        schema,
+        Some(predicate),
+        Some(canonical_order(order)),
+    )
+    .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("{context} should lower to one index-multi-lookup path");
+    };
+    let AccessPath::IndexMultiLookup { index, values } = path.as_ref() else {
+        panic!("{context} should lower to one index-multi-lookup path");
+    };
+
+    assert_eq!(
+        index.fields(),
+        expected_index_fields,
+        "{context} should keep one order-compatible multi-lookup route when rank ties",
+    );
+    assert_eq!(
+        values, expected_values,
+        "{context} should preserve the canonical IN lookup set on the selected route",
+    );
+}
+
 // This assertion helper stays flat so the order/range expectation matrix stays
 // readable at each call site without introducing another test-only wrapper type.
 #[expect(
@@ -1257,6 +1292,30 @@ fn planner_prefix_selection_prefers_order_compatible_index_over_name_order_tie()
         &["tier", "handle"],
         &[Value::Text("gold".to_string())],
         "ranking test prefix predicate",
+    );
+}
+
+#[test]
+fn planner_multi_lookup_selection_prefers_order_compatible_index_over_name_order_tie() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "tier",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("silver".to_string()),
+            Value::Text("gold".to_string()),
+        ]),
+        CoercionId::Strict,
+    ));
+    assert_order_compatible_multi_lookup_choice(
+        &PLANNER_RANKING_MODEL,
+        &predicate,
+        &[("handle", OrderDirection::Asc), ("id", OrderDirection::Asc)],
+        &["tier", "handle"],
+        &[
+            Value::Text("gold".to_string()),
+            Value::Text("silver".to_string()),
+        ],
+        "ranking test multi-lookup predicate",
     );
 }
 

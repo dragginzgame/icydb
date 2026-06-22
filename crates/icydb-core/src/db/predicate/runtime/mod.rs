@@ -164,7 +164,7 @@ impl PredicateProgram {
 
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn uses_scalar_program(&self) -> bool {
+    pub(in crate::db) const fn uses_scalar_program(&self) -> bool {
         matches!(self.compiled, PredicateExecutionMode::Scalar)
     }
 }

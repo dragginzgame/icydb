@@ -258,6 +258,44 @@ impl GroupedExecutionMode {
 pub(in crate::db::executor) struct ScanHintPlan {
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) load_scan_budget_hint: Option<usize>,
+    pub(in crate::db::executor) index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
+}
+
+///
+/// IndexPrefixChildExpansionHint
+///
+/// Route-owned contract for sparse prefix-family execution. It says a
+/// multi-lookup prefix can be expanded by metadata into exact child prefixes
+/// whose remaining suffix is the primary-key order suffix.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct IndexPrefixChildExpansionHint {
+    target_prefix_len: usize,
+    max_child_prefixes: usize,
+}
+
+impl IndexPrefixChildExpansionHint {
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        target_prefix_len: usize,
+        max_child_prefixes: usize,
+    ) -> Self {
+        Self {
+            target_prefix_len,
+            max_child_prefixes,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn target_prefix_len(self) -> usize {
+        self.target_prefix_len
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn max_child_prefixes(self) -> usize {
+        self.max_child_prefixes
+    }
 }
 
 ///

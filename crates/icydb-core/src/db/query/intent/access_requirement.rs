@@ -75,7 +75,7 @@ impl RequiredAccessPath {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct AccessRequirements {
+pub(in crate::db::query::intent) struct AccessRequirements {
     index_required: bool,
     named_index: Option<String>,
     access_path: Option<RequiredAccessPath>,
@@ -83,7 +83,7 @@ pub(in crate::db) struct AccessRequirements {
 }
 
 impl AccessRequirements {
-    pub(in crate::db) const fn new() -> Self {
+    pub(in crate::db::query::intent) const fn new() -> Self {
         Self {
             index_required: false,
             named_index: None,
@@ -92,24 +92,33 @@ impl AccessRequirements {
         }
     }
 
-    pub(in crate::db) const fn require_index(&mut self) {
+    pub(in crate::db::query::intent) const fn require_index(&mut self) {
         self.index_required = true;
     }
 
-    pub(in crate::db) fn require_index_named(&mut self, index_name: impl Into<String>) {
+    pub(in crate::db::query::intent) fn require_index_named(
+        &mut self,
+        index_name: impl Into<String>,
+    ) {
         self.index_required = true;
         self.named_index = Some(index_name.into());
     }
 
-    pub(in crate::db) const fn require_access_path(&mut self, path: RequiredAccessPath) {
+    pub(in crate::db::query::intent) const fn require_access_path(
+        &mut self,
+        path: RequiredAccessPath,
+    ) {
         self.access_path = Some(path);
     }
 
-    pub(in crate::db) const fn require_no_residual_filter(&mut self) {
+    pub(in crate::db::query::intent) const fn require_no_residual_filter(&mut self) {
         self.no_residual_filter = true;
     }
 
-    pub(in crate::db) fn validate(&self, plan: &AccessPlannedQuery) -> Result<(), QueryError> {
+    pub(in crate::db::query::intent) fn validate(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> Result<(), QueryError> {
         if self.is_empty() {
             return Ok(());
         }
@@ -156,7 +165,7 @@ impl AccessRequirements {
         Ok(())
     }
 
-    pub(in crate::db) const fn is_empty(&self) -> bool {
+    pub(in crate::db::query::intent) const fn is_empty(&self) -> bool {
         !self.index_required
             && self.named_index.is_none()
             && self.access_path.is_none()
@@ -172,10 +181,7 @@ pub struct AccessRequirementError {
 }
 
 impl AccessRequirementError {
-    pub(in crate::db) const fn new(
-        violation: AccessRequirementViolation,
-        decision: ExplainAccessDecisionV1,
-    ) -> Self {
+    const fn new(violation: AccessRequirementViolation, decision: ExplainAccessDecisionV1) -> Self {
         Self {
             violation,
             decision,

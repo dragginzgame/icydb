@@ -209,6 +209,26 @@ Status: active.
   order-compatible multi-lookup shapes such as `bucket IN (...) ORDER BY id`
   on `(bucket, id)` while still rejecting sparse collection-only lookups on
   `(collection_id, stage, id)`.
+- Large literal `IN` fifth slice: synchronized prefix-cardinality metadata can
+  now enumerate bounded exact child prefixes, and scalar multi-lookup execution
+  can expand one child slot when that proves the primary-key suffix order. This
+  lets full-entity/fluent sparse `collection_id IN (...) ORDER BY id` shapes on
+  `(collection_id, stage, id)` stream bounded child-prefix branches without a
+  materialized sort. SQL key-only and hybrid covering projections remain on the
+  covering lane, which is still a separate follow-up if the same optimization is
+  worth carrying there.
+- Covering cleanup first slice: pure and hybrid covering projections now share
+  index-backed access admission, lowering, component-index selection, scan
+  window construction, and component-row resolution. Their row assembly remains
+  separate because pure covering stays row-store-free while hybrid covering
+  selectively hydrates row-backed fields after the index-backed window.
+- Covering cleanup second slice: aggregate projection and `bytes_by` terminals
+  now share the unbounded single-component covering resolver for already
+  lowered index-prefix/range specs.
+- Covering cleanup third slice: generic covering projection mapping, aggregate
+  projection, and `bytes_by` terminals now share one covering row-presence and
+  effective-window fold. Terminal-specific value decoding and byte-length
+  folding remain local to their terminal lanes.
 - F5 / D6 / H8 scalar-spine follow-up: materialized scalar pages and aggregate
   row sinks now share one scalar kernel observability finalizer for scanned
   rows, post-access rows, projected rows, distinct-key counts, and execution
@@ -282,14 +302,13 @@ Status: active.
 
 ## Next Candidates
 
-- Sparse literal `IN` page routing beyond covering: after compact membership
-  lowering and multi-lookup covering admission, the remaining page cost is now
-  specific to using `(collection_id, stage, id)` for
-  `collection_id IN (...) ORDER BY id`; an order-compatible index such as
-  `(collection_id, id)` is admitted by the current route proof. Lowering the
-  existing index shape further needs prefix-distinct metadata that can safely
-  enumerate branch values, or a future branch-tree route that proves global
-  primary-key order without materializing all active collection rows.
+- Sparse literal `IN` covering follow-up: scalar/full-entity pages now have the
+  prefix-cardinality child-expansion path for `(collection_id, stage, id)`, but
+  SQL key-only and hybrid covering projections still use their separate
+  covering stream. Only port this optimization to covering if perf evidence
+  shows it beats the current single-prefix covering scan; the first experiment
+  increased range scans and instructions for the sparse key-only SQL audit
+  shape.
 - D1 / F3: decide whether cache/explain identity should eventually carry a
   first-class aggregate operator DTO shared by singleton global aggregate and
   grouped aggregate explain assembly, or whether the current additive

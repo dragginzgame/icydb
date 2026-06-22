@@ -22,7 +22,7 @@ pub use aggregate::{
 };
 pub use field::FieldRef;
 pub(in crate::db) use numeric_projection::{NumericProjectionExpr, RoundProjectionExpr};
-pub(crate) use scalar_projection::ScalarProjectionPlan;
+pub(in crate::db) use scalar_projection::ScalarProjectionPlan;
 pub use scalar_projection::ValueProjectionExpr;
 pub use text_projection::{
     TextProjectionExpr, contains, ends_with, left, length, lower, ltrim, position, replace, right,

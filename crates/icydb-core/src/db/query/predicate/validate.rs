@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Reject policy-level non-queryable features before planning.
-pub(in crate::db) fn reject_unsupported_query_features(
+pub(in crate::db::query) fn reject_unsupported_query_features(
     predicate: &Predicate,
 ) -> Result<(), UnsupportedQueryFeature> {
     match predicate {

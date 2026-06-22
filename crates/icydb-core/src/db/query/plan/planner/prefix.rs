@@ -90,13 +90,14 @@ pub(super) fn index_prefix_for_eq(
 }
 
 pub(super) fn index_multi_lookup_for_in(
-    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     field: &str,
     values: &[Value],
     coercion: CoercionId,
-) -> Option<Vec<AccessPlan<Value>>> {
+    order: Option<&OrderSpec>,
+    grouped: bool,
+) -> Option<AccessPlan<Value>> {
     // Cache schema/literal compatibility once per `IN` item so candidate-index
     // selection does not repeat the same field-type check for every index.
     let matcher = index_field_literal_matcher(schema, field);
@@ -105,7 +106,11 @@ pub(super) fn index_multi_lookup_for_in(
         .map(|value| (value, matcher.matches(value)))
         .collect::<Vec<_>>();
 
-    let mut out = Vec::new();
+    let mut best: Option<(
+        AccessCandidateScore,
+        SemanticIndexAccessContract,
+        Vec<Value>,
+    )> = None;
     for index in candidate_indexes {
         let mut lookup_values = Vec::with_capacity(values.len());
         for (value, literal_compatible) in &cached_values {
@@ -126,13 +131,30 @@ pub(super) fn index_multi_lookup_for_in(
             continue;
         }
 
-        out.push(AccessPlan::index_multi_lookup_from_contract(
+        let score = access_candidate_score_from_index_contract(
+            schema,
+            order,
             index.clone(),
-            lookup_values,
-        ));
+            1,
+            index.key_arity() == 1,
+            0,
+            grouped,
+        );
+        match &best {
+            None => best = Some((score, index.clone(), lookup_values)),
+            Some((best_score, best_index, _))
+                if access_candidate_score_outranks(score, *best_score, true)
+                    || (score == *best_score && index.name() < best_index.name()) =>
+            {
+                best = Some((score, index.clone(), lookup_values));
+            }
+            Some(_) => {}
+        }
     }
 
-    if out.is_empty() { None } else { Some(out) }
+    best.map(|(_, index, lookup_values)| {
+        AccessPlan::index_multi_lookup_from_contract(index, lookup_values)
+    })
 }
 
 pub(super) fn index_prefix_from_and(

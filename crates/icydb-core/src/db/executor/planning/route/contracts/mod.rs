@@ -16,8 +16,8 @@ pub(in crate::db::executor) use execution::GroupedRouteDecisionOutcome;
 pub use execution::RouteExecutionMode;
 pub(in crate::db::executor) use execution::{
     AggregateSeekSpec, ExecutionRoutePlan, GroupedExecutionMode, GroupedExecutionModeContext,
-    IndexRangeLimitSpec, LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason,
-    ScanHintPlan, TopNSeekSpec,
+    IndexPrefixChildExpansionHint, IndexRangeLimitSpec, LoadOrderRouteDecision, LoadOrderRouteMode,
+    LoadOrderRouteReason, ScanHintPlan, TopNSeekSpec,
 };
 pub(in crate::db) use shape::AggregateRouteShape;
 pub(in crate::db::executor) use shape::{

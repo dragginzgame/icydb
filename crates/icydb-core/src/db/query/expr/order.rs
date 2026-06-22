@@ -46,7 +46,7 @@ impl OrderExpr {
 
     /// Lower one typed fluent order expression into the planner-owned order
     /// contract now that ordering is expression-based end to end.
-    pub(in crate::db) fn lower(&self, direction: OrderDirection) -> PlannedOrderTerm {
+    pub(in crate::db::query) fn lower(&self, direction: OrderDirection) -> PlannedOrderTerm {
         PlannedOrderTerm::new(self.expr.clone(), direction)
     }
 }
@@ -128,7 +128,7 @@ impl OrderTerm {
 
     /// Lower one typed fluent order term directly into the planner-owned
     /// `OrderTerm` contract.
-    pub(in crate::db) fn lower(&self) -> PlannedOrderTerm {
+    pub(in crate::db::query) fn lower(&self) -> PlannedOrderTerm {
         self.expr.lower(self.direction)
     }
 }

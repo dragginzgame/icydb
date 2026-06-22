@@ -1,20 +1,34 @@
 use crate::{
     db::{
-        access::SemanticIndexAccessContract,
+        Db,
+        access::lower_access,
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
+            CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
             apply_offset_limit_window,
             projection::covering::contracts::{
-                AccessPlannedQuery, CoveringProjectionOrder, CoveringReadField,
-                CoveringReadFieldSource, PageSpec,
+                AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
+                CoveringReadField, CoveringReadFieldSource, PageSpec,
             },
+            resolve_covering_projection_components_from_lowered_specs,
+            route::access_preserves_primary_key_order_without_child_expansion,
         },
+        index::predicate::IndexPredicateExecution,
+        registry::StoreHandle,
     },
     error::InternalError,
+    traits::CanisterKind,
     value::Value,
 };
 use std::collections::BTreeMap;
+
+pub(super) struct PreparedCoveringIndexScan {
+    pub(super) component_indices: Vec<usize>,
+    pub(super) raw_pairs: CoveringProjectionComponentRows,
+    pub(super) scan_window: CoveringScanWindow,
+    pub(super) store: StoreHandle,
+}
 
 pub(super) struct CoveringScanWindow {
     pub(super) direction: Direction,
@@ -27,47 +41,11 @@ pub(super) fn access_preserves_primary_key_order_for_covering_window(
     plan: &AccessPlannedQuery,
     order_contract: CoveringProjectionOrder,
 ) -> bool {
-    if !matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_)) {
+    let CoveringProjectionOrder::PrimaryKeyOrder(direction) = order_contract else {
         return false;
-    }
-    let primary_key_names = plan.primary_key_names();
-    if let Some((index, prefix_values)) = plan.access.as_index_prefix_contract_path() {
-        return index_suffix_matches_primary_key_order(
-            index,
-            prefix_values.len(),
-            primary_key_names.as_slice(),
-        );
-    }
-    if let Some((index, _values)) = plan.access.as_index_multi_lookup_contract_path() {
-        return index_suffix_matches_primary_key_order(index, 1, primary_key_names.as_slice());
-    }
-    if let Some(spec) = plan.access.as_index_branch_set_spec_path() {
-        return index_suffix_matches_primary_key_order(
-            spec.index(),
-            spec.branch_prefix_len(),
-            primary_key_names.as_slice(),
-        );
-    }
+    };
 
-    false
-}
-
-fn index_suffix_matches_primary_key_order(
-    index: SemanticIndexAccessContract,
-    prefix_len: usize,
-    primary_key_names: &[&str],
-) -> bool {
-    if prefix_len >= index.key_arity() {
-        return true;
-    }
-    if index.key_arity().saturating_sub(prefix_len) != primary_key_names.len() {
-        return false;
-    }
-
-    primary_key_names
-        .iter()
-        .enumerate()
-        .all(|(offset, name)| index.key_field_at(prefix_len + offset) == Some(*name))
+    access_preserves_primary_key_order_without_child_expansion(plan, direction)
 }
 
 pub(super) fn covering_scan_window(
@@ -87,6 +65,63 @@ pub(super) fn covering_scan_window(
         page_skip_count: covering_scan_time_page_skip_count(page_window_can_apply, page),
         page_window_applied: covering_scan_time_page_window_applied(page_window_can_apply, page),
     }
+}
+
+pub(super) fn resolve_index_backed_covering_scan<C>(
+    db: &Db<C>,
+    authority: &EntityAuthority,
+    plan: &AccessPlannedQuery,
+    fields: &[CoveringReadField],
+    order_contract: CoveringProjectionOrder,
+    existing_row_mode: CoveringExistingRowMode,
+    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+) -> Result<Option<PreparedCoveringIndexScan>, InternalError>
+where
+    C: CanisterKind,
+{
+    if plan.access.as_index_prefix_contract_path().is_none()
+        && plan.access.as_index_multi_lookup_contract_path().is_none()
+        && plan.access.as_index_branch_set_spec_path().is_none()
+        && plan.access.as_index_range_path().is_none()
+    {
+        return Ok(None);
+    }
+
+    let component_indices = covering_projection_component_indices(fields);
+    let store = db.recovered_store(authority.store_path())?;
+    let lowered_access =
+        lower_access(authority.entity_tag(), &plan.access).map_err(|err| match err {
+            crate::db::access::LoweredAccessError::IndexPrefix => {
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            }
+            crate::db::access::LoweredAccessError::IndexRange => {
+                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
+            }
+        })?;
+    let scan_window = covering_scan_window(
+        order_contract,
+        access_preserves_primary_key_order_for_covering_window(plan, order_contract),
+        existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+    );
+    let raw_pairs = resolve_covering_projection_components_from_lowered_specs(
+        authority.entity_tag(),
+        lowered_access.index_prefix_specs(),
+        lowered_access.index_range_specs(),
+        scan_window.direction,
+        scan_window.limit,
+        component_indices.as_slice(),
+        index_predicate_execution,
+        |store_path| db.recovered_store(store_path),
+    )?;
+
+    Ok(Some(PreparedCoveringIndexScan {
+        component_indices,
+        raw_pairs,
+        scan_window,
+        store,
+    }))
 }
 
 pub(super) fn apply_covering_page_window<T>(

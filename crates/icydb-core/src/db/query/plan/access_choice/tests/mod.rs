@@ -5,12 +5,12 @@
 
 use super::{
     evaluator::{
-        chosen_selection_reason, evaluate_multi_lookup_candidate,
+        chosen_selection_reason, evaluate_index_candidate, evaluate_multi_lookup_candidate,
         evaluate_prefix_compare_candidate, evaluate_range_candidate,
     },
     model::{
-        AccessChoiceRankingReason, AccessChoiceRejectedReason, AccessChoiceSelectedReason,
-        CandidateEvaluation, CandidateScore,
+        AccessChoiceFamily, AccessChoiceRankingReason, AccessChoiceRejectedReason,
+        AccessChoiceSelectedReason, CandidateEvaluation, CandidateScore,
     },
 };
 use crate::{
@@ -18,8 +18,9 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::{CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::plan::{
-            AccessPlannedQuery, LoadSpec, LogicalPlanningInputs, QueryMode, build_logical_plan,
-            expr::ProjectionSelection, logical_query_from_logical_inputs,
+            AccessPlannedQuery, LoadSpec, LogicalPlanningInputs, OrderDirection, OrderSpec,
+            QueryMode, build_logical_plan, expr::ProjectionSelection,
+            logical_query_from_logical_inputs,
         },
     },
     db::{predicate::CoercionId, schema::SchemaInfo},
@@ -115,6 +116,15 @@ fn schema() -> &'static SchemaInfo {
 
 fn range_schema() -> &'static SchemaInfo {
     SchemaInfo::cached_for_generated_entity_model(&ACCESS_CHOICE_RANGE_MODEL)
+}
+
+fn canonical_order(fields: &[(&str, OrderDirection)]) -> OrderSpec {
+    OrderSpec {
+        fields: fields
+            .iter()
+            .map(|(field, direction)| crate::db::query::plan::OrderTerm::field(*field, *direction))
+            .collect(),
+    }
 }
 
 #[test]
@@ -265,6 +275,82 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_upper_expression_index(
             range_bound_count: 0,
             order_compatible: false,
         }),
+    );
+}
+
+#[test]
+fn evaluate_multi_lookup_candidate_projects_primary_key_suffix_order_compatibility() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "city",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("Paris".to_string()),
+            Value::Text("Berlin".to_string()),
+        ]),
+        CoercionId::Strict,
+    ));
+    let order = canonical_order(&[("email", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+    let index = SemanticIndexAccessContract::model_only_from_generated_index(
+        ACCESS_CHOICE_RANGE_INDEXES[0],
+    );
+
+    let evaluation = evaluate_index_candidate(
+        AccessChoiceFamily::MultiLookup,
+        index,
+        range_schema(),
+        Some(&predicate),
+        Some(&order),
+        false,
+    );
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 1,
+            exact: false,
+            filtered: false,
+            range_bound_count: 0,
+            order_compatible: true,
+        }),
+        "multi-lookup should report ordered when the consumed IN slot leaves the requested suffix",
+    );
+}
+
+#[test]
+fn evaluate_multi_lookup_candidate_rejects_order_compatibility_when_suffix_is_blocked() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "city",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("Paris".to_string()),
+            Value::Text("Berlin".to_string()),
+        ]),
+        CoercionId::Strict,
+    ));
+    let order = canonical_order(&[("id", OrderDirection::Asc)]);
+    let index = SemanticIndexAccessContract::model_only_from_generated_index(
+        ACCESS_CHOICE_RANGE_INDEXES[0],
+    );
+
+    let evaluation = evaluate_index_candidate(
+        AccessChoiceFamily::MultiLookup,
+        index,
+        range_schema(),
+        Some(&predicate),
+        Some(&order),
+        false,
+    );
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 1,
+            exact: false,
+            filtered: false,
+            range_bound_count: 0,
+            order_compatible: false,
+        }),
+        "multi-lookup must not claim ORDER BY id when an unconstrained index slot blocks the primary-key suffix",
     );
 }
 
@@ -675,6 +761,30 @@ fn chosen_selection_reason_prefers_lower_residual_burden_before_order_compatibil
         ),
         AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::ResidualBurdenPreferred),
         "residual-burden preference should surface before downstream order compatibility when structural scores already tie",
+    );
+}
+
+#[test]
+fn chosen_selection_reason_prefers_order_compatible_multi_lookup_candidate() {
+    let chosen = CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: false,
+        range_bound_count: 0,
+        order_compatible: true,
+    };
+    let competing = [CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: false,
+        range_bound_count: 0,
+        order_compatible: false,
+    }];
+
+    assert_eq!(
+        chosen_selection_reason(AccessChoiceFamily::MultiLookup, chosen, &competing, false,),
+        AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::OrderCompatiblePreferred),
+        "multi-lookup should share the same order-compatible tie-break policy as other index routes",
     );
 }
 

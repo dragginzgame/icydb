@@ -235,7 +235,10 @@ fn ranked_preference_reason(
 
     if matches!(
         family,
-        AccessChoiceFamily::Prefix | AccessChoiceFamily::BranchSet | AccessChoiceFamily::Range
+        AccessChoiceFamily::Prefix
+            | AccessChoiceFamily::MultiLookup
+            | AccessChoiceFamily::BranchSet
+            | AccessChoiceFamily::Range
     ) && chosen_score.order_compatible
         && competing_scores.iter().any(|score| {
             score.prefix_len == chosen_score.prefix_len

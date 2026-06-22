@@ -78,15 +78,16 @@ pub(super) fn plan_compare(
                 if items.is_empty() {
                     return AccessPlan::by_keys(Vec::new());
                 }
-                if let Some(paths) = index_multi_lookup_for_in(
-                    model,
+                if let Some(path) = index_multi_lookup_for_in(
                     candidate_indexes,
                     schema,
                     &cmp.field,
                     items,
                     cmp.coercion.id,
+                    order,
+                    grouped,
                 ) {
-                    return AccessPlan::union(paths);
+                    return path;
                 }
             }
         }

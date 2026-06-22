@@ -159,11 +159,12 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         runtime: &runtime,
         plan,
         executable_access,
-        stream_bindings: AccessStreamBindings {
+        stream_bindings: AccessStreamBindings::new(
             index_prefix_specs,
             index_range_specs,
-            continuation: continuation.access_scan_input(direction, plan),
-        },
+            continuation.access_scan_input(direction, plan),
+        )
+        .with_index_prefix_child_expansion(route_plan.scan_hints.index_prefix_child_expansion),
         execution_preparation: &prep,
         projection_materialization: projection_runtime_mode,
         prepared_projection: projection,

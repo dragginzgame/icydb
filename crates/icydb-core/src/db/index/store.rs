@@ -312,6 +312,29 @@ impl IndexStore {
         )
     }
 
+    /// Return non-empty exact child prefixes under one already-encoded parent
+    /// prefix when synchronized metadata can prove the bounded child set.
+    #[must_use]
+    pub(in crate::db) fn exact_child_prefixes(
+        &self,
+        data_generation: u64,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        parent_components: &[Vec<u8>],
+        max_children: usize,
+    ) -> Option<Vec<Vec<Vec<u8>>>> {
+        #[cfg(any(test, feature = "diagnostics"))]
+        record_index_store_prefix_cardinality_lookup();
+
+        self.prefix_cardinality.exact_child_prefixes(
+            data_generation,
+            key_kind,
+            index_id,
+            parent_components,
+            max_children,
+        )
+    }
+
     /// Mark prefix-cardinality metadata synchronized with the authoritative
     /// row-store generation after a committed row/index transition.
     pub(in crate::db) const fn mark_prefix_cardinality_data_generation(&mut self, generation: u64) {
@@ -770,6 +793,87 @@ mod tests {
             store.exact_prefix_cardinality(8, IndexKeyKind::User, index_id, &[collection, review],),
             None,
             "row generation drift should force the caller to use the existing-row fallback",
+        );
+    }
+
+    #[test]
+    fn index_prefix_cardinality_enumerates_bounded_child_prefixes() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let collection = b"collection-a".to_vec();
+        let other_collection = b"collection-b".to_vec();
+        let draft = b"Draft".to_vec();
+        let review = b"Review".to_vec();
+        let published = b"Published".to_vec();
+        let mut store = IndexStore::init_heap();
+
+        store.insert(
+            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+            IndexEntryValue::presence(),
+        );
+        store.insert(
+            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+            IndexEntryValue::presence(),
+        );
+        store.insert(
+            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+            IndexEntryValue::presence(),
+        );
+        store.insert(
+            indexed_raw_key(
+                &index_id,
+                vec![other_collection.clone(), published.clone()],
+                4,
+            ),
+            IndexEntryValue::presence(),
+        );
+        store.mark_prefix_cardinality_data_generation(7);
+
+        assert_eq!(
+            store.exact_child_prefixes(
+                7,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+                4,
+            ),
+            Some(vec![
+                vec![collection.clone(), draft],
+                vec![collection.clone(), review],
+            ]),
+            "child-prefix enumeration should return deterministic unique children under the requested parent",
+        );
+        assert_eq!(
+            store.exact_child_prefixes(
+                7,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&other_collection),
+                4,
+            ),
+            Some(vec![vec![other_collection, published]]),
+            "child-prefix enumeration must stay scoped to the requested parent prefix",
+        );
+        assert_eq!(
+            store.exact_child_prefixes(
+                8,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+                4,
+            ),
+            None,
+            "row generation drift should keep child-prefix expansion fail-closed",
+        );
+        assert_eq!(
+            store.exact_child_prefixes(
+                7,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+                1,
+            ),
+            None,
+            "over-cap child-prefix expansion should fall back to the existing route",
         );
     }
 

@@ -38,8 +38,10 @@ pub(super) fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
 }
 
 /// Hash planner-owned access contracts into the plan hash stream.
-pub(in crate::db) fn hash_access_plan<K>(hasher: &mut Sha256, access: &AccessPlan<K>)
-where
+pub(in crate::db::query::fingerprint::hash_sections) fn hash_access_plan<K>(
+    hasher: &mut Sha256,
+    access: &AccessPlan<K>,
+) where
     K: KeyValueCodec,
 {
     let mut visitor = AccessFingerprintVisitor { hasher };

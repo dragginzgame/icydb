@@ -335,6 +335,7 @@ impl ExecutionKernel {
                 index_prefix_specs: prepared.index_prefix_specs.as_ref(),
                 index_range_specs: prepared.index_range_specs.as_ref(),
                 continuation: AccessScanContinuationInput::new(None, dispatch.direction),
+                index_prefix_child_expansion: None,
             },
             execution_preparation: &prepared.execution_preparation,
             projection_materialization: ProjectionMaterializationMode::SharedValidation,

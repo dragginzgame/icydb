@@ -142,7 +142,7 @@ impl<'a> JsonWriter<'a> {
     }
 }
 
-pub(in crate::db::query::explain) fn write_json_string(out: &mut String, value: &str) {
+fn write_json_string(out: &mut String, value: &str) {
     out.push('"');
     write_json_string_fragment(out, value);
     out.push('"');

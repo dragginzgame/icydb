@@ -9,7 +9,6 @@ use crate::db::{
 use crate::{
     db::{
         Db,
-        access::lower_access,
         data::DecodedDataStoreKey,
         executor::projection::covering::{
             contracts::{
@@ -17,19 +16,17 @@ use crate::{
                 CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
             },
             shared::{
-                access_preserves_primary_key_order_for_covering_window, apply_covering_page_window,
-                covering_projection_component_indices, covering_scan_window,
+                PreparedCoveringIndexScan, apply_covering_page_window, covering_scan_window,
                 project_covering_row_from_decoded_values,
                 project_covering_row_from_owned_decoded_values,
-                project_covering_row_from_single_decoded_value,
+                project_covering_row_from_single_decoded_value, resolve_index_backed_covering_scan,
             },
         },
         executor::{
-            CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
-            OrderedKeyStreamBox, PrimaryRangeKeyStream, decode_covering_projection_pairs,
+            CoveringProjectionComponentRows, EntityAuthority, OrderedKeyStreamBox,
+            PrimaryRangeKeyStream, decode_covering_projection_pairs,
             decode_single_covering_projection_pairs, map_covering_projection_pairs,
             reorder_covering_projection_pairs,
-            resolve_covering_projection_components_from_lowered_specs,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -52,8 +49,6 @@ where
     if plan.has_residual_filter_expr() {
         return Ok(None);
     }
-    let primary_key_order_scan_safe =
-        access_preserves_primary_key_order_for_covering_window(plan, covering.order_contract);
     if plan.has_residual_filter_predicate()
         && (!covering.strict_predicate_compatible || index_predicate_execution.is_none())
     {
@@ -81,48 +76,23 @@ where
         return Ok(Some(projected_rows));
     }
 
-    // Phase 2: the remaining pure covering shortcut owns index-backed scans.
-    if plan.access.as_index_prefix_contract_path().is_none()
-        && plan.access.as_index_multi_lookup_contract_path().is_none()
-        && plan.access.as_index_branch_set_spec_path().is_none()
-        && plan.access.as_index_range_path().is_none()
-    {
-        return Ok(None);
-    }
-
-    let component_indices = covering_projection_component_indices(covering.fields.as_slice());
-    let store = db.recovered_store(authority.store_path())?;
-    let lowered_access =
-        lower_access(authority.entity_tag(), &plan.access).map_err(|err| match err {
-            crate::db::access::LoweredAccessError::IndexPrefix => {
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            }
-            crate::db::access::LoweredAccessError::IndexRange => {
-                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
-            }
-        })?;
-    let index_prefix_specs = lowered_access.index_prefix_specs();
-    let index_range_specs = lowered_access.index_range_specs();
-
-    // Phase 2: scan the covering component payloads under the same planner
-    // order contract the executor already exposes in EXPLAIN EXECUTION.
-    let scan_window = covering_scan_window(
+    let Some(PreparedCoveringIndexScan {
+        component_indices,
+        raw_pairs,
+        scan_window,
+        store,
+    }) = resolve_index_backed_covering_scan(
+        db,
+        &authority,
+        plan,
+        covering.fields.as_slice(),
         covering.order_contract,
-        primary_key_order_scan_safe,
-        covering.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
-        plan.scalar_plan().distinct,
-        plan.scalar_plan().page.as_ref(),
-    );
-    let raw_pairs = resolve_covering_projection_components_from_lowered_specs(
-        authority.entity_tag(),
-        index_prefix_specs,
-        index_range_specs,
-        scan_window.direction,
-        scan_window.limit,
-        component_indices.as_slice(),
+        covering.existing_row_mode,
         index_predicate_execution,
-        |store_path| db.recovered_store(store_path),
-    )?;
+    )?
+    else {
+        return Ok(None);
+    };
     let page = plan.scalar_plan().page.as_ref();
     let order_contract = covering.order_contract;
     let index_order = matches!(order_contract, CoveringProjectionOrder::IndexOrder(_));

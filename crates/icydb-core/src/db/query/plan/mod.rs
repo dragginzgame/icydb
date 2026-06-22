@@ -215,7 +215,7 @@ pub(crate) use validate::{PlanPolicyError, PlanUserError};
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::db) enum VisibleIndexAuthority {
+enum VisibleIndexAuthority {
     StoreNotReady,
     GeneratedModelOnly,
     AcceptedSchema {
@@ -266,26 +266,28 @@ impl AcceptedPlannerExpressionIndex {
 
     /// Borrow the accepted stable index name.
     #[must_use]
-    pub(in crate::db) const fn name(&self) -> &str {
+    pub(in crate::db::query::plan) const fn name(&self) -> &str {
         self.name.as_str()
     }
 
     /// Borrow the accepted backing index store path.
     #[must_use]
-    pub(in crate::db) const fn store(&self) -> &str {
+    pub(in crate::db::query::plan) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     /// Return whether this accepted index enforces uniqueness.
     #[must_use]
-    pub(in crate::db) const fn unique(&self) -> bool {
+    pub(in crate::db::query::plan) const fn unique(&self) -> bool {
         self.unique
     }
 
     /// Return the reduced semantic access contract used by selected access
     /// paths after planner candidate discovery.
     #[must_use]
-    pub(in crate::db) fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
+    pub(in crate::db::query::plan) fn semantic_access_contract(
+        &self,
+    ) -> SemanticIndexAccessContract {
         self.semantic_access_contract.clone()
     }
 
@@ -335,38 +337,40 @@ impl AcceptedPlannerFieldPathIndex {
 
     /// Borrow the accepted stable index name.
     #[must_use]
-    pub(in crate::db) const fn name(&self) -> &str {
+    pub(in crate::db::query::plan) const fn name(&self) -> &str {
         self.name.as_str()
     }
 
     /// Borrow the accepted backing index store path.
     #[must_use]
-    pub(in crate::db) const fn store(&self) -> &str {
+    pub(in crate::db::query::plan) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     /// Return whether this accepted index enforces uniqueness.
     #[must_use]
-    pub(in crate::db) const fn unique(&self) -> bool {
+    pub(in crate::db::query::plan) const fn unique(&self) -> bool {
         self.unique
     }
 
     /// Borrow accepted field-path key components.
     #[must_use]
-    pub(in crate::db) const fn fields(&self) -> &[AcceptedPlannerFieldPathIndexField] {
+    pub(in crate::db::query::plan) const fn fields(&self) -> &[AcceptedPlannerFieldPathIndexField] {
         self.fields.as_slice()
     }
 
     /// Return the reduced semantic access contract used by selected access
     /// paths after planner candidate discovery.
     #[must_use]
-    pub(in crate::db) fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
+    pub(in crate::db::query::plan) fn semantic_access_contract(
+        &self,
+    ) -> SemanticIndexAccessContract {
         self.semantic_access_contract.clone()
     }
 
     /// Return accepted order terms for this field-path index.
     #[must_use]
-    pub(in crate::db) fn order_terms(&self) -> Vec<String> {
+    pub(in crate::db::query::plan) fn order_terms(&self) -> Vec<String> {
         self.fields
             .iter()
             .map(AcceptedPlannerFieldPathIndexField::term)
@@ -412,19 +416,19 @@ impl AcceptedPlannerFieldPathIndexField {
 
     /// Borrow the accepted top-level field name.
     #[must_use]
-    pub(in crate::db) const fn field_name(&self) -> &str {
+    pub(in crate::db::query::plan) const fn field_name(&self) -> &str {
         self.field_name.as_str()
     }
 
     /// Return the accepted row-layout slot for this key component.
     #[must_use]
-    pub(in crate::db) const fn slot(&self) -> usize {
+    pub(in crate::db::query::plan) const fn slot(&self) -> usize {
         self.slot
     }
 
     /// Borrow the accepted field path for this key component.
     #[must_use]
-    pub(in crate::db) const fn path(&self) -> &[String] {
+    pub(in crate::db::query::plan) const fn path(&self) -> &[String] {
         self.path.as_slice()
     }
 

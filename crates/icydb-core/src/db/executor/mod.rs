@@ -58,10 +58,12 @@ pub(in crate::db) use aggregate::{
 };
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::{
-    CoveringComponentValues, CoveringProjectionComponentRows, covering_projection_scan_direction,
-    covering_requires_row_presence_check, decode_single_covering_projection_pairs,
-    decode_single_covering_projection_value, reorder_covering_projection_pairs,
+    CoveringComponentValues, CoveringProjectionComponentRows, CoveringProjectionComponentWindow,
+    covering_projection_scan_direction, covering_requires_row_presence_check,
+    decode_single_covering_projection_pairs, decode_single_covering_projection_value,
+    fold_covering_projection_component_rows_in_window, reorder_covering_projection_pairs,
     resolve_covering_projection_components_from_lowered_specs,
+    resolve_single_covering_projection_component_from_lowered_specs,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::{

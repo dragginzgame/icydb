@@ -5,4 +5,5 @@
 
 mod validate;
 
-pub(in crate::db) use validate::{reject_unsupported_query_features, validate_predicate};
+pub(in crate::db::query) use validate::reject_unsupported_query_features;
+pub(in crate::db) use validate::validate_predicate;

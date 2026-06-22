@@ -1,7 +1,6 @@
 use crate::{
     db::{
         Db,
-        access::lower_access,
         data::{DataStore, DecodedDataStoreKey},
         executor::projection::covering::{
             CoveringProjectionMetricsRecorder,
@@ -10,15 +9,11 @@ use crate::{
                 CoveringReadField, CoveringReadFieldSource,
             },
             shared::{
-                access_preserves_primary_key_order_for_covering_window, apply_covering_page_window,
-                covering_projection_component_indices, covering_scan_window,
-                decode_hybrid_covering_components,
+                PreparedCoveringIndexScan, apply_covering_page_window,
+                decode_hybrid_covering_components, resolve_index_backed_covering_scan,
             },
         },
-        executor::{
-            CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
-            resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
-        },
+        executor::{CoveringProjectionComponentRows, EntityAuthority, terminal::RowLayout},
         index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
@@ -47,47 +42,25 @@ where
         return Ok(None);
     }
 
-    if plan.access.as_index_prefix_contract_path().is_none()
-        && plan.access.as_index_multi_lookup_contract_path().is_none()
-        && plan.access.as_index_branch_set_spec_path().is_none()
-        && plan.access.as_index_range_path().is_none()
-    {
-        return Ok(None);
-    }
-
-    let component_indices = covering_projection_component_indices(hybrid.fields.as_slice());
     let row_field_slots = hybrid_projection_row_field_slots(hybrid.fields.as_slice());
-    let store = db.recovered_store(authority.store_path())?;
-    let lowered_access =
-        lower_access(authority.entity_tag(), &plan.access).map_err(|err| match err {
-            crate::db::access::LoweredAccessError::IndexPrefix => {
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            }
-            crate::db::access::LoweredAccessError::IndexRange => {
-                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
-            }
-        })?;
-    let index_prefix_specs = lowered_access.index_prefix_specs();
-    let index_range_specs = lowered_access.index_range_specs();
     let row_presence_proven = hybrid.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner;
-
-    let scan_window = covering_scan_window(
+    let Some(PreparedCoveringIndexScan {
+        component_indices,
+        raw_pairs,
+        scan_window,
+        store,
+    }) = resolve_index_backed_covering_scan(
+        db,
+        &authority,
+        plan,
+        hybrid.fields.as_slice(),
         hybrid.order_contract,
-        access_preserves_primary_key_order_for_covering_window(plan, hybrid.order_contract),
-        row_presence_proven,
-        plan.scalar_plan().distinct,
-        plan.scalar_plan().page.as_ref(),
-    );
-    let raw_pairs = resolve_covering_projection_components_from_lowered_specs(
-        authority.entity_tag(),
-        index_prefix_specs,
-        index_range_specs,
-        scan_window.direction,
-        scan_window.limit,
-        component_indices.as_slice(),
+        hybrid.existing_row_mode,
         index_predicate_execution,
-        |store_path| db.recovered_store(store_path),
-    )?;
+    )?
+    else {
+        return Ok(None);
+    };
 
     metrics.record_hybrid_path_hit();
     let row_layout = authority.row_layout();

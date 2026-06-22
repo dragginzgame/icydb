@@ -68,14 +68,14 @@ const BINARY_OP_GTE_TAG: u8 = 0x0B;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ProjectionHashShape<'a> {
+struct ProjectionHashShape<'a> {
     projection: &'a ProjectionSpec,
 }
 
 impl<'a> ProjectionHashShape<'a> {
     /// Build one semantic projection hash shape.
     #[must_use]
-    pub(in crate::db) const fn semantic(projection: &'a ProjectionSpec) -> Self {
+    const fn semantic(projection: &'a ProjectionSpec) -> Self {
         Self { projection }
     }
 }
@@ -93,7 +93,7 @@ impl ProjectionSpec {
 
 /// Hash one projection identity shape using the current structural encoding.
 #[expect(clippy::cast_possible_truncation)]
-pub(in crate::db) fn hash_projection_structural_fingerprint(
+pub(in crate::db::query::fingerprint) fn hash_projection_structural_fingerprint(
     hasher: &mut Sha256,
     projection: &ProjectionSpec,
 ) {
@@ -113,7 +113,7 @@ pub(in crate::db) fn hash_projection_structural_fingerprint(
 /// surfaces consume the same planner-owned semantic filter shape as projection
 /// hashing instead of inventing a second expression walker.
 ///
-pub(in crate::db) fn hash_scalar_filter_expr_structural_fingerprint(
+pub(in crate::db::query::fingerprint) fn hash_scalar_filter_expr_structural_fingerprint(
     hasher: &mut Sha256,
     expr: &Expr,
 ) {

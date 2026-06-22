@@ -7,8 +7,9 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, ExecutableAccessPlan},
         index::{
-            EncodedValue, IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexStoreKey,
-            build_index_bounds_for_arity,
+            EncodedValue, IndexBoundsSpec, IndexId, IndexKeyKind, IndexRangeBoundEncodeError,
+            RawIndexStoreKey, build_index_bounds_for_arity,
+            raw_keys_for_component_prefix_with_kind,
         },
     },
     error::InternalError,
@@ -164,6 +165,32 @@ impl LoweredIndexPrefixSpec {
             upper,
             prefix_components,
         }
+    }
+
+    pub(in crate::db) fn from_raw_component_prefix(
+        entity_tag: EntityTag,
+        index: crate::db::access::SemanticIndexAccessContract,
+        key_kind: IndexKeyKind,
+        prefix_components: Vec<Vec<u8>>,
+    ) -> Result<Self, InternalError> {
+        if prefix_components.is_empty() || prefix_components.len() > index.key_arity() {
+            return Err(InternalError::query_executor_invariant());
+        }
+
+        let index_id = IndexId::new(entity_tag, index.ordinal());
+        let (lower, upper) = raw_keys_for_component_prefix_with_kind(
+            &index_id,
+            key_kind,
+            index.key_arity(),
+            prefix_components.as_slice(),
+        );
+
+        Ok(Self::new(
+            index,
+            Bound::Included(lower),
+            Bound::Excluded(upper),
+            prefix_components,
+        ))
     }
 
     #[must_use]

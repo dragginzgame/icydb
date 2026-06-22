@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Shared compare-op semantics for slot-path evaluation.
-pub(in crate::db) fn eval_compare_values(
+pub(in crate::db::predicate::runtime) fn eval_compare_values(
     actual: &Value,
     op: CompareOp,
     value: &Value,

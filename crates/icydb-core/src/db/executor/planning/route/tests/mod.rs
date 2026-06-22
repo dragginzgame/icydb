@@ -129,6 +129,13 @@ static ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL: IndexModel = IndexModel::generate
     &ROUTE_CAPABILITY_COMPOSITE_INDEX_FIELDS,
     false,
 );
+static ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_FIELDS: [&str; 3] = ["rank", "label", "id"];
+static ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL: IndexModel = IndexModel::generated(
+    "rank_label_id_idx",
+    RouteCapabilityTestStore::PATH,
+    &ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_FIELDS,
+    false,
+);
 static ROUTE_CAPABILITY_PK_SUFFIX_INDEX_FIELDS: [&str; 2] = ["rank", "id"];
 static ROUTE_CAPABILITY_PK_SUFFIX_INDEX_MODEL: IndexModel = IndexModel::generated(
     "rank_id_idx",
@@ -985,6 +992,25 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
         "pk-suffix multi-lookup should preserve index leaf order for lazy merging",
     );
 
+    let exact_prefix_plan =
+        multi_lookup_primary_key_order_plan(ROUTE_CAPABILITY_INDEX_MODELS[0], OrderDirection::Asc);
+    let finalized_exact_prefix_plan =
+        finalized_plan_for_authority(route_capability_authority(), &exact_prefix_plan);
+    assert!(
+        super::access_order_satisfied_by_route_mode(&finalized_exact_prefix_plan),
+        "exact-prefix multi-lookup should be primary-key ordered by the raw row-identity suffix",
+    );
+    let route_plan =
+        build_load_route_plan(&exact_prefix_plan).expect("exact-prefix route plan should build");
+    assert_eq!(
+        route_plan.load_order_route_mode(),
+        LoadOrderRouteMode::DirectStreaming,
+    );
+    assert!(
+        route_plan.scan_hints.index_prefix_child_expansion.is_none(),
+        "exact-prefix primary-key order should not require child-prefix expansion",
+    );
+
     let composite_suffix_plan = multi_lookup_primary_key_order_plan(
         ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
         OrderDirection::Asc,
@@ -992,6 +1018,38 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert!(!super::access_order_satisfied_by_route_mode(
         &finalized_plan_for_authority(route_capability_authority(), &composite_suffix_plan),
     ));
+
+    let sparse_child_suffix_plan = multi_lookup_primary_key_order_plan(
+        ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
+        OrderDirection::Asc,
+    );
+    let finalized_sparse_child_suffix_plan =
+        finalized_plan_for_authority(route_capability_authority(), &sparse_child_suffix_plan);
+    assert!(super::access_order_satisfied_by_route_mode(
+        &finalized_sparse_child_suffix_plan,
+    ));
+    let route_plan = build_load_route_plan(&sparse_child_suffix_plan)
+        .expect("sparse child-expansion route plan should build");
+    assert_eq!(
+        route_plan.load_order_route_mode(),
+        LoadOrderRouteMode::DirectStreaming,
+    );
+    assert!(
+        route_plan.preserve_ordered_index_leaf_stream(),
+        "child-expanded multi-lookup should preserve index leaf order after expansion",
+    );
+    let expansion = route_plan
+        .scan_hints
+        .index_prefix_child_expansion
+        .expect("sparse child-expansion route should carry an expansion hint");
+    assert_eq!(expansion.target_prefix_len(), 2);
+    assert!(
+        !super::access_preserves_primary_key_order_without_child_expansion(
+            &finalized_sparse_child_suffix_plan,
+            Direction::Asc,
+        ),
+        "consumers that do not execute child-prefix expansion must not inherit the scalar expansion proof",
+    );
 }
 
 #[test]

@@ -133,6 +133,24 @@ fn branch_target_over_cap_stage_literals() -> String {
     stages.join(", ")
 }
 
+#[cfg(feature = "diagnostics")]
+fn sparse_collection_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN (\
+             '{BRANCH_COLLECTION}', \
+             'missing-collection-000', \
+             'missing-collection-001', \
+             'missing-collection-002', \
+             'missing-collection-003', \
+             'missing-collection-004'\
+         ) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
 fn seed_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
     seed_branch_indexed_session_sql_entities(
         session,
@@ -335,15 +353,23 @@ fn expected_branch_ids(limit: usize) -> Vec<Ulid> {
 }
 
 #[cfg(feature = "diagnostics")]
-fn expected_collection_ids(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+fn expected_collection_ulids(limit: usize) -> Vec<Ulid> {
     [
         9_090_u128, 9_095, 9_100, 9_105, 9_110, 9_120, 9_125, 9_130, 9_135, 9_140, 9_150, 9_155,
         9_160, 9_170, 9_175, 9_180,
     ]
     .into_iter()
     .take(limit)
-    .map(|id| outputs(vec![Value::Ulid(Ulid::from_u128(id))]))
+    .map(Ulid::from_u128)
     .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_collection_ids(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    expected_collection_ulids(limit)
+        .into_iter()
+        .map(|id| outputs(vec![Value::Ulid(id)]))
+        .collect()
 }
 
 #[cfg(feature = "diagnostics")]
@@ -395,6 +421,23 @@ fn fluent_branch_target_query(limit: u32) -> Query<BranchIndexedSessionSqlEntity
     Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
         .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
         .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
+        .order_term(crate::db::asc("id"))
+        .limit(limit)
+}
+
+#[cfg(feature = "diagnostics")]
+fn fluent_sparse_collection_query(limit: u32) -> Query<BranchIndexedSessionSqlEntity> {
+    Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
+        .filter(
+            crate::db::query::builder::FieldRef::new("collection_id").in_list([
+                BRANCH_COLLECTION,
+                "missing-collection-000",
+                "missing-collection-001",
+                "missing-collection-002",
+                "missing-collection-003",
+                "missing-collection-004",
+            ]),
+        )
         .order_term(crate::db::asc("id"))
         .limit(limit)
 }
@@ -1283,20 +1326,7 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_branch_set_fixture(&session);
-    let sql = format!(
-        "SELECT id \
-         FROM BranchIndexedSessionSqlEntity \
-         WHERE collection_id IN (\
-             '{BRANCH_COLLECTION}', \
-             'missing-collection-000', \
-             'missing-collection-001', \
-             'missing-collection-002', \
-             'missing-collection-003', \
-             'missing-collection-004'\
-         ) \
-         ORDER BY id ASC \
-         LIMIT 8",
-    );
+    let sql = sparse_collection_sql("id", 8);
     let query = lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, &sql)
         .unwrap_or_else(|err| panic!("sparse collection page SQL should lower: {err:?}"));
     let descriptor = session
@@ -1338,6 +1368,73 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
     assert!(
         attribution.index_store_range_scan_calls <= 1,
         "sparse collection page should prune empty prefixes before range traversal, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_sparse_in_full_entity_page_expands_child_prefix_streams() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let query = fluent_sparse_collection_query(8);
+    let descriptor = query
+        .explain_execution()
+        .expect("sparse fluent page should explain execution");
+
+    assert!(
+        explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::IndexMultiLookup
+        ),
+        "sparse fluent page should use the multi-lookup route: {descriptor:?}",
+    );
+    assert!(
+        !explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::FullScan),
+        "sparse fluent page should not use a full scan: {descriptor:?}",
+    );
+    assert!(
+        !explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort,
+        ),
+        "child-prefix-expanded sparse fluent page should not require a materialized sort: {descriptor:?}",
+    );
+    assert!(
+        explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied,
+        ),
+        "child-prefix-expanded sparse fluent page should prove primary-key order: {descriptor:?}",
+    );
+
+    let (result, attribution) = session
+        .execute_query_result_with_attribution(&query)
+        .expect("sparse fluent page should execute");
+    let crate::db::LoadQueryResult::Rows(page) = result else {
+        panic!("sparse fluent page should return scalar rows");
+    };
+
+    assert_eq!(
+        response_branch_ids(&page),
+        expected_collection_ulids(8),
+        "sparse fluent page should match primary-key sorted collection rows",
+    );
+    assert!(
+        (8..=9).contains(&attribution.store_get_calls),
+        "sparse fluent full-entity page should hydrate only returned rows plus lookahead, got {attribution:?}",
+    );
+    assert!(
+        attribution.index_store_range_scan_calls > 1,
+        "sparse fluent page should expand the parent collection prefix into child prefix streams, got {attribution:?}",
+    );
+    assert!(
+        attribution.index_store_range_scan_calls <= 12,
+        "sparse fluent page should keep metadata probes and child-prefix streams bounded, got {attribution:?}",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= 24,
+        "sparse fluent child-prefix streams should stay bounded by the page, got {attribution:?}",
     );
 }
 

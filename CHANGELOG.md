@@ -11,15 +11,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.18` continues the query-engine audit by adding metadata-backed sparse
+  `IN` child-prefix routing for scalar pages and consolidating covering
+  projection scan preparation, component resolution, and row-presence/window
+  folding behind shared executor helpers.
+
 - `0.184.17` continues the query-engine audit by hardening SQL frontend and
-  compile boundaries, moving filter handoff and command-family classification
-  onto their owning artifacts, and adding invariants that keep parser/lowering
-  helper visibility from widening.
+  compile boundaries, narrowing query-builder projection planning to the `db`
+  owner boundary, keeping explain-local helpers private, scoping query
+  expression lowering to the query subtree, constraining query fingerprint hash
+  primitives to their owner modules, keeping query-intent access assertions
+  behind the intent boundary, scoping planner accepted-index DTO accessors to
+  the plan owner, keeping raw query-predicate feature rejection inside the
+  query subtree, hiding query-trace DTO fields behind their accessor surface,
+  keeping registry errors local to registry wiring, moving filter handoff and
+  command-family classification onto their owning artifacts, scoping response
+  payload construction to session/execution owners, hiding scalar-expression
+  slot-program test helpers inside their module, and adding invariants that keep
+  parser/lowering helper visibility from widening.
 
 - `0.184.16` continues the query-engine audit by tightening access, cursor,
-  data, diagnostics, identity, and physical-access module boundaries while
-  keeping scalar diagnostics and H7 retained-slot behavior on existing runtime
-  contracts.
+  data, diagnostics, identity, predicate, and physical-access module boundaries
+  while keeping scalar diagnostics and H7 retained-slot behavior on existing
+  runtime contracts.
 
 - `0.184.15` continues the query-engine audit by moving retained-slot SQL,
   initial, and resumed scalar runtime policy into shared helpers while keeping

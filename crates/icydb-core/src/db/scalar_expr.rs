@@ -26,7 +26,7 @@ const EXPECTED_DATE_OR_TIMESTAMP: &str = "Date/Timestamp";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg(test)]
-pub(in crate::db) enum ScalarValueProgram {
+enum ScalarValueProgram {
     Field { slot: usize },
     Lower { slot: usize },
     Upper { slot: usize },
@@ -166,7 +166,7 @@ pub(in crate::db) fn compile_scalar_literal_expr_value(
 /// Compile one scalar field access into the shared scalar-expression program.
 #[must_use]
 #[cfg(test)]
-pub(in crate::db) fn compile_scalar_field_program(
+fn compile_scalar_field_program(
     model: &EntityModel,
     field_name: &str,
 ) -> Option<ScalarValueProgram> {
@@ -183,7 +183,7 @@ pub(in crate::db) fn compile_scalar_field_program(
 /// the source field remains on the scalar slot seam.
 #[must_use]
 #[cfg(test)]
-pub(in crate::db) fn compile_scalar_index_expression_program(
+fn compile_scalar_index_expression_program(
     model: &'static EntityModel,
     expression: IndexExpression,
 ) -> Option<ScalarValueProgram> {
@@ -226,7 +226,7 @@ pub(in crate::db) const fn scalar_index_expression_op(
 /// the item stays entirely on the scalar slot seam.
 #[must_use]
 #[cfg(test)]
-pub(in crate::db) fn compile_scalar_index_key_item_program(
+fn compile_scalar_index_key_item_program(
     model: &'static EntityModel,
     key_item: IndexKeyItem,
 ) -> Option<ScalarValueProgram> {
@@ -240,7 +240,7 @@ pub(in crate::db) fn compile_scalar_index_key_item_program(
 
 /// Evaluate one compiled scalar expression directly from one slot reader.
 #[cfg(test)]
-pub(in crate::db) fn eval_scalar_value_program<'a>(
+fn eval_scalar_value_program<'a>(
     program: &ScalarValueProgram,
     slots: &'a dyn SlotReader,
 ) -> Result<Option<ScalarExprValue<'a>>, InternalError> {
@@ -304,7 +304,7 @@ pub(in crate::db) fn eval_scalar_value_program<'a>(
 /// Evaluate one compiled scalar expression through the canonical structural
 /// slot seam where declared slots must already exist.
 #[cfg(test)]
-pub(in crate::db) fn eval_canonical_scalar_value_program<'a>(
+fn eval_canonical_scalar_value_program<'a>(
     program: &ScalarValueProgram,
     slots: &'a dyn CanonicalSlotReader,
 ) -> Result<ScalarExprValue<'a>, InternalError> {

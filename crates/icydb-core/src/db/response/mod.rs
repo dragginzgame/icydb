@@ -288,7 +288,7 @@ pub struct WriteBatchResponse<E> {
 impl<E> WriteBatchResponse<E> {
     /// Construct a batch response from stored entities.
     #[must_use]
-    pub const fn new(entities: Vec<E>) -> Self {
+    pub(in crate::db) const fn new(entities: Vec<E>) -> Self {
         Self { entities }
     }
 

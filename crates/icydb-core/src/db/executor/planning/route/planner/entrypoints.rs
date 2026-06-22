@@ -160,6 +160,7 @@ fn build_mutation_execution_route_plan(
             scan_hints: ScanHintPlan {
                 physical_fetch_hint: None,
                 load_scan_budget_hint: None,
+                index_prefix_child_expansion: None,
             },
             top_n_seek_spec: None,
             aggregate_physical_fetch_hint: None,

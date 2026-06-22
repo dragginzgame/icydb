@@ -73,7 +73,7 @@ pub struct PagedLoadExecutionWithTrace<E: EntityKind> {
 impl<E: EntityKind> PagedLoadExecutionWithTrace<E> {
     /// Create a traced paged load execution payload.
     #[must_use]
-    pub const fn new(
+    pub(in crate::db) const fn new(
         response: EntityResponse<E>,
         continuation_cursor: Option<Vec<u8>>,
         execution_trace: Option<ExecutionTrace>,

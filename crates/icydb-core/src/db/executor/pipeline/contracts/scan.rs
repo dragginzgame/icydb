@@ -6,7 +6,10 @@
 use crate::db::{
     cursor::{CursorBoundary, IndexScanContinuationInput},
     direction::Direction,
-    executor::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey},
+    executor::{
+        LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+        route::IndexPrefixChildExpansionHint,
+    },
 };
 
 ///
@@ -21,6 +24,7 @@ pub(in crate::db::executor) struct AccessStreamBindings<'a> {
     pub(in crate::db::executor) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     pub(in crate::db::executor) index_range_specs: &'a [LoweredIndexRangeSpec],
     pub(in crate::db::executor) continuation: AccessScanContinuationInput<'a>,
+    pub(in crate::db::executor) index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
 impl<'a> AccessStreamBindings<'a> {
@@ -35,6 +39,19 @@ impl<'a> AccessStreamBindings<'a> {
             index_prefix_specs,
             index_range_specs,
             continuation,
+            index_prefix_child_expansion: None,
+        }
+    }
+
+    /// Attach one route-proven sparse prefix expansion hint.
+    #[must_use]
+    pub(in crate::db::executor) const fn with_index_prefix_child_expansion(
+        self,
+        index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
+    ) -> Self {
+        Self {
+            index_prefix_child_expansion,
+            ..self
         }
     }
 

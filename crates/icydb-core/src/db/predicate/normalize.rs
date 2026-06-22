@@ -77,7 +77,7 @@ pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
 /// deterministic form as [`normalize`] without cloning leaf payloads.
 #[must_use]
 #[cfg(test)]
-pub(in crate::db) fn normalize_owned(predicate: Predicate) -> Predicate {
+fn normalize_owned(predicate: Predicate) -> Predicate {
     // Normalize recursively while preserving logical equivalence.
     match predicate {
         Predicate::True => Predicate::True,
