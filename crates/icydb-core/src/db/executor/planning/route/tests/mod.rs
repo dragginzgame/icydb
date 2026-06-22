@@ -939,8 +939,7 @@ fn multi_lookup_primary_key_order_plan(
     plan
 }
 
-#[test]
-fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
+fn assert_primary_scan_primary_key_order_is_satisfied() {
     let mut primary_plan =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     primary_plan.scalar_plan_mut().order = Some(OrderSpec {
@@ -952,7 +951,9 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert!(super::access_order_satisfied_by_route_mode(
         &finalized_plan_for_authority(route_capability_authority(), &primary_plan),
     ));
+}
 
+fn assert_non_suffix_index_primary_key_order_is_rejected() {
     let mut non_suffix_index_plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
@@ -971,7 +972,9 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert!(!super::access_order_satisfied_by_route_mode(
         &finalized_plan_for_authority(route_capability_authority(), &non_suffix_index_plan),
     ));
+}
 
+fn assert_pk_suffix_multi_lookup_streams_in_primary_key_order() {
     let pk_suffix_plan = multi_lookup_primary_key_order_plan(
         ROUTE_CAPABILITY_PK_SUFFIX_INDEX_MODEL,
         OrderDirection::Asc,
@@ -991,7 +994,9 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
         route_plan.preserve_ordered_index_leaf_stream(),
         "pk-suffix multi-lookup should preserve index leaf order for lazy merging",
     );
+}
 
+fn assert_exact_prefix_multi_lookup_streams_without_child_expansion() {
     let exact_prefix_plan =
         multi_lookup_primary_key_order_plan(ROUTE_CAPABILITY_INDEX_MODELS[0], OrderDirection::Asc);
     let finalized_exact_prefix_plan =
@@ -1010,7 +1015,9 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
         route_plan.scan_hints.index_prefix_child_expansion.is_none(),
         "exact-prefix primary-key order should not require child-prefix expansion",
     );
+}
 
+fn assert_composite_suffix_multi_lookup_is_rejected() {
     let composite_suffix_plan = multi_lookup_primary_key_order_plan(
         ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
         OrderDirection::Asc,
@@ -1018,7 +1025,9 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert!(!super::access_order_satisfied_by_route_mode(
         &finalized_plan_for_authority(route_capability_authority(), &composite_suffix_plan),
     ));
+}
 
+fn assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof() {
     let sparse_child_suffix_plan = multi_lookup_primary_key_order_plan(
         ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
         OrderDirection::Asc,
@@ -1050,6 +1059,16 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
         ),
         "consumers that do not execute child-prefix expansion must not inherit the scalar expansion proof",
     );
+}
+
+#[test]
+fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
+    assert_primary_scan_primary_key_order_is_satisfied();
+    assert_non_suffix_index_primary_key_order_is_rejected();
+    assert_pk_suffix_multi_lookup_streams_in_primary_key_order();
+    assert_exact_prefix_multi_lookup_streams_without_child_expansion();
+    assert_composite_suffix_multi_lookup_is_rejected();
+    assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof();
 }
 
 #[test]
