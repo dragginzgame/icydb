@@ -14,7 +14,7 @@ use crate::{
 // Canonicalize strict numeric SQL predicate literals through the provided
 // schema view. Session SQL compile paths pass the accepted schema projection
 // here so top-level read predicates line up with live schema reconciliation.
-pub(in crate::db) fn canonicalize_sql_predicate_for_schema(
+pub(super) fn canonicalize_sql_predicate_for_schema(
     schema: &SchemaInfo,
     predicate: Predicate,
 ) -> Predicate {
@@ -59,10 +59,7 @@ pub(in crate::db) fn canonicalize_sql_predicate_for_schema(
 /// literal conversion, while allowing session execution to use the accepted
 /// schema instead of generated metadata for top-level fields.
 #[must_use]
-pub(in crate::db) fn canonicalize_sql_filter_expr_for_schema(
-    schema: &SchemaInfo,
-    expr: Expr,
-) -> Expr {
+pub(super) fn canonicalize_sql_filter_expr_for_schema(schema: &SchemaInfo, expr: Expr) -> Expr {
     match expr {
         Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
         Expr::Unary { op, expr } => Expr::Unary {

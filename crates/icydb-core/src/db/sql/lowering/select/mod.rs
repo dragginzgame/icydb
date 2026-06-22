@@ -49,9 +49,7 @@ use crate::db::sql::lowering::select::{
 };
 
 pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_expr;
-pub(in crate::db) use binding::{
-    canonicalize_sql_filter_expr_for_schema, canonicalize_sql_predicate_for_schema,
-};
+use binding::{canonicalize_sql_filter_expr_for_schema, canonicalize_sql_predicate_for_schema};
 pub(in crate::db::sql::lowering) use projection::lower_analyzed_select_item_expr;
 
 pub(in crate::db::sql::lowering) fn lower_order_terms(
@@ -152,6 +150,24 @@ impl LoweredSqlFilter {
         Self {
             visible_expr: Some(expr),
             predicate_subset: Some(predicate_subset),
+        }
+    }
+
+    #[must_use]
+    fn apply_to_query(self, query: StructuralQuery, schema: &SchemaInfo) -> StructuralQuery {
+        match (self.visible_expr, self.predicate_subset) {
+            (Some(filter_expr), Some(predicate)) => {
+                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
+                let filter_expr = canonicalize_sql_filter_expr_for_schema(schema, filter_expr);
+
+                query.filter_expr_with_normalized_predicate(filter_expr, predicate)
+            }
+            (Some(filter_expr), None) => query.filter_expr(filter_expr),
+            (None, Some(predicate)) => {
+                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
+                query.filter_normalized_predicate(predicate)
+            }
+            (None, None) => query,
         }
     }
 }
@@ -655,19 +671,7 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
     schema: &SchemaInfo,
 ) -> StructuralQuery {
     if let Some(filter) = lowered.filter {
-        if let Some(filter_expr) = filter.visible_expr {
-            if let Some(predicate) = filter.predicate_subset {
-                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-                let filter_expr = canonicalize_sql_filter_expr_for_schema(schema, filter_expr);
-
-                query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
-            } else {
-                query = query.filter_expr(filter_expr);
-            }
-        } else if let Some(predicate) = filter.predicate_subset {
-            let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-            query = query.filter_normalized_predicate(predicate);
-        }
+        query = filter.apply_to_query(query, schema);
     }
     query = apply_order_terms_structural(query, lowered.order_by);
     if let Some(limit) = lowered.limit {

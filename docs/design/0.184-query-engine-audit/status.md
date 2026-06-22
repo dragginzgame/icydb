@@ -254,6 +254,24 @@ Status: active.
   shapes. The highest byte-length cases remained slot-only and bounded; the
   highest non-byte retained-slot cases were field-comparison scans that need row
   facts rather than a separate late-materialization lane.
+- SQL parser-boundary hardening: parser-local normalization checks, tree
+  traversal helpers, aggregate-kind mappings, scalar-function call-shape
+  helpers, and order-expression parse helpers now stay visible only inside the
+  SQL frontend subtree. This preserves parsed SQL and lowering behavior while
+  keeping session/executor code from depending on parser-owned helper methods.
+- SQL SELECT lowering boundary hardening: strict-literal predicate/expression
+  canonicalization now stays private to SELECT lowering instead of being
+  re-exported at the broader `db` boundary.
+- SQL branch-ownership invariants now guard the parser frontend boundary and
+  SELECT strict-literal canonicalizer ownership so those helpers cannot widen
+  back to broader `db` visibility unnoticed.
+- F2 / D3 follow-up: `LoweredSqlFilter` now owns final accepted-schema filter
+  handoff into `StructuralQuery`, keeping visible-expression, predicate-subset,
+  and strict-literal canonicalization policy inside the SQL filter contract.
+- SQL compile-boundary cleanup: `CompiledSqlCommand` now owns aggregate,
+  mutation, and row-returning shape facts, so `SqlCompileArtifacts`
+  construction validates against command-owned classification instead of
+  keeping a local mirror match.
 
 ## Current Slice
 

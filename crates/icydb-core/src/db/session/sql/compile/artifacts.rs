@@ -64,29 +64,11 @@ pub(in crate::db) struct SqlQueryShape {
 
 impl SqlQueryShape {
     #[must_use]
-    pub(in crate::db::session::sql) const fn read_rows(is_aggregate: bool) -> Self {
+    pub(in crate::db::session::sql) fn from_command(command: &CompiledSqlCommand) -> Self {
         Self {
-            is_aggregate,
-            returns_rows: true,
-            is_mutation: false,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::session::sql) const fn metadata() -> Self {
-        Self {
-            is_aggregate: false,
-            returns_rows: false,
-            is_mutation: false,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::session::sql) const fn mutation(returns_rows: bool) -> Self {
-        Self {
-            is_aggregate: false,
-            returns_rows,
-            is_mutation: true,
+            is_aggregate: command.is_global_aggregate(),
+            returns_rows: command.returns_rows(),
+            is_mutation: command.is_mutation(),
         }
     }
 }
@@ -168,36 +150,16 @@ impl SqlCompileAttributionBuilder {
 }
 
 impl SqlCompileArtifacts {
-    // Build one compile artifact and assert that the compile-owned semantic
-    // shape still agrees with the command payload it describes.
+    // Build one compile artifact and derive the stable semantic shape from the
+    // compiled command payload it describes.
     pub(in crate::db::session::sql) fn new(
         command: CompiledSqlCommand,
-        shape: SqlQueryShape,
         aggregate_lane_check: u64,
         prepare: u64,
         lower: u64,
         bind: u64,
     ) -> Self {
-        debug_assert_eq!(
-            shape.is_aggregate,
-            matches!(command, CompiledSqlCommand::GlobalAggregate { .. }),
-            "compile aggregate shape must match the compiled command variant"
-        );
-        debug_assert_eq!(
-            shape.is_mutation,
-            matches!(
-                command,
-                CompiledSqlCommand::Delete { .. }
-                    | CompiledSqlCommand::Insert(_)
-                    | CompiledSqlCommand::Update(_)
-            ),
-            "compile mutation shape must match the compiled command variant"
-        );
-        debug_assert_eq!(
-            shape.returns_rows,
-            Self::command_returns_rows(&command),
-            "compile row-returning shape must match the compiled command variant"
-        );
+        let shape = SqlQueryShape::from_command(&command);
 
         Self {
             command,
@@ -206,25 +168,6 @@ impl SqlCompileArtifacts {
             prepare,
             lower,
             bind,
-        }
-    }
-
-    // Keep row-returning validation local to artifact construction. Runtime
-    // consumers read `shape.returns_rows`; this debug-only mirror exists only
-    // to catch compile-time descriptor drift.
-    const fn command_returns_rows(command: &CompiledSqlCommand) -> bool {
-        match command {
-            CompiledSqlCommand::Select { .. } | CompiledSqlCommand::GlobalAggregate { .. } => true,
-            CompiledSqlCommand::Delete { returning, .. } => returning.is_some(),
-            CompiledSqlCommand::Insert(command) => command.statement().returning.is_some(),
-            CompiledSqlCommand::Update(statement) => statement.returning.is_some(),
-            CompiledSqlCommand::Explain(_)
-            | CompiledSqlCommand::DescribeEntity
-            | CompiledSqlCommand::ShowIndexesEntity
-            | CompiledSqlCommand::ShowColumnsEntity
-            | CompiledSqlCommand::ShowEntities { .. }
-            | CompiledSqlCommand::ShowStores { .. }
-            | CompiledSqlCommand::ShowMemory => false,
         }
     }
 

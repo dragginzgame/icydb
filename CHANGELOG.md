@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.17` continues the query-engine audit by hardening SQL frontend and
+  compile boundaries, moving filter handoff and command-family classification
+  onto their owning artifacts, and adding invariants that keep parser/lowering
+  helper visibility from widening.
+
 - `0.184.16` continues the query-engine audit by tightening access, cursor,
   data, diagnostics, identity, and physical-access module boundaries while
   keeping scalar diagnostics and H7 retained-slot behavior on existing runtime

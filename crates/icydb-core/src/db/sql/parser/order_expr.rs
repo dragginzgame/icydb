@@ -18,12 +18,12 @@ use crate::{
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
-pub(in crate::db) type SqlOrderExprAst = SqlExpr;
+pub(in crate::db::sql) type SqlOrderExprAst = SqlExpr;
 
 /// Parse one supported SQL `ORDER BY` expression term into the parser-owned
 /// expression tree.
 #[must_use]
-pub(in crate::db) fn parse_supported_order_expr_ast(term: &str) -> Option<SqlOrderExprAst> {
+pub(in crate::db::sql) fn parse_supported_order_expr_ast(term: &str) -> Option<SqlOrderExprAst> {
     let tokens = tokenize_sql(term).ok()?;
     if tokens.is_empty() {
         return None;
@@ -38,7 +38,7 @@ pub(in crate::db) fn parse_supported_order_expr_ast(term: &str) -> Option<SqlOrd
 /// Parse one grouped post-aggregate SQL `ORDER BY` expression term into the
 /// parser-owned expression tree.
 #[must_use]
-pub(in crate::db) fn parse_grouped_post_aggregate_order_expr_ast(
+pub(in crate::db::sql) fn parse_grouped_post_aggregate_order_expr_ast(
     term: &str,
 ) -> Option<SqlOrderExprAst> {
     let tokens = tokenize_sql(term).ok()?;

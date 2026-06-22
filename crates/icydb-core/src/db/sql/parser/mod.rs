@@ -41,7 +41,7 @@ pub(crate) use model::{
     SqlUpdateStatement,
 };
 #[cfg(test)]
-pub(in crate::db) use order_expr::{
+pub(in crate::db::sql) use order_expr::{
     parse_grouped_post_aggregate_order_expr_ast, parse_supported_order_expr_ast,
 };
 

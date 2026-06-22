@@ -219,6 +219,40 @@ impl CompiledSqlInsertCommand {
 }
 
 impl CompiledSqlCommand {
+    /// Return whether this command executes through the singleton global
+    /// aggregate lane.
+    #[must_use]
+    pub(in crate::db::session::sql) const fn is_global_aggregate(&self) -> bool {
+        matches!(self, Self::GlobalAggregate { .. })
+    }
+
+    /// Return whether this command mutates rows.
+    #[must_use]
+    pub(in crate::db::session::sql) const fn is_mutation(&self) -> bool {
+        matches!(
+            self,
+            Self::Delete { .. } | Self::Insert(_) | Self::Update(_)
+        )
+    }
+
+    /// Return whether this command returns result rows to the caller.
+    #[must_use]
+    pub(in crate::db::session::sql) fn returns_rows(&self) -> bool {
+        match self {
+            Self::Select { .. } | Self::GlobalAggregate { .. } => true,
+            Self::Delete { returning, .. } => returning.is_some(),
+            Self::Insert(command) => command.statement().returning.is_some(),
+            Self::Update(statement) => statement.returning.is_some(),
+            Self::Explain(_)
+            | Self::DescribeEntity
+            | Self::ShowIndexesEntity
+            | Self::ShowColumnsEntity
+            | Self::ShowEntities { .. }
+            | Self::ShowStores { .. }
+            | Self::ShowMemory => false,
+        }
+    }
+
     #[must_use]
     pub(in crate::db) fn select(query: StructuralQuery) -> Self {
         Self::Select {

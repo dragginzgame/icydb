@@ -13,7 +13,7 @@ use crate::{
         schema::SchemaInfo,
         session::sql::{
             CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandSurface,
-            compile::{SqlCompileArtifacts, SqlCompilePhaseAttribution, SqlQueryShape},
+            compile::{SqlCompileArtifacts, SqlCompilePhaseAttribution},
             measured,
         },
         sql::{
@@ -141,7 +141,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::global_aggregate(command),
-            SqlQueryShape::read_rows(true),
             aggregate_lane_check_local_instructions,
             prepare_local_instructions,
             lower_local_instructions,
@@ -175,7 +174,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::select(query),
-            SqlQueryShape::read_rows(false),
             aggregate_lane_check_local_instructions,
             prepare_local_instructions,
             lower_local_instructions,
@@ -209,14 +207,11 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_sql_lowering_error)
         })?;
 
-        let shape = SqlQueryShape::mutation(returning.is_some());
-
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::Delete {
                 query: Arc::new(query),
                 returning,
             },
-            shape,
             0,
             prepare_local_instructions,
             lower_local_instructions,
@@ -240,11 +235,8 @@ impl<C: CanisterKind> DbSession<C> {
         let (bind_local_instructions, source_query) =
             Self::compile_insert_select_source_query(&statement.source, model, schema)?;
 
-        let shape = SqlQueryShape::mutation(statement.returning.is_some());
-
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::Insert(CompiledSqlInsertCommand::new(statement, source_query)),
-            shape,
             0,
             prepare_local_instructions,
             0,
@@ -290,11 +282,8 @@ impl<C: CanisterKind> DbSession<C> {
         let statement = extract_prepared_sql_update_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
 
-        let shape = SqlQueryShape::mutation(statement.returning.is_some());
-
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::Update(statement),
-            shape,
             0,
             prepare_local_instructions,
             0,
@@ -319,7 +308,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::Explain(Box::new(lowered)),
-            SqlQueryShape::metadata(),
             0,
             prepare_local_instructions,
             lower_local_instructions,
@@ -338,7 +326,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::DescribeEntity,
-            SqlQueryShape::metadata(),
             0,
             prepare_local_instructions,
             0,
@@ -357,7 +344,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowIndexesEntity,
-            SqlQueryShape::metadata(),
             0,
             prepare_local_instructions,
             0,
@@ -376,7 +362,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowColumnsEntity,
-            SqlQueryShape::metadata(),
             0,
             prepare_local_instructions,
             0,
@@ -389,7 +374,6 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_entities(entity: Option<String>, verbose: bool) -> SqlCompileArtifacts {
         SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowEntities { entity, verbose },
-            SqlQueryShape::metadata(),
             0,
             0,
             0,
@@ -400,27 +384,13 @@ impl<C: CanisterKind> DbSession<C> {
     // Compile SHOW STORES without entity-bound preparation because the command
     // is catalog-wide and historically reports no compile sub-stages.
     fn compile_show_stores(verbose: bool) -> SqlCompileArtifacts {
-        SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowStores { verbose },
-            SqlQueryShape::metadata(),
-            0,
-            0,
-            0,
-            0,
-        )
+        SqlCompileArtifacts::new(CompiledSqlCommand::ShowStores { verbose }, 0, 0, 0, 0)
     }
 
     // Compile SHOW MEMORY without entity-bound preparation because the command
     // is catalog-wide and historically reports no compile sub-stages.
     fn compile_show_memory() -> SqlCompileArtifacts {
-        SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowMemory,
-            SqlQueryShape::metadata(),
-            0,
-            0,
-            0,
-            0,
-        )
+        SqlCompileArtifacts::new(CompiledSqlCommand::ShowMemory, 0, 0, 0, 0)
     }
 
     // Own the complete parsed-statement compile boundary: surface validation

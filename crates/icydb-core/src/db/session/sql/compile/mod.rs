@@ -7,7 +7,6 @@
 mod artifacts;
 mod semantic_compiler;
 
-pub(in crate::db::session::sql::compile) use artifacts::SqlQueryShape;
 pub(in crate::db::session::sql) use artifacts::{
     SqlCompileArtifacts, SqlCompileAttributionBuilder, SqlCompilePhaseAttribution,
 };

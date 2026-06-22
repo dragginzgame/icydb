@@ -267,7 +267,7 @@ impl SqlProjection {
     /// Return whether this parsed projection already stays within the local
     /// scalar normalization fast path.
     #[must_use]
-    pub(in crate::db) fn is_already_local_scalar(&self) -> bool {
+    pub(in crate::db::sql) fn is_already_local_scalar(&self) -> bool {
         match self {
             Self::All => true,
             Self::Items(items) => items.iter().all(SqlSelectItem::is_already_local_projection),
@@ -302,7 +302,7 @@ impl SqlSelectItem {
     /// Return whether this parsed select item already stays within the local
     /// projection normalization fast path.
     #[must_use]
-    pub(in crate::db) fn is_already_local_projection(&self) -> bool {
+    pub(in crate::db::sql) fn is_already_local_projection(&self) -> bool {
         match self {
             Self::Field(field) => SqlExpr::identifier_is_already_local(field.as_str()),
             Self::Aggregate(aggregate) => aggregate.is_already_local_scalar(),
@@ -458,7 +458,7 @@ impl SqlExpr {
     /// Return whether this SQL expression already fits the local scalar
     /// normalization fast path without identifier rescoping.
     #[must_use]
-    pub(in crate::db) fn is_already_local_scalar(&self) -> bool {
+    pub(in crate::db::sql) fn is_already_local_scalar(&self) -> bool {
         self.all_tree_expr(&mut |expr| match expr {
             Self::Field(field) => Self::identifier_is_already_local(field.as_str()),
             Self::Literal(_)
@@ -480,7 +480,7 @@ impl SqlExpr {
     /// Return whether every field leaf in this expression is already a local
     /// bare identifier.
     #[must_use]
-    pub(in crate::db) fn fields_are_already_local(&self) -> bool {
+    pub(in crate::db::sql) fn fields_are_already_local(&self) -> bool {
         self.all_tree_expr(&mut |expr| match expr {
             Self::Field(field) => Self::identifier_is_already_local(field.as_str()),
             Self::FieldPath { .. } => false,
@@ -500,7 +500,7 @@ impl SqlExpr {
     /// Return whether this SQL expression tree contains any searched `CASE`
     /// arm with an omitted `ELSE`.
     #[must_use]
-    pub(in crate::db) fn contains_omitted_else_case(&self) -> bool {
+    pub(in crate::db::sql) fn contains_omitted_else_case(&self) -> bool {
         self.any_tree_expr(
             &mut |expr| matches!(expr, Self::Case { else_expr, .. } if else_expr.is_none()),
         )
@@ -508,7 +508,7 @@ impl SqlExpr {
 
     /// Visit every SQL expression node through the owner-local parser
     /// traversal contract.
-    pub(in crate::db) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
+    pub(in crate::db::sql) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
         visit(self);
 
         match self {
@@ -544,7 +544,10 @@ impl SqlExpr {
 
     /// Visit every aggregate leaf owned by this SQL expression tree through
     /// the canonical parser traversal contract.
-    pub(in crate::db) fn for_each_tree_aggregate(&self, visit: &mut impl FnMut(&SqlAggregateCall)) {
+    pub(in crate::db::sql) fn for_each_tree_aggregate(
+        &self,
+        visit: &mut impl FnMut(&SqlAggregateCall),
+    ) {
         self.for_each_tree_expr(&mut |expr| {
             if let Self::Aggregate(aggregate) = expr {
                 visit(aggregate);
@@ -648,13 +651,13 @@ impl SqlAggregateKind {
     /// Return whether this parsed aggregate kind lowers one field input into
     /// the shared field-target aggregate shape.
     #[must_use]
-    pub(in crate::db) const fn lowers_shared_field_target_shape(self) -> bool {
+    pub(in crate::db::sql) const fn lowers_shared_field_target_shape(self) -> bool {
         !matches!(self, Self::Count)
     }
 
     /// Return the canonical planner aggregate kind for this parsed SQL kind.
     #[must_use]
-    pub(in crate::db) const fn aggregate_kind(self) -> AggregateKind {
+    pub(in crate::db::sql) const fn aggregate_kind(self) -> AggregateKind {
         match self {
             Self::Count => AggregateKind::Count,
             Self::Sum => AggregateKind::Sum,
@@ -684,7 +687,7 @@ impl SqlAggregateCall {
     /// Return whether this aggregate call already stays within the local
     /// aggregate input normalization fast path.
     #[must_use]
-    pub(in crate::db) fn is_already_local_scalar(&self) -> bool {
+    pub(in crate::db::sql) fn is_already_local_scalar(&self) -> bool {
         let input_is_local = self
             .input
             .as_deref()
@@ -787,7 +790,7 @@ impl SqlScalarFunction {
     /// Return the canonical planner-owned scalar function identity for this
     /// parsed SQL scalar function.
     #[must_use]
-    pub(in crate::db) const fn planner_function(self) -> Function {
+    pub(in crate::db::sql) const fn planner_function(self) -> Function {
         match self {
             Self::Abs => Function::Abs,
             Self::Cbrt => Function::Cbrt,
@@ -831,7 +834,7 @@ impl SqlScalarFunction {
 
     /// Return the parser call-shape used by non-WHERE scalar function parsing.
     #[must_use]
-    pub(in crate::db) const fn non_where_call_shape(self) -> SqlScalarFunctionCallShape {
+    pub(in crate::db::sql) const fn non_where_call_shape(self) -> SqlScalarFunctionCallShape {
         match self {
             Self::Round | Self::Trunc => SqlScalarFunctionCallShape::NumericScaleSpecial,
             Self::Coalesce => SqlScalarFunctionCallShape::VariadicExprArgs,
@@ -871,7 +874,7 @@ impl SqlScalarFunction {
 
     /// Return the parser call-shape used by WHERE expression parsing.
     #[must_use]
-    pub(in crate::db) const fn where_call_shape(self) -> SqlScalarFunctionCallShape {
+    pub(in crate::db::sql) const fn where_call_shape(self) -> SqlScalarFunctionCallShape {
         match self.non_where_call_shape() {
             SqlScalarFunctionCallShape::NumericScaleSpecial => {
                 SqlScalarFunctionCallShape::NumericScaleSpecial
@@ -981,14 +984,14 @@ impl SqlOrderTerm {
     /// Return whether this parsed order term already stays within the local
     /// supported-order fast path.
     #[must_use]
-    pub(in crate::db) fn is_already_local_supported(&self) -> bool {
+    pub(in crate::db::sql) fn is_already_local_supported(&self) -> bool {
         self.field.fields_are_already_local()
     }
 
     /// Return one direct field name when this order term still targets one
     /// bare SQL field leaf.
     #[must_use]
-    pub(in crate::db) const fn direct_field_name(&self) -> Option<&str> {
+    pub(in crate::db::sql) const fn direct_field_name(&self) -> Option<&str> {
         match &self.field {
             SqlExpr::Field(field) => Some(field.as_str()),
             SqlExpr::FieldPath { .. }
@@ -1035,7 +1038,7 @@ impl SqlSelectStatement {
     /// Return whether this parsed `SELECT` already stays in the local
     /// canonical shape expected by lowering.
     #[must_use]
-    pub(in crate::db) fn is_already_local_canonical(&self) -> bool {
+    pub(in crate::db::sql) fn is_already_local_canonical(&self) -> bool {
         if self.table_alias.is_some() {
             return false;
         }
