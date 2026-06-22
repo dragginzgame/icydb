@@ -152,7 +152,7 @@ pub(in crate::db) struct LoweredIndexPrefixSpec {
 
 impl LoweredIndexPrefixSpec {
     #[must_use]
-    pub(in crate::db) fn new(
+    fn new(
         index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
@@ -238,7 +238,7 @@ pub(in crate::db) struct LoweredIndexRangeSpec {
 
 impl LoweredIndexRangeSpec {
     #[must_use]
-    pub(in crate::db) fn new(
+    fn new(
         index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,

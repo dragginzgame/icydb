@@ -82,7 +82,7 @@ impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> 
 
 /// Validate and materialize an executable cursor through the canonical spine.
 #[expect(clippy::too_many_arguments)]
-pub(in crate::db) fn validate_cursor_token<K>(
+pub(in crate::db::cursor) fn validate_cursor_token<K>(
     cursor: Option<&[u8]>,
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_path: &'static str,
@@ -120,7 +120,7 @@ where
 }
 
 /// Validate an executor-provided cursor state through the canonical cursor spine.
-pub(in crate::db) fn validate_cursor_state<K>(
+pub(in crate::db::cursor) fn validate_cursor_state<K>(
     cursor: ValidatedCursor,
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
@@ -260,7 +260,7 @@ fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec, S: CursorPlanSur
 
 /// Validate and materialize grouped cursor state through the canonical cursor spine.
 #[cfg(test)]
-pub(in crate::db) fn validate_grouped_cursor(
+pub(in crate::db::cursor) fn validate_grouped_cursor(
     cursor: Option<&[u8]>,
     entity_path: &'static str,
     continuation_signature: ContinuationSignature,
@@ -285,7 +285,7 @@ pub(in crate::db) fn validate_grouped_cursor(
 
 /// Validate and materialize already-decoded grouped cursor state through the
 /// canonical grouped cursor spine.
-pub(in crate::db) fn validate_grouped_cursor_token(
+pub(in crate::db::cursor) fn validate_grouped_cursor_token(
     cursor: Option<GroupedContinuationToken>,
     entity_path: &'static str,
     continuation_signature: ContinuationSignature,
@@ -308,7 +308,7 @@ pub(in crate::db) fn validate_grouped_cursor_token(
 }
 
 /// Revalidate grouped cursor offset compatibility for executor-provided state.
-pub(in crate::db) fn validate_grouped_cursor_state(
+pub(in crate::db::cursor) fn validate_grouped_cursor_state(
     expected_initial_offset: u32,
     cursor: ValidatedGroupedCursor,
 ) -> Result<ValidatedGroupedCursor, CursorPlanError> {

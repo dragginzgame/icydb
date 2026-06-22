@@ -30,10 +30,7 @@ pub(in crate::db) struct WindowCursorContract {
 impl WindowCursorContract {
     /// Build one window contract from canonical cursor-aware plan semantics.
     #[must_use]
-    pub(in crate::db) fn from_plan(
-        plan: &AccessPlannedQuery,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Self {
+    fn from_plan(plan: &AccessPlannedQuery, cursor_boundary: Option<&CursorBoundary>) -> Self {
         let window_size = plan
             .scalar_plan()
             .page
@@ -66,12 +63,12 @@ impl WindowCursorContract {
 
     /// Return whether the effective limit window is exhausted.
     #[must_use]
-    pub(in crate::db) const fn exhausted(&self) -> bool {
+    const fn exhausted(&self) -> bool {
         matches!(self.limit_remaining, Some(0))
     }
 
     /// Advance window state by one row and return whether the row is in-window.
-    pub(in crate::db) const fn accept_existing_row(&mut self) -> bool {
+    const fn accept_existing_row(&mut self) -> bool {
         if self.offset_remaining > 0 {
             self.offset_remaining = self.offset_remaining.saturating_sub(1);
             return false;

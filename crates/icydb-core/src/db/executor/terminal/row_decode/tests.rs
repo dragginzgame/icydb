@@ -556,8 +556,9 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
         .into_raw_row();
     let layout = RetainedSlotLayout::compile_with_value_modes(
         RowDecodeEntity::MODEL.fields().len(),
-        vec![1, 3],
+        vec![0, 1, 3],
         vec![
+            RetainedSlotValueMode::Normal,
             RetainedSlotValueMode::ScalarOctetLength,
             RetainedSlotValueMode::ScalarOctetLength,
         ],
@@ -568,26 +569,37 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
     let row_layout = accepted_row_decode_layout(&descriptor)
         .expect("accepted retained-slot row layout should be generated-compatible");
 
-    let values = RowDecoder::decode_indexed_slot_values(
-        &row_layout,
-        &key.primary_key_value(),
-        &row,
-        &layout,
-    )
-    .expect("retained scalar length decode should succeed");
+    let (values, value_read_metrics) = with_structural_read_metrics(|| {
+        RowDecoder::decode_indexed_slot_values(&row_layout, &key.primary_key_value(), &row, &layout)
+            .expect("retained scalar length decode should succeed")
+    });
 
     assert_eq!(
         values,
-        vec![Some(Value::Nat64(5)), Some(Value::Nat64(4))],
-        "retained scalar byte-length slots should store lengths instead of text/blob payloads",
+        vec![
+            Some(Value::Ulid(entity.id)),
+            Some(Value::Nat64(5)),
+            Some(Value::Nat64(4)),
+        ],
+        "retained scalar byte-length slots should mix normal values with lengths instead of text/blob payloads",
+    );
+    assert_eq!(
+        value_read_metrics.rows_opened, 1,
+        "mixed retained value-mode decode should open the row once",
     );
 
-    let retained_row =
+    let (retained_row, retained_read_metrics) = with_structural_read_metrics(|| {
         RowDecoder::decode_retained_slots_from_data_key(&row_layout, &key, &row, &layout)
-            .expect("retained scalar length row decode should succeed");
+            .expect("retained scalar length row decode should succeed")
+    });
 
+    assert_eq!(retained_row.slot_ref(0), Some(&Value::Ulid(entity.id)));
     assert_eq!(retained_row.slot_ref(1), Some(&Value::Nat64(5)));
     assert_eq!(retained_row.slot_ref(3), Some(&Value::Nat64(4)));
+    assert_eq!(
+        retained_read_metrics.rows_opened, 1,
+        "retained row decode with byte-length slots should open the row once",
+    );
 }
 
 #[test]

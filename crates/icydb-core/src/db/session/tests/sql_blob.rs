@@ -1,5 +1,7 @@
 use super::*;
-use crate::db::session::sql::with_sql_projection_materialization_metrics;
+use crate::db::{
+    data::with_structural_read_metrics, session::sql::with_sql_projection_materialization_metrics,
+};
 
 const SMALL_THUMBNAIL_BYTES: usize = 1_024;
 const MEDIUM_THUMBNAIL_BYTES: usize = 8_192;
@@ -487,16 +489,18 @@ fn sql_octet_length_reports_blob_byte_lengths() {
     let session = sql_session();
     seed_blob_rows(&session);
 
-    let ((rows, projection_metrics), lane_metrics) =
-        crate::db::with_scalar_materialization_lane_metrics(|| {
-            with_sql_projection_materialization_metrics(|| {
-                statement_projection_rows::<SessionSqlBlobEntity>(
-                    &session,
-                    "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
+    let (((rows, projection_metrics), lane_metrics), read_metrics) =
+        with_structural_read_metrics(|| {
+            crate::db::with_scalar_materialization_lane_metrics(|| {
+                with_sql_projection_materialization_metrics(|| {
+                    statement_projection_rows::<SessionSqlBlobEntity>(
+                        &session,
+                        "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
                      FROM SessionSqlBlobEntity \
                      ORDER BY label ASC",
-                )
-                .expect("OCTET_LENGTH should project blob byte lengths")
+                    )
+                    .expect("OCTET_LENGTH should project blob byte lengths")
+                })
             })
         });
 
@@ -548,6 +552,10 @@ fn sql_octet_length_reports_blob_byte_lengths() {
     assert_eq!(
         lane_metrics.kernel_retained_octet_length_values, 2,
         "OCTET_LENGTH(blob) projection should retain blob fields as byte lengths",
+    );
+    assert_eq!(
+        read_metrics.rows_opened, 3,
+        "OCTET_LENGTH(blob) retained slot projection should open each row once",
     );
 
     #[cfg(feature = "diagnostics")]

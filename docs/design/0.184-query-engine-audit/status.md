@@ -180,6 +180,9 @@ Status: active.
 - H7 second slice: retained-slot footprint now flows through normal
   diagnostics `KernelRowAttribution` and SQL perf-matrix samples, so late
   materialization pressure can be ranked from existing attribution reports.
+  The matrix report now ranks retained layout hits, retained slot values, and
+  byte-length-only retained values separately, so H7 candidates do not have to
+  show up indirectly through broad kernel-row scan rankings.
 - Large literal `IN` first slice: SQL membership lowering, predicate bridge
   recovery, truth-set compilation, and scalar evaluation now keep membership as
   a compact `IN_LIST` function instead of expanding into left-deep boolean
@@ -220,9 +223,6 @@ Status: active.
 - F5 / D6 / H8 scalar-spine follow-up: prepared-load callers now share the
   continuation-signature extraction and scalar runtime handoff step before
   initial runtime preparation, including the SQL retained-slot override path.
-
-## Current Slice
-
 - F5 / D6 / H8 scalar-spine follow-up: SQL retained-slot initial page execution
   now delegates continuation setup, projection runtime-mode selection, and
   retained-slot layout selection to shared scalar runtime setup, leaving the SQL
@@ -237,6 +237,30 @@ Status: active.
   runtime setup now uses the same named option contract before and after
   continuation construction instead of carrying a second handoff-only option
   struct.
+- F5 / D6 / H8 scalar-spine follow-up: diagnostics-only initial scalar runtime
+  preparation now lives beside normal scalar runtime preparation. The public
+  attributed scalar entrypoint consumes a runtime-owned measured helper instead
+  of reconstructing continuation signatures, scalar handoff, route-plan lookup,
+  and runtime-bundle assembly inline, preserving attribution fields while
+  reducing drift between measured and unmeasured scalar setup.
+- H7 third slice: retained layouts with byte-length-only text/blob slots now
+  decode normal retained values and scalar byte lengths through one opened
+  structural row reader. Focused guards prove mixed value-mode decoding opens
+  one row, and SQL `OCTET_LENGTH(blob)` projections remain slot-only while
+  opening each projected row once. The SQL perf matrix now exposes retained
+  byte-length hotspots as a first-class ranking for future follow-up.
+- H7 focused matrix follow-up: a 54-scenario retained-slot rerun covered the
+  documented user retained-slot cases and deterministic blob `OCTET_LENGTH`
+  shapes. The highest byte-length cases remained slot-only and bounded; the
+  highest non-byte retained-slot cases were field-comparison scans that need row
+  facts rather than a separate late-materialization lane.
+
+## Current Slice
+
+- H7 remains open for evidence-driven follow-up only. Do not add a new
+  materialization lane until retained-slot metrics identify a repeated shape
+  that still falls back to full rows, over-retains slots, or performs avoidable
+  row-store reads.
 
 ## Next Candidates
 
@@ -259,9 +283,6 @@ Status: active.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.
-- H7: use retained-slot footprint metrics to identify a repeated shape that
-  still falls back to full-row retention, over-retains slots, or performs
-  avoidable row-store reads before adding a new materialization path.
 - H6 / D7 / F6: design chunked mutation preparation separately if broad
   session/admin SQL writes become a product requirement. The current evidence
   supports keeping public writes policy-bounded rather than widening broad

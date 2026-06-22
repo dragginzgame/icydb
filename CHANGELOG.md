@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.16` continues the query-engine audit by tightening access, cursor,
+  data, diagnostics, identity, and physical-access module boundaries while
+  keeping scalar diagnostics and H7 retained-slot behavior on existing runtime
+  contracts.
+
 - `0.184.15` continues the query-engine audit by moving retained-slot SQL,
   initial, and resumed scalar runtime policy into shared helpers while keeping
   scalar entrypoints thin and execution behavior unchanged.

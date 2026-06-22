@@ -244,7 +244,7 @@ pub struct ExecutionMetrics {
 impl ExecutionTrace {
     /// Build one trace payload from an executor-projected access shape.
     #[must_use]
-    pub(crate) const fn new_from_variant(
+    pub(in crate::db) const fn new_from_variant(
         access_path_variant: ExecutionAccessPathVariant,
         direction: OrderDirection,
         continuation_applied: bool,

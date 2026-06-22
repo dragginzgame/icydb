@@ -1732,8 +1732,20 @@ fn append_kernel_row_hotspot_tables(output: &mut String, samples: &[MatrixSample
     );
     append_kernel_row_table(
         output,
+        "Top Kernel Row Retained Layout Hits",
+        ranked_by(samples, |sample| sample.kernel_row_retained_layout_hits),
+    );
+    append_kernel_row_table(
+        output,
         "Top Kernel Row Retained Slot Values",
         ranked_by(samples, |sample| sample.kernel_row_retained_slot_values),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Kernel Row Retained Length Values",
+        ranked_by(samples, |sample| {
+            sample.kernel_row_retained_octet_length_values
+        }),
     );
 }
 
@@ -1850,8 +1862,20 @@ fn append_main_fixture_execution_hotspot_tables(output: &mut String, samples: &[
     );
     append_kernel_row_table(
         output,
+        "Top Main Fixture Kernel Row Retained Layout Hits",
+        ranked_main_fixture_by(samples, |sample| sample.kernel_row_retained_layout_hits),
+    );
+    append_kernel_row_table(
+        output,
         "Top Main Fixture Kernel Row Retained Slot Values",
         ranked_main_fixture_by(samples, |sample| sample.kernel_row_retained_slot_values),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Main Fixture Kernel Row Retained Length Values",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.kernel_row_retained_octet_length_values
+        }),
     );
 }
 
@@ -2651,20 +2675,8 @@ fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
         "main fixture hotspot section should exclude journaled storage mirror baselines",
     );
 
-    let main_fixture_kernel_section = markdown
-        .split("## Top Main Fixture Kernel Row Scan Instructions")
-        .nth(1)
-        .and_then(|tail| tail.split("##").next())
-        .expect("main fixture kernel-row hotspot section should render");
-
-    assert!(
-        main_fixture_kernel_section.contains("user.select.pk.all.pk_asc.limit1"),
-        "main fixture kernel-row hotspot section should keep ordinary fixture scenarios",
-    );
-    assert!(
-        main_fixture_kernel_section.contains("Retained Values"),
-        "main fixture kernel-row hotspot section should expose retained-slot footprint columns",
-    );
+    let main_fixture_kernel_section =
+        matrix_markdown_section(&markdown, "Top Main Fixture Kernel Row Scan Instructions");
     assert!(
         !main_fixture_kernel_section.contains("heap_user"),
         "main fixture kernel-row hotspot section should exclude heap storage mirror baselines",
@@ -2674,22 +2686,60 @@ fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
         "main fixture kernel-row hotspot section should exclude journaled storage mirror baselines",
     );
 
-    let main_fixture_retained_section = markdown
-        .split("## Top Main Fixture Kernel Row Retained Slot Values")
-        .nth(1)
-        .and_then(|tail| tail.split("##").next())
-        .expect("main fixture retained-slot hotspot section should render");
+    assert_main_fixture_kernel_retained_hotspot_sections(&markdown);
+}
 
+fn assert_main_fixture_kernel_retained_hotspot_sections(markdown: &str) {
+    const SCENARIO_KEY: &str = "user.select.pk.all.pk_asc.limit1";
+    const SCENARIO_ROW: &str =
+        "| `user.select.pk.all.pk_asc.limit1` | user | 90 | 0 | 5 | 0 | 0 | 1 | 3 | 1 |";
+
+    let main_fixture_kernel_section =
+        matrix_markdown_section(markdown, "Top Main Fixture Kernel Row Scan Instructions");
     assert!(
-        main_fixture_retained_section.contains("user.select.pk.all.pk_asc.limit1"),
+        main_fixture_kernel_section.contains(SCENARIO_KEY),
+        "main fixture kernel-row hotspot section should keep ordinary fixture scenarios",
+    );
+    assert!(
+        main_fixture_kernel_section.contains("Retained Values"),
+        "main fixture kernel-row hotspot section should expose retained-slot footprint columns",
+    );
+    assert!(
+        main_fixture_kernel_section.contains("Length Values"),
+        "main fixture kernel-row hotspot section should expose byte-length retained-slot columns",
+    );
+
+    let main_fixture_retained_section =
+        matrix_markdown_section(markdown, "Top Main Fixture Kernel Row Retained Slot Values");
+    assert!(
+        main_fixture_retained_section.contains(SCENARIO_KEY),
         "main fixture retained-slot hotspot section should rank ordinary fixture scenarios",
     );
     assert!(
-        main_fixture_retained_section.contains(
-            "| `user.select.pk.all.pk_asc.limit1` | user | 90 | 0 | 5 | 0 | 0 | 1 | 3 | 1 |"
-        ),
+        main_fixture_retained_section.contains(SCENARIO_ROW),
         "main fixture retained-slot hotspot section should expose retained layout/value counts",
     );
+
+    let main_fixture_length_section = matrix_markdown_section(
+        markdown,
+        "Top Main Fixture Kernel Row Retained Length Values",
+    );
+    assert!(
+        main_fixture_length_section.contains(SCENARIO_KEY),
+        "main fixture retained byte-length hotspot section should rank ordinary fixture scenarios",
+    );
+    assert!(
+        main_fixture_length_section.contains(SCENARIO_ROW),
+        "main fixture retained byte-length hotspot section should expose retained length counts",
+    );
+}
+
+fn matrix_markdown_section<'a>(markdown: &'a str, title: &str) -> &'a str {
+    markdown
+        .split(&format!("## {title}"))
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .unwrap_or_else(|| panic!("matrix markdown section should render: {title}"))
 }
 
 #[test]

@@ -15,15 +15,16 @@ mod tests;
 pub(crate) mod validate;
 
 // Canonical planner access surface.
-pub(crate) use canonical::normalize_access_plan_value;
+pub(in crate::db) use canonical::normalize_access_plan_value;
 pub(in crate::db) use path::{
     AccessPath, IndexBranchSetOrderedSuffix, IndexBranchSetSpec, MAX_INDEX_BRANCH_SET_VALUES,
     SemanticIndexAccessContract, SemanticIndexExpression, SemanticIndexKeyItemRef,
     SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
 };
-pub(crate) use plan::AccessPlan;
+pub(in crate::db) use plan::AccessPlan;
+pub(crate) use validate::AccessPlanError;
 pub(in crate::db) use validate::validate_access_runtime_invariants_with_schema;
-pub(crate) use validate::{AccessPlanError, validate_access_structure_model};
+pub(in crate::db) use validate::validate_access_structure_model;
 
 // Boundary-local access-shape fact helpers.
 pub(in crate::db) use path::AccessPathKind;

@@ -216,7 +216,7 @@ fn lower_cursor_anchor_index_range_bounds(
 // - This planner-layer validation checks token/envelope shape and compatibility.
 // - Store-layer lookup still performs strict continuation advancement checks.
 // - These two validations are intentionally redundant and must not be merged.
-pub(in crate::db) fn validate_index_range_anchor<K>(
+pub(in crate::db::cursor) fn validate_index_range_anchor<K>(
     anchor: Option<&IndexRangeCursorAnchor>,
     access: Option<&ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
@@ -271,7 +271,7 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 }
 
 // Enforce that boundary and raw anchor identify the same ordered row position.
-pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K>(
+pub(in crate::db::cursor) fn validate_index_range_boundary_anchor_consistency<K>(
     anchor: Option<&ValidatedInEnvelopeIndexRangeCursorAnchor>,
     access: Option<&ExecutionPathPayload<'_, K>>,
     boundary_primary_key: &PrimaryKeyValue,

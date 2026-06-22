@@ -56,7 +56,7 @@ pub(in crate::db) const fn apply_order_direction(
 }
 
 /// Validate continuation direction compatibility.
-pub(in crate::db) fn validate_cursor_direction(
+pub(in crate::db::cursor) fn validate_cursor_direction(
     expected_direction: Direction,
     actual_direction: Direction,
 ) -> Result<(), CursorPlanError> {
@@ -68,7 +68,7 @@ pub(in crate::db) fn validate_cursor_direction(
 }
 
 /// Validate continuation initial-offset compatibility.
-pub(in crate::db) const fn validate_cursor_window_offset(
+pub(in crate::db::cursor) const fn validate_cursor_window_offset(
     expected_initial_offset: u32,
     actual_initial_offset: u32,
 ) -> Result<(), CursorPlanError> {
@@ -83,7 +83,7 @@ pub(in crate::db) const fn validate_cursor_window_offset(
 }
 
 /// Validate one cursor boundary arity against canonical order width.
-pub(in crate::db) const fn validate_cursor_boundary_arity(
+const fn validate_cursor_boundary_arity(
     boundary: &CursorBoundary,
     expected_arity: usize,
 ) -> Result<(), CursorPlanError> {
@@ -100,7 +100,7 @@ pub(in crate::db) const fn validate_cursor_boundary_arity(
 }
 
 /// Validate one cursor boundary against canonical order fields and return typed PK key.
-pub(in crate::db) fn validate_cursor_boundary_for_order(
+pub(in crate::db::cursor) fn validate_cursor_boundary_for_order(
     schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
@@ -134,7 +134,7 @@ fn primary_key_boundary_index(order: &OrderSpec, pk_field: &str) -> Result<usize
 }
 
 /// Validate cursor boundary slot types against canonical order fields.
-pub(in crate::db) fn validate_cursor_boundary_types(
+fn validate_cursor_boundary_types(
     schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
@@ -233,7 +233,7 @@ fn boundary_order_expression_value_matches(
 }
 
 /// Decode the structural primary-key cursor slot from one validated cursor boundary.
-pub(in crate::db) fn decode_structural_primary_key_cursor_slots(
+fn decode_structural_primary_key_cursor_slots(
     schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
@@ -271,7 +271,7 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slots(
 }
 
 /// Decode one scalar structural primary-key cursor slot from one validated cursor boundary.
-pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
+fn decode_structural_primary_key_cursor_slot_from_name(
     pk_field: &str,
     order: &OrderSpec,
     boundary: &CursorBoundary,

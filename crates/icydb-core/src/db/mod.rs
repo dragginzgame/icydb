@@ -10,7 +10,7 @@ pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
 #[cfg(feature = "diagnostics")]
-pub(crate) mod physical_access;
+pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
@@ -85,13 +85,11 @@ pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
-pub use diagnostics::execution_trace::{
-    ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
-    ExecutionTrace,
-};
-pub use diagnostics::model::{
-    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
-    IntegrityTotals, SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
+pub use diagnostics::{
+    DataStoreSnapshot, EntitySnapshot, ExecutionAccessPathVariant, ExecutionMetrics,
+    ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, IntegrityReport,
+    IntegrityStoreSnapshot, IntegrityTotals, SchemaStoreSnapshot, StorageReport,
+    StoreSnapshotStorageMode,
 };
 #[doc(hidden)]
 pub use executor::EntityAuthority;

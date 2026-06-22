@@ -163,7 +163,7 @@ impl<'a> StructuralSlotReader<'a> {
     // Validate the decoded primary-key slot against one authoritative
     // primary-key value without rebuilding a full `DecodedDataStoreKey`
     // wrapper at the call site.
-    fn validate_primary_key_value(
+    pub(in crate::db) fn validate_primary_key_value(
         &self,
         expected_key: &PrimaryKeyValue,
     ) -> Result<(), InternalError> {

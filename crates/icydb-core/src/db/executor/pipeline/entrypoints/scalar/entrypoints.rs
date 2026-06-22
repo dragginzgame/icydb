@@ -44,18 +44,11 @@ use crate::{
 };
 
 #[cfg(feature = "diagnostics")]
-use crate::db::cursor::ValidatedCursor;
-#[cfg(feature = "diagnostics")]
-use crate::db::executor::pipeline::contracts::CursorEmissionMode;
-#[cfg(feature = "diagnostics")]
 use crate::db::executor::pipeline::entrypoints::scalar::diagnostics::{
     ScalarExecutePhaseAttribution, execute_prepared_scalar_route_runtime_with_phase_attribution,
 };
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::pipeline::entrypoints::scalar::runtime::{
-    ScalarPreparedRuntimeOptions, prepare_initial_scalar_route_plan_from_handoff,
-    prepare_scalar_route_runtime_from_inputs,
-};
+use crate::db::executor::pipeline::entrypoints::scalar::runtime::prepare_initial_scalar_route_runtime_from_plan_with_phase_attribution;
 #[cfg(feature = "sql")]
 use crate::db::executor::pipeline::entrypoints::scalar::runtime::{
     prepare_initial_scalar_retained_slot_page_runtime_from_handoff,
@@ -207,56 +200,23 @@ where
 {
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
-    let (continuation_signature_local_instructions, continuation_signature) =
-        crate::db::diagnostics::measure_local_instruction_delta(|| {
-            plan.continuation_signature_for_runtime()
-        });
-    let continuation_signature = continuation_signature?;
-    let (scalar_runtime_handoff_local_instructions, prepared) =
-        crate::db::diagnostics::measure_local_instruction_delta(|| {
-            plan.into_scalar_runtime_handoff(
-                ScalarProjectionRuntimeMode::None,
-                CursorEmissionMode::Suppress,
-            )
-        });
-    let prepared = prepared?;
-    let continuation =
-        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
-    let (route_plan_local_instructions, prebuilt_route_plan) =
-        crate::db::diagnostics::measure_local_instruction_delta(|| {
-            prepare_initial_scalar_route_plan_from_handoff(&prepared)
-        });
-    let prebuilt_route_plan = Some(prebuilt_route_plan?);
-    let (runtime_prepare_local_instructions, prepared) =
-        crate::db::diagnostics::measure_local_instruction_delta(|| {
-            prepare_scalar_route_runtime_from_inputs(
-                db,
-                debug,
-                prepared.authority,
-                prepared.execution_preparation,
-                prepared.prepared_projection_contract,
-                prepared.retained_slot_layout,
-                prepared.plan_core,
-                ScalarPreparedRuntimeOptions::initial_suppressed(
-                    continuation,
-                    true,
-                    ScalarProjectionRuntimeMode::None,
-                    prebuilt_route_plan,
-                    false,
-                ),
-            )
-        });
-    let prepared = prepared?;
+    let (prepared, prepare_attribution) =
+        prepare_initial_scalar_route_runtime_from_plan_with_phase_attribution(
+            db,
+            debug,
+            plan,
+            InitialScalarPlanRuntimeOptions::unpaged_rows(ScalarProjectionRuntimeMode::None),
+        )?;
 
     // Phase 2: execute the shared scalar runtime and return the structural page.
     let (page, _, mut phase_attribution) =
         execute_prepared_scalar_route_runtime_with_phase_attribution(prepared)?;
     phase_attribution.continuation_signature_local_instructions =
-        continuation_signature_local_instructions;
+        prepare_attribution.continuation_signature;
     phase_attribution.scalar_runtime_handoff_local_instructions =
-        scalar_runtime_handoff_local_instructions;
-    phase_attribution.route_plan_local_instructions = route_plan_local_instructions;
-    phase_attribution.runtime_prepare_local_instructions = runtime_prepare_local_instructions;
+        prepare_attribution.scalar_runtime_handoff;
+    phase_attribution.route_plan_local_instructions = prepare_attribution.route_plan;
+    phase_attribution.runtime_prepare_local_instructions = prepare_attribution.runtime_prepare;
 
     Ok((page, phase_attribution))
 }

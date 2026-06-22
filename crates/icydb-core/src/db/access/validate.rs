@@ -66,7 +66,7 @@ impl AccessPlanError {
 }
 
 /// Validate model-level access paths that carry `Value` keys.
-pub(crate) fn validate_access_structure_model(
+pub(in crate::db) fn validate_access_structure_model(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<Value>,

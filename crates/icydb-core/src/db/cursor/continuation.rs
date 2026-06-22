@@ -60,7 +60,7 @@ impl<'a> IndexScanContinuationInput<'a> {
 
     /// Validate continuation-envelope consistency and derive resumed scan
     /// bounds for one directional index scan.
-    pub(in crate::db) fn resume_bounds(
+    pub(in crate::db::cursor) fn resume_bounds(
         &self,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
     ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
@@ -68,7 +68,7 @@ impl<'a> IndexScanContinuationInput<'a> {
     }
 
     /// Validate strict directional advancement for one raw-key scan candidate.
-    pub(in crate::db) fn validate_candidate_advancement(
+    pub(in crate::db::cursor) fn validate_candidate_advancement(
         &self,
         candidate: &RawIndexStoreKey,
     ) -> Result<(), InternalError> {

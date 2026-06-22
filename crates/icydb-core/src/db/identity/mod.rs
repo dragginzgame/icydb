@@ -26,12 +26,12 @@ use std::{
 /// Constants
 ///
 
-pub(super) const MAX_ENTITY_NAME_LEN: usize = 64;
-pub(super) const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
+const MAX_ENTITY_NAME_LEN: usize = 64;
+const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
 const MAX_INDEX_NAME_PREFIX_LEN: usize = 5;
 const MAX_ENTITY_NAME_SLUG_LEN: usize = (MAX_ENTITY_NAME_LEN * 3) / 2;
 const MAX_INDEX_FIELD_NAME_SLUG_LEN: usize = (MAX_INDEX_FIELD_NAME_LEN * 3) / 2;
-pub(super) const MAX_INDEX_NAME_LEN: usize = MAX_INDEX_NAME_PREFIX_LEN
+const MAX_INDEX_NAME_LEN: usize = MAX_INDEX_NAME_PREFIX_LEN
     + MAX_ENTITY_NAME_SLUG_LEN
     + 2
     + (MAX_INDEX_FIELDS * MAX_INDEX_FIELD_NAME_SLUG_LEN)

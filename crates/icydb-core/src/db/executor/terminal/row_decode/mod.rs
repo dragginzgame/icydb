@@ -368,51 +368,10 @@ fn decode_indexed_slot_values_with_value_modes(
     row: &RawRow,
     retained_slot_layout: &RetainedSlotLayout,
 ) -> Result<Vec<Option<Value>>, InternalError> {
-    let required_slots = retained_slot_layout.required_slots();
-    let value_modes = retained_slot_layout.value_modes();
-    let mut values = vec![None; retained_slot_layout.retained_value_count()];
-    let mut normal_slots = Vec::new();
-    let mut normal_value_indexes = Vec::new();
-
-    // Phase 1: decode all regular retained slots through the existing sparse
-    // structural decoder so non-optimized projection paths keep identical
-    // error taxonomy and value materialization.
-    for (value_index, (&slot, mode)) in required_slots.iter().zip(value_modes).enumerate() {
-        if *mode == RetainedSlotValueMode::Normal {
-            normal_slots.push(slot);
-            normal_value_indexes.push(value_index);
-        }
-    }
-    if normal_slots.is_empty() {
-        decode_sparse_indexed_raw_row_with_contract(
-            row,
-            layout.contract.clone(),
-            expected_key,
-            &[],
-        )?;
-    } else {
-        let decoded_normal_values = decode_sparse_indexed_raw_row_with_contract(
-            row,
-            layout.contract.clone(),
-            expected_key,
-            normal_slots.as_slice(),
-        )?;
-        for (value_index, value) in normal_value_indexes.into_iter().zip(decoded_normal_values) {
-            values[value_index] = value;
-        }
-    }
-
-    // Phase 2: fill byte-length-only retained slots from the borrowed scalar
-    // payload view. Phase 1 already validated the row storage key through the
-    // direct structural decoder, even when there were no regular slots.
     let row_fields = layout.open_raw_row_with_contract(row)?;
-    for (value_index, (&slot, mode)) in required_slots.iter().zip(value_modes).enumerate() {
-        if *mode == RetainedSlotValueMode::ScalarOctetLength {
-            values[value_index] = Some(decode_scalar_octet_length_value(&row_fields, slot)?);
-        }
-    }
+    row_fields.validate_primary_key_value(expected_key)?;
 
-    Ok(values)
+    RowDecoder::decode_indexed_slot_values_from_reader(&row_fields, retained_slot_layout)
 }
 
 fn decode_scalar_octet_length_value(

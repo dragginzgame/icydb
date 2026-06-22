@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::measure_local_instruction_delta;
 use crate::{
     db::{
         Db,
@@ -66,6 +68,24 @@ impl PreparedScalarRouteRuntime {
 }
 
 ///
+/// ScalarRuntimePreparePhaseAttribution
+///
+/// ScalarRuntimePreparePhaseAttribution records the diagnostics-only phase
+/// split for building an initial scalar runtime bundle. Keeping this beside
+/// normal runtime preparation prevents attributed entrypoints from rebuilding
+/// the scalar handoff contract independently.
+///
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct ScalarRuntimePreparePhaseAttribution {
+    pub(super) continuation_signature: u64,
+    pub(super) scalar_runtime_handoff: u64,
+    pub(super) route_plan: u64,
+    pub(super) runtime_prepare: u64,
+}
+
+///
 /// InitialScalarPlanRuntimeOptions
 ///
 /// InitialScalarPlanRuntimeOptions records the per-surface knobs for no-cursor
@@ -120,13 +140,86 @@ where
         CursorEmissionMode::Suppress,
     )?;
 
-    prepare_initial_scalar_route_runtime_from_plan_handoff(
+    prepare_initial_scalar_route_runtime_from_handoff(
         db,
         debug,
         prepared,
         ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature),
         options,
     )
+}
+
+// Prepare an initial no-cursor scalar runtime with the same phase split as the
+// perf attribution surface. The measured path deliberately follows the same
+// helper chain as normal initial runtime setup after each phase boundary.
+#[cfg(feature = "diagnostics")]
+pub(super) fn prepare_initial_scalar_route_runtime_from_plan_with_phase_attribution<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+    options: InitialScalarPlanRuntimeOptions,
+) -> Result<
+    (
+        PreparedScalarRouteRuntime,
+        ScalarRuntimePreparePhaseAttribution,
+    ),
+    InternalError,
+>
+where
+    C: CanisterKind,
+{
+    let (continuation_signature_local_instructions, continuation_signature) =
+        measure_local_instruction_delta(|| plan.continuation_signature_for_runtime());
+    let continuation_signature = continuation_signature?;
+    let (scalar_runtime_handoff_local_instructions, prepared) =
+        measure_local_instruction_delta(|| {
+            plan.into_scalar_runtime_handoff(
+                options.projection_runtime_mode,
+                CursorEmissionMode::Suppress,
+            )
+        });
+    let prepared = prepared?;
+    let continuation =
+        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
+    let (route_plan_local_instructions, prebuilt_route_plan) =
+        measure_local_instruction_delta(|| {
+            prepare_initial_scalar_route_plan_from_handoff(&prepared)
+        });
+    let prebuilt_route_plan = Some(prebuilt_route_plan?);
+    let InitialScalarPlanRuntimeOptions {
+        unpaged_rows_mode,
+        projection_runtime_mode,
+        suppress_route_scan_hints,
+    } = options;
+    let (runtime_prepare_local_instructions, prepared) = measure_local_instruction_delta(|| {
+        prepare_scalar_route_runtime_from_inputs(
+            db,
+            debug,
+            prepared.authority,
+            prepared.execution_preparation,
+            prepared.prepared_projection_contract,
+            prepared.retained_slot_layout,
+            prepared.plan_core,
+            ScalarPreparedRuntimeOptions::initial_suppressed(
+                continuation,
+                unpaged_rows_mode,
+                projection_runtime_mode,
+                prebuilt_route_plan,
+                suppress_route_scan_hints,
+            ),
+        )
+    });
+    let prepared = prepared?;
+
+    Ok((
+        prepared,
+        ScalarRuntimePreparePhaseAttribution {
+            continuation_signature: continuation_signature_local_instructions,
+            scalar_runtime_handoff: scalar_runtime_handoff_local_instructions,
+            route_plan: route_plan_local_instructions,
+            runtime_prepare: runtime_prepare_local_instructions,
+        },
+    ))
 }
 
 // Prepare an initial no-cursor scalar runtime from a prepared load plan while
@@ -149,7 +242,7 @@ where
         retained_slot_layout,
     )?;
 
-    prepare_initial_scalar_route_runtime_from_plan_handoff(
+    prepare_initial_scalar_route_runtime_from_handoff(
         db,
         debug,
         prepared,
@@ -274,19 +367,6 @@ fn initial_retained_slot_layout(
 #[cfg(feature = "sql")]
 fn projection_contract_requires_data_rows(shape: &PreparedProjectionContract) -> bool {
     shape.scalar_projection_contains_field_path()
-}
-
-fn prepare_initial_scalar_route_runtime_from_plan_handoff<C>(
-    db: &Db<C>,
-    debug: bool,
-    prepared: PreparedScalarRuntimeHandoff,
-    continuation: ScalarContinuationContext,
-    options: InitialScalarPlanRuntimeOptions,
-) -> Result<PreparedScalarRouteRuntime, InternalError>
-where
-    C: CanisterKind,
-{
-    prepare_initial_scalar_route_runtime_from_handoff(db, debug, prepared, continuation, options)
 }
 
 // Prepare an initial no-cursor scalar runtime from one structural handoff.

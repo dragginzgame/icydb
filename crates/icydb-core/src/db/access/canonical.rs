@@ -52,7 +52,7 @@ fn dedup_sorted_access_plans(plans: &mut Vec<AccessPlan<Value>>) {
 
 /// Normalize one value-keyed access plan into deterministic canonical shape.
 #[must_use]
-pub(crate) fn normalize_access_plan_value(plan: AccessPlan<Value>) -> AccessPlan<Value> {
+pub(in crate::db) fn normalize_access_plan_value(plan: AccessPlan<Value>) -> AccessPlan<Value> {
     plan.normalize_for_access()
 }
 

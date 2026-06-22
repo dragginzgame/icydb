@@ -82,6 +82,57 @@ now runs at about 40.6M total instructions with the same zero row-store reads,
 confirming the remaining cost is branch/order routing and bounded index
 traversal rather than late materialization.
 
+## 2026-06-22 Byte-Length Retained Slots
+
+The next H7 slice found a small but real retained-slot cleanup rather than a
+new materialization lane. Retained layouts that mix normal slots with
+byte-length-only text/blob slots now decode through one opened structural row
+reader. The low-level value-mode decoder no longer validates normal slots
+through the sparse direct decoder and then opens the row again to read scalar
+byte lengths.
+
+The live SQL `OCTET_LENGTH(blob)` projection path remains slot-only:
+
+- it retains label, primary-key tie-break, and byte-length values for the blob
+  fields;
+- it does not retain full blob rows;
+- it opens each projected row once;
+- diagnostics still report byte-length-only retained slots.
+
+The SQL perf matrix now ranks retained layout hits, retained slot values, and
+retained byte-length values separately. A focused rerun can use
+`ICYDB_SQL_PERF_MATRIX_KEYS=blob.select.lengths.bucket_range.bucket_label_asc.limit1`
+with the ignored `sql_perf_generated_matrix_reports_hotspots` test when
+PocketIC evidence is needed.
+
+## 2026-06-22 Focused Retained-Slot Matrix
+
+A focused 54-scenario matrix rerun covered the documented user retained-slot
+cases and every deterministic blob `OCTET_LENGTH` projection shape. It passed
+with zero failures.
+
+Top byte-length retained cases were still bounded and slot-only:
+
+- `blob.select.lengths.bucket_range.bucket_label_asc.limit1`: 8 retained
+  byte-length values, 16 retained values total, 4 retained layouts, 4 row-store
+  reads, 16 index-entry reads, about 2.37M total instructions.
+- `blob.select.lengths.bucket_range.bucket_label_asc.limit3`: 6 retained
+  byte-length values, 12 retained values total, 3 retained layouts, 9 row-store
+  reads, 15 index-entry reads, about 2.73M total instructions.
+
+Top non-byte retained-slot cases were:
+
+- `user.select.wide.field_compare.age_desc.limit3`: 18 retained values,
+  3 retained layouts, 16 row-store reads, about 2.15M total instructions.
+- `user.select.wide.field_compare.lower_name_asc.limit3`: 18 retained values,
+  3 retained layouts, 16 row-store reads, about 2.09M total instructions.
+
+Those user cases are field-comparison scans that need row facts to evaluate
+the predicate/order shape; they do not indicate an avoidable blob/text
+materialization lane. The blob length cases continue to avoid retaining full
+blob payload values. This keeps H7 in evidence-gathering mode rather than
+runtime redesign mode.
+
 ## First Proof Points
 
 - Ordinary scalar projections over direct fields and expressions should use the

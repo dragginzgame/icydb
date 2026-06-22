@@ -33,7 +33,7 @@ pub(in crate::db) struct ExecutableAccessPlan<'a, K> {
 impl<'a, K> ExecutableAccessPlan<'a, K> {
     /// Project one semantic access plan into its normalized execution contract.
     #[must_use]
-    pub(in crate::db) fn from_access_plan(access: &'a AccessPlan<K>) -> Self {
+    pub(in crate::db::access) fn from_access_plan(access: &'a AccessPlan<K>) -> Self {
         match access {
             AccessPlan::Path(path) => Self::from_access_path(path.as_ref()),
             AccessPlan::Union(children) => {
@@ -53,7 +53,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
 
     /// Construct one path-backed executable access plan.
     #[must_use]
-    pub(in crate::db) const fn for_path(path: ExecutionPathPayload<'a, K>) -> Self {
+    const fn for_path(path: ExecutionPathPayload<'a, K>) -> Self {
         Self {
             node: ExecutableAccessNode::Path(path),
         }
@@ -61,7 +61,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
 
     /// Construct one union executable access plan.
     #[must_use]
-    pub(in crate::db) const fn union(children: Vec<Self>) -> Self {
+    pub(in crate::db::access) const fn union(children: Vec<Self>) -> Self {
         Self {
             node: ExecutableAccessNode::Union(children),
         }
@@ -69,7 +69,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
 
     /// Construct one intersection executable access plan.
     #[must_use]
-    pub(in crate::db) const fn intersection(children: Vec<Self>) -> Self {
+    pub(in crate::db::access) const fn intersection(children: Vec<Self>) -> Self {
         Self {
             node: ExecutableAccessNode::Intersection(children),
         }

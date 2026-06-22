@@ -18,7 +18,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum AccessPlan<K> {
+pub(in crate::db) enum AccessPlan<K> {
     Path(Box<AccessPath<K>>),
     Union(Vec<Self>),
     Intersection(Vec<Self>),
@@ -27,31 +27,31 @@ pub(crate) enum AccessPlan<K> {
 impl<K> AccessPlan<K> {
     /// Construct a plan from one concrete access path.
     #[must_use]
-    pub(crate) fn path(path: AccessPath<K>) -> Self {
+    pub(in crate::db) fn path(path: AccessPath<K>) -> Self {
         Self::Path(Box::new(path))
     }
 
     /// Construct a single-key access plan.
     #[must_use]
-    pub(crate) fn by_key(key: K) -> Self {
+    pub(in crate::db) fn by_key(key: K) -> Self {
         Self::path(AccessPath::ByKey(key))
     }
 
     /// Construct a multi-key access plan.
     #[must_use]
-    pub(crate) fn by_keys(keys: Vec<K>) -> Self {
+    pub(in crate::db) fn by_keys(keys: Vec<K>) -> Self {
         Self::path(AccessPath::ByKeys(keys))
     }
 
     /// Construct a primary-key range access plan.
     #[must_use]
-    pub(crate) fn key_range(start: K, end: K) -> Self {
+    pub(in crate::db) fn key_range(start: K, end: K) -> Self {
         Self::path(AccessPath::KeyRange { start, end })
     }
 
     /// Construct an index-prefix access plan from one reduced access contract.
     #[must_use]
-    pub(crate) fn index_prefix_from_contract(
+    pub(in crate::db) fn index_prefix_from_contract(
         index: SemanticIndexAccessContract,
         values: Vec<Value>,
     ) -> Self {
@@ -61,7 +61,7 @@ impl<K> AccessPlan<K> {
     /// Construct an index multi-lookup access plan from one reduced access
     /// contract.
     #[must_use]
-    pub(crate) fn index_multi_lookup_from_contract(
+    pub(in crate::db) fn index_multi_lookup_from_contract(
         index: SemanticIndexAccessContract,
         values: Vec<Value>,
     ) -> Self {
@@ -71,7 +71,7 @@ impl<K> AccessPlan<K> {
     /// Construct a branch-aware composite prefix access plan from one reduced
     /// access contract.
     #[must_use]
-    pub(crate) fn index_branch_set_from_contract(
+    pub(in crate::db) fn index_branch_set_from_contract(
         index: SemanticIndexAccessContract,
         fixed_values: Vec<Value>,
         branch_values: Vec<Value>,
@@ -87,13 +87,13 @@ impl<K> AccessPlan<K> {
 
     /// Construct an index-range access plan from one semantic range descriptor.
     #[must_use]
-    pub(crate) fn index_range(spec: SemanticIndexRangeSpec) -> Self {
+    pub(in crate::db) fn index_range(spec: SemanticIndexRangeSpec) -> Self {
         Self::path(AccessPath::IndexRange { spec })
     }
 
     /// Construct a plan that forces a full scan.
     #[must_use]
-    pub(crate) fn full_scan() -> Self {
+    pub(in crate::db) fn full_scan() -> Self {
         Self::path(AccessPath::FullScan)
     }
 
@@ -104,7 +104,7 @@ impl<K> AccessPlan<K> {
     /// - empty unions collapse to a full scan identity node
     /// - single-child unions collapse to that child
     #[must_use]
-    pub(crate) fn union(children: Vec<Self>) -> Self {
+    pub(in crate::db) fn union(children: Vec<Self>) -> Self {
         let mut out = Vec::new();
         let mut saw_explicit_empty = false;
         for child in children {
@@ -132,7 +132,7 @@ impl<K> AccessPlan<K> {
     /// - empty intersections collapse to a full scan identity node
     /// - single-child intersections collapse to that child
     #[must_use]
-    pub(crate) fn intersection(children: Vec<Self>) -> Self {
+    pub(in crate::db) fn intersection(children: Vec<Self>) -> Self {
         let mut out = Vec::new();
         for child in children {
             Self::append_flattened_child(&mut out, child, false);
@@ -146,7 +146,7 @@ impl<K> AccessPlan<K> {
 
     /// Borrow the concrete path when this plan is a single-path node.
     #[must_use]
-    pub(crate) fn as_path(&self) -> Option<&AccessPath<K>> {
+    pub(in crate::db) fn as_path(&self) -> Option<&AccessPath<K>> {
         match self {
             Self::Path(path) => Some(path.as_ref()),
             Self::Union(_) | Self::Intersection(_) => None,
@@ -161,13 +161,13 @@ impl<K> AccessPlan<K> {
 
     /// Return true when this plan is exactly one explicit empty key set.
     #[must_use]
-    pub(crate) fn is_explicit_empty(&self) -> bool {
+    pub(in crate::db) fn is_explicit_empty(&self) -> bool {
         matches!(self, Self::Path(path) if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty()))
     }
 
     /// Return true when this plan is one singleton primary-key lookup shape.
     #[must_use]
-    pub(crate) fn is_singleton_or_empty_primary_key_access(&self) -> bool {
+    pub(in crate::db) fn is_singleton_or_empty_primary_key_access(&self) -> bool {
         let Some(path) = self.as_path() else {
             return false;
         };
@@ -205,26 +205,26 @@ impl<K> AccessPlan<K> {
 
     /// Borrow index-range access details when this is a single IndexRange path.
     #[must_use]
-    pub(crate) fn as_index_range_path(&self) -> Option<&SemanticIndexRangeSpec> {
+    pub(in crate::db) fn as_index_range_path(&self) -> Option<&SemanticIndexRangeSpec> {
         self.as_path().and_then(|path| path.as_index_range())
     }
 
     /// Borrow the primary-key range endpoints when this is a single `KeyRange`
     /// path.
     #[must_use]
-    pub(crate) fn as_primary_key_range_path(&self) -> Option<(&K, &K)> {
+    pub(in crate::db) fn as_primary_key_range_path(&self) -> Option<(&K, &K)> {
         self.as_path().and_then(|path| path.as_key_range())
     }
 
     /// Borrow the primary-key payload when this is a single `ByKey` path.
     #[must_use]
-    pub(crate) fn as_by_key_path(&self) -> Option<&K> {
+    pub(in crate::db) fn as_by_key_path(&self) -> Option<&K> {
         self.as_path().and_then(|path| path.as_by_key())
     }
 
     /// Borrow the primary-key set when this is a single `ByKeys` path.
     #[must_use]
-    pub(crate) fn as_by_keys_path(&self) -> Option<&[K]> {
+    pub(in crate::db) fn as_by_keys_path(&self) -> Option<&[K]> {
         self.as_path().and_then(|path| path.as_by_keys())
     }
 
@@ -237,7 +237,7 @@ impl<K> AccessPlan<K> {
 
     /// Return true when this plan selects one secondary-index access shape.
     #[must_use]
-    pub(crate) fn has_selected_index_access_path(&self) -> bool {
+    pub(in crate::db) fn has_selected_index_access_path(&self) -> bool {
         self.shape_facts()
             .single_path_index_prefix_details()
             .is_some()
@@ -254,7 +254,7 @@ impl<K> AccessPlan<K> {
     }
 
     /// Map key payloads across this access tree while preserving structural shape.
-    pub(crate) fn map_keys<T, E, F>(self, mut map_key: F) -> Result<AccessPlan<T>, E>
+    pub(in crate::db) fn map_keys<T, E, F>(self, mut map_key: F) -> Result<AccessPlan<T>, E>
     where
         F: FnMut(K) -> Result<T, E>,
     {
@@ -333,7 +333,7 @@ where
 {
     /// Convert one typed access plan into the canonical structural `Value` form.
     #[must_use]
-    pub(crate) fn into_value_plan(self) -> AccessPlan<Value> {
+    pub(in crate::db) fn into_value_plan(self) -> AccessPlan<Value> {
         self.map_keys(|key| Ok::<Value, core::convert::Infallible>(key.to_key_value()))
             .expect("field value conversion is infallible")
     }

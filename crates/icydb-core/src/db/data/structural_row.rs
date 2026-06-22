@@ -387,7 +387,7 @@ pub(in crate::db) struct StructuralFieldDecodeContract {
 impl StructuralFieldDecodeContract {
     /// Build one decode contract from today's generated field metadata.
     #[must_use]
-    pub(in crate::db) const fn from_field_model(field: &FieldModel) -> Self {
+    pub(in crate::db::data) const fn from_field_model(field: &FieldModel) -> Self {
         Self {
             field_name: field.name(),
             kind: field.kind,

@@ -56,7 +56,7 @@ impl From<DecodedDataStoreKeyEncodeError> for InternalError {
 ///
 
 #[derive(Debug)]
-pub(in crate::db) enum PrimaryKeyValueDecodeError {
+enum PrimaryKeyValueDecodeError {
     InvalidCompactEncoding,
 }
 
