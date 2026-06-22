@@ -3544,9 +3544,14 @@ fn assert_token_branch_set_limit50_pressure_contract(
         "sparse collection IN audit row should return the requested page size",
     );
     assert!(
-        sparse_collection_in.avg_index_store_range_scan_calls <= 1,
-        "sparse collection IN should prune empty prefixes before range traversal, got {} range scans",
+        sparse_collection_in.avg_index_store_range_scan_calls <= 16,
+        "sparse collection IN should expand only bounded non-empty child prefixes, got {} range scans",
         sparse_collection_in.avg_index_store_range_scan_calls,
+    );
+    assert!(
+        sparse_collection_in.avg_index_store_entry_reads <= 128,
+        "sparse collection IN should read bounded child-prefix entries, got {}",
+        sparse_collection_in.avg_index_store_entry_reads,
     );
 }
 

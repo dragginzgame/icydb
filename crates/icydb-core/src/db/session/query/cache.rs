@@ -11,7 +11,9 @@ use crate::db::{
         LoweredIndexPrefixCardinalitySpec, lower_access,
         lower_exact_index_prefix_cardinality_specs_for_prefix_access,
     },
-    executor::{LoweredIndexPrefixCardinalityPlan, exact_count_cardinality_prefixes_for_plan},
+    executor::{
+        exact_count_cardinality_prefixes_for_plan, lowered_index_prefix_cardinality_specs_from_plan,
+    },
 };
 use crate::{
     db::{
@@ -344,23 +346,6 @@ pub(in crate::db::session) const fn query_plan_cache_reuse_event(
     }
 }
 
-#[cfg(feature = "sql")]
-fn count_cardinality_specs_from_lowered_plan(
-    plan: LoweredIndexPrefixCardinalityPlan<'_>,
-) -> Option<Vec<LoweredIndexPrefixCardinalitySpec>> {
-    let prefix_len = plan.prefix_len();
-    let mut specs = Vec::with_capacity(plan.specs().len());
-    for spec in plan.specs() {
-        let prefix_components = spec.prefix_components().get(..prefix_len)?.to_vec();
-        specs.push(LoweredIndexPrefixCardinalitySpec::new(
-            plan.index_id(),
-            prefix_components,
-        ));
-    }
-
-    (!specs.is_empty()).then_some(specs)
-}
-
 impl<C: CanisterKind> DbSession<C> {
     fn with_query_plan_cache<R>(&self, f: impl FnOnce(&mut QueryPlanCache) -> R) -> R {
         let scope_id = self.db.cache_scope_id();
@@ -527,7 +512,9 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
 
-        Ok(count_cardinality_specs_from_lowered_plan(prefix_plan))
+        Ok(lowered_index_prefix_cardinality_specs_from_plan(
+            prefix_plan,
+        ))
     }
 
     #[cfg(feature = "sql")]

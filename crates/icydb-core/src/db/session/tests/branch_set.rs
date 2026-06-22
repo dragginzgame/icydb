@@ -10,6 +10,8 @@ const BRANCH_FETCH: u64 = 4;
 const BRANCH_HEAD_MERGE_READ_CAP: u64 = BRANCH_FETCH + 1;
 #[cfg(feature = "diagnostics")]
 const BRANCH_INDEX_RESIDUAL_READ_CAP: u64 = 10;
+#[cfg(feature = "diagnostics")]
+const SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP: u64 = 12;
 
 fn branch_target_sql(select: &str, limit: usize) -> String {
     format!(
@@ -140,6 +142,23 @@ fn sparse_collection_sql(select: &str, limit: usize) -> String {
          FROM BranchIndexedSessionSqlEntity \
          WHERE collection_id IN (\
              '{BRANCH_COLLECTION}', \
+             'missing-collection-000', \
+             'missing-collection-001', \
+             'missing-collection-002', \
+             'missing-collection-003', \
+             'missing-collection-004'\
+         ) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
+#[cfg(feature = "diagnostics")]
+fn missing_sparse_collection_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN (\
              'missing-collection-000', \
              'missing-collection-001', \
              'missing-collection-002', \
@@ -370,6 +389,37 @@ fn expected_collection_ids(limit: usize) -> Vec<Vec<crate::value::OutputValue>> 
         .into_iter()
         .map(|id| outputs(vec![Value::Ulid(id)]))
         .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_collection_id_title_output_rows(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    [
+        (9_090_u128, "draft-090"),
+        (9_095, "review-095"),
+        (9_100, "review-100"),
+        (9_105, "draft-105"),
+        (9_110, "published-110"),
+        (9_120, "draft-120"),
+        (9_125, "review-125"),
+        (9_130, "draft-130"),
+        (9_135, "review-135"),
+        (9_140, "queued-140"),
+        (9_150, "draft-150"),
+        (9_155, "review-155"),
+        (9_160, "archived-160"),
+        (9_170, "draft-170"),
+        (9_175, "review-175"),
+        (9_180, "rejected-180"),
+    ]
+    .into_iter()
+    .take(limit)
+    .map(|(id, title)| {
+        outputs(vec![
+            Value::Ulid(Ulid::from_u128(id)),
+            Value::Text(title.to_string()),
+        ])
+    })
+    .collect()
 }
 
 #[cfg(feature = "diagnostics")]
@@ -1366,8 +1416,98 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
         "sparse collection page should prune missing prefixes and scan only existing collection entries, got {attribution:?}",
     );
     assert!(
-        attribution.index_store_range_scan_calls <= 1,
-        "sparse collection page should prune empty prefixes before range traversal, got {attribution:?}",
+        attribution.index_store_range_scan_calls <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
+        "sparse collection page should expand only bounded non-empty child prefixes, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_key_only_empty_expansion_returns_empty_page() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = missing_sparse_collection_sql("id", 8);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("missing sparse collection page SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("missing sparse collection page SQL should return projection rows");
+    };
+
+    assert!(
+        rows.is_empty(),
+        "missing sparse collection page should return no rows",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "missing key-only sparse collection page should stay row-store-free",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "missing sparse collection page should not scan index entries after empty child-prefix expansion",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_hybrid_page_expands_child_prefix_streams() {
+    const LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = sparse_collection_sql("id, title", LIMIT);
+    let query = lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, &sql)
+        .unwrap_or_else(|err| panic!("sparse collection hybrid SQL should lower: {err:?}"));
+    let descriptor = session
+        .explain_query_execution_with_visible_indexes(&query)
+        .unwrap_or_else(|err| panic!("sparse collection hybrid SQL should explain: {err:?}"));
+
+    assert!(
+        explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::IndexMultiLookup
+        ),
+        "sparse collection hybrid page should use the multi-lookup route: {descriptor:?}",
+    );
+    assert!(
+        !explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::FullScan),
+        "sparse collection hybrid page should not use a full scan: {descriptor:?}",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("sparse collection hybrid SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("sparse collection hybrid SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_collection_id_title_output_rows(LIMIT),
+        "sparse collection hybrid page should match primary-key sorted collection rows",
+    );
+    assert_eq!(
+        attribution.store_get_calls, LIMIT as u64,
+        "hybrid sparse collection page should hydrate only returned row-backed fields, got {attribution:?}",
+    );
+    assert_eq!(
+        attribution
+            .hybrid_covering
+            .expect("sparse collection hybrid page should report hybrid covering")
+            .row_field_accesses,
+        LIMIT as u64,
+        "hybrid sparse collection page should read one row-backed field per returned row",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= 16,
+        "sparse collection hybrid page should prune missing prefixes and scan only existing collection entries, got {attribution:?}",
+    );
+    assert!(
+        attribution.index_store_range_scan_calls <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
+        "sparse collection hybrid page should expand only bounded non-empty child prefixes, got {attribution:?}",
     );
 }
 

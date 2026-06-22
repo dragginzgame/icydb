@@ -543,8 +543,7 @@ impl PreparedExecutionPlanCore {
 
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn has_predicate(&self) -> bool {
-        self.residents.plan.has_residual_filter_expr()
-            || self.residents.plan.has_residual_filter_predicate()
+        self.residents.plan.has_any_residual_filter()
     }
 
     #[cfg(test)]

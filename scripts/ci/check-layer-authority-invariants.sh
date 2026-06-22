@@ -127,6 +127,18 @@ if [[ ${#field_projection_files[@]} -gt 0 ]]; then
   fi
 fi
 
+residual_filter_presence_leaks="$(
+  run_rg "has_residual_filter_expr\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*has_residual_filter_predicate\\(\\)" \
+    "$DB_ROOT" \
+    --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
+    | strip_comment_only
+)"
+if [[ -n "$residual_filter_presence_leaks" ]]; then
+  echo "[ERROR] Residual-filter presence checks must use AccessPlannedQuery::has_any_residual_filter()." >&2
+  echo "$residual_filter_presence_leaks" >&2
+  status=1
+fi
+
 envelope_authority_leaks="$(
   run_rg "\\bfn\\s+(anchor_within_envelope|resume_bounds_from_refs|continuation_advanced)(\\s*<[^>]+>)?\\s*\\(" \
     "$DB_ROOT" \

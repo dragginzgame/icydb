@@ -1,18 +1,21 @@
 use crate::{
     db::{
         Db,
-        access::lower_access,
+        access::{LoweredIndexPrefixSpec, lower_access},
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
             CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
-            apply_offset_limit_window,
+            apply_offset_limit_window, expand_index_prefix_specs_with_exact_child_prefixes,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
                 CoveringReadField, CoveringReadFieldSource, PageSpec,
             },
             resolve_covering_projection_components_from_lowered_specs,
-            route::access_preserves_primary_key_order_without_child_expansion,
+            route::{
+                access_preserves_primary_key_order_without_child_expansion,
+                index_prefix_child_expansion_hint_for_plan,
+            },
         },
         index::predicate::IndexPredicateExecution,
         registry::StoreHandle,
@@ -98,23 +101,41 @@ where
                 ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
             }
         })?;
+    let (expanded_index_prefix_specs, primary_key_order_scan_safe) =
+        expanded_covering_index_prefix_specs_if_ordered(
+            db,
+            authority,
+            plan,
+            order_contract,
+            &lowered_access,
+        )?;
+    let index_prefix_specs = expanded_index_prefix_specs
+        .as_deref()
+        .unwrap_or_else(|| lowered_access.index_prefix_specs());
     let scan_window = covering_scan_window(
         order_contract,
-        access_preserves_primary_key_order_for_covering_window(plan, order_contract),
+        primary_key_order_scan_safe,
         existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
     );
-    let raw_pairs = resolve_covering_projection_components_from_lowered_specs(
-        authority.entity_tag(),
-        lowered_access.index_prefix_specs(),
-        lowered_access.index_range_specs(),
-        scan_window.direction,
-        scan_window.limit,
-        component_indices.as_slice(),
-        index_predicate_execution,
-        |store_path| db.recovered_store(store_path),
-    )?;
+    let raw_pairs = if expanded_index_prefix_specs
+        .as_ref()
+        .is_some_and(Vec::is_empty)
+    {
+        Vec::new()
+    } else {
+        resolve_covering_projection_components_from_lowered_specs(
+            authority.entity_tag(),
+            index_prefix_specs,
+            lowered_access.index_range_specs(),
+            scan_window.direction,
+            scan_window.limit,
+            component_indices.as_slice(),
+            index_predicate_execution,
+            |store_path| db.recovered_store(store_path),
+        )?
+    };
 
     Ok(Some(PreparedCoveringIndexScan {
         component_indices,
@@ -122,6 +143,40 @@ where
         scan_window,
         store,
     }))
+}
+
+fn expanded_covering_index_prefix_specs_if_ordered<C>(
+    db: &Db<C>,
+    authority: &EntityAuthority,
+    plan: &AccessPlannedQuery,
+    order_contract: CoveringProjectionOrder,
+    lowered_access: &crate::db::access::LoweredAccess<'_, crate::value::Value>,
+) -> Result<(Option<Vec<LoweredIndexPrefixSpec>>, bool), InternalError>
+where
+    C: CanisterKind,
+{
+    if access_preserves_primary_key_order_for_covering_window(plan, order_contract) {
+        return Ok((None, true));
+    }
+
+    let Some(expansion) = index_prefix_child_expansion_hint_for_plan(plan) else {
+        return Ok((None, false));
+    };
+    let Some(index) = plan.access_shape_facts().single_path_index_prefix_details() else {
+        return Ok((None, false));
+    };
+    let Some(expanded_specs) = expand_index_prefix_specs_with_exact_child_prefixes(
+        db.recovered_store(authority.store_path())?,
+        authority.entity_tag(),
+        &index,
+        lowered_access.index_prefix_specs(),
+        expansion,
+    )?
+    else {
+        return Ok((None, false));
+    };
+
+    Ok((Some(expanded_specs), true))
 }
 
 pub(super) fn apply_covering_page_window<T>(

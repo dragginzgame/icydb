@@ -255,8 +255,7 @@ impl ExecutionKernel {
         if !direct_primary_key_lookup_shape_supported(&shape_facts) {
             return Ok(None);
         }
-        let residual_filter_present = inputs.logical_plan.has_residual_filter_expr()
-            || inputs.logical_plan.has_residual_filter_predicate();
+        let residual_filter_present = inputs.logical_plan.has_any_residual_filter();
         if residual_filter_present {
             return Ok(None);
         }

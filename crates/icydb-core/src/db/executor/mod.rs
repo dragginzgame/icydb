@@ -83,11 +83,14 @@ pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
     freeze_load_execution_route_facts_for_authority,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use index_prefix_cardinality::lowered_index_prefix_cardinality_specs_from_plan;
 pub(in crate::db) use index_prefix_cardinality::{
     LoweredIndexPrefixCardinalityPlan, exact_count_cardinality_prefixes_for_plan,
 };
 pub(in crate::db::executor) use index_prefix_cardinality::{
-    lowered_index_prefix_empty_bitmap, lowered_index_prefix_is_proven_empty,
+    expand_index_prefix_specs_with_exact_child_prefixes, lowered_index_prefix_empty_bitmap,
+    lowered_index_prefix_is_proven_empty,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;

@@ -220,7 +220,7 @@ pub(in crate::db) fn grouped_plan_strategy(
         ));
     }
 
-    if plan.has_residual_filter_expr() || plan.has_residual_filter_predicate() {
+    if plan.has_any_residual_filter() {
         return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::ResidualFilterBlocksGroupedOrder,
             aggregate_family,

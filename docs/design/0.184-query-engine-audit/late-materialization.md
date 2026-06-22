@@ -133,6 +133,37 @@ materialization lane. The blob length cases continue to avoid retaining full
 blob payload values. This keeps H7 in evidence-gathering mode rather than
 runtime redesign mode.
 
+## 2026-06-22 H7 Candidate Rerun After Sparse IN Work
+
+A focused four-scenario deterministic rerun checked the highest retained-slot
+candidate families after the large literal `IN` work:
+
+- `blob.select.lengths.bucket_range.bucket_label_asc.limit3`: about 2.72M
+  total instructions, 9 row-store reads, 15 index entries, 3 retained layouts,
+  12 retained values, and 6 byte-length-only retained values.
+- `blob.select.lengths.bucket_range.bucket_label_asc.limit1`: about 2.37M
+  total instructions, 4 row-store reads, 16 index entries, 4 retained layouts,
+  16 retained values, and 8 byte-length-only retained values.
+- `user.select.wide.field_compare.age_desc.limit3`: about 2.15M total
+  instructions, 16 row-store reads, 16 index entries, 3 retained layouts, and
+  18 retained values.
+- `user.select.wide.field_compare.lower_name_asc.limit3`: about 2.09M total
+  instructions, 16 row-store reads, 16 index entries, 3 retained layouts, and
+  18 retained values.
+
+This still does not justify a new late-materialization lane. The user
+field-comparison cases need row facts for the predicate/order shape. The blob
+length cases remain byte-length-only for blob payload fields and avoid retained
+full-row blob materialization.
+
+One larger H7 idea remains plausible but deferred: cursor-emitting retained-slot
+projection pages could stay slot-only when the cursor boundary can be proven
+from retained order/index slots. Today the slot-only `KernelRow` shape does not
+carry the data key, and index-range cursor anchors still recover primary-key
+and anchor state through the data-row payload. Do not hard-cut this until a
+cursor-emitting projection workload shows up as a repeated hotspot; the current
+SQL projection hot paths suppress cursor emission and already use slot rows.
+
 ## First Proof Points
 
 - Ordinary scalar projections over direct fields and expressions should use the

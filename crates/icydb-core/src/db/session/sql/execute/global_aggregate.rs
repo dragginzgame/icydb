@@ -13,7 +13,7 @@ use crate::{
             StructuralAggregateTerminalKind,
         },
         query::plan::{
-            AggregateKind,
+            AggregateKind, VisibleIndexes,
             expr::{Expr, ProjectionField, ProjectionSpec},
         },
         schema::SchemaInfo,
@@ -56,6 +56,11 @@ enum SqlAggregateTerminalBuildError {
 struct DirectCountCardinalityPlanProbe {
     authority: EntityAuthority,
     entry: Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>,
+}
+
+struct DirectCountCardinalityProbeResolution {
+    result: Option<(SqlStatementResult, SqlCacheAttribution)>,
+    fallback_authority: Option<EntityAuthority>,
 }
 
 struct PreparedStructuralAggregateOperator {
@@ -180,6 +185,16 @@ pub(super) fn is_direct_count_rows_global_aggregate(
         && is_direct_count_rows_projection(projection)
 }
 
+pub(super) fn is_direct_count_cardinality_metadata_candidate(
+    command: &StructuralSqlGlobalAggregateCommand,
+) -> bool {
+    is_direct_count_rows_global_aggregate(
+        command.strategies(),
+        command.projection(),
+        command.having(),
+    ) && command.query().direct_count_cardinality_prefix_candidate()
+}
+
 fn direct_count_rows_statement_result(
     projection: &ProjectionSpec,
     value: Value,
@@ -213,6 +228,23 @@ fn direct_count_cardinality_plan_entry_from_prefix_specs(
         catalog.fingerprint(),
         Arc::from(prefix_specs),
     )))
+}
+
+fn direct_count_cardinality_probe_from_entry<E>(
+    catalog: &AcceptedSchemaCatalogContext,
+    entry: Arc<SqlGlobalAggregateCountPlanCacheEntry>,
+) -> Result<DirectCountCardinalityPlanProbe, QueryError>
+where
+    E: PersistedRow + EntityValue,
+{
+    let authority = catalog
+        .accepted_entity_authority_for::<E>()
+        .map_err(QueryError::execute)?;
+
+    Ok(DirectCountCardinalityPlanProbe {
+        authority,
+        entry: Some(entry),
+    })
 }
 
 #[cfg(feature = "diagnostics")]
@@ -309,6 +341,61 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Some(Value::Nat64(u64::from(count))))
     }
 
+    fn execute_direct_count_cardinality_probe<E>(
+        &self,
+        projection: &ProjectionSpec,
+        probe: Option<DirectCountCardinalityPlanProbe>,
+    ) -> Result<DirectCountCardinalityProbeResolution, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let Some(probe) = probe else {
+            return Ok(DirectCountCardinalityProbeResolution {
+                result: None,
+                fallback_authority: None,
+            });
+        };
+        let DirectCountCardinalityPlanProbe { authority, entry } = probe;
+        if let Some(count_plan) = &entry
+            && let Some(value) = self.execute_direct_count_cardinality_global_aggregate::<E>(
+                authority.clone(),
+                count_plan,
+            )?
+        {
+            return Ok(DirectCountCardinalityProbeResolution {
+                result: Some(direct_count_rows_statement_result(
+                    projection,
+                    value,
+                    SqlCacheAttribution::none(),
+                )),
+                fallback_authority: None,
+            });
+        }
+
+        Ok(DirectCountCardinalityProbeResolution {
+            result: None,
+            fallback_authority: Some(authority),
+        })
+    }
+
+    fn direct_count_cardinality_plan_entry_for_accepted_authority(
+        authority: &EntityAuthority,
+        command: &StructuralSqlGlobalAggregateCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        visible_indexes: &VisibleIndexes<'_>,
+        schema_info: &SchemaInfo,
+    ) -> Result<Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>, QueryError> {
+        Ok(direct_count_cardinality_plan_entry_from_prefix_specs(
+            catalog,
+            Self::direct_count_cardinality_prefix_specs_for_accepted_authority(
+                authority,
+                command.query(),
+                visible_indexes,
+                schema_info,
+            )?,
+        ))
+    }
+
     fn build_direct_count_cardinality_plan_probe<E>(
         &self,
         command: &StructuralSqlGlobalAggregateCommand,
@@ -317,12 +404,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        if !is_direct_count_rows_global_aggregate(
-            command.strategies(),
-            command.projection(),
-            command.having(),
-        ) || !command.query().direct_count_cardinality_prefix_candidate()
-        {
+        if !is_direct_count_cardinality_metadata_candidate(command) {
             return Ok(None);
         }
 
@@ -332,17 +414,18 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_info = catalog.accepted_schema_info_for::<E>();
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
-        let entry = direct_count_cardinality_plan_entry_from_prefix_specs(
+        let entry = Self::direct_count_cardinality_plan_entry_for_accepted_authority(
+            &authority,
+            command,
             catalog,
-            Self::direct_count_cardinality_prefix_specs_for_accepted_authority(
-                &authority,
-                command.query(),
-                &visible_indexes,
-                &schema_info,
-            )?,
+            &visible_indexes,
+            &schema_info,
         );
 
-        Ok(Some(DirectCountCardinalityPlanProbe { authority, entry }))
+        Ok(Some(DirectCountCardinalityPlanProbe {
+            authority,
+            entry: entry?,
+        }))
     }
 
     fn resolve_compiled_direct_count_cardinality_plan<E>(
@@ -354,25 +437,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        if !is_direct_count_rows_global_aggregate(
-            command.strategies(),
-            command.projection(),
-            command.having(),
-        ) || !command.query().direct_count_cardinality_prefix_candidate()
-        {
+        if !is_direct_count_cardinality_metadata_candidate(command) {
             return Ok(None);
         }
         if let Some(entry) = compiled.cached_global_aggregate_count_plan(
             catalog.fingerprint_method_version(),
             catalog.fingerprint(),
         ) {
-            let authority = catalog
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute)?;
-            return Ok(Some(DirectCountCardinalityPlanProbe {
-                authority,
-                entry: Some(entry),
-            }));
+            return direct_count_cardinality_probe_from_entry::<E>(catalog, entry).map(Some);
         }
 
         let Some(probe) = self.build_direct_count_cardinality_plan_probe::<E>(command, catalog)?
@@ -403,12 +475,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let mut attribution = QueryPlanCompilePhaseAttribution::default();
-        if !is_direct_count_rows_global_aggregate(
-            command.strategies(),
-            command.projection(),
-            command.having(),
-        ) || !command.query().direct_count_cardinality_prefix_candidate()
-        {
+        if !is_direct_count_cardinality_metadata_candidate(command) {
             return Ok((None, attribution));
         }
 
@@ -420,14 +487,10 @@ impl<C: CanisterKind> DbSession<C> {
         });
         attribution.cache_lookup = attribution.cache_lookup.saturating_add(cache_lookup);
         if let Some(entry) = cached_plan {
-            let authority = catalog
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute)?;
             return Ok((
-                Some(DirectCountCardinalityPlanProbe {
-                    authority,
-                    entry: Some(entry),
-                }),
+                Some(direct_count_cardinality_probe_from_entry::<E>(
+                    catalog, entry,
+                )?),
                 attribution,
             ));
         }
@@ -447,15 +510,13 @@ impl<C: CanisterKind> DbSession<C> {
         });
         attribution.schema_info = attribution.schema_info.saturating_add(schema_info_local);
         let (plan_build_local, entry) = measure_sql_stage(|| {
-            Self::direct_count_cardinality_prefix_specs_for_accepted_authority(
+            Self::direct_count_cardinality_plan_entry_for_accepted_authority(
                 &authority,
-                command.query(),
+                command,
+                catalog,
                 &visible_indexes,
                 &schema_info,
             )
-            .map(|prefix_specs| {
-                direct_count_cardinality_plan_entry_from_prefix_specs(catalog, prefix_specs)
-            })
         });
         attribution.plan_build = attribution.plan_build.saturating_add(plan_build_local);
         let entry = entry?;
@@ -646,26 +707,13 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let direct_probe = self.build_direct_count_cardinality_plan_probe::<E>(command, catalog)?;
-        let direct_authority = if let Some(probe) = direct_probe {
-            if let Some(count_plan) = &probe.entry
-                && let Some(value) = self.execute_direct_count_cardinality_global_aggregate::<E>(
-                    probe.authority.clone(),
-                    count_plan,
-                )?
-            {
-                return Ok(direct_count_rows_statement_result(
-                    command.projection(),
-                    value,
-                    SqlCacheAttribution::none(),
-                ));
-            }
+        let direct_resolution =
+            self.execute_direct_count_cardinality_probe::<E>(command.projection(), direct_probe)?;
+        if let Some(result) = direct_resolution.result {
+            return Ok(result);
+        }
 
-            Some(probe.authority)
-        } else {
-            None
-        };
-
-        let authority = match direct_authority {
+        let authority = match direct_resolution.fallback_authority {
             Some(authority) => authority,
             None => catalog
                 .accepted_entity_authority_for::<E>()
@@ -703,31 +751,18 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let direct_probe =
             self.resolve_compiled_direct_count_cardinality_plan::<E>(compiled, command, catalog)?;
-        let direct_authority = if let Some(probe) = direct_probe {
-            if let Some(count_plan) = &probe.entry
-                && let Some(value) = self.execute_direct_count_cardinality_global_aggregate::<E>(
-                    probe.authority.clone(),
-                    count_plan,
-                )?
-            {
-                return Ok(direct_count_rows_statement_result(
-                    command.projection(),
-                    value,
-                    SqlCacheAttribution::none(),
-                ));
-            }
-
-            Some(probe.authority)
-        } else {
-            None
-        };
+        let direct_resolution =
+            self.execute_direct_count_cardinality_probe::<E>(command.projection(), direct_probe)?;
+        if let Some(result) = direct_resolution.result {
+            return Ok(result);
+        }
 
         let (prepared_plan, cache_attribution) = self
             .resolve_compiled_global_aggregate_prepared_plan::<E>(
                 compiled,
                 command,
                 catalog,
-                direct_authority,
+                direct_resolution.fallback_authority,
             )?;
 
         self.execute_global_aggregate_with_prepared_plan::<E>(

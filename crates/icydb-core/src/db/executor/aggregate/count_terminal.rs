@@ -18,7 +18,7 @@ use crate::{
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
             validate_executor_plan_for_authority,
         },
-        index::IndexKeyKind,
+        index::{IndexId, IndexKeyKind},
         query::builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
         registry::StoreHandle,
     },
@@ -266,19 +266,16 @@ fn count_index_prefix_cardinality(
     {
         return None;
     }
-    let available_rows = store.with_index(|store| {
-        store.exact_prefix_cardinality_sum(
-            data_generation,
-            IndexKeyKind::User,
-            prefixes.index_id(),
-            prefixes
-                .specs()
-                .iter()
-                .map(|spec| &spec.prefix_components()[..prefix_len]),
-            required_candidate_rows,
-        )
-    });
-    let available_rows = available_rows?;
+    let available_rows = index_prefix_cardinality_sum(
+        store,
+        data_generation,
+        prefixes.index_id(),
+        prefixes
+            .specs()
+            .iter()
+            .map(|spec| &spec.prefix_components()[..prefix_len]),
+        required_candidate_rows,
+    )?;
     let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
     let count_window = CountWindowResult::from_candidate_rows(page, available_rows);
 
@@ -298,18 +295,15 @@ fn count_index_prefix_cardinality_specs(
 
     let index_id = common_prefix_cardinality_index_id(prefixes)?;
     let data_generation = store.with_data(DataStore::generation);
-    let available_rows = store.with_index(|store| {
-        store.exact_prefix_cardinality_sum(
-            data_generation,
-            IndexKeyKind::User,
-            index_id,
-            prefixes
-                .iter()
-                .map(LoweredIndexPrefixCardinalitySpec::prefix_components),
-            required_candidate_rows,
-        )
-    });
-    let available_rows = available_rows?;
+    let available_rows = index_prefix_cardinality_sum(
+        store,
+        data_generation,
+        index_id,
+        prefixes
+            .iter()
+            .map(LoweredIndexPrefixCardinalitySpec::prefix_components),
+        required_candidate_rows,
+    )?;
     let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
     let count_window = CountWindowResult::from_candidate_rows(page, available_rows);
 
@@ -354,20 +348,36 @@ fn exists_index_prefix_cardinality(
         return None;
     }
 
-    let available_rows = store.with_index(|store| {
+    let available_rows = index_prefix_cardinality_sum(
+        store,
+        data_generation,
+        prefixes.index_id(),
+        prefixes
+            .specs()
+            .iter()
+            .map(|spec| &spec.prefix_components()[..prefix_len]),
+        Some(required_candidate_rows),
+    )?;
+
+    Some(available_rows >= required_candidate_rows)
+}
+
+fn index_prefix_cardinality_sum<'a>(
+    store: StoreHandle,
+    data_generation: u64,
+    index_id: IndexId,
+    component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
+    stop_after: Option<u64>,
+) -> Option<u64> {
+    store.with_index(|store| {
         store.exact_prefix_cardinality_sum(
             data_generation,
             IndexKeyKind::User,
-            prefixes.index_id(),
-            prefixes
-                .specs()
-                .iter()
-                .map(|spec| &spec.prefix_components()[..prefix_len]),
-            Some(required_candidate_rows),
+            index_id,
+            component_prefixes,
+            stop_after,
         )
-    })?;
-
-    Some(available_rows >= required_candidate_rows)
+    })
 }
 
 fn exists_window_required_candidate_rows(page: Option<&PageSpec>) -> Option<u64> {

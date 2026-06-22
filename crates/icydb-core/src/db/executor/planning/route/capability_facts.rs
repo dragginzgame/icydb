@@ -146,8 +146,7 @@ impl LoadRouteCapabilityFacts {
 
         // Phase 1: collect the shared budget and order facts that downstream
         // route helpers currently need from the same logical plan.
-        let residual_filter_present =
-            plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
+        let residual_filter_present = plan.has_any_residual_filter();
         let access_order_satisfied_by_path =
             access_order_satisfied_by_route_mode_with_access_shape_facts(plan, access_shape_facts);
         let has_order = logical

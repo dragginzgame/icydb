@@ -411,7 +411,7 @@ fn finalized_static_contract_carries_explicit_expression_only_residual_filter_st
         .expect("expression-only residual filter should finalize into static execution planning contract");
 
     assert!(
-        plan.has_residual_filter_expr() || plan.has_residual_filter_predicate(),
+        plan.has_any_residual_filter(),
         "finalized plans should carry explicit residual state for expression-only filters",
     );
     assert!(

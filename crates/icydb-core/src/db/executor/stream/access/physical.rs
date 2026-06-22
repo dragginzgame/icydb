@@ -8,22 +8,20 @@ use crate::{
         access::{ExecutionPathPayload, IndexShapeDetails},
         cursor::{CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput},
         data::{
-            DataStore, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
+            DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
             primary_key_value_from_structural_value,
         },
         direction::Direction,
         executor::{
             ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
-            lowered_index_prefix_empty_bitmap, lowered_index_prefix_is_proven_empty,
-            ordered_key_stream_from_materialized_keys,
+            expand_index_prefix_specs_with_exact_child_prefixes, lowered_index_prefix_empty_bitmap,
+            lowered_index_prefix_is_proven_empty, ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput, route::IndexPrefixChildExpansionHint,
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
         },
-        index::{
-            IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, predicate::IndexPredicateExecution,
-        },
+        index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
         key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
     },
@@ -416,15 +414,13 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
         expansion: IndexPrefixChildExpansionHint,
     ) -> Result<Option<OrderedKeyStreamBox>, InternalError> {
-        if index.slot_arity().saturating_add(1) != expansion.target_prefix_len() {
-            return Err(InternalError::query_executor_invariant());
-        }
-        if expansion.target_prefix_len() >= index.key_arity() {
-            return Err(InternalError::query_executor_invariant());
-        }
-
-        let Some(expanded_specs) =
-            self.expanded_index_prefix_specs(index, index_prefix_specs, expansion)?
+        let Some(expanded_specs) = expand_index_prefix_specs_with_exact_child_prefixes(
+            self.store,
+            self.entity_tag,
+            index,
+            index_prefix_specs,
+            expansion,
+        )?
         else {
             return Ok(None);
         };
@@ -460,53 +456,6 @@ impl KeyAccessRuntime {
             streams,
             KeyOrderComparator::from_direction(continuation.direction()),
         )))
-    }
-
-    fn expanded_index_prefix_specs(
-        &self,
-        index: &IndexShapeDetails,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        expansion: IndexPrefixChildExpansionHint,
-    ) -> Result<Option<Vec<LoweredIndexPrefixSpec>>, InternalError> {
-        let total_cap = expansion.max_child_prefixes();
-        if total_cap == 0 {
-            return Ok(None);
-        }
-
-        let data_generation = self.store.with_data(DataStore::generation);
-        let index_id = IndexId::new(self.entity_tag, index.ordinal());
-        let mut expanded_specs = Vec::new();
-
-        for spec in index_prefix_specs {
-            if spec.prefix_components().len().saturating_add(1) != expansion.target_prefix_len() {
-                return Err(InternalError::query_executor_invariant());
-            }
-            let remaining = total_cap.saturating_sub(expanded_specs.len());
-            if remaining == 0 {
-                return Ok(None);
-            }
-            let Some(child_prefixes) = self.store.with_index(|store| {
-                store.exact_child_prefixes(
-                    data_generation,
-                    IndexKeyKind::User,
-                    index_id,
-                    spec.prefix_components(),
-                    remaining,
-                )
-            }) else {
-                return Ok(None);
-            };
-            for child_prefix in child_prefixes {
-                expanded_specs.push(LoweredIndexPrefixSpec::from_raw_component_prefix(
-                    self.entity_tag,
-                    index.index_contract(),
-                    IndexKeyKind::User,
-                    child_prefix,
-                )?);
-            }
-        }
-
-        Ok(Some(expanded_specs))
     }
 
     // Resolve one secondary-index range scan.

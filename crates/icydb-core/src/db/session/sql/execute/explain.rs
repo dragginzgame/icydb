@@ -3,7 +3,7 @@
 //! Does not own: planner/executor route policy or diagnostics DTO definitions.
 //! Boundary: renders lowered SQL explain statements through session visibility and route facts.
 
-use super::global_aggregate::is_direct_count_rows_global_aggregate;
+use super::global_aggregate::is_direct_count_cardinality_metadata_candidate;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -403,12 +403,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<(), QueryError> {
-        if !is_direct_count_rows_global_aggregate(
-            command.strategies(),
-            command.projection(),
-            command.having(),
-        ) || !command.query().direct_count_cardinality_prefix_candidate()
-        {
+        if !is_direct_count_cardinality_metadata_candidate(command) {
             return Ok(());
         }
 

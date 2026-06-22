@@ -217,6 +217,21 @@ Status: active.
   materialized sort. SQL key-only and hybrid covering projections remain on the
   covering lane, which is still a separate follow-up if the same optimization is
   worth carrying there.
+- Large literal `IN` sixth slice: SQL key-only/index-covered covering pages now
+  reuse the same metadata-backed child-prefix expansion proof when it succeeds
+  fail-closed. The sparse token
+  `collection_id IN (...) ORDER BY id LIMIT 50` key-only matrix shape dropped
+  from about 37.7M total instructions / 256 index-entry reads to about 9.9M
+  total instructions / 74 index-entry reads in the focused comparator, while
+  staying row-store-free.
+- Large literal `IN` sixth slice follow-up: a focused hybrid-covering guard now
+  proves `SELECT id, title ... collection_id IN (...) ORDER BY id LIMIT N`
+  inherits the same bounded child-prefix expansion, hydrates only returned
+  row-backed fields, and keeps missing-prefix pruning bounded.
+- Large literal `IN` cleanup follow-up: scalar streaming and SQL covering
+  pages now share the executor-local exact child-prefix expansion helper, so
+  prefix-cardinality synchronization, cap exhaustion, target-prefix validation,
+  and empty child-prefix results stay on one fail-closed runtime contract.
 - Covering cleanup first slice: pure and hybrid covering projections now share
   index-backed access admission, lowering, component-index selection, scan
   window construction, and component-row resolution. Their row assembly remains
@@ -274,6 +289,13 @@ Status: active.
   shapes. The highest byte-length cases remained slot-only and bounded; the
   highest non-byte retained-slot cases were field-comparison scans that need row
   facts rather than a separate late-materialization lane.
+- H7 focused rerun after sparse-`IN` work: the four highest retained-slot
+  candidate families stayed bounded at about 2.1M-2.7M total instructions.
+  Blob `OCTET_LENGTH` shapes still retain byte-length-only values instead of
+  blob payloads, and user field-comparison shapes still need row facts for
+  predicate/order evaluation. The larger cursor-emitting slot-only projection
+  idea remains deferred until a workload with cursor emission shows a repeated
+  retained/full-row hotspot.
 - SQL parser-boundary hardening: parser-local normalization checks, tree
   traversal helpers, aggregate-kind mappings, scalar-function call-shape
   helpers, and order-expression parse helpers now stay visible only inside the
@@ -292,23 +314,60 @@ Status: active.
   mutation, and row-returning shape facts, so `SqlCompileArtifacts`
   construction validates against command-owned classification instead of
   keeping a local mirror match.
+- Count-terminal cleanup: SQL direct `COUNT(*)`, prepared aggregate `COUNT`,
+  and prepared aggregate `EXISTS` now share the exact prefix-cardinality
+  metadata sum helper, and the lowered-plan to durable SQL prefix-spec
+  conversion now lives with the executor cardinality helpers. The remaining
+  SQL direct-count cache entry still owns durable compiled-prefix specs, while
+  fluent/prepared aggregate execution continues to consume the live lowered
+  plan.
+- SQL global-aggregate direct-count cleanup: normal execution, compiled
+  execution, diagnostics execution, and EXPLAIN now share the same
+  metadata-fast-path eligibility predicate. Compiled direct-count cache hits
+  also construct the probe through one helper, while measured diagnostics keep
+  their own timing boundary.
+- SQL global-aggregate direct-count cleanup follow-up: normal and compiled
+  execution now share direct-count probe execution and fallback-authority
+  resolution, and normal/diagnostics execution share cached direct-count
+  plan-entry construction. Diagnostics still keep a separate measured path so
+  phase attribution remains stable.
+- F2 / D3 filter-contract cleanup: executor routing, covering admission,
+  aggregate fast paths, scalar pipeline boundaries, and residual-presence tests
+  now consume `AccessPlannedQuery::has_any_residual_filter()` instead of
+  repeating expression-or-predicate checks. The raw OR remains only inside the
+  planner-owned residual contract accessor.
+- F2 / D3 filter-contract guardrail: the layer-authority invariant script now
+  rejects new residual-filter presence gates that rebuild expression-or-predicate
+  checks outside the planner-owned residual contract accessor.
 
 ## Current Slice
 
 - H7 remains open for evidence-driven follow-up only. Do not add a new
   materialization lane until retained-slot metrics identify a repeated shape
   that still falls back to full rows, over-retains slots, or performs avoidable
-  row-store reads.
+  row-store reads. The current measured cursorless SQL projection cases do not
+  meet that threshold.
+- Sparse `IN` child-prefix work is now in cleanup/guard mode: scalar and
+  covering execution consume the same metadata expansion helper, and empty
+  expansions are covered as successful empty pages rather than route failures.
+- Prefix-cardinality terminal work is in local DRY mode: SQL and fluent-facing
+  count/existence terminals now share metadata summing, while SQL-specific
+  compiled cache identity remains separate.
+- SQL global aggregate direct-count work is still a lightweight singleton
+  fast path, not a shared aggregate operator rewrite. The cleanup only removes
+  repeated eligibility/probe mechanics and duplicate non-diagnostic probe
+  execution.
+- Filter handoff work is in local DRY mode: residual expression and predicate
+  accessors remain available for callers that need the actual artifacts, while
+  boolean gating should go through the single plan-owned presence helper.
+  CI now guards that split for non-test code.
 
 ## Next Candidates
 
-- Sparse literal `IN` covering follow-up: scalar/full-entity pages now have the
-  prefix-cardinality child-expansion path for `(collection_id, stage, id)`, but
-  SQL key-only and hybrid covering projections still use their separate
-  covering stream. Only port this optimization to covering if perf evidence
-  shows it beats the current single-prefix covering scan; the first experiment
-  increased range scans and instructions for the sparse key-only SQL audit
-  shape.
+- Sparse literal `IN` follow-up: scalar/full-entity, key-only/index-covered,
+  and tested hybrid-covering pages now have the shared prefix-cardinality
+  child-expansion path for `(collection_id, stage, id)`. Only tune this further
+  if a new sparse `IN` shape shows up as a repeated hotspot.
 - D1 / F3: decide whether cache/explain identity should eventually carry a
   first-class aggregate operator DTO shared by singleton global aggregate and
   grouped aggregate explain assembly, or whether the current additive

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.19` continues the query-engine audit by extending sparse `IN`
+  child-prefix pruning to SQL covering pages and consolidating count,
+  direct-count aggregate, and residual-filter contract guardrails without
+  changing query semantics.
+
 - `0.184.18` continues the query-engine audit by adding metadata-backed sparse
   `IN` child-prefix routing for scalar pages and consolidating covering
   projection scan preparation, component resolution, and row-presence/window

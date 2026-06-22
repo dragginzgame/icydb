@@ -193,9 +193,7 @@ pub(in crate::db) fn covering_read_reason_code_for_load_plan(
     if !index_backed_covering_shape_supported(&plan.access) {
         return "access_not_cov";
     }
-    if (plan.has_residual_filter_expr() || plan.has_residual_filter_predicate())
-        && !strict_predicate_compatible
-    {
+    if plan.has_any_residual_filter() && !strict_predicate_compatible {
         return "pred_not_strict";
     }
     if plan.scalar_plan().distinct {
@@ -615,8 +613,7 @@ fn primary_store_covering_plan(
     if plan.grouped_plan().is_some()
         || !plan.scalar_plan().mode.is_load()
         || plan.scalar_plan().distinct
-        || plan.has_residual_filter_expr()
-        || plan.has_residual_filter_predicate()
+        || plan.has_any_residual_filter()
     {
         return None;
     }

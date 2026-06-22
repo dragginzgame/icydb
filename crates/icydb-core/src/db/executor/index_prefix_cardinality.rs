@@ -3,14 +3,21 @@
 //! Does not own: count planning or index metadata maintenance.
 //! Boundary: fail-open helpers for runtime branch pruning.
 
-use crate::db::{
-    access::{AccessPath, LoweredIndexPrefixSpec},
-    data::DataStore,
-    index::{IndexId, IndexKey, IndexKeyKind, IndexStore},
-    query::plan::AccessPlannedQuery,
-    registry::StoreHandle,
+#[cfg(feature = "sql")]
+use crate::db::access::LoweredIndexPrefixCardinalitySpec;
+use crate::{
+    db::{
+        access::{AccessPath, IndexShapeDetails, LoweredIndexPrefixSpec},
+        data::DataStore,
+        executor::route::IndexPrefixChildExpansionHint,
+        index::{IndexId, IndexKey, IndexKeyKind, IndexStore},
+        query::plan::AccessPlannedQuery,
+        registry::StoreHandle,
+    },
+    error::InternalError,
+    types::EntityTag,
+    value::Value,
 };
-use crate::value::Value;
 use std::ops::Bound;
 
 #[derive(Clone, Copy, Debug)]
@@ -88,6 +95,86 @@ pub(in crate::db::executor) fn lowered_index_prefix_is_proven_empty(
     })
 }
 
+/// Expand each exact parent prefix by one metadata-proven child slot.
+///
+/// This is the shared runtime side of the sparse prefix-family route contract:
+/// route planning proves that one exact child slot makes the remaining index
+/// suffix match primary-key order, and this helper enumerates those child
+/// prefixes only when synchronized cardinality metadata can prove the complete
+/// bounded child set.
+pub(in crate::db::executor) fn expand_index_prefix_specs_with_exact_child_prefixes(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    index: &IndexShapeDetails,
+    specs: &[LoweredIndexPrefixSpec],
+    expansion: IndexPrefixChildExpansionHint,
+) -> Result<Option<Vec<LoweredIndexPrefixSpec>>, InternalError> {
+    if index.slot_arity().saturating_add(1) != expansion.target_prefix_len() {
+        return Err(InternalError::query_executor_invariant());
+    }
+    if expansion.target_prefix_len() >= index.key_arity() {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    let total_cap = expansion.max_child_prefixes();
+    if total_cap == 0 {
+        return Ok(None);
+    }
+
+    let data_generation = store.with_data(DataStore::generation);
+    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let mut expanded_specs = Vec::new();
+
+    for spec in specs {
+        if spec.prefix_components().len().saturating_add(1) != expansion.target_prefix_len() {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let remaining = total_cap.saturating_sub(expanded_specs.len());
+        if remaining == 0 {
+            return Ok(None);
+        }
+
+        let Some(child_prefixes) = store.with_index(|index_store| {
+            index_store.exact_child_prefixes(
+                data_generation,
+                IndexKeyKind::User,
+                index_id,
+                spec.prefix_components(),
+                remaining,
+            )
+        }) else {
+            return Ok(None);
+        };
+        for child_prefix in child_prefixes {
+            expanded_specs.push(LoweredIndexPrefixSpec::from_raw_component_prefix(
+                entity_tag,
+                index.index_contract(),
+                IndexKeyKind::User,
+                child_prefix,
+            )?);
+        }
+    }
+
+    Ok(Some(expanded_specs))
+}
+
+#[cfg(feature = "sql")]
+pub(in crate::db) fn lowered_index_prefix_cardinality_specs_from_plan(
+    plan: LoweredIndexPrefixCardinalityPlan<'_>,
+) -> Option<Vec<LoweredIndexPrefixCardinalitySpec>> {
+    let prefix_len = plan.prefix_len();
+    let mut specs = Vec::with_capacity(plan.specs().len());
+    for spec in plan.specs() {
+        let prefix_components = spec.prefix_components().get(..prefix_len)?.to_vec();
+        specs.push(LoweredIndexPrefixCardinalitySpec::new(
+            plan.index_id(),
+            prefix_components,
+        ));
+    }
+
+    (!specs.is_empty()).then_some(specs)
+}
+
 fn lowered_index_prefix_is_proven_empty_at_generation(
     index_store: &IndexStore,
     data_generation: u64,
@@ -139,8 +226,7 @@ pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(
     // which candidate first proves existence.
     if !plan.has_no_distinct()
         || (!allow_ordered_plan && plan.scalar_plan().order.is_some())
-        || plan.has_residual_filter_expr()
-        || plan.has_residual_filter_predicate()
+        || plan.has_any_residual_filter()
     {
         return None;
     }
