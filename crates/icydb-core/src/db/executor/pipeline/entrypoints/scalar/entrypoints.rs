@@ -5,22 +5,19 @@
 
 use crate::db::executor::aggregate::PreparedAggregateStreamingInputs;
 #[cfg(feature = "sql")]
-use crate::db::{
-    executor::{
-        PreparedScalarRuntimeHandoff,
-        pipeline::entrypoints::scalar::streaming::execute_prepared_scalar_kernel_row_sink_execution,
-        terminal::KernelRow,
-    },
-    query::plan::expr::CompiledExpr,
+use crate::db::executor::{
+    PreparedScalarRuntimeHandoff, RetainedSlotLayout,
+    pipeline::entrypoints::scalar::streaming::execute_prepared_scalar_kernel_row_sink_execution,
+    terminal::KernelRow,
 };
 use crate::{
     db::{
         Db, PersistedRow,
         executor::{
-            EntityAuthority, LoadCursorInput, PreparedLoadPlan, ScalarContinuationContext,
-            StoreResolver,
+            EntityAuthority, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
+            ScalarContinuationContext, StoreResolver,
             pipeline::{
-                contracts::{CursorEmissionMode, CursorPage, LoadExecutor, StructuralCursorPage},
+                contracts::{CursorPage, LoadExecutor, StructuralCursorPage},
                 entrypoints::scalar::{
                     materialized::{
                         execute_prepared_scalar_route_runtime,
@@ -28,10 +25,9 @@ use crate::{
                     },
                     runtime::{
                         InitialScalarPlanRuntimeOptions, PreparedScalarRouteRuntime,
-                        ScalarPlanValidationMode, ScalarPreparedRuntimeOptions,
-                        ScalarProjectionRuntimeMode, ScalarRoutePlanFamily,
+                        ScalarProjectionRuntimeMode,
                         prepare_initial_scalar_route_runtime_from_plan,
-                        prepare_scalar_route_runtime_from_inputs,
+                        prepare_resumed_scalar_route_runtime_from_plan,
                     },
                 },
                 orchestrator::LoadExecutionSurface,
@@ -47,15 +43,22 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue},
 };
 
-#[cfg(any(feature = "diagnostics", feature = "sql"))]
+#[cfg(feature = "diagnostics")]
 use crate::db::cursor::ValidatedCursor;
+#[cfg(feature = "diagnostics")]
+use crate::db::executor::pipeline::contracts::CursorEmissionMode;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::pipeline::entrypoints::scalar::diagnostics::{
     ScalarExecutePhaseAttribution, execute_prepared_scalar_route_runtime_with_phase_attribution,
 };
+#[cfg(feature = "diagnostics")]
+use crate::db::executor::pipeline::entrypoints::scalar::runtime::{
+    ScalarPreparedRuntimeOptions, prepare_initial_scalar_route_plan_from_handoff,
+    prepare_scalar_route_runtime_from_inputs,
+};
 #[cfg(feature = "sql")]
 use crate::db::executor::pipeline::entrypoints::scalar::runtime::{
-    InitialScalarRuntimeOptions, prepare_initial_scalar_route_runtime_from_handoff,
+    prepare_initial_scalar_retained_slot_page_runtime_from_handoff,
     prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_layout,
 };
 
@@ -132,7 +135,7 @@ where
         &self,
         plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
-    ) -> Result<(CursorPage<E>, Option<crate::db::executor::ExecutionTrace>), InternalError> {
+    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let row_layout = plan.authority().row_layout();
         let surface = self.execute_load_surface(
             plan,
@@ -149,7 +152,7 @@ where
     fn expect_scalar_traced_surface(
         row_layout: &RowLayout,
         surface: LoadExecutionSurface,
-    ) -> Result<(CursorPage<E>, Option<crate::db::executor::ExecutionTrace>), InternalError> {
+    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         match surface {
             LoadExecutionSurface::ScalarPageWithTrace(page, trace) => {
                 let (data_rows, next_cursor) = page.into_data_rows_and_cursor();
@@ -182,11 +185,7 @@ where
         db,
         debug,
         plan,
-        InitialScalarPlanRuntimeOptions {
-            unpaged_rows_mode: true,
-            projection_runtime_mode: ScalarProjectionRuntimeMode::None,
-            suppress_route_scan_hints: false,
-        },
+        InitialScalarPlanRuntimeOptions::unpaged_rows(ScalarProjectionRuntimeMode::None),
     )?;
 
     // Phase 2: execute the shared scalar runtime and return the structural page.
@@ -225,9 +224,7 @@ where
         ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
     let (route_plan_local_instructions, prebuilt_route_plan) =
         crate::db::diagnostics::measure_local_instruction_delta(|| {
-            prepared
-                .plan_core
-                .get_or_init_initial_scalar_route_plan(prepared.authority.clone())
+            prepare_initial_scalar_route_plan_from_handoff(&prepared)
         });
     let prebuilt_route_plan = Some(prebuilt_route_plan?);
     let (runtime_prepare_local_instructions, prepared) =
@@ -240,16 +237,13 @@ where
                 prepared.prepared_projection_contract,
                 prepared.retained_slot_layout,
                 prepared.plan_core,
-                ScalarPreparedRuntimeOptions {
+                ScalarPreparedRuntimeOptions::initial_suppressed(
                     continuation,
-                    unpaged_rows_mode: true,
-                    cursor_emission: CursorEmissionMode::Suppress,
-                    projection_runtime_mode: ScalarProjectionRuntimeMode::None,
-                    route_plan_family: ScalarRoutePlanFamily::Initial,
+                    true,
+                    ScalarProjectionRuntimeMode::None,
                     prebuilt_route_plan,
-                    suppress_route_scan_hints: false,
-                    plan_validation: ScalarPlanValidationMode::AlreadyValidated,
-                },
+                    false,
+                ),
             )
         });
     let prepared = prepared?;
@@ -286,67 +280,16 @@ pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_ru
 where
     C: CanisterKind,
 {
-    let continuation_signature = prepared.plan_core.continuation_signature_for_runtime()?;
-    let continuation =
-        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
-    let mut prepared = prepared;
-    let projection_requires_data_rows = prepared
-        .prepared_projection_contract
-        .as_ref()
-        .is_some_and(|shape| projection_contract_requires_data_rows(shape.as_ref()));
-    let identity_projection_passthrough =
-        prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints;
-    let projection_runtime_mode = if identity_projection_passthrough {
-        ScalarProjectionRuntimeMode::None
-    } else if projection_requires_data_rows {
-        // Nested field-path projection still needs raw persisted row bytes.
-        // Plain direct fields and scalar expressions can be evaluated from the
-        // retained-slot contract, which avoids carrying full data rows through
-        // ordered cursorless SQL pages.
-        ScalarProjectionRuntimeMode::None
-    } else {
-        ScalarProjectionRuntimeMode::RetainSlotRows
-    };
-    let retained_slot_layout = if identity_projection_passthrough {
-        None
-    } else if projection_runtime_mode.validate_projection()
-        || projection_runtime_mode.retain_slot_rows()
-    {
-        prepared.plan_core.get_or_init_scalar_layout(
-            prepared.authority.clone(),
-            projection_runtime_mode,
-            CursorEmissionMode::Suppress,
-        )
-    } else {
-        prepared.retained_slot_layout.clone()
-    };
-    prepared.retained_slot_layout = retained_slot_layout;
-
     // Phase 1: prepare the scalar route runtime from plan-resident handoff.
-    let prepared = prepare_initial_scalar_route_runtime_from_handoff(
+    let prepared = prepare_initial_scalar_retained_slot_page_runtime_from_handoff(
         db,
         debug,
         prepared,
-        InitialScalarRuntimeOptions {
-            continuation,
-            unpaged_rows_mode: true,
-            projection_runtime_mode,
-            suppress_route_scan_hints,
-        },
+        suppress_route_scan_hints,
     )?;
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
 
     Ok(page)
-}
-
-#[cfg(feature = "sql")]
-fn projection_contract_requires_data_rows(
-    shape: &crate::db::executor::projection::PreparedProjectionContract,
-) -> bool {
-    shape
-        .scalar_projection_exprs()
-        .iter()
-        .any(CompiledExpr::contains_field_path)
 }
 
 /// Execute one prepared scalar plan with a caller-owned retained-slot layout and
@@ -356,7 +299,7 @@ pub(in crate::db::executor) fn execute_prepared_scalar_aggregate_kernel_row_sink
     db: &Db<C>,
     debug: bool,
     plan: PreparedLoadPlan,
-    retained_slot_layout: crate::db::executor::RetainedSlotLayout,
+    retained_slot_layout: RetainedSlotLayout,
     row_sink: impl FnMut(&KernelRow) -> Result<(), InternalError>,
 ) -> Result<(), InternalError>
 where
@@ -369,11 +312,7 @@ where
         debug,
         plan,
         retained_slot_layout,
-        InitialScalarPlanRuntimeOptions {
-            unpaged_rows_mode: true,
-            projection_runtime_mode: ScalarProjectionRuntimeMode::RetainSlotRows,
-            suppress_route_scan_hints: false,
-        },
+        InitialScalarPlanRuntimeOptions::unpaged_rows(ScalarProjectionRuntimeMode::RetainSlotRows),
     )?;
 
     // Phase 2: execute through the scalar runtime up to the post-access/window
@@ -399,11 +338,7 @@ where
         &executor.db,
         executor.debug,
         plan,
-        InitialScalarPlanRuntimeOptions {
-            unpaged_rows_mode: false,
-            projection_runtime_mode: ScalarProjectionRuntimeMode::None,
-            suppress_route_scan_hints: true,
-        },
+        InitialScalarPlanRuntimeOptions::materialized_rows(),
     )?;
     let (page, _) = execute_prepared_scalar_structural_page(prepared)?;
 
@@ -449,29 +384,12 @@ where
         continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
     ) -> Result<PreparedScalarRouteRuntime, InternalError> {
-        let prepared = plan.into_scalar_runtime_handoff(
-            ScalarProjectionRuntimeMode::SharedValidation,
-            CursorEmissionMode::Emit,
-        )?;
-
-        prepare_scalar_route_runtime_from_inputs(
+        prepare_resumed_scalar_route_runtime_from_plan(
             &self.db,
             self.debug,
-            prepared.authority,
-            prepared.execution_preparation,
-            prepared.prepared_projection_contract,
-            prepared.retained_slot_layout,
-            prepared.plan_core,
-            ScalarPreparedRuntimeOptions {
-                continuation,
-                unpaged_rows_mode,
-                cursor_emission: CursorEmissionMode::Emit,
-                projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
-                route_plan_family: ScalarRoutePlanFamily::Resumed,
-                prebuilt_route_plan: None,
-                suppress_route_scan_hints: false,
-                plan_validation: ScalarPlanValidationMode::Required,
-            },
+            plan,
+            continuation,
+            unpaged_rows_mode,
         )
     }
 

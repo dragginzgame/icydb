@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.15` continues the query-engine audit by moving retained-slot SQL,
+  initial, and resumed scalar runtime policy into shared helpers while keeping
+  scalar entrypoints thin and execution behavior unchanged.
+
 - `0.184.14` continues the query-engine audit by consolidating scalar
   plan-to-runtime handoff, initial runtime setup, and kernel observability
   across materialized, retained-slot SQL, and aggregate row-sink paths.

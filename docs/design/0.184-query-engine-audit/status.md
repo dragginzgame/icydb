@@ -206,9 +206,6 @@ Status: active.
   order-compatible multi-lookup shapes such as `bucket IN (...) ORDER BY id`
   on `(bucket, id)` while still rejecting sparse collection-only lookups on
   `(collection_id, stage, id)`.
-
-## Current Slice
-
 - F5 / D6 / H8 scalar-spine follow-up: materialized scalar pages and aggregate
   row sinks now share one scalar kernel observability finalizer for scanned
   rows, post-access rows, projected rows, distinct-key counts, and execution
@@ -223,6 +220,23 @@ Status: active.
 - F5 / D6 / H8 scalar-spine follow-up: prepared-load callers now share the
   continuation-signature extraction and scalar runtime handoff step before
   initial runtime preparation, including the SQL retained-slot override path.
+
+## Current Slice
+
+- F5 / D6 / H8 scalar-spine follow-up: SQL retained-slot initial page execution
+  now delegates continuation setup, projection runtime-mode selection, and
+  retained-slot layout selection to shared scalar runtime setup, leaving the SQL
+  entrypoint as a thin adapter around the prepared handoff. Initial scalar
+  route setup now also uses named surface options for unpaged scalar rows,
+  aggregate row sinks, and materialized scalar rows instead of repeating
+  boolean policy literals at the entrypoints. The diagnostics-only attribution
+  path still measures route-plan lookup separately, but it now calls the same
+  runtime helper used by normal initial scalar setup. Resumed scalar page setup
+  now goes through a matching runtime helper, so cursor-aware projection and
+  validation policy also stay out of the executor adapter. The initial scalar
+  runtime setup now uses the same named option contract before and after
+  continuation construction instead of carrying a second handoff-only option
+  struct.
 
 ## Next Candidates
 
