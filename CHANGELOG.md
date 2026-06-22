@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Consolidated scalar kernel observability finalization, plan-to-runtime
-  handoff, and initial runtime setup across materialized scalar pages,
-  retained-slot SQL pages, and aggregate row-sink execution.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.14` continues the query-engine audit by consolidating scalar
+  plan-to-runtime handoff, initial runtime setup, and kernel observability
+  across materialized, retained-slot SQL, and aggregate row-sink paths.
 
 - `0.184.13` continues the query-engine audit by consolidating grouped
   aggregate expression collection and SQL projection-contract construction,
