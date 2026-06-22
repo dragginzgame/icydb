@@ -235,6 +235,7 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
 
 /// Return whether the selected access route can produce primary-key order
 /// without relying on metadata-backed child-prefix expansion.
+#[cfg(any(test, feature = "sql"))]
 #[must_use]
 pub(in crate::db::executor) fn access_preserves_primary_key_order_without_child_expansion(
     plan: &AccessPlannedQuery,

@@ -52,6 +52,7 @@ pub(in crate::db::executor) use hints::widened_residual_filter_predicate_pushdow
 pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPushdownRejection};
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_mode;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use pushdown::access_preserves_primary_key_order_without_child_expansion;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::index_prefix_child_expansion_hint_for_plan;
