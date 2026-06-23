@@ -16,6 +16,7 @@ ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
+CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR="$(ROOT_DIR)/.cache"
 ACTIONLINT_VERSION ?= 1.7.12
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
@@ -140,7 +141,7 @@ package: ensure-clean
 	$(CARGO_WORK_ENV) cargo package
 
 publish: ensure-clean
-	$(CARGO_WORK_ENV) scripts/ci/publish-workspace.sh
+	$(CARGO_PUBLISH_ENV) scripts/ci/publish-workspace.sh
 
 release-stage:
 	git add Cargo.toml Cargo.lock README.md scripts/ci/sync-release-surface-version.sh $$(git ls-files -m -- '*/Cargo.toml' || true)
