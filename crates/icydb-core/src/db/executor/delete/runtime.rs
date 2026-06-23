@@ -18,6 +18,7 @@ use crate::{
                 PreparedExecutionProjection, ProjectionMaterializationMode,
             },
             pipeline::runtime::ExecutionAttemptKernel,
+            plan_metrics::record_rows_scanned_for_path,
             planning::preparation::slot_map_for_model_plan,
             read_owned_data_row_with_consistency_from_store,
             route::{RoutePlanRequest, build_execution_route_plan},
@@ -96,9 +97,9 @@ where
     Ok((prepared, store))
 }
 
-// Resolve structural access rows for one delete execution through the shared
+// Resolve delete access rows for one delete execution through the shared
 // scalar key-stream resolver, then keep delete-owned row collection local.
-pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows_as<T>(
+fn resolve_delete_candidate_rows_as<T>(
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
     mut map_row: impl FnMut(DataRow) -> Result<T, InternalError>,
@@ -139,6 +140,19 @@ pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows_as<T>(
         prepared.consistency(),
         &mut map_row,
     )
+}
+
+// Resolve delete candidates and record scanned-row attribution against the
+// selected entity path in one place for typed and structural delete callers.
+pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows_recorded_as<T>(
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+    map_row: impl FnMut(DataRow) -> Result<T, InternalError>,
+) -> Result<Vec<T>, InternalError> {
+    let (rows, rows_scanned) = resolve_delete_candidate_rows_as(store, prepared, map_row)?;
+    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
+
+    Ok(rows)
 }
 
 // Materialize ordered delete rows from one structural key stream directly into

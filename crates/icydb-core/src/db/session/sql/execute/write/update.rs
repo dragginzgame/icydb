@@ -1,9 +1,9 @@
 use super::{
     SqlWriteMutationBatch, accepted_sql_write_save_contract, checked_accepted_write_descriptor,
     record_sql_write_metrics, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
-    sql_write_key_from_literal, sql_write_patch_set_accepted_field,
-    sql_write_value_for_accepted_field, validate_sql_write_staged_rows_bound,
+    reject_explicit_sql_write_to_managed_field, sql_update_candidate_bounds,
+    sql_write_key_from_component_literals, sql_write_key_from_literal,
+    sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
 };
 use crate::{
     db::{
@@ -158,11 +158,8 @@ impl<C: CanisterKind> DbSession<C> {
 
             rows.push(key, patch.clone());
         }
-        let staged_rows = rows.staged_rows();
-        validate_sql_write_staged_rows_bound(
-            staged_rows,
-            execution_bounds.and_then(|bounds| bounds.max_staged_rows),
-        )?;
+        let candidate_rows = rows.staged_rows();
+        sql_update_candidate_bounds(execution_bounds).validate(candidate_rows)?;
         let (
             row_decode_contract,
             mutation_row_decode_contract,
@@ -197,7 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
         record_sql_write_metrics(
             E::PATH,
             SqlWriteKind::Update,
-            staged_rows.attribution_after_mutation(entities.len(), statement.returning.as_ref()),
+            candidate_rows.attribution_after_mutation(entities.len(), statement.returning.as_ref()),
         );
 
         sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)

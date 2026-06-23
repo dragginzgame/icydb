@@ -11,12 +11,11 @@ use crate::{
         executor::{
             delete::{
                 apply_delete_post_access_rows, prepare_delete_commit,
-                resolve_delete_candidate_rows_as,
+                resolve_delete_candidate_rows_recorded_as,
                 types::{
                     DeleteRow, PreparedDeleteExecutionState, PreparedTypedDelete, TypedDeleteLeaf,
                 },
             },
-            plan_metrics::record_rows_scanned_for_path,
             terminal::{RowLayout, decode_data_row_entity_with_layout},
         },
         registry::StoreHandle,
@@ -102,13 +101,12 @@ where
     C: CanisterKind,
     E: PersistedRow + EntityValue,
 {
-    // Phase 1: resolve structural access rows once through the shared executor
+    // Phase 1: resolve delete access rows once through the shared executor
     // key-stream seam and record the real candidate count for metrics.
     let row_layout = prepared.authority.entity.row_layout();
-    let (rows, rows_scanned) = resolve_delete_candidate_rows_as(store, prepared, |row| {
+    let rows = resolve_delete_candidate_rows_recorded_as(store, prepared, |row| {
         DeleteRow::<E>::from_delete_data_row(&row_layout, row)
     })?;
-    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
 
     // Phase 2: run typed delete post-access selection and package the caller's
     // desired output shape alongside rollback rows.

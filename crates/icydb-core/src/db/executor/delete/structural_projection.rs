@@ -19,13 +19,12 @@ use crate::{
         executor::{
             delete::{
                 apply_delete_post_access_rows, prepare_delete_commit,
-                resolve_delete_candidate_rows_as,
+                resolve_delete_candidate_rows_recorded_as,
                 types::{
                     DeleteCommitApplyFn, DeleteCountPreparation, PreparedDeleteCommit,
                     PreparedDeleteExecutionState,
                 },
             },
-            plan_metrics::record_rows_scanned_for_path,
             saturating_u32_len,
             terminal::{KernelRow, RowDecoder},
         },
@@ -106,6 +105,20 @@ fn package_structural_delete_count(
     })
 }
 
+// Resolve structural delete candidates into kernel rows once, preserving the
+// accepted row-layout decode shared by count and RETURNING paths. Scanned-row
+// attribution is recorded by the shared delete candidate resolver.
+fn resolve_structural_delete_kernel_rows(
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+) -> Result<Vec<KernelRow>, InternalError> {
+    let row_layout = prepared.authority.entity.row_layout();
+    let row_decoder = RowDecoder::structural();
+    resolve_delete_candidate_rows_recorded_as(store, prepared, |data_row| {
+        row_decoder.decode(&row_layout, data_row)
+    })
+}
+
 // Resolve, filter, and package one structural delete count before the outer
 // typed wrapper applies the final commit window.
 fn prepare_structural_delete_count<C>(
@@ -119,12 +132,7 @@ where
     // Phase 1: decode rows through the same accepted row layout used by
     // structural DELETE RETURNING so count-only SQL deletes can remove old
     // physical rows after append-only nullable schema transitions.
-    let row_layout = prepared.authority.entity.row_layout();
-    let row_decoder = RowDecoder::structural();
-    let (rows, rows_scanned) = resolve_delete_candidate_rows_as(store, prepared, |data_row| {
-        row_decoder.decode(&row_layout, data_row)
-    })?;
-    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
+    let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
 
     // Phase 2: keep delete filtering, ordering, and rollback packaging on the
     // structural kernel-row boundary while discarding projection material.
@@ -153,14 +161,9 @@ fn prepare_structural_delete_projection<C>(
 where
     C: CanisterKind,
 {
-    // Phase 1: resolve structural access rows once and record the scanned
-    // count against the real authority path.
-    let row_layout = prepared.authority.entity.row_layout();
-    let row_decoder = RowDecoder::structural();
-    let (rows, rows_scanned) = resolve_delete_candidate_rows_as(store, prepared, |data_row| {
-        row_decoder.decode(&row_layout, data_row)
-    })?;
-    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
+    // Phase 1: resolve structural access rows once through the shared
+    // accepted-layout decode helper.
+    let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
 
     // Phase 2: keep delete filtering, ordering, and rollback packaging on the
     // structural kernel-row boundary.

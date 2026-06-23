@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🔧 Changed
+
+- Scoped the chunked mutation pipeline design, moved SQL write row accounting
+  onto a shared candidate-row contract for UPDATE/DELETE metrics, and
+  consolidated DELETE row resolution and scan attribution without changing
+  write execution.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

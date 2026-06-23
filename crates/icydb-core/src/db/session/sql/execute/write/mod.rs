@@ -17,7 +17,8 @@ use crate::{
             sql::{
                 SqlDeleteExecutionBounds, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
                 SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan, SqlStatementResult,
-                SqlValidatedDeletePlan, classify_sql_delete_policy, combined_optional_row_bound,
+                SqlUpdateExecutionBounds, SqlValidatedDeletePlan, classify_sql_delete_policy,
+                combined_optional_row_bound,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, validate_sql_returning_projection_fields,
@@ -246,11 +247,15 @@ struct SqlWriteRowAttribution {
 }
 
 #[derive(Clone, Copy)]
-struct SqlWriteStagedRows(usize);
+struct SqlWriteCandidateRows(usize);
 
-impl SqlWriteStagedRows {
+impl SqlWriteCandidateRows {
     const fn len(self) -> usize {
         self.0
+    }
+
+    fn from_delete_count(row_count: u32) -> Self {
+        Self(usize::try_from(row_count).unwrap_or(usize::MAX))
     }
 
     fn attribution_after_mutation(
@@ -260,50 +265,85 @@ impl SqlWriteStagedRows {
     ) -> SqlWriteRowAttribution {
         SqlWriteRowAttribution::mutation_batch(self, mutated_rows, returning)
     }
+
+    fn attribution_after_delete(self, returning: bool) -> SqlWriteRowAttribution {
+        let rows = usize_to_u64_saturating(self.0);
+
+        SqlWriteRowAttribution {
+            staged: rows,
+            matched: rows,
+            mutated: rows,
+            returning: if returning { rows } else { 0 },
+        }
+    }
 }
 
-fn validate_sql_write_staged_rows_bound(
-    staged_rows: SqlWriteStagedRows,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SqlWriteCandidateBounds {
     max_rows: Option<u32>,
-) -> Result<(), QueryError> {
-    let Some(max_rows) = max_rows else {
-        return Ok(());
-    };
-    let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
-    if staged_rows.len() <= max_rows {
-        return Ok(());
+}
+
+impl SqlWriteCandidateBounds {
+    const fn from_max_rows(max_rows: Option<u32>) -> Self {
+        Self { max_rows }
     }
 
-    Err(QueryError::sql_write_boundary(
-        SqlWriteBoundaryCode::StagedRowsTooMany,
+    #[cfg(test)]
+    const fn max_rows(self) -> Option<u32> {
+        self.max_rows
+    }
+
+    fn validate(self, candidate_rows: SqlWriteCandidateRows) -> Result<(), QueryError> {
+        let Some(max_rows) = self.max_rows else {
+            return Ok(());
+        };
+        let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
+        if candidate_rows.len() <= max_rows {
+            return Ok(());
+        }
+
+        Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::StagedRowsTooMany,
+        ))
+    }
+
+    const fn delete_projection_bounds(self) -> DeleteProjectionBounds {
+        match self.max_rows {
+            Some(max_rows) => DeleteProjectionBounds::max_rows(max_rows),
+            None => DeleteProjectionBounds::unbounded(),
+        }
+    }
+}
+
+fn sql_update_candidate_bounds(
+    execution_bounds: Option<SqlUpdateExecutionBounds>,
+) -> SqlWriteCandidateBounds {
+    SqlWriteCandidateBounds::from_max_rows(
+        execution_bounds.and_then(|bounds| bounds.max_staged_rows),
+    )
+}
+
+const fn sql_delete_candidate_bounds(
+    execution_bounds: Option<SqlDeleteExecutionBounds>,
+    returning: bool,
+) -> SqlWriteCandidateBounds {
+    let Some(execution_bounds) = execution_bounds else {
+        return SqlWriteCandidateBounds::from_max_rows(None);
+    };
+
+    if !returning {
+        return SqlWriteCandidateBounds::from_max_rows(execution_bounds.max_staged_rows);
+    }
+
+    SqlWriteCandidateBounds::from_max_rows(combined_optional_row_bound(
+        execution_bounds.max_staged_rows,
+        execution_bounds.returning.max_rows,
     ))
 }
 
 impl SqlWriteRowAttribution {
-    const fn delete_count(row_count: u32) -> Self {
-        let rows = row_count as u64;
-
-        Self {
-            staged: rows,
-            matched: rows,
-            mutated: rows,
-            returning: 0,
-        }
-    }
-
-    const fn delete_returning(row_count: u32) -> Self {
-        let rows = row_count as u64;
-
-        Self {
-            staged: rows,
-            matched: rows,
-            mutated: rows,
-            returning: rows,
-        }
-    }
-
     fn mutation_batch(
-        staged_rows: SqlWriteStagedRows,
+        staged_rows: SqlWriteCandidateRows,
         mutated_rows: usize,
         returning: Option<&SqlReturningProjection>,
     ) -> Self {
@@ -342,8 +382,8 @@ impl<K> SqlWriteMutationBatch<K> {
         self.rows.push((key, patch));
     }
 
-    const fn staged_rows(&self) -> SqlWriteStagedRows {
-        SqlWriteStagedRows(self.rows.len())
+    const fn staged_rows(&self) -> SqlWriteCandidateRows {
+        SqlWriteCandidateRows(self.rows.len())
     }
 
     fn into_rows(self) -> Vec<(K, StructuralPatch)> {
@@ -366,27 +406,11 @@ fn record_sql_write_metrics(
     });
 }
 
-fn sql_delete_projection_bounds(
+const fn sql_delete_projection_bounds(
     execution_bounds: Option<SqlDeleteExecutionBounds>,
     returning: bool,
 ) -> DeleteProjectionBounds {
-    let Some(execution_bounds) = execution_bounds else {
-        return DeleteProjectionBounds::unbounded();
-    };
-
-    let max_rows = if returning {
-        combined_optional_row_bound(
-            execution_bounds.max_staged_rows,
-            execution_bounds.returning.max_rows,
-        )
-    } else {
-        execution_bounds.max_staged_rows
-    };
-
-    max_rows.map_or_else(
-        DeleteProjectionBounds::unbounded,
-        DeleteProjectionBounds::max_rows,
-    )
+    sql_delete_candidate_bounds(execution_bounds, returning).delete_projection_bounds()
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -427,7 +451,8 @@ impl<C: CanisterKind> DbSession<C> {
                 record_sql_write_metrics(
                     E::PATH,
                     SqlWriteKind::Delete,
-                    SqlWriteRowAttribution::delete_count(row_count),
+                    SqlWriteCandidateRows::from_delete_count(row_count)
+                        .attribution_after_delete(false),
                 );
 
                 Ok(SqlStatementResult::Count { row_count })
@@ -455,7 +480,8 @@ impl<C: CanisterKind> DbSession<C> {
                 record_sql_write_metrics(
                     E::PATH,
                     SqlWriteKind::Delete,
-                    SqlWriteRowAttribution::delete_returning(row_count),
+                    SqlWriteCandidateRows::from_delete_count(row_count)
+                        .attribution_after_delete(true),
                 );
 
                 sql_returning_statement_projection(
@@ -599,27 +625,79 @@ impl<C: CanisterKind> DbSession<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SqlWriteStagedRows, validate_sql_write_staged_rows_bound};
+    use super::{SqlWriteCandidateBounds, SqlWriteCandidateRows, sql_delete_candidate_bounds};
+    use crate::db::session::sql::{SqlDeleteExecutionBounds, SqlDeleteReturningBounds};
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
 
     #[test]
-    fn sql_write_staged_row_bound_accepts_unbounded_and_within_limit() {
-        validate_sql_write_staged_rows_bound(SqlWriteStagedRows(2), None)
-            .expect("unbounded staged rows should be accepted");
-        validate_sql_write_staged_rows_bound(SqlWriteStagedRows(2), Some(2))
-            .expect("staged rows equal to the bound should be accepted");
+    fn sql_write_candidate_row_bound_accepts_unbounded_and_within_limit() {
+        SqlWriteCandidateBounds::from_max_rows(None)
+            .validate(SqlWriteCandidateRows(2))
+            .expect("unbounded candidate rows should be accepted");
+        SqlWriteCandidateBounds::from_max_rows(Some(2))
+            .validate(SqlWriteCandidateRows(2))
+            .expect("candidate rows equal to the bound should be accepted");
     }
 
     #[test]
-    fn sql_write_staged_row_bound_rejects_over_limit() {
-        let err = validate_sql_write_staged_rows_bound(SqlWriteStagedRows(2), Some(1))
-            .expect_err("staged rows over the bound should reject");
+    fn sql_write_candidate_row_bound_rejects_over_limit() {
+        let err = SqlWriteCandidateBounds::from_max_rows(Some(1))
+            .validate(SqlWriteCandidateRows(2))
+            .expect_err("candidate rows over the bound should reject");
 
         assert_eq!(
             err.diagnostic().detail(),
             Some(&DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::StagedRowsTooMany,
             }),
+        );
+    }
+
+    #[test]
+    fn sql_write_candidate_rows_attribute_delete_count_and_returning() {
+        let count = SqlWriteCandidateRows(3).attribution_after_delete(false);
+        assert_eq!(count.staged, 3);
+        assert_eq!(count.matched, 3);
+        assert_eq!(count.mutated, 3);
+        assert_eq!(count.returning, 0);
+
+        let returning = SqlWriteCandidateRows(3).attribution_after_delete(true);
+        assert_eq!(returning.staged, 3);
+        assert_eq!(returning.matched, 3);
+        assert_eq!(returning.mutated, 3);
+        assert_eq!(returning.returning, 3);
+    }
+
+    #[test]
+    fn sql_delete_candidate_bounds_use_tighter_staged_or_returning_cap() {
+        let bounds = SqlDeleteExecutionBounds {
+            max_staged_rows: Some(5),
+            returning: SqlDeleteReturningBounds {
+                max_rows: Some(3),
+                max_response_bytes: None,
+            },
+        };
+
+        assert_eq!(
+            sql_delete_candidate_bounds(Some(bounds), false).max_rows(),
+            Some(5)
+        );
+        assert_eq!(
+            sql_delete_candidate_bounds(Some(bounds), true).max_rows(),
+            Some(3)
+        );
+
+        let bounds = SqlDeleteExecutionBounds {
+            max_staged_rows: Some(2),
+            returning: SqlDeleteReturningBounds {
+                max_rows: Some(4),
+                max_response_bytes: None,
+            },
+        };
+
+        assert_eq!(
+            sql_delete_candidate_bounds(Some(bounds), true).max_rows(),
+            Some(2)
         );
     }
 }

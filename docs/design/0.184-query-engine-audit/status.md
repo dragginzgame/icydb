@@ -148,6 +148,22 @@ Status: active.
   staged-row / RETURNING row-bound calculation through the common write-policy
   helper while preserving distinct update/delete rejection and execution-bound
   surface types.
+- H6 / D7 / F6 chunked mutation design: the shared mutation-candidate pipeline
+  contract is now scoped in `chunked-mutation-pipeline.md`. The next code slice
+  should keep full-batch commit semantics while sharing bounded candidate
+  collection and diagnostics for public UPDATE and DELETE. Actual chunked
+  durable commits remain deferred until atomic preflight or staging-overlay
+  semantics are designed.
+- H6 / D7 / F6 candidate-bound cleanup: SQL UPDATE and DELETE now share a
+  candidate-row bound/accounting helper at the SQL write boundary. UPDATE still
+  validates after selector collection, DELETE still validates inside the
+  structural delete core before the commit-window bridge, and full-batch commit
+  semantics are unchanged.
+- H6 / D7 / F6 DELETE row-resolution cleanup: typed DELETE, count-only
+  structural DELETE, and DELETE RETURNING now record scanned-row attribution
+  through the shared candidate resolver. Count-only structural DELETE and
+  DELETE RETURNING also share accepted-layout candidate row decoding before
+  keeping their distinct rollback/response packaging.
 - H3 / F7 tenth slice: lowered SQL projection expressions now carry their
   `LoweredExprAnalysis` through the SELECT schema-binding seam, and projection
   source-field capability validation consumes the recorded direct/path source
@@ -389,7 +405,7 @@ Status: active.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.
-- H6 / D7 / F6: design chunked mutation preparation separately if broad
-  session/admin SQL writes become a product requirement. The current evidence
-  supports keeping public writes policy-bounded rather than widening broad
-  mutation execution in the query-engine audit line.
+- H6 / D7 / F6: if write-path cleanup continues, only move beyond the current
+  SQL write-boundary candidate helper when it deletes more real UPDATE/DELETE
+  row-collection duplication. Do not implement real chunked durable commits
+  until atomic preflight or staging-overlay semantics are designed.

@@ -399,7 +399,10 @@ Preconditions:
 - selector parity tests
 - INSERT SELECT tests
 
-This should be its own design doc or major slice.
+This should be its own design doc or major slice. The scoped design now lives
+in `chunked-mutation-pipeline.md`; the first code slice should share bounded
+candidate collection for public UPDATE and DELETE while preserving full-batch
+commit semantics.
 
 Phase 6 — Aggregate architecture
 13. F3 / D1 / C5: shared aggregate logical/physical operator
