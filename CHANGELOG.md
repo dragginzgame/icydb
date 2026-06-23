@@ -7,20 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Query-engine audit follow-up: delete executor entrypoints now share the
-  runtime preparation, plan metrics, span row attribution, and error-recording
-  shell while keeping typed, count, bounded-count, and structural RETURNING
-  delete behavior separate. Structural count and RETURNING delete paths also
-  share accepted-layout candidate resolution plus delete post-access leaf
-  setup before packaging their distinct outputs, and typed/structural delete
-  cores share the same post-access leaf packager boundary. INSERT and UPDATE
-  SQL write paths also share the accepted save-contract, precommit mutation
-  execution, RETURNING validation, metrics, and statement-result shaping shell
-  after their family-specific row collection is complete.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.29` continues the query-engine audit by consolidating DELETE executor
+  runtime shells and SQL INSERT/UPDATE mutation execution handoff without
+  changing write semantics.
 
 - `0.184.28` continues the query-engine audit by consolidating SQL write row
   batching, scalar page windowing, and metadata-backed count/existence
