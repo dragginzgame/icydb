@@ -7,16 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🔧 Changed
-
-- Scoped the chunked mutation pipeline design, moved SQL write row accounting
-  onto a shared candidate-row contract for UPDATE/DELETE metrics, and
-  consolidated DELETE row resolution and scan attribution without changing
-  write execution.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.21` continues the query-engine audit by scoping chunked mutation
+  design guardrails and consolidating SQL write candidate accounting plus
+  DELETE row-resolution attribution without changing write execution.
 
 - `0.184.20` continues the query-engine audit by consolidating SQL global
   aggregate direct-count facts, shared UPDATE/DELETE write-policy bounds, and
