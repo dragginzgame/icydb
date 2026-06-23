@@ -1,11 +1,15 @@
 use super::*;
 use crate::{
     db::session::sql::{
-        DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
+        DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT, DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
+        DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES,
+        DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
     },
     db::{
-        MutationMode, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
-        SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedUpdatePlan, StructuralPatch,
+        MutationMode, SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+        SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan, SqlPublicPrimaryKeyUpdatePlan,
+        SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedDeletePlan,
+        SqlValidatedUpdatePlan, StructuralPatch, classify_sql_delete_policy,
         classify_sql_update_policy,
     },
     error::InternalError,
@@ -106,6 +110,56 @@ fn seed_write_entities(session: &DbSession<SessionSqlCanister>, rows: &[(u64, &s
 
 fn oversized_public_update_returning_text() -> String {
     "x".repeat(DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES as usize + 1)
+}
+
+fn oversized_public_delete_returning_text() -> String {
+    "x".repeat(DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES as usize + 1)
+}
+
+fn public_bounded_delete_plan_with_response_cap(
+    sql: &str,
+    max_returning_response_bytes: Option<u32>,
+) -> SqlPublicBoundedDeletePlan {
+    let report = classify_sql_delete_policy(
+        sql,
+        SqlDeleteExposurePolicy::PublicBoundedDeterministic,
+        SqlDeletePolicyContext {
+            primary_key_fields: &["id"],
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT,
+            max_returning_rows: None,
+            max_returning_response_bytes,
+        },
+    )
+    .expect("public bounded DELETE SQL should parse");
+
+    let Some(SqlValidatedDeletePlan::PublicBoundedDeterministic(plan)) = report.plan else {
+        panic!("public bounded DELETE SQL should produce a bounded plan");
+    };
+
+    plan
+}
+
+fn public_primary_key_delete_plan_with_response_cap(
+    sql: &str,
+    max_returning_response_bytes: Option<u32>,
+) -> SqlPublicPrimaryKeyDeletePlan {
+    let report = classify_sql_delete_policy(
+        sql,
+        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
+        SqlDeletePolicyContext {
+            primary_key_fields: &["id"],
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT,
+            max_returning_rows: None,
+            max_returning_response_bytes,
+        },
+    )
+    .expect("public primary-key DELETE SQL should parse");
+
+    let Some(SqlValidatedDeletePlan::PublicPrimaryKeyOnly(plan)) = report.plan else {
+        panic!("public primary-key DELETE SQL should produce a primary-key plan");
+    };
+
+    plan
 }
 
 fn public_primary_key_update_plan(sql: &str) -> SqlPublicPrimaryKeyUpdatePlan {
@@ -1535,6 +1589,39 @@ fn public_pk_update_rejects_oversized_returning_byte_cap_before_commit() {
 }
 
 #[test]
+fn public_pk_delete_rejects_oversized_returning_byte_cap_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
+
+    let plan = public_primary_key_delete_plan_with_response_cap(
+        "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING id",
+        Some(1),
+    );
+    let err = session
+        .execute_validated_sql_public_primary_key_delete::<SessionSqlWriteEntity>(&plan)
+        .expect_err("oversized RETURNING response should reject public primary-key DELETE");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(30),
+            ],
+        ],
+        "primary-key DELETE RETURNING byte cap should reject before mutation",
+    );
+}
+
+#[test]
 fn public_pk_update_allows_sized_returning_byte_cap() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1777,6 +1864,43 @@ fn execute_sql_public_primary_key_update_derives_default_returning_byte_cap() {
             vec![Value::Nat64(2), Value::Nat64(30)],
         ],
         "default public primary-key RETURNING byte cap should reject before mutation",
+    );
+}
+
+#[test]
+fn execute_sql_public_primary_key_delete_derives_default_returning_byte_cap() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let oversized_name = oversized_public_delete_returning_text();
+    session
+        .insert_many_atomic([
+            SessionSqlWriteEntity {
+                id: 1,
+                name: oversized_name,
+                age: 21,
+            },
+            SessionSqlWriteEntity {
+                id: 2,
+                name: "Bea".to_string(),
+                age: 30,
+            },
+        ])
+        .expect("oversized public DELETE fixture insert should succeed");
+
+    let err = session
+        .execute_sql_public_primary_key_delete::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING name",
+        )
+        .expect_err("schema-derived public primary-key DELETE should enforce response budget");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
+    assert_eq!(
+        persisted_write_ages(&session),
+        vec![
+            vec![Value::Nat64(1), Value::Nat64(21)],
+            vec![Value::Nat64(2), Value::Nat64(30)],
+        ],
+        "default public primary-key DELETE RETURNING byte cap should reject before mutation",
     );
 }
 
@@ -2138,6 +2262,45 @@ fn public_bounded_update_rejects_oversized_returning_byte_cap_before_commit() {
 }
 
 #[test]
+fn public_bounded_delete_rejects_oversized_returning_byte_cap_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+
+    let plan = public_bounded_delete_plan_with_response_cap(
+        "DELETE FROM SessionSqlWriteEntity \
+         WHERE age = 21 ORDER BY id ASC LIMIT 2 RETURNING id",
+        Some(1),
+    );
+    let err = session
+        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .expect_err("oversized RETURNING response should reject public bounded DELETE");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(3),
+                Value::Text("Cid".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+        "bounded DELETE RETURNING byte cap should reject before mutation",
+    );
+}
+
+#[test]
 fn public_bounded_update_allows_sized_returning_byte_cap() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2447,6 +2610,50 @@ fn execute_sql_public_bounded_update_derives_default_returning_byte_cap() {
             vec![Value::Nat64(3), Value::Nat64(21)],
         ],
         "default public bounded RETURNING byte cap should reject before mutation",
+    );
+}
+
+#[test]
+fn execute_sql_public_bounded_delete_derives_default_returning_byte_cap() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let oversized_name = oversized_public_delete_returning_text();
+    session
+        .insert_many_atomic([
+            SessionSqlWriteEntity {
+                id: 1,
+                name: oversized_name,
+                age: 21,
+            },
+            SessionSqlWriteEntity {
+                id: 2,
+                name: "Bea".to_string(),
+                age: 21,
+            },
+            SessionSqlWriteEntity {
+                id: 3,
+                name: "Cid".to_string(),
+                age: 21,
+            },
+        ])
+        .expect("oversized bounded public DELETE fixture insert should succeed");
+
+    let err = session
+        .execute_sql_public_bounded_delete::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity \
+             WHERE age = 21 ORDER BY id ASC LIMIT 2 RETURNING name",
+        )
+        .expect_err("schema-derived public bounded DELETE should enforce response budget");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
+    assert_eq!(
+        persisted_write_ages(&session),
+        vec![
+            vec![Value::Nat64(1), Value::Nat64(21)],
+            vec![Value::Nat64(2), Value::Nat64(21)],
+            vec![Value::Nat64(3), Value::Nat64(21)],
+        ],
+        "default public bounded DELETE RETURNING byte cap should reject before mutation",
     );
 }
 

@@ -108,6 +108,7 @@ where
         self,
         plan: PreparedExecutionPlan<E>,
         bounds: DeleteProjectionBounds,
+        validate_precommit: impl FnOnce(&DeleteProjection) -> Result<(), InternalError>,
     ) -> Result<DeleteProjection, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Delete);
         let result = (|| {
@@ -125,6 +126,7 @@ where
                 store,
                 &prepared,
                 bounds,
+                validate_precommit,
                 apply_delete_commit_window_for_type::<E>,
             )?;
             if projection.row_count() == 0 {

@@ -430,6 +430,15 @@ Status: active.
   projection metrics now own the presence predicates used by session
   diagnostics before projecting public payloads. Grouped execution attribution
   now also owns the shared DTO constructor used by fluent and SQL diagnostics.
+- SQL write metrics are in local DRY mode: `SqlWriteRowAttribution` now owns
+  mutation and delete metrics payload construction, while
+  `SqlWriteCandidateRows` stays focused on staged-row counting and bound
+  validation. INSERT and UPDATE now both enter shared `RETURNING` validation
+  from the precommit window; UPDATE supplies its public row/byte bounds and
+  INSERT currently has no equivalent exposure-policy bounds to supply.
+- Public DELETE RETURNING response-byte budgets now run through the
+  structural delete precommit validation point, so row-count and response-size
+  rejections both occur before the delete commit is applied.
 - Filter handoff work is in local DRY mode: residual expression and predicate
   accessors remain available for callers that need the actual artifacts, while
   boolean gating should go through the single plan-owned presence helper.

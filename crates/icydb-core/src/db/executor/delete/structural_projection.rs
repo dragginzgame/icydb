@@ -221,6 +221,7 @@ pub(in crate::db::executor::delete) fn execute_structural_delete_projection_core
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
     bounds: DeleteProjectionBounds,
+    validate_precommit: impl FnOnce(&DeleteProjection) -> Result<(), InternalError>,
     apply_delete_commit: DeleteCommitApplyFn<C>,
 ) -> Result<DeleteProjection, InternalError>
 where
@@ -229,6 +230,7 @@ where
     // Phase 1: run the shared structural delete projection core.
     let prepared_projection = prepare_structural_delete_projection(db, store, prepared)?;
     validate_structural_delete_projection_bounds(&prepared_projection.projection, bounds)?;
+    validate_precommit(&prepared_projection.projection)?;
     if prepared_projection.projection.row_count() == 0 {
         return Ok(prepared_projection.projection);
     }

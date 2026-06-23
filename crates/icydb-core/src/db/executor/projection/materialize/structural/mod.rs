@@ -49,6 +49,12 @@ impl MaterializedProjectionRows {
         self.0.len()
     }
 
+    /// Borrow the materialized structural projection row values.
+    #[must_use]
+    pub(in crate::db) const fn value_rows(&self) -> &[Vec<Value>] {
+        self.0.as_slice()
+    }
+
     #[must_use]
     pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
         self.0

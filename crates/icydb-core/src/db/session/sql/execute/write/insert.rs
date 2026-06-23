@@ -1,8 +1,8 @@
 use super::{
     SqlWriteMutationBatch, accepted_sql_write_save_contract,
-    checked_accepted_write_descriptor_for_returning, record_sql_write_mutation_metrics,
-    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    sql_write_key_from_component_literals, sql_write_patch_set_accepted_field,
+    checked_accepted_write_descriptor_for_returning, reject_explicit_sql_write_to_generated_field,
+    reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
+    sql_write_mutation_statement_result, sql_write_patch_set_accepted_field,
     sql_write_value_for_accepted_field,
 };
 use crate::{
@@ -15,7 +15,8 @@ use crate::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
         },
-        session::sql::{SqlStatementResult, execute::write_returning::sql_write_statement_result},
+        session::sql::SqlStatementResult,
+        session::sql::execute::write_returning::validate_sql_returning_bounds,
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection},
         sql_shared::SqlSyntaxErrorKind,
     },
@@ -356,24 +357,32 @@ impl<C: CanisterKind> DbSession<C> {
                 accepted_schema_info,
                 accepted_schema_fingerprint,
                 |save| {
-                    save.apply_internal_lowered_structural_mutation_batch(
+                    save.apply_internal_lowered_structural_mutation_batch_with_precommit(
                         MutationMode::Insert,
                         rows.into_rows(),
                         write_context,
                         mutation_row_decode_contract,
+                        |entities| {
+                            validate_sql_returning_bounds(
+                                E::MODEL.name(),
+                                entities,
+                                statement.returning.as_ref(),
+                                &descriptor,
+                                None,
+                            )
+                        },
                     )
                 },
                 std::convert::identity,
             )
             .map_err(QueryError::execute)?;
-        record_sql_write_mutation_metrics(
+        sql_write_mutation_statement_result::<E>(
             E::PATH,
             kind,
             staged_rows,
-            entities.len(),
+            entities,
             statement.returning.as_ref(),
-        );
-
-        sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)
+            &descriptor,
+        )
     }
 }

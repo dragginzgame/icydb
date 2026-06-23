@@ -134,28 +134,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         self.save_structural_mutation(request)
     }
 
-    // Apply one internally lowered structural batch in a single commit window.
-    //
-    // Strong relation validation intentionally remains committed-store-only here:
-    // same-statement relation targets are not visible until the relation domain
-    // grows an overlay-aware reader seam of its own.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn apply_internal_lowered_structural_mutation_batch(
-        &self,
-        mode: MutationMode,
-        rows: Vec<(E::Key, StructuralPatch)>,
-        write_context: SanitizeWriteContext,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-    ) -> Result<Vec<E>, InternalError> {
-        self.apply_internal_lowered_structural_mutation_batch_with_precommit(
-            mode,
-            rows,
-            write_context,
-            accepted_row_decode_contract,
-            |_| Ok(()),
-        )
-    }
-
     // Apply one internally lowered structural batch after giving the caller a
     // final chance to inspect validated after-images before commit publication.
     #[cfg(feature = "sql")]

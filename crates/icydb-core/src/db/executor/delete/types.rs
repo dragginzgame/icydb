@@ -7,6 +7,8 @@
 use crate::db::executor::projection::MaterializedProjectionRows;
 #[cfg(feature = "sql")]
 use crate::db::executor::saturating_u32_len;
+#[cfg(feature = "sql")]
+use crate::value::Value;
 use crate::{
     db::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
@@ -181,7 +183,7 @@ impl DeleteProjection {
     }
 
     #[must_use]
-    pub(in crate::db::executor::delete) fn row_count(&self) -> u32 {
+    pub(in crate::db) fn row_count(&self) -> u32 {
         saturating_u32_len(self.rows.len())
     }
 
@@ -190,6 +192,11 @@ impl DeleteProjection {
         let row_count = self.row_count();
 
         (self.rows, row_count)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn value_rows(&self) -> &[Vec<Value>] {
+        self.rows.value_rows()
     }
 }
 

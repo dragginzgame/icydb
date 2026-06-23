@@ -73,6 +73,10 @@ pub(in crate::db) use compiled::{
     CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
     SqlGlobalAggregateCountPlanCacheEntry,
 };
+#[cfg(test)]
+pub(in crate::db) use delete_policy::{
+    DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT, DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES,
+};
 pub use delete_policy::{
     SqlAdminBulkDeletePlan, SqlDeleteExecutionBounds, SqlDeleteExposurePolicy,
     SqlDeleteOrderPolicy, SqlDeletePolicyContext, SqlDeletePolicyRejection, SqlDeletePolicyReport,

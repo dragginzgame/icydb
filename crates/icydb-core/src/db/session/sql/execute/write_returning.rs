@@ -8,11 +8,12 @@ use crate::{
         PersistedRow, QueryError,
         schema::AcceptedRowLayoutRuntimeContract,
         session::sql::{
-            SqlStatementResult, SqlUpdateReturningBounds,
+            SqlStatementResult,
             projection::{
                 sql_projection_statement_result_from_fallible_value_rows,
                 sql_projection_statement_result_from_value_rows,
             },
+            write_policy::SqlWriteReturningBounds,
         },
         sql::parser::SqlReturningProjection,
     },
@@ -121,8 +122,8 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fi
     sql_returning_field_selection(indices.as_slice()).map(|_| ())
 }
 
-/// Validate one public/generated SQL `UPDATE RETURNING` row and response budget
-/// against the already-prepared mutation after-images.
+/// Validate one SQL write `RETURNING` row and response budget against the
+/// already-prepared mutation after-images.
 ///
 /// This must run after structural mutation validation has produced sanitized
 /// after-images but before the executor opens its commit window.
@@ -131,7 +132,7 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_bounds<E>(
     entities: &[E],
     returning: Option<&SqlReturningProjection>,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    bounds: Option<SqlUpdateReturningBounds>,
+    bounds: Option<SqlWriteReturningBounds>,
 ) -> Result<(), InternalError>
 where
     E: EntityValue,
@@ -143,14 +144,7 @@ where
         return Ok(());
     };
 
-    if let Some(max_rows) = bounds.max_rows {
-        let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
-        if entities.len() > max_rows {
-            return Err(InternalError::query_sql_write_boundary(
-                SqlWriteBoundaryCode::ReturningRowsTooMany,
-            ));
-        }
-    }
+    validate_sql_returning_row_count(entities.len(), bounds.max_rows)?;
 
     if let Some(max_response_bytes) = bounds.max_response_bytes {
         let payload_len = encoded_sql_returning_projection_response_len(
@@ -168,6 +162,57 @@ where
     }
 
     Ok(())
+}
+
+/// Validate SQL write `RETURNING` bounds for rows that are already materialized
+/// in accepted-schema column order.
+pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_bounds(
+    entity_name: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+    row_count: u32,
+    returning: &SqlReturningProjection,
+    bounds: Option<SqlWriteReturningBounds>,
+) -> Result<(), InternalError> {
+    let Some(bounds) = bounds else {
+        return Ok(());
+    };
+
+    validate_sql_returning_row_count(
+        usize::try_from(row_count).unwrap_or(usize::MAX),
+        bounds.max_rows,
+    )?;
+
+    if let Some(max_response_bytes) = bounds.max_response_bytes {
+        let projected =
+            sql_materialized_returning_projection_rows(columns, rows, row_count, returning)?;
+        let payload_len = encoded_sql_returning_projection_payload_len(entity_name, projected)?;
+        let max_response_bytes = usize::try_from(max_response_bytes).unwrap_or(usize::MAX);
+        if payload_len > max_response_bytes {
+            return Err(InternalError::query_sql_write_boundary(
+                SqlWriteBoundaryCode::ReturningResponseTooLarge,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_sql_returning_row_count(
+    row_count: usize,
+    max_rows: Option<u32>,
+) -> Result<(), InternalError> {
+    let Some(max_rows) = max_rows else {
+        return Ok(());
+    };
+    let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
+    if row_count <= max_rows {
+        return Ok(());
+    }
+
+    Err(InternalError::query_sql_write_boundary(
+        SqlWriteBoundaryCode::ReturningRowsTooMany,
+    ))
 }
 
 // Materialize every field from one typed write result for `RETURNING *`.
@@ -215,6 +260,13 @@ where
     E: EntityValue,
 {
     let projected = sql_returning_projection_rows(entities, returning, descriptor)?;
+    encoded_sql_returning_projection_payload_len(entity_name, projected)
+}
+
+fn encoded_sql_returning_projection_payload_len(
+    entity_name: &str,
+    projected: SqlReturningProjectionRows,
+) -> Result<usize, InternalError> {
     let payload = SqlReturningResponseSizeProbe::Projection(SqlReturningProjectionSizeProbe {
         entity: entity_name.to_string(),
         columns: projected.columns,
@@ -279,6 +331,51 @@ where
 
 fn sql_returning_output_value_row(row: Vec<Value>) -> Vec<OutputValue> {
     row.into_iter().map(OutputValue::from).collect()
+}
+
+fn sql_materialized_returning_projection_rows(
+    columns: &[String],
+    rows: &[Vec<Value>],
+    row_count: u32,
+    returning: &SqlReturningProjection,
+) -> Result<SqlReturningProjectionRows, InternalError> {
+    match returning {
+        SqlReturningProjection::All => Ok(SqlReturningProjectionRows {
+            columns: columns.to_vec(),
+            rows: rows
+                .iter()
+                .cloned()
+                .map(sql_returning_output_value_row)
+                .collect(),
+            row_count,
+        }),
+        SqlReturningProjection::Fields(fields) => {
+            let indices = sql_returning_field_indices(columns, fields)
+                .map_err(query_error_to_internal_invariant)?;
+            let selection = sql_returning_field_selection(&indices)
+                .map_err(query_error_to_internal_invariant)?;
+            let output_ordered = sql_returning_selection_is_output_ordered(selection.as_slice());
+            let rows = rows
+                .iter()
+                .cloned()
+                .map(|row| {
+                    sql_returning_project_owned_row_for_selection(
+                        row,
+                        selection.as_slice(),
+                        output_ordered,
+                    )
+                    .map(sql_returning_output_value_row)
+                    .map_err(query_error_to_internal_invariant)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(SqlReturningProjectionRows {
+                columns: fields.clone(),
+                rows,
+                row_count,
+            })
+        }
+    }
 }
 
 fn query_error_to_internal_invariant(_err: QueryError) -> InternalError {

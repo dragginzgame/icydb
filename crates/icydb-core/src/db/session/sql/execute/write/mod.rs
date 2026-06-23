@@ -21,7 +21,9 @@ use crate::{
                 combined_optional_row_bound,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
-                    sql_returning_statement_projection, validate_sql_returning_projection_fields,
+                    sql_returning_statement_projection, sql_write_statement_result,
+                    validate_sql_materialized_returning_bounds,
+                    validate_sql_returning_projection_fields,
                 },
             },
         },
@@ -274,25 +276,6 @@ impl SqlWriteCandidateRows {
     fn from_delete_count(row_count: u32) -> Self {
         Self(usize::try_from(row_count).unwrap_or(usize::MAX))
     }
-
-    fn attribution_after_mutation(
-        self,
-        mutated_rows: usize,
-        returning: Option<&SqlReturningProjection>,
-    ) -> SqlWriteRowAttribution {
-        SqlWriteRowAttribution::mutation_batch(self, mutated_rows, returning)
-    }
-
-    fn attribution_after_delete(self, returning: bool) -> SqlWriteRowAttribution {
-        let rows = usize_to_u64_saturating(self.0);
-
-        SqlWriteRowAttribution {
-            staged: rows,
-            matched: rows,
-            mutated: rows,
-            returning: if returning { rows } else { 0 },
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -374,6 +357,17 @@ impl SqlWriteRowAttribution {
             returning: sql_returning_rows(returning, mutated_rows),
         }
     }
+
+    fn delete_count(candidate_rows: SqlWriteCandidateRows, returning: bool) -> Self {
+        let rows = usize_to_u64_saturating(candidate_rows.0);
+
+        Self {
+            staged: rows,
+            matched: rows,
+            mutated: rows,
+            returning: if returning { rows } else { 0 },
+        }
+    }
 }
 
 struct SqlWriteMutationBatch<K> {
@@ -443,7 +437,7 @@ fn record_sql_write_mutation_metrics(
     record_sql_write_metrics(
         entity_path,
         kind,
-        staged_rows.attribution_after_mutation(mutated_rows, returning),
+        SqlWriteRowAttribution::mutation_batch(staged_rows, mutated_rows, returning),
     );
 }
 
@@ -451,8 +445,27 @@ fn record_sql_write_delete_metrics(entity_path: &'static str, row_count: u32, re
     record_sql_write_metrics(
         entity_path,
         SqlWriteKind::Delete,
-        SqlWriteCandidateRows::from_delete_count(row_count).attribution_after_delete(returning),
+        SqlWriteRowAttribution::delete_count(
+            SqlWriteCandidateRows::from_delete_count(row_count),
+            returning,
+        ),
     );
+}
+
+fn sql_write_mutation_statement_result<E>(
+    entity_path: &'static str,
+    kind: SqlWriteKind,
+    staged_rows: SqlWriteCandidateRows,
+    entities: Vec<E>,
+    returning: Option<&SqlReturningProjection>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+) -> Result<SqlStatementResult, QueryError>
+where
+    E: PersistedRow + EntityValue,
+{
+    record_sql_write_mutation_metrics(entity_path, kind, staged_rows, entities.len(), returning);
+
+    sql_write_statement_result::<E>(entities, returning, descriptor)
 }
 
 const fn sql_delete_projection_bounds(
@@ -523,6 +536,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .map_err(QueryError::execute)?;
                 let descriptor =
                     checked_accepted_write_descriptor_for_returning::<E>(&schema, Some(returning))?;
+                let columns = projection_labels_from_accepted_write_descriptor(&descriptor);
 
                 // Phase 2: returning deletes reuse the structural projection
                 // terminal once, then shape the requested outbound row contract
@@ -532,19 +546,23 @@ impl<C: CanisterKind> DbSession<C> {
                 let deleted = self
                     .with_metrics(|| {
                         self.delete_executor::<E>()
-                            .execute_structural_projection_with_bounds(plan, bounds)
+                            .execute_structural_projection_with_bounds(plan, bounds, |projection| {
+                                validate_sql_materialized_returning_bounds(
+                                    E::MODEL.name(),
+                                    columns.as_slice(),
+                                    projection.value_rows(),
+                                    projection.row_count(),
+                                    returning,
+                                    execution_bounds.map(|bounds| bounds.returning.write_bounds()),
+                                )
+                            })
                     })
                     .map_err(QueryError::execute)?;
                 let (rows, row_count) = deleted.into_rows_and_count();
                 let rows = rows.into_value_rows();
                 record_sql_write_delete_metrics(E::PATH, row_count, true);
 
-                sql_returning_statement_projection(
-                    projection_labels_from_accepted_write_descriptor(&descriptor),
-                    rows,
-                    row_count,
-                    returning,
-                )
+                sql_returning_statement_projection(columns, rows, row_count, returning)
             }
         }
     }
@@ -677,7 +695,7 @@ impl<C: CanisterKind> DbSession<C> {
 mod tests {
     use super::{
         SqlWriteCandidateBounds, SqlWriteCandidateRows, SqlWriteMutationBatch,
-        sql_delete_candidate_bounds,
+        SqlWriteRowAttribution, sql_delete_candidate_bounds,
     };
     use crate::db::{
         data::StructuralPatch,
@@ -728,14 +746,14 @@ mod tests {
     }
 
     #[test]
-    fn sql_write_candidate_rows_attribute_delete_count_and_returning() {
-        let count = SqlWriteCandidateRows(3).attribution_after_delete(false);
+    fn sql_write_row_attribution_counts_delete_rows_and_returning() {
+        let count = SqlWriteRowAttribution::delete_count(SqlWriteCandidateRows(3), false);
         assert_eq!(count.staged, 3);
         assert_eq!(count.matched, 3);
         assert_eq!(count.mutated, 3);
         assert_eq!(count.returning, 0);
 
-        let returning = SqlWriteCandidateRows(3).attribution_after_delete(true);
+        let returning = SqlWriteRowAttribution::delete_count(SqlWriteCandidateRows(3), true);
         assert_eq!(returning.staged, 3);
         assert_eq!(returning.matched, 3);
         assert_eq!(returning.mutated, 3);

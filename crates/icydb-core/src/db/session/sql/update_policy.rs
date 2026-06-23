@@ -9,11 +9,11 @@ use crate::db::{
     QueryError,
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteBoundedPolicyRejection, SqlWriteOrderProof, SqlWriteReturningShape,
-        SqlWriteStagedRowBoundKind, SqlWriteWhereProof, bounded_write_policy_rejection,
-        classify_write_order_proof, classify_write_returning_shape, classify_write_where_proof,
-        contains_field, current_table_field_name, owned_write_field_names,
-        sql_write_execution_bounds_for_staged_kind,
+        SqlWriteBoundedPolicyRejection, SqlWriteOrderProof, SqlWriteReturningBounds,
+        SqlWriteReturningShape, SqlWriteStagedRowBoundKind, SqlWriteWhereProof,
+        bounded_write_policy_rejection, classify_write_order_proof, classify_write_returning_shape,
+        classify_write_where_proof, contains_field, current_table_field_name,
+        owned_write_field_names, sql_write_execution_bounds_for_staged_kind,
     },
     sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
 };
@@ -212,12 +212,17 @@ pub struct SqlUpdateExecutionBounds {
 }
 
 impl SqlUpdateReturningBounds {
-    const fn from_write_bounds(
-        bounds: crate::db::session::sql::write_policy::SqlWriteReturningBounds,
-    ) -> Self {
+    const fn from_write_bounds(bounds: SqlWriteReturningBounds) -> Self {
         Self {
             max_rows: bounds.max_rows,
             max_response_bytes: bounds.max_response_bytes,
+        }
+    }
+
+    pub(in crate::db::session::sql) const fn write_bounds(self) -> SqlWriteReturningBounds {
+        SqlWriteReturningBounds {
+            max_rows: self.max_rows,
+            max_response_bytes: self.max_response_bytes,
         }
     }
 }
