@@ -1,4 +1,4 @@
-.PHONY: help version tags patch minor major release-stage release-commit release-push \
+.PHONY: help version tags patch minor major package publish release-stage release-commit release-push \
         release-patch release-minor release-major release \
         test test-bump build check clippy fmt fmt-check clean install install-dev update-dev \
         fetch test-watch all ensure-clean security-check check-versioning \
@@ -59,6 +59,8 @@ help:
 	@echo "  release-minor    Human-owned one-shot minor release"
 	@echo "  release-major    Human-owned one-shot major release"
 	@echo "  release          CI-driven release (local target is no-op)"
+	@echo "  package          Build publishable crate tarballs"
+	@echo "  publish          Publish workspace crates to registry in dependency order"
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
@@ -133,6 +135,12 @@ major: ensure-clean fmt test
 
 release: ensure-clean
 	@echo "Release handled by CI on tag push"
+
+package: ensure-clean
+	$(CARGO_WORK_ENV) cargo package
+
+publish: ensure-clean
+	$(CARGO_WORK_ENV) scripts/ci/publish-workspace.sh
 
 release-stage:
 	git add Cargo.toml Cargo.lock README.md scripts/ci/sync-release-surface-version.sh $$(git ls-files -m -- '*/Cargo.toml' || true)

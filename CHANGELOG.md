@@ -13,7 +13,8 @@ Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
 - `0.184.21` continues the query-engine audit by scoping chunked mutation
   design guardrails and consolidating SQL write candidate accounting plus
-  DELETE row-resolution attribution without changing write execution.
+  DELETE row-resolution attribution while adding ordered workspace publish
+  tooling, without changing write execution.
 
 - `0.184.20` continues the query-engine audit by consolidating SQL global
   aggregate direct-count facts, shared UPDATE/DELETE write-policy bounds, and
