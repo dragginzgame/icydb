@@ -147,8 +147,9 @@ fn project_access_choice_explain_snapshot_from_authority(
     let mut candidates = Vec::new();
     let mut rejected = Vec::new();
     let mut eligible_other_scores = Vec::new();
-    let residual_burden_rejected_indexes =
-        same_score_competing_residual_rejection_indexes(model, visible_indexes, schema_info, plan);
+    let chosen_burden = residual_burden_for_plan(plan);
+    let mut found_lower_residual_burden = false;
+    let mut found_higher_residual_burden = false;
 
     // Phase 2: walk deterministic model order once so alternative/rejection
     // projection stays under one evaluation owner after the chosen score has
@@ -175,19 +176,27 @@ fn project_access_choice_explain_snapshot_from_authority(
             self::model::CandidateEvaluation::Eligible(score) => {
                 alternatives.push(index_name.clone());
                 eligible_other_scores.push(score);
+                let mut rejected_on_residual_burden = false;
                 if let Some(candidate_access) =
                     eligible_candidate_access_for_index(model, schema_info, plan, &index)
                 {
                     let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
+                    let residual_burden = residual_burden_for_plan(&candidate_plan);
                     candidates.push(project_candidate_explain_summary(
                         score,
                         &candidate_access,
-                        residual_burden_for_plan(&candidate_plan),
+                        residual_burden,
                     ));
+                    if score == chosen_score
+                        && candidate_access
+                            .selected_index_contract()
+                            .is_some_and(|contract| contract.name() == index_name.as_str())
+                    {
+                        found_lower_residual_burden |= residual_burden < chosen_burden;
+                        rejected_on_residual_burden = residual_burden > chosen_burden;
+                        found_higher_residual_burden |= rejected_on_residual_burden;
+                    }
                 }
-                let rejected_on_residual_burden = residual_burden_rejected_indexes
-                    .as_ref()
-                    .is_some_and(|indexes| indexes.iter().any(|name| name == &index_name));
                 rejected.push(
                     ranked_rejection_reason(
                         family,
@@ -204,8 +213,7 @@ fn project_access_choice_explain_snapshot_from_authority(
         }
     }
 
-    let residual_burden_preferred =
-        chosen_access_prefers_lower_residual_burden(model, visible_indexes, schema_info, plan);
+    let residual_burden_preferred = found_higher_residual_burden && !found_lower_residual_burden;
 
     // Phase 3: derive deterministic winner/rejection reason codes from the
     // one-pass candidate evaluation results above.
@@ -322,46 +330,27 @@ fn rerank_access_plan_by_residual_burden_from_authority(
 
 // Determine whether the already-selected access route beats one same-score
 // competing candidate on residual burden alone.
+#[cfg(test)]
 fn chosen_access_prefers_lower_residual_burden(
     model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> bool {
-    preferred_same_score_competing_access_by_residual_burden(
-        model,
-        visible_indexes,
-        schema_info,
-        plan,
-    )
-    .is_none()
-        && same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)
-            .into_iter()
-            .flatten()
-            .any(|candidate| candidate.residual_burden > residual_burden_for_plan(plan))
-}
-
-// Return the index names for same-score competing routes that lose on
-// residual burden once the structural ranking dimensions already tie.
-fn same_score_competing_residual_rejection_indexes(
-    model: &EntityModel,
-    visible_indexes: &[SemanticIndexAccessContract],
-    schema_info: &SchemaInfo,
-    plan: &AccessPlannedQuery,
-) -> Option<Vec<String>> {
     let chosen_burden = residual_burden_for_plan(plan);
-    let rejected = same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)?
-        .into_iter()
-        .filter(|candidate| candidate.residual_burden > chosen_burden)
-        .filter_map(|candidate| {
-            candidate
-                .access
-                .selected_index_contract()
-                .map(|contract| contract.name().to_string())
-        })
-        .collect::<Vec<_>>();
+    let mut found_worse_candidate = false;
 
-    (!rejected.is_empty()).then_some(rejected)
+    for candidate in same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)
+        .into_iter()
+        .flatten()
+    {
+        if candidate.residual_burden < chosen_burden {
+            return false;
+        }
+        found_worse_candidate |= candidate.residual_burden > chosen_burden;
+    }
+
+    found_worse_candidate
 }
 
 ///

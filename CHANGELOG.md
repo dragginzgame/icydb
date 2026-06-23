@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.24` continues the query-engine audit by tightening residual-filter
+  shape authority and consolidating access-choice plus verbose EXPLAIN
+  diagnostics so residual and descriptor-stage facts are derived once from
+  their owner contracts.
+
 - `0.184.23` continues the query-engine audit by consolidating large `IN`
   membership predicate compilation and normalization around the shared
   canonical membership-list contract, reducing duplicate compile work without

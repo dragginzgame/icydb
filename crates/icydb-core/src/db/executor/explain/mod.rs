@@ -32,7 +32,6 @@ use crate::{
 pub(in crate::db) use descriptor::assemble_load_execution_node_descriptor;
 use descriptor::assemble_load_execution_verbose_diagnostics_from_route_facts;
 #[cfg(feature = "sql")]
-#[cfg(feature = "sql")]
 pub(in crate::db) use descriptor::assemble_scalar_aggregate_execution_descriptor_with_projection;
 pub(in crate::db) use descriptor::{
     assemble_aggregate_terminal_execution_descriptor,
@@ -41,6 +40,56 @@ pub(in crate::db) use descriptor::{
     freeze_load_execution_route_facts_for_authority,
     freeze_load_execution_route_facts_for_model_only,
 };
+
+struct DescriptorStagePresence {
+    present: [bool; Self::STAGE_COUNT],
+}
+
+impl DescriptorStagePresence {
+    const STAGE_COUNT: usize = 4;
+    const TOP_N_SEEK: usize = 0;
+    const INDEX_RANGE_LIMIT_PUSHDOWN: usize = 1;
+    const INDEX_PREDICATE_PREFILTER: usize = 2;
+    const RESIDUAL_FILTER: usize = 3;
+
+    fn from_descriptor(descriptor: &ExplainExecutionNodeDescriptor) -> Self {
+        let mut presence = Self {
+            present: [false; Self::STAGE_COUNT],
+        };
+
+        descriptor.for_each_preorder(&mut |node| match node.node_type() {
+            ExplainExecutionNodeType::TopNSeek => presence.present[Self::TOP_N_SEEK] = true,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown => {
+                presence.present[Self::INDEX_RANGE_LIMIT_PUSHDOWN] = true;
+            }
+            ExplainExecutionNodeType::IndexPredicatePrefilter => {
+                presence.present[Self::INDEX_PREDICATE_PREFILTER] = true;
+            }
+            ExplainExecutionNodeType::ResidualFilter => {
+                presence.present[Self::RESIDUAL_FILTER] = true;
+            }
+            _ => {}
+        });
+
+        presence
+    }
+
+    const fn has_top_n_seek(&self) -> bool {
+        self.present[Self::TOP_N_SEEK]
+    }
+
+    const fn has_index_range_limit_pushdown(&self) -> bool {
+        self.present[Self::INDEX_RANGE_LIMIT_PUSHDOWN]
+    }
+
+    const fn has_index_predicate_prefilter(&self) -> bool {
+        self.present[Self::INDEX_PREDICATE_PREFILTER]
+    }
+
+    const fn has_residual_filter(&self) -> bool {
+        self.present[Self::RESIDUAL_FILTER]
+    }
+}
 
 impl StructuralQuery {
     // Assemble one finalized diagnostics artifact from route facts that were
@@ -57,22 +106,23 @@ impl StructuralQuery {
         let explain = plan.explain();
 
         // Phase 1: add descriptor-stage summaries for key execution operators.
+        let stage_presence = DescriptorStagePresence::from_descriptor(&descriptor);
         let mut logical_diagnostics = Vec::new();
         logical_diagnostics.push(format!(
             "diag.d.has_top_n_seek={}",
-            descriptor.contains_type(ExplainExecutionNodeType::TopNSeek)
+            stage_presence.has_top_n_seek()
         ));
         logical_diagnostics.push(format!(
             "diag.d.has_index_range_limit_pushdown={}",
-            descriptor.contains_type(ExplainExecutionNodeType::IndexRangeLimitPushdown)
+            stage_presence.has_index_range_limit_pushdown()
         ));
         logical_diagnostics.push(format!(
             "diag.d.has_index_predicate_prefilter={}",
-            descriptor.contains_type(ExplainExecutionNodeType::IndexPredicatePrefilter)
+            stage_presence.has_index_predicate_prefilter()
         ));
         logical_diagnostics.push(format!(
             "diag.d.has_residual_filter={}",
-            descriptor.contains_type(ExplainExecutionNodeType::ResidualFilter)
+            stage_presence.has_residual_filter()
         ));
 
         // Phase 2: append logical-plan diagnostics relevant to verbose explain.

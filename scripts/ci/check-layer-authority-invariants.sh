@@ -150,6 +150,20 @@ if [[ -n "$residual_filter_field_or_leaks" ]]; then
   status=1
 fi
 
+residual_filter_shape_rebuild_leaks="$(
+  run_rg "ResidualFilterShape::from_presence\\(" "$DB_ROOT" \
+    --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
+    --glob '!crates/icydb-core/src/db/query/plan/semantics/logical.rs' \
+    --glob '!crates/icydb-core/src/db/query/explain/execution.rs' \
+    --glob '!**/tests/**' \
+    | strip_comment_only
+)"
+if [[ -n "$residual_filter_shape_rebuild_leaks" ]]; then
+  echo "[ERROR] Residual-filter shape construction must stay with planner/explain shape owners." >&2
+  echo "$residual_filter_shape_rebuild_leaks" >&2
+  status=1
+fi
+
 envelope_authority_leaks="$(
   run_rg "\\bfn\\s+(anchor_within_envelope|resume_bounds_from_refs|continuation_advanced)(\\s*<[^>]+>)?\\s*\\(" \
     "$DB_ROOT" \

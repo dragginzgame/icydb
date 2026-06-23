@@ -592,16 +592,6 @@ fn project_static_execution_planning_contract_for_model(
     let execution_preparation_predicate = plan.execution_preparation_predicate();
     let residual_filter_predicate = derive_residual_filter_predicate(plan);
     let residual_filter_expr = derive_residual_filter_expr_for_model(model, plan);
-    let residual_filter_shape = ResidualFilterShape::from_presence(
-        residual_filter_expr.is_some(),
-        residual_filter_predicate.is_some(),
-    );
-    let execution_preparation_compiled_predicate =
-        should_compile_execution_preparation_predicate(residual_filter_shape)
-            .then(|| {
-                compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref())
-            })
-            .flatten();
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
         schema_info,
         residual_filter_expr.as_ref(),
@@ -612,6 +602,13 @@ fn project_static_execution_planning_contract_for_model(
         residual_filter_predicate,
         effective_runtime_filter_program,
     );
+    let residual_filter_shape = residual_filter_contract.shape();
+    let execution_preparation_compiled_predicate =
+        should_compile_execution_preparation_predicate(residual_filter_shape)
+            .then(|| {
+                compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref())
+            })
+            .flatten();
     let predicate_pushdown_diagnostics = PredicatePushdownDiagnostics::from_plan(
         plan.scalar_plan().filter_expr.is_some(),
         plan.scalar_plan().predicate_covers_filter_expr,

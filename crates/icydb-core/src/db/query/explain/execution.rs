@@ -455,6 +455,7 @@ impl ExplainExecutionNodeDescriptor {
 
     /// Return whether this descriptor tree contains the requested node type.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn contains_type(&self, target: ExplainExecutionNodeType) -> bool {
         let mut found = false;
         self.for_each_preorder(&mut |node| {
@@ -510,14 +511,19 @@ impl ExplainExecutionNodeDescriptor {
         self.residual_filter_predicate.as_ref()
     }
 
-    /// Return whether this node carries any residual filter annotation.
+    /// Return this node's residual-filter annotation shape.
     #[must_use]
-    pub const fn has_residual_filter(&self) -> bool {
-        !ResidualFilterShape::from_presence(
+    pub(in crate::db) const fn residual_filter_shape(&self) -> ResidualFilterShape {
+        ResidualFilterShape::from_presence(
             self.residual_filter_expr.is_some(),
             self.residual_filter_predicate.is_some(),
         )
-        .is_absent()
+    }
+
+    /// Return whether this node carries any residual filter annotation.
+    #[must_use]
+    pub const fn has_residual_filter(&self) -> bool {
+        !self.residual_filter_shape().is_absent()
     }
 
     /// Borrow optional projection annotation.

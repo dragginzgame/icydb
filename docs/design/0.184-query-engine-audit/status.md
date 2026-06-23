@@ -380,6 +380,21 @@ Status: active.
   finalized planning, access-planned queries, and EXPLAIN nodes now flow through
   `ResidualFilterShape`, and the layer-authority invariant rejects direct
   residual expression/predicate field OR checks.
+- F2 / D3 residual-shape authority cleanup: finalized static planning now
+  builds the `ResidualFilterContract` before consuming the residual diagnostics
+  shape, so predicate pushdown diagnostics and preparation-predicate compile
+  decisions consume the same contract-owned classification as downstream
+  execution. EXPLAIN execution nodes now also expose a local residual-shape
+  accessor and use it for residual-presence checks. The layer-authority
+  invariant now rejects new `ResidualFilterShape::from_presence` calls outside
+  the planner/explain shape-owner files.
+- H2 / access-choice cleanup follow-up: same-score residual-burden preference
+  now stays inside the EXPLAIN candidate loop for rejection labels and the
+  chosen-route preference decision instead of building a separate same-score
+  residual candidate set for each residual-burden projection.
+- EXPLAIN descriptor cleanup: verbose diagnostics now collect descriptor-stage
+  presence flags in one preorder walk instead of calling `contains_type` once
+  per flag.
 - H6 / D7 / F6 write-boundary cleanup follow-up: UPDATE and DELETE exposure
   policies now share staged-row and RETURNING execution-bound construction
   while preserving family-local policy mapping, public write-plan DTOs share

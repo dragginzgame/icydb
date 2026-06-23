@@ -855,6 +855,88 @@ fn residual_free_rerank_skips_same_score_candidate_scan() {
 }
 
 #[test]
+fn chosen_residual_burden_preference_scans_same_score_candidates_once() {
+    let values = vec![
+        Value::Text("alice@example.com".to_string()),
+        Value::Text("bob@example.com".to_string()),
+    ];
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::In,
+        Value::List(values.clone()),
+        CoercionId::TextCasefold,
+    ));
+    let schema = schema();
+    let logical_inputs = LogicalPlanningInputs::new(
+        QueryMode::Load(LoadSpec::new()),
+        None,
+        false,
+        None,
+        false,
+        None,
+        None,
+    );
+    let logical = build_logical_plan(
+        schema,
+        logical_query_from_logical_inputs(
+            logical_inputs,
+            Some(predicate),
+            MissingRowPolicy::Ignore,
+        ),
+    );
+    let chosen_index = SemanticIndexAccessContract::model_only_from_generated_index(
+        ACCESS_CHOICE_EXPRESSION_INDEXES[0],
+    );
+    let access: AccessPlan<Value> =
+        AccessPlan::index_multi_lookup_from_contract(chosen_index, values);
+    let plan = AccessPlannedQuery::from_logical_access_and_projection(
+        logical,
+        access,
+        ProjectionSelection::All,
+    );
+    let visible_indexes = [
+        SemanticIndexAccessContract::model_only_from_generated_index(
+            ACCESS_CHOICE_EXPRESSION_INDEXES[0],
+        ),
+        SemanticIndexAccessContract::model_only_from_generated_index(
+            ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
+        ),
+    ];
+
+    super::reset_same_score_competing_candidate_scan_count_for_tests();
+    let preferred = super::chosen_access_prefers_lower_residual_burden(
+        &ACCESS_CHOICE_MODEL,
+        visible_indexes.as_slice(),
+        schema,
+        &plan,
+    );
+
+    assert!(
+        !preferred,
+        "equivalent expression indexes should not produce a residual-burden preference",
+    );
+    assert_eq!(
+        super::same_score_competing_candidate_scan_count_for_tests(),
+        1,
+        "chosen residual-burden preference should inspect same-score candidates once",
+    );
+
+    super::reset_same_score_competing_candidate_scan_count_for_tests();
+    let _snapshot = super::project_access_choice_explain_snapshot_from_authority(
+        &ACCESS_CHOICE_MODEL,
+        visible_indexes.as_slice(),
+        schema,
+        &plan,
+    );
+
+    assert_eq!(
+        super::same_score_competing_candidate_scan_count_for_tests(),
+        0,
+        "access-choice EXPLAIN should derive residual facts from its main candidate loop",
+    );
+}
+
+#[test]
 fn evaluate_range_candidate_rejects_eq_range_conflict_on_same_field() {
     let predicate = crate::db::predicate::Predicate::And(vec![
         crate::db::predicate::Predicate::Compare(
