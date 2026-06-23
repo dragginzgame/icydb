@@ -10,7 +10,7 @@ use crate::{
         data::DataRow,
         executor::{
             delete::{
-                apply_delete_post_access_rows, prepare_delete_commit,
+                prepare_delete_commit, prepare_delete_leaf_rows,
                 resolve_delete_candidate_rows_recorded_as,
                 types::{
                     DeleteRow, PreparedDeleteExecutionState, PreparedTypedDelete, TypedDeleteLeaf,
@@ -25,23 +25,6 @@ use crate::{
     traits::{CanisterKind, EntityValue},
     types::Id,
 };
-
-// Decode typed delete candidates, apply the shared delete post-access flow,
-// and then let the caller package the surviving rows.
-fn prepare_typed_delete_leaf<E, T>(
-    prepared: &PreparedDeleteExecutionState,
-    mut rows: Vec<DeleteRow<E>>,
-    package_rows: impl FnOnce(Vec<DeleteRow<E>>) -> Result<T, InternalError>,
-) -> Result<T, InternalError>
-where
-    E: PersistedRow + EntityValue,
-{
-    // Phase 1: apply typed delete post-access filtering and ordering once.
-    apply_delete_post_access_rows(prepared, &mut rows)?;
-
-    // Phase 2: package the already-filtered typed delete rows for the caller.
-    package_rows(rows)
-}
 
 impl<E> DeleteRow<E>
 where
@@ -110,7 +93,7 @@ where
 
     // Phase 2: run typed delete post-access selection and package the caller's
     // desired output shape alongside rollback rows.
-    let typed = prepare_typed_delete_leaf(prepared, rows, package_rows)?;
+    let typed = prepare_delete_leaf_rows(prepared, rows, package_rows)?;
     if typed.row_count == 0 {
         return Ok(None);
     }

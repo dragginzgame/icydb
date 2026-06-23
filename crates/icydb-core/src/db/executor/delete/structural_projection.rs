@@ -18,7 +18,7 @@ use crate::{
         Db,
         executor::{
             delete::{
-                apply_delete_post_access_rows, prepare_delete_commit,
+                prepare_delete_commit, prepare_delete_leaf_rows,
                 resolve_delete_candidate_rows_recorded_as,
                 types::{
                     DeleteCommitApplyFn, DeleteCountPreparation, PreparedDeleteCommit,
@@ -35,20 +35,6 @@ use crate::{
 };
 #[cfg(feature = "sql")]
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
-
-// Decode structural delete rows, apply the shared delete post-access flow,
-// and then let the caller package the surviving kernel rows.
-fn prepare_structural_delete_leaf<T>(
-    prepared: &PreparedDeleteExecutionState,
-    mut rows: Vec<KernelRow>,
-    package_rows: impl FnOnce(Vec<KernelRow>) -> Result<T, InternalError>,
-) -> Result<T, InternalError> {
-    // Phase 1: apply delete-only post-access semantics on the structural row shape.
-    apply_delete_post_access_rows(prepared, &mut rows)?;
-
-    // Phase 2: package the already-filtered structural delete rows for the caller.
-    package_rows(rows)
-}
 
 // Package surviving structural delete kernel rows plus rollback rows for
 // commit preparation.
@@ -119,6 +105,16 @@ fn resolve_structural_delete_kernel_rows(
     })
 }
 
+fn prepare_structural_delete_leaf_from_access<T>(
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+    package_rows: impl FnOnce(Vec<KernelRow>) -> Result<T, InternalError>,
+) -> Result<T, InternalError> {
+    let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
+
+    prepare_delete_leaf_rows(prepared, rows, package_rows)
+}
+
 // Resolve, filter, and package one structural delete count before the outer
 // typed wrapper applies the final commit window.
 fn prepare_structural_delete_count<C>(
@@ -131,18 +127,19 @@ where
 {
     // Phase 1: decode rows through the same accepted row layout used by
     // structural DELETE RETURNING so count-only SQL deletes can remove old
-    // physical rows after append-only nullable schema transitions.
-    let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
-
-    // Phase 2: keep delete filtering, ordering, and rollback packaging on the
+    // physical rows after append-only nullable schema transitions, then keep
+    // delete filtering, ordering, and rollback packaging on the
     // structural kernel-row boundary while discarding projection material.
-    let structural =
-        prepare_structural_delete_leaf(prepared, rows, package_structural_delete_count)?;
+    let structural = prepare_structural_delete_leaf_from_access(
+        store,
+        prepared,
+        package_structural_delete_count,
+    )?;
     if structural.row_count == 0 {
         return Ok(None);
     }
 
-    // Phase 3: prepare relation validation and commit row ops once for the
+    // Phase 2: prepare relation validation and commit row ops once for the
     // already-selected delete targets.
     let row_count = saturating_u32_len(structural.row_count);
     let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
@@ -162,13 +159,13 @@ where
     C: CanisterKind,
 {
     // Phase 1: resolve structural access rows once through the shared
-    // accepted-layout decode helper.
-    let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
-
-    // Phase 2: keep delete filtering, ordering, and rollback packaging on the
-    // structural kernel-row boundary.
-    let structural =
-        prepare_structural_delete_leaf(prepared, rows, package_structural_delete_rows)?;
+    // accepted-layout decode helper, then keep delete filtering, ordering, and
+    // rollback packaging on the structural kernel-row boundary.
+    let structural = prepare_structural_delete_leaf_from_access(
+        store,
+        prepared,
+        package_structural_delete_rows,
+    )?;
     if structural.response_rows.len() == 0 {
         return Ok(PreparedDeleteProjection {
             projection: DeleteProjection::new(MaterializedProjectionRows::empty()),
@@ -178,7 +175,7 @@ where
         });
     }
 
-    // Phase 3: prepare the structural delete commit payload before the typed
+    // Phase 2: prepare the structural delete commit payload before the typed
     // wrapper enters the mechanical commit-window apply step.
     let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
 

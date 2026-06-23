@@ -1,10 +1,9 @@
 use super::{
-    accepted_sql_write_save_contract, checked_accepted_write_descriptor,
+    SqlWriteMutationExecution, checked_accepted_write_descriptor,
     checked_accepted_write_descriptor_for_returning, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
     sql_update_candidate_bounds, sql_write_key_from_component_literals, sql_write_key_from_literal,
-    sql_write_mutation_statement_result, sql_write_patch_set_accepted_field,
-    sql_write_value_for_accepted_field,
+    sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
 };
 use crate::{
     db::{
@@ -17,7 +16,6 @@ use crate::{
             SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
             SqlUpdateExecutionBounds, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
             SqlValidatedUpdatePlan, classify_sql_update_policy,
-            execute::write_returning::validate_sql_returning_bounds,
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
@@ -155,44 +153,19 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
         let candidate_rows =
             rows.validate_staged_rows(sql_update_candidate_bounds(execution_bounds))?;
-        let (
-            row_decode_contract,
-            mutation_row_decode_contract,
-            accepted_schema_info,
-            accepted_schema_fingerprint,
-        ) = accepted_sql_write_save_contract::<E>(&schema, &descriptor, Some(save_schema_info))?;
-        let entities = self
-            .execute_save_with_checked_accepted_row_contract::<E, _, _>(
-                row_decode_contract,
-                accepted_schema_info,
-                accepted_schema_fingerprint,
-                |save| {
-                    save.apply_internal_lowered_structural_mutation_batch_with_precommit(
-                        MutationMode::Update,
-                        rows.into_rows(),
-                        write_context,
-                        mutation_row_decode_contract,
-                        |entities| {
-                            validate_sql_returning_bounds(
-                                E::MODEL.name(),
-                                entities,
-                                statement.returning.as_ref(),
-                                &descriptor,
-                                execution_bounds.map(|bounds| bounds.returning.write_bounds()),
-                            )
-                        },
-                    )
-                },
-                std::convert::identity,
-            )
-            .map_err(QueryError::execute)?;
-        sql_write_mutation_statement_result::<E>(
-            E::PATH,
-            SqlWriteKind::Update,
-            candidate_rows,
-            entities,
-            statement.returning.as_ref(),
+        self.execute_sql_write_mutation_batch::<E>(
+            &schema,
             &descriptor,
+            SqlWriteMutationExecution {
+                rows,
+                staged_rows: candidate_rows,
+                kind: SqlWriteKind::Update,
+                mode: MutationMode::Update,
+                context: write_context,
+                returning_bounds: execution_bounds.map(|bounds| bounds.returning.write_bounds()),
+                save_schema_info: Some(save_schema_info),
+            },
+            statement.returning.as_ref(),
         )
     }
 

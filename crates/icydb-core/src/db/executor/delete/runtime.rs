@@ -199,3 +199,19 @@ where
 
     Ok(())
 }
+
+// Apply delete post-access selection and then let the caller package the
+// surviving rows. Typed and structural delete cores share this leaf boundary
+// while keeping row decoding, response shaping, and rollback packaging local.
+pub(in crate::db::executor::delete) fn prepare_delete_leaf_rows<R, T>(
+    prepared: &PreparedDeleteExecutionState,
+    mut rows: Vec<R>,
+    package_rows: impl FnOnce(Vec<R>) -> Result<T, InternalError>,
+) -> Result<T, InternalError>
+where
+    R: OrderReadableRow,
+{
+    apply_delete_post_access_rows(prepared, &mut rows)?;
+
+    package_rows(rows)
+}

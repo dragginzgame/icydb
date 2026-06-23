@@ -5,7 +5,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::{FieldSlot, StructuralPatch},
-        executor::{DeleteProjectionBounds, EntityAuthority},
+        executor::{DeleteProjectionBounds, EntityAuthority, MutationMode},
         query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
@@ -23,9 +23,10 @@ use crate::{
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, sql_write_statement_result,
-                    validate_sql_materialized_returning_bounds,
+                    validate_sql_materialized_returning_bounds, validate_sql_returning_bounds,
                     validate_sql_returning_projection_fields,
                 },
+                write_policy::SqlWriteReturningBounds,
             },
         },
         sql::{
@@ -34,6 +35,7 @@ use crate::{
         },
     },
     metrics::sink::{MetricsEvent, SqlWriteKind, record},
+    sanitize::SanitizeWriteContext,
     traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
     value::Value,
 };
@@ -469,6 +471,19 @@ where
     sql_write_statement_result::<E>(entities, returning, descriptor)
 }
 
+struct SqlWriteMutationExecution<E>
+where
+    E: PersistedRow + EntityValue,
+{
+    rows: SqlWriteMutationBatch<E::Key>,
+    staged_rows: SqlWriteCandidateRows,
+    kind: SqlWriteKind,
+    mode: MutationMode,
+    context: SanitizeWriteContext,
+    returning_bounds: Option<SqlWriteReturningBounds>,
+    save_schema_info: Option<SchemaInfo>,
+}
+
 const fn sql_delete_projection_bounds(
     execution_bounds: Option<SqlDeleteExecutionBounds>,
     returning: bool,
@@ -514,6 +529,58 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         Ok(rows)
+    }
+
+    fn execute_sql_write_mutation_batch<E>(
+        &self,
+        schema: &AcceptedSchemaSnapshot,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        execution: SqlWriteMutationExecution<E>,
+        returning: Option<&SqlReturningProjection>,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (
+            row_decode_contract,
+            mutation_row_decode_contract,
+            accepted_schema_info,
+            accepted_schema_fingerprint,
+        ) = accepted_sql_write_save_contract::<E>(schema, descriptor, execution.save_schema_info)?;
+        let entities = self
+            .execute_save_with_checked_accepted_row_contract::<E, _, _>(
+                row_decode_contract,
+                accepted_schema_info,
+                accepted_schema_fingerprint,
+                |save| {
+                    save.apply_internal_lowered_structural_mutation_batch_with_precommit(
+                        execution.mode,
+                        execution.rows.into_rows(),
+                        execution.context,
+                        mutation_row_decode_contract,
+                        |entities| {
+                            validate_sql_returning_bounds(
+                                E::MODEL.name(),
+                                entities,
+                                returning,
+                                descriptor,
+                                execution.returning_bounds,
+                            )
+                        },
+                    )
+                },
+                std::convert::identity,
+            )
+            .map_err(QueryError::execute)?;
+
+        sql_write_mutation_statement_result::<E>(
+            E::PATH,
+            execution.kind,
+            execution.staged_rows,
+            entities,
+            returning,
+            descriptor,
+        )
     }
 
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(

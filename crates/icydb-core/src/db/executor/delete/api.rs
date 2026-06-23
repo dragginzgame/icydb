@@ -17,9 +17,11 @@ use crate::{
             delete::{
                 apply_delete_commit_window_for_type, execute_structural_delete_count_core,
                 package_typed_delete_rows, prepare_delete_runtime, prepare_typed_delete_core,
+                types::PreparedDeleteExecutionState,
             },
             plan_metrics::{record_plan_metrics, set_rows_from_len},
         },
+        registry::StoreHandle,
         response::EntityResponse,
     },
     error::InternalError,
@@ -55,50 +57,61 @@ where
         Self { db }
     }
 
-    /// Execute one delete plan and return deleted entities in response order.
-    pub(in crate::db) fn execute(
+    // Run one delete plan through the shared outer shell: span setup, runtime
+    // preparation, plan metrics, row-count attribution, and error recording.
+    fn execute_with_delete_runtime<T>(
         self,
         plan: PreparedExecutionPlan<E>,
-    ) -> Result<EntityResponse<E>, InternalError> {
+        run: impl FnOnce(
+            &Db<E::Canister>,
+            PreparedDeleteExecutionState,
+            StoreHandle,
+        ) -> Result<(T, usize), InternalError>,
+    ) -> Result<T, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Delete);
         let result = (|| {
-            // Phase 1: prepare authority, store access, and delete execution inputs once.
             let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
             record_plan_metrics(
                 prepared.authority.entity.entity_path(),
                 &prepared.logical_plan,
             );
+            let (output, row_count) = run(&self.db, prepared, store)?;
+            set_rows_from_len(&mut span, row_count);
 
-            // Phase 2: run the shared typed delete core and package response rows.
-            let Some(typed) = prepare_typed_delete_core(
-                &self.db,
-                store,
-                &prepared,
-                package_typed_delete_rows::<E>,
-            )?
-            else {
-                set_rows_from_len(&mut span, 0);
-                return Ok(EntityResponse::new(Vec::new()));
-            };
-
-            // Phase 3: apply the already prepared delete commit payload.
-            apply_delete_commit_window_for_type::<E>(
-                &self.db,
-                prepared.authority.entity,
-                typed.commit.row_ops,
-                "delete_row_apply",
-            )?;
-
-            // Phase 4: return the already-prepared typed delete response rows.
-            set_rows_from_len(&mut span, typed.row_count);
-
-            Ok(EntityResponse::new(typed.output))
+            Ok(output)
         })();
         if let Err(err) = &result {
             span.set_error(err);
         }
 
         result
+    }
+
+    /// Execute one delete plan and return deleted entities in response order.
+    pub(in crate::db) fn execute(
+        self,
+        plan: PreparedExecutionPlan<E>,
+    ) -> Result<EntityResponse<E>, InternalError> {
+        self.execute_with_delete_runtime(plan, |db, prepared, store| {
+            // Phase 1: run the shared typed delete core and package response rows.
+            let Some(typed) =
+                prepare_typed_delete_core(db, store, &prepared, package_typed_delete_rows::<E>)?
+            else {
+                return Ok((EntityResponse::new(Vec::new()), 0));
+            };
+            let row_count = typed.row_count;
+
+            // Phase 2: apply the already prepared delete commit payload.
+            apply_delete_commit_window_for_type::<E>(
+                db,
+                prepared.authority.entity,
+                typed.commit.row_ops,
+                "delete_row_apply",
+            )?;
+
+            // Phase 3: return the already-prepared typed delete response rows.
+            Ok((EntityResponse::new(typed.output), row_count))
+        })
     }
 
     /// Execute one structural delete projection plan with an optional
@@ -110,43 +123,22 @@ where
         bounds: DeleteProjectionBounds,
         validate_precommit: impl FnOnce(&DeleteProjection) -> Result<(), InternalError>,
     ) -> Result<DeleteProjection, InternalError> {
-        let mut span = Span::<E>::new(ExecKind::Delete);
-        let result = (|| {
-            // Phase 1: prepare authority, store access, and delete execution inputs once.
-            let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
-            record_plan_metrics(
-                prepared.authority.entity.entity_path(),
-                &prepared.logical_plan,
-            );
-
-            // Phase 2: run the shared structural delete core and apply the
+        self.execute_with_delete_runtime(plan, |db, prepared, store| {
+            // Phase 1: run the shared structural delete core and apply the
             // final typed commit-window bridge only at the boundary.
             let projection = execute_structural_delete_projection_core(
-                &self.db,
+                db,
                 store,
                 &prepared,
                 bounds,
                 validate_precommit,
                 apply_delete_commit_window_for_type::<E>,
             )?;
-            if projection.row_count() == 0 {
-                set_rows_from_len(&mut span, 0);
-                return Ok(projection);
-            }
+            let row_count = usize::try_from(projection.row_count()).unwrap_or(usize::MAX);
 
-            // Phase 3: return the already prepared structural delete projection.
-            set_rows_from_len(
-                &mut span,
-                usize::try_from(projection.row_count()).unwrap_or(usize::MAX),
-            );
-
-            Ok(projection)
-        })();
-        if let Err(err) = &result {
-            span.set_error(err);
-        }
-
-        result
+            // Phase 2: return the already prepared structural delete projection.
+            Ok((projection, row_count))
+        })
     }
 
     /// Execute one delete plan and return only the affected-row count.
@@ -154,35 +146,21 @@ where
         self,
         plan: PreparedExecutionPlan<E>,
     ) -> Result<u32, InternalError> {
-        let mut span = Span::<E>::new(ExecKind::Delete);
-        let result = (|| {
-            // Phase 1: prepare authority, store access, and delete execution inputs once.
-            let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
-            record_plan_metrics(
-                prepared.authority.entity.entity_path(),
-                &prepared.logical_plan,
-            );
-
-            // Phase 2: run the structural delete-count core so accepted-schema
+        self.execute_with_delete_runtime(plan, |db, prepared, store| {
+            // Phase 1: run the structural delete-count core so accepted-schema
             // row layouts are preserved for old physical rows. Count-only
             // deletes do not need typed entity materialization.
             let row_count = execute_structural_delete_count_core(
-                &self.db,
+                db,
                 store,
                 &prepared,
                 apply_delete_commit_window_for_type::<E>,
             )?;
+            let row_count_len = usize::try_from(row_count).unwrap_or(usize::MAX);
 
-            // Phase 3: return only the final affected-row count.
-            set_rows_from_len(&mut span, usize::try_from(row_count).unwrap_or(usize::MAX));
-
-            Ok(row_count)
-        })();
-        if let Err(err) = &result {
-            span.set_error(err);
-        }
-
-        result
+            // Phase 2: return only the final affected-row count.
+            Ok((row_count, row_count_len))
+        })
     }
 
     /// Execute one delete plan and return only the affected-row count while
@@ -193,34 +171,20 @@ where
         plan: PreparedExecutionPlan<E>,
         bounds: DeleteProjectionBounds,
     ) -> Result<u32, InternalError> {
-        let mut span = Span::<E>::new(ExecKind::Delete);
-        let result = (|| {
-            // Phase 1: prepare authority, store access, and delete execution inputs once.
-            let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
-            record_plan_metrics(
-                prepared.authority.entity.entity_path(),
-                &prepared.logical_plan,
-            );
-
-            // Phase 2: run the structural delete-count core with the SQL
+        self.execute_with_delete_runtime(plan, |db, prepared, store| {
+            // Phase 1: run the structural delete-count core with the SQL
             // exposure-policy bound before applying the commit payload.
             let row_count = execute_structural_delete_count_core_with_bounds(
-                &self.db,
+                db,
                 store,
                 &prepared,
                 bounds,
                 apply_delete_commit_window_for_type::<E>,
             )?;
+            let row_count_len = usize::try_from(row_count).unwrap_or(usize::MAX);
 
-            // Phase 3: return only the final affected-row count.
-            set_rows_from_len(&mut span, usize::try_from(row_count).unwrap_or(usize::MAX));
-
-            Ok(row_count)
-        })();
-        if let Err(err) = &result {
-            span.set_error(err);
-        }
-
-        result
+            // Phase 2: return only the final affected-row count.
+            Ok((row_count, row_count_len))
+        })
     }
 }

@@ -448,6 +448,20 @@ Status: active.
 - Public DELETE RETURNING response-byte budgets now run through the
   structural delete precommit validation point, so row-count and response-size
   rejections both occur before the delete commit is applied.
+- Delete executor entrypoints are in local DRY mode: typed delete, structural
+  RETURNING delete, count-only delete, and bounded count-only delete now share
+  the runtime preparation, plan metrics, span row attribution, and error
+  recording shell while keeping their delete-core packaging and commit
+  behavior separate. Structural count and RETURNING delete paths now also
+  share accepted-layout candidate resolution and delete post-access leaf setup
+  before packaging their distinct count/projection outputs. Typed and
+  structural delete cores now use the same runtime-owned post-access leaf
+  packager boundary.
+- SQL write mutation execution is in local DRY mode: INSERT and UPDATE still
+  build family-specific key/patch batches locally, but both now hand the
+  accepted schema, mutation mode, staged-row attribution, optional RETURNING
+  bounds, and optional INSERT SELECT schema-info shortcut to one shared
+  accepted save-contract / precommit execution / result-shaping shell.
 - Compiled SQL execution dispatch is in local DRY mode: the owned compiled
   command and compiled-context entrypoints now borrow their artifacts and reuse
   the borrowed dispatchers, so SELECT, INSERT, UPDATE, DELETE, global
