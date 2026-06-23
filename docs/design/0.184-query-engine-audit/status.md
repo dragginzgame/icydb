@@ -143,6 +143,11 @@ Status: active.
   bind parsed DELETE statements through the accepted schema, and pass staged-row
   / RETURNING row bounds into the delete executor before the commit window for
   both count-only and RETURNING deletes.
+- H6 / D7 / F6 fifth slice: UPDATE and DELETE policy validation plus DELETE
+  execution projection bounds now share bounded-public write checks and
+  staged-row / RETURNING row-bound calculation through the common write-policy
+  helper while preserving distinct update/delete rejection and execution-bound
+  surface types.
 - H3 / F7 tenth slice: lowered SQL projection expressions now carry their
   `LoweredExprAnalysis` through the SELECT schema-binding seam, and projection
   source-field capability validation consumes the recorded direct/path source
@@ -173,6 +178,11 @@ Status: active.
   conservative metadata eligibility and prefix count when the same no-metadata
   planning proof can derive exact prefix specs; runtime scalar-aggregate
   `sink_mode` remains the exact execution attribution.
+- D1 / F3 third aggregate-architecture slice: SQL global aggregate command
+  facts now own the singleton direct `COUNT(*)` and prefix-cardinality
+  metadata-candidate proof, so runtime execution, compiled execution,
+  diagnostics fallback, and EXPLAIN consume one precomputed fact set instead of
+  rebuilding strategy/projection/HAVING checks in the session adapter.
 - H7 first slice: scalar materialization lane metrics now report retained-slot
   layout executions, retained value count, and byte-length-only retained value
   count, giving late-materialization work an execution-owned footprint before
@@ -354,9 +364,9 @@ Status: active.
   count/existence terminals now share metadata summing, while SQL-specific
   compiled cache identity remains separate.
 - SQL global aggregate direct-count work is still a lightweight singleton
-  fast path, not a shared aggregate operator rewrite. The cleanup only removes
-  repeated eligibility/probe mechanics and duplicate non-diagnostic probe
-  execution.
+  fast path, not a shared aggregate operator rewrite. The cleanup now removes
+  repeated eligibility/probe mechanics, duplicate non-diagnostic probe
+  execution, and session-local direct-count shape reconstruction.
 - Filter handoff work is in local DRY mode: residual expression and predicate
   accessors remain available for callers that need the actual artifacts, while
   boolean gating should go through the single plan-owned presence helper.

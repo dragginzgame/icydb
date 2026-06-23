@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.20` continues the query-engine audit by consolidating SQL global
+  aggregate direct-count facts, shared UPDATE/DELETE write-policy bounds, and
+  residual-filter ownership across EXPLAIN and covering projection lanes
+  without changing query semantics.
+
 - `0.184.19` continues the query-engine audit by extending sparse `IN`
   child-prefix pruning to SQL covering pages and consolidating count,
   direct-count aggregate, and residual-filter contract guardrails without

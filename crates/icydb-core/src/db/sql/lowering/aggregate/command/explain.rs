@@ -6,8 +6,8 @@ use crate::{
             lowering::{
                 LoweredSqlCommand, LoweredSqlCommandInner, SqlLoweringError,
                 aggregate::command::{
-                    StructuralSqlGlobalAggregateCommand,
-                    binding::bind_lowered_sql_global_aggregate_command_structural,
+                    SqlGlobalAggregateCommand,
+                    binding::bind_lowered_sql_global_aggregate_command_with_schema,
                 },
             },
             parser::SqlExplainMode,
@@ -18,12 +18,12 @@ use crate::{
 
 /// Bind one lowered global aggregate EXPLAIN shape with explicit schema
 /// projection.
-pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural_with_schema(
+pub(crate) fn bind_lowered_sql_explain_global_aggregate_with_schema(
     lowered: &LoweredSqlCommand,
     model: &'static EntityModel,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
-) -> Result<Option<(SqlExplainMode, bool, StructuralSqlGlobalAggregateCommand)>, SqlLoweringError> {
+) -> Result<Option<(SqlExplainMode, bool, SqlGlobalAggregateCommand)>, SqlLoweringError> {
     let LoweredSqlCommandInner::ExplainGlobalAggregate {
         mode,
         verbose,
@@ -36,7 +36,7 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural_with_schema(
     Ok(Some((
         *mode,
         *verbose,
-        bind_lowered_sql_global_aggregate_command_structural(
+        bind_lowered_sql_global_aggregate_command_with_schema(
             model,
             command.clone(),
             consistency,

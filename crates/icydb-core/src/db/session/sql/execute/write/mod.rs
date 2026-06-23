@@ -17,7 +17,7 @@ use crate::{
             sql::{
                 SqlDeleteExecutionBounds, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
                 SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan, SqlStatementResult,
-                SqlValidatedDeletePlan, classify_sql_delete_policy,
+                SqlValidatedDeletePlan, classify_sql_delete_policy, combined_optional_row_bound,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, validate_sql_returning_projection_fields,
@@ -366,15 +366,6 @@ fn record_sql_write_metrics(
     });
 }
 
-const fn optional_min_u32(left: Option<u32>, right: Option<u32>) -> Option<u32> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(if left < right { left } else { right }),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    }
-}
-
 fn sql_delete_projection_bounds(
     execution_bounds: Option<SqlDeleteExecutionBounds>,
     returning: bool,
@@ -384,7 +375,7 @@ fn sql_delete_projection_bounds(
     };
 
     let max_rows = if returning {
-        optional_min_u32(
+        combined_optional_row_bound(
             execution_bounds.max_staged_rows,
             execution_bounds.returning.max_rows,
         )

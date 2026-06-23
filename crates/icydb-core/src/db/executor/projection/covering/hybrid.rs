@@ -10,7 +10,8 @@ use crate::{
             },
             shared::{
                 PreparedCoveringIndexScan, apply_covering_page_window,
-                decode_hybrid_covering_components, resolve_index_backed_covering_scan,
+                covering_residual_filter_supported, decode_hybrid_covering_components,
+                resolve_index_backed_covering_scan,
             },
         },
         executor::{CoveringProjectionComponentRows, EntityAuthority, terminal::RowLayout},
@@ -33,12 +34,11 @@ pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister
 where
     C: CanisterKind,
 {
-    if plan.has_residual_filter_expr() {
-        return Ok(None);
-    }
-    if plan.has_residual_filter_predicate()
-        && (!hybrid.strict_predicate_compatible || index_predicate_execution.is_none())
-    {
+    if !covering_residual_filter_supported(
+        plan,
+        hybrid.strict_predicate_compatible,
+        index_predicate_execution.is_some(),
+    ) {
         return Ok(None);
     }
 

@@ -94,6 +94,7 @@ pub use update_policy::{
     SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
     SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
 };
+pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
 
 #[cfg(feature = "diagnostics")]
 const fn sql_query_cache_attribution_from_phases(

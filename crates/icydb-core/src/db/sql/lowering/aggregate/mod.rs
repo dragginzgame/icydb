@@ -10,16 +10,15 @@ mod terminal;
 use crate::db::sql::parser::{SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement};
 
 #[cfg(test)]
-pub(crate) use command::SqlGlobalAggregateCommand;
+pub(crate) use command::TypedSqlGlobalAggregateCommand;
 #[cfg(test)]
 pub(crate) use command::compile_sql_global_aggregate_command_for_model_only;
-pub(in crate::db) use command::compile_structural_sql_global_aggregate_command_from_prepared_with_schema;
+pub(in crate::db) use command::compile_sql_global_aggregate_command_from_prepared_with_schema;
 pub(in crate::db::sql::lowering) use command::{
     LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape,
 };
 pub(crate) use command::{
-    StructuralSqlGlobalAggregateCommand,
-    bind_lowered_sql_explain_global_aggregate_structural_with_schema,
+    SqlGlobalAggregateCommand, bind_lowered_sql_explain_global_aggregate_with_schema,
 };
 #[cfg(test)]
 pub(in crate::db::sql::lowering) use command::{

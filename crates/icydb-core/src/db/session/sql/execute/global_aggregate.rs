@@ -12,10 +12,7 @@ use crate::{
             StructuralAggregateRequest, StructuralAggregateTerminal,
             StructuralAggregateTerminalKind,
         },
-        query::plan::{
-            AggregateKind, VisibleIndexes,
-            expr::{Expr, ProjectionField, ProjectionSpec},
-        },
+        query::plan::{AggregateKind, VisibleIndexes, expr::ProjectionSpec},
         schema::SchemaInfo,
         session::{
             AcceptedSchemaCatalogContext,
@@ -30,7 +27,7 @@ use crate::{
         },
         sql::lowering::{
             PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
-            StructuralSqlGlobalAggregateCommand,
+            SqlGlobalAggregateCommand,
         },
     },
     traits::{CanisterKind, EntityValue},
@@ -63,14 +60,14 @@ struct DirectCountCardinalityProbeResolution {
     fallback_authority: Option<EntityAuthority>,
 }
 
-struct PreparedStructuralAggregateOperator {
+struct PreparedAggregateRequestBundle {
     request: StructuralAggregateRequest,
     projection: SqlProjectionContract,
 }
 
-impl PreparedStructuralAggregateOperator {
+impl PreparedAggregateRequestBundle {
     fn from_global_command(
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         schema_info: SchemaInfo,
     ) -> Result<Self, QueryError> {
         let projection = command.projection();
@@ -146,53 +143,6 @@ fn build_structural_aggregate_terminal_from_sql_strategy(
         filter_expr,
         distinct_input,
     ))
-}
-
-fn is_direct_count_rows_projection(projection: &ProjectionSpec) -> bool {
-    let mut fields = projection.fields();
-    let Some(ProjectionField::Scalar {
-        expr: Expr::Aggregate(aggregate),
-        ..
-    }) = fields.next()
-    else {
-        return false;
-    };
-
-    fields.next().is_none()
-        && aggregate.kind() == AggregateKind::Count
-        && aggregate.target_field().is_none()
-        && aggregate.input_expr().is_none()
-        && aggregate.filter_expr().is_none()
-        && !aggregate.is_distinct()
-}
-
-fn is_direct_count_rows_strategy(strategies: &[PreparedSqlScalarAggregateStrategy]) -> bool {
-    let [strategy] = strategies else {
-        return false;
-    };
-
-    strategy.plan_fragment() == PreparedSqlScalarAggregatePlanFragment::CountRows
-        && strategy.filter_expr().is_none()
-}
-
-pub(super) fn is_direct_count_rows_global_aggregate(
-    strategies: &[PreparedSqlScalarAggregateStrategy],
-    projection: &ProjectionSpec,
-    aggregate_filter: Option<&Expr>,
-) -> bool {
-    aggregate_filter.is_none()
-        && is_direct_count_rows_strategy(strategies)
-        && is_direct_count_rows_projection(projection)
-}
-
-pub(super) fn is_direct_count_cardinality_metadata_candidate(
-    command: &StructuralSqlGlobalAggregateCommand,
-) -> bool {
-    is_direct_count_rows_global_aggregate(
-        command.strategies(),
-        command.projection(),
-        command.having(),
-    ) && command.query().direct_count_cardinality_prefix_candidate()
 }
 
 fn direct_count_rows_statement_result(
@@ -380,7 +330,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn direct_count_cardinality_plan_entry_for_accepted_authority(
         authority: &EntityAuthority,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         visible_indexes: &VisibleIndexes<'_>,
         schema_info: &SchemaInfo,
@@ -398,13 +348,16 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn build_direct_count_cardinality_plan_probe<E>(
         &self,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<Option<DirectCountCardinalityPlanProbe>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        if !is_direct_count_cardinality_metadata_candidate(command) {
+        if !command
+            .facts()
+            .is_direct_count_cardinality_metadata_candidate()
+        {
             return Ok(None);
         }
 
@@ -431,13 +384,16 @@ impl<C: CanisterKind> DbSession<C> {
     fn resolve_compiled_direct_count_cardinality_plan<E>(
         &self,
         compiled: &CompiledSqlCommand,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<Option<DirectCountCardinalityPlanProbe>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        if !is_direct_count_cardinality_metadata_candidate(command) {
+        if !command
+            .facts()
+            .is_direct_count_cardinality_metadata_candidate()
+        {
             return Ok(None);
         }
         if let Some(entry) = compiled.cached_global_aggregate_count_plan(
@@ -462,7 +418,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn resolve_compiled_direct_count_cardinality_plan_with_phase_attribution<E>(
         &self,
         compiled: &CompiledSqlCommand,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<
         (
@@ -475,7 +431,10 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let mut attribution = QueryPlanCompilePhaseAttribution::default();
-        if !is_direct_count_cardinality_metadata_candidate(command) {
+        if !command
+            .facts()
+            .is_direct_count_cardinality_metadata_candidate()
+        {
             return Ok((None, attribution));
         }
 
@@ -535,7 +494,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn execute_global_aggregate_with_prepared_plan<E>(
         &self,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         prepared_plan: &SharedPreparedExecutionPlan,
         cache_attribution: SqlCacheAttribution,
@@ -543,13 +502,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let strategies = command.strategies();
         let projection = command.projection();
-        let aggregate_filter = command.having();
-        let use_direct_count_rows =
-            is_direct_count_rows_global_aggregate(strategies, projection, aggregate_filter);
 
-        if use_direct_count_rows {
+        if command.facts().is_direct_count_rows() {
             let value = self.execute_direct_count_rows_global_aggregate::<E>(prepared_plan)?;
 
             return Ok(direct_count_rows_statement_result(
@@ -559,9 +514,8 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
         let schema_info = catalog.accepted_schema_info_for::<E>();
-        let operator =
-            PreparedStructuralAggregateOperator::from_global_command(command, schema_info)?;
-        let (request, projection) = operator.into_parts();
+        let bundle = PreparedAggregateRequestBundle::from_global_command(command, schema_info)?;
+        let (request, projection) = bundle.into_parts();
         let result = self
             .with_metrics(|| {
                 self.load_executor::<E>()
@@ -581,7 +535,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn resolve_compiled_global_aggregate_prepared_plan<E>(
         &self,
         compiled: &CompiledSqlCommand,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
     ) -> Result<(SharedPreparedExecutionPlan, SqlCacheAttribution), QueryError>
@@ -627,7 +581,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution<E>(
         &self,
         compiled: &CompiledSqlCommand,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
     ) -> Result<
@@ -682,7 +636,7 @@ impl<C: CanisterKind> DbSession<C> {
     // structural aggregate execution after resolving the accepted catalog.
     pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_ref<E>(
         &self,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -700,7 +654,7 @@ impl<C: CanisterKind> DbSession<C> {
         E,
     >(
         &self,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
@@ -743,7 +697,7 @@ impl<C: CanisterKind> DbSession<C> {
     >(
         &self,
         compiled: &CompiledSqlCommand,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
@@ -779,7 +733,7 @@ impl<C: CanisterKind> DbSession<C> {
     >(
         &self,
         compiled: &CompiledSqlCommand,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<
         (

@@ -2,12 +2,16 @@
 use crate::db::sql::lowering::apply_lowered_base_query_shape_for_model_only;
 #[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
+
 use crate::{
     db::{
         predicate::MissingRowPolicy,
         query::{
             intent::StructuralQuery,
-            plan::expr::{Expr, ProjectionSpec},
+            plan::{
+                AggregateKind,
+                expr::{Expr, ProjectionField, ProjectionSpec},
+            },
         },
         schema::SchemaInfo,
         sql::{
@@ -17,7 +21,9 @@ use crate::{
                     command::{
                         LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape,
                     },
-                    strategy::PreparedSqlScalarAggregateStrategy,
+                    strategy::{
+                        PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
+                    },
                 },
                 apply_lowered_base_query_shape_with_schema, validate_base_query_sql_capabilities,
             },
@@ -28,13 +34,13 @@ use crate::{
 };
 
 ///
-/// SqlGlobalAggregateCommand
+/// TypedSqlGlobalAggregateCommand
 ///
 /// Lowered global SQL aggregate command carrying base query shape plus terminal.
 ///
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
+pub(crate) struct TypedSqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
     terminals: Vec<PreparedSqlScalarAggregateStrategy>,
     projection: ProjectionSpec,
@@ -43,7 +49,7 @@ pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
 }
 
 #[cfg(test)]
-impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
+impl<E: EntityKind> TypedSqlGlobalAggregateCommand<E> {
     /// Borrow the lowered base query shape for aggregate execution.
     #[must_use]
     pub(crate) const fn query(&self) -> &Query<E> {
@@ -88,7 +94,78 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 }
 
 ///
-/// StructuralSqlGlobalAggregateCommand
+/// AggregateShapeFacts
+///
+/// Precomputed aggregate shape facts consumed by runtime and EXPLAIN.
+/// Keeping these facts separate from the command avoids making the command
+/// itself own singleton fast-path classification logic.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AggregateShapeFacts {
+    direct_count_rows: bool,
+    direct_count_cardinality_metadata_candidate: bool,
+}
+
+impl AggregateShapeFacts {
+    fn from_parts(
+        query: &StructuralQuery,
+        strategies: &[PreparedSqlScalarAggregateStrategy],
+        projection: &ProjectionSpec,
+        having: Option<&Expr>,
+    ) -> Self {
+        let direct_count_rows = having.is_none()
+            && Self::has_direct_count_rows_strategy(strategies)
+            && Self::has_direct_count_rows_projection(projection);
+
+        Self {
+            direct_count_rows,
+            direct_count_cardinality_metadata_candidate: direct_count_rows
+                && query.direct_count_cardinality_prefix_candidate(),
+        }
+    }
+
+    /// Return whether this command is the singleton direct `COUNT(*)` shape.
+    #[must_use]
+    pub(in crate::db) const fn is_direct_count_rows(self) -> bool {
+        self.direct_count_rows
+    }
+
+    /// Return whether direct prefix-cardinality metadata may answer this command.
+    #[must_use]
+    pub(in crate::db) const fn is_direct_count_cardinality_metadata_candidate(self) -> bool {
+        self.direct_count_cardinality_metadata_candidate
+    }
+
+    fn has_direct_count_rows_strategy(strategies: &[PreparedSqlScalarAggregateStrategy]) -> bool {
+        let [strategy] = strategies else {
+            return false;
+        };
+
+        strategy.plan_fragment() == PreparedSqlScalarAggregatePlanFragment::CountRows
+            && strategy.filter_expr().is_none()
+    }
+
+    fn has_direct_count_rows_projection(projection: &ProjectionSpec) -> bool {
+        let mut fields = projection.fields();
+        let Some(ProjectionField::Scalar {
+            expr: Expr::Aggregate(aggregate),
+            ..
+        }) = fields.next()
+        else {
+            return false;
+        };
+
+        fields.next().is_none()
+            && aggregate.kind() == AggregateKind::Count
+            && aggregate.target_field().is_none()
+            && aggregate.input_expr().is_none()
+            && aggregate.filter_expr().is_none()
+            && !aggregate.is_distinct()
+    }
+}
+
+///
+/// SqlGlobalAggregateCommand
 ///
 /// Generic-free lowered global aggregate command bound onto the structural
 /// query surface.
@@ -96,14 +173,15 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 /// a typed boundary is strictly required.
 ///
 #[derive(Clone, Debug)]
-pub(crate) struct StructuralSqlGlobalAggregateCommand {
+pub(crate) struct SqlGlobalAggregateCommand {
     query: StructuralQuery,
     strategies: Vec<PreparedSqlScalarAggregateStrategy>,
     projection: ProjectionSpec,
     having: Option<Expr>,
+    facts: AggregateShapeFacts,
 }
 
-impl StructuralSqlGlobalAggregateCommand {
+impl SqlGlobalAggregateCommand {
     /// Borrow the structural query payload for aggregate explain/execution.
     #[must_use]
     pub(in crate::db) const fn query(&self) -> &StructuralQuery {
@@ -127,6 +205,12 @@ impl StructuralSqlGlobalAggregateCommand {
     pub(in crate::db) const fn having(&self) -> Option<&Expr> {
         self.having.as_ref()
     }
+
+    /// Borrow precomputed command facts consumed by runtime and EXPLAIN.
+    #[must_use]
+    pub(in crate::db) const fn facts(&self) -> AggregateShapeFacts {
+        self.facts
+    }
 }
 
 impl LoweredSqlGlobalAggregateCommand {
@@ -135,7 +219,7 @@ impl LoweredSqlGlobalAggregateCommand {
     fn into_typed_for_model_only<E: EntityKind>(
         self,
         consistency: MissingRowPolicy,
-    ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
+    ) -> Result<TypedSqlGlobalAggregateCommand<E>, SqlLoweringError> {
         let Self {
             query,
             terminals,
@@ -155,7 +239,7 @@ impl LoweredSqlGlobalAggregateCommand {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(SqlGlobalAggregateCommand {
+        Ok(TypedSqlGlobalAggregateCommand {
             query: Query::from_inner(apply_lowered_base_query_shape_for_model_only(
                 StructuralQuery::new(E::MODEL, consistency),
                 query,
@@ -167,14 +251,14 @@ impl LoweredSqlGlobalAggregateCommand {
         })
     }
 
-    /// Bind this lowered aggregate command onto the structural query surface
+    /// Bind this lowered aggregate command onto the accepted schema surface
     /// used by aggregate explain and dynamic SQL execution.
-    fn into_structural(
+    fn into_command_with_schema(
         self,
         model: &'static EntityModel,
         consistency: MissingRowPolicy,
         schema: &SchemaInfo,
-    ) -> Result<StructuralSqlGlobalAggregateCommand, SqlLoweringError> {
+    ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
         let Self {
             query,
             terminals,
@@ -194,15 +278,24 @@ impl LoweredSqlGlobalAggregateCommand {
             .collect::<Result<Vec<_>, _>>()?;
         validate_base_query_sql_capabilities(schema, &query)?;
 
-        Ok(StructuralSqlGlobalAggregateCommand {
-            query: apply_lowered_base_query_shape_with_schema(
-                StructuralQuery::new(model, consistency),
-                query,
-                schema,
-            ),
+        let query = apply_lowered_base_query_shape_with_schema(
+            StructuralQuery::new(model, consistency),
+            query,
+            schema,
+        );
+        let facts = AggregateShapeFacts::from_parts(
+            &query,
+            strategies.as_slice(),
+            &projection,
+            having.as_ref(),
+        );
+
+        Ok(SqlGlobalAggregateCommand {
+            query,
             strategies,
             projection,
             having,
+            facts,
         })
     }
 }
@@ -212,7 +305,7 @@ impl LoweredSqlGlobalAggregateCommand {
 pub(crate) fn compile_sql_global_aggregate_command_for_model_only<E: EntityKind>(
     sql: &str,
     consistency: MissingRowPolicy,
-) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
+) -> Result<TypedSqlGlobalAggregateCommand<E>, SqlLoweringError> {
     let statement = crate::db::sql::parser::parse_sql(sql)?;
     let prepared = crate::db::sql::lowering::prepare_sql_statement(&statement, E::MODEL.name())?;
 
@@ -226,7 +319,7 @@ pub(crate) fn compile_sql_global_aggregate_command_for_model_only<E: EntityKind>
 pub(crate) fn compile_sql_global_aggregate_command_from_prepared_for_model_only<E: EntityKind>(
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
-) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
+) -> Result<TypedSqlGlobalAggregateCommand<E>, SqlLoweringError> {
     let SqlStatement::Select(statement) = prepared.statement else {
         return Err(SqlLoweringError::unsupported_select_projection());
     };
@@ -239,17 +332,17 @@ pub(crate) fn compile_sql_global_aggregate_command_from_prepared_for_model_only<
 
 /// Lower one already-prepared SQL statement into the generic-free global
 /// aggregate command envelope with an explicit schema capability projection.
-pub(in crate::db) fn compile_structural_sql_global_aggregate_command_from_prepared_with_schema(
+pub(in crate::db) fn compile_sql_global_aggregate_command_from_prepared_with_schema(
     prepared: PreparedSqlStatement,
     model: &'static EntityModel,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
-) -> Result<StructuralSqlGlobalAggregateCommand, SqlLoweringError> {
+) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
     let SqlStatement::Select(statement) = prepared.statement else {
         return Err(SqlLoweringError::unsupported_select_projection());
     };
 
-    bind_lowered_sql_global_aggregate_command_structural(
+    bind_lowered_sql_global_aggregate_command_with_schema(
         model,
         lower_global_aggregate_select_shape(statement)?,
         consistency,
@@ -263,15 +356,15 @@ pub(in crate::db::sql::lowering) fn bind_lowered_sql_global_aggregate_command_fo
 >(
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
-) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
+) -> Result<TypedSqlGlobalAggregateCommand<E>, SqlLoweringError> {
     lowered.into_typed_for_model_only::<E>(consistency)
 }
 
-pub(in crate::db::sql::lowering::aggregate) fn bind_lowered_sql_global_aggregate_command_structural(
+pub(in crate::db::sql::lowering::aggregate) fn bind_lowered_sql_global_aggregate_command_with_schema(
     model: &'static EntityModel,
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
-) -> Result<StructuralSqlGlobalAggregateCommand, SqlLoweringError> {
-    lowered.into_structural(model, consistency, schema)
+) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
+    lowered.into_command_with_schema(model, consistency, schema)
 }

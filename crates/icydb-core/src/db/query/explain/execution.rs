@@ -510,6 +510,12 @@ impl ExplainExecutionNodeDescriptor {
         self.residual_filter_predicate.as_ref()
     }
 
+    /// Return whether this node carries any residual filter annotation.
+    #[must_use]
+    pub const fn has_residual_filter(&self) -> bool {
+        self.residual_filter_expr.is_some() || self.residual_filter_predicate.is_some()
+    }
+
     /// Borrow optional projection annotation.
     #[must_use]
     pub fn projection(&self) -> Option<&str> {

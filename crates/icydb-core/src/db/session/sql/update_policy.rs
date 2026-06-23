@@ -9,9 +9,10 @@ use crate::db::{
     QueryError,
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteOrderProof, SqlWriteReturningShape, SqlWriteWhereProof, classify_write_order_proof,
-        classify_write_returning_shape, classify_write_where_proof, combined_optional_row_bound,
-        contains_field, current_table_field_name,
+        SqlWriteBoundedPolicyRejection, SqlWriteOrderProof, SqlWriteReturningShape,
+        SqlWriteWhereProof, bounded_write_policy_rejection, classify_write_order_proof,
+        classify_write_returning_shape, classify_write_where_proof, contains_field,
+        current_table_field_name, sql_write_execution_bounds,
     },
     sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
 };
@@ -152,6 +153,17 @@ pub enum SqlUpdateOrderPolicy {
     Other,
 }
 
+impl SqlUpdateOrderPolicy {
+    const fn write_order_proof(self) -> SqlWriteOrderProof {
+        match self {
+            Self::Missing => SqlWriteOrderProof::Missing,
+            Self::CanonicalPrimaryKey => SqlWriteOrderProof::CanonicalPrimaryKey,
+            Self::DescendingPrimaryKey => SqlWriteOrderProof::DescendingPrimaryKey,
+            Self::Other => SqlWriteOrderProof::Other,
+        }
+    }
+}
+
 /// Narrow write `RETURNING` classification for one parsed `UPDATE`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -196,6 +208,28 @@ pub struct SqlUpdateExecutionBounds {
     pub max_staged_rows: Option<u32>,
     /// Optional `RETURNING` row and response-size bounds.
     pub returning: SqlUpdateReturningBounds,
+}
+
+impl SqlUpdateReturningBounds {
+    const fn from_write_bounds(
+        bounds: crate::db::session::sql::write_policy::SqlWriteReturningBounds,
+    ) -> Self {
+        Self {
+            max_rows: bounds.max_rows,
+            max_response_bytes: bounds.max_response_bytes,
+        }
+    }
+}
+
+impl SqlUpdateExecutionBounds {
+    const fn from_write_bounds(
+        bounds: crate::db::session::sql::write_policy::SqlWriteExecutionBounds,
+    ) -> Self {
+        Self {
+            max_staged_rows: bounds.max_staged_rows,
+            returning: SqlUpdateReturningBounds::from_write_bounds(bounds.returning),
+        }
+    }
 }
 
 /// Parsed `UPDATE` classification before a caller-selected exposure policy is applied.
@@ -385,6 +419,20 @@ pub enum SqlUpdatePolicyRejection {
     OffsetUnsupported,
     /// The supplied `LIMIT` exceeds the policy maximum.
     LimitTooHigh,
+}
+
+impl SqlUpdatePolicyRejection {
+    const fn from_bounded_write_rejection(rejection: SqlWriteBoundedPolicyRejection) -> Self {
+        match rejection {
+            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder => {
+                Self::MissingCanonicalPrimaryKeyOrder
+            }
+            SqlWriteBoundedPolicyRejection::DescendingOrder => Self::DescendingOrder,
+            SqlWriteBoundedPolicyRejection::MissingLimit => Self::MissingLimit,
+            SqlWriteBoundedPolicyRejection::OffsetUnsupported => Self::OffsetUnsupported,
+            SqlWriteBoundedPolicyRejection::LimitTooHigh => Self::LimitTooHigh,
+        }
+    }
 }
 
 /// Result of classifying one SQL statement under an `UPDATE` exposure policy.
@@ -581,10 +629,12 @@ fn execution_bounds(
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlUpdateExecutionBounds {
-    SqlUpdateExecutionBounds {
-        max_staged_rows: staged_row_bound(policy, classification),
-        returning: returning_bounds(policy, classification, context),
-    }
+    SqlUpdateExecutionBounds::from_write_bounds(sql_write_execution_bounds(
+        staged_row_bound(policy, classification),
+        classification.returning_policy.is_requested(),
+        context.max_returning_rows,
+        context.max_returning_response_bytes,
+    ))
 }
 
 fn staged_row_bound(
@@ -598,34 +648,6 @@ fn staged_row_bound(
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated update plans")
         }
-    }
-}
-
-fn returning_bounds(
-    policy: SqlUpdateExposurePolicy,
-    classification: &SqlUpdateStatementClassification,
-    context: SqlUpdatePolicyContext<'_>,
-) -> SqlUpdateReturningBounds {
-    let max_rows = if classification.returning_policy.is_requested() {
-        let policy_max_rows = match policy {
-            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => Some(1),
-            SqlUpdateExposurePolicy::PublicBoundedDeterministic => classification.limit,
-            SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => {
-                None
-            }
-            SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
-                unreachable!("generated policies never produce validated update plans")
-            }
-        };
-
-        combined_optional_row_bound(policy_max_rows, context.max_returning_rows)
-    } else {
-        None
-    };
-
-    SqlUpdateReturningBounds {
-        max_rows,
-        max_response_bytes: context.max_returning_response_bytes,
     }
 }
 
@@ -647,28 +669,16 @@ const fn bounded_policy_rejection(
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Option<SqlUpdatePolicyRejection> {
-    if classification.offset.is_some() {
-        return Some(SqlUpdatePolicyRejection::OffsetUnsupported);
-    }
-
-    let Some(limit) = classification.limit else {
-        return Some(SqlUpdatePolicyRejection::MissingLimit);
-    };
-    if limit == 0 {
-        return Some(SqlUpdatePolicyRejection::MissingLimit);
-    }
-    if limit > context.max_public_bounded_limit {
-        return Some(SqlUpdatePolicyRejection::LimitTooHigh);
-    }
-
-    match classification.order_policy {
-        SqlUpdateOrderPolicy::CanonicalPrimaryKey => None,
-        SqlUpdateOrderPolicy::DescendingPrimaryKey => {
-            Some(SqlUpdatePolicyRejection::DescendingOrder)
-        }
-        SqlUpdateOrderPolicy::Missing | SqlUpdateOrderPolicy::Other => {
-            Some(SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder)
-        }
+    match bounded_write_policy_rejection(
+        classification.offset,
+        classification.limit,
+        context.max_public_bounded_limit,
+        classification.order_policy.write_order_proof(),
+    ) {
+        Some(rejection) => Some(SqlUpdatePolicyRejection::from_bounded_write_rejection(
+            rejection,
+        )),
+        None => None,
     }
 }
 

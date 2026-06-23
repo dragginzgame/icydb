@@ -3,7 +3,6 @@
 //! Does not own: planner/executor route policy or diagnostics DTO definitions.
 //! Boundary: renders lowered SQL explain statements through session visibility and route facts.
 
-use super::global_aggregate::is_direct_count_cardinality_metadata_candidate;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -27,8 +26,8 @@ use crate::{
         },
         sql::{
             lowering::{
-                LoweredSqlCommand, LoweredSqlLaneKind, StructuralSqlGlobalAggregateCommand,
-                bind_lowered_sql_explain_global_aggregate_structural_with_schema,
+                LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommand,
+                bind_lowered_sql_explain_global_aggregate_with_schema,
                 bind_lowered_sql_query_structural_with_schema, lowered_sql_command_lane,
             },
             parser::SqlExplainMode,
@@ -147,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         if let Some((mode, verbose, command)) =
-            bind_lowered_sql_explain_global_aggregate_structural_with_schema(
+            bind_lowered_sql_explain_global_aggregate_with_schema(
                 lowered,
                 authority.model(),
                 MissingRowPolicy::Ignore,
@@ -295,7 +294,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
         let (mapped, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
@@ -315,7 +314,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         mode: SqlExplainMode,
         verbose: bool,
-        command: StructuralSqlGlobalAggregateCommand,
+        command: SqlGlobalAggregateCommand,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
         schema_info: &SchemaInfo,
@@ -399,11 +398,14 @@ impl<C: CanisterKind> DbSession<C> {
     fn annotate_global_aggregate_direct_count_metadata_eligibility(
         &self,
         execution: &mut ExplainExecutionDescriptor,
-        command: &StructuralSqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<(), QueryError> {
-        if !is_direct_count_cardinality_metadata_candidate(command) {
+        if !command
+            .facts()
+            .is_direct_count_cardinality_metadata_candidate()
+        {
             return Ok(());
         }
 

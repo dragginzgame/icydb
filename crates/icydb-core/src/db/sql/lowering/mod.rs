@@ -44,17 +44,16 @@ pub(crate) enum SqlParameterPlacementReason {
 }
 
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
-pub(in crate::db) use aggregate::compile_structural_sql_global_aggregate_command_from_prepared_with_schema;
+pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_from_prepared_with_schema;
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
 };
+pub(crate) use aggregate::{
+    SqlGlobalAggregateCommand, bind_lowered_sql_explain_global_aggregate_with_schema,
+};
 #[cfg(test)]
 pub(crate) use aggregate::{
-    SqlGlobalAggregateCommand, compile_sql_global_aggregate_command_for_model_only,
-};
-pub(crate) use aggregate::{
-    StructuralSqlGlobalAggregateCommand,
-    bind_lowered_sql_explain_global_aggregate_structural_with_schema,
+    TypedSqlGlobalAggregateCommand, compile_sql_global_aggregate_command_for_model_only,
 };
 pub(in crate::db::sql::lowering) use analysis::{
     AnalyzedLoweredExpr, LoweredExprAnalysis, LoweredExprSourceRef, analyze_lowered_expr,
@@ -134,7 +133,7 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
 #[derive(Debug)]
 pub(crate) enum SqlCommand<E: EntityKind> {
     Query(Query<E>),
-    GlobalAggregate(SqlGlobalAggregateCommand<E>),
+    GlobalAggregate(TypedSqlGlobalAggregateCommand<E>),
     Explain {
         mode: SqlExplainMode,
         verbose: bool,
@@ -143,7 +142,7 @@ pub(crate) enum SqlCommand<E: EntityKind> {
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
         verbose: bool,
-        command: SqlGlobalAggregateCommand<E>,
+        command: TypedSqlGlobalAggregateCommand<E>,
     },
     DescribeEntity,
     ShowIndexesEntity,

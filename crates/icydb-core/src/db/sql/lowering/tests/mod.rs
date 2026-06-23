@@ -519,7 +519,7 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
 fn compile_sql_lower_global_aggregate_command(
     sql: &str,
     context: &str,
-) -> crate::db::sql::lowering::SqlGlobalAggregateCommand<SqlLowerEntity> {
+) -> crate::db::sql::lowering::TypedSqlGlobalAggregateCommand<SqlLowerEntity> {
     compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         sql,
         MissingRowPolicy::Ignore,
@@ -5646,7 +5646,7 @@ fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_fie
         accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
 
     let err =
-        crate::db::sql::lowering::compile_structural_sql_global_aggregate_command_from_prepared_with_schema(
+        crate::db::sql::lowering::compile_sql_global_aggregate_command_from_prepared_with_schema(
             prepared,
             SqlLowerEntity::MODEL,
             MissingRowPolicy::Ignore,

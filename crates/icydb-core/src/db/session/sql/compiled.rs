@@ -11,7 +11,7 @@ use crate::db::{
     schema::{AcceptedSchemaSnapshot, SchemaVersion},
     session::{AcceptedSchemaCatalogContext, sql::projection::SqlProjectionContract},
     sql::{
-        lowering::{LoweredSqlCommand, StructuralSqlGlobalAggregateCommand},
+        lowering::{LoweredSqlCommand, SqlGlobalAggregateCommand},
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
@@ -155,7 +155,7 @@ pub(in crate::db) enum CompiledSqlCommand {
         returning: Option<SqlReturningProjection>,
     },
     GlobalAggregate {
-        command: Arc<StructuralSqlGlobalAggregateCommand>,
+        command: Arc<SqlGlobalAggregateCommand>,
         plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregatePlanCacheEntry>>>,
         count_plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
@@ -262,7 +262,7 @@ impl CompiledSqlCommand {
     }
 
     #[must_use]
-    pub(in crate::db) fn global_aggregate(command: StructuralSqlGlobalAggregateCommand) -> Self {
+    pub(in crate::db) fn global_aggregate(command: SqlGlobalAggregateCommand) -> Self {
         Self::GlobalAggregate {
             command: Arc::new(command),
             plan_cache: Arc::new(OnceLock::new()),

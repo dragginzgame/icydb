@@ -101,9 +101,9 @@ for the singleton aggregate contract, not a separate semantic lane.
 
 ## First Code Slice
 
-The first code slice added a private `PreparedStructuralAggregateOperator`
-assembled from `StructuralSqlGlobalAggregateCommand`, then made
-`execute_global_aggregate_with_prepared_plan` consume that operator instead of
+The first code slice added a private `PreparedAggregateRequestBundle`
+assembled from `SqlGlobalAggregateCommand`, then made
+`execute_global_aggregate_with_prepared_plan` consume that bundle instead of
 re-reading strategies, projection labels, fixed scales, HAVING, and schema info
 independently.
 
@@ -129,6 +129,14 @@ The next design question is whether cache/explain identity should carry a
 first-class aggregate operator DTO shared by singleton and grouped explain
 assembly, or whether these descriptor properties are enough until a runtime
 execution merge is justified.
+
+A follow-up cleanup moved singleton direct `COUNT(*)` and direct
+prefix-cardinality candidate proof into `AggregateShapeFacts`. Runtime
+execution, compiled execution, diagnostics fallback, and EXPLAIN now consume
+that precomputed fact set instead of reconstructing the same
+strategy/projection/HAVING shape in the session adapter. This still does not
+meet the DTO gate by itself; it is local DRY work inside the existing singleton
+lane.
 
 ## Deferred DTO Gate
 

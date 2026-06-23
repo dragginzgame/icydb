@@ -16,7 +16,8 @@ use crate::{
                 CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
             },
             shared::{
-                PreparedCoveringIndexScan, apply_covering_page_window, covering_scan_window,
+                PreparedCoveringIndexScan, apply_covering_page_window,
+                covering_residual_filter_supported, covering_scan_window,
                 project_covering_row_from_decoded_values,
                 project_covering_row_from_owned_decoded_values,
                 project_covering_row_from_single_decoded_value, resolve_index_backed_covering_scan,
@@ -46,12 +47,11 @@ pub(super) fn try_execute_covering_projection_rows_with_plan_for_canister<C>(
 where
     C: CanisterKind,
 {
-    if plan.has_residual_filter_expr() {
-        return Ok(None);
-    }
-    if plan.has_residual_filter_predicate()
-        && (!covering.strict_predicate_compatible || index_predicate_execution.is_none())
-    {
+    if !covering_residual_filter_supported(
+        plan,
+        covering.strict_predicate_compatible,
+        index_predicate_execution.is_some(),
+    ) {
         // Residual predicates stay on covering only when they compile to an
         // index-only program. The covering component resolver applies that
         // program before any reorder or page window, including materialized

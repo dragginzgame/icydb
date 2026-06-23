@@ -9,8 +9,9 @@ use crate::db::{
     QueryError,
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteOrderProof, SqlWriteReturningShape, SqlWriteWhereProof, classify_write_order_proof,
-        classify_write_returning_shape, classify_write_where_proof, combined_optional_row_bound,
+        SqlWriteBoundedPolicyRejection, SqlWriteOrderProof, SqlWriteReturningShape,
+        SqlWriteWhereProof, bounded_write_policy_rejection, classify_write_order_proof,
+        classify_write_returning_shape, classify_write_where_proof, sql_write_execution_bounds,
     },
     sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql_with_attribution},
 };
@@ -121,6 +122,17 @@ pub enum SqlDeleteOrderPolicy {
     Other,
 }
 
+impl SqlDeleteOrderPolicy {
+    const fn write_order_proof(self) -> SqlWriteOrderProof {
+        match self {
+            Self::Missing => SqlWriteOrderProof::Missing,
+            Self::CanonicalPrimaryKey => SqlWriteOrderProof::CanonicalPrimaryKey,
+            Self::DescendingPrimaryKey => SqlWriteOrderProof::DescendingPrimaryKey,
+            Self::Other => SqlWriteOrderProof::Other,
+        }
+    }
+}
+
 /// Narrow write `RETURNING` classification for one parsed `DELETE`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -159,6 +171,28 @@ pub struct SqlDeleteExecutionBounds {
     pub max_staged_rows: Option<u32>,
     /// Optional `RETURNING` row and response-size bounds.
     pub returning: SqlDeleteReturningBounds,
+}
+
+impl SqlDeleteReturningBounds {
+    const fn from_write_bounds(
+        bounds: crate::db::session::sql::write_policy::SqlWriteReturningBounds,
+    ) -> Self {
+        Self {
+            max_rows: bounds.max_rows,
+            max_response_bytes: bounds.max_response_bytes,
+        }
+    }
+}
+
+impl SqlDeleteExecutionBounds {
+    const fn from_write_bounds(
+        bounds: crate::db::session::sql::write_policy::SqlWriteExecutionBounds,
+    ) -> Self {
+        Self {
+            max_staged_rows: bounds.max_staged_rows,
+            returning: SqlDeleteReturningBounds::from_write_bounds(bounds.returning),
+        }
+    }
 }
 
 /// Parsed `DELETE` classification before a caller-selected exposure policy is applied.
@@ -336,6 +370,20 @@ pub enum SqlDeletePolicyRejection {
     LimitTooHigh,
 }
 
+impl SqlDeletePolicyRejection {
+    const fn from_bounded_write_rejection(rejection: SqlWriteBoundedPolicyRejection) -> Self {
+        match rejection {
+            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder => {
+                Self::MissingCanonicalPrimaryKeyOrder
+            }
+            SqlWriteBoundedPolicyRejection::DescendingOrder => Self::DescendingOrder,
+            SqlWriteBoundedPolicyRejection::MissingLimit => Self::MissingLimit,
+            SqlWriteBoundedPolicyRejection::OffsetUnsupported => Self::OffsetUnsupported,
+            SqlWriteBoundedPolicyRejection::LimitTooHigh => Self::LimitTooHigh,
+        }
+    }
+}
+
 /// Result of classifying one SQL statement under a `DELETE` exposure policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -472,28 +520,16 @@ const fn bounded_policy_rejection(
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
 ) -> Option<SqlDeletePolicyRejection> {
-    if classification.offset.is_some() {
-        return Some(SqlDeletePolicyRejection::OffsetUnsupported);
-    }
-
-    let Some(limit) = classification.limit else {
-        return Some(SqlDeletePolicyRejection::MissingLimit);
-    };
-    if limit == 0 {
-        return Some(SqlDeletePolicyRejection::MissingLimit);
-    }
-    if limit > context.max_public_bounded_limit {
-        return Some(SqlDeletePolicyRejection::LimitTooHigh);
-    }
-
-    match classification.order_policy {
-        SqlDeleteOrderPolicy::CanonicalPrimaryKey => None,
-        SqlDeleteOrderPolicy::DescendingPrimaryKey => {
-            Some(SqlDeletePolicyRejection::DescendingOrder)
-        }
-        SqlDeleteOrderPolicy::Missing | SqlDeleteOrderPolicy::Other => {
-            Some(SqlDeletePolicyRejection::MissingCanonicalPrimaryKeyOrder)
-        }
+    match bounded_write_policy_rejection(
+        classification.offset,
+        classification.limit,
+        context.max_public_bounded_limit,
+        classification.order_policy.write_order_proof(),
+    ) {
+        Some(rejection) => Some(SqlDeletePolicyRejection::from_bounded_write_rejection(
+            rejection,
+        )),
+        None => None,
     }
 }
 
@@ -557,10 +593,12 @@ fn execution_bounds(
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
 ) -> SqlDeleteExecutionBounds {
-    SqlDeleteExecutionBounds {
-        max_staged_rows: staged_row_bound(policy, classification),
-        returning: returning_bounds(policy, classification, context),
-    }
+    SqlDeleteExecutionBounds::from_write_bounds(sql_write_execution_bounds(
+        staged_row_bound(policy, classification),
+        classification.returning_policy.is_requested(),
+        context.max_returning_rows,
+        context.max_returning_response_bytes,
+    ))
 }
 
 fn staged_row_bound(
@@ -574,34 +612,6 @@ fn staged_row_bound(
         SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated delete plans")
         }
-    }
-}
-
-fn returning_bounds(
-    policy: SqlDeleteExposurePolicy,
-    classification: &SqlDeleteStatementClassification,
-    context: SqlDeletePolicyContext<'_>,
-) -> SqlDeleteReturningBounds {
-    let max_rows = if classification.returning_policy.is_requested() {
-        let policy_max_rows = match policy {
-            SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => Some(1),
-            SqlDeleteExposurePolicy::PublicBoundedDeterministic => classification.limit,
-            SqlDeleteExposurePolicy::SessionWriteCurrent | SqlDeleteExposurePolicy::AdminBulk => {
-                None
-            }
-            SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => {
-                unreachable!("generated policies never produce validated delete plans")
-            }
-        };
-
-        combined_optional_row_bound(policy_max_rows, context.max_returning_rows)
-    } else {
-        None
-    };
-
-    SqlDeleteReturningBounds {
-        max_rows,
-        max_response_bytes: context.max_returning_response_bytes,
     }
 }
 
