@@ -425,6 +425,11 @@ Status: active.
   fast path, not a shared aggregate operator rewrite. The cleanup now removes
   repeated eligibility/probe mechanics, duplicate non-diagnostic probe
   execution, and session-local direct-count shape reconstruction.
+- Executor attribution and SQL projection diagnostics are in local DRY mode:
+  scalar aggregate terminal, direct-row, kernel-row, and hybrid-covering
+  projection metrics now own the presence predicates used by session
+  diagnostics before projecting public payloads. Grouped execution attribution
+  now also owns the shared DTO constructor used by fluent and SQL diagnostics.
 - Filter handoff work is in local DRY mode: residual expression and predicate
   accessors remain available for callers that need the actual artifacts, while
   boolean gating should go through the single plan-owned presence helper.

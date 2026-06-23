@@ -42,12 +42,10 @@ pub struct DirectDataRowAttribution {
 impl DirectDataRowAttribution {
     #[cfg(any(test, feature = "sql"))]
     const fn from_direct_phase(phase: DirectDataRowPhaseAttribution) -> Option<Self> {
-        let attribution = Self::from_phase_unchecked(phase);
-
-        if attribution.has_work() {
-            Some(attribution)
-        } else {
+        if !phase.has_work() {
             None
+        } else {
+            Some(Self::from_phase_unchecked(phase))
         }
     }
 
@@ -80,17 +78,6 @@ impl DirectDataRowAttribution {
             order_window_local_instructions: phase.order_window_local_instructions,
             page_window_local_instructions: phase.page_window_local_instructions,
         }
-    }
-
-    #[cfg(any(test, feature = "sql"))]
-    const fn has_work(self) -> bool {
-        self.scan_local_instructions != 0
-            || self.key_stream_local_instructions != 0
-            || self.row_read_local_instructions != 0
-            || self.key_encode_local_instructions != 0
-            || self.store_get_local_instructions != 0
-            || self.order_window_local_instructions != 0
-            || self.page_window_local_instructions != 0
     }
 }
 
@@ -135,7 +122,11 @@ impl KernelRowAttribution {
     }
 
     const fn from_kernel_phase(phase: KernelRowPhaseAttribution) -> Option<Self> {
-        let attribution = Self {
+        if !phase.has_work() {
+            return None;
+        }
+
+        Some(Self {
             scan_local_instructions: phase.scan_local_instructions,
             key_stream_local_instructions: phase.key_stream_local_instructions,
             row_read_local_instructions: phase.row_read_local_instructions,
@@ -144,24 +135,7 @@ impl KernelRowAttribution {
             retained_layout_hits: phase.retained_layout_hits,
             retained_slot_values: phase.retained_slot_values,
             retained_octet_length_values: phase.retained_octet_length_values,
-        };
-
-        if attribution.has_work() {
-            Some(attribution)
-        } else {
-            None
-        }
-    }
-
-    const fn has_work(self) -> bool {
-        self.scan_local_instructions != 0
-            || self.key_stream_local_instructions != 0
-            || self.row_read_local_instructions != 0
-            || self.order_window_local_instructions != 0
-            || self.page_window_local_instructions != 0
-            || self.retained_layout_hits != 0
-            || self.retained_slot_values != 0
-            || self.retained_octet_length_values != 0
+        })
     }
 }
 
@@ -211,6 +185,31 @@ pub struct GroupedExecutionAttribution {
     pub count: GroupedCountAttribution,
 }
 
+impl GroupedExecutionAttribution {
+    pub(in crate::db) const fn from_executor_phase(phase: GroupedExecutePhaseAttribution) -> Self {
+        Self::from_executor_parts(
+            phase.stream_local_instructions,
+            phase.fold_local_instructions,
+            phase.finalize_local_instructions,
+            phase.grouped_count,
+        )
+    }
+
+    pub(in crate::db) const fn from_executor_parts(
+        stream_local_instructions: u64,
+        fold_local_instructions: u64,
+        finalize_local_instructions: u64,
+        count: ExecutorGroupedCountAttribution,
+    ) -> Self {
+        Self {
+            stream_local_instructions,
+            fold_local_instructions,
+            finalize_local_instructions,
+            count: GroupedCountAttribution::from_executor(count),
+        }
+    }
+}
+
 ///
 /// ScalarAggregateAttribution
 ///
@@ -239,16 +238,7 @@ impl ScalarAggregateAttribution {
     pub(in crate::db) fn from_executor(
         terminal: ScalarAggregateTerminalAttribution,
     ) -> Option<Self> {
-        let has_scalar_aggregate_work = terminal.base_row_local_instructions != 0
-            || terminal.reducer_fold_local_instructions != 0
-            || terminal.expression_evaluations != 0
-            || terminal.filter_evaluations != 0
-            || terminal.rows_ingested != 0
-            || terminal.terminal_count != 0
-            || terminal.unique_input_expr_count != 0
-            || terminal.unique_filter_expr_count != 0
-            || terminal.sink_mode.label().is_some();
-        if !has_scalar_aggregate_work {
+        if !terminal.has_work() {
             return None;
         }
 
@@ -427,12 +417,7 @@ impl<C: CanisterKind> DbSession<C> {
             finalize_local_instructions: phase.finalize_local_instructions,
             direct_data_row: None,
             kernel_row: None,
-            grouped: Some(GroupedExecutionAttribution {
-                stream_local_instructions: phase.stream_local_instructions,
-                fold_local_instructions: phase.fold_local_instructions,
-                finalize_local_instructions: phase.finalize_local_instructions,
-                count: GroupedCountAttribution::from_executor(phase.grouped_count),
-            }),
+            grouped: Some(GroupedExecutionAttribution::from_executor_phase(phase)),
         }
     }
 

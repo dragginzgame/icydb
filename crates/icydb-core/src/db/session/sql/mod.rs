@@ -17,6 +17,8 @@ mod update_policy;
 mod write_policy;
 
 #[cfg(feature = "diagnostics")]
+use crate::db::GroupedExecutionAttribution;
+#[cfg(feature = "diagnostics")]
 use crate::db::diagnostics::StoreCounterSnapshot;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::{
@@ -25,8 +27,6 @@ use crate::db::executor::{
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
-#[cfg(feature = "diagnostics")]
-use crate::db::{GroupedCountAttribution, GroupedExecutionAttribution};
 #[cfg(feature = "diagnostics")]
 use crate::value::OutputValue;
 use crate::{
@@ -97,54 +97,6 @@ pub use update_policy::{
 pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
 
 #[cfg(feature = "diagnostics")]
-const fn sql_query_cache_attribution_from_phases(
-    compile: SqlCacheAttribution,
-    execute: SqlCacheAttribution,
-) -> SqlQueryCacheAttribution {
-    let merged = compile.merge(execute);
-
-    SqlQueryCacheAttribution {
-        sql_compiled_command_hits: merged.sql_compiled_command_cache_hits,
-        sql_compiled_command_misses: merged.sql_compiled_command_cache_misses,
-        shared_query_plan_hits: merged.shared_query_plan_cache_hits,
-        shared_query_plan_misses: merged.shared_query_plan_cache_misses,
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-const fn sql_hybrid_covering_attribution_from_projection_metrics(
-    metrics: SqlProjectionMaterializationMetrics,
-) -> Option<SqlHybridCoveringAttribution> {
-    if metrics.hybrid_covering_path_hits > 0
-        || metrics.hybrid_covering_index_field_accesses > 0
-        || metrics.hybrid_covering_row_field_accesses > 0
-    {
-        return Some(SqlHybridCoveringAttribution {
-            path_hits: metrics.hybrid_covering_path_hits,
-            index_field_accesses: metrics.hybrid_covering_index_field_accesses,
-            row_field_accesses: metrics.hybrid_covering_row_field_accesses,
-        });
-    }
-
-    None
-}
-
-#[cfg(feature = "diagnostics")]
-const fn sql_pure_covering_attribution_from_local_instructions(
-    decode_local_instructions: u64,
-    row_assembly_local_instructions: u64,
-) -> Option<SqlPureCoveringAttribution> {
-    if decode_local_instructions > 0 || row_assembly_local_instructions > 0 {
-        return Some(SqlPureCoveringAttribution {
-            decode_local_instructions,
-            row_assembly_local_instructions,
-        });
-    }
-
-    None
-}
-
-#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy)]
 struct SqlQueryExecutionAttributionInputs {
     compile_local_instructions: u64,
@@ -156,45 +108,6 @@ struct SqlQueryExecutionAttributionInputs {
     pure_covering_row_assembly_local_instructions: u64,
     projection_materialization: SqlProjectionMaterializationMetrics,
     store_counters: StoreCounterSnapshot,
-}
-
-#[cfg(feature = "diagnostics")]
-const fn sql_compile_attribution_from_phase(
-    phase: SqlCompilePhaseAttribution,
-) -> SqlCompileAttribution {
-    SqlCompileAttribution {
-        cache_key_local_instructions: phase.cache_key,
-        cache_lookup_local_instructions: phase.cache_lookup,
-        parse_local_instructions: phase.parse,
-        parse_tokenize_local_instructions: phase.parse_tokenize,
-        parse_select_local_instructions: phase.parse_select,
-        parse_expr_local_instructions: phase.parse_expr,
-        parse_predicate_local_instructions: phase.parse_predicate,
-        aggregate_lane_check_local_instructions: phase.aggregate_lane_check,
-        prepare_local_instructions: phase.prepare,
-        lower_local_instructions: phase.lower,
-        bind_local_instructions: phase.bind,
-        cache_insert_local_instructions: phase.cache_insert,
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-const fn sql_execution_attribution_from_phase(
-    phase: &SqlExecutePhaseAttribution,
-) -> SqlExecutionAttribution {
-    SqlExecutionAttribution {
-        planner_local_instructions: phase.planner_local_instructions,
-        planner_schema_info_local_instructions: phase.planner_schema_info_local_instructions,
-        planner_prepare_local_instructions: phase.planner_prepare_local_instructions,
-        planner_cache_key_local_instructions: phase.planner_cache_key_local_instructions,
-        planner_cache_lookup_local_instructions: phase.planner_cache_lookup_local_instructions,
-        planner_plan_build_local_instructions: phase.planner_plan_build_local_instructions,
-        planner_cache_insert_local_instructions: phase.planner_cache_insert_local_instructions,
-        store_local_instructions: phase.store_local_instructions,
-        executor_invocation_local_instructions: phase.executor_invocation_local_instructions,
-        executor_local_instructions: phase.executor_local_instructions,
-        response_finalization_local_instructions: phase.response_finalization_local_instructions,
-    }
 }
 
 #[cfg(feature = "diagnostics")]
@@ -217,30 +130,30 @@ fn sql_query_execution_attribution_from_inputs(
         .compile_local_instructions
         .saturating_add(execute_local_instructions);
     let grouped = matches!(result, SqlStatementResult::Grouped { .. }).then_some(
-        GroupedExecutionAttribution {
-            stream_local_instructions: execute_phase.grouped_stream_local_instructions,
-            fold_local_instructions: execute_phase.grouped_fold_local_instructions,
-            finalize_local_instructions: execute_phase.grouped_finalize_local_instructions,
-            count: GroupedCountAttribution::from_executor(execute_phase.grouped_count),
-        },
+        GroupedExecutionAttribution::from_executor_parts(
+            execute_phase.grouped_stream_local_instructions,
+            execute_phase.grouped_fold_local_instructions,
+            execute_phase.grouped_finalize_local_instructions,
+            execute_phase.grouped_count,
+        ),
     );
 
     SqlQueryExecutionAttribution {
         compile_local_instructions: inputs.compile_local_instructions,
-        compile: sql_compile_attribution_from_phase(inputs.compile_phase_attribution),
+        compile: SqlCompileAttribution::from_phase(inputs.compile_phase_attribution),
         plan_lookup_local_instructions: execute_phase.planner_local_instructions,
-        execution: sql_execution_attribution_from_phase(execute_phase),
+        execution: SqlExecutionAttribution::from_phase(execute_phase),
         direct_data_row: execute_phase.direct_data_row,
         kernel_row: execute_phase.kernel_row,
         grouped,
         scalar_aggregate: SqlScalarAggregateAttribution::from_executor(
             execute_phase.scalar_aggregate_terminal,
         ),
-        pure_covering: sql_pure_covering_attribution_from_local_instructions(
+        pure_covering: SqlPureCoveringAttribution::from_local_instructions(
             inputs.pure_covering_decode_local_instructions,
             inputs.pure_covering_row_assembly_local_instructions,
         ),
-        hybrid_covering: sql_hybrid_covering_attribution_from_projection_metrics(
+        hybrid_covering: SqlHybridCoveringAttribution::from_projection_metrics(
             inputs.projection_materialization,
         ),
         output_blob: sql_output_blob_attribution(result),
@@ -251,7 +164,7 @@ fn sql_query_execution_attribution_from_inputs(
         response_decode_local_instructions: 0,
         execute_local_instructions,
         total_local_instructions,
-        cache: sql_query_cache_attribution_from_phases(
+        cache: SqlQueryCacheAttribution::from_phases(
             inputs.compile_cache_attribution,
             inputs.execute_cache_attribution,
         ),

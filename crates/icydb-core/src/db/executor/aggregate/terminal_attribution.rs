@@ -120,6 +120,18 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
+    pub(in crate::db) const fn has_work(self) -> bool {
+        self.base_row_local_instructions != 0
+            || self.reducer_fold_local_instructions != 0
+            || self.expression_evaluations != 0
+            || self.filter_evaluations != 0
+            || self.rows_ingested != 0
+            || self.terminal_count != 0
+            || self.unique_input_expr_count != 0
+            || self.unique_filter_expr_count != 0
+            || self.sink_mode.label().is_some()
+    }
+
     #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) const fn merge_runtime(&mut self, runtime: Self) {
         self.reducer_fold_local_instructions = self

@@ -29,6 +29,15 @@ pub struct SqlProjectionMaterializationMetrics {
     pub distinct_bounded_stop_hits: u64,
 }
 
+#[cfg(feature = "diagnostics")]
+impl SqlProjectionMaterializationMetrics {
+    pub(crate) const fn has_hybrid_covering_work(self) -> bool {
+        self.hybrid_covering_path_hits != 0
+            || self.hybrid_covering_index_field_accesses != 0
+            || self.hybrid_covering_row_field_accesses != 0
+    }
+}
+
 #[cfg(any(test, feature = "diagnostics"))]
 std::thread_local! {
     static SQL_PROJECTION_MATERIALIZATION_METRICS: RefCell<Option<SqlProjectionMaterializationMetrics>> = const {

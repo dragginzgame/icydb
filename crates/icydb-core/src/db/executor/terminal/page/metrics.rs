@@ -60,6 +60,19 @@ pub(in crate::db) struct DirectDataRowPhaseAttribution {
     pub(in crate::db) page_window_local_instructions: u64,
 }
 
+#[cfg(feature = "diagnostics")]
+impl DirectDataRowPhaseAttribution {
+    pub(in crate::db) const fn has_work(self) -> bool {
+        self.scan_local_instructions != 0
+            || self.key_stream_local_instructions != 0
+            || self.row_read_local_instructions != 0
+            || self.key_encode_local_instructions != 0
+            || self.store_get_local_instructions != 0
+            || self.order_window_local_instructions != 0
+            || self.page_window_local_instructions != 0
+    }
+}
+
 ///
 /// KernelRowPhaseAttribution
 ///
@@ -79,6 +92,20 @@ pub(in crate::db) struct KernelRowPhaseAttribution {
     pub(in crate::db) retained_layout_hits: u64,
     pub(in crate::db) retained_slot_values: u64,
     pub(in crate::db) retained_octet_length_values: u64,
+}
+
+#[cfg(feature = "diagnostics")]
+impl KernelRowPhaseAttribution {
+    pub(in crate::db) const fn has_work(self) -> bool {
+        self.scan_local_instructions != 0
+            || self.key_stream_local_instructions != 0
+            || self.row_read_local_instructions != 0
+            || self.order_window_local_instructions != 0
+            || self.page_window_local_instructions != 0
+            || self.retained_layout_hits != 0
+            || self.retained_slot_values != 0
+            || self.retained_octet_length_values != 0
+    }
 }
 
 #[cfg(any(test, feature = "diagnostics"))]

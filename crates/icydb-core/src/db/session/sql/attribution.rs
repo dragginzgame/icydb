@@ -11,6 +11,10 @@ use crate::db::{
         GroupedCountAttribution as ExecutorGroupedCountAttribution,
         ScalarAggregateTerminalAttribution,
     },
+    session::sql::{
+        cache::SqlCacheAttribution, compile::SqlCompilePhaseAttribution,
+        projection::SqlProjectionMaterializationMetrics,
+    },
 };
 #[cfg(feature = "diagnostics")]
 use candid::CandidType;
@@ -42,6 +46,26 @@ pub struct SqlCompileAttribution {
     pub cache_insert_local_instructions: u64,
 }
 
+#[cfg(feature = "diagnostics")]
+impl SqlCompileAttribution {
+    pub(in crate::db::session::sql) const fn from_phase(phase: SqlCompilePhaseAttribution) -> Self {
+        Self {
+            cache_key_local_instructions: phase.cache_key,
+            cache_lookup_local_instructions: phase.cache_lookup,
+            parse_local_instructions: phase.parse,
+            parse_tokenize_local_instructions: phase.parse_tokenize,
+            parse_select_local_instructions: phase.parse_select,
+            parse_expr_local_instructions: phase.parse_expr,
+            parse_predicate_local_instructions: phase.parse_predicate,
+            aggregate_lane_check_local_instructions: phase.aggregate_lane_check,
+            prepare_local_instructions: phase.prepare,
+            lower_local_instructions: phase.lower,
+            bind_local_instructions: phase.bind,
+            cache_insert_local_instructions: phase.cache_insert,
+        }
+    }
+}
+
 ///
 /// SqlExecutionAttribution
 ///
@@ -67,6 +91,28 @@ pub struct SqlExecutionAttribution {
 }
 
 #[cfg(feature = "diagnostics")]
+impl SqlExecutionAttribution {
+    pub(in crate::db::session::sql) const fn from_phase(
+        phase: &SqlExecutePhaseAttribution,
+    ) -> Self {
+        Self {
+            planner_local_instructions: phase.planner_local_instructions,
+            planner_schema_info_local_instructions: phase.planner_schema_info_local_instructions,
+            planner_prepare_local_instructions: phase.planner_prepare_local_instructions,
+            planner_cache_key_local_instructions: phase.planner_cache_key_local_instructions,
+            planner_cache_lookup_local_instructions: phase.planner_cache_lookup_local_instructions,
+            planner_plan_build_local_instructions: phase.planner_plan_build_local_instructions,
+            planner_cache_insert_local_instructions: phase.planner_cache_insert_local_instructions,
+            store_local_instructions: phase.store_local_instructions,
+            executor_invocation_local_instructions: phase.executor_invocation_local_instructions,
+            executor_local_instructions: phase.executor_local_instructions,
+            response_finalization_local_instructions: phase
+                .response_finalization_local_instructions,
+        }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
 pub type SqlScalarAggregateAttribution = ScalarAggregateAttribution;
 
 ///
@@ -84,6 +130,23 @@ pub struct SqlPureCoveringAttribution {
     pub row_assembly_local_instructions: u64,
 }
 
+#[cfg(feature = "diagnostics")]
+impl SqlPureCoveringAttribution {
+    pub(in crate::db::session::sql) const fn from_local_instructions(
+        decode_local_instructions: u64,
+        row_assembly_local_instructions: u64,
+    ) -> Option<Self> {
+        if decode_local_instructions == 0 && row_assembly_local_instructions == 0 {
+            return None;
+        }
+
+        Some(Self {
+            decode_local_instructions,
+            row_assembly_local_instructions,
+        })
+    }
+}
+
 ///
 /// SqlHybridCoveringAttribution
 ///
@@ -98,6 +161,23 @@ pub struct SqlHybridCoveringAttribution {
     pub path_hits: u64,
     pub index_field_accesses: u64,
     pub row_field_accesses: u64,
+}
+
+#[cfg(feature = "diagnostics")]
+impl SqlHybridCoveringAttribution {
+    pub(in crate::db::session::sql) const fn from_projection_metrics(
+        metrics: SqlProjectionMaterializationMetrics,
+    ) -> Option<Self> {
+        if !metrics.has_hybrid_covering_work() {
+            return None;
+        }
+
+        Some(Self {
+            path_hits: metrics.hybrid_covering_path_hits,
+            index_field_accesses: metrics.hybrid_covering_index_field_accesses,
+            row_field_accesses: metrics.hybrid_covering_row_field_accesses,
+        })
+    }
 }
 
 ///
@@ -130,6 +210,23 @@ pub struct SqlQueryCacheAttribution {
     pub sql_compiled_command_misses: u64,
     pub shared_query_plan_hits: u64,
     pub shared_query_plan_misses: u64,
+}
+
+#[cfg(feature = "diagnostics")]
+impl SqlQueryCacheAttribution {
+    pub(in crate::db::session::sql) const fn from_phases(
+        compile: SqlCacheAttribution,
+        execute: SqlCacheAttribution,
+    ) -> Self {
+        let merged = compile.merge(execute);
+
+        Self {
+            sql_compiled_command_hits: merged.sql_compiled_command_cache_hits,
+            sql_compiled_command_misses: merged.sql_compiled_command_cache_misses,
+            shared_query_plan_hits: merged.shared_query_plan_cache_hits,
+            shared_query_plan_misses: merged.shared_query_plan_cache_misses,
+        }
+    }
 }
 
 ///
