@@ -250,6 +250,7 @@ impl QueryPlanCacheAttribution {
 }
 
 impl QueryPlanCompilePhaseAttribution {
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) const fn planner_local_instructions(self) -> u64 {
         self.schema_info
             .saturating_add(self.prepare)
@@ -259,6 +260,7 @@ impl QueryPlanCompilePhaseAttribution {
             .saturating_add(self.cache_insert)
     }
 
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) const fn merge(&mut self, other: Self) {
         self.schema_catalog = self.schema_catalog.saturating_add(other.schema_catalog);
         self.schema_info = self.schema_info.saturating_add(other.schema_info);
