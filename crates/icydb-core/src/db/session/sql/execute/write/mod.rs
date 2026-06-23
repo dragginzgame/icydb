@@ -5,7 +5,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::{FieldSlot, StructuralPatch},
-        executor::DeleteProjectionBounds,
+        executor::{DeleteProjectionBounds, EntityAuthority},
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
             SchemaInfo, accepted_commit_schema_fingerprint,
@@ -115,6 +115,23 @@ where
             .map_err(QueryError::execute)?;
 
     Ok(descriptor)
+}
+
+fn checked_accepted_write_descriptor_for_returning<'a, E>(
+    schema: &'a AcceptedSchemaSnapshot,
+    returning: Option<&SqlReturningProjection>,
+) -> Result<AcceptedRowLayoutRuntimeContract<'a>, QueryError>
+where
+    E: EntityKind,
+{
+    let descriptor = checked_accepted_write_descriptor::<E>(schema)?;
+    validate_sql_returning_projection_fields(&descriptor, returning)?;
+
+    Ok(descriptor)
+}
+
+fn require_sql_write_policy_plan<T>(plan: Option<T>) -> Result<T, QueryError> {
+    plan.ok_or_else(QueryError::unsupported_query)
 }
 
 fn accepted_sql_write_save_contract<E>(
@@ -386,6 +403,16 @@ impl<K> SqlWriteMutationBatch<K> {
         SqlWriteCandidateRows(self.rows.len())
     }
 
+    fn validate_staged_rows(
+        &self,
+        bounds: SqlWriteCandidateBounds,
+    ) -> Result<SqlWriteCandidateRows, QueryError> {
+        let staged_rows = self.staged_rows();
+        bounds.validate(staged_rows)?;
+
+        Ok(staged_rows)
+    }
+
     fn into_rows(self) -> Vec<(K, StructuralPatch)> {
         self.rows
     }
@@ -406,6 +433,28 @@ fn record_sql_write_metrics(
     });
 }
 
+fn record_sql_write_mutation_metrics(
+    entity_path: &'static str,
+    kind: SqlWriteKind,
+    staged_rows: SqlWriteCandidateRows,
+    mutated_rows: usize,
+    returning: Option<&SqlReturningProjection>,
+) {
+    record_sql_write_metrics(
+        entity_path,
+        kind,
+        staged_rows.attribution_after_mutation(mutated_rows, returning),
+    );
+}
+
+fn record_sql_write_delete_metrics(entity_path: &'static str, row_count: u32, returning: bool) {
+    record_sql_write_metrics(
+        entity_path,
+        SqlWriteKind::Delete,
+        SqlWriteCandidateRows::from_delete_count(row_count).attribution_after_delete(returning),
+    );
+}
+
 const fn sql_delete_projection_bounds(
     execution_bounds: Option<SqlDeleteExecutionBounds>,
     returning: bool,
@@ -414,6 +463,22 @@ const fn sql_delete_projection_bounds(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    fn accepted_sql_write_authority_schema_info<E>(
+        schema: &AcceptedSchemaSnapshot,
+    ) -> Result<(EntityAuthority, SchemaInfo), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let authority =
+            Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
+        let schema_info = authority
+            .accepted_schema_info()
+            .ok_or_else(QueryError::invariant)?
+            .clone();
+
+        Ok((authority, schema_info))
+    }
+
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
         &self,
         query: &crate::db::query::intent::StructuralQuery,
@@ -448,12 +513,7 @@ impl<C: CanisterKind> DbSession<C> {
                             .execute_count_with_bounds(plan, bounds)
                     })
                     .map_err(QueryError::execute)?;
-                record_sql_write_metrics(
-                    E::PATH,
-                    SqlWriteKind::Delete,
-                    SqlWriteCandidateRows::from_delete_count(row_count)
-                        .attribution_after_delete(false),
-                );
+                record_sql_write_delete_metrics(E::PATH, row_count, false);
 
                 Ok(SqlStatementResult::Count { row_count })
             }
@@ -461,8 +521,8 @@ impl<C: CanisterKind> DbSession<C> {
                 let schema = self
                     .ensure_accepted_schema_snapshot::<E>()
                     .map_err(QueryError::execute)?;
-                let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-                validate_sql_returning_projection_fields(&descriptor, Some(returning))?;
+                let descriptor =
+                    checked_accepted_write_descriptor_for_returning::<E>(&schema, Some(returning))?;
 
                 // Phase 2: returning deletes reuse the structural projection
                 // terminal once, then shape the requested outbound row contract
@@ -477,12 +537,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .map_err(QueryError::execute)?;
                 let (rows, row_count) = deleted.into_rows_and_count();
                 let rows = rows.into_value_rows();
-                record_sql_write_metrics(
-                    E::PATH,
-                    SqlWriteKind::Delete,
-                    SqlWriteCandidateRows::from_delete_count(row_count)
-                        .attribution_after_delete(true),
-                );
+                record_sql_write_delete_metrics(E::PATH, row_count, true);
 
                 sql_returning_statement_projection(
                     projection_labels_from_accepted_write_descriptor(&descriptor),
@@ -524,11 +579,7 @@ impl<C: CanisterKind> DbSession<C> {
         let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
         let context = SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
         let report = classify_sql_delete_policy(sql, policy, context)?;
-        let Some(plan) = report.plan else {
-            return Err(QueryError::unsupported_query());
-        };
-
-        Ok(plan)
+        require_sql_write_policy_plan(report.plan)
     }
 
     fn execute_validated_sql_delete_statement<E>(
@@ -542,14 +593,13 @@ impl<C: CanisterKind> DbSession<C> {
         let schema = self
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-        validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
-        let authority = Self::accepted_entity_authority_for_schema::<E>(&schema)
-            .map_err(QueryError::execute)?;
-        let schema_info = authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?;
-        let query = Self::sql_delete_query_from_statement::<E>(schema_info, statement)?;
+        checked_accepted_write_descriptor_for_returning::<E>(
+            &schema,
+            statement.returning.as_ref(),
+        )?;
+        let (_authority, schema_info) =
+            Self::accepted_sql_write_authority_schema_info::<E>(&schema)?;
+        let query = Self::sql_delete_query_from_statement::<E>(&schema_info, statement)?;
 
         self.execute_sql_delete_statement_with_execution_bounds::<E>(
             &query,
@@ -625,8 +675,14 @@ impl<C: CanisterKind> DbSession<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SqlWriteCandidateBounds, SqlWriteCandidateRows, sql_delete_candidate_bounds};
-    use crate::db::session::sql::{SqlDeleteExecutionBounds, SqlDeleteReturningBounds};
+    use super::{
+        SqlWriteCandidateBounds, SqlWriteCandidateRows, SqlWriteMutationBatch,
+        sql_delete_candidate_bounds,
+    };
+    use crate::db::{
+        data::StructuralPatch,
+        session::sql::{SqlDeleteExecutionBounds, SqlDeleteReturningBounds},
+    };
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
 
     #[test]
@@ -650,6 +706,24 @@ mod tests {
             Some(&DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::StagedRowsTooMany,
             }),
+        );
+    }
+
+    #[test]
+    fn sql_write_mutation_batch_validates_staged_rows_from_buffer() {
+        let mut rows = SqlWriteMutationBatch::<u64>::new();
+        rows.push(1, StructuralPatch::new());
+        rows.push(2, StructuralPatch::new());
+
+        let staged_rows = rows
+            .validate_staged_rows(SqlWriteCandidateBounds::from_max_rows(Some(2)))
+            .expect("batch staged rows at the bound should be accepted");
+
+        assert_eq!(staged_rows.len(), 2);
+        assert!(
+            rows.validate_staged_rows(SqlWriteCandidateBounds::from_max_rows(Some(1)))
+                .is_err(),
+            "batch staged rows over the bound should reject",
         );
     }
 

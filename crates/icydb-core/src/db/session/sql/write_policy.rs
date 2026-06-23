@@ -56,6 +56,13 @@ pub(in crate::db::session::sql) struct SqlWriteExecutionBounds {
     pub(in crate::db::session::sql) returning: SqlWriteReturningBounds,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) enum SqlWriteStagedRowBoundKind {
+    One,
+    Limit,
+    Unbounded,
+}
+
 pub(in crate::db::session::sql) fn classify_write_where_proof(
     predicate: Option<&SqlExpr>,
     entity: &str,
@@ -134,6 +141,10 @@ pub(in crate::db::session::sql) fn contains_field(fields: &[&str], field: &str) 
     fields.contains(&field)
 }
 
+pub(in crate::db::session::sql) fn owned_write_field_names(fields: &[&str]) -> Vec<String> {
+    fields.iter().map(|field| (*field).to_owned()).collect()
+}
+
 pub(in crate::db::session::sql) const fn combined_optional_row_bound(
     policy_max_rows: Option<u32>,
     configured_max_rows: Option<u32>,
@@ -147,6 +158,17 @@ pub(in crate::db::session::sql) const fn combined_optional_row_bound(
         (Some(policy), None) => Some(policy),
         (None, Some(configured)) => Some(configured),
         (None, None) => None,
+    }
+}
+
+const fn sql_write_staged_row_bound(
+    kind: SqlWriteStagedRowBoundKind,
+    limit: Option<u32>,
+) -> Option<u32> {
+    match kind {
+        SqlWriteStagedRowBoundKind::One => Some(1),
+        SqlWriteStagedRowBoundKind::Limit => limit,
+        SqlWriteStagedRowBoundKind::Unbounded => None,
     }
 }
 
@@ -181,7 +203,7 @@ pub(in crate::db::session::sql) const fn bounded_write_policy_rejection(
     }
 }
 
-pub(in crate::db::session::sql) const fn sql_write_execution_bounds(
+const fn sql_write_execution_bounds(
     max_staged_rows: Option<u32>,
     returning_requested: bool,
     max_returning_rows: Option<u32>,
@@ -200,6 +222,21 @@ pub(in crate::db::session::sql) const fn sql_write_execution_bounds(
             max_response_bytes: max_returning_response_bytes,
         },
     }
+}
+
+pub(in crate::db::session::sql) const fn sql_write_execution_bounds_for_staged_kind(
+    staged_row_bound_kind: SqlWriteStagedRowBoundKind,
+    limit: Option<u32>,
+    returning_requested: bool,
+    max_returning_rows: Option<u32>,
+    max_returning_response_bytes: Option<u32>,
+) -> SqlWriteExecutionBounds {
+    sql_write_execution_bounds(
+        sql_write_staged_row_bound(staged_row_bound_kind, limit),
+        returning_requested,
+        max_returning_rows,
+        max_returning_response_bytes,
+    )
 }
 
 fn primary_key_equality_proof(
@@ -340,6 +377,53 @@ mod tests {
             left: Box::new(left),
             right: Box::new(right),
         }
+    }
+
+    #[test]
+    fn sql_write_staged_row_bound_maps_shared_policy_kinds() {
+        assert_eq!(
+            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::One, Some(10)),
+            Some(1),
+        );
+        assert_eq!(
+            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Limit, Some(10)),
+            Some(10),
+        );
+        assert_eq!(
+            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Limit, None),
+            None,
+        );
+        assert_eq!(
+            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Unbounded, Some(10)),
+            None,
+        );
+    }
+
+    #[test]
+    fn sql_write_execution_bounds_for_staged_kind_combines_policy_and_returning_caps() {
+        let bounded = sql_write_execution_bounds_for_staged_kind(
+            SqlWriteStagedRowBoundKind::Limit,
+            Some(10),
+            true,
+            Some(3),
+            Some(1024),
+        );
+
+        assert_eq!(bounded.max_staged_rows, Some(10));
+        assert_eq!(bounded.returning.max_rows, Some(3));
+        assert_eq!(bounded.returning.max_response_bytes, Some(1024));
+
+        let primary_key_only = sql_write_execution_bounds_for_staged_kind(
+            SqlWriteStagedRowBoundKind::One,
+            Some(10),
+            false,
+            Some(3),
+            Some(1024),
+        );
+
+        assert_eq!(primary_key_only.max_staged_rows, Some(1));
+        assert_eq!(primary_key_only.returning.max_rows, None);
+        assert_eq!(primary_key_only.returning.max_response_bytes, Some(1024));
     }
 
     #[test]

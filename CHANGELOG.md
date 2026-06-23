@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.22` continues the query-engine audit by consolidating
+  residual-filter shape ownership and SQL write-boundary helpers for staged-row
+  bounds, metrics, accepted-schema handoff, and `RETURNING` validation without
+  changing query or write semantics.
+
 - `0.184.21` continues the query-engine audit by scoping chunked mutation
   design guardrails and consolidating SQL write candidate accounting plus
   DELETE row-resolution attribution while adding ordered workspace publish

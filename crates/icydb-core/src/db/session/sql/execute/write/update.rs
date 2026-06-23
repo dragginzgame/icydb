@@ -1,7 +1,8 @@
 use super::{
     SqlWriteMutationBatch, accepted_sql_write_save_contract, checked_accepted_write_descriptor,
-    record_sql_write_metrics, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_update_candidate_bounds,
+    checked_accepted_write_descriptor_for_returning, record_sql_write_mutation_metrics,
+    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
+    require_sql_write_policy_plan, sql_update_candidate_bounds,
     sql_write_key_from_component_literals, sql_write_key_from_literal,
     sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
 };
@@ -16,10 +17,7 @@ use crate::{
             SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
             SqlUpdateExecutionBounds, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
             SqlValidatedUpdatePlan, classify_sql_update_policy,
-            execute::write_returning::{
-                sql_write_statement_result, validate_sql_returning_bounds,
-                validate_sql_returning_projection_fields,
-            },
+            execute::write_returning::{sql_write_statement_result, validate_sql_returning_bounds},
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
@@ -135,15 +133,14 @@ impl<C: CanisterKind> DbSession<C> {
         let schema = self
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-        validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
-        let authority = Self::accepted_entity_authority_for_schema::<E>(&schema)
-            .map_err(QueryError::execute)?;
-        let schema_info = authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?;
-        let save_schema_info = schema_info.clone();
-        let selector = Self::sql_update_selector_query::<E>(schema_info, statement)?;
+        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(
+            &schema,
+            statement.returning.as_ref(),
+        )?;
+        let (authority, schema_info) =
+            Self::accepted_sql_write_authority_schema_info::<E>(&schema)?;
+        let selector = Self::sql_update_selector_query::<E>(&schema_info, statement)?;
+        let save_schema_info = schema_info;
         let patch = Self::sql_structural_patch(&descriptor, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let (payload, _) = self
@@ -158,8 +155,8 @@ impl<C: CanisterKind> DbSession<C> {
 
             rows.push(key, patch.clone());
         }
-        let candidate_rows = rows.staged_rows();
-        sql_update_candidate_bounds(execution_bounds).validate(candidate_rows)?;
+        let candidate_rows =
+            rows.validate_staged_rows(sql_update_candidate_bounds(execution_bounds))?;
         let (
             row_decode_contract,
             mutation_row_decode_contract,
@@ -191,10 +188,12 @@ impl<C: CanisterKind> DbSession<C> {
                 std::convert::identity,
             )
             .map_err(QueryError::execute)?;
-        record_sql_write_metrics(
+        record_sql_write_mutation_metrics(
             E::PATH,
             SqlWriteKind::Update,
-            candidate_rows.attribution_after_mutation(entities.len(), statement.returning.as_ref()),
+            candidate_rows,
+            entities.len(),
+            statement.returning.as_ref(),
         );
 
         sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)
@@ -230,11 +229,7 @@ impl<C: CanisterKind> DbSession<C> {
             managed_fields.as_slice(),
         );
         let report = classify_sql_update_policy(sql, policy, context)?;
-        let Some(plan) = report.plan else {
-            return Err(QueryError::unsupported_query());
-        };
-
-        Ok(plan)
+        require_sql_write_policy_plan(report.plan)
     }
 
     /// Execute a policy-validated public primary-key SQL `UPDATE` plan.

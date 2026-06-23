@@ -1,8 +1,9 @@
 use super::{
-    SqlWriteMutationBatch, accepted_sql_write_save_contract, checked_accepted_write_descriptor,
-    record_sql_write_metrics, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
-    sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
+    SqlWriteMutationBatch, accepted_sql_write_save_contract,
+    checked_accepted_write_descriptor_for_returning, record_sql_write_mutation_metrics,
+    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
+    sql_write_key_from_component_literals, sql_write_patch_set_accepted_field,
+    sql_write_value_for_accepted_field,
 };
 use crate::{
     db::{
@@ -14,12 +15,7 @@ use crate::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
         },
-        session::sql::{
-            SqlStatementResult,
-            execute::write_returning::{
-                sql_write_statement_result, validate_sql_returning_projection_fields,
-            },
-        },
+        session::sql::{SqlStatementResult, execute::write_returning::sql_write_statement_result},
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection},
         sql_shared::SqlSyntaxErrorKind,
     },
@@ -249,12 +245,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let authority =
-            Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
-        let schema_info = authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?;
-        let save_schema_info = schema_info.clone();
+        let (authority, save_schema_info) =
+            Self::accepted_sql_write_authority_schema_info::<E>(schema)?;
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 source_query.clone(),
@@ -306,10 +298,12 @@ impl<C: CanisterKind> DbSession<C> {
         let schema = self
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
+        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(
+            &schema,
+            statement.returning.as_ref(),
+        )?;
         let columns = sql_insert_columns(&descriptor, statement);
         ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
-        validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = SqlWriteMutationBatch::new();
         let mut save_schema_info = None;
@@ -372,10 +366,12 @@ impl<C: CanisterKind> DbSession<C> {
                 std::convert::identity,
             )
             .map_err(QueryError::execute)?;
-        record_sql_write_metrics(
+        record_sql_write_mutation_metrics(
             E::PATH,
             kind,
-            staged_rows.attribution_after_mutation(entities.len(), statement.returning.as_ref()),
+            staged_rows,
+            entities.len(),
+            statement.returning.as_ref(),
         );
 
         sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)

@@ -10,9 +10,10 @@ use crate::db::{
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
         SqlWriteBoundedPolicyRejection, SqlWriteOrderProof, SqlWriteReturningShape,
-        SqlWriteWhereProof, bounded_write_policy_rejection, classify_write_order_proof,
-        classify_write_returning_shape, classify_write_where_proof, contains_field,
-        current_table_field_name, sql_write_execution_bounds,
+        SqlWriteStagedRowBoundKind, SqlWriteWhereProof, bounded_write_policy_rejection,
+        classify_write_order_proof, classify_write_returning_shape, classify_write_where_proof,
+        contains_field, current_table_field_name, owned_write_field_names,
+        sql_write_execution_bounds_for_staged_kind,
     },
     sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
 };
@@ -588,11 +589,7 @@ fn validated_update_plan(
             SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyUpdatePlan {
                 statement: statement.clone(),
                 classification: classification.clone(),
-                primary_key_fields: context
-                    .primary_key_fields
-                    .iter()
-                    .map(|field| (*field).to_string())
-                    .collect(),
+                primary_key_fields: owned_write_field_names(context.primary_key_fields),
                 execution_bounds,
             })
         }
@@ -603,11 +600,7 @@ fn validated_update_plan(
                 limit: classification
                     .limit
                     .expect("bounded policy admitted a limit"),
-                ordered_primary_key_fields: context
-                    .primary_key_fields
-                    .iter()
-                    .map(|field| (*field).to_string())
-                    .collect(),
+                ordered_primary_key_fields: owned_write_field_names(context.primary_key_fields),
                 execution_bounds,
             })
         }
@@ -629,22 +622,22 @@ fn execution_bounds(
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlUpdateExecutionBounds {
-    SqlUpdateExecutionBounds::from_write_bounds(sql_write_execution_bounds(
-        staged_row_bound(policy, classification),
+    SqlUpdateExecutionBounds::from_write_bounds(sql_write_execution_bounds_for_staged_kind(
+        staged_row_bound_kind(policy),
+        classification.limit,
         classification.returning_policy.is_requested(),
         context.max_returning_rows,
         context.max_returning_response_bytes,
     ))
 }
 
-fn staged_row_bound(
-    policy: SqlUpdateExposurePolicy,
-    classification: &SqlUpdateStatementClassification,
-) -> Option<u32> {
+fn staged_row_bound_kind(policy: SqlUpdateExposurePolicy) -> SqlWriteStagedRowBoundKind {
     match policy {
-        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => Some(1),
-        SqlUpdateExposurePolicy::PublicBoundedDeterministic => classification.limit,
-        SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => None,
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => SqlWriteStagedRowBoundKind::One,
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic => SqlWriteStagedRowBoundKind::Limit,
+        SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => {
+            SqlWriteStagedRowBoundKind::Unbounded
+        }
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated update plans")
         }

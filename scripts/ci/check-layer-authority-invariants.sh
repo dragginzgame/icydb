@@ -139,6 +139,17 @@ if [[ -n "$residual_filter_presence_leaks" ]]; then
   status=1
 fi
 
+residual_filter_field_or_leaks="$(
+  run_rg "residual_filter_expr\\.is_some\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*residual_filter_predicate\\.is_some\\(\\)" \
+    "$DB_ROOT" \
+    | strip_comment_only
+)"
+if [[ -n "$residual_filter_field_or_leaks" ]]; then
+  echo "[ERROR] Residual-filter field presence must flow through ResidualFilterShape." >&2
+  echo "$residual_filter_field_or_leaks" >&2
+  status=1
+fi
+
 envelope_authority_leaks="$(
   run_rg "\\bfn\\s+(anchor_within_envelope|resume_bounds_from_refs|continuation_advanced)(\\s*<[^>]+>)?\\s*\\(" \
     "$DB_ROOT" \

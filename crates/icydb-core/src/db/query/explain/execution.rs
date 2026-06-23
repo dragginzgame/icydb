@@ -6,7 +6,7 @@
 use crate::{
     db::query::{
         explain::{ExplainAccessPath, ExplainPlan, ExplainPredicate},
-        plan::AggregateKind,
+        plan::{AggregateKind, ResidualFilterShape},
         trace::TraceReuseEvent,
     },
     value::Value,
@@ -513,7 +513,11 @@ impl ExplainExecutionNodeDescriptor {
     /// Return whether this node carries any residual filter annotation.
     #[must_use]
     pub const fn has_residual_filter(&self) -> bool {
-        self.residual_filter_expr.is_some() || self.residual_filter_predicate.is_some()
+        !ResidualFilterShape::from_presence(
+            self.residual_filter_expr.is_some(),
+            self.residual_filter_predicate.is_some(),
+        )
+        .is_absent()
     }
 
     /// Borrow optional projection annotation.

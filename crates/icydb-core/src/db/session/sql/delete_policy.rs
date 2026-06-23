@@ -10,8 +10,9 @@ use crate::db::{
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
         SqlWriteBoundedPolicyRejection, SqlWriteOrderProof, SqlWriteReturningShape,
-        SqlWriteWhereProof, bounded_write_policy_rejection, classify_write_order_proof,
-        classify_write_returning_shape, classify_write_where_proof, sql_write_execution_bounds,
+        SqlWriteStagedRowBoundKind, SqlWriteWhereProof, bounded_write_policy_rejection,
+        classify_write_order_proof, classify_write_returning_shape, classify_write_where_proof,
+        owned_write_field_names, sql_write_execution_bounds_for_staged_kind,
     },
     sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql_with_attribution},
 };
@@ -552,11 +553,7 @@ fn validated_delete_plan(
             SqlValidatedDeletePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyDeletePlan {
                 statement: statement.clone(),
                 classification: classification.clone(),
-                primary_key_fields: context
-                    .primary_key_fields
-                    .iter()
-                    .map(|field| (*field).to_string())
-                    .collect(),
+                primary_key_fields: owned_write_field_names(context.primary_key_fields),
                 execution_bounds,
             })
         }
@@ -567,11 +564,7 @@ fn validated_delete_plan(
                 limit: classification
                     .limit
                     .expect("bounded policy admitted a limit"),
-                ordered_primary_key_fields: context
-                    .primary_key_fields
-                    .iter()
-                    .map(|field| (*field).to_string())
-                    .collect(),
+                ordered_primary_key_fields: owned_write_field_names(context.primary_key_fields),
                 execution_bounds,
             })
         }
@@ -593,22 +586,22 @@ fn execution_bounds(
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
 ) -> SqlDeleteExecutionBounds {
-    SqlDeleteExecutionBounds::from_write_bounds(sql_write_execution_bounds(
-        staged_row_bound(policy, classification),
+    SqlDeleteExecutionBounds::from_write_bounds(sql_write_execution_bounds_for_staged_kind(
+        staged_row_bound_kind(policy),
+        classification.limit,
         classification.returning_policy.is_requested(),
         context.max_returning_rows,
         context.max_returning_response_bytes,
     ))
 }
 
-fn staged_row_bound(
-    policy: SqlDeleteExposurePolicy,
-    classification: &SqlDeleteStatementClassification,
-) -> Option<u32> {
+fn staged_row_bound_kind(policy: SqlDeleteExposurePolicy) -> SqlWriteStagedRowBoundKind {
     match policy {
-        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => Some(1),
-        SqlDeleteExposurePolicy::PublicBoundedDeterministic => classification.limit,
-        SqlDeleteExposurePolicy::SessionWriteCurrent | SqlDeleteExposurePolicy::AdminBulk => None,
+        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => SqlWriteStagedRowBoundKind::One,
+        SqlDeleteExposurePolicy::PublicBoundedDeterministic => SqlWriteStagedRowBoundKind::Limit,
+        SqlDeleteExposurePolicy::SessionWriteCurrent | SqlDeleteExposurePolicy::AdminBulk => {
+            SqlWriteStagedRowBoundKind::Unbounded
+        }
         SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated delete plans")
         }

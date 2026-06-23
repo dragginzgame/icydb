@@ -155,10 +155,12 @@ Status: active.
   durable commits remain deferred until atomic preflight or staging-overlay
   semantics are designed.
 - H6 / D7 / F6 candidate-bound cleanup: SQL UPDATE and DELETE now share a
-  candidate-row bound/accounting helper at the SQL write boundary. UPDATE still
-  validates after selector collection, DELETE still validates inside the
-  structural delete core before the commit-window bridge, and full-batch commit
-  semantics are unchanged.
+  candidate-row bound/accounting helper at the SQL write boundary. INSERT /
+  UPDATE mutation metrics and DELETE count / RETURNING metrics now also record
+  staged-row attribution through shared helpers. UPDATE still validates after
+  selector collection, DELETE still validates inside the structural delete core
+  before the commit-window bridge, and full-batch commit semantics are
+  unchanged.
 - H6 / D7 / F6 DELETE row-resolution cleanup: typed DELETE, count-only
   structural DELETE, and DELETE RETURNING now record scanned-row attribution
   through the shared candidate resolver. Count-only structural DELETE and
@@ -365,6 +367,22 @@ Status: active.
 - F2 / D3 filter-contract guardrail: the layer-authority invariant script now
   rejects new residual-filter presence gates that rebuild expression-or-predicate
   checks outside the planner-owned residual contract accessor.
+- F2 / D3 residual-shape guardrail follow-up: residual presence decisions in
+  finalized planning, access-planned queries, and EXPLAIN nodes now flow through
+  `ResidualFilterShape`, and the layer-authority invariant rejects direct
+  residual expression/predicate field OR checks.
+- H6 / D7 / F6 write-boundary cleanup follow-up: UPDATE and DELETE exposure
+  policies now share staged-row and RETURNING execution-bound construction
+  while preserving family-local policy mapping, public write-plan DTOs share
+  primary-key field ownership conversion, and INSERT/UPDATE mutation metrics
+  plus DELETE count/RETURNING metrics now share staged-row attribution
+  recorders. Schema-derived public UPDATE/DELETE adapters now also share the
+  validated-plan handoff from policy classification into execution, and
+  mutation batches now own staged-row bound validation for buffered UPDATE
+  candidates. INSERT SELECT, UPDATE, and DELETE now share accepted
+  authority/schema-info lookup after loading the accepted schema snapshot, and
+  INSERT/UPDATE/DELETE execution paths share accepted descriptor plus
+  `RETURNING` field validation.
 
 ## Current Slice
 
