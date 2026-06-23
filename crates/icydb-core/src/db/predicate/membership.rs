@@ -71,19 +71,22 @@ pub(in crate::db) fn collapse_membership_compare_leaves<'a>(
 pub(in crate::db) fn collapse_membership_values(
     field: &str,
     target_op: CompareOp,
-    mut values: Vec<Value>,
+    values: Vec<Value>,
     coercion: CoercionId,
 ) -> Option<ComparePredicate> {
     if values.len() < 2 {
         return None;
     }
-
-    canonicalize_value_set(&mut values);
+    let value = canonical_membership_value_list(values);
 
     Some(ComparePredicate::with_coercion(
-        field,
-        target_op,
-        Value::List(values),
-        coercion,
+        field, target_op, value, coercion,
     ))
+}
+
+/// Canonicalize an already-admitted membership literal set.
+pub(in crate::db) fn canonical_membership_value_list(mut values: Vec<Value>) -> Value {
+    canonicalize_value_set(&mut values);
+
+    Value::List(values)
 }

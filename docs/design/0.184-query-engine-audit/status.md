@@ -218,6 +218,15 @@ Status: active.
   `collection_id IN (...)` page compile work from about 1.67B instructions to
   about 3.3M total compile / 2.2M lower, and the matching count compile from
   about 846M to about 3.3M total compile / 2.3M lower.
+- Large literal `IN` cleanup slice: compact membership truth-set compilation
+  now asks the shared membership assembler for the admitted `IN` / `NOT IN`
+  predicate before constructing fallback equality/inequality leaves, and
+  builds the TRUE/FALSE compact pair from one canonical literal set after a
+  single non-NULL partition pass. OR/AND chain collapse also delegates
+  same-field/same-coercion proof to that shared assembler, keeping
+  mixed-coercion fallback and SQL NULL membership behavior unchanged. Predicate
+  value normalization now uses the same canonical membership-list helper for
+  schema-backed `IN` / `NOT IN` lists.
 - Large literal `IN` second slice: index multi-lookup routes can now admit
   key-only / index-covered projections into the covering path. The sparse token
   `collection_id IN (...) ORDER BY id LIMIT 50` page still scans 256 index

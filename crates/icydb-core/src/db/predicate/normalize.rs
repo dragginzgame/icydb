@@ -7,8 +7,8 @@ use crate::{
     db::{
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ComparePredicate, MembershipCompareLeaf,
-            Predicate, collapse_membership_compare_leaves, encoding::encode_predicate_sort_key,
-            simplify::simplify_and_compare_constraints,
+            Predicate, canonical_membership_value_list, collapse_membership_compare_leaves,
+            encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
         },
         schema::{SchemaInfo, SchemaLiteralValidationReason, ValidateError},
     },
@@ -257,7 +257,7 @@ fn normalize_compare_value_for_kind(
                 return Ok(value.clone());
             };
 
-            let Value::List(mut normalized) =
+            let Value::List(normalized) =
                 normalize_list_value_for_kind(field, values.as_slice(), field_kind, coercion, op)?
             else {
                 unreachable!("predicate normalize invariant");
@@ -266,9 +266,7 @@ fn normalize_compare_value_for_kind(
             // Membership predicates are set-shaped: duplicates and input order
             // must not survive normalization because planner/cache identity and
             // runtime semantics both treat these lists as canonical value sets.
-            canonicalize_value_set(&mut normalized);
-
-            Ok(Value::List(normalized))
+            Ok(canonical_membership_value_list(normalized))
         }
         CompareOp::Contains => {
             let element_kind = match field_kind {

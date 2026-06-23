@@ -12,7 +12,7 @@ use crate::{
     db::{
         predicate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MembershipCompareLeaf,
-            Predicate, collapse_membership_compare_leaves, collapse_membership_values,
+            Predicate, canonical_membership_value_list, collapse_membership_compare_leaves,
         },
         query::plan::expr::{
             BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
@@ -144,30 +144,16 @@ fn collapse_same_field_compare_chain(
     collect_compare_chain(expr, join_op, &mut leaves)?;
 
     let mut membership_leaves = Vec::with_capacity(leaves.len());
-
     for leaf in leaves {
         let (leaf_field, leaf_value, leaf_coercion) = membership_compare_leaf(leaf, compare_op)?;
-        membership_leaves.push((leaf_field, leaf_value, leaf_coercion));
+        membership_leaves.push(MembershipCompareLeaf::new(
+            leaf_field,
+            leaf_value,
+            leaf_coercion,
+        ));
     }
 
-    let (_, _, first_coercion) = membership_leaves.first()?;
-    // Fail closed before handing leaves to the shared membership assembler.
-    // Mixed strict/casefold leaves are semantically different even when they
-    // target the same field and must remain as expanded OR/AND chains.
-    if !membership_leaves
-        .iter()
-        .all(|(_, _, coercion)| coercion == first_coercion)
-    {
-        return None;
-    }
-
-    collapse_membership_compare_leaves(
-        membership_leaves
-            .into_iter()
-            .map(|(field, value, coercion)| MembershipCompareLeaf::new(field, value, coercion)),
-        target_op,
-    )
-    .map(Predicate::Compare)
+    collapse_membership_compare_leaves(membership_leaves, target_op).map(Predicate::Compare)
 }
 
 // Flatten one associative compare chain so membership collapse can inspect
@@ -622,23 +608,81 @@ fn compile_bool_membership_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
         unreachable!("predicate compiler invariant")
     };
     let (field, target_coercion) = compile_bool_membership_target(target);
-    let non_null_values = values
-        .iter()
-        .filter(|value| !matches!(value, Value::Null))
-        .cloned()
-        .collect::<Vec<_>>();
-    let true_set =
-        compile_bool_membership_value_set(field.as_str(), target_coercion, &non_null_values, true);
-    let false_set = if values.iter().any(|value| matches!(value, Value::Null)) {
+    let (non_null_values, has_null) = partition_membership_values(values.as_slice());
+    if let Some(truth_sets) = compile_bool_compact_membership_truth_sets(
+        field.as_str(),
+        target_coercion,
+        non_null_values.as_slice(),
+        has_null,
+    ) {
+        return truth_sets;
+    }
+
+    let true_set = compile_bool_membership_leaf_set(
+        field.as_str(),
+        target_coercion,
+        non_null_values.as_slice(),
+        true,
+    );
+    let false_set = if has_null {
         Predicate::False
     } else {
-        compile_bool_membership_value_set(field.as_str(), target_coercion, &non_null_values, false)
+        compile_bool_membership_leaf_set(
+            field.as_str(),
+            target_coercion,
+            non_null_values.as_slice(),
+            false,
+        )
     };
 
     (true_set, false_set)
 }
 
-fn compile_bool_membership_value_set(
+fn partition_membership_values(values: &[Value]) -> (Vec<Value>, bool) {
+    let mut non_null_values = Vec::with_capacity(values.len());
+    let mut has_null = false;
+
+    for value in values {
+        if matches!(value, Value::Null) {
+            has_null = true;
+        } else {
+            non_null_values.push(value.clone());
+        }
+    }
+
+    (non_null_values, has_null)
+}
+
+fn compile_bool_compact_membership_truth_sets(
+    field: &str,
+    target_coercion: Option<CoercionId>,
+    values: &[Value],
+    has_null: bool,
+) -> Option<(Predicate, Predicate)> {
+    let coercion = shared_membership_coercion(values, target_coercion)?;
+    let list = canonical_membership_value_list(values.to_vec());
+
+    let true_set = Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        CompareOp::In,
+        list.clone(),
+        coercion,
+    ));
+    let false_set = if has_null {
+        Predicate::False
+    } else {
+        Predicate::Compare(ComparePredicate::with_coercion(
+            field,
+            CompareOp::NotIn,
+            list,
+            coercion,
+        ))
+    };
+
+    Some((true_set, false_set))
+}
+
+fn compile_bool_membership_leaf_set(
     field: &str,
     target_coercion: Option<CoercionId>,
     values: &[Value],
@@ -652,51 +696,16 @@ fn compile_bool_membership_value_set(
         };
     }
 
-    let op = if positive {
-        CompareOp::Eq
+    let leaf_predicates =
+        membership_leaf_predicates(field, target_coercion, values, positive).collect::<Vec<_>>();
+    if positive {
+        Predicate::Or(leaf_predicates)
     } else {
-        CompareOp::Ne
-    };
-    let membership_op = if positive {
-        CompareOp::In
-    } else {
-        CompareOp::NotIn
-    };
-    let leaf_predicates = values
-        .iter()
-        .map(|value| {
-            let coercion =
-                target_coercion.unwrap_or_else(|| compare_literal_coercion(CompareOp::Eq, value));
-            Predicate::Compare(ComparePredicate::with_coercion(
-                field.to_string(),
-                op,
-                value.clone(),
-                coercion,
-            ))
-        })
-        .collect::<Vec<_>>();
-
-    let Some(coercion) = shared_membership_coercion(field, values, target_coercion) else {
-        return if positive {
-            Predicate::Or(leaf_predicates)
-        } else {
-            Predicate::And(leaf_predicates)
-        };
-    };
-    let Some(compare) = collapse_membership_values(field, membership_op, values.to_vec(), coercion)
-    else {
-        return leaf_predicates.into_iter().next().unwrap_or(if positive {
-            Predicate::False
-        } else {
-            Predicate::True
-        });
-    };
-
-    Predicate::Compare(compare)
+        Predicate::And(leaf_predicates)
+    }
 }
 
 fn shared_membership_coercion(
-    _field: &str,
     values: &[Value],
     target_coercion: Option<CoercionId>,
 ) -> Option<CoercionId> {
@@ -721,6 +730,30 @@ fn shared_membership_coercion(
     }
 
     shared
+}
+
+fn membership_leaf_predicates<'a>(
+    field: &'a str,
+    target_coercion: Option<CoercionId>,
+    values: &'a [Value],
+    positive: bool,
+) -> impl Iterator<Item = Predicate> + 'a {
+    let op = if positive {
+        CompareOp::Eq
+    } else {
+        CompareOp::Ne
+    };
+
+    values.iter().map(move |value| {
+        let coercion =
+            target_coercion.unwrap_or_else(|| compare_literal_coercion(CompareOp::Eq, value));
+        Predicate::Compare(ComparePredicate::with_coercion(
+            field.to_string(),
+            op,
+            value.clone(),
+            coercion,
+        ))
+    })
 }
 
 fn compile_bool_membership_target(expr: &Expr) -> (String, Option<CoercionId>) {
