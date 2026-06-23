@@ -1,5 +1,5 @@
 use super::{
-    SqlWriteMutationBatch, accepted_sql_write_save_contract, checked_accepted_write_descriptor,
+    accepted_sql_write_save_contract, checked_accepted_write_descriptor,
     checked_accepted_write_descriptor_for_returning, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
     sql_update_candidate_bounds, sql_write_key_from_component_literals, sql_write_key_from_literal,
@@ -143,18 +143,16 @@ impl<C: CanisterKind> DbSession<C> {
         let save_schema_info = schema_info;
         let patch = Self::sql_structural_patch(&descriptor, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
-        let (payload, _) = self
-            .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
-                selector, authority, &schema,
-            )?;
-        let (_, _, projected_rows, _) = payload.into_components();
-        let mut rows = SqlWriteMutationBatch::with_capacity(projected_rows.len());
+        let rows = self.collect_sql_write_mutation_batch_from_structural_query(
+            &schema,
+            authority,
+            &selector,
+            |row| {
+                let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
 
-        for row in projected_rows {
-            let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row.as_slice())?;
-
-            rows.push(key, patch.clone());
-        }
+                Ok((key, patch.clone()))
+            },
+        )?;
         let candidate_rows =
             rows.validate_staged_rows(sql_update_candidate_bounds(execution_bounds))?;
         let (

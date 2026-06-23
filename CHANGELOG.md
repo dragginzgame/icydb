@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Query-engine audit follow-up: SQL UPDATE selector rows and INSERT SELECT
+  source rows now share the write-boundary projection-to-mutation-batch
+  collector, keeping staged-row batching on one helper without changing write
+  execution or commit semantics.
+- Query-engine audit follow-up: scalar page payload materialization and the
+  SQL kernel-row page surface now share the same scan/post-access/windowing
+  helper before their output-specific cursor or row shaping.
+- Query-engine audit follow-up: metadata-backed COUNT and EXISTS prefix
+  paths now share the measured terminal attribution shell, lowered
+  prefix-cardinality summing, and metadata-count window semantics across SQL
+  direct counts and prepared aggregate terminals.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

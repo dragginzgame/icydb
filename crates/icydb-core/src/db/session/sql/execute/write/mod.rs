@@ -6,6 +6,7 @@ use crate::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::{FieldSlot, StructuralPatch},
         executor::{DeleteProjectionBounds, EntityAuthority},
+        query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
             SchemaInfo, accepted_commit_schema_fingerprint,
@@ -492,9 +493,32 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((authority, schema_info))
     }
 
+    fn collect_sql_write_mutation_batch_from_structural_query<K>(
+        &self,
+        schema: &AcceptedSchemaSnapshot,
+        authority: EntityAuthority,
+        query: &StructuralQuery,
+        mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
+    ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
+        let (payload, _) = self
+            .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
+                query.clone(),
+                authority,
+                schema,
+            )?;
+        let (_, _, projected_rows, _) = payload.into_components();
+        let mut rows = SqlWriteMutationBatch::with_capacity(projected_rows.len());
+        for row in projected_rows {
+            let (key, patch) = row_to_patch(row.as_slice())?;
+            rows.push(key, patch);
+        }
+
+        Ok(rows)
+    }
+
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
         &self,
-        query: &crate::db::query::intent::StructuralQuery,
+        query: &StructuralQuery,
         returning: Option<&SqlReturningProjection>,
     ) -> Result<SqlStatementResult, QueryError>
     where
@@ -505,7 +529,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn execute_sql_delete_statement_with_execution_bounds<E>(
         &self,
-        query: &crate::db::query::intent::StructuralQuery,
+        query: &StructuralQuery,
         returning: Option<&SqlReturningProjection>,
         execution_bounds: Option<SqlDeleteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
@@ -570,7 +594,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn sql_delete_query_from_statement<E>(
         schema_info: &SchemaInfo,
         statement: &SqlDeleteStatement,
-    ) -> Result<crate::db::query::intent::StructuralQuery, QueryError>
+    ) -> Result<StructuralQuery, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {

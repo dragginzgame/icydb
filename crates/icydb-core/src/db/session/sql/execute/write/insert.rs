@@ -241,32 +241,28 @@ impl<C: CanisterKind> DbSession<C> {
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         source_query: &StructuralQuery,
         columns: &[String],
-        rows: &mut SqlWriteMutationBatch<E::Key>,
-    ) -> Result<crate::db::schema::SchemaInfo, QueryError>
+    ) -> Result<(crate::db::schema::SchemaInfo, SqlWriteMutationBatch<E::Key>), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (authority, save_schema_info) =
             Self::accepted_sql_write_authority_schema_info::<E>(schema)?;
-        let (payload, _) = self
-            .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
-                source_query.clone(),
-                authority,
-                schema,
-            )?;
-        let (_, _, projected_rows, _) = payload.into_components();
-        rows.reserve(projected_rows.len());
-        for row in projected_rows {
-            if row.len() != columns.len() {
-                return Err(QueryError::sql_write_boundary(
-                    SqlWriteBoundaryCode::InsertSelectWidthMismatch,
-                ));
-            }
+        let rows = self.collect_sql_write_mutation_batch_from_structural_query(
+            schema,
+            authority,
+            source_query,
+            |row| {
+                if row.len() != columns.len() {
+                    return Err(QueryError::sql_write_boundary(
+                        SqlWriteBoundaryCode::InsertSelectWidthMismatch,
+                    ));
+                }
 
-            Self::sql_insert_push_patch_row::<E>(descriptor, rows, columns, row.as_slice())?;
-        }
+                Self::sql_insert_patch_and_key::<E>(descriptor, columns, row)
+            },
+        )?;
 
-        Ok(save_schema_info)
+        Ok((save_schema_info, rows))
     }
 
     // Convert one already-validated INSERT source row into the structural
@@ -331,13 +327,15 @@ impl<C: CanisterKind> DbSession<C> {
             }
             SqlInsertSource::Select(_) => {
                 let source_query = source_query.ok_or_else(QueryError::invariant)?;
-                save_schema_info = Some(self.execute_sql_insert_select_source_patches::<E>(
-                    &schema,
-                    &descriptor,
-                    source_query,
-                    columns.as_slice(),
-                    &mut rows,
-                )?);
+                let (schema_info, collected_rows) = self
+                    .execute_sql_insert_select_source_patches::<E>(
+                        &schema,
+                        &descriptor,
+                        source_query,
+                        columns.as_slice(),
+                    )?;
+                save_schema_info = Some(schema_info);
+                rows = collected_rows;
             }
         }
         let staged_rows = rows.staged_rows();

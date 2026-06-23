@@ -420,7 +420,12 @@ Status: active.
   expansions are covered as successful empty pages rather than route failures.
 - Prefix-cardinality terminal work is in local DRY mode: SQL and fluent-facing
   count/existence terminals now share metadata summing, while SQL-specific
-  compiled cache identity remains separate.
+  compiled cache identity remains separate. Prepared COUNT and EXISTS
+  metadata preflights now also share authority validation, local instruction
+  measurement, plan metric recording, and live lowered-prefix summing. SQL
+  direct-count specs and prepared COUNT prefixes now flow through the same
+  metadata-count page-window conversion, and SQL direct count plus prepared
+  COUNT/EXISTS use the same measured terminal attribution shell.
 - SQL global aggregate direct-count work is still a lightweight singleton
   fast path, not a shared aggregate operator rewrite. The cleanup now removes
   repeated eligibility/probe mechanics, duplicate non-diagnostic probe
@@ -436,6 +441,10 @@ Status: active.
   validation. INSERT and UPDATE now both enter shared `RETURNING` validation
   from the precommit window; UPDATE supplies its public row/byte bounds and
   INSERT currently has no equivalent exposure-policy bounds to supply.
+- SQL write row collection is in local DRY mode: UPDATE selector rows and
+  INSERT SELECT source rows now share the write-boundary structural-projection
+  to mutation-batch collector while leaving row-specific key/patch validation
+  local to each write family.
 - Public DELETE RETURNING response-byte budgets now run through the
   structural delete precommit validation point, so row-count and response-size
   rejections both occur before the delete commit is applied.
@@ -455,6 +464,11 @@ Status: active.
   accessors remain available for callers that need the actual artifacts, while
   boolean gating should go through the single plan-owned presence helper.
   CI now guards that split for non-test code.
+- Scalar page terminal execution is in local DRY mode: structural page payload
+  materialization and the SQL kernel-row page surface now share the
+  scan/post-access/post-scan windowing helper, while direct-data-row fast path,
+  cursor construction, and output shaping remain owned by their existing
+  surface-specific boundaries.
 
 ## Next Candidates
 

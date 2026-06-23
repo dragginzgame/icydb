@@ -21,11 +21,15 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
-            OrderReadableRow, measure_execution_stats_phase,
+            OrderReadableRow, OrderedKeyStreamBox, ScalarContinuationContext,
+            measure_execution_stats_phase,
             pipeline::contracts::{KernelPageMaterializationRequest, MaterializedExecutionPayload},
             projection::ProjectionValidationRow,
             record_projection,
+            route::LoadOrderRouteMode,
         },
+        predicate::MissingRowPolicy,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     value::Value,
@@ -192,6 +196,64 @@ impl OrderReadableRow for KernelRow {
     }
 }
 
+struct WindowedKernelRowsRequest<'a, 'r> {
+    plan: &'a AccessPlannedQuery,
+    key_stream: &'a mut OrderedKeyStreamBox,
+    scan_budget_hint: Option<usize>,
+    load_order_route_mode: LoadOrderRouteMode,
+    consistency: MissingRowPolicy,
+    continuation: &'a ScalarContinuationContext,
+    row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
+}
+
+struct WindowedKernelRows {
+    rows: Vec<KernelRow>,
+    rows_scanned: usize,
+    rows_after_cursor: usize,
+    post_access_rows: usize,
+}
+
+fn scan_key_stream_into_windowed_kernel_rows<'a>(
+    scalar_materialization_plan: &plan::ScalarMaterializationPlan<'a>,
+    request: WindowedKernelRowsRequest<'a, '_>,
+) -> Result<WindowedKernelRows, InternalError> {
+    let WindowedKernelRowsRequest {
+        plan,
+        key_stream,
+        scan_budget_hint,
+        load_order_route_mode,
+        consistency,
+        continuation,
+        row_runtime,
+    } = request;
+
+    let (mut rows, rows_scanned) =
+        execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
+            plan,
+            key_stream,
+            scan_budget_hint,
+            load_order_route_mode,
+            consistency,
+            continuation,
+            row_runtime,
+        ))?;
+    let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
+        plan,
+        &mut rows,
+        continuation.cursor_boundary(),
+        scalar_materialization_plan.post_access_strategy(),
+    )?;
+    scalar_materialization_plan.apply_post_scan_tail(plan, &mut rows)?;
+    let post_access_rows = rows.len();
+
+    Ok(WindowedKernelRows {
+        rows,
+        rows_scanned,
+        rows_after_cursor,
+        post_access_rows,
+    })
+}
+
 /// Materialize one ordered key stream into one execution payload.
 pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>(
     request: KernelPageMaterializationRequest<'a>,
@@ -222,9 +284,15 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         );
     }
 
-    // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
-    let (mut rows, rows_scanned) =
-        execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
+    // Phase 1: run the shared scalar page kernel and post-access windowing.
+    let WindowedKernelRows {
+        rows,
+        rows_scanned,
+        rows_after_cursor,
+        post_access_rows,
+    } = scan_key_stream_into_windowed_kernel_rows(
+        &scalar_materialization_plan,
+        WindowedKernelRowsRequest {
             plan,
             key_stream,
             scan_budget_hint,
@@ -232,21 +300,10 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
             consistency,
             continuation,
             row_runtime,
-        ))?;
-
-    // Phase 2: apply post-access phases and only retain the shared projection
-    // validation pass for surfaces that are not about to materialize the same
-    // projection immediately afterwards.
-    let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
-        plan,
-        &mut rows,
-        continuation.cursor_boundary(),
-        scalar_materialization_plan.post_access_strategy(),
+        },
     )?;
-    scalar_materialization_plan.apply_post_scan_tail(plan, &mut rows)?;
 
-    // Phase 3: assemble the structural cursor boundary before typed page emission.
-    let post_access_rows = rows.len();
+    // Phase 2: assemble the structural cursor boundary before typed page emission.
     let next_cursor = build_scalar_page_cursor(
         authority,
         plan,
@@ -257,7 +314,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         direction,
     )?;
 
-    // Phase 4: select the final payload shape once, then build it in one
+    // Phase 3: select the final payload shape once, then build it in one
     // explicit kernel-row shaping pass.
     let (payload, projection_micros) = measure_execution_stats_phase(|| {
         scalar_materialization_plan.finalize_payload(rows, next_cursor)
@@ -291,10 +348,17 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
         return Err(InternalError::query_executor_invariant());
     }
 
-    // Phase 1: scan through the same scalar kernel used by structural page
-    // materialization so residual filtering and row-read accounting stay shared.
-    let (mut rows, rows_scanned) =
-        execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
+    // Scan through the same scalar kernel and windowing helper as structural
+    // page materialization, then stop before cursor construction and payload
+    // shaping.
+    let WindowedKernelRows {
+        rows,
+        rows_scanned,
+        post_access_rows,
+        rows_after_cursor: _,
+    } = scan_key_stream_into_windowed_kernel_rows(
+        &scalar_materialization_plan,
+        WindowedKernelRowsRequest {
             plan,
             key_stream,
             scan_budget_hint,
@@ -302,18 +366,8 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
             consistency,
             continuation,
             row_runtime,
-        ))?;
-
-    // Phase 2: apply the same post-access and post-scan windowing as the retained
-    // slot page path, then stop before cursor construction and payload shaping.
-    apply_post_access_to_kernel_rows_dyn(
-        plan,
-        &mut rows,
-        continuation.cursor_boundary(),
-        scalar_materialization_plan.post_access_strategy(),
+        },
     )?;
-    scalar_materialization_plan.apply_post_scan_tail(plan, &mut rows)?;
-    let post_access_rows = rows.len();
 
     Ok(KernelRowsExecutionAttempt {
         rows,
