@@ -8,12 +8,15 @@ use crate::db::{
     DirectDataRowAttribution, GroupedExecutionAttribution, KernelRowAttribution,
     ScalarAggregateAttribution,
     executor::{
-        GroupedCountAttribution as ExecutorGroupedCountAttribution,
+        GroupedCountAttribution as ExecutorGroupedCountAttribution, GroupedExecutePhaseAttribution,
         ScalarAggregateTerminalAttribution,
     },
-    session::sql::{
-        cache::SqlCacheAttribution, compile::SqlCompilePhaseAttribution,
-        projection::SqlProjectionMaterializationMetrics,
+    session::{
+        query::QueryPlanCompilePhaseAttribution,
+        sql::{
+            cache::SqlCacheAttribution, compile::SqlCompilePhaseAttribution,
+            projection::SqlProjectionMaterializationMetrics,
+        },
     },
 };
 #[cfg(feature = "diagnostics")]
@@ -322,5 +325,84 @@ impl SqlExecutePhaseAttribution {
             direct_data_row: None,
             kernel_row: None,
         }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn from_grouped_select_phase(
+        planner_local_instructions: u64,
+        plan_compile_attribution: QueryPlanCompilePhaseAttribution,
+        execute_local_instructions: u64,
+        store_local_instructions: u64,
+        response_finalization_local_instructions: u64,
+        grouped_phase_attribution: GroupedExecutePhaseAttribution,
+    ) -> Self {
+        let execute_without_response =
+            execute_local_instructions.saturating_sub(response_finalization_local_instructions);
+        let mut attribution = Self::from_execute_total_and_store_total(
+            execute_without_response,
+            store_local_instructions,
+        )
+        .with_query_plan_compile_attribution(planner_local_instructions, plan_compile_attribution);
+        attribution.response_finalization_local_instructions =
+            response_finalization_local_instructions;
+        attribution.grouped_stream_local_instructions =
+            grouped_phase_attribution.stream_local_instructions;
+        attribution.grouped_fold_local_instructions =
+            grouped_phase_attribution.fold_local_instructions;
+        attribution.grouped_finalize_local_instructions =
+            grouped_phase_attribution.finalize_local_instructions;
+        attribution.grouped_count = grouped_phase_attribution.grouped_count;
+
+        attribution
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn from_projection_select_phase(
+        planner_local_instructions: u64,
+        plan_compile_attribution: QueryPlanCompilePhaseAttribution,
+        execute_local_instructions: u64,
+        store_local_instructions: u64,
+        response_finalization_local_instructions: u64,
+        direct_data_row: Option<DirectDataRowAttribution>,
+        kernel_row: Option<KernelRowAttribution>,
+    ) -> Self {
+        let mut attribution = Self::from_execute_total_and_store_total(
+            execute_local_instructions,
+            store_local_instructions,
+        )
+        .with_query_plan_compile_attribution(planner_local_instructions, plan_compile_attribution);
+        attribution.response_finalization_local_instructions =
+            response_finalization_local_instructions;
+        attribution.direct_data_row = direct_data_row;
+        attribution.kernel_row = kernel_row;
+
+        attribution
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn with_query_plan_compile_attribution(
+        mut self,
+        planner_local_instructions: u64,
+        plan_compile_attribution: QueryPlanCompilePhaseAttribution,
+    ) -> Self {
+        self.planner_local_instructions = planner_local_instructions;
+        self.planner_schema_info_local_instructions = plan_compile_attribution.schema_info;
+        self.planner_prepare_local_instructions = plan_compile_attribution.prepare;
+        self.planner_cache_key_local_instructions = plan_compile_attribution.cache_key;
+        self.planner_cache_lookup_local_instructions = plan_compile_attribution.cache_lookup;
+        self.planner_plan_build_local_instructions = plan_compile_attribution.plan_build;
+        self.planner_cache_insert_local_instructions = plan_compile_attribution.cache_insert;
+
+        self
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn with_scalar_aggregate_terminal(
+        mut self,
+        scalar_aggregate_terminal: ScalarAggregateTerminalAttribution,
+    ) -> Self {
+        self.scalar_aggregate_terminal = scalar_aggregate_terminal;
+
+        self
     }
 }

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Query-engine audit follow-up: compiled SQL global aggregate diagnostics now
+  resolve direct prefix-cardinality `COUNT(*)` through a named measured probe
+  boundary that either returns the direct result or hands the measured fallback
+  authority/cost to prepared aggregate execution. SQL execute attribution also
+  owns shared query-plan compile subphase projection plus SELECT
+  grouped/projection phase construction, scalar aggregate terminal attachment,
+  and compile-attribution merging, without changing aggregate or query
+  semantics.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

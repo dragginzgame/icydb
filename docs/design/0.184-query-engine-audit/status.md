@@ -201,6 +201,16 @@ Status: active.
   metadata-candidate proof, so runtime execution, compiled execution,
   diagnostics fallback, and EXPLAIN consume one precomputed fact set instead of
   rebuilding strategy/projection/HAVING checks in the session adapter.
+- D1 / F3 aggregate diagnostics cleanup: compiled SQL global aggregate
+  diagnostics now resolve the direct prefix-cardinality `COUNT(*)` attempt
+  through one measured probe-resolution boundary that either returns the direct
+  result with phase attribution or hands fallback authority plus measured
+  fallback cost to prepared aggregate execution. This keeps the DTO gate
+  deferred because no grouped/global runtime handoff has been merged. Shared
+  query-plan compile attribution now also owns its local-instruction total, and
+  SQL execute attribution owns the compile-subphase projection plus SELECT
+  grouped/projection phase construction, scalar aggregate terminal attachment,
+  and compile-attribution merging consumed by SELECT and aggregate diagnostics.
 - H7 first slice: scalar materialization lane metrics now report retained-slot
   layout executions, retained value count, and byte-length-only retained value
   count, giving late-materialization work an execution-owned footprint before

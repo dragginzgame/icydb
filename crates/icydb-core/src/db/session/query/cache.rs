@@ -250,6 +250,25 @@ impl QueryPlanCacheAttribution {
 }
 
 impl QueryPlanCompilePhaseAttribution {
+    pub(in crate::db) const fn planner_local_instructions(self) -> u64 {
+        self.schema_info
+            .saturating_add(self.prepare)
+            .saturating_add(self.cache_key)
+            .saturating_add(self.cache_lookup)
+            .saturating_add(self.plan_build)
+            .saturating_add(self.cache_insert)
+    }
+
+    pub(in crate::db) const fn merge(&mut self, other: Self) {
+        self.schema_catalog = self.schema_catalog.saturating_add(other.schema_catalog);
+        self.schema_info = self.schema_info.saturating_add(other.schema_info);
+        self.prepare = self.prepare.saturating_add(other.prepare);
+        self.cache_key = self.cache_key.saturating_add(other.cache_key);
+        self.cache_lookup = self.cache_lookup.saturating_add(other.cache_lookup);
+        self.plan_build = self.plan_build.saturating_add(other.plan_build);
+        self.cache_insert = self.cache_insert.saturating_add(other.cache_insert);
+    }
+
     const fn record(&mut self, phase: QueryPlanCompilePhase, local_instructions: u64) {
         match phase {
             QueryPlanCompilePhase::SchemaCatalog => {

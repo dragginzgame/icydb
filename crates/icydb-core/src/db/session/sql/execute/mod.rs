@@ -155,11 +155,11 @@ impl<C: CanisterKind> DbSession<C> {
             measure_execute_phase_with_physical_access(execute)
         });
         let (result, cache_attribution) = result?;
-        let mut phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+        let phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
             execute_local_instructions,
             store_local_instructions,
-        );
-        phase_attribution.scalar_aggregate_terminal = scalar_aggregate_terminal;
+        )
+        .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
 
         Ok((result, cache_attribution, phase_attribution))
     }
