@@ -14,8 +14,8 @@ use crate::{
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
         session::sql::{
             SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
-            SqlUpdateExecutionBounds, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
-            SqlValidatedUpdatePlan, classify_sql_update_policy,
+            SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedUpdatePlan,
+            classify_sql_update_policy, write_policy::SqlWriteExecutionBounds,
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
@@ -123,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_sql_update_statement_with_execution_bounds<E>(
         &self,
         statement: &SqlUpdateStatement,
-        execution_bounds: Option<SqlUpdateExecutionBounds>,
+        execution_bounds: Option<SqlWriteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -162,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
                 kind: SqlWriteKind::Update,
                 mode: MutationMode::Update,
                 context: write_context,
-                returning_bounds: execution_bounds.map(|bounds| bounds.returning.write_bounds()),
+                returning_bounds: execution_bounds.map(|bounds| bounds.returning),
                 save_schema_info: Some(save_schema_info),
             },
             statement.returning.as_ref(),
@@ -218,7 +218,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.execute_sql_update_statement_with_execution_bounds::<E>(
             plan.statement(),
-            Some(plan.execution_bounds),
+            Some(plan.execution_bounds()),
         )
     }
 
@@ -233,7 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.execute_sql_update_statement_with_execution_bounds::<E>(
             plan.statement(),
-            Some(plan.execution_bounds),
+            Some(plan.execution_bounds()),
         )
     }
 

@@ -179,19 +179,17 @@ pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
     DbSession, SqlAdminBulkDeletePlan, SqlAdminBulkUpdatePlan, SqlDdlExecutionStatus,
-    SqlDdlMutationKind, SqlDdlPreparationReport, SqlDeleteExecutionBounds, SqlDeleteExposurePolicy,
-    SqlDeleteOrderPolicy, SqlDeletePolicyContext, SqlDeletePolicyRejection, SqlDeletePolicyReport,
-    SqlDeleteReturningBounds, SqlDeleteReturningPolicy, SqlDeleteStatementClassification,
-    SqlDeleteWherePolicy, SqlPublicBoundedDeletePlan, SqlPublicBoundedUpdatePlan,
-    SqlPublicPrimaryKeyDeletePlan, SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentDeletePlan,
-    SqlSessionCurrentUpdatePlan, SqlStatementDispatch, SqlStatementResult,
-    SqlStatementShellSurface, SqlStatementSurface, SqlUpdateAssignmentPolicy,
-    SqlUpdateExposurePolicy, SqlUpdateOrderPolicy, SqlUpdatePolicyContext,
-    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateReturningBounds,
-    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
-    SqlValidatedDeletePlan, SqlValidatedUpdatePlan, classify_sql_delete_policy,
-    classify_sql_update_policy, sql_statement_dispatch, sql_statement_entity_name,
-    sql_statement_shell_surface, sql_statement_surface,
+    SqlDdlMutationKind, SqlDdlPreparationReport, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
+    SqlDeletePolicyRejection, SqlDeletePolicyReport, SqlDeleteStatementClassification,
+    SqlPublicBoundedDeletePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan,
+    SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentDeletePlan, SqlSessionCurrentUpdatePlan,
+    SqlStatementDispatch, SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface,
+    SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
+    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateStatementClassification,
+    SqlValidatedDeletePlan, SqlValidatedUpdatePlan, SqlWriteExecutionBounds, SqlWriteOrderProof,
+    SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteStatementShape, SqlWriteWhereProof,
+    classify_sql_delete_policy, classify_sql_update_policy, sql_statement_dispatch,
+    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{

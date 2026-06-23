@@ -185,7 +185,9 @@ fn execute_validated_sql_public_bounded_delete_count_rejects_bound_before_commit
         "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 2",
         None,
     );
-    plan.execution_bounds.max_staged_rows = Some(1);
+    let mut execution_bounds = plan.execution_bounds();
+    execution_bounds.max_staged_rows = Some(1);
+    plan.set_execution_bounds_for_tests(execution_bounds);
 
     let err = session
         .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)

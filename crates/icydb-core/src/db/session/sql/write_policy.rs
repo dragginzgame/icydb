@@ -13,26 +13,78 @@ pub(in crate::db::session::sql) const DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT: u32 = 
 pub(in crate::db::session::sql) const DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES: u32 =
     1_048_576;
 
+/// Shared `WHERE` proof classification for SQL write policy gates.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlWriteWhereProof {
+#[doc(hidden)]
+pub enum SqlWriteWhereProof {
+    /// The statement has no `WHERE` clause.
     Missing,
+    /// The `WHERE` clause proves complete primary-key equality under v1 rules.
     PrimaryKeyEquality,
+    /// The `WHERE` clause exists but does not prove primary-key equality.
     Other,
 }
 
+impl SqlWriteWhereProof {
+    /// Return whether a `WHERE` clause was present.
+    #[must_use]
+    pub const fn has_where(self) -> bool {
+        !matches!(self, Self::Missing)
+    }
+
+    /// Return whether v1 primary-key equality proof passed.
+    #[must_use]
+    pub const fn is_primary_key_equality(self) -> bool {
+        matches!(self, Self::PrimaryKeyEquality)
+    }
+}
+
+/// Shared `ORDER BY` proof classification for SQL write policy gates.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlWriteOrderProof {
+#[doc(hidden)]
+pub enum SqlWriteOrderProof {
+    /// The statement has no explicit `ORDER BY`.
     Missing,
+    /// The statement explicitly orders by canonical primary-key fields ascending.
     CanonicalPrimaryKey,
+    /// The statement orders by canonical primary-key fields but uses descending order.
     DescendingPrimaryKey,
+    /// The statement has another explicit ordering shape.
     Other,
 }
 
+impl SqlWriteOrderProof {
+    /// Return whether the statement has explicit canonical ascending primary-key order.
+    #[must_use]
+    pub const fn is_canonical_primary_key(self) -> bool {
+        matches!(self, Self::CanonicalPrimaryKey)
+    }
+}
+
+/// Shared narrow `RETURNING` classification for SQL write policy gates.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlWriteReturningShape {
+#[doc(hidden)]
+pub enum SqlWriteReturningShape {
+    /// No `RETURNING` clause.
     None,
+    /// Narrow `RETURNING *`.
     NarrowAll,
+    /// Narrow `RETURNING field, ...`.
     NarrowFields,
+}
+
+impl SqlWriteReturningShape {
+    /// Return whether the statement requests `RETURNING`.
+    #[must_use]
+    pub const fn is_requested(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// Return whether the requested `RETURNING` shape is currently narrow.
+    #[must_use]
+    pub const fn is_narrow(self) -> bool {
+        matches!(self, Self::NarrowAll | Self::NarrowFields)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,23 +96,242 @@ pub(in crate::db::session::sql) enum SqlWriteBoundedPolicyRejection {
     LimitTooHigh,
 }
 
+/// Shared `RETURNING` bounds carried by policy-validated SQL write plans.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) struct SqlWriteReturningBounds {
-    pub(in crate::db::session::sql) max_rows: Option<u32>,
-    pub(in crate::db::session::sql) max_response_bytes: Option<u32>,
+#[doc(hidden)]
+pub struct SqlWriteReturningBounds {
+    /// Maximum rows the plan may return, when statically bounded by policy.
+    pub max_rows: Option<u32>,
+    /// Maximum encoded response bytes, when supplied by the caller surface.
+    pub max_response_bytes: Option<u32>,
+}
+
+/// Shared execution bounds carried by policy-validated SQL write plans.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlWriteExecutionBounds {
+    /// Maximum candidate rows the validated plan may stage before mutation.
+    pub max_staged_rows: Option<u32>,
+    /// Optional `RETURNING` row and response-size bounds.
+    pub returning: SqlWriteReturningBounds,
+}
+
+/// Shared parsed write shape used by UPDATE and DELETE exposure policies.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlWriteStatementShape {
+    /// `WHERE` proof classification.
+    pub where_proof: SqlWriteWhereProof,
+    /// Explicit `ORDER BY` proof classification.
+    pub order_proof: SqlWriteOrderProof,
+    /// Parsed `LIMIT`, if supplied.
+    pub limit: Option<u32>,
+    /// Parsed `OFFSET`, if supplied.
+    pub offset: Option<u32>,
+    /// Narrow write `RETURNING` classification.
+    pub returning_shape: SqlWriteReturningShape,
+}
+
+impl SqlWriteStatementShape {
+    /// Return whether the statement has an explicit positive `LIMIT`.
+    #[must_use]
+    pub const fn is_bounded(&self) -> bool {
+        matches!(self.limit, Some(limit) if limit > 0)
+    }
+
+    /// Return whether the statement has explicit canonical ascending primary-key order.
+    #[must_use]
+    pub const fn has_explicit_canonical_primary_key_order(&self) -> bool {
+        self.order_proof.is_canonical_primary_key()
+    }
+
+    const fn bounded_policy_rejection(
+        &self,
+        max_limit: u32,
+    ) -> Option<SqlWriteBoundedPolicyRejection> {
+        bounded_write_policy_rejection(self.offset, self.limit, max_limit, self.order_proof)
+    }
+
+    pub(in crate::db::session::sql) const fn bounded_policy_rejection_for_bounds(
+        &self,
+        bounds: SqlWritePolicyBounds,
+    ) -> Option<SqlWriteBoundedPolicyRejection> {
+        self.bounded_policy_rejection(bounds.public_bounded_limit)
+    }
+
+    pub(in crate::db::session::sql) const fn execution_bounds_for_admission_lane(
+        &self,
+        admission_lane: SqlWriteAdmissionLane,
+        bounds: SqlWritePolicyBounds,
+    ) -> SqlWriteExecutionBounds {
+        sql_write_execution_bounds_for_staged_kind(
+            admission_lane.staged_row_bound_kind(),
+            self.limit,
+            self.returning_shape.is_requested(),
+            bounds.returning_rows,
+            bounds.returning_response_bytes,
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) struct SqlWriteExecutionBounds {
-    pub(in crate::db::session::sql) max_staged_rows: Option<u32>,
-    pub(in crate::db::session::sql) returning: SqlWriteReturningBounds,
+pub(in crate::db::session::sql) struct SqlWritePolicyBounds {
+    pub(in crate::db::session::sql) public_bounded_limit: u32,
+    pub(in crate::db::session::sql) returning_rows: Option<u32>,
+    pub(in crate::db::session::sql) returning_response_bytes: Option<u32>,
+}
+
+impl SqlWritePolicyBounds {
+    pub(in crate::db::session::sql) const fn new(
+        public_bounded_limit: u32,
+        returning_rows: Option<u32>,
+        returning_response_bytes: Option<u32>,
+    ) -> Self {
+        Self {
+            public_bounded_limit,
+            returning_rows,
+            returning_response_bytes,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) struct SqlWritePlanCore<S, C> {
+    statement: S,
+    classification: C,
+    execution_bounds: SqlWriteExecutionBounds,
+}
+
+impl<S, C> SqlWritePlanCore<S, C> {
+    pub(in crate::db::session::sql) const fn new(
+        statement: S,
+        classification: C,
+        execution_bounds: SqlWriteExecutionBounds,
+    ) -> Self {
+        Self {
+            statement,
+            classification,
+            execution_bounds,
+        }
+    }
+
+    pub(in crate::db::session::sql) const fn statement(&self) -> &S {
+        &self.statement
+    }
+
+    pub(in crate::db::session::sql) const fn classification(&self) -> &C {
+        &self.classification
+    }
+
+    pub(in crate::db::session::sql) const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
+        self.execution_bounds
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) const fn set_execution_bounds_for_tests(
+        &mut self,
+        execution_bounds: SqlWriteExecutionBounds,
+    ) {
+        self.execution_bounds = execution_bounds;
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) struct SqlWritePrimaryKeyPlanProof {
+    primary_key_fields: Vec<String>,
+}
+
+impl SqlWritePrimaryKeyPlanProof {
+    pub(in crate::db::session::sql) const fn new(primary_key_fields: Vec<String>) -> Self {
+        Self { primary_key_fields }
+    }
+
+    pub(in crate::db::session::sql) const fn primary_key_fields(&self) -> &[String] {
+        self.primary_key_fields.as_slice()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) struct SqlWriteBoundedPlanProof {
+    limit: u32,
+    ordered_primary_key_fields: Vec<String>,
+}
+
+impl SqlWriteBoundedPlanProof {
+    pub(in crate::db::session::sql) const fn new(
+        limit: u32,
+        ordered_primary_key_fields: Vec<String>,
+    ) -> Self {
+        Self {
+            limit,
+            ordered_primary_key_fields,
+        }
+    }
+
+    pub(in crate::db::session::sql) const fn limit(&self) -> u32 {
+        self.limit
+    }
+
+    pub(in crate::db::session::sql) const fn ordered_primary_key_fields(&self) -> &[String] {
+        self.ordered_primary_key_fields.as_slice()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlWriteStagedRowBoundKind {
+pub(in crate::db::session::sql) enum SqlWriteAdmissionLane {
+    PrimaryKeyOnly,
+    BoundedDeterministic,
+    Bulk,
+}
+
+impl SqlWriteAdmissionLane {
+    const fn staged_row_bound_kind(self) -> SqlWriteStagedRowBoundKind {
+        match self {
+            Self::PrimaryKeyOnly => SqlWriteStagedRowBoundKind::One,
+            Self::BoundedDeterministic => SqlWriteStagedRowBoundKind::Limit,
+            Self::Bulk => SqlWriteStagedRowBoundKind::Unbounded,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SqlWriteStagedRowBoundKind {
     One,
     Limit,
     Unbounded,
+}
+
+pub(in crate::db::session::sql) struct SqlWriteStatementShapeInput<'a> {
+    pub(in crate::db::session::sql) predicate: Option<&'a SqlExpr>,
+    pub(in crate::db::session::sql) entity: &'a str,
+    pub(in crate::db::session::sql) table_alias: Option<&'a str>,
+    pub(in crate::db::session::sql) order_by: &'a [SqlOrderTerm],
+    pub(in crate::db::session::sql) limit: Option<u32>,
+    pub(in crate::db::session::sql) offset: Option<u32>,
+    pub(in crate::db::session::sql) returning: Option<&'a SqlReturningProjection>,
+    pub(in crate::db::session::sql) primary_key_fields: &'a [&'a str],
+}
+
+pub(in crate::db::session::sql) fn classify_write_statement_shape(
+    input: SqlWriteStatementShapeInput<'_>,
+) -> SqlWriteStatementShape {
+    SqlWriteStatementShape {
+        where_proof: classify_write_where_proof(
+            input.predicate,
+            input.entity,
+            input.table_alias,
+            input.primary_key_fields,
+        ),
+        order_proof: classify_write_order_proof(
+            input.order_by,
+            input.entity,
+            input.table_alias,
+            input.primary_key_fields,
+        ),
+        limit: input.limit,
+        offset: input.offset,
+        returning_shape: classify_write_returning_shape(input.returning),
+    }
 }
 
 pub(in crate::db::session::sql) fn classify_write_where_proof(
@@ -172,7 +443,7 @@ const fn sql_write_staged_row_bound(
     }
 }
 
-pub(in crate::db::session::sql) const fn bounded_write_policy_rejection(
+const fn bounded_write_policy_rejection(
     offset: Option<u32>,
     limit: Option<u32>,
     max_limit: u32,
@@ -224,7 +495,7 @@ const fn sql_write_execution_bounds(
     }
 }
 
-pub(in crate::db::session::sql) const fn sql_write_execution_bounds_for_staged_kind(
+const fn sql_write_execution_bounds_for_staged_kind(
     staged_row_bound_kind: SqlWriteStagedRowBoundKind,
     limit: Option<u32>,
     returning_requested: bool,
@@ -395,6 +666,50 @@ mod tests {
         );
         assert_eq!(
             sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Unbounded, Some(10)),
+            None,
+        );
+    }
+
+    #[test]
+    fn sql_write_admission_lane_maps_to_execution_bounds() {
+        let shape = SqlWriteStatementShape {
+            where_proof: SqlWriteWhereProof::Other,
+            order_proof: SqlWriteOrderProof::CanonicalPrimaryKey,
+            limit: Some(10),
+            offset: None,
+            returning_shape: SqlWriteReturningShape::NarrowFields,
+        };
+        let bounds = SqlWritePolicyBounds::new(10, Some(7), Some(1024));
+
+        assert_eq!(
+            shape
+                .execution_bounds_for_admission_lane(SqlWriteAdmissionLane::PrimaryKeyOnly, bounds,)
+                .max_staged_rows,
+            Some(1),
+        );
+        assert_eq!(
+            shape
+                .execution_bounds_for_admission_lane(
+                    SqlWriteAdmissionLane::BoundedDeterministic,
+                    bounds,
+                )
+                .max_staged_rows,
+            Some(10),
+        );
+        assert_eq!(
+            shape
+                .execution_bounds_for_admission_lane(
+                    SqlWriteAdmissionLane::BoundedDeterministic,
+                    bounds,
+                )
+                .returning
+                .max_rows,
+            Some(7),
+        );
+        assert_eq!(
+            shape
+                .execution_bounds_for_admission_lane(SqlWriteAdmissionLane::Bulk, bounds,)
+                .max_staged_rows,
             None,
         );
     }

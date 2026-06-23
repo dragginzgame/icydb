@@ -9,11 +9,10 @@ use crate::db::{
     QueryError,
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteBoundedPolicyRejection, SqlWriteOrderProof, SqlWriteReturningBounds,
-        SqlWriteReturningShape, SqlWriteStagedRowBoundKind, SqlWriteWhereProof,
-        bounded_write_policy_rejection, classify_write_order_proof, classify_write_returning_shape,
-        classify_write_where_proof, owned_write_field_names,
-        sql_write_execution_bounds_for_staged_kind,
+        SqlWriteAdmissionLane, SqlWriteBoundedPlanProof, SqlWriteBoundedPolicyRejection,
+        SqlWriteExecutionBounds, SqlWritePlanCore, SqlWritePolicyBounds,
+        SqlWritePrimaryKeyPlanProof, SqlWriteReturningBounds, SqlWriteStatementShape,
+        SqlWriteStatementShapeInput, classify_write_statement_shape, owned_write_field_names,
     },
     sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql_with_attribution},
 };
@@ -46,6 +45,19 @@ pub enum SqlDeleteExposurePolicy {
     AdminBulk,
 }
 
+impl SqlDeleteExposurePolicy {
+    fn validated_admission_lane(self) -> SqlWriteAdmissionLane {
+        match self {
+            Self::PublicPrimaryKeyOnly => SqlWriteAdmissionLane::PrimaryKeyOnly,
+            Self::PublicBoundedDeterministic => SqlWriteAdmissionLane::BoundedDeterministic,
+            Self::SessionWriteCurrent | Self::AdminBulk => SqlWriteAdmissionLane::Bulk,
+            Self::GeneratedQuery | Self::GeneratedDdl => {
+                unreachable!("generated policies never produce validated delete plans")
+            }
+        }
+    }
+}
+
 /// Schema-derived field context needed to classify one `DELETE`.
 #[derive(Clone, Copy, Debug)]
 #[doc(hidden)]
@@ -72,6 +84,14 @@ impl<'a> SqlDeletePolicyContext<'a> {
         }
     }
 
+    const fn write_bounds(self) -> SqlWritePolicyBounds {
+        SqlWritePolicyBounds::new(
+            self.max_public_bounded_limit,
+            self.max_returning_rows,
+            self.max_returning_response_bytes,
+        )
+    }
+
     /// Build the default context used by schema-derived public/generated delete endpoints.
     #[must_use]
     pub const fn public_generated(primary_key_fields: &'a [&'a str]) -> Self {
@@ -84,155 +104,17 @@ impl<'a> SqlDeletePolicyContext<'a> {
     }
 }
 
-/// `WHERE` classification for one parsed `DELETE`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub enum SqlDeleteWherePolicy {
-    /// The statement has no `WHERE` clause.
-    Missing,
-    /// The `WHERE` clause proves complete primary-key equality under v1 rules.
-    PrimaryKeyEquality,
-    /// The `WHERE` clause exists but does not prove primary-key equality.
-    Other,
-}
-
-impl SqlDeleteWherePolicy {
-    /// Return whether a `WHERE` clause was present.
-    #[must_use]
-    pub const fn has_where(self) -> bool {
-        !matches!(self, Self::Missing)
-    }
-
-    /// Return whether v1 primary-key equality proof passed.
-    #[must_use]
-    pub const fn is_primary_key_equality(self) -> bool {
-        matches!(self, Self::PrimaryKeyEquality)
-    }
-}
-
-/// Explicit `ORDER BY` classification for one parsed `DELETE`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub enum SqlDeleteOrderPolicy {
-    /// The statement has no explicit `ORDER BY`.
-    Missing,
-    /// The statement explicitly orders by canonical primary-key fields ascending.
-    CanonicalPrimaryKey,
-    /// The statement orders by canonical primary-key fields but uses descending order.
-    DescendingPrimaryKey,
-    /// The statement has another explicit ordering shape.
-    Other,
-}
-
-impl SqlDeleteOrderPolicy {
-    const fn write_order_proof(self) -> SqlWriteOrderProof {
-        match self {
-            Self::Missing => SqlWriteOrderProof::Missing,
-            Self::CanonicalPrimaryKey => SqlWriteOrderProof::CanonicalPrimaryKey,
-            Self::DescendingPrimaryKey => SqlWriteOrderProof::DescendingPrimaryKey,
-            Self::Other => SqlWriteOrderProof::Other,
-        }
-    }
-}
-
-/// Narrow write `RETURNING` classification for one parsed `DELETE`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub enum SqlDeleteReturningPolicy {
-    /// No `RETURNING` clause.
-    None,
-    /// Narrow `RETURNING *`.
-    NarrowAll,
-    /// Narrow `RETURNING field, ...`.
-    NarrowFields,
-}
-
-impl SqlDeleteReturningPolicy {
-    /// Return whether the statement requests `RETURNING`.
-    #[must_use]
-    pub const fn is_requested(self) -> bool {
-        !matches!(self, Self::None)
-    }
-}
-
-/// `RETURNING` bounds carried by a validated delete plan.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub struct SqlDeleteReturningBounds {
-    /// Maximum rows the plan may return, when statically bounded by policy.
-    pub max_rows: Option<u32>,
-    /// Maximum encoded response bytes, when supplied by the caller surface.
-    pub max_response_bytes: Option<u32>,
-}
-
-/// Runtime execution bounds carried by a policy-validated SQL `DELETE`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub struct SqlDeleteExecutionBounds {
-    /// Maximum candidate rows the validated plan may stage before mutation.
-    pub max_staged_rows: Option<u32>,
-    /// Optional `RETURNING` row and response-size bounds.
-    pub returning: SqlDeleteReturningBounds,
-}
-
-impl SqlDeleteReturningBounds {
-    const fn from_write_bounds(bounds: SqlWriteReturningBounds) -> Self {
-        Self {
-            max_rows: bounds.max_rows,
-            max_response_bytes: bounds.max_response_bytes,
-        }
-    }
-
-    pub(in crate::db::session::sql) const fn write_bounds(self) -> SqlWriteReturningBounds {
-        SqlWriteReturningBounds {
-            max_rows: self.max_rows,
-            max_response_bytes: self.max_response_bytes,
-        }
-    }
-}
-
-impl SqlDeleteExecutionBounds {
-    const fn from_write_bounds(
-        bounds: crate::db::session::sql::write_policy::SqlWriteExecutionBounds,
-    ) -> Self {
-        Self {
-            max_staged_rows: bounds.max_staged_rows,
-            returning: SqlDeleteReturningBounds::from_write_bounds(bounds.returning),
-        }
-    }
-}
-
 /// Parsed `DELETE` classification before a caller-selected exposure policy is applied.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub struct SqlDeleteStatementClassification {
     /// Target entity identifier.
     pub target_entity: String,
-    /// `WHERE` proof classification.
-    pub where_policy: SqlDeleteWherePolicy,
-    /// Explicit `ORDER BY` classification.
-    pub order_policy: SqlDeleteOrderPolicy,
-    /// Parsed `LIMIT`, if supplied.
-    pub limit: Option<u32>,
-    /// Parsed `OFFSET`, if supplied.
-    pub offset: Option<u32>,
-    /// Narrow write `RETURNING` classification.
-    pub returning_policy: SqlDeleteReturningPolicy,
+    /// Shared parser write-shape classification.
+    pub write_shape: SqlWriteStatementShape,
 }
 
-impl SqlDeleteStatementClassification {
-    /// Return whether the statement has an explicit positive `LIMIT`.
-    #[must_use]
-    pub const fn is_bounded(&self) -> bool {
-        matches!(self.limit, Some(limit) if limit > 0)
-    }
-
-    /// Return whether the statement has explicit canonical ascending primary-key order.
-    #[must_use]
-    pub const fn has_explicit_canonical_primary_key_order(&self) -> bool {
-        matches!(self.order_policy, SqlDeleteOrderPolicy::CanonicalPrimaryKey)
-    }
-}
+type SqlDeletePlanCore = SqlWritePlanCore<SqlDeleteStatement, SqlDeleteStatementClassification>;
 
 /// Validated non-executing SQL `DELETE` plan.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -253,27 +135,27 @@ impl SqlValidatedDeletePlan {
     #[must_use]
     pub const fn classification(&self) -> &SqlDeleteStatementClassification {
         match self {
-            Self::SessionCurrent(plan) => &plan.classification,
-            Self::PublicPrimaryKeyOnly(plan) => &plan.classification,
-            Self::PublicBoundedDeterministic(plan) => &plan.classification,
-            Self::AdminBulk(plan) => &plan.classification,
+            Self::SessionCurrent(plan) => plan.core.classification(),
+            Self::PublicPrimaryKeyOnly(plan) => plan.core.classification(),
+            Self::PublicBoundedDeterministic(plan) => plan.core.classification(),
+            Self::AdminBulk(plan) => plan.core.classification(),
         }
     }
 
     /// Return the execution bounds carried by this validated plan.
     #[must_use]
-    pub const fn execution_bounds(&self) -> SqlDeleteExecutionBounds {
+    pub const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
         match self {
-            Self::SessionCurrent(plan) => plan.execution_bounds,
-            Self::PublicPrimaryKeyOnly(plan) => plan.execution_bounds,
-            Self::PublicBoundedDeterministic(plan) => plan.execution_bounds,
-            Self::AdminBulk(plan) => plan.execution_bounds,
+            Self::SessionCurrent(plan) => plan.core.execution_bounds(),
+            Self::PublicPrimaryKeyOnly(plan) => plan.core.execution_bounds(),
+            Self::PublicBoundedDeterministic(plan) => plan.core.execution_bounds(),
+            Self::AdminBulk(plan) => plan.core.execution_bounds(),
         }
     }
 
     /// Return the `RETURNING` bounds carried by this validated plan.
     #[must_use]
-    pub const fn returning_bounds(&self) -> SqlDeleteReturningBounds {
+    pub const fn returning_bounds(&self) -> SqlWriteReturningBounds {
         self.execution_bounds().returning
     }
 
@@ -281,10 +163,10 @@ impl SqlValidatedDeletePlan {
     #[must_use]
     pub const fn statement_entity(&self) -> &str {
         match self {
-            Self::SessionCurrent(plan) => plan.statement.entity.as_str(),
-            Self::PublicPrimaryKeyOnly(plan) => plan.statement.entity.as_str(),
-            Self::PublicBoundedDeterministic(plan) => plan.statement.entity.as_str(),
-            Self::AdminBulk(plan) => plan.statement.entity.as_str(),
+            Self::SessionCurrent(plan) => plan.core.statement().entity.as_str(),
+            Self::PublicPrimaryKeyOnly(plan) => plan.core.statement().entity.as_str(),
+            Self::PublicBoundedDeterministic(plan) => plan.core.statement().entity.as_str(),
+            Self::AdminBulk(plan) => plan.core.statement().entity.as_str(),
         }
     }
 }
@@ -293,29 +175,32 @@ impl SqlValidatedDeletePlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub struct SqlSessionCurrentDeletePlan {
-    statement: SqlDeleteStatement,
-    /// Shape classification admitted by the current session policy.
-    pub classification: SqlDeleteStatementClassification,
-    /// Runtime execution bounds attached to the admitted plan.
-    pub execution_bounds: SqlDeleteExecutionBounds,
+    core: SqlDeletePlanCore,
 }
 
 /// Validated plan for public primary-key-only delete.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub struct SqlPublicPrimaryKeyDeletePlan {
-    statement: SqlDeleteStatement,
-    /// Shape classification admitted by the primary-key policy.
-    pub classification: SqlDeleteStatementClassification,
-    /// Primary-key fields proven by the policy, in canonical order.
-    pub primary_key_fields: Vec<String>,
-    /// Runtime execution bounds attached to the admitted plan.
-    pub execution_bounds: SqlDeleteExecutionBounds,
+    core: SqlDeletePlanCore,
+    primary_key_proof: SqlWritePrimaryKeyPlanProof,
 }
 
 impl SqlPublicPrimaryKeyDeletePlan {
     pub(in crate::db::session::sql) const fn statement(&self) -> &SqlDeleteStatement {
-        &self.statement
+        self.core.statement()
+    }
+
+    /// Return the execution bounds carried by this primary-key plan.
+    #[must_use]
+    pub const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
+        self.core.execution_bounds()
+    }
+
+    /// Return the primary-key fields proven by policy, in canonical order.
+    #[must_use]
+    pub const fn primary_key_fields(&self) -> &[String] {
+        self.primary_key_proof.primary_key_fields()
     }
 }
 
@@ -323,20 +208,39 @@ impl SqlPublicPrimaryKeyDeletePlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub struct SqlPublicBoundedDeletePlan {
-    statement: SqlDeleteStatement,
-    /// Shape classification admitted by the bounded deterministic policy.
-    pub classification: SqlDeleteStatementClassification,
-    /// Explicit positive limit admitted by the policy.
-    pub limit: u32,
-    /// Primary-key fields used for explicit canonical ordering.
-    pub ordered_primary_key_fields: Vec<String>,
-    /// Runtime execution bounds attached to the admitted plan.
-    pub execution_bounds: SqlDeleteExecutionBounds,
+    core: SqlDeletePlanCore,
+    bounded_proof: SqlWriteBoundedPlanProof,
 }
 
 impl SqlPublicBoundedDeletePlan {
     pub(in crate::db::session::sql) const fn statement(&self) -> &SqlDeleteStatement {
-        &self.statement
+        self.core.statement()
+    }
+
+    /// Return the execution bounds carried by this bounded deterministic plan.
+    #[must_use]
+    pub const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
+        self.core.execution_bounds()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) const fn set_execution_bounds_for_tests(
+        &mut self,
+        execution_bounds: SqlWriteExecutionBounds,
+    ) {
+        self.core.set_execution_bounds_for_tests(execution_bounds);
+    }
+
+    /// Return the explicit limit admitted by the bounded deterministic policy.
+    #[must_use]
+    pub const fn limit(&self) -> u32 {
+        self.bounded_proof.limit()
+    }
+
+    /// Return the ordered primary-key fields proven by policy.
+    #[must_use]
+    pub const fn ordered_primary_key_fields(&self) -> &[String] {
+        self.bounded_proof.ordered_primary_key_fields()
     }
 }
 
@@ -344,11 +248,7 @@ impl SqlPublicBoundedDeletePlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub struct SqlAdminBulkDeletePlan {
-    statement: SqlDeleteStatement,
-    /// Shape classification admitted by the admin/bulk policy.
-    pub classification: SqlDeleteStatementClassification,
-    /// Runtime execution bounds attached to the admitted plan.
-    pub execution_bounds: SqlDeleteExecutionBounds,
+    core: SqlDeletePlanCore,
 }
 
 /// Stable policy rejection for one classified SQL `DELETE`.
@@ -465,11 +365,7 @@ fn classify_delete_statement(
 ) -> SqlDeleteStatementClassification {
     SqlDeleteStatementClassification {
         target_entity: statement.entity.clone(),
-        where_policy: where_policy(statement, context),
-        order_policy: order_policy(statement, context),
-        limit: statement.limit,
-        offset: statement.offset,
-        returning_policy: returning_policy(statement),
+        write_shape: classify_write_shape(statement, context),
     }
 }
 
@@ -497,7 +393,11 @@ fn delete_policy_rejection(
             if let Some(rejection) = public_delete_where_rejection(classification) {
                 return Some(rejection);
             }
-            if !classification.where_policy.is_primary_key_equality() {
+            if !classification
+                .write_shape
+                .where_proof
+                .is_primary_key_equality()
+            {
                 return Some(SqlDeletePolicyRejection::PrimaryKeyProofFailed);
             }
 
@@ -516,7 +416,7 @@ fn delete_policy_rejection(
 const fn public_delete_where_rejection(
     classification: &SqlDeleteStatementClassification,
 ) -> Option<SqlDeletePolicyRejection> {
-    if classification.where_policy.has_where() {
+    if classification.write_shape.where_proof.has_where() {
         None
     } else {
         Some(SqlDeletePolicyRejection::MissingWhere)
@@ -527,12 +427,10 @@ const fn bounded_policy_rejection(
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
 ) -> Option<SqlDeletePolicyRejection> {
-    match bounded_write_policy_rejection(
-        classification.offset,
-        classification.limit,
-        context.max_public_bounded_limit,
-        classification.order_policy.write_order_proof(),
-    ) {
+    match classification
+        .write_shape
+        .bounded_policy_rejection_for_bounds(context.write_bounds())
+    {
         Some(rejection) => Some(SqlDeletePolicyRejection::from_bounded_write_rejection(
             rejection,
         )),
@@ -550,114 +448,83 @@ fn validated_delete_plan(
     match policy {
         SqlDeleteExposurePolicy::SessionWriteCurrent => {
             SqlValidatedDeletePlan::SessionCurrent(SqlSessionCurrentDeletePlan {
-                statement: statement.clone(),
-                classification: classification.clone(),
-                execution_bounds,
+                core: delete_plan_core(statement, classification, execution_bounds),
             })
         }
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => {
             SqlValidatedDeletePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyDeletePlan {
-                statement: statement.clone(),
-                classification: classification.clone(),
-                primary_key_fields: owned_write_field_names(context.primary_key_fields),
-                execution_bounds,
+                core: delete_plan_core(statement, classification, execution_bounds),
+                primary_key_proof: SqlWritePrimaryKeyPlanProof::new(owned_write_field_names(
+                    context.primary_key_fields,
+                )),
             })
         }
         SqlDeleteExposurePolicy::PublicBoundedDeterministic => {
             SqlValidatedDeletePlan::PublicBoundedDeterministic(SqlPublicBoundedDeletePlan {
-                statement: statement.clone(),
-                classification: classification.clone(),
-                limit: classification
-                    .limit
-                    .expect("bounded policy admitted a limit"),
-                ordered_primary_key_fields: owned_write_field_names(context.primary_key_fields),
-                execution_bounds,
+                core: delete_plan_core(statement, classification, execution_bounds),
+                bounded_proof: SqlWriteBoundedPlanProof::new(
+                    classification
+                        .write_shape
+                        .limit
+                        .expect("bounded policy admitted a limit"),
+                    owned_write_field_names(context.primary_key_fields),
+                ),
             })
         }
         SqlDeleteExposurePolicy::AdminBulk => {
             SqlValidatedDeletePlan::AdminBulk(SqlAdminBulkDeletePlan {
-                statement: statement.clone(),
-                classification: classification.clone(),
-                execution_bounds,
+                core: delete_plan_core(statement, classification, execution_bounds),
             })
         }
         SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated delete plans")
         }
     }
+}
+
+fn delete_plan_core(
+    statement: &SqlDeleteStatement,
+    classification: &SqlDeleteStatementClassification,
+    execution_bounds: SqlWriteExecutionBounds,
+) -> SqlDeletePlanCore {
+    SqlWritePlanCore::new(statement.clone(), classification.clone(), execution_bounds)
 }
 
 fn execution_bounds(
     policy: SqlDeleteExposurePolicy,
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
-) -> SqlDeleteExecutionBounds {
-    SqlDeleteExecutionBounds::from_write_bounds(sql_write_execution_bounds_for_staged_kind(
-        staged_row_bound_kind(policy),
-        classification.limit,
-        classification.returning_policy.is_requested(),
-        context.max_returning_rows,
-        context.max_returning_response_bytes,
-    ))
+) -> SqlWriteExecutionBounds {
+    classification
+        .write_shape
+        .execution_bounds_for_admission_lane(
+            policy.validated_admission_lane(),
+            context.write_bounds(),
+        )
 }
 
-fn staged_row_bound_kind(policy: SqlDeleteExposurePolicy) -> SqlWriteStagedRowBoundKind {
-    match policy {
-        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => SqlWriteStagedRowBoundKind::One,
-        SqlDeleteExposurePolicy::PublicBoundedDeterministic => SqlWriteStagedRowBoundKind::Limit,
-        SqlDeleteExposurePolicy::SessionWriteCurrent | SqlDeleteExposurePolicy::AdminBulk => {
-            SqlWriteStagedRowBoundKind::Unbounded
-        }
-        SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => {
-            unreachable!("generated policies never produce validated delete plans")
-        }
-    }
-}
-
-fn where_policy(
+fn classify_write_shape(
     statement: &SqlDeleteStatement,
     context: SqlDeletePolicyContext<'_>,
-) -> SqlDeleteWherePolicy {
-    match classify_write_where_proof(
-        statement.predicate.as_ref(),
-        statement.entity.as_str(),
-        statement.table_alias.as_deref(),
-        context.primary_key_fields,
-    ) {
-        SqlWriteWhereProof::Missing => SqlDeleteWherePolicy::Missing,
-        SqlWriteWhereProof::PrimaryKeyEquality => SqlDeleteWherePolicy::PrimaryKeyEquality,
-        SqlWriteWhereProof::Other => SqlDeleteWherePolicy::Other,
-    }
-}
-
-fn order_policy(
-    statement: &SqlDeleteStatement,
-    context: SqlDeletePolicyContext<'_>,
-) -> SqlDeleteOrderPolicy {
-    match classify_write_order_proof(
-        statement.order_by.as_slice(),
-        statement.entity.as_str(),
-        statement.table_alias.as_deref(),
-        context.primary_key_fields,
-    ) {
-        SqlWriteOrderProof::Missing => SqlDeleteOrderPolicy::Missing,
-        SqlWriteOrderProof::CanonicalPrimaryKey => SqlDeleteOrderPolicy::CanonicalPrimaryKey,
-        SqlWriteOrderProof::DescendingPrimaryKey => SqlDeleteOrderPolicy::DescendingPrimaryKey,
-        SqlWriteOrderProof::Other => SqlDeleteOrderPolicy::Other,
-    }
-}
-
-const fn returning_policy(statement: &SqlDeleteStatement) -> SqlDeleteReturningPolicy {
-    match classify_write_returning_shape(statement.returning.as_ref()) {
-        SqlWriteReturningShape::None => SqlDeleteReturningPolicy::None,
-        SqlWriteReturningShape::NarrowAll => SqlDeleteReturningPolicy::NarrowAll,
-        SqlWriteReturningShape::NarrowFields => SqlDeleteReturningPolicy::NarrowFields,
-    }
+) -> SqlWriteStatementShape {
+    classify_write_statement_shape(SqlWriteStatementShapeInput {
+        predicate: statement.predicate.as_ref(),
+        entity: statement.entity.as_str(),
+        table_alias: statement.table_alias.as_deref(),
+        order_by: statement.order_by.as_slice(),
+        limit: statement.limit,
+        offset: statement.offset,
+        returning: statement.returning.as_ref(),
+        primary_key_fields: context.primary_key_fields,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::session::sql::write_policy::{
+        SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteWhereProof,
+    };
 
     const PRIMARY_KEY: &[&str] = &["id"];
 
@@ -696,7 +563,10 @@ mod tests {
             .as_ref()
             .expect("admitted DELETE should include classification");
         assert_eq!(classification.target_entity, "Character");
-        assert_eq!(classification.where_policy, SqlDeleteWherePolicy::Missing);
+        assert_eq!(
+            classification.write_shape.where_proof,
+            SqlWriteWhereProof::Missing
+        );
         assert!(matches!(
             expect_plan(&report),
             SqlValidatedDeletePlan::SessionCurrent(_),
@@ -757,13 +627,14 @@ mod tests {
                 .classification
                 .as_ref()
                 .expect("classification should be present")
-                .where_policy,
-            SqlDeleteWherePolicy::PrimaryKeyEquality,
+                .write_shape
+                .where_proof,
+            SqlWriteWhereProof::PrimaryKeyEquality,
         );
         let SqlValidatedDeletePlan::PublicPrimaryKeyOnly(plan) = expect_plan(&report) else {
             panic!("primary-key policy should produce only the primary-key plan variant");
         };
-        assert_eq!(plan.primary_key_fields, ["id"]);
+        assert_eq!(plan.primary_key_fields(), ["id"]);
     }
 
     #[test]
@@ -779,8 +650,9 @@ mod tests {
                 .classification
                 .as_ref()
                 .expect("classification should be present")
-                .where_policy,
-            SqlDeleteWherePolicy::PrimaryKeyEquality,
+                .write_shape
+                .where_proof,
+            SqlWriteWhereProof::PrimaryKeyEquality,
         );
     }
 
@@ -840,7 +712,7 @@ mod tests {
         let SqlValidatedDeletePlan::PublicPrimaryKeyOnly(plan) = expect_plan(&report) else {
             panic!("composite primary-key proof should produce a primary-key plan");
         };
-        assert_eq!(plan.primary_key_fields, ["tenant_id", "id"]);
+        assert_eq!(plan.primary_key_fields(), ["tenant_id", "id"]);
     }
 
     #[test]
@@ -855,13 +727,17 @@ mod tests {
             .classification
             .as_ref()
             .expect("admitted DELETE should include classification");
-        assert!(classification.is_bounded());
-        assert!(classification.has_explicit_canonical_primary_key_order());
+        assert!(classification.write_shape.is_bounded());
+        assert!(
+            classification
+                .write_shape
+                .has_explicit_canonical_primary_key_order()
+        );
         let SqlValidatedDeletePlan::PublicBoundedDeterministic(plan) = expect_plan(&report) else {
             panic!("bounded policy should produce only the bounded plan variant");
         };
-        assert_eq!(plan.limit, 10);
-        assert_eq!(plan.ordered_primary_key_fields, ["id"]);
+        assert_eq!(plan.limit(), 10);
+        assert_eq!(plan.ordered_primary_key_fields(), ["id"]);
     }
 
     #[test]
@@ -969,8 +845,9 @@ mod tests {
                 .classification
                 .as_ref()
                 .expect("classification should be present")
-                .returning_policy,
-            SqlDeleteReturningPolicy::NarrowAll,
+                .write_shape
+                .returning_shape,
+            SqlWriteReturningShape::NarrowAll,
         );
         assert!(returning_fields.is_admitted());
         assert_eq!(
@@ -978,8 +855,9 @@ mod tests {
                 .classification
                 .as_ref()
                 .expect("classification should be present")
-                .returning_policy,
-            SqlDeleteReturningPolicy::NarrowFields,
+                .write_shape
+                .returning_shape,
+            SqlWriteReturningShape::NarrowFields,
         );
     }
 
@@ -1006,14 +884,14 @@ mod tests {
 
         assert_eq!(
             expect_plan(&primary_key).returning_bounds(),
-            SqlDeleteReturningBounds {
+            SqlWriteReturningBounds {
                 max_rows: Some(1),
                 max_response_bytes: Some(4096),
             },
         );
         assert_eq!(
             expect_plan(&bounded).returning_bounds(),
-            SqlDeleteReturningBounds {
+            SqlWriteReturningBounds {
                 max_rows: Some(10),
                 max_response_bytes: Some(4096),
             },
@@ -1040,7 +918,7 @@ mod tests {
 
         assert_eq!(
             expect_plan(&report).returning_bounds(),
-            SqlDeleteReturningBounds {
+            SqlWriteReturningBounds {
                 max_rows: Some(1),
                 max_response_bytes: Some(DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES),
             },
@@ -1070,14 +948,14 @@ mod tests {
 
         assert_eq!(
             expect_plan(&primary_key).returning_bounds(),
-            SqlDeleteReturningBounds {
+            SqlWriteReturningBounds {
                 max_rows: Some(1),
                 max_response_bytes: None,
             },
         );
         assert_eq!(
             expect_plan(&bounded).returning_bounds(),
-            SqlDeleteReturningBounds {
+            SqlWriteReturningBounds {
                 max_rows: Some(2),
                 max_response_bytes: None,
             },

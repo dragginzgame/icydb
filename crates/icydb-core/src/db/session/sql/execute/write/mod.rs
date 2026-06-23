@@ -16,17 +16,16 @@ use crate::{
         session::{
             AcceptedSaveContract, accepted_save_contract_for_descriptor,
             sql::{
-                SqlDeleteExecutionBounds, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
-                SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan, SqlStatementResult,
-                SqlUpdateExecutionBounds, SqlValidatedDeletePlan, classify_sql_delete_policy,
-                combined_optional_row_bound,
+                SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+                SqlPublicPrimaryKeyDeletePlan, SqlStatementResult, SqlValidatedDeletePlan,
+                classify_sql_delete_policy, combined_optional_row_bound,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, sql_write_statement_result,
                     validate_sql_materialized_returning_bounds, validate_sql_returning_bounds,
                     validate_sql_returning_projection_fields,
                 },
-                write_policy::SqlWriteReturningBounds,
+                write_policy::{SqlWriteExecutionBounds, SqlWriteReturningBounds},
             },
         },
         sql::{
@@ -319,7 +318,7 @@ impl SqlWriteCandidateBounds {
 }
 
 fn sql_update_candidate_bounds(
-    execution_bounds: Option<SqlUpdateExecutionBounds>,
+    execution_bounds: Option<SqlWriteExecutionBounds>,
 ) -> SqlWriteCandidateBounds {
     SqlWriteCandidateBounds::from_max_rows(
         execution_bounds.and_then(|bounds| bounds.max_staged_rows),
@@ -327,7 +326,7 @@ fn sql_update_candidate_bounds(
 }
 
 const fn sql_delete_candidate_bounds(
-    execution_bounds: Option<SqlDeleteExecutionBounds>,
+    execution_bounds: Option<SqlWriteExecutionBounds>,
     returning: bool,
 ) -> SqlWriteCandidateBounds {
     let Some(execution_bounds) = execution_bounds else {
@@ -485,7 +484,7 @@ where
 }
 
 const fn sql_delete_projection_bounds(
-    execution_bounds: Option<SqlDeleteExecutionBounds>,
+    execution_bounds: Option<SqlWriteExecutionBounds>,
     returning: bool,
 ) -> DeleteProjectionBounds {
     sql_delete_candidate_bounds(execution_bounds, returning).delete_projection_bounds()
@@ -598,7 +597,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &StructuralQuery,
         returning: Option<&SqlReturningProjection>,
-        execution_bounds: Option<SqlDeleteExecutionBounds>,
+        execution_bounds: Option<SqlWriteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -644,7 +643,7 @@ impl<C: CanisterKind> DbSession<C> {
                                     projection.value_rows(),
                                     projection.row_count(),
                                     returning,
-                                    execution_bounds.map(|bounds| bounds.returning.write_bounds()),
+                                    execution_bounds.map(|bounds| bounds.returning),
                                 )
                             })
                     })
@@ -694,7 +693,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_validated_sql_delete_statement<E>(
         &self,
         statement: &SqlDeleteStatement,
-        execution_bounds: SqlDeleteExecutionBounds,
+        execution_bounds: SqlWriteExecutionBounds,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -726,7 +725,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds)
+        self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds())
     }
 
     /// Execute a policy-validated bounded deterministic SQL `DELETE` plan.
@@ -738,7 +737,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds)
+        self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds())
     }
 
     /// Classify and execute one public primary-key-only SQL `DELETE`.
@@ -790,7 +789,7 @@ mod tests {
     };
     use crate::db::{
         data::StructuralPatch,
-        session::sql::{SqlDeleteExecutionBounds, SqlDeleteReturningBounds},
+        session::sql::{SqlWriteExecutionBounds, SqlWriteReturningBounds},
     };
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
 
@@ -853,9 +852,9 @@ mod tests {
 
     #[test]
     fn sql_delete_candidate_bounds_use_tighter_staged_or_returning_cap() {
-        let bounds = SqlDeleteExecutionBounds {
+        let bounds = SqlWriteExecutionBounds {
             max_staged_rows: Some(5),
-            returning: SqlDeleteReturningBounds {
+            returning: SqlWriteReturningBounds {
                 max_rows: Some(3),
                 max_response_bytes: None,
             },
@@ -870,9 +869,9 @@ mod tests {
             Some(3)
         );
 
-        let bounds = SqlDeleteExecutionBounds {
+        let bounds = SqlWriteExecutionBounds {
             max_staged_rows: Some(2),
-            returning: SqlDeleteReturningBounds {
+            returning: SqlWriteReturningBounds {
                 max_rows: Some(4),
                 max_response_bytes: None,
             },

@@ -78,15 +78,13 @@ pub(in crate::db) use delete_policy::{
     DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT, DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES,
 };
 pub use delete_policy::{
-    SqlAdminBulkDeletePlan, SqlDeleteExecutionBounds, SqlDeleteExposurePolicy,
-    SqlDeleteOrderPolicy, SqlDeletePolicyContext, SqlDeletePolicyRejection, SqlDeletePolicyReport,
-    SqlDeleteReturningBounds, SqlDeleteReturningPolicy, SqlDeleteStatementClassification,
-    SqlDeleteWherePolicy, SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan,
-    SqlSessionCurrentDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
+    SqlAdminBulkDeletePlan, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
+    SqlDeletePolicyRejection, SqlDeletePolicyReport, SqlDeleteStatementClassification,
+    SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan, SqlSessionCurrentDeletePlan,
+    SqlValidatedDeletePlan, classify_sql_delete_policy,
 };
 pub(in crate::db) use projection::SqlProjectionContract;
 pub use result::SqlStatementResult;
-pub(in crate::db) use update_policy::SqlUpdateExecutionBounds;
 #[cfg(test)]
 pub(in crate::db) use update_policy::{
     DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
@@ -94,11 +92,14 @@ pub(in crate::db) use update_policy::{
 pub use update_policy::{
     SqlAdminBulkUpdatePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
     SqlSessionCurrentUpdatePlan, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy,
-    SqlUpdateOrderPolicy, SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
-    SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
-    SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
+    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlUpdateStatementClassification, SqlValidatedUpdatePlan, classify_sql_update_policy,
 };
 pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
+pub use write_policy::{
+    SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds, SqlWriteReturningShape,
+    SqlWriteStatementShape, SqlWriteWhereProof,
+};
 
 #[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy)]

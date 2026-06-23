@@ -493,6 +493,13 @@ Status: active.
   scan/post-access/post-scan windowing helper, while direct-data-row fast path,
   cursor construction, and output shaping remain owned by their existing
   surface-specific boundaries.
+- SQL write policy classification is in local DRY mode: UPDATE and DELETE keep
+  family-specific plan and rejection names, but `WHERE`, `ORDER BY`, `LIMIT`,
+  `OFFSET`, narrow `RETURNING`, staged-row, and returned-row policy facts now
+  flow through one shared `SqlWriteStatementShape`, shared admission-lane and
+  policy-bounds contracts, write-proof/bounds authority, and shared validated
+  plan payloads instead of parallel definitions, conversion matches, or
+  compatibility aliases.
 
 ## Next Candidates
 
