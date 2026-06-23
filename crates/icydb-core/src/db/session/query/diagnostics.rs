@@ -42,10 +42,10 @@ pub struct DirectDataRowAttribution {
 impl DirectDataRowAttribution {
     #[cfg(any(test, feature = "sql"))]
     const fn from_direct_phase(phase: DirectDataRowPhaseAttribution) -> Option<Self> {
-        if !phase.has_work() {
-            None
-        } else {
+        if phase.has_work() {
             Some(Self::from_phase_unchecked(phase))
+        } else {
+            None
         }
     }
 
@@ -122,20 +122,20 @@ impl KernelRowAttribution {
     }
 
     const fn from_kernel_phase(phase: KernelRowPhaseAttribution) -> Option<Self> {
-        if !phase.has_work() {
-            return None;
+        if phase.has_work() {
+            Some(Self {
+                scan_local_instructions: phase.scan_local_instructions,
+                key_stream_local_instructions: phase.key_stream_local_instructions,
+                row_read_local_instructions: phase.row_read_local_instructions,
+                order_window_local_instructions: phase.order_window_local_instructions,
+                page_window_local_instructions: phase.page_window_local_instructions,
+                retained_layout_hits: phase.retained_layout_hits,
+                retained_slot_values: phase.retained_slot_values,
+                retained_octet_length_values: phase.retained_octet_length_values,
+            })
+        } else {
+            None
         }
-
-        Some(Self {
-            scan_local_instructions: phase.scan_local_instructions,
-            key_stream_local_instructions: phase.key_stream_local_instructions,
-            row_read_local_instructions: phase.row_read_local_instructions,
-            order_window_local_instructions: phase.order_window_local_instructions,
-            page_window_local_instructions: phase.page_window_local_instructions,
-            retained_layout_hits: phase.retained_layout_hits,
-            retained_slot_values: phase.retained_slot_values,
-            retained_octet_length_values: phase.retained_octet_length_values,
-        })
     }
 }
 
@@ -238,21 +238,21 @@ impl ScalarAggregateAttribution {
     pub(in crate::db) fn from_executor(
         terminal: ScalarAggregateTerminalAttribution,
     ) -> Option<Self> {
-        if !terminal.has_work() {
-            return None;
+        if terminal.has_work() {
+            Some(Self {
+                base_row_local_instructions: terminal.base_row_local_instructions,
+                reducer_fold_local_instructions: terminal.reducer_fold_local_instructions,
+                expression_evaluations: terminal.expression_evaluations,
+                filter_evaluations: terminal.filter_evaluations,
+                rows_ingested: terminal.rows_ingested,
+                terminal_count: terminal.terminal_count,
+                unique_input_expr_count: terminal.unique_input_expr_count,
+                unique_filter_expr_count: terminal.unique_filter_expr_count,
+                sink_mode: terminal.sink_mode.label().map(str::to_string),
+            })
+        } else {
+            None
         }
-
-        Some(Self {
-            base_row_local_instructions: terminal.base_row_local_instructions,
-            reducer_fold_local_instructions: terminal.reducer_fold_local_instructions,
-            expression_evaluations: terminal.expression_evaluations,
-            filter_evaluations: terminal.filter_evaluations,
-            rows_ingested: terminal.rows_ingested,
-            terminal_count: terminal.terminal_count,
-            unique_input_expr_count: terminal.unique_input_expr_count,
-            unique_filter_expr_count: terminal.unique_filter_expr_count,
-            sink_mode: terminal.sink_mode.label().map(str::to_string),
-        })
     }
 }
 

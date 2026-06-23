@@ -168,15 +168,15 @@ impl SqlHybridCoveringAttribution {
     pub(in crate::db::session::sql) const fn from_projection_metrics(
         metrics: SqlProjectionMaterializationMetrics,
     ) -> Option<Self> {
-        if !metrics.has_hybrid_covering_work() {
-            return None;
+        if metrics.has_hybrid_covering_work() {
+            Some(Self {
+                path_hits: metrics.hybrid_covering_path_hits,
+                index_field_accesses: metrics.hybrid_covering_index_field_accesses,
+                row_field_accesses: metrics.hybrid_covering_row_field_accesses,
+            })
+        } else {
+            None
         }
-
-        Some(Self {
-            path_hits: metrics.hybrid_covering_path_hits,
-            index_field_accesses: metrics.hybrid_covering_index_field_accesses,
-            row_field_accesses: metrics.hybrid_covering_row_field_accesses,
-        })
     }
 }
 
