@@ -206,6 +206,14 @@ impl<C: CanisterKind> DbSession<C> {
         QueryResponse::from_core(inner)
     }
 
+    #[cfg(feature = "sql")]
+    fn sql_query_result_from_statement<E>(statement: core::db::SqlStatementResult) -> SqlQueryResult
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        crate::db::sql::sql_query_result_from_statement(statement, E::MODEL.name().to_string())
+    }
+
     // ------------------------------------------------------------------
     // Session configuration
     // ------------------------------------------------------------------
@@ -276,9 +284,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_query::<E>(sql)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -325,10 +332,9 @@ impl<C: CanisterKind> DbSession<C> {
         E: crate::traits::EntityFor<C>,
     {
         let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
-        let entity_name = E::MODEL.name().to_string();
         let (response_decode_local_instructions, result) =
             measure_sql_response_decode_stage(|| {
-                crate::db::sql::sql_query_result_from_statement(result, entity_name)
+                Self::sql_query_result_from_statement::<E>(result)
             });
         attribution =
             finalize_public_sql_query_attribution(attribution, response_decode_local_instructions);
@@ -342,9 +348,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_update::<E>(sql)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -358,10 +363,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner
                 .execute_validated_sql_public_primary_key_update::<E>(plan)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -375,9 +379,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_public_primary_key_update::<E>(sql)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -391,10 +394,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner
                 .execute_validated_sql_public_bounded_update::<E>(plan)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -405,9 +407,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_public_bounded_update::<E>(sql)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -421,10 +422,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner
                 .execute_validated_sql_public_primary_key_delete::<E>(plan)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -438,9 +438,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_public_primary_key_delete::<E>(sql)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -454,10 +453,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner
                 .execute_validated_sql_public_bounded_delete::<E>(plan)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -468,9 +466,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_public_bounded_delete::<E>(sql)?,
-            E::MODEL.name().to_string(),
         ))
     }
 
@@ -480,9 +477,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        Ok(crate::db::sql::sql_query_result_from_statement(
+        Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_ddl::<E>(sql)?,
-            E::MODEL.name().to_string(),
         ))
     }
 

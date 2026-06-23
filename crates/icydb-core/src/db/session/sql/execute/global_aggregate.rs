@@ -65,6 +65,9 @@ struct PreparedAggregateRequestBundle {
     projection: SqlProjectionContract,
 }
 
+type PreparedAggregatePlanResolution =
+    Result<(SharedPreparedExecutionPlan, SqlCacheAttribution), QueryError>;
+
 impl PreparedAggregateRequestBundle {
     fn from_global_command(
         command: &SqlGlobalAggregateCommand,
@@ -577,6 +580,33 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    fn execute_global_aggregate_after_direct_count_probe<E>(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        direct_probe: Option<DirectCountCardinalityPlanProbe>,
+        resolve_prepared_plan: impl FnOnce(Option<EntityAuthority>) -> PreparedAggregatePlanResolution,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let direct_resolution =
+            self.execute_direct_count_cardinality_probe::<E>(command.projection(), direct_probe)?;
+        if let Some(result) = direct_resolution.result {
+            return Ok(result);
+        }
+
+        let (prepared_plan, cache_attribution) =
+            resolve_prepared_plan(direct_resolution.fallback_authority)?;
+
+        self.execute_global_aggregate_with_prepared_plan::<E>(
+            command,
+            catalog,
+            &prepared_plan,
+            cache_attribution,
+        )
+    }
+
     #[cfg(feature = "diagnostics")]
     fn resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution<E>(
         &self,
@@ -661,31 +691,31 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let direct_probe = self.build_direct_count_cardinality_plan_probe::<E>(command, catalog)?;
-        let direct_resolution =
-            self.execute_direct_count_cardinality_probe::<E>(command.projection(), direct_probe)?;
-        if let Some(result) = direct_resolution.result {
-            return Ok(result);
-        }
 
-        let authority = match direct_resolution.fallback_authority {
-            Some(authority) => authority,
-            None => catalog
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute)?,
-        };
-        let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
-                authority,
-                catalog.snapshot(),
-                catalog.fingerprint(),
-                command.query(),
-            )?;
-
-        self.execute_global_aggregate_with_prepared_plan::<E>(
+        self.execute_global_aggregate_after_direct_count_probe::<E>(
             command,
             catalog,
-            &prepared_plan,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+            direct_probe,
+            |fallback_authority| {
+                let authority = match fallback_authority {
+                    Some(authority) => authority,
+                    None => catalog
+                        .accepted_entity_authority_for::<E>()
+                        .map_err(QueryError::execute)?,
+                };
+                let (prepared_plan, cache_attribution) = self
+                    .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
+                        authority,
+                        catalog.snapshot(),
+                        catalog.fingerprint(),
+                        command.query(),
+                    )?;
+
+                Ok((
+                    prepared_plan,
+                    SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+                ))
+            },
         )
     }
 
@@ -705,25 +735,19 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let direct_probe =
             self.resolve_compiled_direct_count_cardinality_plan::<E>(compiled, command, catalog)?;
-        let direct_resolution =
-            self.execute_direct_count_cardinality_probe::<E>(command.projection(), direct_probe)?;
-        if let Some(result) = direct_resolution.result {
-            return Ok(result);
-        }
 
-        let (prepared_plan, cache_attribution) = self
-            .resolve_compiled_global_aggregate_prepared_plan::<E>(
-                compiled,
-                command,
-                catalog,
-                direct_resolution.fallback_authority,
-            )?;
-
-        self.execute_global_aggregate_with_prepared_plan::<E>(
+        self.execute_global_aggregate_after_direct_count_probe::<E>(
             command,
             catalog,
-            &prepared_plan,
-            cache_attribution,
+            direct_probe,
+            |fallback_authority| {
+                self.resolve_compiled_global_aggregate_prepared_plan::<E>(
+                    compiled,
+                    command,
+                    catalog,
+                    fallback_authority,
+                )
+            },
         )
     }
 

@@ -16,8 +16,6 @@ mod write_returning;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::with_scalar_aggregate_terminal_attribution;
 #[cfg(feature = "diagnostics")]
-use crate::db::session::query::QueryPlanCompilePhaseAttribution;
-#[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 #[cfg(feature = "diagnostics")]
 use crate::error::InternalError;
@@ -125,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (result, _) = self.execute_compiled_sql_owned_with_cache_attribution::<E>(compiled)?;
+        let (result, _) = self.execute_compiled_sql_with_cache_attribution::<E>(&compiled)?;
 
         Ok(result)
     }
@@ -183,27 +181,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         Self::execute_non_select_compiled_sql_with_phase_attribution_from_executor(compiled, || {
             self.execute_compiled_sql_with_cache_attribution::<E>(compiled)
-        })
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn execute_non_select_compiled_sql_with_phase_attribution_from_catalog<E>(
-        &self,
-        compiled: &CompiledSqlCommand,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<
-        (
-            SqlStatementResult,
-            SqlCacheAttribution,
-            SqlExecutePhaseAttribution,
-        ),
-        QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        Self::execute_non_select_compiled_sql_with_phase_attribution_from_executor(compiled, || {
-            self.execute_compiled_sql_with_catalog_cache_attribution::<E>(compiled, catalog)
         })
     }
 
@@ -290,73 +267,19 @@ impl<C: CanisterKind> DbSession<C> {
     {
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
-                self.execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(
-                    query,
-                    || {
-                        if let Some((prepared_plan, projection)) =
-                            context.command().cached_select_plan(
-                                context.schema_fingerprint_method_version(),
-                                context.schema_fingerprint(),
-                            )
-                        {
-                            return Ok((
-                                prepared_plan,
-                                projection,
-                                SqlCacheAttribution::shared_query_plan_cache_hit(),
-                                QueryPlanCompilePhaseAttribution::default(),
-                            ));
-                        }
-
-                        let authority = match context.accepted_authority() {
-                            Some(authority) => authority.clone(),
-                            None => context
-                                .accepted_catalog()
-                                .accepted_entity_authority_for::<E>()
-                                .map_err(QueryError::execute)?,
-                        };
-
-                        let resolved = self
-                            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
-                                query,
-                                authority,
-                                context.accepted_schema(),
-                                context.schema_fingerprint(),
-                            );
-                        if let Ok((prepared_plan, projection, _, _)) = &resolved {
-                            context.command().set_cached_select_plan(
-                                context.schema_fingerprint_method_version(),
-                                context.schema_fingerprint(),
-                                prepared_plan.clone(),
-                                projection.clone(),
-                            );
-                        }
-
-                        resolved
-                    },
-                )
+                self.execute_select_compiled_sql_with_context_phase_attribution::<E>(query, context)
             }
             CompiledSqlCommand::Explain(lowered) => {
-                let (
-                    scalar_aggregate_terminal,
-                    ((execute_local_instructions, store_local_instructions), result),
-                ) = with_scalar_aggregate_terminal_attribution(|| {
-                    measure_execute_phase_with_physical_access(|| {
+                Self::execute_non_select_compiled_sql_with_phase_attribution_from_executor(
+                    context.command(),
+                    || {
                         self.execute_explain_sql_with_catalog_cache_attribution::<E>(
                             lowered,
                             context.accepted_catalog(),
                             context.accepted_authority(),
                         )
-                    })
-                });
-                let (result, cache_attribution) = result?;
-                let mut phase_attribution =
-                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
-                        execute_local_instructions,
-                        store_local_instructions,
-                    );
-                phase_attribution.scalar_aggregate_terminal = scalar_aggregate_terminal;
-
-                Ok((result, cache_attribution, phase_attribution))
+                    },
+                )
             }
             CompiledSqlCommand::GlobalAggregate { command, .. } => self
                 .execute_global_aggregate_compiled_statement_ref_with_phase_attribution::<E>(
@@ -364,11 +287,15 @@ impl<C: CanisterKind> DbSession<C> {
                     command,
                     context.accepted_catalog(),
                 ),
-            compiled => self
-                .execute_non_select_compiled_sql_with_phase_attribution_from_catalog::<E>(
-                    compiled,
-                    context.accepted_catalog(),
-                ),
+            compiled => Self::execute_non_select_compiled_sql_with_phase_attribution_from_executor(
+                compiled,
+                || {
+                    self.execute_compiled_sql_with_catalog_cache_attribution::<E>(
+                        compiled,
+                        context.accepted_catalog(),
+                    )
+                },
+            ),
         }
     }
 
@@ -466,11 +393,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    #[cfg(any(test, feature = "diagnostics"))]
-    #[expect(
-        dead_code,
-        reason = "available for cache-attribution tests over compile contexts; normal query execution uses owned or diagnostics context entrypoints"
-    )]
     pub(in crate::db) fn execute_compiled_sql_context_with_cache_attribution<E>(
         &self,
         context: &SqlCompiledCommandExecutionContext,
@@ -518,83 +440,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    pub(in crate::db) fn execute_compiled_sql_owned_with_cache_attribution<E>(
-        &self,
-        compiled: CompiledSqlCommand,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        if let Some(result) = self.execute_metadata_compiled_sql_with_default_cache::<E>(&compiled)
-        {
-            return result;
-        }
-
-        match compiled {
-            CompiledSqlCommand::Select { query, .. } => {
-                self.execute_select_compiled_sql_with_cache_attribution::<E>(query.as_ref())
-            }
-            CompiledSqlCommand::Delete { query, returning } => {
-                let result =
-                    self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
-                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Delete, result)
-            }
-            CompiledSqlCommand::GlobalAggregate { command, .. } => {
-                self.execute_global_aggregate_statement_ref::<E>(&command)
-            }
-            CompiledSqlCommand::Explain(lowered) => {
-                self.execute_explain_sql_with_cache_attribution::<E>(&lowered)
-            }
-            CompiledSqlCommand::Insert(command) => {
-                let kind = sql_insert_write_kind(command.statement());
-                let result = self
-                    .execute_sql_insert_statement::<E>(command.statement(), command.source_query());
-                sql_write_statement_result_with_default_cache::<E, C>(kind, result)
-            }
-            CompiledSqlCommand::Update(statement) => {
-                let result = self.execute_sql_update_statement::<E>(&statement);
-                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Update, result)
-            }
-            CompiledSqlCommand::DescribeEntity
-            | CompiledSqlCommand::ShowIndexesEntity
-            | CompiledSqlCommand::ShowColumnsEntity
-            | CompiledSqlCommand::ShowEntities { .. }
-            | CompiledSqlCommand::ShowStores { .. }
-            | CompiledSqlCommand::ShowMemory => unreachable!("metadata SQL handled above"),
-        }
-    }
-
-    pub(in crate::db) fn execute_compiled_sql_context_owned_with_cache_attribution<E>(
-        &self,
-        context: SqlCompiledCommandExecutionContext,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        if let Some(result) = self.execute_metadata_compiled_sql_with_catalog_cache::<E>(
-            context.command(),
-            context.accepted_catalog(),
-        ) {
-            return result;
-        }
-
-        match context.command() {
-            CompiledSqlCommand::Select { query, .. } => {
-                self.execute_select_compiled_sql_with_context::<E>(query, &context)
-            }
-            CompiledSqlCommand::Explain(lowered) => self
-                .execute_explain_sql_with_catalog_cache_attribution::<E>(
-                    lowered,
-                    context.accepted_catalog(),
-                    context.accepted_authority(),
-                ),
-            _ => self.execute_compiled_sql_with_catalog_cache_attribution::<E>(
-                context.command(),
-                context.accepted_catalog(),
-            ),
-        }
-    }
-
     pub(in crate::db) fn execute_compiled_sql_context_owned<E>(
         &self,
         context: SqlCompiledCommandExecutionContext,
@@ -603,7 +448,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (result, _) =
-            self.execute_compiled_sql_context_owned_with_cache_attribution::<E>(context)?;
+            self.execute_compiled_sql_context_with_cache_attribution::<E>(&context)?;
 
         Ok(result)
     }

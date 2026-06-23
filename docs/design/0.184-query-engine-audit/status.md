@@ -439,6 +439,18 @@ Status: active.
 - Public DELETE RETURNING response-byte budgets now run through the
   structural delete precommit validation point, so row-count and response-size
   rejections both occur before the delete commit is applied.
+- Compiled SQL execution dispatch is in local DRY mode: the owned compiled
+  command and compiled-context entrypoints now borrow their artifacts and reuse
+  the borrowed dispatchers, so SELECT, INSERT, UPDATE, DELETE, global
+  aggregate, EXPLAIN, and metadata routing stay on one match authority per
+  execution shape. The public session SQL facade also shapes all core SQL
+  statement results through one wrapper-owned helper. Redundant owned
+  cache-attribution wrappers have been removed. Context-aware SELECT plan-cache
+  resolution now lives in the SELECT executor instead of the top-level SQL
+  dispatcher.
+- Global aggregate execution is in local DRY mode: compiled and non-compiled
+  callers now share the direct count-cardinality probe/fallback sequence, while
+  each caller still owns its prepared-plan cache lookup strategy.
 - Filter handoff work is in local DRY mode: residual expression and predicate
   accessors remain available for callers that need the actual artifacts, while
   boolean gating should go through the single plan-owned presence helper.

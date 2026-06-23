@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.27` continues the query-engine audit by consolidating compiled SQL
+  dispatch, public SQL result shaping, SELECT context plan-cache ownership, and
+  global aggregate direct-count fallback routing without changing query
+  semantics.
+
 - `0.184.26` continues the query-engine audit by consolidating SQL write
   `RETURNING` validation and enforcing public `DELETE RETURNING` response
   budgets before commit, matching the existing UPDATE row/response-bound

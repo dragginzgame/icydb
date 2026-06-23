@@ -444,6 +444,63 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    #[cfg(feature = "diagnostics")]
+    pub(super) fn execute_select_compiled_sql_with_context_phase_attribution<E>(
+        &self,
+        query: &StructuralQuery,
+        context: &SqlCompiledCommandExecutionContext,
+    ) -> Result<
+        (
+            SqlStatementResult,
+            SqlCacheAttribution,
+            SqlExecutePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(query, || {
+            if let Some((prepared_plan, projection)) = context.command().cached_select_plan(
+                context.schema_fingerprint_method_version(),
+                context.schema_fingerprint(),
+            ) {
+                return Ok((
+                    prepared_plan,
+                    projection,
+                    SqlCacheAttribution::shared_query_plan_cache_hit(),
+                    QueryPlanCompilePhaseAttribution::default(),
+                ));
+            }
+
+            let authority = match context.accepted_authority() {
+                Some(authority) => authority.clone(),
+                None => context
+                    .accepted_catalog()
+                    .accepted_entity_authority_for::<E>()
+                    .map_err(QueryError::execute)?,
+            };
+
+            let resolved = self
+                .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+                    query,
+                    authority,
+                    context.accepted_schema(),
+                    context.schema_fingerprint(),
+                );
+            if let Ok((prepared_plan, projection, _, _)) = &resolved {
+                context.command().set_cached_select_plan(
+                    context.schema_fingerprint_method_version(),
+                    context.schema_fingerprint(),
+                    prepared_plan.clone(),
+                    projection.clone(),
+                );
+            }
+
+            resolved
+        })
+    }
+
     fn execute_select_compiled_sql_from_prepared_plan<E>(
         &self,
         query: &StructuralQuery,
