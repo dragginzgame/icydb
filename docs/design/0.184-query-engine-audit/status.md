@@ -251,6 +251,31 @@ Status: active.
   authority plus `SchemaInfo` instead of reconstructing the pair at each SQL
   surface. SQL-only schema/fingerprint constructors are feature-gated so
   no-SQL diagnostics builds stay warning-free.
+- Accepted authority fallback cleanup: `AcceptedSchemaCatalogContext` now owns
+  the provided-or-derived accepted authority rule used by context-aware SELECT
+  and global aggregate prepared-plan resolution, and an unused SELECT
+  prepared-plan fallback helper was removed.
+- Dead-code cleanup: explicit SQL compile helpers and grouped execution
+  helpers that are only used by crate-local tests are now test-only, the unused
+  non-context diagnostics compiled SQL execution entrypoint was removed, the
+  obsolete `CompiledPredicate` trait was deleted in favor of concrete
+  `PredicateProgram` runtime methods, and test-only exact key-stream candidate
+  counters no longer compile into normal execution. Remaining active-layer
+  `dead_code` annotations are limited to feature-shape enum variants or
+  non-diagnostics shims that require a separate structural pass.
+- Clippy suppression cleanup: stale `allow(clippy::...)` attributes were
+  removed from public facade lifetimes and metrics DTOs, the private
+  non-diagnostics execution outcome size warning is now a conditional
+  expectation, and the generated store-registry template uses `expect` for its
+  intentional setup shape. The only remaining Clippy `allow`s are the generated
+  SQL reset-helper template, where the lint depends on whether a generated
+  canister owns entities.
+- Schema-evolution dead-code cleanup: stale broad `allow(dead_code)`
+  annotations were removed from mutation contracts, field-path/expression
+  rebuild staging, rebuild key materialization, accepted schema-info/runtime
+  views, schema-store traversal, and commit recovery. Test-only runtime layout
+  accessors now compile only for tests, and the broad `allow(dead_code)` /
+  broad `allow(clippy::...)` scans are clean under `crates/icydb-core/src/db`.
 - Large literal `IN` first slice: SQL membership lowering, predicate bridge
   recovery, truth-set compilation, and scalar evaluation now keep membership as
   a compact `IN_LIST` function instead of expanding into left-deep boolean

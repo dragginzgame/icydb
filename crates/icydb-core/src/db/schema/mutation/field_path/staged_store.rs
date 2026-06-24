@@ -9,10 +9,6 @@ use super::*;
 /// or making rebuilt state runtime-visible.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages in-memory index-store writes before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStore {
     store: String,
@@ -141,10 +137,6 @@ impl SchemaFieldPathIndexStagedStore {
 /// taking ownership of physical storage.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rollback snapshots before physical stores are mutated"
-)]
 pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreReadView {
     fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue>;
 }
@@ -158,10 +150,6 @@ pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreReadView {
 /// deferred until the staged-store isolation boundary exists.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages a physical writer adapter contract before IndexStore mutation exists"
-)]
 pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreWriter {
     fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue);
 }
@@ -175,10 +163,6 @@ pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreWriter {
 /// publication.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages writer diagnostics before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteReport {
     store: String,
@@ -225,10 +209,6 @@ impl SchemaFieldPathIndexStagedStoreWriteReport {
 /// isolated-store runner.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rollback-aware write batches before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteBatch {
     store: String,
@@ -317,10 +297,6 @@ impl SchemaFieldPathIndexStagedStoreWriteBatch {
 /// physical rollback phase can replay these snapshots in reverse write order.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rollback snapshots before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackSnapshot {
     store: String,
@@ -360,10 +336,6 @@ impl SchemaFieldPathIndexStagedStoreRollbackSnapshot {
 /// writes, but does not execute them against `IndexStore`.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rollback plans before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackPlan {
     store: String,
@@ -442,10 +414,6 @@ impl SchemaFieldPathIndexStagedStoreRollbackPlan {
 /// schema mutation code to a concrete `IndexStore`.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rollback writer contracts before physical stores are mutated"
-)]
 pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreRollbackWriter {
     fn restore_staged_entry(
         &mut self,
@@ -466,10 +434,6 @@ pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreRollbackWriter {
 /// publication are all wired.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rollback diagnostics before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackReport {
     store: String,
@@ -526,10 +490,6 @@ impl SchemaFieldPathIndexStagedStoreRollbackReport {
 /// before staged physical writes.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rollback actions before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreRollbackAction {
     Restore {
@@ -597,10 +557,6 @@ impl SchemaFieldPathIndexStagedStoreRollbackAction {
 /// boundary; this shape keeps staged cleanup explicit before stores are mutated.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages rebuild rollback diagnostics before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedDiscardReport {
     store: String,

@@ -1,19 +1,20 @@
-use super::{AcceptedSchemaMutationError, SchemaMutationRequest, write_hash_bool};
+#[cfg(test)]
+use super::write_hash_bool;
+use super::{AcceptedSchemaMutationError, SchemaMutationRequest};
 #[cfg(any(test, feature = "sql"))]
 use super::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
     SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaDdlMutationTarget,
     schema_mutation_request_for_snapshots,
 };
+#[cfg(test)]
+use crate::db::codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32};
 #[cfg(any(test, feature = "sql"))]
 use crate::db::schema::{AcceptedSchemaSnapshot, PersistedSchemaSnapshot};
-use crate::db::{
-    codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
-    schema::{
-        FieldId, PersistedFieldKind, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        SchemaFieldSlot,
-    },
+use crate::db::schema::{
+    FieldId, PersistedFieldKind, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
+    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+    SchemaFieldSlot,
 };
 
 ///
@@ -24,10 +25,6 @@ use crate::db::{
 /// rebuild runner must consume before the index can become runtime-visible.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaFieldPathIndexRebuildTarget {
     pub(in crate::db::schema::mutation) ordinal: u16,
@@ -38,10 +35,6 @@ pub(in crate::db) struct SchemaFieldPathIndexRebuildTarget {
     pub(in crate::db::schema::mutation) key_paths: Vec<SchemaFieldPathIndexRebuildKey>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-)]
 impl SchemaFieldPathIndexRebuildTarget {
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
@@ -84,10 +77,6 @@ impl SchemaFieldPathIndexRebuildTarget {
 /// from accepted row-layout slots.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaFieldPathIndexRebuildKey {
     pub(in crate::db::schema::mutation) field_id: FieldId,
@@ -145,10 +134,6 @@ impl SchemaFieldPathIndexRebuildKey {
 /// metadata to derive key shape.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
     ordinal: u16,
@@ -159,10 +144,6 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
     key_items: Vec<SchemaExpressionIndexRebuildKey>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-)]
 impl SchemaExpressionIndexRebuildTarget {
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
@@ -184,6 +165,7 @@ impl SchemaExpressionIndexRebuildTarget {
         self.unique
     }
 
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
         match &self.predicate_sql {
@@ -205,10 +187,6 @@ impl SchemaExpressionIndexRebuildTarget {
 /// Mixed indexes retain their exact accepted item order.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaExpressionIndexRebuildKey {
     FieldPath(SchemaFieldPathIndexRebuildKey),
@@ -221,10 +199,6 @@ pub(in crate::db) enum SchemaExpressionIndexRebuildKey {
 /// One accepted deterministic expression key component.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaExpressionIndexRebuildExpression {
     op: PersistedIndexExpressionOp,
@@ -276,10 +250,6 @@ impl SchemaExpressionIndexRebuildExpression {
 /// mutation can publish a snapshot without the index.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages cleanup target contracts before a physical runner consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaSecondaryIndexDropCleanupTarget {
     ordinal: u16,
@@ -329,10 +299,6 @@ impl SchemaSecondaryIndexDropCleanupTarget {
 impl SchemaMutationRequest<'_> {
     /// Lower one accepted field-path index snapshot into a mutation request.
     /// Expression/mixed indexes stay on their dedicated lowering path.
-    #[allow(
-        dead_code,
-        reason = "0.152 stages accepted index mutation lowering before DDL/rebuild callers use it"
-    )]
     pub(in crate::db::schema) fn from_accepted_field_path_index(
         index: &PersistedIndexSnapshot,
     ) -> Result<Self, AcceptedSchemaMutationError> {
@@ -361,10 +327,6 @@ impl SchemaMutationRequest<'_> {
     /// Lower one accepted deterministic expression index snapshot into a
     /// mutation request. Field-path-only keys and empty keys fail closed
     /// because this path exists only for expression-backed index contracts.
-    #[allow(
-        dead_code,
-        reason = "0.152 stages accepted expression-index mutation lowering before DDL/rebuild callers use it"
-    )]
     pub(in crate::db::schema) fn from_accepted_expression_index(
         index: &PersistedIndexSnapshot,
     ) -> Result<Self, AcceptedSchemaMutationError> {
@@ -415,10 +377,7 @@ impl SchemaMutationRequest<'_> {
     }
 
     /// Lower one accepted secondary index snapshot into a cleanup request.
-    #[allow(
-        dead_code,
-        reason = "0.152 stages accepted index cleanup lowering before DDL/rebuild callers use it"
-    )]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) fn from_accepted_secondary_index_drop(
         index: &PersistedIndexSnapshot,
     ) -> Self {
@@ -648,10 +607,7 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
 }
 
 impl SchemaFieldPathIndexRebuildTarget {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
+    #[cfg(test)]
     pub(super) fn hash_into(&self, hasher: &mut sha2::Sha256) {
         write_hash_u32(hasher, u32::from(self.ordinal));
         write_hash_str_u32(hasher, &self.name);
@@ -675,10 +631,7 @@ impl SchemaFieldPathIndexRebuildTarget {
 }
 
 impl SchemaFieldPathIndexRebuildKey {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
+    #[cfg(test)]
     fn hash_into(&self, hasher: &mut sha2::Sha256) {
         write_hash_u32(hasher, self.field_id.get());
         write_hash_u32(hasher, u32::from(self.slot.get()));
@@ -692,10 +645,7 @@ impl SchemaFieldPathIndexRebuildKey {
 }
 
 impl SchemaExpressionIndexRebuildTarget {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
+    #[cfg(test)]
     pub(super) fn hash_into(&self, hasher: &mut sha2::Sha256) {
         write_hash_u32(hasher, u32::from(self.ordinal));
         write_hash_str_u32(hasher, &self.name);
@@ -719,10 +669,7 @@ impl SchemaExpressionIndexRebuildTarget {
 }
 
 impl SchemaExpressionIndexRebuildKey {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
+    #[cfg(test)]
     fn hash_into(&self, hasher: &mut sha2::Sha256) {
         match self {
             Self::FieldPath(path) => {
@@ -738,10 +685,7 @@ impl SchemaExpressionIndexRebuildKey {
 }
 
 impl SchemaExpressionIndexRebuildExpression {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
+    #[cfg(test)]
     fn hash_into(&self, hasher: &mut sha2::Sha256) {
         write_hash_u32(hasher, self.op as u32);
         self.source.hash_into(hasher);
@@ -752,10 +696,7 @@ impl SchemaExpressionIndexRebuildExpression {
 }
 
 impl SchemaSecondaryIndexDropCleanupTarget {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
+    #[cfg(test)]
     pub(super) fn hash_into(&self, hasher: &mut sha2::Sha256) {
         write_hash_u32(hasher, u32::from(self.ordinal));
         write_hash_str_u32(hasher, &self.name);

@@ -549,12 +549,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        match authority {
-            Some(authority) => Ok(authority),
-            None => catalog
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute),
-        }
+        catalog
+            .accepted_or_provided_entity_authority_for::<E>(authority.as_ref())
+            .map_err(QueryError::execute)
     }
 
     fn resolve_global_aggregate_prepared_plan_for_authority(

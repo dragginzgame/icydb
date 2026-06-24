@@ -118,9 +118,7 @@ pub(in crate::db::query::plan::expr) use function_semantics::{
 };
 pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
 pub(in crate::db) use path::CompiledPath;
-pub(in crate::db) use predicate::{
-    CompiledPredicate, derive_normalized_bool_expr_predicate_subset,
-};
+pub(in crate::db) use predicate::derive_normalized_bool_expr_predicate_subset;
 #[cfg(test)]
 pub(in crate::db) use predicate::{
     canonicalize_runtime_predicate_via_bool_expr, predicate_to_runtime_bool_expr_for_test,

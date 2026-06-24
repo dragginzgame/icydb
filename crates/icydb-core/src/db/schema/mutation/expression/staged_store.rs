@@ -9,10 +9,6 @@ use super::*;
 /// or making rebuilt state runtime-visible.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages in-memory expression index-store writes before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedStore {
     store: String,
@@ -136,10 +132,6 @@ impl SchemaExpressionIndexStagedStore {
 /// write intents are accepted.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rollback snapshots before physical stores are mutated"
-)]
 pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreReadView {
     fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue>;
 }
@@ -150,10 +142,6 @@ pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreReadView {
 /// Write-intent sink for one validated staged expression index-store buffer.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression physical writer adapter contract before IndexStore mutation exists"
-)]
 pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreWriter {
     fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue);
 }
@@ -165,10 +153,6 @@ pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreWriter {
 /// from an in-memory expression rebuild buffer.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression writer diagnostics before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreWriteReport {
     store: String,
@@ -214,10 +198,6 @@ impl SchemaExpressionIndexStagedStoreWriteReport {
 /// physical read view.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rollback-aware write batches before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreWriteBatch {
     store: String,
@@ -302,10 +282,6 @@ impl SchemaExpressionIndexStagedStoreWriteBatch {
 /// Previous physical entry captured before one staged raw index write.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rollback snapshots before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackSnapshot {
     store: String,
@@ -343,10 +319,6 @@ impl SchemaExpressionIndexStagedStoreRollbackSnapshot {
 /// Reverse-order rollback plan for one staged expression-index write batch.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rollback plans before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackPlan {
     store: String,
@@ -423,10 +395,6 @@ impl SchemaExpressionIndexStagedStoreRollbackPlan {
 /// Rollback-action sink for staged physical expression-index writes.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rollback writer contracts before physical stores are mutated"
-)]
 pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreRollbackWriter {
     fn restore_staged_entry(
         &mut self,
@@ -445,10 +413,6 @@ pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreRollbackWriter {
 /// writer.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rollback diagnostics before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackReport {
     store: String,
@@ -500,10 +464,6 @@ impl SchemaExpressionIndexStagedStoreRollbackReport {
 /// One physical rollback action derived from a prior-entry snapshot.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rollback actions before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaExpressionIndexStagedStoreRollbackAction {
     Restore {
@@ -570,10 +530,6 @@ impl SchemaExpressionIndexStagedStoreRollbackAction {
 /// buffer.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild rollback diagnostics before physical stores are mutated"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedDiscardReport {
     store: String,

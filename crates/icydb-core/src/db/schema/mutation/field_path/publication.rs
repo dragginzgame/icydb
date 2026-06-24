@@ -9,10 +9,6 @@ use super::*;
 /// exists.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime invalidation before publication exists"
-)]
 pub(in crate::db::schema) trait SchemaMutationRuntimeInvalidationSink {
     fn invalidate_runtime_schema(
         &mut self,
@@ -28,10 +24,6 @@ pub(in crate::db::schema) trait SchemaMutationRuntimeInvalidationSink {
 /// while keeping store visibility staged-only.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime invalidation before publication exists"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationPlan {
     store: String,
@@ -126,10 +118,6 @@ impl SchemaFieldPathIndexRuntimeInvalidationPlan {
 /// is staged-only and snapshot publication has not occurred.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime invalidation before publication exists"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationReport {
     store: String,
@@ -197,10 +185,6 @@ impl SchemaFieldPathIndexRuntimeInvalidationReport {
 /// wired.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
-)]
 pub(in crate::db::schema) trait SchemaMutationAcceptedSnapshotPublicationSink {
     fn publish_accepted_schema(
         &mut self,
@@ -218,10 +202,6 @@ pub(in crate::db::schema) trait SchemaMutationAcceptedSnapshotPublicationSink {
 /// publication plan after runtime invalidation.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexSnapshotPublicationPlanError {
     RuntimeStateNotInvalidated,
@@ -236,10 +216,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexSnapshotPublicationPlanError 
 /// publication phase without directly mutating the schema store.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationPlan {
     store: String,
@@ -340,10 +316,6 @@ impl SchemaFieldPathIndexSnapshotPublicationPlan {
 /// validated `IndexStore` is promoted through `SchemaFieldPathIndexPublishedStorePlan`.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationReport {
     store: String,
@@ -409,10 +381,6 @@ impl SchemaFieldPathIndexSnapshotPublicationReport {
 /// to published `IndexStore` visibility.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexPublishedStoreError {
     StoreMismatch,
@@ -431,10 +399,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexPublishedStoreError {
 /// snapshot publication agree on the same accepted store.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStorePlan {
     store: String,
@@ -579,10 +543,6 @@ fn target_index_entry_count(
 /// promoted to ready, planner-visible physical state.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStoreReport {
     store: String,
@@ -658,10 +618,6 @@ impl SchemaFieldPathIndexPublishedStoreReport {
 /// mistaken for accepted snapshot publication.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages publication blockers before staged stores can be published"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStorePublicationBlocker {
     StoreStillStaged,
@@ -680,10 +636,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStorePublicationBlocker
 /// completed.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages publication readiness before staged stores can be published"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStorePublicationReadiness {
     store: String,

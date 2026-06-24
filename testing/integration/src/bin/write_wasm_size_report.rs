@@ -90,7 +90,7 @@ struct Build {
 }
 
 #[derive(Serialize)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "matches the JSON report schema"
 )]

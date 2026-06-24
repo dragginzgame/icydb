@@ -24,10 +24,6 @@ use crate::error::SchemaDdlAdmissionError;
 /// future DDL execution instead of leaking planning internals into SQL.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaDdlMutationAdmission {
     pub(in crate::db::schema::mutation) target: SchemaDdlMutationTarget,
@@ -47,10 +43,6 @@ pub(in crate::db) enum SchemaDdlIndexDropCandidateError {
     Unsupported,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
-)]
 impl SchemaDdlMutationAdmission {
     /// Borrow the admitted field-path index rebuild target.
     #[must_use]
@@ -199,20 +191,12 @@ pub(in crate::db) enum SchemaDdlMutationTarget {
 /// admitted through the schema mutation path.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaDdlAcceptedSnapshotDerivation {
     pub(in crate::db::schema::mutation) accepted_after: AcceptedSchemaSnapshot,
     pub(in crate::db::schema::mutation) admission: SchemaDdlMutationAdmission,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
-)]
 impl SchemaDdlAcceptedSnapshotDerivation {
     /// Borrow the accepted-after schema snapshot.
     #[must_use]
@@ -265,10 +249,6 @@ impl SchemaDdlAcceptedSnapshotDerivation {
 /// Fail-closed reason from schema-owned DDL mutation admission.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlMutationAdmissionError {
     AcceptedIndex(AcceptedSchemaMutationError),

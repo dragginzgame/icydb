@@ -6,7 +6,6 @@
 #[cfg(test)]
 mod bridge;
 mod compile;
-mod compiled;
 
 #[cfg(test)]
 pub(in crate::db) use bridge::{
@@ -17,4 +16,3 @@ pub(in crate::db) use compile::derive_normalized_bool_expr_predicate_subset;
 pub(in crate::db) use compile::{
     compile_canonical_bool_expr_to_compiled_predicate, compile_normalized_bool_expr_to_predicate,
 };
-pub(in crate::db) use compiled::CompiledPredicate;

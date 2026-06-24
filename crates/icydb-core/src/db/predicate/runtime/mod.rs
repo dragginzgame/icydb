@@ -21,7 +21,6 @@ use crate::{
             ExecutableComparePredicate, ExecutablePredicate, Predicate, PredicateCapabilityContext,
             ScalarPredicateCapability, classify_predicate_capabilities,
         },
-        query::plan::expr::CompiledPredicate,
         schema::SchemaInfo,
     },
     model::field::LeafCodec,
@@ -166,12 +165,6 @@ impl PredicateProgram {
     #[must_use]
     pub(in crate::db) const fn uses_scalar_program(&self) -> bool {
         matches!(self.compiled, PredicateExecutionMode::Scalar)
-    }
-}
-
-impl CompiledPredicate for PredicateProgram {
-    fn eval(&self, slots: &[Value]) -> bool {
-        self.eval_with_slot_value_ref_reader(&mut |slot| slots.get(slot))
     }
 }
 

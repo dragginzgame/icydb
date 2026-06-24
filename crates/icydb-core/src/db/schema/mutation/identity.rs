@@ -1,43 +1,33 @@
 //! Schema mutation audit and runtime identity fingerprints.
 
-use super::{
-    MutationCompatibility, MutationPlan, RebuildRequirement, SchemaMutation,
-    SchemaMutationRunnerInput, SchemaMutationStoreVisibility,
+#[cfg(test)]
+use super::{MutationCompatibility, MutationPlan, RebuildRequirement, SchemaMutation};
+use super::{SchemaMutationRunnerInput, SchemaMutationStoreVisibility};
+#[cfg(test)]
+use crate::db::{
+    codec::write_hash_tag_u8,
+    schema::{FieldId, SchemaFieldSlot},
 };
 use crate::{
     db::{
         codec::{
-            finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
-            write_hash_u32,
+            finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u32,
         },
-        schema::{
-            FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaVersion,
-            encode_persisted_schema_snapshot,
-        },
+        schema::{PersistedSchemaSnapshot, SchemaVersion, encode_persisted_schema_snapshot},
     },
     error::InternalError,
 };
 use sha2::Digest;
 
-#[allow(
-    dead_code,
-    reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-)]
+#[cfg(test)]
 const SCHEMA_MUTATION_FINGERPRINT_PROFILE_TAG: &[u8] = b"icydb:schema-mutation-plan:v1";
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-)]
 const SCHEMA_MUTATION_RUNTIME_EPOCH_PROFILE_TAG: &[u8] = b"icydb:schema-mutation-runtime-epoch:v1";
 
+#[cfg(test)]
 impl MutationPlan {
     /// Compute a deterministic plan fingerprint. This is not a cache key yet;
     /// it is a stable audit identity for mutation semantics.
-    #[allow(
-        dead_code,
-        reason = "0.152 stages mutation audit identity before diagnostics expose it"
-    )]
     pub(in crate::db::schema) fn fingerprint(&self) -> [u8; 16] {
         let mut hasher = new_hash_sha256_prefixed(SCHEMA_MUTATION_FINGERPRINT_PROFILE_TAG);
         write_hash_tag_u8(&mut hasher, self.compatibility.tag());
@@ -58,11 +48,8 @@ impl MutationPlan {
     }
 }
 
+#[cfg(test)]
 impl SchemaMutation {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
     fn hash_into(&self, hasher: &mut sha2::Sha256) {
         match self {
             Self::AddNullableField {
@@ -101,11 +88,8 @@ impl SchemaMutation {
     }
 }
 
+#[cfg(test)]
 impl MutationCompatibility {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
     const fn tag(self) -> u8 {
         match self {
             Self::MetadataOnlySafe => 1,
@@ -116,11 +100,8 @@ impl MutationCompatibility {
     }
 }
 
+#[cfg(test)]
 impl RebuildRequirement {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
     const fn tag(self) -> u8 {
         match self {
             Self::NoRebuildRequired => 1,
@@ -131,10 +112,7 @@ impl RebuildRequirement {
     }
 }
 
-#[allow(
-    dead_code,
-    reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-)]
+#[cfg(test)]
 fn hash_field_identity(
     hasher: &mut sha2::Sha256,
     field_id: FieldId,
@@ -146,18 +124,11 @@ fn hash_field_identity(
     write_hash_u32(hasher, u32::from(slot.get()));
 }
 
-#[allow(
-    dead_code,
-    reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-)]
+#[cfg(test)]
 pub(in crate::db::schema::mutation) fn write_hash_bool(hasher: &mut sha2::Sha256, value: bool) {
     write_hash_tag_u8(hasher, u8::from(value));
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-)]
 pub(in crate::db::schema::mutation) fn runtime_epoch_fingerprint(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<[u8; 16], InternalError> {
@@ -185,10 +156,6 @@ pub(in crate::db::schema::mutation) fn runtime_epoch_fingerprint(
 /// must not advance visible runtime identity.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationRuntimeEpoch {
     entity_path: String,
@@ -238,10 +205,6 @@ impl SchemaMutationRuntimeEpoch {
 /// runtime caches and planners.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime publication identity before physical runners publish snapshots"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationPublicationIdentity {
     before: SchemaMutationRuntimeEpoch,

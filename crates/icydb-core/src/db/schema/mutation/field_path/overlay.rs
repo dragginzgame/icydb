@@ -7,10 +7,6 @@ use super::*;
 /// exposing or mutating a runtime-visible `IndexStore`.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages isolated physical-store overlays before IndexStore mutation exists"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlay {
     store: String,
@@ -160,10 +156,6 @@ impl SchemaFieldPathIndexStagedStoreRollbackWriter for SchemaFieldPathIndexStage
 /// exactly matches the validated staged write batch.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages isolated overlay validation before publication exists"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreOverlayValidationError {
     StoreMismatch,
@@ -181,10 +173,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreOverlayValidationE
 /// not imply publication readiness.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages isolated overlay validation before publication exists"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlayValidation {
     store: String,

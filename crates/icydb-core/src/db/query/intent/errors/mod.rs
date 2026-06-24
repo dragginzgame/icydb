@@ -181,15 +181,6 @@ impl QueryError {
         Self::execute(err.into_internal_error())
     }
 
-    /// Construct the canonical exact numeric overflow query error.
-    #[expect(
-        dead_code,
-        reason = "kept as the named query constructor for the numeric overflow contract"
-    )]
-    pub(in crate::db) fn numeric_overflow() -> Self {
-        Self::from_numeric_eval_error(NumericEvalError::Overflow)
-    }
-
     /// Construct one serialize-origin internal execution error.
     pub(in crate::db) fn serialize_internal() -> Self {
         Self::execute(InternalError::serialize_internal())

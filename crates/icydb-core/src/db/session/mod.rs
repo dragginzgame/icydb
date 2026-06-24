@@ -220,6 +220,20 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[cfg(feature = "sql")]
+    pub(in crate::db) fn accepted_or_provided_entity_authority_for<E>(
+        &self,
+        accepted_authority: Option<&EntityAuthority>,
+    ) -> Result<EntityAuthority, InternalError>
+    where
+        E: EntityKind,
+    {
+        match accepted_authority {
+            Some(authority) => Ok(authority.clone()),
+            None => self.accepted_entity_authority_for::<E>(),
+        }
+    }
+
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn accepted_or_provided_entity_authority_and_schema_info_for<E>(
         &self,
         accepted_authority: Option<&EntityAuthority>,

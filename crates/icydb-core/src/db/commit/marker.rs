@@ -224,10 +224,6 @@ impl CommitMarker {
     }
 
     /// Borrow marker-bound journal batches embedded in this commit marker.
-    #[allow(
-        dead_code,
-        reason = "journal runtime recovery consumes embedded batches in a later 0.174 slice"
-    )]
     #[must_use]
     pub(in crate::db) fn journal_batches(&self) -> &[JournalBatch] {
         &self.journal_batches

@@ -590,38 +590,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Resolve one typed SQL SELECT through accepted schema authority selected
-    // at the session boundary.
-    #[allow(
-        dead_code,
-        reason = "explicit compiled SQL execution can still plan without an attached compile context; immediate SQL query entrypoints use the context-aware sibling"
-    )]
-    fn sql_select_prepared_plan_for_entity<E>(
-        &self,
-        query: &StructuralQuery,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    >
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
-            .map_err(QueryError::execute)?;
-
-        self.sql_select_prepared_plan_for_accepted_authority_with_catalog(
-            query, authority, &catalog,
-        )
-    }
-
     fn sql_select_projection_from_prepared_plan(
         prepared_plan: SharedPreparedExecutionPlan,
         authority: EntityAuthority,

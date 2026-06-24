@@ -15,10 +15,6 @@ use super::{
 /// must execute index work first, or whether the mutation remains unsupported.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationExecutionReadiness {
     PublishableNow,
@@ -33,10 +29,6 @@ pub(in crate::db::schema) enum SchemaMutationExecutionReadiness {
 /// contracts for a later runner, not live rebuild behavior.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationExecutionStep {
     BuildFieldPathIndex {
@@ -64,10 +56,6 @@ pub(in crate::db::schema) enum SchemaMutationExecutionStep {
 /// fail-closed surface before any physical mutation is attempted.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages runner capability contracts before physical runners consume them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRunnerCapability {
     BuildFieldPathIndex,
@@ -85,10 +73,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerCapability {
 /// runner's advertised capabilities.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages runner admission contracts before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationExecutionAdmission {
     PublishableNow,
@@ -111,10 +95,6 @@ pub(in crate::db::schema) enum SchemaMutationExecutionAdmission {
 /// admits only the field-path secondary-index rebuild path.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.154 starts supported-path admission before reconciliation consumes it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationSupportedPathRejection {
     NoPhysicalWork,
@@ -132,10 +112,6 @@ pub(in crate::db::schema) enum SchemaMutationSupportedPathRejection {
 /// physical work and invalidate runtime state.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.154 starts supported-path admission before reconciliation consumes it"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationSupportedExecutionPath {
     target: SchemaFieldPathIndexRebuildTarget,
@@ -177,10 +153,6 @@ impl SchemaMutationSupportedExecutionPath {
 /// rebuild or cleanup work.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages runner preflight contracts before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRunnerPreflight {
     NoPhysicalWork,
@@ -205,10 +177,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPreflight {
 /// physical execution and validation exist.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages runner preflight publication checks before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum MutationPublicationPreflight {
     PublishableNow,
@@ -233,19 +201,11 @@ pub(in crate::db::schema) enum MutationPublicationPreflight {
 /// publication policy can be widened.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages runner preflight contracts before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationRunnerContract {
     capabilities: Vec<SchemaMutationRunnerCapability>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages runner preflight contracts before physical runners consume them"
-)]
 impl SchemaMutationRunnerContract {
     #[must_use]
     pub(in crate::db::schema) fn new(capabilities: &[SchemaMutationRunnerCapability]) -> Self {
@@ -335,10 +295,6 @@ impl SchemaMutationRunnerContract {
 /// physical runner, or reject the mutation.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationExecutionGate {
     ReadyToPublish,
@@ -359,10 +315,6 @@ pub(in crate::db::schema) enum SchemaMutationExecutionGate {
 /// policy, so adding execution cannot silently widen startup reconciliation.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationExecutionPlan {
     readiness: SchemaMutationExecutionReadiness,
@@ -560,10 +512,6 @@ impl SchemaMutationExecutionPlan {
     /// The generic execution plan may still describe future expression-index,
     /// cleanup, or rewrite work, but those shapes are rejected here before
     /// runner wiring can consume them as supported behavior.
-    #[allow(
-        dead_code,
-        reason = "0.154 starts supported-path admission before reconciliation consumes it"
-    )]
     pub(in crate::db::schema) fn supported_developer_execution_path(
         &self,
     ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
@@ -603,10 +551,6 @@ impl SchemaMutationExecutionPlan {
     }
 }
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages runner capability contracts before physical runners consume them"
-)]
 fn push_runner_capability_once(
     capabilities: &mut Vec<SchemaMutationRunnerCapability>,
     capability: SchemaMutationRunnerCapability,

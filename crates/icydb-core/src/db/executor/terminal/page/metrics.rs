@@ -24,7 +24,6 @@ pub(super) use crate::db::diagnostics::measure_local_instruction_delta as measur
 
 #[cfg(any(test, feature = "diagnostics"))]
 #[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
-#[allow(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScalarMaterializationLaneMetrics {
     pub direct_data_row_path_hits: u64,

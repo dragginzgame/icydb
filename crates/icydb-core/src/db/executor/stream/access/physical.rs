@@ -765,6 +765,7 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
         None
     }
 
+    #[cfg(test)]
     fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
         if self.remaining.is_some() {
             return None;

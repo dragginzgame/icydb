@@ -52,10 +52,6 @@ pub struct SessionDeleteReturningQuery<'a, E: Entity> {
     selection: DeleteReturningSelection,
 }
 
-#[allow(
-    clippy::elidable_lifetime_names,
-    reason = "by-value returning helpers need the wrapper lifetime in their return type"
-)]
 impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     // ------------------------------------------------------------------
     // Intent inspection

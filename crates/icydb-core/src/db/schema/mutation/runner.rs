@@ -36,10 +36,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
 /// shapes cannot appear as partially supported diagnostics.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationDeveloperKind {
     AddFieldPathIndex,
@@ -52,14 +48,12 @@ pub(in crate::db::schema) enum SchemaMutationDeveloperKind {
 /// diagnostics. Detailed internal errors stay typed on the runner failure.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationValidationStatus {
+    #[cfg(test)]
     NotStarted,
     Passed,
+    #[cfg(test)]
     Failed,
 }
 
@@ -71,12 +65,9 @@ pub(in crate::db::schema) enum SchemaMutationValidationStatus {
 /// startup can validate physical work and still fail closed before publication.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationPublishStatus {
+    #[cfg(test)]
     NotStarted,
     Published,
     Failed,
@@ -90,10 +81,6 @@ pub(in crate::db::schema) enum SchemaMutationPublishStatus {
 /// and publication status without making SQL DDL the authority.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationDeveloperReport {
     phase: SchemaMutationRunnerPhase,
@@ -206,10 +193,6 @@ fn target_field_paths(target: &SchemaFieldPathIndexRebuildTarget) -> Vec<String>
 /// cleanup-affected state must remain staged-only until publication.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages staged-store visibility contracts before physical runners consume them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationStoreVisibility {
     StagedOnly,
@@ -245,10 +228,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerRejectionKind {
 /// through the same contract.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationRunnerRejection {
     phase: SchemaMutationRunnerPhase,
@@ -329,10 +308,6 @@ impl SchemaMutationRunnerRejection {
 /// inventing a second diagnostics lane.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runner diagnostics before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationRunnerReport {
     step_count: usize,
@@ -504,10 +479,6 @@ impl SchemaMutationRunnerReport {
 /// the point where a later runner may start staged physical work.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages runner outcomes before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRunnerOutcome {
     NoPhysicalWork(SchemaMutationRunnerReport),
@@ -522,10 +493,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerOutcome {
 /// schema mutation. These are catalog identity errors, not runner failures.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages checked runner inputs before physical runners consume them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRunnerInputError {
     EntityPath,
@@ -541,10 +508,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerInputError {
 /// runner code never reconstructs mutation semantics from generated metadata.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages checked runner inputs before physical runners consume them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationRunnerInput<'a> {
     accepted_before: &'a PersistedSchemaSnapshot,
@@ -552,10 +515,6 @@ pub(in crate::db::schema) struct SchemaMutationRunnerInput<'a> {
     execution_plan: SchemaMutationExecutionPlan,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages checked runner inputs before physical runners consume them"
-)]
 impl<'a> SchemaMutationRunnerInput<'a> {
     pub(in crate::db::schema) fn new(
         accepted_before: &'a PersistedSchemaSnapshot,
@@ -614,10 +573,6 @@ impl<'a> SchemaMutationRunnerInput<'a> {
 /// real staged runner exists.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages the no-op runner adapter before physical runners consume inputs"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationNoopRunner {
     contract: SchemaMutationRunnerContract,

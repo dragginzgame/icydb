@@ -28,9 +28,12 @@ use crate::{
 /// it to share scalar/grouped/delete dispatch without exposing executor DTOs
 /// outside the session query module.
 ///
-#[allow(
-    clippy::large_enum_variant,
-    reason = "private dispatch enum keeps scalar, grouped, and delete outcomes explicit at the session boundary; boxing the grouped trace would add indirection to avoid a non-hot-path size warning"
+#[cfg_attr(
+    not(feature = "diagnostics"),
+    expect(
+        clippy::large_enum_variant,
+        reason = "non-diagnostics builds keep the grouped execution trace inline to avoid boxing a private session-boundary outcome"
+    )
 )]
 pub(in crate::db::session::query) enum PreparedQueryExecutionOutcome<E>
 where

@@ -5,16 +5,17 @@
 
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::GroupedExecutePhaseAttribution;
+#[cfg(test)]
+use crate::db::{
+    PagedGroupedExecutionWithTrace, Query, session::finalize_structural_grouped_projection_result,
+};
 use crate::{
     db::{
-        DbSession, PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
+        DbSession, PersistedRow, QueryError,
         cursor::{ValidatedGroupedCursor, decode_optional_grouped_cursor_token},
         diagnostics::ExecutionTrace,
         executor::{LoadExecutor, PreparedExecutionPlan, StructuralGroupedProjectionResult},
-        session::{
-            finalize_structural_grouped_projection_result,
-            query::query_error_from_executor_plan_error,
-        },
+        session::query::query_error_from_executor_plan_error,
     },
     error::InternalError,
     traits::{CanisterKind, EntityValue},
@@ -25,13 +26,7 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This is the explicit grouped execution boundary; scalar load APIs reject
     /// grouped plans to preserve scalar response contracts.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "crate-local grouped pagination tests exercise this boundary before public grouped paging APIs expose it"
-        )
-    )]
+    #[cfg(test)]
     pub(in crate::db) fn execute_grouped<E>(
         &self,
         query: &Query<E>,

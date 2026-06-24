@@ -482,7 +482,6 @@ impl IndexStore {
 
     /// Return the monotonic perf-only count of exact prefix-cardinality probes.
     #[cfg(test)]
-    #[allow(dead_code)]
     pub(in crate::db) fn current_prefix_cardinality_lookup_count() -> u64 {
         INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(Cell::get)
     }

@@ -16,8 +16,4 @@ mod publication;
 pub(in crate::db::schema) use self::publication::*;
 
 mod runner;
-#[allow(
-    unused_imports,
-    reason = "field-path runner is staged for schema mutation callers before live wiring consumes it"
-)]
 pub(in crate::db::schema) use self::runner::*;

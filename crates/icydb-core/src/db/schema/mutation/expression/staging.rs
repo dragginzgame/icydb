@@ -8,21 +8,14 @@ use super::*;
 /// contract; staging derives accepted expression keys from these row slots.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild row inputs before physical runners own row iteration"
-)]
 #[derive(Clone, Copy)]
 pub(in crate::db::schema) struct SchemaExpressionIndexRebuildRow<'a> {
     primary_key_value: PrimaryKeyValue,
     slots: &'a dyn CanonicalSlotReader,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild row inputs before physical runners own row iteration"
-)]
 impl<'a> SchemaExpressionIndexRebuildRow<'a> {
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db::schema) fn new(
         primary_key_value: impl Into<PrimaryKeyValue>,
@@ -53,20 +46,12 @@ impl<'a> SchemaExpressionIndexRebuildRow<'a> {
 /// it.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages in-memory expression rebuild entries before physical runners publish stores"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedEntry {
     key: RawIndexStoreKey,
     entry: IndexEntryValue,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages in-memory expression rebuild entries before physical runners publish stores"
-)]
 impl SchemaExpressionIndexStagedEntry {
     #[must_use]
     pub(in crate::db::schema) const fn key(&self) -> &RawIndexStoreKey {
@@ -86,10 +71,6 @@ impl SchemaExpressionIndexStagedEntry {
 /// must not be made planner-visible until validation and publication complete.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages in-memory expression rebuild output before physical runners publish stores"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedRebuild {
     target: SchemaExpressionIndexRebuildTarget,
@@ -282,10 +263,6 @@ fn same_unique_components(left: &IndexKey, right: &IndexKey) -> bool {
 /// Fail-closed validation reasons for staged expression-index rebuild output.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild validation before physical runners consume it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaExpressionIndexStagedValidationError {
     PublishedVisibility,
@@ -302,10 +279,6 @@ pub(in crate::db::schema) enum SchemaExpressionIndexStagedValidationError {
 /// Positive validation report for an in-memory staged expression-index rebuild.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild validation before physical runners consume it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedValidation {
     entry_count: usize,
@@ -314,10 +287,6 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedValidation {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild validation before physical runners consume it"
-)]
 impl SchemaExpressionIndexStagedValidation {
     #[must_use]
     pub(in crate::db::schema) const fn entry_count(&self) -> usize {

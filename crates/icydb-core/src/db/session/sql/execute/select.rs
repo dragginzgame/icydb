@@ -341,13 +341,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        match context.accepted_authority() {
-            Some(authority) => Ok(authority.clone()),
-            None => context
-                .accepted_catalog()
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute),
-        }
+        context
+            .accepted_catalog()
+            .accepted_or_provided_entity_authority_for::<E>(context.accepted_authority())
+            .map_err(QueryError::execute)
     }
 
     fn resolve_select_prepared_plan_for_authority_with_catalog(
@@ -460,28 +457,6 @@ impl<C: CanisterKind> DbSession<C> {
         );
 
         Ok((resolved, plan_compile_attribution))
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) fn resolve_select_prepared_plan_for_current_catalog_with_compile_phase_attribution<
-        E,
-    >(
-        &self,
-        query: &StructuralQuery,
-    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
-            .map_err(QueryError::execute)?;
-
-        self.resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
-            query, authority, &catalog,
-        )
     }
 
     pub(super) fn execute_select_compiled_sql_with_cache_attribution<E>(

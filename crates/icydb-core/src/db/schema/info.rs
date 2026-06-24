@@ -160,10 +160,6 @@ struct SchemaFieldInfo {
 /// proposal/model-only compatibility callers.
 ///
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
-)]
 pub(in crate::db) struct SchemaIndexInfo {
     ordinal: u16,
     name: String,
@@ -174,10 +170,6 @@ pub(in crate::db) struct SchemaIndexInfo {
     predicate_sql: Option<String>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
-)]
 impl SchemaIndexInfo {
     /// Return the accepted or generated stable per-entity index ordinal.
     #[must_use]
@@ -233,10 +225,6 @@ impl SchemaIndexInfo {
 /// expression-index runtime routing can stop reopening generated `IndexModel`.
 ///
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
-)]
 pub(in crate::db) struct SchemaExpressionIndexInfo {
     ordinal: u16,
     name: String,
@@ -247,10 +235,6 @@ pub(in crate::db) struct SchemaExpressionIndexInfo {
     predicate_sql: Option<String>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
-)]
 impl SchemaExpressionIndexInfo {
     /// Return the accepted stable per-entity index ordinal.
     #[must_use]
@@ -304,10 +288,6 @@ impl SchemaExpressionIndexInfo {
 /// Accepted expression-index key item surfaced through `SchemaInfo`.
 ///
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
-)]
 pub(in crate::db) enum SchemaExpressionIndexKeyItemInfo {
     FieldPath(SchemaIndexFieldPathInfo),
     Expression(Box<SchemaIndexExpressionInfo>),
@@ -343,10 +323,6 @@ impl SchemaExpressionIndexKeyItemInfo {
 /// Compact accepted expression key contract for one expression-index key item.
 ///
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
-)]
 pub(in crate::db) struct SchemaIndexExpressionInfo {
     op: PersistedIndexExpressionOp,
     source: SchemaIndexFieldPathInfo,
@@ -402,10 +378,6 @@ impl SchemaIndexExpressionInfo {
 /// compatibility views omit field IDs until generated metadata is reconciled.
 ///
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
-)]
 pub(in crate::db) struct SchemaIndexFieldPathInfo {
     field_id: Option<FieldId>,
     field_name: String,
@@ -658,10 +630,6 @@ impl SchemaInfo {
     /// Generated schema views source it from generated field-only indexes for
     /// proposal/model-only compatibility.
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this accessor in the next runtime slice"
-    )]
     pub(in crate::db) const fn field_path_indexes(&self) -> &[SchemaIndexInfo] {
         self.indexes.as_slice()
     }
@@ -672,10 +640,6 @@ impl SchemaInfo {
     /// contracts. Generated schema views leave this empty until generated
     /// expression indexes have been reconciled into accepted metadata.
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
-    )]
     pub(in crate::db) const fn expression_indexes(&self) -> &[SchemaExpressionIndexInfo] {
         self.expression_indexes.as_slice()
     }

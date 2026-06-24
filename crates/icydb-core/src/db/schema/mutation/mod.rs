@@ -119,6 +119,7 @@ pub(in crate::db) use index::{
 };
 
 mod identity;
+#[cfg(test)]
 pub(in crate::db::schema::mutation) use identity::write_hash_bool;
 pub(in crate::db::schema) use identity::{
     SchemaMutationPublicationIdentity, SchemaMutationRuntimeEpoch,
@@ -132,10 +133,6 @@ pub(in crate::db::schema) use identity::{
 /// must lower into this contract instead of becoming the migration authority.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 defines the first mutation vocabulary before every operation is executable"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutation {
     AddNullableField {
@@ -220,10 +217,6 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
 /// as ad hoc snapshot rewrites.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild and unsupported buckets before every bucket has a live caller"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum MutationCompatibility {
     MetadataOnlySafe,
@@ -238,10 +231,6 @@ pub(in crate::db::schema) enum MutationCompatibility {
 /// Physical work required before a mutation can be considered runtime-visible.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 exposes future rebuild buckets before orchestration consumes them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum RebuildRequirement {
     NoRebuildRequired,
@@ -258,10 +247,6 @@ pub(in crate::db::schema) enum RebuildRequirement {
 /// executor owns the physical work and validation boundary.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaRebuildAction {
     BuildFieldPathIndex {
@@ -288,20 +273,12 @@ pub(in crate::db::schema) enum SchemaRebuildAction {
 /// physical rebuild runner.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaRebuildPlan {
     requirement: RebuildRequirement,
     actions: Vec<SchemaRebuildAction>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
-)]
 impl SchemaRebuildPlan {
     const fn no_rebuild() -> Self {
         Self {
@@ -354,10 +331,7 @@ mod field_path;
 pub(in crate::db::schema) use self::field_path::*;
 
 mod expression;
-#[allow(
-    unused_imports,
-    reason = "expression staging is consumed by tests and later physical runner wiring"
-)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use self::expression::*;
 
 ///
@@ -553,10 +527,6 @@ impl MutationPlan {
     /// `PhysicalWorkReady` is still not publishable in 0.152; it only means a
     /// future runner advertises the capabilities required before execution can
     /// start.
-    #[allow(
-        dead_code,
-        reason = "0.152 stages runner preflight publication checks before physical runners consume them"
-    )]
     #[must_use]
     pub(in crate::db::schema) fn publication_preflight(
         &self,
@@ -644,10 +614,6 @@ impl MutationPlan {
     /// Derive the future physical execution contract for this mutation plan.
     /// Startup reconciliation still uses `publication_status` and remains
     /// fail-closed for every plan that requires physical work.
-    #[allow(
-        dead_code,
-        reason = "0.152 stages execution-boundary contracts before physical runners consume them"
-    )]
     #[must_use]
     pub(in crate::db::schema) fn execution_plan(&self) -> SchemaMutationExecutionPlan {
         SchemaMutationExecutionPlan::from_rebuild_plan(self.rebuild_plan())
@@ -657,10 +623,6 @@ impl MutationPlan {
     /// field-path secondary index addition. This plan-level guard prevents
     /// mixed catalog changes from slipping through a valid-looking execution
     /// step sequence.
-    #[allow(
-        dead_code,
-        reason = "0.154 starts supported-path admission before reconciliation consumes it"
-    )]
     pub(in crate::db::schema) fn supported_developer_physical_path(
         &self,
     ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {

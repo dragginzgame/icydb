@@ -566,10 +566,6 @@ enum SchemaStoreBackend {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SchemaStoreVisit {
     Continue,
-    #[allow(
-        dead_code,
-        reason = "schema traversal exposes early-stop semantics for bounded future callers; focused tests cover it before live call sites need it"
-    )]
     Stop,
 }
 

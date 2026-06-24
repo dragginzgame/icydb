@@ -10,10 +10,6 @@ use super::*;
 /// exists.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages isolated IndexStore mutation before publication exists"
-)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
     store: String,
     pub(in crate::db::schema) index_store: &'a mut IndexStore,
@@ -235,10 +231,6 @@ impl SchemaFieldPathIndexStagedStoreRollbackWriter
 /// becoming a publication candidate unless it exactly matches the staged batch.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages isolated IndexStore validation before publication exists"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexIsolatedIndexStoreValidationError {
     StoreMismatch,
@@ -259,10 +251,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexIsolatedIndexStoreValidationE
 /// and building-state visibility, but does not mark the store publishable.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages isolated IndexStore validation before publication exists"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreValidation {
     store: String,

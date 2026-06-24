@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.37` continues the query-engine and schema-evolution audit cleanup by
+  removing stale fallback helpers and broad dead-code / Clippy suppressions
+  from core DB paths without changing query, write, schema, or recovery
+  semantics.
+
 - `0.184.36` continues the query-engine audit by resolving accepted catalog
   authority/schema-info handoff through the catalog owner while keeping no-SQL
   diagnostics builds warning-free.

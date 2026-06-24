@@ -346,7 +346,10 @@ fn store_wiring_tokens(
         #entity_runtime_hooks
         thread_local! {
             #[allow(unused_mut)]
-            #[allow(clippy::let_and_return)]
+            #[expect(
+                clippy::let_and_return,
+                reason = "generated registry initialization keeps store setup statements before returning the registry"
+            )]
             static STORE_REGISTRY:
                 ::icydb::__macro::StoreRegistry =
             {

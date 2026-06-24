@@ -8,20 +8,12 @@ use super::*;
 /// must only derive accepted index keys from these row slots.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild row inputs before physical runners own row iteration"
-)]
 #[derive(Clone, Copy)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildRow<'a> {
     primary_key_value: PrimaryKeyValue,
     slots: &'a dyn CanonicalSlotReader,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild row inputs before physical runners own row iteration"
-)]
 impl<'a> SchemaFieldPathIndexRebuildRow<'a> {
     #[must_use]
     pub(in crate::db::schema) fn new(
@@ -52,20 +44,12 @@ impl<'a> SchemaFieldPathIndexRebuildRow<'a> {
 /// It remains in memory until later runner phases validate and publish it.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages in-memory rebuild entries before physical runners publish stores"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedEntry {
     key: RawIndexStoreKey,
     entry: IndexEntryValue,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages in-memory rebuild entries before physical runners publish stores"
-)]
 impl SchemaFieldPathIndexStagedEntry {
     #[must_use]
     pub(in crate::db::schema) const fn key(&self) -> &RawIndexStoreKey {
@@ -85,10 +69,6 @@ impl SchemaFieldPathIndexStagedEntry {
 /// must not be made planner-visible until validation and publication complete.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages in-memory field-path rebuild output before physical runners publish stores"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedRebuild {
     target: SchemaFieldPathIndexRebuildTarget,
@@ -284,10 +264,6 @@ fn same_unique_components(left: &IndexKey, right: &IndexKey) -> bool {
 /// runner phases must validate staged output before any store publication.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild validation before physical runners publish stores"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexStagedValidationError {
     PublishedVisibility,
@@ -305,10 +281,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedValidationError {
 /// intentionally stays small until physical runner diagnostics consume it.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild validation before physical runners publish stores"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedValidation {
     entry_count: usize,
@@ -317,10 +289,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedValidation {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild validation before physical runners publish stores"
-)]
 impl SchemaFieldPathIndexStagedValidation {
     #[must_use]
     pub(in crate::db::schema) const fn entry_count(self) -> usize {

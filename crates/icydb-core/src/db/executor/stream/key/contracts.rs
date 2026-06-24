@@ -44,6 +44,7 @@ pub(in crate::db::executor) trait OrderedKeyStream {
 
     // Return an exact diagnostic candidate count only for callers that
     // explicitly opt into potentially expensive observability work.
+    #[cfg(test)]
     fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
         self.cheap_access_candidate_count_hint()
     }
@@ -106,13 +107,7 @@ impl OrderedKeyStreamBox {
 
     /// Return exact diagnostic access-candidate count when explicitly requested.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "exact candidate counts are diagnostics-only and intentionally absent from normal execution"
-        )
-    )]
+    #[cfg(test)]
     pub(in crate::db::executor) fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
         OrderedKeyStream::exact_diagnostic_access_candidate_count(self)
     }
@@ -306,6 +301,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
         }
     }
 
+    #[cfg(test)]
     fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
         match self {
             Self::Empty(stream) => stream.exact_diagnostic_access_candidate_count(),
@@ -380,6 +376,7 @@ where
         self.as_ref().cheap_access_candidate_count_hint()
     }
 
+    #[cfg(test)]
     fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
         self.as_ref().exact_diagnostic_access_candidate_count()
     }
@@ -401,6 +398,7 @@ where
         (**self).cheap_access_candidate_count_hint()
     }
 
+    #[cfg(test)]
     fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
         (**self).exact_diagnostic_access_candidate_count()
     }

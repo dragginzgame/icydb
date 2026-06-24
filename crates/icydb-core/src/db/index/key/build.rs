@@ -44,16 +44,8 @@ type AcceptedFieldPathComponentEncoder<'a> = dyn FnMut(&SchemaIndexInfo, &Schema
     + 'a;
 type AcceptedExpressionComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexKeyItemInfo) -> Result<Option<Vec<u8>>, InternalError> + 'a;
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
-)]
 type FieldPathRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaFieldPathIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
-)]
 type ExpressionRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 
@@ -217,10 +209,6 @@ impl IndexKey {
     /// Build a field-path rebuild index key from one canonical slot reader
     /// using the accepted mutation target, not generated or runtime planner
     /// metadata.
-    #[allow(
-        dead_code,
-        reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
-    )]
     pub(crate) fn new_from_slots_with_field_path_rebuild_target(
         entity_tag: EntityTag,
         primary_key: impl Into<PrimaryKeyValue>,
@@ -236,10 +224,6 @@ impl IndexKey {
     /// Build an expression-index rebuild key from one canonical slot reader
     /// using the accepted mutation target, not generated or runtime planner
     /// metadata.
-    #[allow(
-        dead_code,
-        reason = "0.157 stages expression rebuild key materialization before physical runners call it"
-    )]
     pub(crate) fn new_from_slots_with_expression_rebuild_target(
         entity_tag: EntityTag,
         primary_key: impl Into<PrimaryKeyValue>,
@@ -711,10 +695,6 @@ fn accepted_expression_component_bytes_from_slots(
     }
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
-)]
 fn field_path_rebuild_component_bytes_from_slots(
     field: &SchemaFieldPathIndexRebuildKey,
     slots: &dyn CanonicalSlotReader,
@@ -727,10 +707,6 @@ fn field_path_rebuild_component_bytes_from_slots(
     encode_value_index_component_ref(source)
 }
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
-)]
 fn expression_rebuild_component_bytes_from_slots(
     index_name: &str,
     key_item: &SchemaExpressionIndexRebuildKey,
@@ -746,10 +722,6 @@ fn expression_rebuild_component_bytes_from_slots(
     }
 }
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
-)]
 fn expression_rebuild_expression_component_bytes_from_slots(
     index_name: &str,
     expression: &SchemaExpressionIndexRebuildExpression,
@@ -801,10 +773,6 @@ fn resolve_accepted_field_path_component<'a>(
     Ok(Some(current))
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
-)]
 fn resolve_field_path_rebuild_component<'a>(
     root: &'a Value,
     field: &SchemaFieldPathIndexRebuildKey,
@@ -869,10 +837,6 @@ fn build_accepted_expression_index_key_from_slots(
     )
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
-)]
 fn build_field_path_rebuild_target_key(
     entity_tag: EntityTag,
     primary_key: &PrimaryKeyValue,
@@ -908,10 +872,6 @@ fn build_field_path_rebuild_target_key(
     }))
 }
 
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
-)]
 fn build_expression_rebuild_target_key(
     entity_tag: EntityTag,
     primary_key: &PrimaryKeyValue,

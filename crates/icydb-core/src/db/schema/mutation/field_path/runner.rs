@@ -7,10 +7,6 @@ use super::*;
 /// phase that prevented publication without matching lower-level error text.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
     UnsupportedExecutionPlan,
@@ -25,6 +21,7 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
 
 impl SchemaFieldPathIndexRunnerError {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn phase(self) -> SchemaMutationRunnerPhase {
         match self {
             Self::UnsupportedExecutionPlan | Self::TargetMismatch => {
@@ -41,6 +38,7 @@ impl SchemaFieldPathIndexRunnerError {
     }
 
     #[must_use]
+    #[cfg(test)]
     const fn validation_status(self) -> SchemaMutationValidationStatus {
         match self {
             Self::RuntimeInvalidationIdentity
@@ -55,6 +53,7 @@ impl SchemaFieldPathIndexRunnerError {
     }
 
     #[must_use]
+    #[cfg(test)]
     const fn publish_status(self) -> SchemaMutationPublishStatus {
         match self {
             Self::SnapshotPublicationRejected | Self::PublishedStoreRejected => {
@@ -78,20 +77,12 @@ impl SchemaFieldPathIndexRunnerError {
 /// the isolated store image before the runner returned.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path runner rollback diagnostics before public DDL consumes it"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerFailure {
     error: SchemaFieldPathIndexRunnerError,
     rollback_report: Option<Box<SchemaFieldPathIndexStagedStoreRollbackReport>>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path runner rollback diagnostics before public DDL consumes it"
-)]
 impl SchemaFieldPathIndexRunnerFailure {
     #[must_use]
     const fn without_rollback(error: SchemaFieldPathIndexRunnerError) -> Self {
@@ -113,16 +104,19 @@ impl SchemaFieldPathIndexRunnerFailure {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn error(&self) -> SchemaFieldPathIndexRunnerError {
         self.error
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
         self.error.phase()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn rollback_report(
         &self,
     ) -> Option<&SchemaFieldPathIndexStagedStoreRollbackReport> {
@@ -130,6 +124,7 @@ impl SchemaFieldPathIndexRunnerFailure {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn developer_report(
         &self,
         entity_path: &'static str,
@@ -159,10 +154,6 @@ impl SchemaFieldPathIndexRunnerFailure {
 /// and accepted snapshot publication handoff into one typed result.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerReport {
     store: String,
@@ -264,16 +255,8 @@ impl SchemaFieldPathIndexRunnerReport {
 /// publication handoff in a fixed order.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
-)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRunner;
 
-#[allow(
-    dead_code,
-    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
-)]
 impl SchemaFieldPathIndexRunner {
     #[expect(
         clippy::too_many_arguments,

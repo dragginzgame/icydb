@@ -36,10 +36,6 @@ pub struct FluentLoadQuery<'a, E: Entity> {
     pub(crate) inner: core::db::FluentLoadQuery<'a, E>,
 }
 
-#[allow(
-    clippy::elidable_lifetime_names,
-    reason = "by-value pagination conversion needs the wrapper lifetime in its return type"
-)]
 impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     // ------------------------------------------------------------------
     // Intent inspection

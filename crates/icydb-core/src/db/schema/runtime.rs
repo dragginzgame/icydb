@@ -101,36 +101,20 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Borrow accepted nested leaf metadata rooted at this field.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "runtime layout tests and schema handoff audits exercise nested-leaf access before production row-layout callers need it"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn nested_leaves(&self) -> &'a [PersistedNestedLeafSnapshot] {
         self.nested_leaves
     }
 
     /// Return whether this field permits explicit persisted `NULL`.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "runtime layout tests and schema handoff audits exercise nullability access before production row-layout callers need it"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
 
     /// Return the accepted database-level default contract.
-    #[allow(
-        dead_code,
-        reason = "database defaults are part of the accepted runtime boundary before additive write support"
-    )]
     #[must_use]
     pub(in crate::db) const fn default(&self) -> &'a SchemaFieldDefault {
         self.default
@@ -458,10 +442,6 @@ impl AcceptedRowDecodeContract {
     }
 
     /// Borrow accepted primary-key physical slot indices in key order.
-    #[allow(
-        dead_code,
-        reason = "ordered primary-key slot access becomes live when row decode exposes composite key component slots"
-    )]
     #[must_use]
     pub(in crate::db) const fn primary_key_slot_indices(&self) -> &[usize] {
         self.primary_key_slot_indices.as_slice()
@@ -643,13 +623,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Return the accepted schema version backing this runtime layout.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "runtime layout tests assert accepted-version handoff before production callers read the descriptor version directly"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn version(&self) -> SchemaVersion {
         self.version
@@ -690,10 +664,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Borrow accepted primary-key persisted field kinds in key order.
-    #[allow(
-        dead_code,
-        reason = "ordered primary-key kind access becomes live when SQL/composite key literal admission leaves the first-component helper"
-    )]
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn primary_key_kinds(&self) -> &[&'a PersistedFieldKind] {
         self.primary_key_kinds.as_slice()
@@ -710,10 +681,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Borrow accepted primary-key physical slot indices in key order.
-    #[allow(
-        dead_code,
-        reason = "ordered primary-key slot access becomes live when row decode exposes composite key component slots"
-    )]
     #[must_use]
     pub(in crate::db) const fn primary_key_slot_indices(&self) -> &[usize] {
         self.primary_key_slot_indices.as_slice()
@@ -732,13 +699,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Borrow one runtime field by accepted physical row slot.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "runtime layout tests exercise slot lookup before production callers need the typed slot wrapper"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn field_for_slot(
         &self,
@@ -759,13 +720,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Borrow one runtime field by durable accepted field identity.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "runtime layout tests exercise field-id lookup before production callers need direct durable-id access"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn field_for_id(
         &self,
