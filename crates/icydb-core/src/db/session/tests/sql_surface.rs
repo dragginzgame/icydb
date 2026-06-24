@@ -8111,28 +8111,31 @@ fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
         "explicit ELSE NULL global aggregate HAVING should stay on the dedicated aggregate artifact family",
     );
 
-    let explain = session
-        .compile_sql_query::<SessionSqlEntity>(
-            "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-        )
-        .expect("EXPLAIN SELECT should compile");
-    assert!(
-        matches!(
-            explain,
-            crate::db::session::sql::CompiledSqlCommand::Explain(_)
-        ),
-        "EXPLAIN SELECT should compile to lowered explain artifact",
-    );
-    let SqlStatementResult::Explain(rendered) = session
-        .execute_compiled_sql::<SessionSqlEntity>(&explain)
-        .expect("compiled EXPLAIN should execute")
-    else {
-        panic!("compiled EXPLAIN should emit explain text");
-    };
-    assert!(
-        !rendered.is_empty(),
-        "compiled EXPLAIN should render a non-empty explain payload",
-    );
+    #[cfg(feature = "sql-explain")]
+    {
+        let explain = session
+            .compile_sql_query::<SessionSqlEntity>(
+                "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+            )
+            .expect("EXPLAIN SELECT should compile");
+        assert!(
+            matches!(
+                explain,
+                crate::db::session::sql::CompiledSqlCommand::Explain(_)
+            ),
+            "EXPLAIN SELECT should compile to lowered explain artifact",
+        );
+        let SqlStatementResult::Explain(rendered) = session
+            .execute_compiled_sql::<SessionSqlEntity>(&explain)
+            .expect("compiled EXPLAIN should execute")
+        else {
+            panic!("compiled EXPLAIN should emit explain text");
+        };
+        assert!(
+            !rendered.is_empty(),
+            "compiled EXPLAIN should render a non-empty explain payload",
+        );
+    }
 }
 
 #[test]
@@ -8327,17 +8330,23 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
 
     assert_eq!(
         session.sql_compiled_command_cache_len(),
-        11,
+        if cfg!(feature = "sql-explain") {
+            11
+        } else {
+            10
+        },
         "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
     );
 }
 
 fn assert_query_compile_cache_metadata_artifacts(session: &DbSession<SessionSqlCanister>) {
+    #[cfg(feature = "sql-explain")]
     assert_query_compile_cache_explain_and_schema_artifacts(session);
     assert_query_compile_cache_entity_catalog_artifacts(session);
     assert_query_compile_cache_store_and_memory_artifacts(session);
 }
 
+#[cfg(feature = "sql-explain")]
 fn assert_query_compile_cache_explain_and_schema_artifacts(
     session: &DbSession<SessionSqlCanister>,
 ) {

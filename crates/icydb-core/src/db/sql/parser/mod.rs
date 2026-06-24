@@ -32,14 +32,15 @@ pub(crate) use model::{
     SqlAlterTableRenameColumnStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
-    SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement,
-    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
-    SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
-    SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlScalarFunctionCallShape,
-    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-    SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement,
-    SqlUpdateStatement,
+    SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExpr,
+    SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
+    SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
+    SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
+    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
 };
+#[cfg(feature = "sql-explain")]
+pub(crate) use model::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 #[cfg(test)]
 pub(in crate::db::sql) use order_expr::{
     parse_grouped_post_aggregate_order_expr_ast, parse_supported_order_expr_ast,

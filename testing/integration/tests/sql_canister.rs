@@ -60,7 +60,7 @@ fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     let response: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call("__icydb_query", (sql.to_string(),))
+        .query_call("icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode");
 
     response.map(|payload| payload.result)
@@ -75,13 +75,13 @@ fn query_numeric_types(
 
 fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
-        .update_call("__icydb_ddl", (sql.to_string(),))
+        .update_call("icydb_ddl", (sql.to_string(),))
         .expect("sql DDL canister call should decode")
 }
 
 fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
-        .update_call("__icydb_update", (sql.to_string(),))
+        .update_call("icydb_update", (sql.to_string(),))
         .expect("sql update canister call should decode")
 }
 

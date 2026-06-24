@@ -24,6 +24,7 @@ pub(crate) enum SqlStatement {
     Insert(SqlInsertStatement),
     Update(SqlUpdateStatement),
     Ddl(SqlDdlStatement),
+    #[cfg(feature = "sql-explain")]
     Explain(SqlExplainStatement),
     Describe(SqlDescribeStatement),
     ShowIndexes(SqlShowIndexesStatement),
@@ -1179,12 +1180,12 @@ pub(crate) struct SqlUpdateStatement {
     pub(crate) returning: Option<SqlReturningProjection>,
 }
 
+#[cfg(feature = "sql-explain")]
 ///
 /// SqlExplainMode
 ///
 /// Reduced EXPLAIN render mode selector.
 ///
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlExplainMode {
     Plan,
@@ -1192,18 +1193,19 @@ pub(crate) enum SqlExplainMode {
     Json,
 }
 
+#[cfg(feature = "sql-explain")]
 ///
 /// SqlExplainTarget
 ///
 /// Statement forms accepted behind one `EXPLAIN` prefix.
 ///
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlExplainTarget {
     Select(SqlSelectStatement),
     Delete(SqlDeleteStatement),
 }
 
+#[cfg(feature = "sql-explain")]
 ///
 /// SqlExplainStatement
 ///
@@ -1211,7 +1213,6 @@ pub(crate) enum SqlExplainTarget {
 ///
 /// Explain remains a wrapper over one executable reduced SQL statement.
 ///
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlExplainStatement {
     pub(crate) mode: SqlExplainMode,

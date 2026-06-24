@@ -141,7 +141,7 @@ and their storage modes. `SHOW MEMORY` lists stable-memory tags, memory IDs,
 and their owning stores. The default shell rendering stays compact; `VERBOSE`
 exposes full entity and store paths for debugging.
 
-Generated `__icydb_query` gates `EXPLAIN`, `DESCRIBE`, and `SHOW` by
+Generated `icydb_query` gates `EXPLAIN`, `DESCRIBE`, and `SHOW` by
 `[canisters.<name>.sql.introspection]`. The default policy is `local = true`
 and `ic = false`; direct builds with an unknown target fail closed.
 
@@ -279,9 +279,9 @@ Current boundary:
   statements.
 - `execute_sql_update::<E>(...)` admits current narrow
   `UPDATE ... RETURNING` forms.
-- generated `__icydb_query` rejects row mutation SQL, including `UPDATE`.
-- generated `__icydb_ddl` rejects row mutation SQL, including `UPDATE`.
-- generated `__icydb_update` is not part of the default generated canister
+- generated `icydb_query` rejects row mutation SQL, including `UPDATE`.
+- generated `icydb_ddl` rejects row mutation SQL, including `UPDATE`.
+- generated `icydb_update` is not part of the default generated canister
   surface; it is emitted only when the canister config selects an update policy.
 - `update = true` and `update = "primary_key"` select the public
   primary-key-only policy.
@@ -292,7 +292,7 @@ Current `execute_sql_update::<E>(...)` support includes primary-key and
 non-primary-key predicates, explicit `ORDER BY`, `LIMIT`, and `OFFSET` where
 the reduced SQL write lane admits them. That broader session/library behavior
 does not define the policy for generated public SQL write endpoints. Generated
-`__icydb_update` dispatch must choose one configured `UPDATE` policy before
+`icydb_update` dispatch must choose one configured `UPDATE` policy before
 executing row mutation SQL, and must not call the broad session/library
 `execute_sql_update::<E>(...)` lane directly.
 
@@ -531,7 +531,7 @@ Supported `RETURNING` forms are intentionally narrow:
 
 For `UPDATE`, `RETURNING` is available where the underlying SQL write surface
 admits the `UPDATE` shape. Generated query and DDL endpoints still reject
-`UPDATE` before `RETURNING` semantics apply; generated `__icydb_update` admits
+`UPDATE` before `RETURNING` semantics apply; generated `icydb_update` admits
 `UPDATE RETURNING` only where the configured update policy admits the target
 selection shape.
 

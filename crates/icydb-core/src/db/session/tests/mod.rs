@@ -34,6 +34,7 @@ mod range_choice_offsets;
 mod sql_aggregate;
 mod sql_blob;
 mod sql_delete;
+#[cfg(feature = "sql-explain")]
 mod sql_explain;
 mod sql_grouped;
 mod sql_projection;
@@ -454,6 +455,7 @@ impl SelectTestSurface {
             SqlStatement::Delete(_) if self != Self::Lowering => {
                 Some(self.reject_statement("DELETE"))
             }
+            #[cfg(feature = "sql-explain")]
             SqlStatement::Explain(_) => Some(self.reject_statement("EXPLAIN")),
             SqlStatement::Describe(_) => Some(self.reject_statement("DESCRIBE")),
             SqlStatement::ShowIndexes(_) => Some(self.reject_statement("SHOW INDEXES")),
@@ -3050,6 +3052,7 @@ where
 enum SqlStatementPayloadKind {
     ProjectionColumns,
     ProjectionRows,
+    #[cfg(feature = "sql-explain")]
     Explain,
     Describe,
     ShowIndexes,
@@ -3070,6 +3073,7 @@ impl SqlStatementPayloadKind {
             Self::ProjectionRows => {
                 "projection row SQL only supports value-row SQL projection payloads"
             }
+            #[cfg(feature = "sql-explain")]
             Self::Explain => "EXPLAIN SQL requires an EXPLAIN statement",
             Self::Describe => "DESCRIBE SQL requires a DESCRIBE statement",
             Self::ShowIndexes => "SHOW INDEXES FROM SQL requires a SHOW INDEXES FROM statement",
@@ -3234,6 +3238,7 @@ fn assert_session_sql_scalar_value<E>(
     );
 }
 
+#[cfg(feature = "sql-explain")]
 fn statement_explain_sql<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
@@ -3249,6 +3254,17 @@ where
             _ => None,
         },
     )
+}
+
+#[cfg(not(feature = "sql-explain"))]
+fn statement_explain_sql<E>(
+    _session: &DbSession<SessionSqlCanister>,
+    _sql: &str,
+) -> Result<String, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    Err(QueryError::unsupported_query())
 }
 
 // Execute one EXPLAIN SQL statement and assert the public surface keeps the

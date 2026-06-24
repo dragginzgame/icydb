@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.43` continues the query-engine and generated-surface audit by moving
+  public generated endpoints to `icydb_*`, consolidating COUNT/EXISTS
+  prefix-cardinality preflight, and making SQL EXPLAIN an opt-in feature for
+  smaller ordinary SQL canisters.
+
 - `0.184.42` continues the query-engine audit by consolidating EXPLAIN
   rendering handoffs and descriptor vocabulary keys without changing query,
   write, or EXPLAIN semantics.

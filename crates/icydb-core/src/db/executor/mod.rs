@@ -78,7 +78,7 @@ pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
 #[cfg(test)]
 pub(in crate::db) use explain::assemble_load_execution_node_descriptor;
-#[cfg(feature = "sql")]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
     freeze_load_execution_route_facts_for_authority,

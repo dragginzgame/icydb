@@ -683,17 +683,14 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
 
 #[test]
 fn configured_endpoint_methods_match_generated_endpoint_names() {
-    assert_eq!(SNAPSHOT_ENDPOINT.method(), "__icydb_snapshot");
-    assert_eq!(SCHEMA_ENDPOINT.method(), "__icydb_schema");
-    assert_eq!(SCHEMA_CHECK_ENDPOINT.method(), "__icydb_schema_check");
-    assert_eq!(METRICS_ENDPOINT.method(), "__icydb_metrics");
-    assert_eq!(
-        METRICS_EXTENDED_ENDPOINT.method(),
-        "__icydb_metrics_extended"
-    );
-    assert_eq!(METRICS_RESET_ENDPOINT.method(), "__icydb_metrics_reset");
-    assert_eq!(FIXTURES_LOAD_ENDPOINT.method(), "__icydb_fixtures_load");
-    assert_eq!(SQL_QUERY_ENDPOINT.method(), "__icydb_query");
-    assert_eq!(SQL_DDL_ENDPOINT.method(), "__icydb_ddl");
-    assert_eq!(SQL_UPDATE_ENDPOINT.method(), "__icydb_update");
+    assert_eq!(SNAPSHOT_ENDPOINT.method(), "icydb_snapshot");
+    assert_eq!(SCHEMA_ENDPOINT.method(), "icydb_schema");
+    assert_eq!(SCHEMA_CHECK_ENDPOINT.method(), "icydb_schema_check");
+    assert_eq!(METRICS_ENDPOINT.method(), "icydb_metrics");
+    assert_eq!(METRICS_EXTENDED_ENDPOINT.method(), "icydb_metrics_extended");
+    assert_eq!(METRICS_RESET_ENDPOINT.method(), "icydb_metrics_reset");
+    assert_eq!(FIXTURES_LOAD_ENDPOINT.method(), "icydb_fixtures_load");
+    assert_eq!(SQL_QUERY_ENDPOINT.method(), "icydb_query");
+    assert_eq!(SQL_DDL_ENDPOINT.method(), "icydb_ddl");
+    assert_eq!(SQL_UPDATE_ENDPOINT.method(), "icydb_update");
 }

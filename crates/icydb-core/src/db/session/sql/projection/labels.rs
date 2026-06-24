@@ -5,16 +5,15 @@
 //! Boundary: keeps SQL projection naming policy at the session boundary.
 
 use super::SqlProjectionContract;
+use crate::db::{
+    query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
+    query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
+};
+#[cfg(feature = "sql-explain")]
 use crate::{
-    db::{
-        query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
-        query::{
-            explain::{ExplainExecutionNodeDescriptor, property_keys, property_values},
-            plan::{
-                AccessPlannedQuery,
-                expr::{Expr, ProjectionField, ProjectionSpec},
-            },
-        },
+    db::query::{
+        explain::{ExplainExecutionNodeDescriptor, property_keys, property_values},
+        plan::AccessPlannedQuery,
     },
     value::Value,
 };
@@ -106,6 +105,7 @@ pub(in crate::db::session::sql) fn projection_contract_from_projection_spec(
 // Attach SQL-facing projection labels and shell-facing projection runtime hints
 // only at the session SQL boundary so executor-owned EXPLAIN assembly stays
 // structural.
+#[cfg(feature = "sql-explain")]
 pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_descriptor(
     descriptor: &mut ExplainExecutionNodeDescriptor,
     plan: &AccessPlannedQuery,

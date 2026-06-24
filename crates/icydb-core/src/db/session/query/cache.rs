@@ -3,7 +3,7 @@
 //! Does not own: query planning semantics, execution, or cache-key fingerprint generation.
 //! Boundary: resolves store visibility and memoizes prepared plans for typed and SQL callers.
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "sql-explain")]
 use crate::db::schema::accepted_schema_cache_fingerprint;
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -642,7 +642,7 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority(
         &self,
         authority: EntityAuthority,

@@ -287,9 +287,9 @@ impl Default for BuildMetricsOptions {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildSqlUpdatePolicy {
-    /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
+    /// Expose only public-safe primary-key `UPDATE` through `icydb_update`.
     PublicPrimaryKeyOnly,
-    /// Expose only public-safe bounded deterministic `UPDATE` through `__icydb_update`.
+    /// Expose only public-safe bounded deterministic `UPDATE` through `icydb_update`.
     PublicBoundedDeterministic,
 }
 
@@ -398,7 +398,7 @@ impl ActorBuilder {
 fn generate_snapshot(builder: &ActorBuilder) -> TokenStream {
     if builder.options.snapshot_enabled() {
         quote! {
-        #[::icydb::__reexports::ic_cdk::query]
+        #[::icydb::__reexports::ic_cdk::query(name = "icydb_snapshot")]
         pub fn __icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
             ::icydb::__macro::execute_generated_storage_report(&db())
         }
@@ -413,7 +413,7 @@ fn generate_snapshot(builder: &ActorBuilder) -> TokenStream {
 fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
     let metrics_endpoint = builder.options.metrics_enabled().then(|| {
         quote! {
-        #[::icydb::__reexports::ic_cdk::query]
+        #[::icydb::__reexports::ic_cdk::query(name = "icydb_metrics")]
         pub fn __icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::CompactMetricsReport, ::icydb::Error> {
             Ok(::icydb::metrics::compact_metrics_report(window_start_ms))
         }
@@ -422,7 +422,7 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
 
     let metrics_extended_endpoint = builder.options.metrics_extended_enabled().then(|| {
         quote! {
-        #[::icydb::__reexports::ic_cdk::query]
+        #[::icydb::__reexports::ic_cdk::query(name = "icydb_metrics_extended")]
         pub fn __icydb_metrics_extended(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
             Ok(::icydb::metrics::metrics_report(window_start_ms))
         }
@@ -431,7 +431,7 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
 
     let metrics_reset_endpoint = builder.options.metrics_enabled().then(|| {
         quote! {
-        #[::icydb::__reexports::ic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update(name = "icydb_metrics_reset")]
         pub fn __icydb_metrics_reset() -> Result<(), ::icydb::Error> {
             ::icydb::metrics::metrics_reset_all();
 
@@ -449,7 +449,28 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use super::BuildOptions;
+    use std::sync::Arc;
+
+    use icydb_schema::node::{Canister, Def, Schema};
+    use proc_macro2::TokenStream;
+
+    use super::{ActorBuilder, BuildOptions};
+
+    fn compact_tokens(tokens: TokenStream) -> String {
+        tokens
+            .to_string()
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect()
+    }
+
+    fn actor_builder_with_options(options: BuildOptions) -> ActorBuilder {
+        ActorBuilder::new(
+            Arc::new(Schema::new()),
+            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2),
+            options,
+        )
+    }
 
     #[test]
     fn default_build_options_enable_minimal_metrics_only() {
@@ -480,5 +501,29 @@ mod tests {
 
         assert!(options.metrics_enabled());
         assert!(options.metrics_extended_enabled());
+    }
+
+    #[test]
+    fn generated_metrics_surface_uses_public_icydb_endpoint_names() {
+        let builder =
+            actor_builder_with_options(BuildOptions::default().with_metrics_extended_enabled(true));
+        let surface = compact_tokens(super::generate_metrics(&builder));
+
+        assert!(surface.contains("name=\"icydb_metrics\""));
+        assert!(surface.contains("name=\"icydb_metrics_extended\""));
+        assert!(surface.contains("name=\"icydb_metrics_reset\""));
+        assert!(surface.contains("pubfn__icydb_metrics("));
+        assert!(surface.contains("pubfn__icydb_metrics_extended("));
+        assert!(surface.contains("pubfn__icydb_metrics_reset("));
+    }
+
+    #[test]
+    fn generated_snapshot_surface_uses_public_icydb_endpoint_name() {
+        let builder =
+            actor_builder_with_options(BuildOptions::default().with_snapshot_enabled(true));
+        let surface = compact_tokens(super::generate_snapshot(&builder));
+
+        assert!(surface.contains("name=\"icydb_snapshot\""));
+        assert!(surface.contains("pubfn__icydb_snapshot("));
     }
 }

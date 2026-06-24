@@ -277,7 +277,7 @@ fn sql_surface_endpoint_exports(
     let query_endpoint = surfaces.readonly_enabled().then(|| {
         quote! {
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::query]
+        #[::icydb::__reexports::ic_cdk::query(name = "icydb_query")]
         fn __icydb_query(
             sql: String,
         ) -> Result<IcydbSqlQueryPerfResult, ::icydb::Error> {
@@ -296,7 +296,7 @@ fn sql_surface_endpoint_exports(
     let ddl_endpoint = surfaces.ddl_enabled().then(|| {
         quote! {
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update(name = "icydb_ddl")]
         fn __icydb_ddl(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
             icydb_sql_surface_require_controller("DDL")?;
 
@@ -322,7 +322,7 @@ fn sql_surface_endpoint_exports(
 
         quote! {
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update(name = "icydb_fixtures_reset")]
         fn __icydb_fixtures_reset() -> Result<(), ::icydb::Error> {
             icydb_sql_surface_require_controller("lifecycle reset")?;
 
@@ -330,7 +330,7 @@ fn sql_surface_endpoint_exports(
         }
 
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update(name = "icydb_fixtures_load")]
         fn __icydb_fixtures_load() -> Result<(), ::icydb::Error> {
             icydb_sql_surface_require_controller("lifecycle load")?;
             let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_fixtures_load;
@@ -344,7 +344,7 @@ fn sql_surface_endpoint_exports(
     let update_endpoint = update_policy.is_some().then(|| {
         quote! {
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update(name = "icydb_update")]
         fn __icydb_update(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
             icydb_sql_surface_require_controller("SQL update")?;
 
@@ -477,12 +477,16 @@ mod tests {
             true,
         ));
 
+        assert!(surface.contains("name=\"icydb_query\""));
+        assert!(surface.contains("name=\"icydb_ddl\""));
+        assert!(surface.contains("name=\"icydb_fixtures_reset\""));
+        assert!(surface.contains("name=\"icydb_fixtures_load\""));
         assert!(surface.contains("fn__icydb_query("));
         assert!(surface.contains("fn__icydb_ddl("));
         assert!(surface.contains("fn__icydb_fixtures_reset("));
         assert!(surface.contains("fn__icydb_fixtures_load("));
         assert!(
-            !surface.contains("__icydb_update"),
+            !surface.contains("name=\"icydb_update\""),
             "generated SQL glue must not grow a row-mutation endpoint without an explicit policy gate",
         );
     }
@@ -522,10 +526,11 @@ mod tests {
         ));
         let surface = compact_tokens(quote!(#surface_tokens));
 
+        assert!(endpoint.contains("name=\"icydb_query\""));
         assert!(endpoint.contains("fn__icydb_query("));
-        assert!(!endpoint.contains("fn__icydb_list("));
-        assert!(!endpoint.contains("fn__icydb_page("));
-        assert!(!endpoint.contains("fn__icydb_count("));
+        assert!(!endpoint.contains("name=\"icydb_list\""));
+        assert!(!endpoint.contains("name=\"icydb_page\""));
+        assert!(!endpoint.contains("name=\"icydb_count\""));
         assert!(surface.contains("execute_sql_query_with_perf_attribution"));
         assert!(!surface.contains("execute_sql_count"));
         assert!(!surface.contains("execute_fluent_count"));
@@ -595,6 +600,7 @@ mod tests {
             true,
         ));
         let surface = compact_tokens(quote!(#surface_tokens));
+        assert!(endpoint.contains("name=\"icydb_update\""));
         assert!(endpoint.contains("fn__icydb_update("));
         assert!(surface.contains("icydb_sql_surface_update_dispatch"));
         assert!(surface.contains("execute_sql_public_primary_key_update"));

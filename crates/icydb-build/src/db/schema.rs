@@ -47,7 +47,7 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 Ok(())
             }
 
-            #[::icydb::__reexports::ic_cdk::query]
+            #[::icydb::__reexports::ic_cdk::query(name = "icydb_schema")]
             fn __icydb_schema() -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
                 icydb_schema_surface_require_controller()?;
 
@@ -56,7 +56,7 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 ])
             }
 
-            #[::icydb::__reexports::ic_cdk::query]
+            #[::icydb::__reexports::ic_cdk::query(name = "icydb_schema_check")]
             fn __icydb_schema_check() -> Result<Vec<::icydb::db::EntitySchemaCheckDescription>, ::icydb::Error> {
                 icydb_schema_surface_require_controller()?;
 
@@ -68,5 +68,34 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 ])
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use quote::quote;
+
+    use super::SchemaSurfaceTokens;
+
+    fn compact_tokens(tokens: proc_macro2::TokenStream) -> String {
+        tokens
+            .to_string()
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect()
+    }
+
+    #[test]
+    fn generated_schema_surface_uses_public_icydb_endpoint_names() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SchemaSurfaceTokens::empty();
+        surface_tokens.push_entity(&entity_ty);
+
+        let surface = compact_tokens(quote!(#surface_tokens));
+
+        assert!(surface.contains("name=\"icydb_schema\""));
+        assert!(surface.contains("name=\"icydb_schema_check\""));
+        assert!(surface.contains("fn__icydb_schema("));
+        assert!(surface.contains("fn__icydb_schema_check("));
     }
 }

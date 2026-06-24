@@ -115,7 +115,7 @@ pub(crate) enum SqlExpectedToken {
     UpdateAssignmentEq,
     #[cfg(feature = "sql")]
     UpdateAssignment,
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     SelectOrDelete,
     CompareOperator,
     FieldSpecialOperator,

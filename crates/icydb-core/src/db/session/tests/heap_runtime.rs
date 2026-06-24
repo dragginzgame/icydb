@@ -51,6 +51,7 @@ where
         .collect()
 }
 
+#[cfg(feature = "sql-explain")]
 fn public_explain_text<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
@@ -161,21 +162,24 @@ fn heap_backed_session_write_read_and_index_query_round_trip_while_live() {
         ],
     );
 
-    let explain = public_explain_text::<HeapSessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT name \
-         FROM HeapSessionSqlEntity \
-         WHERE name >= 'B' AND name < 'D' \
-         ORDER BY name ASC",
-    );
-    assert!(
-        explain.contains("access_strategy=IndexRange(name)"),
-        "heap indexed query should keep the secondary-index route: {explain}",
-    );
-    assert!(
-        !explain.contains("access=FullScan"),
-        "heap indexed query should not collapse to a full scan: {explain}",
-    );
+    #[cfg(feature = "sql-explain")]
+    {
+        let explain = public_explain_text::<HeapSessionSqlEntity>(
+            &session,
+            "EXPLAIN EXECUTION SELECT name \
+             FROM HeapSessionSqlEntity \
+             WHERE name >= 'B' AND name < 'D' \
+             ORDER BY name ASC",
+        );
+        assert!(
+            explain.contains("access_strategy=IndexRange(name)"),
+            "heap indexed query should keep the secondary-index route: {explain}",
+        );
+        assert!(
+            !explain.contains("access=FullScan"),
+            "heap indexed query should not collapse to a full scan: {explain}",
+        );
+    }
 
     let (data_entries, index_entries, schema_entities, schema_version, schema_fingerprint) =
         heap_snapshot_counts(&session);

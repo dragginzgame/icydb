@@ -1,5 +1,14 @@
 #[cfg(test)]
 use crate::db::sql::lowering::select::lower_select_shape_for_model_only;
+#[cfg(any(test, feature = "sql-explain"))]
+use crate::db::sql::lowering::{
+    LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, select::lower_delete_shape,
+};
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::{
+    lowering::aggregate::lower_global_aggregate_select_shape,
+    parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget},
+};
 use crate::{
     db::{
         MissingRowPolicy, QueryError,
@@ -7,24 +16,19 @@ use crate::{
         schema::SchemaInfo,
         sql::{
             lowering::{
-                LoweredDeleteShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlCommandInner,
-                LoweredSqlQuery, PreparedSqlStatement, SqlLoweringError,
-                aggregate::lower_global_aggregate_select_shape,
+                LoweredDeleteShape, LoweredSelectShape, PreparedSqlStatement, SqlLoweringError,
                 bind_lowered_sql_select_query_structural_with_schema,
                 normalize::{
                     ensure_entity_matches_expected, normalize_delete_statement_to_expected_entity,
                     normalize_select_statement_to_expected_entity,
                     normalize_update_statement_to_expected_entity,
                 },
-                select::{
-                    lower_delete_shape, lower_delete_statement_shape,
-                    lower_select_shape_with_schema,
-                },
+                select::{lower_delete_statement_shape, lower_select_shape_with_schema},
             },
             parser::{
-                SqlAggregateCall, SqlDeleteStatement, SqlExplainMode, SqlExplainStatement,
-                SqlExplainTarget, SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderTerm,
-                SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement, SqlUpdateStatement,
+                SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlInsertSource, SqlInsertStatement,
+                SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
+                SqlUpdateStatement,
             },
         },
     },
@@ -68,6 +72,7 @@ fn first_statement_parameter_index(statement: &SqlStatement) -> Option<usize> {
         SqlStatement::Delete(statement) => first_delete_parameter_index(statement),
         SqlStatement::Insert(statement) => first_insert_parameter_index(statement),
         SqlStatement::Update(statement) => first_update_parameter_index(statement),
+        #[cfg(feature = "sql-explain")]
         SqlStatement::Explain(statement) => first_explain_parameter_index(statement),
         SqlStatement::Ddl(_)
         | SqlStatement::Describe(_)
@@ -124,6 +129,7 @@ fn first_update_parameter_index(statement: &SqlUpdateStatement) -> Option<usize>
 
 // EXPLAIN wraps an executable reduced-SQL statement and therefore inherits the
 // same parameter admission contract as its target.
+#[cfg(feature = "sql-explain")]
 fn first_explain_parameter_index(statement: &SqlExplainStatement) -> Option<usize> {
     match &statement.statement {
         SqlExplainTarget::Select(select) => first_select_parameter_index(select),
@@ -198,6 +204,7 @@ pub(crate) fn lower_sql_command_from_prepared_statement_for_model_only(
 
 /// Lower one prepared SQL EXPLAIN statement through an explicit schema projection.
 #[inline(never)]
+#[cfg(feature = "sql-explain")]
 pub(crate) fn lower_sql_explain_command_from_prepared_statement_with_schema(
     prepared: PreparedSqlStatement,
     model: &'static EntityModel,
@@ -300,6 +307,7 @@ fn prepare_statement(
             expected_entity,
         )?)),
         SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
+        #[cfg(feature = "sql-explain")]
         SqlStatement::Explain(statement) => Ok(SqlStatement::Explain(prepare_explain_statement(
             statement.clone(),
             expected_entity,
@@ -325,6 +333,7 @@ fn prepare_statement(
     }
 }
 
+#[cfg(feature = "sql-explain")]
 fn prepare_explain_statement(
     statement: SqlExplainStatement,
     expected_entity: &str,
@@ -439,6 +448,7 @@ fn lower_prepared_statement_for_model_only(
             Err(SqlLoweringError::unexpected_query_lane_statement())
         }
         SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
+        #[cfg(feature = "sql-explain")]
         SqlStatement::Explain(statement) => lower_explain_prepared_for_model_only(statement, model),
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
         SqlStatement::ShowIndexes(_) => {
@@ -455,7 +465,7 @@ fn lower_prepared_statement_for_model_only(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 fn lower_explain_prepared_for_model_only(
     statement: SqlExplainStatement,
     model: &'static EntityModel,
@@ -477,6 +487,7 @@ fn lower_explain_prepared_for_model_only(
     }
 }
 
+#[cfg(feature = "sql-explain")]
 fn lower_explain_prepared_with_schema(
     statement: SqlExplainStatement,
     model: &'static EntityModel,
@@ -503,7 +514,7 @@ fn lower_explain_prepared_with_schema(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 fn lower_explain_select_prepared_for_model_only(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,
@@ -543,6 +554,7 @@ fn lower_explain_select_prepared_for_model_only(
     }
 }
 
+#[cfg(feature = "sql-explain")]
 fn lower_explain_select_prepared_with_schema(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,

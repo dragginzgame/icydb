@@ -390,9 +390,9 @@ impl Default for GeneratedSqlIntrospectionPolicy {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GeneratedSqlUpdatePolicy {
-    /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
+    /// Expose only public-safe primary-key `UPDATE` through `icydb_update`.
     PublicPrimaryKeyOnly,
-    /// Expose only public-safe bounded deterministic `UPDATE` through `__icydb_update`.
+    /// Expose only public-safe bounded deterministic `UPDATE` through `icydb_update`.
     PublicBoundedDeterministic,
 }
 

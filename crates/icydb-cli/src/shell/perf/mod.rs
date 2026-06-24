@@ -46,7 +46,7 @@ impl ShellPerfAttribution {
     }
 
     // Sum the current top-level SQL query perf contract exactly as emitted by
-    // __icydb_query: compiler, planner, store, executor, then public decode.
+    // icydb_query: compiler, planner, store, executor, then public decode.
     const fn attributed_total(&self) -> u64 {
         self.compiler
             .saturating_add(self.planner)

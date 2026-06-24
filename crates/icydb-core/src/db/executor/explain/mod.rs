@@ -32,7 +32,7 @@ use crate::{
 #[cfg(test)]
 pub(in crate::db) use descriptor::assemble_load_execution_node_descriptor;
 use descriptor::assemble_load_execution_verbose_diagnostics_from_route_facts;
-#[cfg(feature = "sql")]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) use descriptor::assemble_scalar_aggregate_execution_descriptor_with_projection;
 pub(in crate::db) use descriptor::{
     assemble_aggregate_terminal_execution_descriptor,

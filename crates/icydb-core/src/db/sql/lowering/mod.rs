@@ -20,9 +20,11 @@ mod select;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::parser::SqlExplainMode;
 use crate::db::{
     query::intent::QueryError,
-    sql::parser::{SqlExplainMode, SqlParseError, SqlStatement},
+    sql::parser::{SqlParseError, SqlStatement},
 };
 #[cfg(test)]
 use crate::{
@@ -43,13 +45,14 @@ pub(crate) enum SqlParameterPlacementReason {
     UnboundExpressionLowering,
 }
 
+#[cfg(feature = "sql-explain")]
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
+pub(crate) use aggregate::SqlGlobalAggregateCommand;
+#[cfg(feature = "sql-explain")]
+pub(crate) use aggregate::bind_lowered_sql_explain_global_aggregate_with_schema;
 pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_from_prepared_with_schema;
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
-};
-pub(crate) use aggregate::{
-    SqlGlobalAggregateCommand, bind_lowered_sql_explain_global_aggregate_with_schema,
 };
 #[cfg(test)]
 pub(crate) use aggregate::{
@@ -65,10 +68,12 @@ pub(in crate::db::sql::lowering) use order_expr::{
 pub(in crate::db) use prepare::bind_sql_select_statement_structural_with_schema;
 #[cfg(test)]
 pub(crate) use prepare::lower_sql_command_from_prepared_statement_for_model_only;
+#[cfg(feature = "sql-explain")]
+pub(crate) use prepare::lower_sql_explain_command_from_prepared_statement_with_schema;
 pub(crate) use prepare::{
     extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
     lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement_with_schema,
-    lower_sql_explain_command_from_prepared_statement_with_schema, prepare_sql_statement,
+    prepare_sql_statement,
 };
 pub(crate) use select::LoweredDeleteShape;
 pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
@@ -79,11 +84,12 @@ pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_with
 pub(in crate::db) use select::apply_lowered_select_shape_for_model_only;
 #[cfg(test)]
 pub(in crate::db) use select::bind_lowered_sql_query_for_model_only;
+#[cfg(feature = "sql-explain")]
+pub(in crate::db) use select::bind_lowered_sql_query_structural_with_schema;
 pub(in crate::db::sql::lowering) use select::validate_base_query_sql_capabilities;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
 pub(in crate::db) use select::{
     bind_lowered_sql_delete_query_structural_with_schema,
-    bind_lowered_sql_query_structural_with_schema,
     bind_lowered_sql_select_query_structural_with_schema,
     bind_sql_delete_statement_structural_with_schema,
     bind_sql_update_selector_query_structural_with_schema,
@@ -104,11 +110,13 @@ pub struct LoweredSqlCommand(pub(in crate::db::sql::lowering) LoweredSqlCommandI
 pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     #[cfg(test)]
     Query(LoweredSqlQuery),
+    #[cfg(feature = "sql-explain")]
     Explain {
         mode: SqlExplainMode,
         verbose: bool,
         query: LoweredSqlQuery,
     },
+    #[cfg(feature = "sql-explain")]
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
         verbose: bool,
@@ -140,11 +148,13 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
 pub(crate) enum SqlCommand<E: EntityKind> {
     Query(Query<E>),
     GlobalAggregate(TypedSqlGlobalAggregateCommand<E>),
+    #[cfg(feature = "sql-explain")]
     Explain {
         mode: SqlExplainMode,
         verbose: bool,
         query: Query<E>,
     },
+    #[cfg(feature = "sql-explain")]
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
         verbose: bool,
@@ -159,6 +169,7 @@ pub(crate) enum SqlCommand<E: EntityKind> {
 }
 
 impl LoweredSqlCommand {
+    #[cfg(feature = "sql-explain")]
     #[must_use]
     pub(in crate::db) const fn is_explain_lane(&self) -> bool {
         matches!(
@@ -173,9 +184,11 @@ impl LoweredSqlCommand {
     pub(in crate::db) const fn query(&self) -> Option<&LoweredSqlQuery> {
         match &self.0 {
             LoweredSqlCommandInner::Query(query) => Some(query),
-            LoweredSqlCommandInner::Explain { .. }
-            | LoweredSqlCommandInner::ExplainGlobalAggregate { .. }
-            | LoweredSqlCommandInner::DescribeEntity
+            #[cfg(feature = "sql-explain")]
+            LoweredSqlCommandInner::Explain { .. } => None,
+            #[cfg(feature = "sql-explain")]
+            LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
+            LoweredSqlCommandInner::DescribeEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities
@@ -189,9 +202,11 @@ impl LoweredSqlCommand {
     pub(in crate::db) fn into_query(self) -> Option<LoweredSqlQuery> {
         match self.0 {
             LoweredSqlCommandInner::Query(query) => Some(query),
-            LoweredSqlCommandInner::Explain { .. }
-            | LoweredSqlCommandInner::ExplainGlobalAggregate { .. }
-            | LoweredSqlCommandInner::DescribeEntity
+            #[cfg(feature = "sql-explain")]
+            LoweredSqlCommandInner::Explain { .. } => None,
+            #[cfg(feature = "sql-explain")]
+            LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
+            LoweredSqlCommandInner::DescribeEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities
@@ -200,6 +215,7 @@ impl LoweredSqlCommand {
         }
     }
 
+    #[cfg(feature = "sql-explain")]
     #[must_use]
     pub(in crate::db) const fn explain_query(
         &self,
@@ -230,6 +246,7 @@ impl LoweredSqlCommand {
 /// Generic-free executable SQL query shape prepared before typed query binding.
 /// Select and delete lowering stay shared until the final `Query<E>` build.
 ///
+#[cfg(any(test, feature = "sql-explain"))]
 #[derive(Clone, Debug)]
 pub(crate) enum LoweredSqlQuery {
     Select(LoweredSelectShape),
@@ -295,6 +312,7 @@ pub(crate) enum SqlLoweringError {
 
     UnsupportedSqlDdl,
 
+    #[cfg(any(test, feature = "sql-explain"))]
     UnexpectedQueryLaneStatement,
 }
 
@@ -312,6 +330,7 @@ impl SqlLoweringError {
         Self::UnsupportedSelectProjection
     }
 
+    #[cfg(any(test, feature = "sql-explain"))]
     /// Construct one query-lane lowering misuse error.
     pub(crate) const fn unexpected_query_lane_statement() -> Self {
         Self::UnexpectedQueryLaneStatement
@@ -450,10 +469,9 @@ impl SqlLoweringError {
                 Some(SqlLoweringCode::ParameterPlacement)
             }
             Self::UnsupportedSqlDdl => Some(SqlLoweringCode::SqlDdlExecutionUnsupported),
-            Self::Parse(_)
-            | Self::Query(_)
-            | Self::UnknownField { .. }
-            | Self::UnexpectedQueryLaneStatement => None,
+            Self::Parse(_) | Self::Query(_) | Self::UnknownField { .. } => None,
+            #[cfg(any(test, feature = "sql-explain"))]
+            Self::UnexpectedQueryLaneStatement => None,
         }
     }
 }
@@ -524,6 +542,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
         LoweredSqlCommandInner::Query(query) => Ok(SqlCommand::Query(
             bind_lowered_sql_query_for_model_only::<E>(query, consistency)?,
         )),
+        #[cfg(feature = "sql-explain")]
         LoweredSqlCommandInner::ExplainGlobalAggregate {
             mode,
             verbose,
@@ -536,6 +555,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
                 consistency,
             )?,
         }),
+        #[cfg(feature = "sql-explain")]
         LoweredSqlCommandInner::Explain {
             mode,
             verbose,

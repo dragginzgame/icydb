@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::lowering::lower_sql_explain_command_from_prepared_statement_with_schema;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -24,9 +26,7 @@ use crate::{
                 compile_sql_global_aggregate_command_from_prepared_with_schema,
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement,
-                lower_prepared_sql_select_statement_with_schema,
-                lower_sql_explain_command_from_prepared_statement_with_schema,
-                prepare_sql_statement,
+                lower_prepared_sql_select_statement_with_schema, prepare_sql_statement,
             },
             parser::{
                 SqlExpr, SqlInsertSource, SqlOrderDirection, SqlOrderTerm, SqlSelectStatement,
@@ -58,6 +58,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Ddl(_) => Err(QueryError::sql_lowering(
                 SqlLoweringCode::SqlDdlExecutionUnsupported,
             )),
+            #[cfg(feature = "sql-explain")]
             SqlStatement::Explain(_) => {
                 Self::compile_explain(statement, entity_name, model, schema)
             }
@@ -294,6 +295,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Compile EXPLAIN by lowering its prepared target but deliberately not
     // binding it into an executable query, matching the explain-only contract.
+    #[cfg(feature = "sql-explain")]
     fn compile_explain(
         statement: &SqlStatement,
         entity_name: &str,

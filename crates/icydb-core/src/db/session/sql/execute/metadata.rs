@@ -173,9 +173,10 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { .. }
             | CompiledSqlCommand::Delete { .. }
             | CompiledSqlCommand::GlobalAggregate { .. }
-            | CompiledSqlCommand::Explain(_)
             | CompiledSqlCommand::Insert(_)
             | CompiledSqlCommand::Update(_) => return None,
+            #[cfg(feature = "sql-explain")]
+            CompiledSqlCommand::Explain(_) => return None,
         };
 
         Some(sql_statement_result_with_default_cache(result))

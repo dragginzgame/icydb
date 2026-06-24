@@ -699,6 +699,7 @@ pub(in crate::db) fn bind_lowered_sql_query_structural_for_model_only(
 }
 
 /// Bind one lowered SQL query with an explicit schema projection.
+#[cfg(any(test, feature = "sql-explain"))]
 pub(in crate::db) fn bind_lowered_sql_query_structural_with_schema(
     model: &'static EntityModel,
     lowered: crate::db::sql::lowering::LoweredSqlQuery,

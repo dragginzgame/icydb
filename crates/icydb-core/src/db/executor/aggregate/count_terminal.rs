@@ -35,6 +35,72 @@ use crate::db::access::LoweredIndexPrefixCardinalitySpec;
 #[cfg(feature = "diagnostics")]
 use crate::db::diagnostics::measure_local_instruction_delta as measure_count_terminal_phase;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexPrefixCardinalityTerminal {
+    Count,
+    Exists,
+}
+
+impl IndexPrefixCardinalityTerminal {
+    fn for_request(
+        request: &ScalarTerminalBoundaryRequest,
+        logical_plan: &AccessPlannedQuery,
+    ) -> Option<Self> {
+        match request {
+            ScalarTerminalBoundaryRequest::Count => Some(Self::Count),
+            ScalarTerminalBoundaryRequest::Exists
+                if exists_index_prefix_cardinality_preflight_supported(logical_plan) =>
+            {
+                Some(Self::Exists)
+            }
+            ScalarTerminalBoundaryRequest::Exists
+            | ScalarTerminalBoundaryRequest::IdTerminal { .. }
+            | ScalarTerminalBoundaryRequest::IdBySlot { .. }
+            | ScalarTerminalBoundaryRequest::NthBySlot { .. }
+            | ScalarTerminalBoundaryRequest::MedianBySlot { .. }
+            | ScalarTerminalBoundaryRequest::MinMaxBySlot { .. } => None,
+        }
+    }
+
+    const fn allow_ordered_plan(self) -> bool {
+        matches!(self, Self::Count)
+    }
+
+    const fn into_preflight<'plan>(
+        self,
+        authority: EntityAuthority,
+        logical_plan: &'plan AccessPlannedQuery,
+        prefixes: LoweredIndexPrefixCardinalityPlan<'plan>,
+    ) -> PreparedScalarTerminalPreflight<'plan> {
+        match self {
+            Self::Count => PreparedScalarTerminalPreflight::CountIndexPrefixCardinality {
+                authority,
+                logical_plan,
+                prefixes,
+            },
+            Self::Exists => PreparedScalarTerminalPreflight::ExistsIndexPrefixCardinality {
+                authority,
+                logical_plan,
+                prefixes,
+            },
+        }
+    }
+
+    fn output_for_plan(
+        self,
+        store: StoreHandle,
+        page: Option<&PageSpec>,
+        prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
+    ) -> Option<ScalarTerminalBoundaryOutput> {
+        match self {
+            Self::Count => count_index_prefix_cardinality(store, page, prefixes)
+                .map(ScalarTerminalBoundaryOutput::Count),
+            Self::Exists => exists_index_prefix_cardinality(store, page, prefixes)
+                .map(ScalarTerminalBoundaryOutput::Exists),
+        }
+    }
+}
+
 #[cfg(feature = "diagnostics")]
 fn measure_index_prefix_cardinality_preflight<T>(run: impl FnOnce() -> T) -> (u64, T) {
     measure_count_terminal_phase(run)
@@ -105,40 +171,9 @@ pub(super) fn try_prepare_scalar_terminal_preflight<'plan>(
     plan: &'plan PreparedAggregatePlan,
     request: &ScalarTerminalBoundaryRequest,
 ) -> Option<PreparedScalarTerminalPreflight<'plan>> {
-    match request {
-        ScalarTerminalBoundaryRequest::Count => try_prepare_index_prefix_cardinality_preflight(
-            plan,
-            true,
-            |authority, logical_plan, prefixes| {
-                PreparedScalarTerminalPreflight::CountIndexPrefixCardinality {
-                    authority,
-                    logical_plan,
-                    prefixes,
-                }
-            },
-        ),
-        ScalarTerminalBoundaryRequest::Exists
-            if exists_index_prefix_cardinality_preflight_supported(plan.logical_plan()) =>
-        {
-            try_prepare_index_prefix_cardinality_preflight(
-                plan,
-                false,
-                |authority, logical_plan, prefixes| {
-                    PreparedScalarTerminalPreflight::ExistsIndexPrefixCardinality {
-                        authority,
-                        logical_plan,
-                        prefixes,
-                    }
-                },
-            )
-        }
-        ScalarTerminalBoundaryRequest::Exists
-        | ScalarTerminalBoundaryRequest::IdTerminal { .. }
-        | ScalarTerminalBoundaryRequest::IdBySlot { .. }
-        | ScalarTerminalBoundaryRequest::NthBySlot { .. }
-        | ScalarTerminalBoundaryRequest::MedianBySlot { .. }
-        | ScalarTerminalBoundaryRequest::MinMaxBySlot { .. } => None,
-    }
+    let terminal = IndexPrefixCardinalityTerminal::for_request(request, plan.logical_plan())?;
+
+    try_prepare_index_prefix_cardinality_preflight(plan, terminal)
 }
 
 fn exists_index_prefix_cardinality_preflight_supported(logical_plan: &AccessPlannedQuery) -> bool {
@@ -152,15 +187,10 @@ fn exists_index_prefix_cardinality_preflight_supported(logical_plan: &AccessPlan
     }
 }
 
-fn try_prepare_index_prefix_cardinality_preflight<'plan>(
-    plan: &'plan PreparedAggregatePlan,
-    allow_ordered_plan: bool,
-    build: impl FnOnce(
-        EntityAuthority,
-        &'plan AccessPlannedQuery,
-        LoweredIndexPrefixCardinalityPlan<'plan>,
-    ) -> PreparedScalarTerminalPreflight<'plan>,
-) -> Option<PreparedScalarTerminalPreflight<'plan>> {
+fn try_prepare_index_prefix_cardinality_preflight(
+    plan: &PreparedAggregatePlan,
+    terminal: IndexPrefixCardinalityTerminal,
+) -> Option<PreparedScalarTerminalPreflight<'_>> {
     let authority = plan.authority();
     let logical_plan = plan.logical_plan();
     let Ok(index_prefix_specs) = plan.index_prefix_specs() else {
@@ -170,10 +200,10 @@ fn try_prepare_index_prefix_cardinality_preflight<'plan>(
         authority.entity_tag(),
         logical_plan,
         index_prefix_specs,
-        allow_ordered_plan,
+        terminal.allow_ordered_plan(),
     )?;
 
-    Some(build(authority, logical_plan, prefixes))
+    Some(terminal.into_preflight(authority, logical_plan, prefixes))
 }
 
 pub(super) fn execute_scalar_terminal_preflight<E>(
@@ -188,8 +218,9 @@ where
             authority,
             logical_plan,
             prefixes,
-        } => execute_count_index_prefix_cardinality_preflight(
+        } => execute_index_prefix_cardinality_preflight(
             executor,
+            IndexPrefixCardinalityTerminal::Count,
             authority,
             logical_plan,
             prefixes,
@@ -198,8 +229,9 @@ where
             authority,
             logical_plan,
             prefixes,
-        } => execute_exists_index_prefix_cardinality_preflight(
+        } => execute_index_prefix_cardinality_preflight(
             executor,
+            IndexPrefixCardinalityTerminal::Exists,
             authority,
             logical_plan,
             prefixes,
@@ -207,58 +239,12 @@ where
     }
 }
 
-fn execute_count_index_prefix_cardinality_preflight<E>(
-    executor: &LoadExecutor<E>,
-    authority: EntityAuthority,
-    logical_plan: &AccessPlannedQuery,
-    prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
-) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    execute_index_prefix_cardinality_preflight(
-        executor,
-        authority,
-        logical_plan,
-        prefixes,
-        |store, page, prefixes| {
-            count_index_prefix_cardinality(store, page, prefixes)
-                .map(ScalarTerminalBoundaryOutput::Count)
-        },
-    )
-}
-
-fn execute_exists_index_prefix_cardinality_preflight<E>(
-    executor: &LoadExecutor<E>,
-    authority: EntityAuthority,
-    logical_plan: &AccessPlannedQuery,
-    prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
-) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    execute_index_prefix_cardinality_preflight(
-        executor,
-        authority,
-        logical_plan,
-        prefixes,
-        |store, page, prefixes| {
-            exists_index_prefix_cardinality(store, page, prefixes)
-                .map(ScalarTerminalBoundaryOutput::Exists)
-        },
-    )
-}
-
 fn execute_index_prefix_cardinality_preflight<E>(
     executor: &LoadExecutor<E>,
+    terminal: IndexPrefixCardinalityTerminal,
     authority: EntityAuthority,
     logical_plan: &AccessPlannedQuery,
     prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
-    resolve: impl FnOnce(
-        StoreHandle,
-        Option<&PageSpec>,
-        LoweredIndexPrefixCardinalityPlan<'_>,
-    ) -> Option<ScalarTerminalBoundaryOutput>,
 ) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -268,9 +254,10 @@ where
     Ok(execute_measured_index_prefix_cardinality_terminal(
         authority.entity_path(),
         || record_plan_metrics(authority.entity_path(), logical_plan),
-        || resolve(store, logical_plan.scalar_plan().page.as_ref(), prefixes),
+        || terminal.output_for_plan(store, logical_plan.scalar_plan().page.as_ref(), prefixes),
     ))
 }
+
 fn count_index_prefix_cardinality(
     store: StoreHandle,
     page: Option<&PageSpec>,

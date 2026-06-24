@@ -282,7 +282,7 @@ fn interactive_start_message_names_target_and_exit_controls() {
 #[test]
 fn sql_recovery_hint_points_stale_canister_to_targeted_refresh() {
     let message = sql_error_with_recovery_hint(
-        "Canister has no query method '__icydb_query'.",
+        "Canister has no query method 'icydb_query'.",
         DEFAULT_ENVIRONMENT,
         "demo_rpg",
     );

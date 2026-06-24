@@ -13,9 +13,10 @@ crate-type = ["cdylib"]
 path = "../sql/src/lib.rs"
 
 [features]
-default = ["sql", "diagnostics"]
+default = ["sql", "sql-explain", "diagnostics"]
 candid-export = []
 sql = ["icydb/sql"]
+sql-explain = ["icydb/sql-explain"]
 diagnostics = ["icydb/diagnostics"]
 
 [dependencies]

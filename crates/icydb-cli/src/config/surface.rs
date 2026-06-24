@@ -62,43 +62,43 @@ impl ConfiguredEndpoint {
 }
 
 pub(crate) const SQL_QUERY_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_query",
+    method: "icydb_query",
     surface: ConfigSurface::SqlReadonly,
 };
 pub(crate) const SQL_DDL_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_ddl",
+    method: "icydb_ddl",
     surface: ConfigSurface::SqlDdl,
 };
 pub(crate) const SQL_UPDATE_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_update",
+    method: "icydb_update",
     surface: ConfigSurface::SqlUpdate,
 };
 pub(crate) const FIXTURES_LOAD_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_fixtures_load",
+    method: "icydb_fixtures_load",
     surface: ConfigSurface::SqlFixtures,
 };
 pub(crate) const SNAPSHOT_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_snapshot",
+    method: "icydb_snapshot",
     surface: ConfigSurface::Snapshot,
 };
 pub(crate) const METRICS_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_metrics",
+    method: "icydb_metrics",
     surface: ConfigSurface::Metrics,
 };
 pub(crate) const METRICS_EXTENDED_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_metrics_extended",
+    method: "icydb_metrics_extended",
     surface: ConfigSurface::MetricsExtended,
 };
 pub(crate) const METRICS_RESET_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_metrics_reset",
+    method: "icydb_metrics_reset",
     surface: ConfigSurface::Metrics,
 };
 pub(crate) const SCHEMA_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_schema",
+    method: "icydb_schema",
     surface: ConfigSurface::Schema,
 };
 pub(crate) const SCHEMA_CHECK_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
-    method: "__icydb_schema_check",
+    method: "icydb_schema_check",
     surface: ConfigSurface::Schema,
 };
 

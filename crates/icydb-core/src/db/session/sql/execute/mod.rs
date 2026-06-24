@@ -6,6 +6,7 @@
 //! only route and write wiring in child modules.
 
 mod diagnostics;
+#[cfg(feature = "sql-explain")]
 mod explain;
 mod global_aggregate;
 mod metadata;
@@ -13,16 +14,19 @@ mod select;
 mod write;
 mod write_returning;
 
+#[cfg(feature = "sql-explain")]
+use crate::db::executor::EntityAuthority;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::with_scalar_aggregate_terminal_attribution;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::lowering::LoweredSqlCommand;
 #[cfg(feature = "diagnostics")]
 use crate::error::InternalError;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        executor::EntityAuthority,
         response::ResponseError,
         session::{
             AcceptedSchemaCatalogContext,
@@ -31,7 +35,6 @@ use crate::{
                 SqlStatementResult,
             },
         },
-        sql::lowering::LoweredSqlCommand,
         sql::parser::{SqlInsertSource, SqlInsertStatement},
     },
     error::ErrorClass,
@@ -134,13 +137,14 @@ where
         }
         CompiledSqlCommand::Select { .. }
         | CompiledSqlCommand::GlobalAggregate { .. }
-        | CompiledSqlCommand::Explain(..)
         | CompiledSqlCommand::DescribeEntity
         | CompiledSqlCommand::ShowIndexesEntity
         | CompiledSqlCommand::ShowColumnsEntity
         | CompiledSqlCommand::ShowEntities { .. }
         | CompiledSqlCommand::ShowStores { .. }
         | CompiledSqlCommand::ShowMemory => None,
+        #[cfg(feature = "sql-explain")]
+        CompiledSqlCommand::Explain(..) => None,
     }
 }
 
@@ -227,6 +231,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context_phase_attribution::<E>(query, context)
             }
+            #[cfg(feature = "sql-explain")]
             CompiledSqlCommand::Explain(lowered) => {
                 Self::execute_non_select_compiled_sql_with_phase_attribution_from_executor(
                     context.command(),
@@ -257,6 +262,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    #[cfg(feature = "sql-explain")]
     fn execute_explain_sql_with_cache_attribution<E>(
         &self,
         lowered: &LoweredSqlCommand,
@@ -270,6 +276,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_explain_sql_with_catalog_cache_attribution::<E>(lowered, &catalog, None)
     }
 
+    #[cfg(feature = "sql-explain")]
     fn execute_explain_sql_with_catalog_cache_attribution<E>(
         &self,
         lowered: &LoweredSqlCommand,
@@ -322,6 +329,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::GlobalAggregate { command, .. } => {
                 self.execute_global_aggregate_statement_ref::<E>(command)
             }
+            #[cfg(feature = "sql-explain")]
             CompiledSqlCommand::Explain(lowered) => {
                 self.execute_explain_sql_with_cache_attribution::<E>(lowered)
             }
@@ -348,6 +356,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context::<E>(query, context)
             }
+            #[cfg(feature = "sql-explain")]
             CompiledSqlCommand::Explain(lowered) => self
                 .execute_explain_sql_with_catalog_cache_attribution::<E>(
                     lowered,
@@ -419,13 +428,16 @@ impl<C: CanisterKind> DbSession<C> {
                 self.compile_sql_update_with_cache_attribution::<E>(sql)?
             }
             crate::db::sql::parser::SqlStatement::Select(_)
-            | crate::db::sql::parser::SqlStatement::Explain(_)
             | crate::db::sql::parser::SqlStatement::Describe(_)
             | crate::db::sql::parser::SqlStatement::ShowIndexes(_)
             | crate::db::sql::parser::SqlStatement::ShowColumns(_)
             | crate::db::sql::parser::SqlStatement::ShowEntities(_)
             | crate::db::sql::parser::SqlStatement::ShowStores(_)
             | crate::db::sql::parser::SqlStatement::ShowMemory(_) => {
+                self.compile_sql_query_with_cache_attribution::<E>(sql)?
+            }
+            #[cfg(feature = "sql-explain")]
+            crate::db::sql::parser::SqlStatement::Explain(_) => {
                 self.compile_sql_query_with_cache_attribution::<E>(sql)?
             }
             crate::db::sql::parser::SqlStatement::Ddl(_) => {

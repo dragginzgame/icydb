@@ -14,6 +14,7 @@ doctest = false
 [features]
 default = []
 sql = []
+sql-explain = ["sql"]
 diagnostics = []
 
 [dependencies]

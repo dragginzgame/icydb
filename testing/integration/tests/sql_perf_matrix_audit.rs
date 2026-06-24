@@ -1269,7 +1269,7 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> MatrixOutcome {
             row_count: memory.len(),
         },
         SqlQueryResult::Ddl { entity, .. } => MatrixOutcome {
-            result_kind: "__icydb_ddl",
+            result_kind: "icydb_ddl",
             entity: entity.clone(),
             row_count: 1,
         },

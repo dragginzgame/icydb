@@ -25,6 +25,8 @@ use crate::db::executor::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::parser::SqlExplainTarget;
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
 #[cfg(feature = "diagnostics")]
@@ -45,7 +47,7 @@ use crate::{
         session::{AcceptedSchemaCatalogContext, query::QueryPlanCacheAttribution},
         sql::{
             ddl::{PreparedSqlDdlCommand, prepare_sql_ddl_statement},
-            parser::{SqlDdlStatement, SqlExplainTarget, SqlStatement, parse_sql_with_attribution},
+            parser::{SqlDdlStatement, SqlStatement, parse_sql_with_attribution},
         },
     },
     traits::{CanisterKind, EntityValue, Path},
@@ -251,7 +253,6 @@ fn sql_output_blob_attribution(result: &SqlStatementResult) -> SqlOutputBlobAttr
             }
         }
         SqlStatementResult::Count { .. }
-        | SqlStatementResult::Explain(_)
         | SqlStatementResult::Describe(_)
         | SqlStatementResult::ShowIndexes(_)
         | SqlStatementResult::ShowColumns(_)
@@ -259,6 +260,8 @@ fn sql_output_blob_attribution(result: &SqlStatementResult) -> SqlOutputBlobAttr
         | SqlStatementResult::ShowStores { .. }
         | SqlStatementResult::ShowMemory(_)
         | SqlStatementResult::Ddl(_) => {}
+        #[cfg(feature = "sql-explain")]
+        SqlStatementResult::Explain(_) => {}
     }
 
     attribution
@@ -381,13 +384,14 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
         | SqlStatement::Delete(_)
         | SqlStatement::Insert(_)
         | SqlStatement::Update(_)
-        | SqlStatement::Explain(_)
         | SqlStatement::Describe(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementSurface::Query,
+        #[cfg(feature = "sql-explain")]
+        SqlStatement::Explain(_) => SqlStatementSurface::Query,
     }
 }
 
@@ -400,27 +404,33 @@ const fn sql_statement_shell_surface_from_statement(
         SqlStatement::Select(_)
         | SqlStatement::Delete(_)
         | SqlStatement::Insert(_)
-        | SqlStatement::Explain(_)
         | SqlStatement::Describe(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementShellSurface::Query,
+        #[cfg(feature = "sql-explain")]
+        SqlStatement::Explain(_) => SqlStatementShellSurface::Query,
     }
 }
 
 const fn sql_statement_requires_introspection_from_statement(statement: &SqlStatement) -> bool {
-    matches!(
-        statement,
-        SqlStatement::Explain(_)
-            | SqlStatement::Describe(_)
-            | SqlStatement::ShowIndexes(_)
-            | SqlStatement::ShowColumns(_)
-            | SqlStatement::ShowEntities(_)
-            | SqlStatement::ShowStores(_)
-            | SqlStatement::ShowMemory(_)
-    )
+    match statement {
+        #[cfg(feature = "sql-explain")]
+        SqlStatement::Explain(_) => true,
+        SqlStatement::Describe(_)
+        | SqlStatement::ShowIndexes(_)
+        | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowEntities(_)
+        | SqlStatement::ShowStores(_)
+        | SqlStatement::ShowMemory(_) => true,
+        SqlStatement::Select(_)
+        | SqlStatement::Delete(_)
+        | SqlStatement::Insert(_)
+        | SqlStatement::Update(_)
+        | SqlStatement::Ddl(_) => false,
+    }
 }
 
 const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> Option<&str> {
@@ -448,6 +458,7 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::Ddl(SqlDdlStatement::AlterTableRenameColumn(statement)) => {
             Some(statement.entity.as_str())
         }
+        #[cfg(feature = "sql-explain")]
         SqlStatement::Explain(statement) => match &statement.statement {
             SqlExplainTarget::Select(statement) => Some(statement.entity.as_str()),
             SqlExplainTarget::Delete(statement) => Some(statement.entity.as_str()),
@@ -622,15 +633,16 @@ impl<C: CanisterKind> DbSession<C> {
             (
                 SqlCompiledCommandSurface::Query,
                 SqlStatement::Select(_)
-                | SqlStatement::Explain(_)
                 | SqlStatement::Describe(_)
                 | SqlStatement::ShowIndexes(_)
                 | SqlStatement::ShowColumns(_)
                 | SqlStatement::ShowEntities(_)
                 | SqlStatement::ShowStores(_)
                 | SqlStatement::ShowMemory(_),
-            )
-            | (
+            ) => Ok(()),
+            #[cfg(feature = "sql-explain")]
+            (SqlCompiledCommandSurface::Query, SqlStatement::Explain(_)) => Ok(()),
+            (
                 SqlCompiledCommandSurface::Update,
                 SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_),
             ) => Ok(()),
@@ -649,6 +661,7 @@ impl<C: CanisterKind> DbSession<C> {
             (SqlCompiledCommandSurface::Update, SqlStatement::Select(_)) => Err(
                 QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsSelect),
             ),
+            #[cfg(feature = "sql-explain")]
             (SqlCompiledCommandSurface::Update, SqlStatement::Explain(_)) => Err(
                 QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsExplain),
             ),

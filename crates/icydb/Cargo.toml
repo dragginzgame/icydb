@@ -11,6 +11,7 @@ authors = { workspace = true }
 [features]
 default = []
 sql = ["icydb-core/sql"]
+sql-explain = ["sql", "icydb-core/sql-explain"]
 diagnostics = ["icydb-core/diagnostics"]
 
 [dependencies]

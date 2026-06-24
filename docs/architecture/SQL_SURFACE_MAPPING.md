@@ -90,18 +90,18 @@ lane:
 
 | generated endpoint | `SELECT` | explain / introspection | row mutation SQL | DDL |
 |---|---|---|---|---|
-| `__icydb_query` | yes | build-target policy | no | no |
-| `__icydb_ddl` | no | no | no | yes |
-| `__icydb_update` | no | no | `UPDATE` only, when explicitly configured | no |
+| `icydb_query` | yes | build-target policy | no | no |
+| `icydb_ddl` | no | no | no | yes |
+| `icydb_update` | no | no | `UPDATE` only, when explicitly configured | no |
 
 No generated SQL write endpoint is part of the default generated surface.
-`__icydb_update` is emitted only when `icydb.toml` selects an explicit update
+`icydb_update` is emitted only when `icydb.toml` selects an explicit update
 policy: `update = true` or `update = "primary_key"` for public primary-key-only
 `UPDATE`, or `update = "bounded"` for public bounded deterministic `UPDATE`.
 Generated update dispatch must not inherit broad `execute_sql_update::<E>`
 behavior by default.
 
-Generated `__icydb_query` admits operational SQL introspection only when the
+Generated `icydb_query` admits operational SQL introspection only when the
 build target policy allows it. The `[canisters.<name>.sql.introspection]`
 defaults are `local = true` and `ic = false`; unknown direct builds fail closed.
 
@@ -261,8 +261,8 @@ mutation capability.
 `execute_sql_update::<E>(...)` currently owns the session/library SQL write
 lane for `INSERT`, `UPDATE`, `DELETE`, and the narrow write `RETURNING`
 contract. Its broad `UPDATE` behavior is not the generated canister SQL
-contract: generated `__icydb_query` and `__icydb_ddl` reject row mutation SQL,
-and generated `__icydb_update` must pass through its configured explicit
+contract: generated `icydb_query` and `icydb_ddl` reject row mutation SQL,
+and generated `icydb_update` must pass through its configured explicit
 surface policy before executing `UPDATE`.
 
 ## DDL Boundary

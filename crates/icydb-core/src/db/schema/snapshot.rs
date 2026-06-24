@@ -1,7 +1,7 @@
 //! Module: db::schema::snapshot
 //! Responsibility: owned persisted-schema snapshot shapes.
 //! Does not own: startup reconciliation, stable-memory storage, or generated model metadata.
-//! Boundary: schema-owned DTOs that can become the `__icydb_schema` payload.
+//! Boundary: schema-owned DTOs that can become the `icydb_schema` payload.
 
 #[cfg(any(test, feature = "sql"))]
 use crate::db::predicate::relabel_sql_predicate_field_root;
@@ -212,7 +212,7 @@ impl AcceptedSchemaSnapshot {
 /// PersistedSchemaSnapshot
 ///
 /// Owned schema snapshot for one live entity schema.
-/// This is the shape intended for the future `__icydb_schema` payload; it is
+/// This is the shape intended for the future `icydb_schema` payload; it is
 /// separate from generated `EntityModel` so startup reconciliation can compare
 /// stored authority with the compiled proposal.
 ///

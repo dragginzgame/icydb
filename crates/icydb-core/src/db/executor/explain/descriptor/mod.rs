@@ -7,8 +7,7 @@ mod aggregate;
 mod load;
 pub(in crate::db::executor::explain::descriptor) mod shared;
 
-#[cfg(feature = "sql")]
-#[cfg(feature = "sql")]
+#[cfg(feature = "sql-explain")]
 pub(in crate::db) use self::aggregate::assemble_scalar_aggregate_execution_descriptor_with_projection;
 #[cfg(test)]
 pub(in crate::db) use self::load::assemble_load_execution_node_descriptor;

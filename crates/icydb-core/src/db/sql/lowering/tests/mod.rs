@@ -3,6 +3,8 @@
 //! Does not own: production SQL lowering behavior outside this test module.
 //! Boundary: verifies SQL lowering behavior while keeping fixture details internal.
 
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::parser::SqlExplainMode;
 use crate::{
     db::{
         executor::PreparedExecutionPlan,
@@ -30,8 +32,8 @@ use crate::{
                 lower_supported_order_expr_text, prepare_sql_statement,
             },
             parser::{
-                SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlExprBinaryOp,
-                SqlParseError, parse_sql,
+                SqlAggregateCall, SqlAggregateKind, SqlExpr, SqlExprBinaryOp, SqlParseError,
+                parse_sql,
             },
         },
         test_support::source_guard::{collect_rust_sources, relative_rust_source_path},
@@ -1057,6 +1059,7 @@ fn compile_sql_command_typed_fluent_filter_matrix_matches_sql_canonical_predicat
 }
 
 #[test]
+#[cfg(feature = "sql-explain")]
 fn compile_sql_explain_numeric_equality_on_nat_field_keeps_strict_plan_parity() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN EXECUTION SELECT * FROM SqlLowerEntity WHERE age = 21 ORDER BY age ASC LIMIT 1",
@@ -1724,6 +1727,7 @@ fn prepare_sql_statement_rejects_parameters_before_lowering() {
             "DELETE FROM SqlLowerEntity WHERE age > ?",
             "DELETE WHERE parameter",
         ),
+        #[cfg(feature = "sql-explain")]
         (
             "EXPLAIN SELECT * FROM SqlLowerEntity WHERE age > ?",
             "EXPLAIN target parameter",
@@ -1842,6 +1846,7 @@ fn compile_sql_command_show_memory_lowers_to_show_memory_lane() {
 }
 
 #[test]
+#[cfg(feature = "sql-explain")]
 fn compile_sql_command_explain_execution_wraps_lowered_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN EXECUTION SELECT * FROM SqlLowerEntity LIMIT 1",
@@ -1864,6 +1869,7 @@ fn compile_sql_command_explain_execution_wraps_lowered_query() {
 }
 
 #[test]
+#[cfg(feature = "sql-explain")]
 fn compile_sql_command_explain_execution_verbose_wraps_lowered_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN EXECUTION VERBOSE SELECT * FROM SqlLowerEntity LIMIT 1",
@@ -1886,6 +1892,7 @@ fn compile_sql_command_explain_execution_verbose_wraps_lowered_query() {
 }
 
 #[test]
+#[cfg(feature = "sql-explain")]
 fn compile_sql_command_explain_select_distinct_star_lowers_to_distinct_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN SELECT DISTINCT * FROM SqlLowerEntity",
@@ -1912,6 +1919,7 @@ fn compile_sql_command_explain_select_distinct_star_lowers_to_distinct_query() {
 }
 
 #[test]
+#[cfg(feature = "sql-explain")]
 fn compile_sql_command_explain_select_distinct_without_pk_projection_lowers() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN SELECT DISTINCT age FROM SqlLowerEntity",
@@ -1938,6 +1946,7 @@ fn compile_sql_command_explain_select_distinct_without_pk_projection_lowers() {
 }
 
 #[test]
+#[cfg(feature = "sql-explain")]
 fn compile_sql_command_explain_global_aggregate_lowers_to_dedicated_command() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN SELECT COUNT(*) FROM SqlLowerEntity",

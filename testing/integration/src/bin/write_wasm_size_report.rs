@@ -8,17 +8,17 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const GENERATED_EXPORTS: &[&str] = &[
-    "__icydb_query",
-    "__icydb_ddl",
-    "__icydb_update",
-    "__icydb_fixtures_reset",
-    "__icydb_fixtures_load",
-    "__icydb_metrics",
-    "__icydb_metrics_extended",
-    "__icydb_metrics_reset",
-    "__icydb_snapshot",
-    "__icydb_schema",
-    "__icydb_schema_check",
+    "icydb_query",
+    "icydb_ddl",
+    "icydb_update",
+    "icydb_fixtures_reset",
+    "icydb_fixtures_load",
+    "icydb_metrics",
+    "icydb_metrics_extended",
+    "icydb_metrics_reset",
+    "icydb_snapshot",
+    "icydb_schema",
+    "icydb_schema_check",
 ];
 
 #[derive(Debug)]
@@ -378,15 +378,15 @@ fn endpoint_surface(info: &WasmInfo) -> Build {
         .map(|export| export_name(export))
         .collect::<Vec<_>>();
     let generated_endpoint_surface = GeneratedEndpointSurface {
-        sql_readonly: names.contains(&"__icydb_query"),
-        sql_ddl: names.contains(&"__icydb_ddl"),
-        sql_update: names.contains(&"__icydb_update"),
-        sql_fixtures: names.contains(&"__icydb_fixtures_reset")
-            || names.contains(&"__icydb_fixtures_load"),
-        metrics: names.contains(&"__icydb_metrics"),
-        metrics_extended: names.contains(&"__icydb_metrics_extended"),
-        snapshot: names.contains(&"__icydb_snapshot"),
-        schema: names.contains(&"__icydb_schema") || names.contains(&"__icydb_schema_check"),
+        sql_readonly: names.contains(&"icydb_query"),
+        sql_ddl: names.contains(&"icydb_ddl"),
+        sql_update: names.contains(&"icydb_update"),
+        sql_fixtures: names.contains(&"icydb_fixtures_reset")
+            || names.contains(&"icydb_fixtures_load"),
+        metrics: names.contains(&"icydb_metrics"),
+        metrics_extended: names.contains(&"icydb_metrics_extended"),
+        snapshot: names.contains(&"icydb_snapshot"),
+        schema: names.contains(&"icydb_schema") || names.contains(&"icydb_schema_check"),
     };
     let custom_exports = names
         .into_iter()
@@ -544,10 +544,10 @@ mod tests {
     #[test]
     fn endpoint_surface_reports_absent_generated_sql_update_endpoint() {
         let build = endpoint_surface(&wasm_info(&[
-            "canister_query __icydb_query",
-            "canister_update __icydb_ddl",
-            "canister_update __icydb_fixtures_reset",
-            "canister_update __icydb_fixtures_load",
+            "canister_query icydb_query",
+            "canister_update icydb_ddl",
+            "canister_update icydb_fixtures_reset",
+            "canister_update icydb_fixtures_load",
         ]));
 
         assert!(build.generated_endpoint_surface.sql_readonly);
@@ -560,8 +560,8 @@ mod tests {
     #[test]
     fn endpoint_surface_reports_generated_sql_update_endpoint() {
         let build = endpoint_surface(&wasm_info(&[
-            "canister_query __icydb_query",
-            "canister_update __icydb_update",
+            "canister_query icydb_query",
+            "canister_update icydb_update",
         ]));
 
         assert!(build.generated_endpoint_surface.sql_update);

@@ -17,6 +17,7 @@ use crate::db::{
     doc,
     doc = "Render one SQL EXPLAIN text payload as endpoint output lines."
 )]
+#[cfg(feature = "sql-explain")]
 #[must_use]
 pub fn render_explain_lines(explain: &str) -> Vec<String> {
     let mut lines = vec!["surface=explain".to_string()];

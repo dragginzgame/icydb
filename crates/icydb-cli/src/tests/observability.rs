@@ -102,10 +102,10 @@ fn observability_call_errors_include_call_target_context() {
             "schema check",
             "demo",
             "demo_rpg",
-            "__icydb_schema_check",
+            "icydb_schema_check",
             "schema drift",
         ),
-        "IcyDB schema check method '__icydb_schema_check' failed on canister 'demo_rpg' in environment 'demo': schema drift",
+        "IcyDB schema check method 'icydb_schema_check' failed on canister 'demo_rpg' in environment 'demo': schema drift",
     );
 }
 

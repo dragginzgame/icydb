@@ -74,8 +74,9 @@ Apply these before classifying any finding.
 * Do not preserve runtime fallback reconstruction from generated models.
 * Schema mutation work stays catalog-native; SQL DDL is a frontend, not the
   source of mutation semantics.
-* Generated canister endpoints use verbatim `__icydb_*` Rust/export names with
-  no endpoint `name = ...` override.
+* Generated canister endpoint exports use `icydb_*` public method names;
+  generated hidden Rust wrappers may use `__icydb_*` names to avoid collisions
+  with plain non-exported user hooks.
 * Before `1.0.0`, internal protocols and formats should hard-cut to the latest
   version instead of keeping multi-version compatibility fallbacks.
 * For wasm-related deletion decisions, raw non-gzipped `.wasm` bytes are the

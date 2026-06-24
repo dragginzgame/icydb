@@ -14,7 +14,7 @@ mod sql;
 mod tests;
 mod write;
 
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql-explain"))]
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
@@ -233,7 +233,7 @@ impl AcceptedSchemaCatalogContext {
         }
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) fn accepted_or_provided_entity_authority_and_schema_info_for<E>(
         &self,
         accepted_authority: Option<&EntityAuthority>,
@@ -647,7 +647,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve the exact secondary-index set that is visible to planner-owned
     // query planning for one recovered store and accepted schema pair.
-    #[cfg(feature = "sql")]
+    #[cfg(any(test, feature = "sql-explain"))]
     fn visible_indexes_for_store_accepted_schema(
         &self,
         store_path: &str,

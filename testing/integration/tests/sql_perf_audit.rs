@@ -383,7 +383,7 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
             row_count: memory.len(),
         },
         SqlQueryResult::Ddl { entity, .. } => SqlPerfOutcome {
-            result_kind: "__icydb_ddl",
+            result_kind: "icydb_ddl",
             entity: entity.clone(),
             row_count: 1,
         },

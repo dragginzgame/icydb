@@ -4,16 +4,17 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::table_render::render_explain_lines;
 use crate::db::{
     EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
     MemoryCatalogDescription, StoreCatalogDescription,
     response::{ProjectionRows, RowProjectionOutput},
     sql::table_render::{
-        SqlDdlRenderInput, render_count_lines, render_describe_lines, render_explain_lines,
-        render_grouped_lines, render_query_rows_lines, render_show_columns_lines,
-        render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
-        render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
-        render_sql_ddl_lines,
+        SqlDdlRenderInput, render_count_lines, render_describe_lines, render_grouped_lines,
+        render_query_rows_lines, render_show_columns_lines, render_show_entities_lines,
+        render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
+        render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
     },
 };
 
@@ -49,6 +50,7 @@ pub enum SqlQueryResult {
     },
     Projection(SqlQueryRowsOutput),
     Grouped(SqlGroupedRowsOutput),
+    #[cfg(feature = "sql-explain")]
     Explain {
         entity: String,
         explain: String,
@@ -93,6 +95,7 @@ impl SqlQueryResult {
             Self::Count { entity, row_count } => render_count_lines(entity.as_str(), *row_count),
             Self::Projection(rows) => render_query_rows_lines(rows),
             Self::Grouped(rows) => render_grouped_lines(rows),
+            #[cfg(feature = "sql-explain")]
             Self::Explain { explain, .. } => render_explain_lines(explain.as_str()),
             Self::Describe(description) => render_describe_lines(description),
             Self::ShowIndexes { entity, indexes } => {

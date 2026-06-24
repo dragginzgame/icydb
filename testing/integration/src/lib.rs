@@ -414,14 +414,14 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
 /// Panics if the reset or load calls fail to decode or return fixture errors.
 pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
     let reset: Result<(), Error> = fixture
-        .update_call("__icydb_fixtures_reset", ())
-        .expect("__icydb_fixtures_reset should decode");
-    reset.expect("__icydb_fixtures_reset should succeed");
+        .update_call("icydb_fixtures_reset", ())
+        .expect("icydb_fixtures_reset should decode");
+    reset.expect("icydb_fixtures_reset should succeed");
 
     let load: Result<(), Error> = fixture
-        .update_call("__icydb_fixtures_load", ())
-        .expect("__icydb_fixtures_load should decode");
-    load.expect("__icydb_fixtures_load should succeed");
+        .update_call("icydb_fixtures_load", ())
+        .expect("icydb_fixtures_load should decode");
+    load.expect("icydb_fixtures_load should succeed");
 }
 
 /// Build one supported SQL canister WASM with explicit options and return the

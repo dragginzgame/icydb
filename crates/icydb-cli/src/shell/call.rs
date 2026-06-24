@@ -99,7 +99,7 @@ fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
 }
 
 fn stale_sql_method_missing(error: &str) -> bool {
-    error.contains("has no query method '__icydb_query'")
+    error.contains("has no query method 'icydb_query'")
 }
 
 fn stale_startup_index_rebuild(error: &str) -> bool {

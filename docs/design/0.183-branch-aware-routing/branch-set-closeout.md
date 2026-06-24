@@ -103,12 +103,12 @@ Inspected generated/core SQL surface:
   - diagnostics-gated attribution wrapping around the same query execution
 
 The generated core SQL surface exports a single readonly query endpoint,
-`__icydb_query(sql: String)`, which dispatches exactly one SQL statement through
-`__icydb_query_dispatch` and per-entity
+`icydb_query(sql: String)`, which dispatches exactly one SQL statement through
+`icydb_query_dispatch` and per-entity
 `execute_sql_query_with_perf_attribution::<Entity>(sql)`.
 
 A generator regression test now asserts that the readonly SQL surface does not
-emit `__icydb_list`, `__icydb_page`, `__icydb_count`, or dedicated count
+emit `icydb_list`, `icydb_page`, `icydb_count`, or dedicated count
 executor calls.
 
 The recurring SQL perf audit now includes a `PerfAuditToken` surrogate for the

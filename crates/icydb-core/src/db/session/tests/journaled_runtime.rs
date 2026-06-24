@@ -45,6 +45,7 @@ where
         .collect()
 }
 
+#[cfg(feature = "sql-explain")]
 fn public_explain_text<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
@@ -121,21 +122,24 @@ fn journaled_session_write_read_and_index_query_round_trip_while_live() {
         ],
     );
 
-    let explain = public_explain_text::<JournaledSessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT name \
-         FROM JournaledSessionSqlEntity \
-         WHERE name >= 'B' AND name < 'D' \
-         ORDER BY name ASC",
-    );
-    assert!(
-        explain.contains("access_strategy=IndexRange(name)"),
-        "journaled indexed query should keep the secondary-index route: {explain}",
-    );
-    assert!(
-        !explain.contains("access=FullScan"),
-        "journaled indexed query should not collapse to a full scan: {explain}",
-    );
+    #[cfg(feature = "sql-explain")]
+    {
+        let explain = public_explain_text::<JournaledSessionSqlEntity>(
+            &session,
+            "EXPLAIN EXECUTION SELECT name \
+             FROM JournaledSessionSqlEntity \
+             WHERE name >= 'B' AND name < 'D' \
+             ORDER BY name ASC",
+        );
+        assert!(
+            explain.contains("access_strategy=IndexRange(name)"),
+            "journaled indexed query should keep the secondary-index route: {explain}",
+        );
+        assert!(
+            !explain.contains("access=FullScan"),
+            "journaled indexed query should not collapse to a full scan: {explain}",
+        );
+    }
 }
 
 #[test]

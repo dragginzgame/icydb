@@ -9,8 +9,8 @@ use crate::{db::GroupedRow, db::sql::ddl::SqlDdlPreparationReport, value::Output
 /// SqlStatementResult
 ///
 /// Unified SQL statement payload returned by shared SQL lane execution.
-/// Query, mutation, explain, and metadata statements all shape their response
-/// through this single session-owned enum.
+/// Query, mutation, and metadata statements all shape their response through
+/// this single session-owned enum.
 ///
 
 #[derive(Debug)]
@@ -31,6 +31,7 @@ pub enum SqlStatementResult {
         row_count: u32,
         next_cursor: Option<String>,
     },
+    #[cfg(feature = "sql-explain")]
     Explain(String),
     Describe(crate::db::EntitySchemaDescription),
     ShowIndexes(Vec<String>),

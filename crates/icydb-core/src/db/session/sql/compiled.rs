@@ -3,6 +3,8 @@
 //! Does not own: SQL parsing/lowering or execution dispatch.
 //! Boundary: carries generic-free compiled SQL state between session compile and execute phases.
 
+#[cfg(feature = "sql-explain")]
+use crate::db::sql::lowering::LoweredSqlCommand;
 use crate::db::{
     access::LoweredIndexPrefixCardinalitySpec,
     commit::CommitSchemaFingerprint,
@@ -11,7 +13,7 @@ use crate::db::{
     schema::{AcceptedSchemaSnapshot, SchemaVersion},
     session::{AcceptedSchemaCatalogContext, sql::projection::SqlProjectionContract},
     sql::{
-        lowering::{LoweredSqlCommand, SqlGlobalAggregateCommand},
+        lowering::SqlGlobalAggregateCommand,
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
@@ -149,6 +151,7 @@ pub(in crate::db) enum CompiledSqlCommand {
         plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregatePlanCacheEntry>>>,
         count_plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
+    #[cfg(feature = "sql-explain")]
     Explain(Box<LoweredSqlCommand>),
     Insert(CompiledSqlInsertCommand),
     Update(SqlUpdateStatement),
@@ -233,8 +236,9 @@ impl CompiledSqlCommand {
             Self::Delete { returning, .. } => returning.is_some(),
             Self::Insert(command) => command.statement().returning.is_some(),
             Self::Update(statement) => statement.returning.is_some(),
-            Self::Explain(_)
-            | Self::DescribeEntity
+            #[cfg(feature = "sql-explain")]
+            Self::Explain(_) => false,
+            Self::DescribeEntity
             | Self::ShowIndexesEntity
             | Self::ShowColumnsEntity
             | Self::ShowEntities { .. }

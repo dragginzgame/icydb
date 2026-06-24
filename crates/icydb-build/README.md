@@ -4,7 +4,7 @@ Build-time helpers for generated canister wiring, query/export surfaces, and
 observability endpoints.
 
 This crate generates the actor glue used by `icydb::start!()`, including
-store/session wiring and config-gated `__icydb_*` endpoints for SQL, DDL,
+store/session wiring and config-gated `icydb_*` endpoints for SQL, DDL,
 fixtures, schema reports, snapshots, and metrics. Endpoint emission is driven
 by `BuildOptions`, normally produced from `icydb.toml` by `icydb-config`.
 

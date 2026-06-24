@@ -102,7 +102,7 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const COVERING_SCAN_REASON: &str = "cov_scan_reason";
     pub(in crate::db) const COVERING_SOURCES: &str = "covering_sources";
     pub(in crate::db) const EXISTING_ROW_MODE: &str = "existing_row_mode";
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const FILTER_EXPR: &str = "filter_expr";
     pub(in crate::db) const FAST_PATH: &str = "fast_path";
     pub(in crate::db) const FAST_REASON: &str = "fast_reason";
@@ -113,10 +113,10 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const GROUPED_ROUTE_ELIGIBLE: &str = "grouped_route_eligible";
     pub(in crate::db) const GROUPED_ROUTE_OUTCOME: &str = "grouped_route_outcome";
     pub(in crate::db) const GROUPED_ROUTE_REJECTION_REASON: &str = "grouped_route_rejection_reason";
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const AGGREGATE_DIRECT_COUNT_METADATA_ELIGIBLE: &str =
         "aggregate_direct_count_metadata_eligible";
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const AGGREGATE_DIRECT_COUNT_PREFIXES: &str =
         "aggregate_direct_count_prefixes";
     pub(in crate::db) const INDEX: &str = "index";
@@ -129,7 +129,7 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const PREFIX_VALUES: &str = "prefix_values";
     pub(in crate::db) const PROJECTION_FIELD: &str = "proj_field";
     pub(in crate::db) const PROJECTION_FIELDS: &str = "proj_fields";
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const PROJECTION_MATERIALIZATION: &str = "proj_materialization";
     pub(in crate::db) const PROJECTION_MODE: &str = "proj_mode";
     pub(in crate::db) const PROJECTION_PUSHDOWN: &str = "proj_pushdown";
@@ -148,13 +148,13 @@ pub(in crate::db) mod property_keys {
 /// label is intentionally projected on multiple surfaces.
 pub(in crate::db) mod property_values {
     pub(in crate::db) const COVERING_READ: &str = "covering_read";
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const DIRECT_SLOT_ROW: &str = "direct_slot_row";
     pub(in crate::db) const HYBRID_COVERING: &str = "hybrid_covering";
     pub(in crate::db) const MATERIALIZED: &str = "materialized";
     pub(in crate::db) const NONE: &str = "none";
     pub(in crate::db) const PURE_COVERING: &str = "pure_covering";
-    #[cfg(feature = "sql")]
+    #[cfg(feature = "sql-explain")]
     pub(in crate::db) const SCALAR_PROJECTION: &str = "scalar_projection";
     pub(in crate::db) const STRICT_ALL_OR_NONE: &str = "strict_all_or_none";
 }

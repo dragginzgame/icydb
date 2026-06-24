@@ -526,7 +526,9 @@ Status: active.
   direct-count specs and prepared COUNT prefixes now flow through the same
   metadata-count page-window conversion, and SQL direct count plus prepared
   COUNT/EXISTS use the same measured terminal attribution shell. Candidate-row
-  window semantics for COUNT/EXISTS are now centralized; do not merge the
+  window semantics for COUNT/EXISTS are now centralized. COUNT/EXISTS
+  prefix-cardinality preflight admission, ordered-plan eligibility, and output
+  conversion now go through one terminal-kind helper; do not merge the
   remaining durable compiled-prefix cache entry with live lowered-prefix
   execution unless a real cache-safety simplification appears.
 - SQL global aggregate direct-count work is still a lightweight singleton
