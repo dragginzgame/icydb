@@ -107,20 +107,19 @@ impl SqlSurfaceTokens {
     fn reset_helper_tokens(&self) -> TokenStream {
         let reset_statements = &self.reset_statements;
 
-        quote! {
-            #[cfg(feature = "sql")]
-            #[allow(
-                clippy::unnecessary_wraps,
-                reason = "zero-entity canisters still need the macro-owned reset helper to share the fallible reset signature"
-            )]
-            #[allow(
-                clippy::missing_const_for_fn,
-                reason = "the same generated reset helper is non-const when a canister owns entities"
-            )]
-            fn icydb_sql_surface_reset_all_tables() -> Result<(), ::icydb::Error> {
-                #reset_statements
+        if reset_statements.is_empty() {
+            quote! {
+                #[cfg(feature = "sql")]
+                const fn icydb_sql_surface_reset_all_tables() {}
+            }
+        } else {
+            quote! {
+                #[cfg(feature = "sql")]
+                fn icydb_sql_surface_reset_all_tables() -> Result<(), ::icydb::Error> {
+                    #reset_statements
 
-                Ok(())
+                    Ok(())
+                }
             }
         }
     }
@@ -190,7 +189,11 @@ impl quote::ToTokens for SqlSurfaceTokens {
             .update_policy
             .is_some()
             .then(|| self.update_dispatch_tokens());
-        let endpoints = sql_surface_endpoint_exports(self.surfaces, self.update_policy);
+        let endpoints = sql_surface_endpoint_exports(
+            self.surfaces,
+            self.update_policy,
+            !self.reset_statements.is_empty(),
+        );
         let reset_helper = fixtures_enabled.then(|| self.reset_helper_tokens());
 
         tokens.extend(quote! {
@@ -269,6 +272,7 @@ fn sql_surface_perf_result() -> TokenStream {
 fn sql_surface_endpoint_exports(
     surfaces: BuildSqlSurfaceFlags,
     update_policy: Option<BuildSqlUpdatePolicy>,
+    reset_is_fallible: bool,
 ) -> TokenStream {
     let query_endpoint = surfaces.readonly_enabled().then(|| {
         quote! {
@@ -302,13 +306,27 @@ fn sql_surface_endpoint_exports(
     });
 
     let fixture_endpoints = surfaces.fixtures_enabled().then(|| {
+        let reset_endpoint_result = if reset_is_fallible {
+            quote! { icydb_sql_surface_reset_all_tables() }
+        } else {
+            quote! {
+                icydb_sql_surface_reset_all_tables();
+                Ok(())
+            }
+        };
+        let reset_before_load = if reset_is_fallible {
+            quote! { icydb_sql_surface_reset_all_tables()?; }
+        } else {
+            quote! { icydb_sql_surface_reset_all_tables(); }
+        };
+
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::ic_cdk::update]
         fn __icydb_fixtures_reset() -> Result<(), ::icydb::Error> {
             icydb_sql_surface_require_controller("lifecycle reset")?;
 
-            icydb_sql_surface_reset_all_tables()
+            #reset_endpoint_result
         }
 
         #[cfg(feature = "sql")]
@@ -317,7 +335,7 @@ fn sql_surface_endpoint_exports(
             icydb_sql_surface_require_controller("lifecycle load")?;
             let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_fixtures_load;
 
-            icydb_sql_surface_reset_all_tables()?;
+            #reset_before_load
             hook()
         }
         }
@@ -456,6 +474,7 @@ mod tests {
         let surface = compact_tokens(super::sql_surface_endpoint_exports(
             all_sql_surface_flags(),
             None,
+            true,
         ));
 
         assert!(surface.contains("fn__icydb_query("));
@@ -499,6 +518,7 @@ mod tests {
         let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
             all_sql_surface_flags(),
             None,
+            true,
         ));
         let surface = compact_tokens(quote!(#surface_tokens));
 
@@ -525,6 +545,23 @@ mod tests {
         let surface = compact_tokens(quote!(#surface_tokens));
 
         assert!(!surface.contains("allow(dead_code)"));
+    }
+
+    #[test]
+    fn generated_sql_fixture_reset_surface_does_not_emit_lint_suppressions() {
+        let empty_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+        let empty_surface = compact_tokens(quote!(#empty_surface_tokens));
+
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut entity_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+        entity_surface_tokens.push_entity(&entity_ty);
+        let entity_surface = compact_tokens(quote!(#entity_surface_tokens));
+
+        assert!(!empty_surface.contains("allow("));
+        assert!(!entity_surface.contains("allow("));
+        assert!(empty_surface.contains("constfnicydb_sql_surface_reset_all_tables()"));
+        assert!(entity_surface.contains("fnicydb_sql_surface_reset_all_tables()"));
+        assert!(entity_surface.contains("Result<(),::icydb::Error>"));
     }
 
     #[test]
@@ -555,6 +592,7 @@ mod tests {
         let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
             all_sql_surface_flags(),
             Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
+            true,
         ));
         let surface = compact_tokens(quote!(#surface_tokens));
         assert!(endpoint.contains("fn__icydb_update("));

@@ -83,6 +83,26 @@ impl ResolvedSelectPreparedPlan {
     }
 }
 
+fn cached_compiled_select_prepared_plan(
+    context: &SqlCompiledCommandExecutionContext,
+) -> Option<(SharedPreparedExecutionPlan, SqlProjectionContract)> {
+    context
+        .command()
+        .cached_select_plan(context.compiled_schema_fingerprint())
+}
+
+fn cache_compiled_select_prepared_plan(
+    context: &SqlCompiledCommandExecutionContext,
+    prepared_plan: &SharedPreparedExecutionPlan,
+    projection: &SqlProjectionContract,
+) {
+    context.command().set_cached_select_plan(
+        context.compiled_schema_fingerprint(),
+        prepared_plan.clone(),
+        projection.clone(),
+    );
+}
+
 impl<C: CanisterKind> DbSession<C> {
     // Convert one grouped executor result plus SQL projection labels into the
     // statement result shape shared by normal and diagnostics SQL execution.
@@ -397,11 +417,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let compiled_schema_fingerprint = context.compiled_schema_fingerprint();
-        if let Some((prepared_plan, projection)) = context
-            .command()
-            .cached_select_plan(compiled_schema_fingerprint)
-        {
+        if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
             return Ok(ResolvedSelectPreparedPlan::from_compiled_cache_hit(
                 prepared_plan,
                 projection,
@@ -414,11 +430,7 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             context.accepted_catalog(),
         )?;
-        context.command().set_cached_select_plan(
-            compiled_schema_fingerprint,
-            resolved.prepared_plan.clone(),
-            resolved.projection.clone(),
-        );
+        cache_compiled_select_prepared_plan(context, &resolved.prepared_plan, &resolved.projection);
 
         Ok(resolved)
     }
@@ -432,11 +444,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let compiled_schema_fingerprint = context.compiled_schema_fingerprint();
-        if let Some((prepared_plan, projection)) = context
-            .command()
-            .cached_select_plan(compiled_schema_fingerprint)
-        {
+        if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
             return Ok((
                 ResolvedSelectPreparedPlan::from_compiled_cache_hit(prepared_plan, projection),
                 QueryPlanCompilePhaseAttribution::default(),
@@ -450,11 +458,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 context.accepted_catalog(),
             )?;
-        context.command().set_cached_select_plan(
-            compiled_schema_fingerprint,
-            resolved.prepared_plan.clone(),
-            resolved.projection.clone(),
-        );
+        cache_compiled_select_prepared_plan(context, &resolved.prepared_plan, &resolved.projection);
 
         Ok((resolved, plan_compile_attribution))
     }

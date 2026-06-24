@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.39` continues the query-engine and generated-surface cleanup by
+  sharing compiled SQL plan-cache helpers, centralizing COUNT/EXISTS
+  cardinality-window semantics, and removing another set of warning
+  suppressions without changing query results.
+
 - `0.184.38` continues the query-engine and generated-surface cleanup by
   tightening SQL/no-SQL feature gates and removing generated dead-code/store
   lint suppressions without changing query, schema, endpoint, or recovery

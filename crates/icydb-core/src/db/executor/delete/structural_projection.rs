@@ -268,7 +268,7 @@ fn execute_structural_delete_count_core_with_optional_bounds<C>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
-    #[cfg_attr(not(feature = "sql"), allow(unused_variables))] max_rows: Option<u32>,
+    max_rows: Option<u32>,
     apply_delete_commit: DeleteCommitApplyFn<C>,
 ) -> Result<u32, InternalError>
 where
@@ -278,6 +278,8 @@ where
     let Some((row_count, commit)) = prepare_structural_delete_count(db, store, prepared)? else {
         return Ok(0);
     };
+    #[cfg(not(feature = "sql"))]
+    let _ = max_rows;
     #[cfg(feature = "sql")]
     if let Some(max_rows) = max_rows {
         validate_structural_delete_row_count_bounds(

@@ -296,12 +296,12 @@ fn count_index_prefix_cardinality_from_sum(
     page: Option<&PageSpec>,
     sum: impl FnOnce(Option<u64>) -> Option<u64>,
 ) -> Option<u32> {
-    let required_candidate_rows = count_window_required_candidate_rows(page);
-    if required_candidate_rows == Some(0) {
+    let candidate_window = CardinalityCandidateWindow::for_count(page);
+    if candidate_window.is_empty() {
         return Some(0);
     }
 
-    let available_rows = sum(required_candidate_rows)?;
+    let available_rows = sum(candidate_window.stop_after())?;
     let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
     let count_window = CountWindowResult::from_candidate_rows(page, available_rows);
 
@@ -337,21 +337,13 @@ fn common_prefix_cardinality_index_id(
         .then_some(index_id)
 }
 
-fn count_window_required_candidate_rows(page: Option<&PageSpec>) -> Option<u64> {
-    match page {
-        Some(page) => page
-            .limit
-            .map(|limit| u64::from(page.offset).saturating_add(u64::from(limit))),
-        None => None,
-    }
-}
-
 fn exists_index_prefix_cardinality(
     store: StoreHandle,
     page: Option<&PageSpec>,
     prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
 ) -> Option<bool> {
-    let Some(required_candidate_rows) = exists_window_required_candidate_rows(page) else {
+    let Some(required_candidate_rows) = CardinalityCandidateWindow::for_exists(page).bounded_rows()
+    else {
         return Some(false);
     };
 
@@ -403,14 +395,6 @@ fn index_prefix_cardinality_sum<'a>(
             stop_after,
         )
     })
-}
-
-fn exists_window_required_candidate_rows(page: Option<&PageSpec>) -> Option<u64> {
-    match page {
-        Some(PageSpec { limit: Some(0), .. }) => None,
-        Some(page) => Some(u64::from(page.offset).saturating_add(1)),
-        None => Some(1),
-    }
 }
 
 fn record_index_prefix_cardinality_terminal(
@@ -513,8 +497,7 @@ fn count_data_range_candidate_rows(
 }
 
 fn count_scan_limit(page: Option<&PageSpec>) -> Option<usize> {
-    count_window_required_candidate_rows(page)
-        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX))
+    CardinalityCandidateWindow::for_count(page).scan_limit()
 }
 
 fn count_store_visit(count: usize, scan_limit: Option<usize>) -> StoreVisit {
@@ -545,6 +528,61 @@ impl CountCandidateRows {
             scanned: count,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CardinalityCandidateWindow {
+    Empty,
+    Bounded(u64),
+    Unbounded,
+}
+
+impl CardinalityCandidateWindow {
+    fn for_count(page: Option<&PageSpec>) -> Self {
+        match page {
+            Some(PageSpec { limit: Some(0), .. }) => Self::Empty,
+            Some(page) => page.limit.map_or(Self::Unbounded, |limit| {
+                Self::Bounded(page_window_candidate_rows(page, limit))
+            }),
+            None => Self::Unbounded,
+        }
+    }
+
+    fn for_exists(page: Option<&PageSpec>) -> Self {
+        match page {
+            Some(PageSpec { limit: Some(0), .. }) => Self::Empty,
+            Some(page) => Self::Bounded(page_window_candidate_rows(page, 1)),
+            None => Self::Bounded(1),
+        }
+    }
+
+    const fn is_empty(self) -> bool {
+        matches!(self, Self::Empty)
+    }
+
+    const fn stop_after(self) -> Option<u64> {
+        match self {
+            Self::Empty => Some(0),
+            Self::Bounded(rows) => Some(rows),
+            Self::Unbounded => None,
+        }
+    }
+
+    const fn bounded_rows(self) -> Option<u64> {
+        match self {
+            Self::Bounded(rows) => Some(rows),
+            Self::Empty | Self::Unbounded => None,
+        }
+    }
+
+    fn scan_limit(self) -> Option<usize> {
+        self.stop_after()
+            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX))
+    }
+}
+
+fn page_window_candidate_rows(page: &PageSpec, rows_after_offset: u32) -> u64 {
+    u64::from(page.offset).saturating_add(u64::from(rows_after_offset))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

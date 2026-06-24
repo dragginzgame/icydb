@@ -266,10 +266,15 @@ Status: active.
 - Clippy suppression cleanup: stale `allow(clippy::...)` attributes were
   removed from public facade lifetimes and metrics DTOs, the private
   non-diagnostics execution outcome size warning is now a conditional
-  expectation, and the generated store-registry template uses `expect` for its
-  intentional setup shape. The only remaining Clippy `allow`s are the generated
-  SQL reset-helper template, where the lint depends on whether a generated
-  canister owns entities.
+  expectation, and the generated store-registry template was made structurally
+  warning-free instead of relying on local lint suppressions. The generated SQL
+  reset-helper template now emits separate empty-canister and entity-owning
+  shapes, so the generated SQL surface no longer carries template-local
+  Clippy `allow`s. The remaining no-SQL structural DELETE count-bound
+  parameter suppression was also removed by handling the SQL-only bound value
+  explicitly at the feature boundary. A stale aggregate fast-path
+  `single_option_map` expectation was also removed by making the optional
+  index-predicate handoff explicit.
 - Schema-evolution dead-code cleanup: stale broad `allow(dead_code)`
   annotations were removed from mutation contracts, field-path/expression
   rebuild staging, rebuild key materialization, accepted schema-info/runtime
@@ -423,6 +428,12 @@ Status: active.
   SQL direct-count cache entry still owns durable compiled-prefix specs, while
   fluent/prepared aggregate execution continues to consume the live lowered
   plan.
+- Count-terminal cleanup follow-up: metadata-backed COUNT, scanned COUNT, and
+  metadata-backed EXISTS now consume one executor-local candidate-window
+  contract for empty windows, bounded offset/limit probes, and unbounded COUNT
+  scans. This keeps `offset + limit` and `offset + 1` stop-after semantics in
+  one place while preserving the durable SQL-prefix versus live lowered-plan
+  cache split.
 - SQL global-aggregate direct-count cleanup: normal execution, compiled
   execution, diagnostics execution, and EXPLAIN now share the same
   metadata-fast-path eligibility predicate. Compiled direct-count cache hits
@@ -472,6 +483,11 @@ Status: active.
   authority/schema-info lookup after loading the accepted schema snapshot, and
   INSERT/UPDATE/DELETE execution paths share accepted descriptor plus
   `RETURNING` field validation.
+- Generated-surface cleanup follow-up: generated SQL fixture reset helpers now
+  avoid lint suppressions by emitting a `const` no-op helper for empty canisters
+  and a fallible reset helper only when entity reset statements exist. Fixture
+  endpoints adapt to the generated reset shape, preserving endpoint behavior
+  while keeping empty and SQL-owning canister Clippy checks warning-free.
 
 ## Current Slice
 
@@ -490,7 +506,10 @@ Status: active.
   measurement, plan metric recording, and live lowered-prefix summing. SQL
   direct-count specs and prepared COUNT prefixes now flow through the same
   metadata-count page-window conversion, and SQL direct count plus prepared
-  COUNT/EXISTS use the same measured terminal attribution shell.
+  COUNT/EXISTS use the same measured terminal attribution shell. Candidate-row
+  window semantics for COUNT/EXISTS are now centralized; do not merge the
+  remaining durable compiled-prefix cache entry with live lowered-prefix
+  execution unless a real cache-safety simplification appears.
 - SQL global aggregate direct-count work is still a lightweight singleton
   fast path, not a shared aggregate operator rewrite. The cleanup now removes
   repeated eligibility/probe mechanics, duplicate non-diagnostic probe
@@ -537,8 +556,10 @@ Status: active.
   resolution now lives in the SELECT executor instead of the top-level SQL
   dispatcher.
 - Global aggregate execution is in local DRY mode: compiled and non-compiled
-  callers now share the direct count-cardinality probe/fallback sequence, while
-  each caller still owns its prepared-plan cache lookup strategy.
+  callers now share the direct count-cardinality probe/fallback sequence, and
+  compiled direct-count target resolution shares count-plan cache lookup/insert
+  mechanics between normal and diagnostics paths. Each caller still owns its
+  prepared-plan cache lookup strategy.
 - Filter handoff work is in local DRY mode: residual expression and predicate
   accessors remain available for callers that need the actual artifacts, while
   boolean gating should go through the single plan-owned presence helper.
@@ -560,6 +581,16 @@ Status: active.
   the executor-owned structural delete core because count-only and RETURNING
   deletes need pre-delete count/projection semantics. No further H6 code slice
   should proceed without finding new UPDATE/DELETE row-collection duplication.
+- Generated SQL/build surfaces are in guard mode: the generator no longer emits
+  dead-code, unused-mutability, let-and-return, or reset-helper Clippy
+  suppressions. Only revisit this area if a generated canister check exposes a
+  new template-local suppression or warning.
+- Core/build DB suppression cleanup is in guard mode: the broad
+  `cfg_attr(... allow(...))` / `#[allow(...)]` scan is empty under
+  `crates/icydb-core/src/db` and `crates/icydb-build/src/db`. Future warning
+  fixes in those areas should prefer structural feature gating or narrow
+  ownership changes over new `allow` attributes. Stale `expect` markers should
+  be removed only when the replacement code is simpler than the lint marker.
 - D1 / F3 aggregate EXPLAIN cleanup follow-up: singleton global aggregate
   EXPLAIN execution now renders each terminal through one descriptor helper
   instead of rebuilding route shape, FILTER labels, direct-count metadata
@@ -607,6 +638,11 @@ Status: active.
   private accepted-authority shared-plan pipeline now carries
   `QueryPlanAcceptedSchema` instead of threading accepted schema plus raw
   fingerprint pairs through every internal hop.
+- D1 / F3 compiled SQL plan-cache cleanup: compiled SELECT prepared-plan,
+  global aggregate prepared-plan, and global aggregate direct-count target
+  resolution now share cache lookup/insert helpers between normal and
+  diagnostics execution. Diagnostics still owns the measured timing boundary,
+  and the first-class aggregate-operator DTO remains deferred.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

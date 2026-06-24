@@ -1089,6 +1089,44 @@ fn aggregate_path_count_key_range_window_scans_offset_plus_limit() {
 }
 
 #[test]
+fn aggregate_path_count_key_range_limit_zero_with_offset_scans_zero() {
+    seed_simple_entities(&[8_661, 8_662, 8_663, 8_664, 8_665]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::KeyRange {
+            start: Value::Ulid(Ulid::from_u128(8_661)),
+            end: Value::Ulid(Ulid::from_u128(8_665)),
+        },
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
+    });
+    logical_plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(0),
+        offset: 2,
+    });
+
+    let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        execute_count_terminal(
+            &load,
+            PreparedExecutionPlan::<SimpleEntity>::new(logical_plan),
+        )
+        .expect("limit-zero key-range COUNT should succeed")
+    });
+
+    assert_eq!(count, 0, "LIMIT 0 COUNT should return an empty window");
+    assert_eq!(
+        scanned, 0,
+        "LIMIT 0 COUNT should not scan candidate keys even when offset is non-zero",
+    );
+}
+
+#[test]
 fn aggregate_path_exists_full_scan_window_scans_offset_plus_one() {
     seed_simple_entities(&[8_691, 8_692, 8_693, 8_694, 8_695, 8_696, 8_697]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);

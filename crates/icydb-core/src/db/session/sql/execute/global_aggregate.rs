@@ -340,6 +340,40 @@ where
     Ok(DirectCountCardinalityTarget::CountPlan { authority, entry })
 }
 
+fn cached_compiled_direct_count_cardinality_entry(
+    compiled: &CompiledSqlCommand,
+    catalog: &AcceptedSchemaCatalogContext,
+) -> Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
+    compiled.cached_global_aggregate_count_plan(SqlCompiledSchemaFingerprint::from_catalog(catalog))
+}
+
+fn cache_compiled_direct_count_cardinality_target(
+    compiled: &CompiledSqlCommand,
+    target: &DirectCountCardinalityTarget,
+) {
+    if let Some(entry) = target.count_plan_entry() {
+        compiled.set_cached_global_aggregate_count_plan(Arc::clone(entry));
+    }
+}
+
+fn cached_compiled_global_aggregate_prepared_plan(
+    compiled: &CompiledSqlCommand,
+    catalog: &AcceptedSchemaCatalogContext,
+) -> Option<SharedPreparedExecutionPlan> {
+    compiled.cached_global_aggregate_plan(SqlCompiledSchemaFingerprint::from_catalog(catalog))
+}
+
+fn cache_compiled_global_aggregate_prepared_plan(
+    compiled: &CompiledSqlCommand,
+    catalog: &AcceptedSchemaCatalogContext,
+    prepared_plan: &SharedPreparedExecutionPlan,
+) {
+    compiled.set_cached_global_aggregate_plan(
+        SqlCompiledSchemaFingerprint::from_catalog(catalog),
+        prepared_plan.clone(),
+    );
+}
+
 impl<C: CanisterKind> DbSession<C> {
     fn execute_direct_count_rows_global_aggregate<E>(
         &self,
@@ -635,17 +669,12 @@ impl<C: CanisterKind> DbSession<C> {
         {
             return Ok(DirectCountCardinalityTarget::Disabled);
         }
-        let compiled_schema_fingerprint = SqlCompiledSchemaFingerprint::from_catalog(catalog);
-        if let Some(entry) =
-            compiled.cached_global_aggregate_count_plan(compiled_schema_fingerprint)
-        {
+        if let Some(entry) = cached_compiled_direct_count_cardinality_entry(compiled, catalog) {
             return direct_count_cardinality_target_from_entry::<E>(catalog, entry);
         }
 
         let target = self.build_direct_count_cardinality_target::<E>(command, catalog)?;
-        if let Some(entry) = target.count_plan_entry() {
-            compiled.set_cached_global_aggregate_count_plan(Arc::clone(entry));
-        }
+        cache_compiled_direct_count_cardinality_target(compiled, &target);
 
         Ok(target)
     }
@@ -674,11 +703,8 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok((DirectCountCardinalityTarget::Disabled, attribution));
         }
 
-        let (cache_lookup, cached_plan) = measure_sql_stage(|| {
-            compiled.cached_global_aggregate_count_plan(SqlCompiledSchemaFingerprint::from_catalog(
-                catalog,
-            ))
-        });
+        let (cache_lookup, cached_plan) =
+            measure_sql_stage(|| cached_compiled_direct_count_cardinality_entry(compiled, catalog));
         attribution.cache_lookup = attribution.cache_lookup.saturating_add(cache_lookup);
         if let Some(entry) = cached_plan {
             return Ok((
@@ -698,9 +724,9 @@ impl<C: CanisterKind> DbSession<C> {
         });
         attribution.plan_build = attribution.plan_build.saturating_add(plan_build_local);
         let target = target?;
-        if let Some(entry) = target.count_plan_entry() {
+        if target.count_plan_entry().is_some() {
             let (cache_insert, ()) = measure_sql_stage(|| {
-                compiled.set_cached_global_aggregate_count_plan(Arc::clone(entry));
+                cache_compiled_direct_count_cardinality_target(compiled, &target);
             });
             attribution.cache_insert = attribution.cache_insert.saturating_add(cache_insert);
         }
@@ -758,9 +784,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let compiled_schema_fingerprint = SqlCompiledSchemaFingerprint::from_catalog(catalog);
         if let Some(prepared_plan) =
-            compiled.cached_global_aggregate_plan(compiled_schema_fingerprint)
+            cached_compiled_global_aggregate_prepared_plan(compiled, catalog)
         {
             return Ok(ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan));
         }
@@ -768,10 +793,7 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = Self::global_aggregate_prepared_plan_authority::<E>(catalog, authority)?;
         let resolved =
             self.resolve_global_aggregate_prepared_plan_for_authority(command, catalog, authority)?;
-        compiled.set_cached_global_aggregate_plan(
-            compiled_schema_fingerprint,
-            resolved.prepared_plan.clone(),
-        );
+        cache_compiled_global_aggregate_prepared_plan(compiled, catalog, &resolved.prepared_plan);
 
         Ok(resolved)
     }
@@ -896,9 +918,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let compiled_schema_fingerprint = SqlCompiledSchemaFingerprint::from_catalog(catalog);
         if let Some(prepared_plan) =
-            compiled.cached_global_aggregate_plan(compiled_schema_fingerprint)
+            cached_compiled_global_aggregate_prepared_plan(compiled, catalog)
         {
             return Ok((
                 ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan),
@@ -911,10 +932,7 @@ impl<C: CanisterKind> DbSession<C> {
             .resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
                 command, catalog, authority,
             )?;
-        compiled.set_cached_global_aggregate_plan(
-            compiled_schema_fingerprint,
-            resolved.prepared_plan.clone(),
-        );
+        cache_compiled_global_aggregate_prepared_plan(compiled, catalog, &resolved.prepared_plan);
 
         Ok((resolved, plan_compile_attribution))
     }
