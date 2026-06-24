@@ -26,8 +26,9 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
         schema::{
-            AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-            SchemaInfo, SchemaVersion, accepted_schema_cache_fingerprint_method_version,
+            AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, SchemaInfo, SchemaVersion,
+            accepted_schema_cache_fingerprint_method_version,
         },
         session::AcceptedSchemaCatalogContext,
     },
@@ -118,6 +119,33 @@ impl SchemaCacheIdentity {
         }
     }
 
+    const fn from_accepted_schema_with_fingerprint(
+        accepted_schema: &AcceptedSchemaSnapshot,
+        fingerprint: CommitSchemaFingerprint,
+    ) -> Self {
+        Self::new(
+            accepted_schema.persisted_snapshot().version(),
+            accepted_schema_cache_fingerprint_method_version(),
+            fingerprint,
+        )
+    }
+
+    const fn from_accepted_catalog_identity(identity: AcceptedCatalogIdentity) -> Self {
+        Self::new(
+            identity.accepted_schema_version(),
+            identity.fingerprint_method_version(),
+            identity.accepted_schema_fingerprint(),
+        )
+    }
+
+    const fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
+        Self::new(
+            catalog.schema_version(),
+            catalog.fingerprint_method_version(),
+            catalog.fingerprint(),
+        )
+    }
+
     fn same_version(self, other: Self) -> bool {
         self.version == other.version
     }
@@ -125,6 +153,46 @@ impl SchemaCacheIdentity {
     fn same_fingerprint(self, other: Self) -> bool {
         self.fingerprint_method_version == other.fingerprint_method_version
             && self.fingerprint == other.fingerprint
+    }
+}
+
+#[derive(Clone, Copy)]
+struct QueryPlanAcceptedSchema<'schema> {
+    accepted_schema: &'schema AcceptedSchemaSnapshot,
+    identity: SchemaCacheIdentity,
+}
+
+impl<'schema> QueryPlanAcceptedSchema<'schema> {
+    const fn from_accepted_schema_with_fingerprint(
+        accepted_schema: &'schema AcceptedSchemaSnapshot,
+        fingerprint: CommitSchemaFingerprint,
+    ) -> Self {
+        Self {
+            accepted_schema,
+            identity: SchemaCacheIdentity::from_accepted_schema_with_fingerprint(
+                accepted_schema,
+                fingerprint,
+            ),
+        }
+    }
+
+    const fn from_catalog(catalog: &'schema AcceptedSchemaCatalogContext) -> Self {
+        Self {
+            accepted_schema: catalog.snapshot(),
+            identity: SchemaCacheIdentity::from_catalog(catalog),
+        }
+    }
+
+    const fn accepted_schema(self) -> &'schema AcceptedSchemaSnapshot {
+        self.accepted_schema
+    }
+
+    const fn identity(self) -> SchemaCacheIdentity {
+        self.identity
+    }
+
+    const fn fingerprint(self) -> CommitSchemaFingerprint {
+        self.identity.fingerprint
     }
 }
 
@@ -433,6 +501,43 @@ impl<C: CanisterKind> DbSession<C> {
         );
     }
 
+    fn resolve_shared_query_plan_for_authority_recording(
+        &self,
+        authority: &EntityAuthority,
+        cache_key: QueryPlanCacheKey,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+        build_prepared_plan: impl FnOnce() -> Result<SharedPreparedExecutionPlan, QueryError>,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+        let (cached_plan, miss_reason) =
+            self.lookup_shared_query_plan_for_authority_recording(authority, &cache_key, recorder);
+        if let Some(cached_plan) = cached_plan {
+            return Ok(cached_plan);
+        }
+        record_cache_event_for_path(
+            CacheKind::SharedQueryPlan,
+            CacheOutcome::Miss,
+            authority.entity_path(),
+        );
+        if let Some(reason) = miss_reason {
+            record_cache_miss_reason_for_path(
+                CacheKind::SharedQueryPlan,
+                reason,
+                authority.entity_path(),
+            );
+        }
+
+        let prepared_plan =
+            recorder.measure(QueryPlanCompilePhase::PlanBuild, build_prepared_plan)?;
+        self.insert_shared_query_plan_for_authority_recording(
+            authority,
+            cache_key,
+            &prepared_plan,
+            recorder,
+        );
+
+        Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
+    }
+
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
         schema_info: &SchemaInfo,
         visibility: QueryPlanVisibility,
@@ -563,12 +668,12 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
-            authority,
+        let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
             accepted_schema,
             schema_fingerprint,
-            visibility,
-            query,
+        );
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
+            authority, schema, visibility, query,
         )
     }
 
@@ -588,13 +693,16 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     > {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
+        let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
+            accepted_schema,
+            schema_fingerprint,
+        );
         let mut compile_attribution = QueryPlanCompilePhaseAttribution::default();
         let mut recorder = QueryPlanCompilePhaseRecorder::new(&mut compile_attribution);
         let (prepared_plan, cache_attribution) = self
             .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
                 authority,
-                accepted_schema,
-                schema_fingerprint,
+                schema,
                 visibility,
                 query,
                 &mut recorder,
@@ -607,8 +715,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
         &self,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema: QueryPlanAcceptedSchema<'_>,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
@@ -616,8 +723,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
             authority,
-            accepted_schema,
-            schema_fingerprint,
+            schema,
             visibility,
             query,
             &mut recorder,
@@ -627,17 +733,12 @@ impl<C: CanisterKind> DbSession<C> {
     fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
         &self,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema: QueryPlanAcceptedSchema<'_>,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let schema_identity = SchemaCacheIdentity::new(
-            accepted_schema.persisted_snapshot().version(),
-            accepted_schema_cache_fingerprint_method_version(),
-            schema_fingerprint,
-        );
+        let schema_identity = schema.identity();
         if let Some(cached) = self.try_cached_filterless_query_plan_for_authority_recording(
             &authority,
             schema_identity,
@@ -648,7 +749,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(cached);
         }
         let schema_info = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
-            schema_info_for_plan_cache_authority(&authority, accepted_schema)
+            schema_info_for_plan_cache_authority(&authority, schema.accepted_schema())
         });
         if query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
             return self.cached_trivial_scalar_load_plan_for_authority_recording(
@@ -684,44 +785,23 @@ impl<C: CanisterKind> DbSession<C> {
             )
         });
 
-        let (cached_plan, miss_reason) =
-            self.lookup_shared_query_plan_for_authority_recording(&authority, &cache_key, recorder);
-        if let Some(cached_plan) = cached_plan {
-            return Ok(cached_plan);
-        }
-        record_cache_event_for_path(
-            CacheKind::SharedQueryPlan,
-            CacheOutcome::Miss,
-            authority.entity_path(),
-        );
-        if let Some(reason) = miss_reason {
-            record_cache_miss_reason_for_path(
-                CacheKind::SharedQueryPlan,
-                reason,
-                authority.entity_path(),
-            );
-        }
-
-        let prepared_plan = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
-            let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
-                &visible_indexes,
-                planning_state,
-            )?;
-
-            Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
-                authority.clone(),
-                plan,
-                schema_fingerprint,
-            ))
-        })?;
-        self.insert_shared_query_plan_for_authority_recording(
+        self.resolve_shared_query_plan_for_authority_recording(
             &authority,
             cache_key,
-            &prepared_plan,
             recorder,
-        );
+            || {
+                let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
+                    &visible_indexes,
+                    planning_state,
+                )?;
 
-        Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
+                Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
+                    authority.clone(),
+                    plan,
+                    schema.fingerprint(),
+                ))
+            },
+        )
     }
 
     fn try_cached_filterless_query_plan_for_authority_recording(
@@ -799,45 +879,24 @@ impl<C: CanisterKind> DbSession<C> {
             )
         });
 
-        let (cached_plan, miss_reason) =
-            self.lookup_shared_query_plan_for_authority_recording(&authority, &cache_key, recorder);
-        if let Some(cached_plan) = cached_plan {
-            return Ok(cached_plan);
-        }
-        record_cache_event_for_path(
-            CacheKind::SharedQueryPlan,
-            CacheOutcome::Miss,
-            authority.entity_path(),
-        );
-        if let Some(reason) = miss_reason {
-            record_cache_miss_reason_for_path(
-                CacheKind::SharedQueryPlan,
-                reason,
-                authority.entity_path(),
-            );
-        }
-
-        let prepared_plan = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
-            let Some(plan) =
-                query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?
-            else {
-                return Err(QueryError::invariant());
-            };
-
-            Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
-                authority.clone(),
-                plan,
-                schema_identity.fingerprint,
-            ))
-        })?;
-        self.insert_shared_query_plan_for_authority_recording(
+        self.resolve_shared_query_plan_for_authority_recording(
             &authority,
             cache_key,
-            &prepared_plan,
             recorder,
-        );
+            || {
+                let Some(plan) =
+                    query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?
+                else {
+                    return Err(QueryError::invariant());
+                };
 
-        Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
+                Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
+                    authority.clone(),
+                    plan,
+                    schema_identity.fingerprint,
+                ))
+            },
+        )
     }
 
     #[cfg(test)]
@@ -1009,11 +1068,7 @@ impl<C: CanisterKind> DbSession<C> {
                     identity.fingerprint_method_version(),
                     crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
                 );
-                let schema_identity = SchemaCacheIdentity::new(
-                    identity.accepted_schema_version(),
-                    identity.fingerprint_method_version(),
-                    identity.accepted_schema_fingerprint(),
-                );
+                let schema_identity = SchemaCacheIdentity::from_accepted_catalog_identity(identity);
                 if let Some(cached) = self
                     .try_cached_filterless_query_plan_for_entity_path_recording(
                         E::PATH,
@@ -1077,11 +1132,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let schema_identity = SchemaCacheIdentity::new(
-            catalog.schema_version(),
-            catalog.fingerprint_method_version(),
-            catalog.fingerprint(),
-        );
+        let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
+        let schema_identity = schema.identity();
         if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path_recording(
             E::PATH,
             schema_identity,
@@ -1099,8 +1151,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
             authority,
-            catalog.snapshot(),
-            catalog.fingerprint(),
+            schema,
             visibility,
             query.structural(),
             recorder,

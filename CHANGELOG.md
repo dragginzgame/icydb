@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Continues the query-engine audit by consolidating shared query-plan cache
+  lookup, miss recording, plan build, insert mechanics, and schema-identity
+  construction without changing query semantics.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

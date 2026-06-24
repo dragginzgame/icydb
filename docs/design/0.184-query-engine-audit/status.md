@@ -542,6 +542,16 @@ Status: active.
   cache key also stores its existing `SchemaCacheIdentity` directly while
   preserving method-version, schema-version, schema-fingerprint, and visibility
   miss classification.
+- D1 / F3 shared-cache follow-up: the shared query-plan cache now has one
+  helper for the common authority-scoped cache miss path: lookup, miss
+  recording, plan-build measurement, insert, and miss attribution. Normal
+  filtered planning and the trivial scalar-load fast path now provide only
+  their plan-build closures. `SchemaCacheIdentity` also owns construction from
+  accepted schema snapshots, catalog contexts, and accepted catalog identities,
+  leaving custom raw construction to the fail-closed cache-key tests. The
+  private accepted-authority shared-plan pipeline now carries
+  `QueryPlanAcceptedSchema` instead of threading accepted schema plus raw
+  fingerprint pairs through every internal hop.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`
