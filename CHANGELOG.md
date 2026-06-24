@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.42` continues the query-engine audit by consolidating EXPLAIN
+  rendering handoffs and descriptor vocabulary keys without changing query,
+  write, or EXPLAIN semantics.
+
 - `0.184.41` continues the query-engine audit by consolidating load EXPLAIN
   route facts, SQL mutation execution envelopes, and predicate diagnostics
   without changing query or write semantics.

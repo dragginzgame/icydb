@@ -15,7 +15,7 @@ use crate::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             explain::{
                 ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainPlan,
-                FinalizedQueryDiagnostics,
+                FinalizedQueryDiagnostics, property_keys,
             },
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
@@ -403,7 +403,7 @@ impl<C: CanisterKind> DbSession<C> {
         );
         if let Some(filter_expr) = strategy.filter_expr() {
             execution.node_properties.insert(
-                "filter_expr",
+                property_keys::FILTER_EXPR,
                 render_scalar_projection_expr_plan_label(filter_expr).into(),
             );
         }
@@ -441,12 +441,12 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
         let prefix_count = prefix_specs.as_ref().map_or(0, Vec::len);
         execution.node_properties.insert(
-            "aggregate_direct_count_metadata_eligible",
+            property_keys::AGGREGATE_DIRECT_COUNT_METADATA_ELIGIBLE,
             Value::from(prefix_count != 0),
         );
         if prefix_count != 0 {
             execution.node_properties.insert(
-                "aggregate_direct_count_prefixes",
+                property_keys::AGGREGATE_DIRECT_COUNT_PREFIXES,
                 Value::from(u64::try_from(prefix_count).unwrap_or(u64::MAX)),
             );
         }

@@ -19,7 +19,7 @@ use crate::{
             explain::{
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
                 annotate_aggregate_execution_identity_properties, explain_access_plan,
-                explain_projection_field_name,
+                explain_projection_field_name, property_keys, property_values,
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
@@ -275,15 +275,19 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         );
     annotate_access_root_node_properties(&mut root, route_plan);
     let order_observability = load_order_route_observability(route_plan);
-    root.node_properties
-        .insert("ord_route_mode", Value::from(order_observability.mode));
-    root.node_properties
-        .insert("ord_route_reason", Value::from(order_observability.reason));
+    root.node_properties.insert(
+        property_keys::ORDER_ROUTE_MODE,
+        Value::from(order_observability.mode),
+    );
+    root.node_properties.insert(
+        property_keys::ORDER_ROUTE_REASON,
+        Value::from(order_observability.reason),
+    );
     annotate_access_choice_node_properties(&mut root, plan.access_choice());
     let covering_scan = covering_projection_selected;
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
-        "cov_scan_reason",
+        property_keys::COVERING_SCAN_REASON,
         Value::from(covering_read_reason_code_for_load_plan(
             plan,
             strict_predicate_compatible,
@@ -293,21 +297,21 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     annotate_grouped_route_node_properties(&mut root, route_plan);
     if let Some(capability) = explain_preparation.predicate_index_capability {
         root.node_properties.insert(
-            "pred_idx_cap",
+            property_keys::PREDICATE_INDEX_CAPABILITY,
             Value::from(predicate_index_capability_label(capability)),
         );
     }
     annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan);
     root.node_properties.insert(
-        "cov_read_route",
+        property_keys::COVERING_READ_ROUTE,
         Value::from(if covering_projection_selected {
-            "covering_read"
+            property_values::COVERING_READ
         } else {
-            "materialized"
+            property_values::MATERIALIZED
         }),
     );
     root.node_properties.insert(
-        "cov_read_kind",
+        property_keys::COVERING_READ_KIND,
         Value::from(covering_execution_kind_label(
             load_terminal_fast_path,
             hybrid_covering_read_plan,
@@ -678,22 +682,24 @@ fn annotate_grouped_route_node_properties(
     let Some(observability) = grouped_route_observability(route_plan) else {
         return;
     };
-    node.node_properties
-        .insert("grouped_route_outcome", Value::from(observability.outcome));
     node.node_properties.insert(
-        "grouped_route_rejection_reason",
+        property_keys::GROUPED_ROUTE_OUTCOME,
+        Value::from(observability.outcome),
+    );
+    node.node_properties.insert(
+        property_keys::GROUPED_ROUTE_REJECTION_REASON,
         Value::from(observability.rejection_reason),
     );
     node.node_properties.insert(
-        "grouped_plan_fallback_reason",
+        property_keys::GROUPED_PLAN_FALLBACK_REASON,
         Value::from(observability.planner_fallback_reason),
     );
     node.node_properties.insert(
-        "grouped_route_eligible",
+        property_keys::GROUPED_ROUTE_ELIGIBLE,
         Value::from(observability.eligible),
     );
     node.node_properties.insert(
-        "grouped_execution_mode",
+        property_keys::GROUPED_EXECUTION_MODE,
         Value::from(observability.execution_mode),
     );
 }
@@ -721,18 +727,11 @@ fn grouped_aggregate_execution_node_descriptor(
     annotate_aggregate_execution_identity_properties(
         &mut node.node_properties,
         "grouped",
-        grouped_aggregate_physical_label(grouped_observability.grouped_execution_mode()),
+        grouped_observability.grouped_execution_mode().code(),
     );
     annotate_grouped_route_node_properties(&mut node, route_plan);
 
     Some(node)
-}
-
-const fn grouped_aggregate_physical_label(mode: GroupedExecutionMode) -> &'static str {
-    match mode {
-        GroupedExecutionMode::HashMaterialized => "hash_materialized",
-        GroupedExecutionMode::OrderedMaterialized => "ordered_materialized",
-    }
 }
 
 const fn load_order_route_observability(
@@ -773,14 +772,14 @@ fn covering_projection_execution_node_descriptor(
         if let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path
         {
             (
-                "pure_covering",
+                property_values::PURE_COVERING,
                 covering.fields.as_slice(),
                 covering.order_contract,
                 covering.existing_row_mode,
             )
         } else if let Some(hybrid) = hybrid_covering_read_plan {
             (
-                "hybrid_covering",
+                property_values::HYBRID_COVERING,
                 hybrid.fields.as_slice(),
                 hybrid.order_contract,
                 hybrid.existing_row_mode,
@@ -793,16 +792,16 @@ fn covering_projection_execution_node_descriptor(
             ExplainExecutionNodeType::CoveringRead,
             execution_mode,
         );
-    node.projection = Some("covering_read".to_string());
+    node.projection = Some(property_values::COVERING_READ.to_string());
     node.covering_scan = Some(true);
     node.node_properties
-        .insert("covering_kind", Value::from(covering_kind));
+        .insert(property_keys::COVERING_KIND, Value::from(covering_kind));
     node.node_properties.insert(
-        "covering_order",
+        property_keys::COVERING_ORDER,
         Value::from(covering_read_order_contract_label(order_contract)),
     );
     node.node_properties.insert(
-        "covering_fields",
+        property_keys::COVERING_FIELDS,
         Value::List(
             fields
                 .iter()
@@ -811,7 +810,7 @@ fn covering_projection_execution_node_descriptor(
         ),
     );
     node.node_properties.insert(
-        "covering_sources",
+        property_keys::COVERING_SOURCES,
         Value::List(
             fields
                 .iter()
@@ -820,7 +819,7 @@ fn covering_projection_execution_node_descriptor(
         ),
     );
     node.node_properties.insert(
-        "existing_row_mode",
+        property_keys::EXISTING_ROW_MODE,
         Value::from(covering_existing_row_mode_label(existing_row_mode)),
     );
 
@@ -832,11 +831,11 @@ const fn covering_execution_kind_label(
     hybrid_covering_read_plan: Option<&CoveringHybridReadExecutionPlan>,
 ) -> &'static str {
     if load_terminal_fast_path.is_some() {
-        "pure_covering"
+        property_values::PURE_COVERING
     } else if hybrid_covering_read_plan.is_some() {
-        "hybrid_covering"
+        property_values::HYBRID_COVERING
     } else {
-        "materialized"
+        property_values::MATERIALIZED
     }
 }
 

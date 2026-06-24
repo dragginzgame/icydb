@@ -9,7 +9,7 @@ use crate::db::predicate::Predicate;
 use crate::db::predicate::predicate_fingerprint;
 use crate::{
     db::{
-        access::{AccessPath, AccessPathKind, AccessPlan, IndexBranchSetOrderedSuffix},
+        access::{AccessPath, AccessPathKind, AccessPlan},
         predicate::MissingRowPolicy,
         query::{
             builder::{
@@ -492,7 +492,7 @@ impl AccessPathCacheKey {
                 || Self::invalid_access_path_projection(kind),
                 |spec| Self::IndexBranchSet {
                     index: spec.index_ref().name().to_string(),
-                    ordered_suffix: branch_set_ordered_suffix_cache_label(spec.ordered_suffix()),
+                    ordered_suffix: spec.ordered_suffix().label(),
                     fixed_values: Self::value_list_cache_key(spec.fixed_values()),
                     branch_values: Self::value_list_cache_key(spec.branch_values()),
                 },
@@ -526,14 +526,6 @@ impl AccessPathCacheKey {
         );
 
         Self::FullScan
-    }
-}
-
-const fn branch_set_ordered_suffix_cache_label(
-    ordered_suffix: IndexBranchSetOrderedSuffix,
-) -> &'static str {
-    match ordered_suffix {
-        IndexBranchSetOrderedSuffix::PrimaryKeyAsc => "primary_key_asc",
     }
 }
 

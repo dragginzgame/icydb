@@ -21,6 +21,7 @@ use crate::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
                 ExplainExecutionOrderingSource, ExplainPropertyMap, explain_projection_field_name,
+                property_keys, property_values,
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlanProjection, AccessPlannedQuery,
@@ -190,12 +191,14 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
     route_plan: &ExecutionRoutePlan,
 ) {
     if let Some(prefix_len) = access_prefix_len(node.access_strategy.as_ref()) {
-        node.node_properties
-            .insert("prefix_len", Value::from(u64_from_usize(prefix_len)));
+        node.node_properties.insert(
+            property_keys::PREFIX_LEN,
+            Value::from(u64_from_usize(prefix_len)),
+        );
     }
     if let Some(prefix_values) = access_prefix_values(node.access_strategy.as_ref()) {
         node.node_properties
-            .insert("prefix_values", Value::List(prefix_values));
+            .insert(property_keys::PREFIX_VALUES, Value::List(prefix_values));
     }
     if let Some(fetch) = scan_fetch_pushdown(route_plan) {
         insert_fetch_node_property(node, fetch);
@@ -213,15 +216,17 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown
     covering_scan: bool,
 ) {
     node.node_properties.insert(
-        "proj_fields",
+        property_keys::PROJECTION_FIELDS,
         value_list(
             plan.frozen_projection_spec()
                 .fields()
                 .map(explain_projection_field_name),
         ),
     );
-    node.node_properties
-        .insert("proj_pushdown", Value::from(covering_scan));
+    node.node_properties.insert(
+        property_keys::PROJECTION_PUSHDOWN,
+        Value::from(covering_scan),
+    );
 }
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_properties(
@@ -234,17 +239,17 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
             .expect("access root must carry an access strategy"),
     );
     node.node_properties
-        .insert("acc_choice", Value::from(chosen_label));
+        .insert(property_keys::ACCESS_CHOICE, Value::from(chosen_label));
     node.node_properties.insert(
-        "acc_reason",
+        property_keys::ACCESS_REASON,
         Value::from(access_choice.chosen_reason.code()),
     );
     node.node_properties.insert(
-        "acc_alts",
+        property_keys::ACCESS_ALTERNATIVES,
         value_list(access_choice.alternatives.iter().cloned()),
     );
     node.node_properties.insert(
-        "acc_reject",
+        property_keys::ACCESS_REJECTIONS,
         value_list(access_choice.rejected.iter().cloned()),
     );
 }
@@ -342,10 +347,11 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_fast_path_reason_no
 ) {
     let (selected_label, selected_reason, rejections) = fast_path_property_values(route_plan);
     node.node_properties
-        .insert("fast_path", Value::from(selected_label));
+        .insert(property_keys::FAST_PATH, Value::from(selected_label));
     node.node_properties
-        .insert("fast_reason", Value::from(selected_reason));
-    node.node_properties.insert("fast_reject", rejections);
+        .insert(property_keys::FAST_REASON, Value::from(selected_reason));
+    node.node_properties
+        .insert(property_keys::FAST_REJECTIONS, rejections);
 }
 
 // Convert one iterator of route/explain-facing scalar values into the
@@ -382,7 +388,7 @@ fn fast_path_property_values(
             fast_path_selected_reason(route, route_plan),
         )
     } else {
-        ("none", "mat_fallback")
+        (property_values::NONE, "mat_fallback")
     };
 
     (selected_label, selected_reason, value_list(rejections))
@@ -495,8 +501,12 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
         ExplainExecutionNodeType::SecondaryOrderPushdown,
         execution_mode,
     );
-    insert_node_property(&mut node, "index", index);
-    insert_node_property(&mut node, "prefix_len", u64_from_usize(prefix_len));
+    insert_node_property(&mut node, property_keys::INDEX, index);
+    insert_node_property(
+        &mut node,
+        property_keys::PREFIX_LEN,
+        u64_from_usize(prefix_len),
+    );
 
     Some(node)
 }
@@ -521,7 +531,7 @@ pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_desc
     let mut node = empty_execution_node_descriptor(node_type, execution_mode);
     insert_node_property(
         &mut node,
-        "order_by_idx",
+        property_keys::ORDER_BY_INDEX,
         matches!(node_type, ExplainExecutionNodeType::OrderByAccessSatisfied),
     );
 
@@ -554,8 +564,10 @@ pub(in crate::db::executor::explain::descriptor) fn limit_offset_execution_node_
         empty_execution_node_descriptor(ExplainExecutionNodeType::LimitOffset, execution_mode);
     node.limit = page.limit;
     node.cursor = Some(route_plan.continuation().applied());
-    node.node_properties
-        .insert("offset", Value::from(u64_from_usize(page.offset as usize)));
+    node.node_properties.insert(
+        property_keys::OFFSET,
+        Value::from(u64_from_usize(page.offset as usize)),
+    );
 
     node
 }
@@ -647,20 +659,23 @@ pub(in crate::db::executor::explain::descriptor) fn explain_node_properties_for_
     // Keep seek metadata additive and node-local so explain schema can evolve
     // without introducing new top-level descriptor fields for each route hint.
     if let Some(fetch) = route_plan.aggregate_seek_fetch_hint() {
-        node_properties.insert("fetch", Value::from(u64_from_usize(fetch)));
+        node_properties.insert(property_keys::FETCH, Value::from(u64_from_usize(fetch)));
     }
     if aggregation.is_count() {
         node_properties.insert(
-            "count_fold",
+            property_keys::COUNT_FOLD,
             Value::from(match route_plan.aggregate_fold_mode {
                 AggregateFoldMode::ExistingRows => "rows",
                 AggregateFoldMode::KeysOnly => "keys",
             }),
         );
     }
-    node_properties.insert("proj_field", Value::from(projected_field.unwrap_or("none")));
     node_properties.insert(
-        "proj_mode",
+        property_keys::PROJECTION_FIELD,
+        Value::from(projected_field.unwrap_or(property_values::NONE)),
+    );
+    node_properties.insert(
+        property_keys::PROJECTION_MODE,
         Value::from(
             aggregation
                 .explain_projection_mode_label(projected_field.is_some(), covering_projection),
@@ -697,20 +712,22 @@ fn annotate_continuation_node_properties(
     direction: Direction,
     continuation_mode: ContinuationMode,
 ) {
-    node.node_properties
-        .insert("scan_dir", Value::from(direction_code(direction)));
     node.node_properties.insert(
-        "cont_mode",
+        property_keys::SCAN_DIRECTION,
+        Value::from(direction_code(direction)),
+    );
+    node.node_properties.insert(
+        property_keys::CONTINUATION_MODE,
         Value::from(continuation_mode_code(continuation_mode)),
     );
     node.node_properties.insert(
-        "resume_from",
+        property_keys::RESUME_FROM,
         Value::from(resume_from_label(continuation_mode)),
     );
 }
 
 fn insert_fetch_node_property(node: &mut ExplainExecutionNodeDescriptor, fetch: usize) {
-    insert_node_property(node, "fetch", u64_from_usize(fetch));
+    insert_node_property(node, property_keys::FETCH, u64_from_usize(fetch));
 }
 
 fn insert_node_property<T>(node: &mut ExplainExecutionNodeDescriptor, key: &'static str, value: T)

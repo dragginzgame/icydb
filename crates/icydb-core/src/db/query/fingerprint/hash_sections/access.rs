@@ -127,7 +127,7 @@ where
         ordered_suffix: IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_BRANCH_SET, name, fields);
-        write_str(self.hasher, branch_set_ordered_suffix_label(ordered_suffix));
+        write_str(self.hasher, ordered_suffix.label());
         write_values(self.hasher, fixed_values);
         write_values(self.hasher, branch_values);
     }
@@ -160,13 +160,5 @@ where
     fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_INTERSECTION);
         write_u32(self.hasher, children.len() as u32);
-    }
-}
-
-const fn branch_set_ordered_suffix_label(
-    ordered_suffix: IndexBranchSetOrderedSuffix,
-) -> &'static str {
-    match ordered_suffix {
-        IndexBranchSetOrderedSuffix::PrimaryKeyAsc => "primary_key_asc",
     }
 }

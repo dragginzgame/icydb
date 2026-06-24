@@ -668,6 +668,11 @@ Status: active.
   covering-read eligibility inputs; grouped handoff construction, grouped
   route planning, scalar route planning, continuation defaults, and hybrid
   covering payload attachment are centralized without changing EXPLAIN output.
+- D1 / F3 EXPLAIN plan-finalization cleanup: model-only and visible-index
+  EXPLAIN descriptor/verbose surfaces now share the plan build plus
+  access-choice finalization step before rendering. Prepared `bytes_by` and
+  projection terminal explains also share base load-descriptor construction and
+  terminal field metadata stamping.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

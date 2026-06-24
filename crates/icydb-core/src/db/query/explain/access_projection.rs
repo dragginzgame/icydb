@@ -236,10 +236,7 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
         if self.include_detail {
             object.field_u64("fixed_prefix_len", fixed_values.len() as u64);
             object.field_u64("branch_count", branch_values.len() as u64);
-            object.field_str(
-                "ordered_suffix",
-                branch_set_ordered_suffix_label(ordered_suffix),
-            );
+            object.field_str("ordered_suffix", ordered_suffix.label());
             match index_fields.get(fixed_values.len()) {
                 Some(branch_field) => object.field_str("branch_field", branch_field),
                 None => object.field_null("branch_field"),
@@ -339,14 +336,6 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
         object.finish();
 
         out
-    }
-}
-
-const fn branch_set_ordered_suffix_label(
-    ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
-) -> &'static str {
-    match ordered_suffix {
-        crate::db::access::IndexBranchSetOrderedSuffix::PrimaryKeyAsc => "primary_key_asc",
     }
 }
 

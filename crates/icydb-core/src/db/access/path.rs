@@ -559,6 +559,16 @@ pub(in crate::db) enum IndexBranchSetOrderedSuffix {
     PrimaryKeyAsc,
 }
 
+impl IndexBranchSetOrderedSuffix {
+    /// Return the stable label for this ordered suffix contract.
+    #[must_use]
+    pub(in crate::db) const fn label(self) -> &'static str {
+        match self {
+            Self::PrimaryKeyAsc => "primary_key_asc",
+        }
+    }
+}
+
 impl IndexBranchSetSpec {
     /// Construct a branch-set request from one reduced access contract after
     /// the planner has proven a shared ascending primary-key suffix.

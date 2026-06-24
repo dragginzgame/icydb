@@ -6,7 +6,7 @@ use crate::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
-                explain_predicate_from_expr,
+                explain_predicate_from_expr, property_keys, property_values,
             },
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, AggregateKind, ResidualFilterShape,
@@ -92,13 +92,13 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
                 ExplainExecutionNodeType::IndexPredicatePrefilter,
                 execution_mode,
             );
-        node.predicate_pushdown = Some("strict_all_or_none".to_string());
+        node.predicate_pushdown = Some(property_values::STRICT_ALL_OR_NONE.to_string());
         node.filter_expr = filter_expr;
         let pushdown_predicate = access_strategy
             .and_then(pushdown_predicate_from_access_strategy)
             .unwrap_or_else(|| format!("{explain_predicate:?}"));
         node.node_properties
-            .insert("pushdown", Value::from(pushdown_predicate));
+            .insert(property_keys::PUSHDOWN, Value::from(pushdown_predicate));
         return vec![node];
     }
 
@@ -116,7 +116,7 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     node.residual_filter_expr = residual_filter_expr;
     node.residual_filter_predicate = explain_predicate;
     node.node_properties.insert(
-        "residual_filter_shape",
+        property_keys::RESIDUAL_FILTER_SHAPE,
         Value::from(residual_filter_shape.label()),
     );
 

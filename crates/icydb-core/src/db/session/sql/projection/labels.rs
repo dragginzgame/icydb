@@ -9,7 +9,7 @@ use crate::{
     db::{
         query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
         query::{
-            explain::ExplainExecutionNodeDescriptor,
+            explain::{ExplainExecutionNodeDescriptor, property_keys, property_values},
             plan::{
                 AccessPlannedQuery,
                 expr::{Expr, ProjectionField, ProjectionSpec},
@@ -117,7 +117,7 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_de
         .collect();
     descriptor
         .node_properties
-        .insert("proj_fields", Value::List(labels));
+        .insert(property_keys::PROJECTION_FIELDS, Value::List(labels));
 
     // Classify the materialization mode from the frozen planner contract
     // directly here so SQL EXPLAIN does not round-trip through a single-use
@@ -128,7 +128,7 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_de
     {
         None
     } else if descriptor.covering_scan() == Some(true) {
-        Some("covering_read")
+        Some(property_values::COVERING_READ)
     } else {
         // Recognize the retained-slot direct projection shape directly from
         // the planner-frozen projection metadata instead of routing through a
@@ -144,15 +144,16 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_de
                 });
 
         if direct_slot_projection {
-            Some("direct_slot_row")
+            Some(property_values::DIRECT_SLOT_ROW)
         } else {
-            Some("scalar_projection")
+            Some(property_values::SCALAR_PROJECTION)
         }
     };
 
     if let Some(materialization) = materialization {
-        descriptor
-            .node_properties
-            .insert("proj_materialization", Value::from(materialization));
+        descriptor.node_properties.insert(
+            property_keys::PROJECTION_MATERIALIZATION,
+            Value::from(materialization),
+        );
     }
 }

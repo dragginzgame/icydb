@@ -441,14 +441,8 @@ fn assert_execution_public_metadata_parity(
 )]
 fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_shapes() {
     let mut fast_path_properties = ExplainPropertyMap::new();
-    fast_path_properties.insert(
-        "fast_path_selected",
-        Value::Text("secondary_index".to_string()),
-    );
-    fast_path_properties.insert(
-        "fast_path_selected_reason",
-        Value::Text("topn_eligible".to_string()),
-    );
+    fast_path_properties.insert("fast_path", Value::Text("secondary_index".to_string()));
+    fast_path_properties.insert("fast_reason", Value::Text("topn_eligible".to_string()));
 
     let cases = [
         (

@@ -19,7 +19,8 @@ pub use execution::{
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
 pub(in crate::db) use execution::{
-    ExplainPropertyMap, FinalizedQueryDiagnostics, annotate_aggregate_execution_identity_properties,
+    ExplainPropertyMap, FinalizedQueryDiagnostics,
+    annotate_aggregate_execution_identity_properties, property_keys, property_values,
 };
 pub use plan::{
     ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,

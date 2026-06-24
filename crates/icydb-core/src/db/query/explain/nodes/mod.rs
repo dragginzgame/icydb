@@ -6,6 +6,7 @@
 use crate::{
     db::query::explain::{
         ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+        property_keys, property_values,
     },
     value::Value,
 };
@@ -101,7 +102,7 @@ pub(in crate::db::query::explain) fn predicate_pushdown_mode(
 ) -> &'static str {
     match node.predicate_pushdown().as_ref() {
         None => "none",
-        Some(pushdown) if *pushdown == "strict_all_or_none" => "full",
+        Some(pushdown) if *pushdown == property_values::STRICT_ALL_OR_NONE => "full",
         Some(_) => {
             if node.has_residual_filter() {
                 "partial"
@@ -115,9 +116,9 @@ pub(in crate::db::query::explain) fn predicate_pushdown_mode(
 pub(in crate::db::query::explain) fn fast_path_selected(
     node: &ExplainExecutionNodeDescriptor,
 ) -> Option<bool> {
-    let selected = node.node_properties().get("fast_path_selected")?;
+    let selected = node.node_properties().get(property_keys::FAST_PATH)?;
     match selected {
-        Value::Text(path) => Some(path.as_str() != "none"),
+        Value::Text(path) => Some(path.as_str() != property_values::NONE),
         _ => None,
     }
 }
@@ -125,7 +126,7 @@ pub(in crate::db::query::explain) fn fast_path_selected(
 pub(in crate::db::query::explain) fn fast_path_reason(
     node: &ExplainExecutionNodeDescriptor,
 ) -> Option<&str> {
-    let reason = node.node_properties().get("fast_path_selected_reason")?;
+    let reason = node.node_properties().get(property_keys::FAST_REASON)?;
     match reason {
         Value::Text(reason) => Some(reason.as_str()),
         _ => None,

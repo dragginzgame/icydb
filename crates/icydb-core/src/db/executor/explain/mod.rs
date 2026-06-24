@@ -18,6 +18,7 @@ use crate::{
             explain::{
                 ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
                 ExplainExecutionNodeType, ExplainOrderPushdown, FinalizedQueryDiagnostics,
+                property_keys,
             },
             intent::{QueryError, StructuralQuery},
             plan::{AccessPlannedQuery, VisibleIndexes},
@@ -272,13 +273,33 @@ impl StructuralQuery {
         );
     }
 
+    // Build and freeze one explicit model-only access-plan snapshot for
+    // standalone query explain surfaces.
+    fn finalized_model_only_explain_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
+        let mut plan = self.build_plan()?;
+        self.finalize_explain_access_choice_for_model_only(&mut plan);
+
+        Ok(plan)
+    }
+
+    // Build and freeze one access-plan snapshot using a caller-provided
+    // visible-index slice for runtime/session explain surfaces.
+    fn finalized_visible_indexes_explain_plan(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        let mut plan = self.build_plan_with_visible_indexes(visible_indexes)?;
+        self.finalize_explain_access_choice_for_visible_indexes(&mut plan, visible_indexes);
+
+        Ok(plan)
+    }
+
     // Build one explicit model-only execution descriptor for standalone query
     // surfaces that are not bound to a recovered store/accepted schema.
     fn explain_execution_descriptor_for_model_only(
         &self,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let mut plan = self.build_plan()?;
-        self.finalize_explain_access_choice_for_model_only(&mut plan);
+        let plan = self.finalized_model_only_explain_plan()?;
 
         self.explain_execution_descriptor_from_model_only_plan(&plan)
     }
@@ -289,8 +310,7 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let mut plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        self.finalize_explain_access_choice_for_visible_indexes(&mut plan, visible_indexes);
+        let plan = self.finalized_visible_indexes_explain_plan(visible_indexes)?;
 
         self.explain_execution_descriptor_from_model_only_plan(&plan)
     }
@@ -298,8 +318,7 @@ impl StructuralQuery {
     // Render one explicit model-only verbose execution payload for standalone
     // query surfaces that are not bound to a recovered store/accepted schema.
     fn render_execution_verbose_for_model_only(&self) -> Result<String, QueryError> {
-        let mut plan = self.build_plan()?;
-        self.finalize_explain_access_choice_for_model_only(&mut plan);
+        let plan = self.finalized_model_only_explain_plan()?;
 
         self.explain_execution_verbose_from_plan(&plan)
     }
@@ -310,8 +329,7 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        let mut plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        self.finalize_explain_access_choice_for_visible_indexes(&mut plan, visible_indexes);
+        let plan = self.finalized_visible_indexes_explain_plan(visible_indexes)?;
 
         self.explain_execution_verbose_from_plan(&plan)
     }
@@ -401,29 +419,42 @@ where
         ))
     }
 
+    fn explain_prepared_terminal_load_descriptor(
+        &self,
+        terminal_label: &str,
+        field_label: &str,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let mut descriptor = self
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)?;
+
+        descriptor
+            .node_properties
+            .insert(property_keys::TERMINAL, Value::from(terminal_label));
+        descriptor.node_properties.insert(
+            property_keys::TERMINAL_FIELD,
+            Value::from(field_label.to_string()),
+        );
+
+        Ok(descriptor)
+    }
+
     /// Explain one cached prepared `bytes_by(field)` terminal route without running it.
     pub(in crate::db) fn explain_bytes_by_terminal(
         &self,
         target_field: &str,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let mut descriptor = self
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
+        let mut descriptor =
+            self.explain_prepared_terminal_load_descriptor("bytes_by", target_field)?;
         let projection_mode = self.bytes_by_projection_mode(target_field);
         let projection_mode_label = Self::bytes_by_projection_mode_label(projection_mode);
 
-        descriptor
-            .node_properties
-            .insert("terminal", Value::from("bytes_by"));
-        descriptor
-            .node_properties
-            .insert("terminal_field", Value::from(target_field.to_string()));
         descriptor.node_properties.insert(
-            "terminal_projection_mode",
+            property_keys::TERMINAL_PROJECTION_MODE,
             Value::from(projection_mode_label),
         );
         descriptor.node_properties.insert(
-            "terminal_index_only",
+            property_keys::TERMINAL_INDEX_ONLY,
             Value::from(matches!(
                 projection_mode,
                 BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
@@ -441,21 +472,13 @@ where
     where
         S: ProjectionExplain,
     {
-        let mut descriptor = self
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
         let projection_descriptor = strategy.explain_projection_descriptor();
-
+        let mut descriptor = self.explain_prepared_terminal_load_descriptor(
+            projection_descriptor.terminal_label(),
+            projection_descriptor.field_label(),
+        )?;
         descriptor.node_properties.insert(
-            "terminal",
-            Value::from(projection_descriptor.terminal_label()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_field",
-            Value::from(projection_descriptor.field_label().to_string()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_output",
+            property_keys::TERMINAL_OUTPUT,
             Value::from(projection_descriptor.output_label()),
         );
 

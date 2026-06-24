@@ -83,6 +83,82 @@ impl Debug for ExplainPropertyMap {
     }
 }
 
+/// Stable EXPLAIN node-property key vocabulary shared by descriptor builders
+/// and renderers.
+pub(in crate::db) mod property_keys {
+    pub(in crate::db) const ACCESS_ALTERNATIVES: &str = "acc_alts";
+    pub(in crate::db) const ACCESS_CHOICE: &str = "acc_choice";
+    pub(in crate::db) const ACCESS_REASON: &str = "acc_reason";
+    pub(in crate::db) const ACCESS_REJECTIONS: &str = "acc_reject";
+    pub(in crate::db) const AGGREGATE_CONTRACT: &str = "aggregate_contract";
+    pub(in crate::db) const AGGREGATE_PHYSICAL: &str = "aggregate_physical";
+    pub(in crate::db) const CONTINUATION_MODE: &str = "cont_mode";
+    pub(in crate::db) const COUNT_FOLD: &str = "count_fold";
+    pub(in crate::db) const COVERING_FIELDS: &str = "covering_fields";
+    pub(in crate::db) const COVERING_KIND: &str = "covering_kind";
+    pub(in crate::db) const COVERING_ORDER: &str = "covering_order";
+    pub(in crate::db) const COVERING_READ_KIND: &str = "cov_read_kind";
+    pub(in crate::db) const COVERING_READ_ROUTE: &str = "cov_read_route";
+    pub(in crate::db) const COVERING_SCAN_REASON: &str = "cov_scan_reason";
+    pub(in crate::db) const COVERING_SOURCES: &str = "covering_sources";
+    pub(in crate::db) const EXISTING_ROW_MODE: &str = "existing_row_mode";
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const FILTER_EXPR: &str = "filter_expr";
+    pub(in crate::db) const FAST_PATH: &str = "fast_path";
+    pub(in crate::db) const FAST_REASON: &str = "fast_reason";
+    pub(in crate::db) const FAST_REJECTIONS: &str = "fast_reject";
+    pub(in crate::db) const FETCH: &str = "fetch";
+    pub(in crate::db) const GROUPED_EXECUTION_MODE: &str = "grouped_execution_mode";
+    pub(in crate::db) const GROUPED_PLAN_FALLBACK_REASON: &str = "grouped_plan_fallback_reason";
+    pub(in crate::db) const GROUPED_ROUTE_ELIGIBLE: &str = "grouped_route_eligible";
+    pub(in crate::db) const GROUPED_ROUTE_OUTCOME: &str = "grouped_route_outcome";
+    pub(in crate::db) const GROUPED_ROUTE_REJECTION_REASON: &str = "grouped_route_rejection_reason";
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const AGGREGATE_DIRECT_COUNT_METADATA_ELIGIBLE: &str =
+        "aggregate_direct_count_metadata_eligible";
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const AGGREGATE_DIRECT_COUNT_PREFIXES: &str =
+        "aggregate_direct_count_prefixes";
+    pub(in crate::db) const INDEX: &str = "index";
+    pub(in crate::db) const OFFSET: &str = "offset";
+    pub(in crate::db) const ORDER_BY_INDEX: &str = "order_by_idx";
+    pub(in crate::db) const ORDER_ROUTE_MODE: &str = "ord_route_mode";
+    pub(in crate::db) const ORDER_ROUTE_REASON: &str = "ord_route_reason";
+    pub(in crate::db) const PREDICATE_INDEX_CAPABILITY: &str = "pred_idx_cap";
+    pub(in crate::db) const PREFIX_LEN: &str = "prefix_len";
+    pub(in crate::db) const PREFIX_VALUES: &str = "prefix_values";
+    pub(in crate::db) const PROJECTION_FIELD: &str = "proj_field";
+    pub(in crate::db) const PROJECTION_FIELDS: &str = "proj_fields";
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const PROJECTION_MATERIALIZATION: &str = "proj_materialization";
+    pub(in crate::db) const PROJECTION_MODE: &str = "proj_mode";
+    pub(in crate::db) const PROJECTION_PUSHDOWN: &str = "proj_pushdown";
+    pub(in crate::db) const PUSHDOWN: &str = "pushdown";
+    pub(in crate::db) const RESIDUAL_FILTER_SHAPE: &str = "residual_filter_shape";
+    pub(in crate::db) const RESUME_FROM: &str = "resume_from";
+    pub(in crate::db) const SCAN_DIRECTION: &str = "scan_dir";
+    pub(in crate::db) const TERMINAL: &str = "terminal";
+    pub(in crate::db) const TERMINAL_FIELD: &str = "terminal_field";
+    pub(in crate::db) const TERMINAL_INDEX_ONLY: &str = "terminal_index_only";
+    pub(in crate::db) const TERMINAL_OUTPUT: &str = "terminal_output";
+    pub(in crate::db) const TERMINAL_PROJECTION_MODE: &str = "terminal_projection_mode";
+}
+
+/// Stable EXPLAIN scalar label vocabulary shared only where the same semantic
+/// label is intentionally projected on multiple surfaces.
+pub(in crate::db) mod property_values {
+    pub(in crate::db) const COVERING_READ: &str = "covering_read";
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const DIRECT_SLOT_ROW: &str = "direct_slot_row";
+    pub(in crate::db) const HYBRID_COVERING: &str = "hybrid_covering";
+    pub(in crate::db) const MATERIALIZED: &str = "materialized";
+    pub(in crate::db) const NONE: &str = "none";
+    pub(in crate::db) const PURE_COVERING: &str = "pure_covering";
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const SCALAR_PROJECTION: &str = "scalar_projection";
+    pub(in crate::db) const STRICT_ALL_OR_NONE: &str = "strict_all_or_none";
+}
+
 #[cfg_attr(
     doc,
     doc = "ExplainAggregateTerminalPlan\n\nCombined EXPLAIN payload for one scalar aggregate request."
@@ -329,8 +405,8 @@ pub(in crate::db) fn annotate_aggregate_execution_identity_properties(
     contract: &'static str,
     physical: &'static str,
 ) {
-    node_properties.insert("aggregate_contract", Value::from(contract));
-    node_properties.insert("aggregate_physical", Value::from(physical));
+    node_properties.insert(property_keys::AGGREGATE_CONTRACT, Value::from(contract));
+    node_properties.insert(property_keys::AGGREGATE_PHYSICAL, Value::from(physical));
 }
 
 impl ExplainAggregateTerminalPlan {
