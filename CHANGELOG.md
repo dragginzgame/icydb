@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Continues the query-engine audit by hard-cutting old global aggregate
-  direct-count wrappers so compiled and non-compiled routing use one
-  explicit direct-count target contract, one explicit outcome contract, and
-  typed schema cache identities.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.34` continues the query-engine audit by consolidating global
+  aggregate direct-count routing state and schema cache identities without
+  changing query semantics.
 
 - `0.184.33` continues the query-engine audit by making global aggregate
   direct-count probe states explicit across normal and diagnostics paths
