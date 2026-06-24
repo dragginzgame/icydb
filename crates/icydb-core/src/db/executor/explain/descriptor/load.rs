@@ -18,7 +18,8 @@ use crate::{
         query::{
             explain::{
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                explain_access_plan, explain_projection_field_name,
+                annotate_aggregate_execution_identity_properties, explain_access_plan,
+                explain_projection_field_name,
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
@@ -714,18 +715,21 @@ fn grouped_aggregate_execution_node_descriptor(
             node_type,
             execution_mode,
         );
-    node.node_properties
-        .insert("aggregate_contract", Value::from("grouped"));
-    node.node_properties.insert(
-        "aggregate_physical",
-        Value::from(match grouped_observability.grouped_execution_mode() {
-            GroupedExecutionMode::HashMaterialized => "hash_materialized",
-            GroupedExecutionMode::OrderedMaterialized => "ordered_materialized",
-        }),
+    annotate_aggregate_execution_identity_properties(
+        &mut node.node_properties,
+        "grouped",
+        grouped_aggregate_physical_label(grouped_observability.grouped_execution_mode()),
     );
     annotate_grouped_route_node_properties(&mut node, route_plan);
 
     Some(node)
+}
+
+const fn grouped_aggregate_physical_label(mode: GroupedExecutionMode) -> &'static str {
+    match mode {
+        GroupedExecutionMode::HashMaterialized => "hash_materialized",
+        GroupedExecutionMode::OrderedMaterialized => "ordered_materialized",
+    }
 }
 
 const fn load_order_route_observability(

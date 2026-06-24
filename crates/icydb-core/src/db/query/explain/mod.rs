@@ -14,11 +14,12 @@ mod render;
 mod writer;
 
 pub(in crate::db) use access_projection::explain_access_plan;
-pub(in crate::db) use execution::ExplainPropertyMap;
-pub(in crate::db) use execution::FinalizedQueryDiagnostics;
 pub use execution::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
+};
+pub(in crate::db) use execution::{
+    ExplainPropertyMap, FinalizedQueryDiagnostics, annotate_aggregate_execution_identity_properties,
 };
 pub use plan::{
     ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,

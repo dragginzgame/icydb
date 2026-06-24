@@ -79,6 +79,15 @@ struct PreparedAggregateRequestBundle {
 
 type PreparedAggregatePlanResolution =
     Result<(SharedPreparedExecutionPlan, SqlCacheAttribution), QueryError>;
+#[cfg(feature = "diagnostics")]
+type MeasuredPreparedAggregatePlanResolution = Result<
+    (
+        SharedPreparedExecutionPlan,
+        SqlCacheAttribution,
+        QueryPlanCompilePhaseAttribution,
+    ),
+    QueryError,
+>;
 
 impl PreparedAggregateRequestBundle {
     fn from_global_command(
@@ -641,6 +650,68 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
+    fn execute_measured_global_aggregate_after_direct_count_probe<E>(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        direct_probe: Option<DirectCountCardinalityPlanProbe>,
+        direct_plan_compile_attribution: QueryPlanCompilePhaseAttribution,
+        resolve_prepared_plan: impl FnOnce(
+            Option<EntityAuthority>,
+        ) -> MeasuredPreparedAggregatePlanResolution,
+    ) -> Result<
+        (
+            SqlStatementResult,
+            SqlCacheAttribution,
+            SqlExecutePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let direct_resolution = self.execute_measured_direct_count_cardinality_probe::<E>(
+            command.projection(),
+            direct_probe,
+            direct_plan_compile_attribution,
+        )?;
+        if let Some((result, cache_attribution, phase_attribution)) = direct_resolution.result {
+            return Ok((result, cache_attribution, phase_attribution));
+        }
+
+        let (prepared_plan, cache_attribution, mut plan_compile_attribution) =
+            resolve_prepared_plan(direct_resolution.fallback_authority)?;
+        plan_compile_attribution.merge(direct_plan_compile_attribution);
+        let (
+            scalar_aggregate_terminal,
+            ((execute_local_instructions, store_local_instructions), result),
+        ) = with_scalar_aggregate_terminal_attribution(|| {
+            measure_execute_phase_with_physical_access(|| {
+                self.execute_global_aggregate_with_prepared_plan::<E>(
+                    command,
+                    catalog,
+                    &prepared_plan,
+                    cache_attribution,
+                )
+            })
+        });
+        let (result, cache_attribution) = result?;
+        let phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+            execute_local_instructions
+                .saturating_add(direct_resolution.fallback_execute_local_instructions),
+            store_local_instructions
+                .saturating_add(direct_resolution.fallback_store_local_instructions),
+        )
+        .with_query_plan_compile_attribution(
+            plan_compile_attribution.planner_local_instructions(),
+            plan_compile_attribution,
+        )
+        .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
+
+        Ok((result, cache_attribution, phase_attribution))
+    }
+
+    #[cfg(feature = "diagnostics")]
     fn resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution<E>(
         &self,
         compiled: &CompiledSqlCommand,
@@ -807,49 +878,20 @@ impl<C: CanisterKind> DbSession<C> {
             .resolve_compiled_direct_count_cardinality_plan_with_phase_attribution::<E>(
                 compiled, command, catalog,
             )?;
-        let direct_resolution = self.execute_measured_direct_count_cardinality_probe::<E>(
-            command.projection(),
+
+        self.execute_measured_global_aggregate_after_direct_count_probe::<E>(
+            command,
+            catalog,
             direct_probe,
             direct_plan_compile_attribution,
-        )?;
-        if let Some((result, cache_attribution, phase_attribution)) = direct_resolution.result {
-            return Ok((result, cache_attribution, phase_attribution));
-        }
-
-        let (prepared_plan, cache_attribution, mut plan_compile_attribution) = self
-            .resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution::<E>(
-                compiled,
-                command,
-                catalog,
-                direct_resolution.fallback_authority,
-            )?;
-        plan_compile_attribution.merge(direct_plan_compile_attribution);
-        let (
-            scalar_aggregate_terminal,
-            ((execute_local_instructions, store_local_instructions), result),
-        ) = with_scalar_aggregate_terminal_attribution(|| {
-            measure_execute_phase_with_physical_access(|| {
-                self.execute_global_aggregate_with_prepared_plan::<E>(
+            |fallback_authority| {
+                self.resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution::<E>(
+                    compiled,
                     command,
                     catalog,
-                    &prepared_plan,
-                    cache_attribution,
+                    fallback_authority,
                 )
-            })
-        });
-        let (result, cache_attribution) = result?;
-        let phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
-            execute_local_instructions
-                .saturating_add(direct_resolution.fallback_execute_local_instructions),
-            store_local_instructions
-                .saturating_add(direct_resolution.fallback_store_local_instructions),
+            },
         )
-        .with_query_plan_compile_attribution(
-            plan_compile_attribution.planner_local_instructions(),
-            plan_compile_attribution,
-        )
-        .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
-
-        Ok((result, cache_attribution, phase_attribution))
     }
 }

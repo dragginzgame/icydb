@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.32` continues the query-engine audit by consolidating singleton global
+  aggregate EXPLAIN/diagnostics helpers and shared aggregate EXPLAIN identity
+  without changing aggregate execution semantics.
+
 - `0.184.31` continues the query-engine audit by consolidating SQL UPDATE and
   DELETE policy classification, bounds, and validated-plan payloads without
   changing write semantics.

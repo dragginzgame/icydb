@@ -26,8 +26,8 @@ use crate::{
         },
         sql::{
             lowering::{
-                LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommand,
-                bind_lowered_sql_explain_global_aggregate_with_schema,
+                LoweredSqlCommand, LoweredSqlLaneKind, PreparedSqlScalarAggregateStrategy,
+                SqlGlobalAggregateCommand, bind_lowered_sql_explain_global_aggregate_with_schema,
                 bind_lowered_sql_query_structural_with_schema, lowered_sql_command_lane,
             },
             parser::SqlExplainMode,
@@ -340,45 +340,13 @@ impl<C: CanisterKind> DbSession<C> {
                         let mut rendered = Vec::with_capacity(strategies.len());
 
                         for strategy in strategies {
-                            let query_explain = plan.explain();
-                            let mut execution =
-                                assemble_scalar_aggregate_execution_descriptor_with_projection(
-                                    plan,
-                                    authority
-                                        .aggregate_route_shape(
-                                            strategy.aggregate_kind(),
-                                            strategy.projected_field(),
-                                        )
-                                        .map_err(QueryError::execute)?,
-                                    strategy.aggregate_kind(),
-                                    strategy.projected_field(),
-                                );
-                            if let Some(filter_expr) = strategy.filter_expr() {
-                                execution.node_properties.insert(
-                                    "filter_expr",
-                                    render_scalar_projection_expr_plan_label(filter_expr).into(),
-                                );
-                            }
-                            self.annotate_global_aggregate_direct_count_metadata_eligibility(
-                                &mut execution,
+                            rendered.push(self.render_global_aggregate_terminal_explain(
                                 &command,
+                                strategy,
+                                plan,
                                 &authority,
                                 schema_info,
-                            )?;
-                            let terminal_plan = ExplainAggregateTerminalPlan::new(
-                                query_explain,
-                                strategy.aggregate_kind(),
-                                execution,
-                            );
-
-                            rendered.push(render_sql_execution_explain(
-                                &FinalizedQueryDiagnostics::new(
-                                    terminal_plan.execution_node_descriptor(),
-                                    Vec::new(),
-                                    Vec::new(),
-                                    None,
-                                ),
-                            ));
+                            )?);
                         }
 
                         Ok(rendered.join("\n\n"))
@@ -393,6 +361,67 @@ impl<C: CanisterKind> DbSession<C> {
                     |plan| Ok(plan.explain().render_json_canonical()),
                 ),
         }
+    }
+
+    fn render_global_aggregate_terminal_explain(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        strategy: &PreparedSqlScalarAggregateStrategy,
+        plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
+        schema_info: &SchemaInfo,
+    ) -> Result<String, QueryError> {
+        let query_explain = plan.explain();
+        let execution = self.global_aggregate_terminal_execution_descriptor(
+            command,
+            strategy,
+            plan,
+            authority,
+            schema_info,
+        )?;
+        let terminal_plan =
+            ExplainAggregateTerminalPlan::new(query_explain, strategy.aggregate_kind(), execution);
+
+        Ok(render_sql_execution_explain(
+            &FinalizedQueryDiagnostics::new(
+                terminal_plan.execution_node_descriptor(),
+                Vec::new(),
+                Vec::new(),
+                None,
+            ),
+        ))
+    }
+
+    fn global_aggregate_terminal_execution_descriptor(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        strategy: &PreparedSqlScalarAggregateStrategy,
+        plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
+        schema_info: &SchemaInfo,
+    ) -> Result<ExplainExecutionDescriptor, QueryError> {
+        let mut execution = assemble_scalar_aggregate_execution_descriptor_with_projection(
+            plan,
+            authority
+                .aggregate_route_shape(strategy.aggregate_kind(), strategy.projected_field())
+                .map_err(QueryError::execute)?,
+            strategy.aggregate_kind(),
+            strategy.projected_field(),
+        );
+        if let Some(filter_expr) = strategy.filter_expr() {
+            execution.node_properties.insert(
+                "filter_expr",
+                render_scalar_projection_expr_plan_label(filter_expr).into(),
+            );
+        }
+        self.annotate_global_aggregate_direct_count_metadata_eligibility(
+            &mut execution,
+            command,
+            authority,
+            schema_info,
+        )?;
+
+        Ok(execution)
     }
 
     fn annotate_global_aggregate_direct_count_metadata_eligibility(

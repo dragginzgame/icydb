@@ -322,17 +322,26 @@ impl FinalizedQueryDiagnostics {
     }
 }
 
+/// Annotate one aggregate execution node with the shared semantic/physical
+/// identity vocabulary consumed by SQL, fluent, and JSON EXPLAIN surfaces.
+pub(in crate::db) fn annotate_aggregate_execution_identity_properties(
+    node_properties: &mut ExplainPropertyMap,
+    contract: &'static str,
+    physical: &'static str,
+) {
+    node_properties.insert("aggregate_contract", Value::from(contract));
+    node_properties.insert("aggregate_physical", Value::from(physical));
+}
+
 impl ExplainAggregateTerminalPlan {
     /// Build an execution-node descriptor for aggregate terminal plans.
     #[must_use]
     pub fn execution_node_descriptor(&self) -> ExplainExecutionNodeDescriptor {
         let mut node_properties = self.execution.node_properties.clone();
-        node_properties.insert("aggregate_contract", Value::from("singleton"));
-        node_properties.insert(
-            "aggregate_physical",
-            Value::from(scalar_aggregate_physical_label(
-                self.execution.ordering_source,
-            )),
+        annotate_aggregate_execution_identity_properties(
+            &mut node_properties,
+            "singleton",
+            scalar_aggregate_physical_label(self.execution.ordering_source),
         );
 
         ExplainExecutionNodeDescriptor {

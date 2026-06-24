@@ -500,6 +500,27 @@ Status: active.
   policy-bounds contracts, write-proof/bounds authority, and shared validated
   plan payloads instead of parallel definitions, conversion matches, or
   compatibility aliases.
+- H6 post-policy checkpoint: UPDATE/INSERT mutation rows now have exactly one
+  shared structural-projection-to-mutation-batch collector, and DELETE stays on
+  the executor-owned structural delete core because count-only and RETURNING
+  deletes need pre-delete count/projection semantics. No further H6 code slice
+  should proceed without finding new UPDATE/DELETE row-collection duplication.
+- D1 / F3 aggregate EXPLAIN cleanup follow-up: singleton global aggregate
+  EXPLAIN execution now renders each terminal through one descriptor helper
+  instead of rebuilding route shape, FILTER labels, direct-count metadata
+  eligibility, terminal plan wrapping, and diagnostics rendering inline in the
+  loop. Singleton and grouped aggregate execution nodes also share the same
+  aggregate contract / physical implementation annotation helper, while the
+  first-class aggregate-operator DTO remains deferred behind the existing gate.
+- D1 / F3 diagnostics follow-up: compiled global aggregate diagnostics now use
+  a measured counterpart to the normal direct-count/fallback execution helper,
+  so direct prefix-cardinality probing, fallback prepared-plan resolution, and
+  scalar aggregate terminal attribution stay behind one control-flow boundary.
+- H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
+  slice to take for `.32`. The remaining parser `contains_aggregate` checks are
+  cheap lane/admission screens, and the remaining planner `references_only`
+  walks are shared non-SQL guards. Keep H3 deferred until a schema-bound
+  consumer can delete a real consumer-local expression rewalk.
 
 ## Next Candidates
 
