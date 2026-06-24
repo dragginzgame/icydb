@@ -1,6 +1,5 @@
 use super::{
-    SqlWriteMutationExecution, checked_accepted_write_descriptor,
-    checked_accepted_write_descriptor_for_returning, reject_explicit_sql_write_to_generated_field,
+    SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
     sql_update_candidate_bounds, sql_write_key_from_component_literals, sql_write_key_from_literal,
     sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
@@ -128,44 +127,43 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema = self
-            .ensure_accepted_schema_snapshot::<E>()
-            .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(
-            &schema,
+        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             statement.returning.as_ref(),
-        )?;
-        let (authority, schema_info) =
-            Self::accepted_sql_write_authority_schema_info::<E>(&schema)?;
-        let selector = Self::sql_update_selector_query::<E>(&schema_info, statement)?;
-        let save_schema_info = schema_info;
-        let patch = Self::sql_structural_patch(&descriptor, statement)?;
-        let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
-        let rows = self.collect_sql_write_mutation_batch_from_structural_query(
-            &schema,
-            authority,
-            &selector,
-            |row| {
-                let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
+            |schema, descriptor| {
+                let (authority, schema_info) =
+                    Self::accepted_sql_write_authority_schema_info::<E>(schema)?;
+                let selector = Self::sql_update_selector_query::<E>(&schema_info, statement)?;
+                let save_schema_info = schema_info;
+                let patch = Self::sql_structural_patch(&descriptor, statement)?;
+                let write_context =
+                    SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
+                let rows = self.collect_sql_write_mutation_batch_from_structural_query(
+                    schema,
+                    authority,
+                    &selector,
+                    |row| {
+                        let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
 
-                Ok((key, patch.clone()))
+                        Ok((key, patch.clone()))
+                    },
+                )?;
+                let candidate_rows =
+                    rows.validate_staged_rows(sql_update_candidate_bounds(execution_bounds))?;
+                self.execute_sql_write_mutation_batch::<E>(
+                    schema,
+                    &descriptor,
+                    SqlWriteMutationExecution {
+                        rows,
+                        staged_rows: candidate_rows,
+                        kind: SqlWriteKind::Update,
+                        mode: MutationMode::Update,
+                        context: write_context,
+                        returning_bounds: execution_bounds.map(|bounds| bounds.returning),
+                        save_schema_info: Some(save_schema_info),
+                    },
+                    statement.returning.as_ref(),
+                )
             },
-        )?;
-        let candidate_rows =
-            rows.validate_staged_rows(sql_update_candidate_bounds(execution_bounds))?;
-        self.execute_sql_write_mutation_batch::<E>(
-            &schema,
-            &descriptor,
-            SqlWriteMutationExecution {
-                rows,
-                staged_rows: candidate_rows,
-                kind: SqlWriteKind::Update,
-                mode: MutationMode::Update,
-                context: write_context,
-                returning_bounds: execution_bounds.map(|bounds| bounds.returning),
-                save_schema_info: Some(save_schema_info),
-            },
-            statement.returning.as_ref(),
         )
     }
 
@@ -177,29 +175,30 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema = self
-            .ensure_accepted_schema_snapshot::<E>()
-            .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-        let generated_fields = descriptor
-            .fields()
-            .iter()
-            .filter(|field| field.write_policy().insert_generation().is_some())
-            .map(AcceptedRowLayoutRuntimeField::name)
-            .collect::<Vec<_>>();
-        let managed_fields = descriptor
-            .fields()
-            .iter()
-            .filter(|field| field.write_policy().write_management().is_some())
-            .map(AcceptedRowLayoutRuntimeField::name)
-            .collect::<Vec<_>>();
-        let context = SqlUpdatePolicyContext::public_generated(
-            descriptor.primary_key_names(),
-            generated_fields.as_slice(),
-            managed_fields.as_slice(),
-        );
-        let report = classify_sql_update_policy(sql, policy, context)?;
-        require_sql_write_policy_plan(report.plan)
+        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+            None,
+            |_schema, descriptor| {
+                let generated_fields = descriptor
+                    .fields()
+                    .iter()
+                    .filter(|field| field.write_policy().insert_generation().is_some())
+                    .map(AcceptedRowLayoutRuntimeField::name)
+                    .collect::<Vec<_>>();
+                let managed_fields = descriptor
+                    .fields()
+                    .iter()
+                    .filter(|field| field.write_policy().write_management().is_some())
+                    .map(AcceptedRowLayoutRuntimeField::name)
+                    .collect::<Vec<_>>();
+                let context = SqlUpdatePolicyContext::public_generated(
+                    descriptor.primary_key_names(),
+                    generated_fields.as_slice(),
+                    managed_fields.as_slice(),
+                );
+                let report = classify_sql_update_policy(sql, policy, context)?;
+                require_sql_write_policy_plan(report.plan)
+            },
+        )
     }
 
     /// Execute a policy-validated public primary-key SQL `UPDATE` plan.

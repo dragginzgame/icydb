@@ -83,13 +83,22 @@ struct PreparedAggregateRequestBundle {
     projection: SqlProjectionContract,
 }
 
-type PreparedAggregatePlanResolution =
-    Result<(SharedPreparedExecutionPlan, SqlCacheAttribution), QueryError>;
+struct DirectCountCardinalityPlanInput {
+    authority: EntityAuthority,
+    schema_info: SchemaInfo,
+    visible_indexes: VisibleIndexes<'static>,
+}
+
+struct ResolvedGlobalAggregatePreparedPlan {
+    prepared_plan: SharedPreparedExecutionPlan,
+    cache_attribution: SqlCacheAttribution,
+}
+
+type PreparedAggregatePlanResolution = Result<ResolvedGlobalAggregatePreparedPlan, QueryError>;
 #[cfg(feature = "diagnostics")]
 type MeasuredPreparedAggregatePlanResolution = Result<
     (
-        SharedPreparedExecutionPlan,
-        SqlCacheAttribution,
+        ResolvedGlobalAggregatePreparedPlan,
         QueryPlanCompilePhaseAttribution,
     ),
     QueryError,
@@ -191,6 +200,53 @@ impl PreparedAggregateRequestBundle {
         } = self;
 
         (request, projection)
+    }
+}
+
+impl DirectCountCardinalityPlanInput {
+    const fn new(
+        authority: EntityAuthority,
+        schema_info: SchemaInfo,
+        visible_indexes: VisibleIndexes<'static>,
+    ) -> Self {
+        Self {
+            authority,
+            schema_info,
+            visible_indexes,
+        }
+    }
+}
+
+impl ResolvedGlobalAggregatePreparedPlan {
+    const fn new(
+        prepared_plan: SharedPreparedExecutionPlan,
+        cache_attribution: SqlCacheAttribution,
+    ) -> Self {
+        Self {
+            prepared_plan,
+            cache_attribution,
+        }
+    }
+
+    const fn from_compiled_cache_hit(prepared_plan: SharedPreparedExecutionPlan) -> Self {
+        Self::new(
+            prepared_plan,
+            SqlCacheAttribution::shared_query_plan_cache_hit(),
+        )
+    }
+
+    const fn from_shared_query_plan_cache(
+        prepared_plan: SharedPreparedExecutionPlan,
+        cache_attribution: crate::db::session::query::QueryPlanCacheAttribution,
+    ) -> Self {
+        Self::new(
+            prepared_plan,
+            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+        )
+    }
+
+    fn into_parts(self) -> (SharedPreparedExecutionPlan, SqlCacheAttribution) {
+        (self.prepared_plan, self.cache_attribution)
     }
 }
 
@@ -437,6 +493,114 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    fn direct_count_cardinality_authority<E>(
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<EntityAuthority, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        catalog
+            .accepted_entity_authority_for::<E>()
+            .map_err(QueryError::execute)
+    }
+
+    fn direct_count_cardinality_plan_input_for_authority<E>(
+        &self,
+        catalog: &AcceptedSchemaCatalogContext,
+        authority: EntityAuthority,
+    ) -> Result<DirectCountCardinalityPlanInput, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let schema_info = catalog.accepted_schema_info_for::<E>();
+        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
+        let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
+
+        Ok(DirectCountCardinalityPlanInput::new(
+            authority,
+            schema_info,
+            visible_indexes,
+        ))
+    }
+
+    fn direct_count_cardinality_target_from_plan_input(
+        command: &SqlGlobalAggregateCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        input: DirectCountCardinalityPlanInput,
+    ) -> Result<DirectCountCardinalityTarget, QueryError> {
+        let entry = Self::direct_count_cardinality_plan_entry_for_accepted_authority(
+            &input.authority,
+            command,
+            catalog,
+            &input.visible_indexes,
+            &input.schema_info,
+        )?;
+
+        Ok(DirectCountCardinalityTarget::from_optional_entry(
+            input.authority,
+            entry,
+        ))
+    }
+
+    fn global_aggregate_prepared_plan_authority<E>(
+        catalog: &AcceptedSchemaCatalogContext,
+        authority: Option<EntityAuthority>,
+    ) -> Result<EntityAuthority, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match authority {
+            Some(authority) => Ok(authority),
+            None => catalog
+                .accepted_entity_authority_for::<E>()
+                .map_err(QueryError::execute),
+        }
+    }
+
+    fn resolve_global_aggregate_prepared_plan_for_authority(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        authority: EntityAuthority,
+    ) -> PreparedAggregatePlanResolution {
+        let (prepared_plan, cache_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority_with_catalog(
+                authority,
+                catalog,
+                command.query(),
+            )?;
+
+        Ok(
+            ResolvedGlobalAggregatePreparedPlan::from_shared_query_plan_cache(
+                prepared_plan,
+                cache_attribution,
+            ),
+        )
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        authority: EntityAuthority,
+    ) -> MeasuredPreparedAggregatePlanResolution {
+        let (prepared_plan, cache_attribution, plan_compile_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
+                authority,
+                catalog,
+                command.query(),
+            )?;
+
+        Ok((
+            ResolvedGlobalAggregatePreparedPlan::from_shared_query_plan_cache(
+                prepared_plan,
+                cache_attribution,
+            ),
+            plan_compile_attribution,
+        ))
+    }
+
     fn build_direct_count_cardinality_target<E>(
         &self,
         command: &SqlGlobalAggregateCommand,
@@ -452,23 +616,11 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(DirectCountCardinalityTarget::Disabled);
         }
 
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
-            .map_err(QueryError::execute)?;
-        let schema_info = catalog.accepted_schema_info_for::<E>();
-        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
-        let entry = Self::direct_count_cardinality_plan_entry_for_accepted_authority(
-            &authority,
-            command,
-            catalog,
-            &visible_indexes,
-            &schema_info,
-        );
+        let authority = Self::direct_count_cardinality_authority::<E>(catalog)?;
+        let input =
+            self.direct_count_cardinality_plan_input_for_authority::<E>(catalog, authority)?;
 
-        Ok(DirectCountCardinalityTarget::from_optional_entry(
-            authority, entry?,
-        ))
+        Self::direct_count_cardinality_target_from_plan_input(command, catalog, input)
     }
 
     fn resolve_compiled_direct_count_cardinality_target<E>(
@@ -538,42 +690,25 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
-            .map_err(QueryError::execute)?;
-        let (schema_info_local, schema_info) =
-            measure_sql_stage(|| catalog.accepted_schema_info_for::<E>());
-        attribution.schema_info = attribution.schema_info.saturating_add(schema_info_local);
-        let (schema_info_local, visibility) =
-            measure_sql_stage(|| self.query_plan_visibility_for_store_path(authority.store_path()));
-        attribution.schema_info = attribution.schema_info.saturating_add(schema_info_local);
-        let visibility = visibility?;
-        let (schema_info_local, visible_indexes) = measure_sql_stage(|| {
-            Self::visible_indexes_for_accepted_schema(&schema_info, visibility)
+        let authority = Self::direct_count_cardinality_authority::<E>(catalog)?;
+        let (schema_info_local, input) = measure_sql_stage(|| {
+            self.direct_count_cardinality_plan_input_for_authority::<E>(catalog, authority)
         });
         attribution.schema_info = attribution.schema_info.saturating_add(schema_info_local);
-        let (plan_build_local, entry) = measure_sql_stage(|| {
-            Self::direct_count_cardinality_plan_entry_for_accepted_authority(
-                &authority,
-                command,
-                catalog,
-                &visible_indexes,
-                &schema_info,
-            )
+        let input = input?;
+        let (plan_build_local, target) = measure_sql_stage(|| {
+            Self::direct_count_cardinality_target_from_plan_input(command, catalog, input)
         });
         attribution.plan_build = attribution.plan_build.saturating_add(plan_build_local);
-        let entry = entry?;
-        if let Some(entry) = &entry {
+        let target = target?;
+        if let Some(entry) = target.count_plan_entry() {
             let (cache_insert, ()) = measure_sql_stage(|| {
                 compiled.set_cached_global_aggregate_count_plan(Arc::clone(entry));
             });
             attribution.cache_insert = attribution.cache_insert.saturating_add(cache_insert);
         }
 
-        Ok((
-            DirectCountCardinalityTarget::from_optional_entry(authority, entry),
-            attribution,
-        ))
+        Ok((target, attribution))
     }
 
     fn execute_global_aggregate_with_prepared_plan<E>(
@@ -622,7 +757,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
-    ) -> Result<(SharedPreparedExecutionPlan, SqlCacheAttribution), QueryError>
+    ) -> PreparedAggregatePlanResolution
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -630,32 +765,18 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(prepared_plan) =
             compiled.cached_global_aggregate_plan(compiled_schema_fingerprint)
         {
-            return Ok((
-                prepared_plan,
-                SqlCacheAttribution::shared_query_plan_cache_hit(),
-            ));
+            return Ok(ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan));
         }
 
-        let authority = match authority {
-            Some(authority) => authority,
-            None => catalog
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute)?,
-        };
-        let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
-                authority,
-                catalog.snapshot(),
-                catalog.fingerprint(),
-                command.query(),
-            )?;
-        compiled
-            .set_cached_global_aggregate_plan(compiled_schema_fingerprint, prepared_plan.clone());
+        let authority = Self::global_aggregate_prepared_plan_authority::<E>(catalog, authority)?;
+        let resolved =
+            self.resolve_global_aggregate_prepared_plan_for_authority(command, catalog, authority)?;
+        compiled.set_cached_global_aggregate_plan(
+            compiled_schema_fingerprint,
+            resolved.prepared_plan.clone(),
+        );
 
-        Ok((
-            prepared_plan,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        ))
+        Ok(resolved)
     }
 
     fn execute_global_aggregate_after_direct_count_target<E>(
@@ -679,7 +800,8 @@ impl<C: CanisterKind> DbSession<C> {
             DirectCountCardinalityOutcome::Fallback { authority } => authority,
         };
 
-        let (prepared_plan, cache_attribution) = resolve_prepared_plan(fallback_authority)?;
+        let resolved = resolve_prepared_plan(fallback_authority)?;
+        let (prepared_plan, cache_attribution) = resolved.into_parts();
 
         self.execute_global_aggregate_with_prepared_plan::<E>(
             command,
@@ -736,8 +858,8 @@ impl<C: CanisterKind> DbSession<C> {
             ),
         };
 
-        let (prepared_plan, cache_attribution, mut plan_compile_attribution) =
-            resolve_prepared_plan(fallback_authority)?;
+        let (resolved, mut plan_compile_attribution) = resolve_prepared_plan(fallback_authority)?;
+        let (prepared_plan, cache_attribution) = resolved.into_parts();
         plan_compile_attribution.merge(direct_plan_compile_attribution);
         let (
             scalar_aggregate_terminal,
@@ -773,14 +895,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlCacheAttribution,
-            QueryPlanCompilePhaseAttribution,
-        ),
-        QueryError,
-    >
+    ) -> MeasuredPreparedAggregatePlanResolution
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -789,33 +904,22 @@ impl<C: CanisterKind> DbSession<C> {
             compiled.cached_global_aggregate_plan(compiled_schema_fingerprint)
         {
             return Ok((
-                prepared_plan,
-                SqlCacheAttribution::shared_query_plan_cache_hit(),
+                ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan),
                 QueryPlanCompilePhaseAttribution::default(),
             ));
         }
 
-        let authority = match authority {
-            Some(authority) => authority,
-            None => catalog
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute)?,
-        };
-        let (prepared_plan, cache_attribution, plan_compile_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
-                authority,
-                catalog.snapshot(),
-                catalog.fingerprint(),
-                command.query(),
+        let authority = Self::global_aggregate_prepared_plan_authority::<E>(catalog, authority)?;
+        let (resolved, plan_compile_attribution) = self
+            .resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
+                command, catalog, authority,
             )?;
-        compiled
-            .set_cached_global_aggregate_plan(compiled_schema_fingerprint, prepared_plan.clone());
+        compiled.set_cached_global_aggregate_plan(
+            compiled_schema_fingerprint,
+            resolved.prepared_plan.clone(),
+        );
 
-        Ok((
-            prepared_plan,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-            plan_compile_attribution,
-        ))
+        Ok((resolved, plan_compile_attribution))
     }
 
     // Execute one borrowed prepared SQL aggregate command through executor-owned
@@ -854,24 +958,13 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             direct_count_target,
             |fallback_authority| {
-                let authority = match fallback_authority {
-                    Some(authority) => authority,
-                    None => catalog
-                        .accepted_entity_authority_for::<E>()
-                        .map_err(QueryError::execute)?,
-                };
-                let (prepared_plan, cache_attribution) = self
-                    .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
-                        authority,
-                        catalog.snapshot(),
-                        catalog.fingerprint(),
-                        command.query(),
-                    )?;
-
-                Ok((
-                    prepared_plan,
-                    SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-                ))
+                let authority = Self::global_aggregate_prepared_plan_authority::<E>(
+                    catalog,
+                    fallback_authority,
+                )?;
+                self.resolve_global_aggregate_prepared_plan_for_authority(
+                    command, catalog, authority,
+                )
             },
         )
     }

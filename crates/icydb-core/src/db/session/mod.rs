@@ -176,6 +176,18 @@ impl AcceptedSchemaCatalogContext {
     where
         E: EntityKind,
     {
+        let schema_info = self.accepted_schema_info_for::<E>();
+
+        self.accepted_entity_authority_for_schema_info::<E>(schema_info)
+    }
+
+    fn accepted_entity_authority_for_schema_info<E>(
+        &self,
+        schema_info: SchemaInfo,
+    ) -> Result<EntityAuthority, InternalError>
+    where
+        E: EntityKind,
+    {
         self.debug_assert_matches_entity::<E>();
         let authority = EntityAuthority::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH);
         let (accepted_row_layout, row_proof) =
@@ -185,11 +197,43 @@ impl AcceptedSchemaCatalogContext {
             )?;
         let row_decode_contract = accepted_row_layout.row_decode_contract();
 
-        Ok(authority.with_accepted_row_decode_contract(
-            row_proof,
-            row_decode_contract,
-            self.accepted_schema_info_for::<E>(),
-        ))
+        Ok(
+            authority.with_accepted_row_decode_contract(
+                row_proof,
+                row_decode_contract,
+                schema_info,
+            ),
+        )
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn accepted_entity_authority_and_schema_info_for<E>(
+        &self,
+    ) -> Result<(EntityAuthority, SchemaInfo), InternalError>
+    where
+        E: EntityKind,
+    {
+        let schema_info = self.accepted_schema_info_for::<E>();
+        let authority = self.accepted_entity_authority_for_schema_info::<E>(schema_info.clone())?;
+
+        Ok((authority, schema_info))
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn accepted_or_provided_entity_authority_and_schema_info_for<E>(
+        &self,
+        accepted_authority: Option<&EntityAuthority>,
+    ) -> Result<(EntityAuthority, SchemaInfo), InternalError>
+    where
+        E: EntityKind,
+    {
+        let schema_info = self.accepted_schema_info_for::<E>();
+        let authority = match accepted_authority {
+            Some(authority) => authority.clone(),
+            None => self.accepted_entity_authority_for_schema_info::<E>(schema_info.clone())?,
+        };
+
+        Ok((authority, schema_info))
     }
 
     #[must_use]

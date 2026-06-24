@@ -1,6 +1,5 @@
 use super::{
-    SqlWriteMutationBatch, SqlWriteMutationExecution,
-    checked_accepted_write_descriptor_for_returning, reject_explicit_sql_write_to_generated_field,
+    SqlWriteMutationBatch, SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
     sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
 };
@@ -290,70 +289,69 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema = self
-            .ensure_accepted_schema_snapshot::<E>()
-            .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(
-            &schema,
+        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             statement.returning.as_ref(),
-        )?;
-        let columns = sql_insert_columns(&descriptor, statement);
-        ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
-        let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
-        let mut rows = SqlWriteMutationBatch::new();
-        let mut save_schema_info = None;
+            |schema, descriptor| {
+                let columns = sql_insert_columns(&descriptor, statement);
+                ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
+                let write_context =
+                    SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
+                let mut rows = SqlWriteMutationBatch::new();
+                let mut save_schema_info = None;
 
-        match &statement.source {
-            SqlInsertSource::Values(values) => {
-                rows.reserve(values.len());
-                for tuple in values {
-                    if tuple.len() != columns.len() {
-                        return Err(QueryError::from_sql_parse_error(
-                            crate::db::sql::parser::SqlParseError::invalid_syntax(
-                                SqlSyntaxErrorKind::InsertValuesTupleLengthMismatch,
-                            ),
-                        ));
+                match &statement.source {
+                    SqlInsertSource::Values(values) => {
+                        rows.reserve(values.len());
+                        for tuple in values {
+                            if tuple.len() != columns.len() {
+                                return Err(QueryError::from_sql_parse_error(
+                                    crate::db::sql::parser::SqlParseError::invalid_syntax(
+                                        SqlSyntaxErrorKind::InsertValuesTupleLengthMismatch,
+                                    ),
+                                ));
+                            }
+
+                            Self::sql_insert_push_patch_row::<E>(
+                                &descriptor,
+                                &mut rows,
+                                columns.as_slice(),
+                                tuple.as_slice(),
+                            )?;
+                        }
                     }
-
-                    Self::sql_insert_push_patch_row::<E>(
-                        &descriptor,
-                        &mut rows,
-                        columns.as_slice(),
-                        tuple.as_slice(),
-                    )?;
+                    SqlInsertSource::Select(_) => {
+                        let source_query = source_query.ok_or_else(QueryError::invariant)?;
+                        let (schema_info, collected_rows) = self
+                            .execute_sql_insert_select_source_patches::<E>(
+                                schema,
+                                &descriptor,
+                                source_query,
+                                columns.as_slice(),
+                            )?;
+                        save_schema_info = Some(schema_info);
+                        rows = collected_rows;
+                    }
                 }
-            }
-            SqlInsertSource::Select(_) => {
-                let source_query = source_query.ok_or_else(QueryError::invariant)?;
-                let (schema_info, collected_rows) = self
-                    .execute_sql_insert_select_source_patches::<E>(
-                        &schema,
-                        &descriptor,
-                        source_query,
-                        columns.as_slice(),
-                    )?;
-                save_schema_info = Some(schema_info);
-                rows = collected_rows;
-            }
-        }
-        let staged_rows = rows.staged_rows();
-        let kind = match &statement.source {
-            SqlInsertSource::Values(_) => SqlWriteKind::Insert,
-            SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
-        };
-        self.execute_sql_write_mutation_batch::<E>(
-            &schema,
-            &descriptor,
-            SqlWriteMutationExecution {
-                rows,
-                staged_rows,
-                kind,
-                mode: MutationMode::Insert,
-                context: write_context,
-                returning_bounds: None,
-                save_schema_info,
+                let staged_rows = rows.staged_rows();
+                let kind = match &statement.source {
+                    SqlInsertSource::Values(_) => SqlWriteKind::Insert,
+                    SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
+                };
+                self.execute_sql_write_mutation_batch::<E>(
+                    schema,
+                    &descriptor,
+                    SqlWriteMutationExecution {
+                        rows,
+                        staged_rows,
+                        kind,
+                        mode: MutationMode::Insert,
+                        context: write_context,
+                        returning_bounds: None,
+                        save_schema_info,
+                    },
+                    statement.returning.as_ref(),
+                )
             },
-            statement.returning.as_ref(),
         )
     }
 }

@@ -221,6 +221,36 @@ Status: active.
   The matrix report now ranks retained layout hits, retained slot values, and
   byte-length-only retained values separately, so H7 candidates do not have to
   show up indirectly through broad kernel-row scan rankings.
+- Shared query-plan cache cleanup: SQL SELECT and global aggregate paths that
+  already own an accepted catalog now use catalog-aware shared-plan helpers
+  instead of passing loose accepted-schema snapshots plus schema fingerprints.
+  The raw schema/fingerprint helper remains only for schema-only structural
+  projection surfaces.
+- Direct count cardinality cleanup: normal and diagnostics SQL global
+  aggregate paths now share accepted-authority, visible-index, and direct-count
+  target construction while diagnostics still measure cache lookup, schema
+  preparation, plan build, and cache insert as separate phases.
+- Compiled aggregate prepared-plan cleanup: normal and diagnostics SQL global
+  aggregate paths now share the resolved prepared-plan shell, fallback-authority
+  selection, and shared-plan miss construction while preserving the diagnostics
+  compile-phase attribution boundary.
+- Compiled SELECT prepared-plan cleanup: normal and diagnostics SQL SELECT
+  paths now share the resolved prepared-plan shell, compiled SELECT cache
+  lookup/insert, accepted-authority selection, and current-catalog diagnostics
+  resolver while preserving grouped/scalar execution attribution.
+- Compiled write dispatch cleanup: normal and context-aware compiled SQL
+  execution now route INSERT, INSERT SELECT, UPDATE, and DELETE through one
+  shared write dispatcher, so write metrics/error attribution and default cache
+  shaping stay in one place.
+- Accepted write descriptor setup cleanup: INSERT, UPDATE, DELETE RETURNING,
+  validated DELETE, and public UPDATE/DELETE policy classification now share
+  the same accepted-schema plus RETURNING descriptor validation helper, keeping
+  count-only DELETE on its descriptor-free path.
+- Accepted catalog handoff cleanup: SQL compile-cache misses and EXPLAIN
+  execution now ask `AcceptedSchemaCatalogContext` for the paired accepted
+  authority plus `SchemaInfo` instead of reconstructing the pair at each SQL
+  surface. SQL-only schema/fingerprint constructors are feature-gated so
+  no-SQL diagnostics builds stay warning-free.
 - Large literal `IN` first slice: SQL membership lowering, predicate bridge
   recovery, truth-set compilation, and scalar evaluation now keep membership as
   a compact `IN_LIST` function instead of expanding into left-deep boolean

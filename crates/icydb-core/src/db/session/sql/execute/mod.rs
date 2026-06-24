@@ -100,6 +100,50 @@ where
     sql_statement_result_with_default_cache(result)
 }
 
+fn execute_compiled_sql_write_with_default_cache<E, C>(
+    session: &DbSession<C>,
+    compiled: &CompiledSqlCommand,
+) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
+where
+    E: PersistedRow<Canister = C> + EntityValue,
+    C: CanisterKind,
+{
+    match compiled {
+        CompiledSqlCommand::Delete { query, returning } => {
+            let result =
+                session.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
+            Some(sql_write_statement_result_with_default_cache::<E, C>(
+                SqlWriteKind::Delete,
+                result,
+            ))
+        }
+        CompiledSqlCommand::Insert(command) => {
+            let result = session
+                .execute_sql_insert_statement::<E>(command.statement(), command.source_query());
+            Some(sql_write_statement_result_with_default_cache::<E, C>(
+                sql_insert_write_kind(command.statement()),
+                result,
+            ))
+        }
+        CompiledSqlCommand::Update(statement) => {
+            let result = session.execute_sql_update_statement::<E>(statement);
+            Some(sql_write_statement_result_with_default_cache::<E, C>(
+                SqlWriteKind::Update,
+                result,
+            ))
+        }
+        CompiledSqlCommand::Select { .. }
+        | CompiledSqlCommand::GlobalAggregate { .. }
+        | CompiledSqlCommand::Explain(..)
+        | CompiledSqlCommand::DescribeEntity
+        | CompiledSqlCommand::ShowIndexesEntity
+        | CompiledSqlCommand::ShowColumnsEntity
+        | CompiledSqlCommand::ShowEntities { .. }
+        | CompiledSqlCommand::ShowStores { .. }
+        | CompiledSqlCommand::ShowMemory => None,
+    }
+}
+
 impl<C: CanisterKind> DbSession<C> {
     /// Execute one compiled reduced SQL statement into one unified SQL payload.
     #[cfg(test)]
@@ -211,18 +255,8 @@ impl<C: CanisterKind> DbSession<C> {
                 .execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(
                     query,
                     || {
-                        let catalog = self
-                            .accepted_schema_catalog_context_for_query::<E>()
-                            .map_err(QueryError::execute)?;
-                        let authority = catalog
-                            .accepted_entity_authority_for::<E>()
-                            .map_err(QueryError::execute)?;
-
-                        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+                        self.resolve_select_prepared_plan_for_current_catalog_with_compile_phase_attribution::<E>(
                             query,
-                            authority,
-                            catalog.snapshot(),
-                            catalog.fingerprint(),
                         )
                     },
                 ),
@@ -321,13 +355,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let authority = match accepted_authority {
-            Some(authority) => authority.clone(),
-            None => catalog
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute)?,
-        };
-        let schema_info = catalog.accepted_schema_info_for::<E>();
+        let (authority, schema_info) = catalog
+            .accepted_or_provided_entity_authority_and_schema_info_for::<E>(accepted_authority)
+            .map_err(QueryError::execute)?;
 
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
             lowered,
@@ -356,15 +386,14 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(result) = self.execute_metadata_compiled_sql_with_default_cache::<E>(compiled) {
             return result;
         }
+        if let Some(result) = execute_compiled_sql_write_with_default_cache::<E, C>(self, compiled)
+        {
+            return result;
+        }
 
         match compiled {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query)
-            }
-            CompiledSqlCommand::Delete { query, returning } => {
-                let result =
-                    self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
-                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Delete, result)
             }
             CompiledSqlCommand::GlobalAggregate { command, .. } => {
                 self.execute_global_aggregate_statement_ref::<E>(command)
@@ -372,19 +401,10 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Explain(lowered) => {
                 self.execute_explain_sql_with_cache_attribution::<E>(lowered)
             }
-            CompiledSqlCommand::Insert(command) => {
-                let result = self
-                    .execute_sql_insert_statement::<E>(command.statement(), command.source_query());
-                sql_write_statement_result_with_default_cache::<E, C>(
-                    sql_insert_write_kind(command.statement()),
-                    result,
-                )
-            }
-            CompiledSqlCommand::Update(statement) => {
-                let result = self.execute_sql_update_statement::<E>(statement);
-                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Update, result)
-            }
-            CompiledSqlCommand::DescribeEntity
+            CompiledSqlCommand::Delete { .. }
+            | CompiledSqlCommand::Insert(..)
+            | CompiledSqlCommand::Update(..)
+            | CompiledSqlCommand::DescribeEntity
             | CompiledSqlCommand::ShowIndexesEntity
             | CompiledSqlCommand::ShowColumnsEntity
             | CompiledSqlCommand::ShowEntities { .. }
@@ -427,6 +447,10 @@ impl<C: CanisterKind> DbSession<C> {
     {
         if let Some(result) =
             self.execute_metadata_compiled_sql_with_catalog_cache::<E>(compiled, catalog)
+        {
+            return result;
+        }
+        if let Some(result) = execute_compiled_sql_write_with_default_cache::<E, C>(self, compiled)
         {
             return result;
         }

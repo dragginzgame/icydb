@@ -218,10 +218,9 @@ impl<C: CanisterKind> DbSession<C> {
             record_cache_miss_reason_for_path(CacheKind::SqlCompiledCommand, reason, E::PATH);
         }
 
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
+        let (authority, schema) = catalog
+            .accepted_entity_authority_and_schema_info_for::<E>()
             .map_err(QueryError::execute)?;
-        let schema = catalog.accepted_schema_info_for::<E>();
 
         let parse_result =
             measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error));

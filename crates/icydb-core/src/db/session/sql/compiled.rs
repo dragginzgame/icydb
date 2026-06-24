@@ -414,11 +414,6 @@ impl SqlCompiledCommandExecutionContext {
     }
 
     #[must_use]
-    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.catalog.fingerprint()
-    }
-
-    #[must_use]
     pub(in crate::db) const fn compiled_schema_fingerprint(&self) -> SqlCompiledSchemaFingerprint {
         SqlCompiledSchemaFingerprint::from_catalog(&self.catalog)
     }

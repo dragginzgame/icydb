@@ -507,6 +507,25 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((authority, schema_info))
     }
 
+    fn with_checked_accepted_write_descriptor_for_returning<E, T>(
+        &self,
+        returning: Option<&SqlReturningProjection>,
+        run: impl for<'a> FnOnce(
+            &'a AcceptedSchemaSnapshot,
+            AcceptedRowLayoutRuntimeContract<'a>,
+        ) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(&schema, returning)?;
+
+        run(&schema, descriptor)
+    }
+
     fn collect_sql_write_mutation_batch_from_structural_query<K>(
         &self,
         schema: &AcceptedSchemaSnapshot,
@@ -621,38 +640,43 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok(SqlStatementResult::Count { row_count })
             }
             Some(returning) => {
-                let schema = self
-                    .ensure_accepted_schema_snapshot::<E>()
-                    .map_err(QueryError::execute)?;
-                let descriptor =
-                    checked_accepted_write_descriptor_for_returning::<E>(&schema, Some(returning))?;
-                let columns = projection_labels_from_accepted_write_descriptor(&descriptor);
+                self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+                    Some(returning),
+                    |_schema, descriptor| {
+                        let columns = projection_labels_from_accepted_write_descriptor(&descriptor);
 
-                // Phase 2: returning deletes reuse the structural projection
-                // terminal once, then shape the requested outbound row contract
-                // from executor-materialized rows at the SQL write boundary.
-                let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
-                let bounds = sql_delete_projection_bounds(execution_bounds, true);
-                let deleted = self
-                    .with_metrics(|| {
-                        self.delete_executor::<E>()
-                            .execute_structural_projection_with_bounds(plan, bounds, |projection| {
-                                validate_sql_materialized_returning_bounds(
-                                    E::MODEL.name(),
-                                    columns.as_slice(),
-                                    projection.value_rows(),
-                                    projection.row_count(),
-                                    returning,
-                                    execution_bounds.map(|bounds| bounds.returning),
-                                )
+                        // Phase 2: returning deletes reuse the structural projection
+                        // terminal once, then shape the requested outbound row contract
+                        // from executor-materialized rows at the SQL write boundary.
+                        let (plan, _) =
+                            self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
+                        let bounds = sql_delete_projection_bounds(execution_bounds, true);
+                        let deleted = self
+                            .with_metrics(|| {
+                                self.delete_executor::<E>()
+                                    .execute_structural_projection_with_bounds(
+                                        plan,
+                                        bounds,
+                                        |projection| {
+                                            validate_sql_materialized_returning_bounds(
+                                                E::MODEL.name(),
+                                                columns.as_slice(),
+                                                projection.value_rows(),
+                                                projection.row_count(),
+                                                returning,
+                                                execution_bounds.map(|bounds| bounds.returning),
+                                            )
+                                        },
+                                    )
                             })
-                    })
-                    .map_err(QueryError::execute)?;
-                let (rows, row_count) = deleted.into_rows_and_count();
-                let rows = rows.into_value_rows();
-                record_sql_write_delete_metrics(E::PATH, row_count, true);
+                            .map_err(QueryError::execute)?;
+                        let (rows, row_count) = deleted.into_rows_and_count();
+                        let rows = rows.into_value_rows();
+                        record_sql_write_delete_metrics(E::PATH, row_count, true);
 
-                sql_returning_statement_projection(columns, rows, row_count, returning)
+                        sql_returning_statement_projection(columns, rows, row_count, returning)
+                    },
+                )
             }
         }
     }
@@ -681,13 +705,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema = self
-            .ensure_accepted_schema_snapshot::<E>()
-            .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-        let context = SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
-        let report = classify_sql_delete_policy(sql, policy, context)?;
-        require_sql_write_policy_plan(report.plan)
+        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+            None,
+            |_schema, descriptor| {
+                let context =
+                    SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
+                let report = classify_sql_delete_policy(sql, policy, context)?;
+                require_sql_write_policy_plan(report.plan)
+            },
+        )
     }
 
     fn execute_validated_sql_delete_statement<E>(
@@ -698,21 +724,19 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema = self
-            .ensure_accepted_schema_snapshot::<E>()
-            .map_err(QueryError::execute)?;
-        checked_accepted_write_descriptor_for_returning::<E>(
-            &schema,
+        self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             statement.returning.as_ref(),
-        )?;
-        let (_authority, schema_info) =
-            Self::accepted_sql_write_authority_schema_info::<E>(&schema)?;
-        let query = Self::sql_delete_query_from_statement::<E>(&schema_info, statement)?;
+            |schema, _descriptor| {
+                let (_authority, schema_info) =
+                    Self::accepted_sql_write_authority_schema_info::<E>(schema)?;
+                let query = Self::sql_delete_query_from_statement::<E>(&schema_info, statement)?;
 
-        self.execute_sql_delete_statement_with_execution_bounds::<E>(
-            &query,
-            statement.returning.as_ref(),
-            Some(execution_bounds),
+                self.execute_sql_delete_statement_with_execution_bounds::<E>(
+                    &query,
+                    statement.returning.as_ref(),
+                    Some(execution_bounds),
+                )
+            },
         )
     }
 

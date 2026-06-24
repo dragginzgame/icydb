@@ -28,7 +28,6 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, SchemaInfo, SchemaVersion,
-            accepted_schema_cache_fingerprint_method_version,
         },
         session::AcceptedSchemaCatalogContext,
     },
@@ -119,13 +118,14 @@ impl SchemaCacheIdentity {
         }
     }
 
+    #[cfg(feature = "sql")]
     const fn from_accepted_schema_with_fingerprint(
         accepted_schema: &AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         Self::new(
             accepted_schema.persisted_snapshot().version(),
-            accepted_schema_cache_fingerprint_method_version(),
+            crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             fingerprint,
         )
     }
@@ -163,6 +163,7 @@ struct QueryPlanAcceptedSchema<'schema> {
 }
 
 impl<'schema> QueryPlanAcceptedSchema<'schema> {
+    #[cfg(feature = "sql")]
     const fn from_accepted_schema_with_fingerprint(
         accepted_schema: &'schema AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
@@ -672,17 +673,31 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_schema,
             schema_fingerprint,
         );
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
+            authority, schema, visibility, query,
+        )
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_catalog(
+        &self,
+        authority: EntityAuthority,
+        catalog: &AcceptedSchemaCatalogContext,
+        query: &StructuralQuery,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
+        let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
+
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query,
         )
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
         &self,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        schema_fingerprint: CommitSchemaFingerprint,
+        catalog: &AcceptedSchemaCatalogContext,
         query: &StructuralQuery,
     ) -> Result<
         (
@@ -693,14 +708,11 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     > {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
-            accepted_schema,
-            schema_fingerprint,
-        );
+        let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
         let mut compile_attribution = QueryPlanCompilePhaseAttribution::default();
         let mut recorder = QueryPlanCompilePhaseRecorder::new(&mut compile_attribution);
         let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
+            .cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
                 authority,
                 schema,
                 visibility,
@@ -712,7 +724,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "sql")]
-    fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
+    fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
         &self,
         authority: EntityAuthority,
         schema: QueryPlanAcceptedSchema<'_>,
@@ -721,7 +733,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let mut recorder = QueryPlanCompilePhaseRecorder::none();
 
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
             authority,
             schema,
             visibility,
@@ -730,7 +742,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
+    fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
         &self,
         authority: EntityAuthority,
         schema: QueryPlanAcceptedSchema<'_>,
@@ -910,7 +922,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> QueryPlanCacheKey {
         let schema_identity = SchemaCacheIdentity::new(
             schema_version,
-            accepted_schema_cache_fingerprint_method_version(),
+            crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             schema_fingerprint,
         );
         QueryPlanCacheKey::for_authority_with_method_version(
@@ -1149,7 +1161,7 @@ impl<C: CanisterKind> DbSession<C> {
             })
             .map_err(QueryError::execute)?;
 
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
             authority,
             schema,
             visibility,

@@ -528,13 +528,38 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    #[cfg(feature = "diagnostics")]
-    fn sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+    fn sql_select_prepared_plan_for_accepted_authority_with_catalog(
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+        ),
+        QueryError,
+    > {
+        let (prepared_plan, cache_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority_with_catalog(
+                authority.clone(),
+                catalog,
+                query,
+            )?;
+        Ok(Self::sql_select_projection_from_prepared_plan(
+            prepared_plan,
+            authority,
+            cache_attribution,
+        ))
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn sql_select_prepared_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
@@ -545,10 +570,9 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     > {
         let (prepared_plan, cache_attribution, plan_compile_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
                 authority.clone(),
-                accepted_schema,
-                schema_fingerprint,
+                catalog,
                 query,
             )?;
         let (prepared_plan, projection, cache_attribution) =
@@ -593,11 +617,8 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_entity_authority_for::<E>()
             .map_err(QueryError::execute)?;
 
-        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-            query,
-            authority,
-            catalog.snapshot(),
-            catalog.fingerprint(),
+        self.sql_select_prepared_plan_for_accepted_authority_with_catalog(
+            query, authority, &catalog,
         )
     }
 

@@ -7,13 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Continues the query-engine audit by consolidating shared query-plan cache
-  lookup, miss recording, plan build, insert mechanics, and schema-identity
-  construction without changing query semantics.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.36` continues the query-engine audit by resolving accepted catalog
+  authority/schema-info handoff through the catalog owner while keeping no-SQL
+  diagnostics builds warning-free.
+
+- `0.184.35` continues the query-engine audit by consolidating SQL
+  shared-plan, SELECT/global aggregate prepared-plan, compiled-write dispatch,
+  and accepted write descriptor setup paths without changing query or write
+  semantics.
 
 - `0.184.34` continues the query-engine audit by consolidating global
   aggregate direct-count routing state and schema cache identities without

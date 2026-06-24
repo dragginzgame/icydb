@@ -34,6 +34,55 @@ use super::diagnostics::measure_execute_phase_with_physical_access;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::projection::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;
 
+pub(super) struct ResolvedSelectPreparedPlan {
+    prepared_plan: SharedPreparedExecutionPlan,
+    projection: SqlProjectionContract,
+    cache_attribution: SqlCacheAttribution,
+}
+
+impl ResolvedSelectPreparedPlan {
+    const fn new(
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: SqlProjectionContract,
+        cache_attribution: SqlCacheAttribution,
+    ) -> Self {
+        Self {
+            prepared_plan,
+            projection,
+            cache_attribution,
+        }
+    }
+
+    const fn from_compiled_cache_hit(
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: SqlProjectionContract,
+    ) -> Self {
+        Self::new(
+            prepared_plan,
+            projection,
+            SqlCacheAttribution::shared_query_plan_cache_hit(),
+        )
+    }
+
+    const fn from_shared_query_plan(
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: SqlProjectionContract,
+        cache_attribution: SqlCacheAttribution,
+    ) -> Self {
+        Self::new(prepared_plan, projection, cache_attribution)
+    }
+
+    fn into_parts(
+        self,
+    ) -> (
+        SharedPreparedExecutionPlan,
+        SqlProjectionContract,
+        SqlCacheAttribution,
+    ) {
+        (self.prepared_plan, self.projection, self.cache_attribution)
+    }
+}
+
 impl<C: CanisterKind> DbSession<C> {
     // Convert one grouped executor result plus SQL projection labels into the
     // statement result shape shared by normal and diagnostics SQL execution.
@@ -191,12 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &StructuralQuery,
         resolve_plan: impl FnOnce() -> Result<
-            (
-                SharedPreparedExecutionPlan,
-                SqlProjectionContract,
-                SqlCacheAttribution,
-                QueryPlanCompilePhaseAttribution,
-            ),
+            (ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution),
             QueryError,
         >,
     ) -> Result<
@@ -212,8 +256,8 @@ impl<C: CanisterKind> DbSession<C> {
     {
         if query.has_grouping() {
             let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
-            let (prepared_plan, projection, cache_attribution, plan_compile_attribution) =
-                resolved_query_plan?;
+            let (resolved, plan_compile_attribution) = resolved_query_plan?;
+            let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
 
             let ((execute_local_instructions, store_local_instructions), statement_result) =
                 measure_execute_phase_with_physical_access(move || {
@@ -251,8 +295,8 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
-        let (prepared_plan, projection, cache_attribution, plan_compile_attribution) =
-            resolved_query_plan?;
+        let (resolved, plan_compile_attribution) = resolved_query_plan?;
+        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
 
         let ((execute_local_instructions, store_local_instructions), payload) =
             measure_execute_phase_with_physical_access(move || {
@@ -291,6 +335,155 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    fn select_authority_for_context<E>(
+        context: &SqlCompiledCommandExecutionContext,
+    ) -> Result<EntityAuthority, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match context.accepted_authority() {
+            Some(authority) => Ok(authority.clone()),
+            None => context
+                .accepted_catalog()
+                .accepted_entity_authority_for::<E>()
+                .map_err(QueryError::execute),
+        }
+    }
+
+    fn resolve_select_prepared_plan_for_authority_with_catalog(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+    ) -> Result<ResolvedSelectPreparedPlan, QueryError> {
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_for_accepted_authority_with_catalog(
+                query, authority, catalog,
+            )?;
+
+        Ok(ResolvedSelectPreparedPlan::from_shared_query_plan(
+            prepared_plan,
+            projection,
+            cache_attribution,
+        ))
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError> {
+        let (prepared_plan, projection, cache_attribution, plan_compile_attribution) = self
+            .sql_select_prepared_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
+                query,
+                authority,
+                catalog,
+            )?;
+
+        Ok((
+            ResolvedSelectPreparedPlan::from_shared_query_plan(
+                prepared_plan,
+                projection,
+                cache_attribution,
+            ),
+            plan_compile_attribution,
+        ))
+    }
+
+    fn resolve_select_prepared_plan_for_context<E>(
+        &self,
+        query: &StructuralQuery,
+        context: &SqlCompiledCommandExecutionContext,
+    ) -> Result<ResolvedSelectPreparedPlan, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let compiled_schema_fingerprint = context.compiled_schema_fingerprint();
+        if let Some((prepared_plan, projection)) = context
+            .command()
+            .cached_select_plan(compiled_schema_fingerprint)
+        {
+            return Ok(ResolvedSelectPreparedPlan::from_compiled_cache_hit(
+                prepared_plan,
+                projection,
+            ));
+        }
+
+        let authority = Self::select_authority_for_context::<E>(context)?;
+        let resolved = self.resolve_select_prepared_plan_for_authority_with_catalog(
+            query,
+            authority,
+            context.accepted_catalog(),
+        )?;
+        context.command().set_cached_select_plan(
+            compiled_schema_fingerprint,
+            resolved.prepared_plan.clone(),
+            resolved.projection.clone(),
+        );
+
+        Ok(resolved)
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn resolve_select_prepared_plan_for_context_with_compile_phase_attribution<E>(
+        &self,
+        query: &StructuralQuery,
+        context: &SqlCompiledCommandExecutionContext,
+    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let compiled_schema_fingerprint = context.compiled_schema_fingerprint();
+        if let Some((prepared_plan, projection)) = context
+            .command()
+            .cached_select_plan(compiled_schema_fingerprint)
+        {
+            return Ok((
+                ResolvedSelectPreparedPlan::from_compiled_cache_hit(prepared_plan, projection),
+                QueryPlanCompilePhaseAttribution::default(),
+            ));
+        }
+
+        let authority = Self::select_authority_for_context::<E>(context)?;
+        let (resolved, plan_compile_attribution) = self
+            .resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
+                query,
+                authority,
+                context.accepted_catalog(),
+            )?;
+        context.command().set_cached_select_plan(
+            compiled_schema_fingerprint,
+            resolved.prepared_plan.clone(),
+            resolved.projection.clone(),
+        );
+
+        Ok((resolved, plan_compile_attribution))
+    }
+
+    #[cfg(feature = "diagnostics")]
+    pub(super) fn resolve_select_prepared_plan_for_current_catalog_with_compile_phase_attribution<
+        E,
+    >(
+        &self,
+        query: &StructuralQuery,
+    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
+            .map_err(QueryError::execute)?;
+        let authority = catalog
+            .accepted_entity_authority_for::<E>()
+            .map_err(QueryError::execute)?;
+
+        self.resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
+            query, authority, &catalog,
+        )
+    }
+
     pub(super) fn execute_select_compiled_sql_with_cache_attribution<E>(
         &self,
         query: &StructuralQuery,
@@ -305,13 +498,9 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_entity_authority_for::<E>()
             .map_err(QueryError::execute)?;
 
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-                query,
-                authority,
-                catalog.snapshot(),
-                catalog.fingerprint(),
-            )?;
+        let resolved = self
+            .resolve_select_prepared_plan_for_authority_with_catalog(query, authority, &catalog)?;
+        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
 
         self.execute_select_compiled_sql_from_prepared_plan::<E>(
             query,
@@ -329,42 +518,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let compiled_schema_fingerprint = context.compiled_schema_fingerprint();
-        if let Some((prepared_plan, projection)) = context
-            .command()
-            .cached_select_plan(compiled_schema_fingerprint)
-        {
-            return self.execute_select_compiled_sql_from_prepared_plan::<E>(
-                query,
-                prepared_plan,
-                projection,
-                SqlCacheAttribution::shared_query_plan_cache_hit(),
-            );
-        }
-
-        let authority = match context.accepted_authority() {
-            Some(authority) => authority.clone(),
-            None => context
-                .accepted_catalog()
-                .accepted_entity_authority_for::<E>()
-                .map_err(QueryError::execute)?,
-        };
-
-        let resolved = self
-            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-                query,
-                authority,
-                context.accepted_schema(),
-                context.schema_fingerprint(),
-            );
-        if let Ok((prepared_plan, projection, _)) = &resolved {
-            context.command().set_cached_select_plan(
-                compiled_schema_fingerprint,
-                prepared_plan.clone(),
-                projection.clone(),
-            );
-        }
-        let (prepared_plan, projection, cache_attribution) = resolved?;
+        let resolved = self.resolve_select_prepared_plan_for_context::<E>(query, context)?;
+        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
 
         self.execute_select_compiled_sql_from_prepared_plan::<E>(
             query,
@@ -391,43 +546,9 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(query, || {
-            let compiled_schema_fingerprint = context.compiled_schema_fingerprint();
-            if let Some((prepared_plan, projection)) = context
-                .command()
-                .cached_select_plan(compiled_schema_fingerprint)
-            {
-                return Ok((
-                    prepared_plan,
-                    projection,
-                    SqlCacheAttribution::shared_query_plan_cache_hit(),
-                    QueryPlanCompilePhaseAttribution::default(),
-                ));
-            }
-
-            let authority = match context.accepted_authority() {
-                Some(authority) => authority.clone(),
-                None => context
-                    .accepted_catalog()
-                    .accepted_entity_authority_for::<E>()
-                    .map_err(QueryError::execute)?,
-            };
-
-            let resolved = self
-                .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
-                    query,
-                    authority,
-                    context.accepted_schema(),
-                    context.schema_fingerprint(),
-                );
-            if let Ok((prepared_plan, projection, _, _)) = &resolved {
-                context.command().set_cached_select_plan(
-                    compiled_schema_fingerprint,
-                    prepared_plan.clone(),
-                    projection.clone(),
-                );
-            }
-
-            resolved
+            self.resolve_select_prepared_plan_for_context_with_compile_phase_attribution::<E>(
+                query, context,
+            )
         })
     }
 
