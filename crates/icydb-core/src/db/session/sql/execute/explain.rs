@@ -14,7 +14,8 @@ use crate::{
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             explain::{
-                ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, FinalizedQueryDiagnostics,
+                ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainPlan,
+                FinalizedQueryDiagnostics,
             },
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
@@ -337,19 +338,13 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_schema,
                     &command,
                     |plan| {
-                        let mut rendered = Vec::with_capacity(strategies.len());
-
-                        for strategy in strategies {
-                            rendered.push(self.render_global_aggregate_terminal_explain(
-                                &command,
-                                strategy,
-                                plan,
-                                &authority,
-                                schema_info,
-                            )?);
-                        }
-
-                        Ok(rendered.join("\n\n"))
+                        self.render_global_aggregate_execution_explain(
+                            &command,
+                            strategies,
+                            plan,
+                            &authority,
+                            schema_info,
+                        )
                     },
                 )
             }
@@ -363,15 +358,40 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    fn render_global_aggregate_terminal_explain(
+    fn render_global_aggregate_execution_explain(
         &self,
         command: &SqlGlobalAggregateCommand,
-        strategy: &PreparedSqlScalarAggregateStrategy,
+        strategies: &[PreparedSqlScalarAggregateStrategy],
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
         let query_explain = plan.explain();
+        let mut rendered = Vec::with_capacity(strategies.len());
+
+        for strategy in strategies {
+            rendered.push(self.render_global_aggregate_terminal_explain(
+                command,
+                strategy,
+                &query_explain,
+                plan,
+                authority,
+                schema_info,
+            )?);
+        }
+
+        Ok(rendered.join("\n\n"))
+    }
+
+    fn render_global_aggregate_terminal_explain(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        strategy: &PreparedSqlScalarAggregateStrategy,
+        query_explain: &ExplainPlan,
+        plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
+        schema_info: &SchemaInfo,
+    ) -> Result<String, QueryError> {
         let execution = self.global_aggregate_terminal_execution_descriptor(
             command,
             strategy,
@@ -379,8 +399,11 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             schema_info,
         )?;
-        let terminal_plan =
-            ExplainAggregateTerminalPlan::new(query_explain, strategy.aggregate_kind(), execution);
+        let terminal_plan = ExplainAggregateTerminalPlan::new(
+            query_explain.clone(),
+            strategy.aggregate_kind(),
+            execution,
+        );
 
         Ok(render_sql_execution_explain(
             &FinalizedQueryDiagnostics::new(

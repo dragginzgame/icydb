@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Continues the query-engine audit by making global aggregate direct-count
+  probe states explicit across normal and diagnostics paths and reusing global
+  aggregate EXPLAIN query identity across terminal rendering without changing
+  aggregate semantics.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

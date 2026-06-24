@@ -155,3 +155,15 @@ Accept the DTO when at least one of these is true:
 
 Until one of those gates is met, keep the current descriptor properties and
 runtime attribution as the lightweight aggregate contract surface.
+
+## 2026-06-24 Guard-Mode Checkpoint
+
+A follow-up scan after the singleton aggregate EXPLAIN/diagnostics cleanup did
+not meet the DTO gate. The useful cleanup was local: global aggregate
+direct-count probing now classifies the probe target once for normal and
+diagnostics execution, and global aggregate execution EXPLAIN derives the base
+query explain once before rendering terminal descriptors.
+
+Keep the first-class aggregate operator DTO deferred until it removes logic
+from both global and grouped aggregate paths, becomes a shared runtime/EXPLAIN
+handoff, or prevents a real cache/fingerprint identity bug.

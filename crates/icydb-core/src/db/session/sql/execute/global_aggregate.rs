@@ -55,6 +55,15 @@ struct DirectCountCardinalityPlanProbe {
     entry: Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>,
 }
 
+enum DirectCountCardinalityProbeTarget {
+    Disabled,
+    FallbackOnly(EntityAuthority),
+    CountPlan {
+        authority: EntityAuthority,
+        entry: Arc<SqlGlobalAggregateCountPlanCacheEntry>,
+    },
+}
+
 struct DirectCountCardinalityProbeResolution {
     result: Option<(SqlStatementResult, SqlCacheAttribution)>,
     fallback_authority: Option<EntityAuthority>,
@@ -88,6 +97,71 @@ type MeasuredPreparedAggregatePlanResolution = Result<
     ),
     QueryError,
 >;
+
+impl DirectCountCardinalityProbeTarget {
+    fn from_probe(probe: Option<DirectCountCardinalityPlanProbe>) -> Self {
+        let Some(DirectCountCardinalityPlanProbe { authority, entry }) = probe else {
+            return Self::Disabled;
+        };
+        let Some(entry) = entry else {
+            return Self::FallbackOnly(authority);
+        };
+
+        Self::CountPlan { authority, entry }
+    }
+}
+
+impl DirectCountCardinalityProbeResolution {
+    const fn disabled() -> Self {
+        Self {
+            result: None,
+            fallback_authority: None,
+        }
+    }
+
+    const fn fallback(authority: EntityAuthority) -> Self {
+        Self {
+            result: None,
+            fallback_authority: Some(authority),
+        }
+    }
+
+    fn from_direct_value(projection: &ProjectionSpec, value: Value) -> Self {
+        Self {
+            result: Some(direct_count_rows_statement_result(
+                projection,
+                value,
+                SqlCacheAttribution::none(),
+            )),
+            fallback_authority: None,
+        }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+impl MeasuredDirectCountCardinalityProbeResolution {
+    const fn disabled() -> Self {
+        Self {
+            result: None,
+            fallback_authority: None,
+            fallback_execute_local_instructions: 0,
+            fallback_store_local_instructions: 0,
+        }
+    }
+
+    const fn fallback(
+        authority: EntityAuthority,
+        execute_local_instructions: u64,
+        store_local_instructions: u64,
+    ) -> Self {
+        Self {
+            result: None,
+            fallback_authority: Some(authority),
+            fallback_execute_local_instructions: execute_local_instructions,
+            fallback_store_local_instructions: store_local_instructions,
+        }
+    }
+}
 
 impl PreparedAggregateRequestBundle {
     fn from_global_command(
@@ -277,33 +351,26 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let Some(probe) = probe else {
-            return Ok(DirectCountCardinalityProbeResolution {
-                result: None,
-                fallback_authority: None,
-            });
-        };
-        let DirectCountCardinalityPlanProbe { authority, entry } = probe;
-        if let Some(count_plan) = &entry
-            && let Some(value) = self.execute_direct_count_cardinality_global_aggregate::<E>(
-                authority.clone(),
-                count_plan,
-            )?
-        {
-            return Ok(DirectCountCardinalityProbeResolution {
-                result: Some(direct_count_rows_statement_result(
-                    projection,
-                    value,
-                    SqlCacheAttribution::none(),
-                )),
-                fallback_authority: None,
-            });
-        }
+        match DirectCountCardinalityProbeTarget::from_probe(probe) {
+            DirectCountCardinalityProbeTarget::Disabled => {
+                Ok(DirectCountCardinalityProbeResolution::disabled())
+            }
+            DirectCountCardinalityProbeTarget::FallbackOnly(authority) => {
+                Ok(DirectCountCardinalityProbeResolution::fallback(authority))
+            }
+            DirectCountCardinalityProbeTarget::CountPlan { authority, entry } => {
+                if let Some(value) = self.execute_direct_count_cardinality_global_aggregate::<E>(
+                    authority.clone(),
+                    &entry,
+                )? {
+                    return Ok(DirectCountCardinalityProbeResolution::from_direct_value(
+                        projection, value,
+                    ));
+                }
 
-        Ok(DirectCountCardinalityProbeResolution {
-            result: None,
-            fallback_authority: Some(authority),
-        })
+                Ok(DirectCountCardinalityProbeResolution::fallback(authority))
+            }
+        }
     }
 
     #[cfg(feature = "diagnostics")]
@@ -316,22 +383,16 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let Some(probe) = probe else {
-            return Ok(MeasuredDirectCountCardinalityProbeResolution {
-                result: None,
-                fallback_authority: None,
-                fallback_execute_local_instructions: 0,
-                fallback_store_local_instructions: 0,
-            });
-        };
-        let DirectCountCardinalityPlanProbe { authority, entry } = probe;
-        let Some(count_plan) = &entry else {
-            return Ok(MeasuredDirectCountCardinalityProbeResolution {
-                result: None,
-                fallback_authority: Some(authority),
-                fallback_execute_local_instructions: 0,
-                fallback_store_local_instructions: 0,
-            });
+        let (authority, count_plan) = match DirectCountCardinalityProbeTarget::from_probe(probe) {
+            DirectCountCardinalityProbeTarget::Disabled => {
+                return Ok(MeasuredDirectCountCardinalityProbeResolution::disabled());
+            }
+            DirectCountCardinalityProbeTarget::FallbackOnly(authority) => {
+                return Ok(MeasuredDirectCountCardinalityProbeResolution::fallback(
+                    authority, 0, 0,
+                ));
+            }
+            DirectCountCardinalityProbeTarget::CountPlan { authority, entry } => (authority, entry),
         };
         let (
             scalar_aggregate_terminal,
@@ -340,7 +401,7 @@ impl<C: CanisterKind> DbSession<C> {
             measure_execute_phase_with_physical_access(|| {
                 self.execute_direct_count_cardinality_global_aggregate::<E>(
                     authority.clone(),
-                    count_plan,
+                    &count_plan,
                 )
             })
         });
@@ -365,12 +426,11 @@ impl<C: CanisterKind> DbSession<C> {
             });
         }
 
-        Ok(MeasuredDirectCountCardinalityProbeResolution {
-            result: None,
-            fallback_authority: Some(authority),
-            fallback_execute_local_instructions: execute_local_instructions,
-            fallback_store_local_instructions: store_local_instructions,
-        })
+        Ok(MeasuredDirectCountCardinalityProbeResolution::fallback(
+            authority,
+            execute_local_instructions,
+            store_local_instructions,
+        ))
     }
 
     fn direct_count_cardinality_plan_entry_for_accepted_authority(

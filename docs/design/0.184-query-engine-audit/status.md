@@ -516,6 +516,15 @@ Status: active.
   a measured counterpart to the normal direct-count/fallback execution helper,
   so direct prefix-cardinality probing, fallback prepared-plan resolution, and
   scalar aggregate terminal attribution stay behind one control-flow boundary.
+- D1 / F3 guard-mode follow-up: global aggregate direct-count probing now
+  classifies the probe target once as disabled, fallback-only, or executable
+  count-plan, and both normal and diagnostics execution consume that state.
+  Diagnostics still charge failed direct probes before fallback. Global
+  aggregate execution EXPLAIN now also derives the shared base query EXPLAIN
+  once per multi-terminal payload before rendering terminal descriptors. This
+  did not meet the first-class aggregate-operator DTO gate because no shared
+  grouped/singleton runtime handoff, EXPLAIN handoff, or cache/fingerprint
+  misclassification risk was found in this slice.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`
@@ -528,13 +537,9 @@ Status: active.
   and tested hybrid-covering pages now have the shared prefix-cardinality
   child-expansion path for `(collection_id, stage, id)`. Only tune this further
   if a new sparse `IN` shape shows up as a repeated hotspot.
-- D1 / F3: decide whether cache/explain identity should eventually carry a
-  first-class aggregate operator DTO shared by singleton global aggregate and
-  grouped aggregate explain assembly, or whether the current additive
-  descriptor properties are sufficient until a runtime execution merge is
-  justified. The DTO gate is recorded in `shared-aggregate-operator.md`: do
-  not add it until it deletes duplicate global/grouped logic, becomes the
-  shared EXPLAIN/runtime handoff, or prevents a real cache/fingerprint
+- D1 / F3 is in guard mode: the first-class aggregate operator DTO remains
+  deferred until it deletes duplicate global/grouped logic, becomes the shared
+  EXPLAIN/runtime handoff, or prevents a real cache/fingerprint
   misclassification risk.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
