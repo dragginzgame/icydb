@@ -6,9 +6,11 @@
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        commit::CommitSchemaFingerprint,
         schema::SchemaVersion,
-        session::{AcceptedSchemaCatalogContext, sql::compiled::CompiledSqlCommand},
+        session::{
+            AcceptedSchemaCatalogContext,
+            sql::compiled::{CompiledSqlCommand, SqlCompiledSchemaFingerprint},
+        },
     },
     metrics::sink::CacheMissReason,
     traits::{CanisterKind, EntityValue},
@@ -76,8 +78,7 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
     surface: SqlCompiledCommandSurface,
     entity_path: &'static str,
     schema_version: SchemaVersion,
-    schema_fingerprint_method_version: u8,
-    schema_fingerprint: CommitSchemaFingerprint,
+    schema_fingerprint: SqlCompiledSchemaFingerprint,
     sql: String,
 }
 
@@ -99,7 +100,6 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
         candidate.surface == key.surface
             && candidate.entity_path == key.entity_path
             && candidate.schema_version == key.schema_version
-            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.sql == key.sql
             && candidate.cache_method_version != key.cache_method_version
@@ -110,7 +110,6 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
     if cache.keys().any(|candidate| {
         candidate.surface == key.surface
             && candidate.entity_path == key.entity_path
-            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.sql == key.sql
             && candidate.cache_method_version == key.cache_method_version
@@ -124,9 +123,7 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
             && candidate.entity_path == key.entity_path
             && candidate.sql == key.sql
             && candidate.cache_method_version == key.cache_method_version
-            && (candidate.schema_fingerprint_method_version
-                != key.schema_fingerprint_method_version
-                || candidate.schema_fingerprint != key.schema_fingerprint)
+            && candidate.schema_fingerprint != key.schema_fingerprint
     }) {
         return CacheMissReason::SchemaFingerprint;
     }
@@ -134,7 +131,6 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
     if cache.keys().any(|candidate| {
         candidate.entity_path == key.entity_path
             && candidate.schema_version == key.schema_version
-            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.sql == key.sql
             && candidate.cache_method_version == key.cache_method_version
@@ -249,8 +245,7 @@ impl SqlCompiledCommandCacheKey {
         surface: SqlCompiledCommandSurface,
         entity_path: &'static str,
         schema_version: SchemaVersion,
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
         sql: &str,
     ) -> Self {
         Self {
@@ -258,7 +253,6 @@ impl SqlCompiledCommandCacheKey {
             surface,
             entity_path,
             schema_version,
-            schema_fingerprint_method_version,
             schema_fingerprint,
             sql: sql.to_string(),
         }
@@ -370,8 +364,10 @@ impl SqlCompiledCommandCacheKey {
             surface,
             entity_path: E::PATH,
             schema_version,
-            schema_fingerprint_method_version,
-            schema_fingerprint,
+            schema_fingerprint: SqlCompiledSchemaFingerprint::new(
+                schema_fingerprint_method_version,
+                schema_fingerprint,
+            ),
             sql: sql.to_string(),
         }
     }
@@ -395,8 +391,7 @@ impl<C: CanisterKind> DbSession<C> {
                 surface,
                 E::PATH,
                 catalog.schema_version(),
-                catalog.fingerprint_method_version(),
-                catalog.fingerprint(),
+                SqlCompiledSchemaFingerprint::from_catalog(&catalog),
                 sql,
             ),
             catalog,

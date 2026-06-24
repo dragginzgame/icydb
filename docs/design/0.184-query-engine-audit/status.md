@@ -525,6 +525,23 @@ Status: active.
   did not meet the first-class aggregate-operator DTO gate because no shared
   grouped/singleton runtime handoff, EXPLAIN handoff, or cache/fingerprint
   misclassification risk was found in this slice.
+- D1 / F3 guard-mode cleanup follow-up: the old global aggregate direct-count
+  probe wrapper has been removed. Compiled, non-compiled, diagnostics, and
+  runtime execution now pass the explicit `DirectCountCardinalityTarget`
+  contract directly, so the disabled / fallback-only / executable count-plan
+  states are no longer represented as nested optional probe/cache-entry state.
+  The post-probe result is now also explicit:
+  `DirectCountCardinalityOutcome` represents direct result versus fallback
+  authority as enum outcomes instead of mutually exclusive optional fields.
+  The diagnostics-only direct outcome boxes its phase attribution so the
+  fallback outcome stays compact. The same cleanup introduced
+  `SqlCompiledSchemaFingerprint` so SQL compiled-command cache identity and
+  compiled SQL SELECT / global aggregate plan-entry caches no longer thread
+  schema fingerprint method/version as adjacent loose values; cache entries
+  now store and compare one typed compiled-schema key. The shared query-plan
+  cache key also stores its existing `SchemaCacheIdentity` directly while
+  preserving method-version, schema-version, schema-fingerprint, and visibility
+  miss classification.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

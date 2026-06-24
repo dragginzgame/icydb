@@ -17,10 +17,38 @@ use crate::db::{
 };
 use std::sync::{Arc, OnceLock};
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(in crate::db) struct SqlCompiledSchemaFingerprint {
+    method_version: u8,
+    fingerprint: CommitSchemaFingerprint,
+}
+
+impl SqlCompiledSchemaFingerprint {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        method_version: u8,
+        fingerprint: CommitSchemaFingerprint,
+    ) -> Self {
+        Self {
+            method_version,
+            fingerprint,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
+        Self::new(catalog.fingerprint_method_version(), catalog.fingerprint())
+    }
+
+    #[must_use]
+    pub(in crate::db) fn matches(self, other: Self) -> bool {
+        self.method_version == other.method_version && self.fingerprint == other.fingerprint
+    }
+}
+
 #[derive(Debug)]
 pub(in crate::db) struct SqlSelectPlanCacheEntry {
-    schema_fingerprint_method_version: u8,
-    schema_fingerprint: CommitSchemaFingerprint,
+    schema_fingerprint: SqlCompiledSchemaFingerprint,
     prepared_plan: SharedPreparedExecutionPlan,
     projection: SqlProjectionContract,
 }
@@ -28,27 +56,15 @@ pub(in crate::db) struct SqlSelectPlanCacheEntry {
 impl SqlSelectPlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: SqlProjectionContract,
     ) -> Self {
         Self {
-            schema_fingerprint_method_version,
             schema_fingerprint,
             prepared_plan,
             projection,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
-        self.schema_fingerprint_method_version
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.schema_fingerprint
     }
 
     #[must_use]
@@ -64,33 +80,20 @@ impl SqlSelectPlanCacheEntry {
 
 #[derive(Debug)]
 pub(in crate::db) struct SqlGlobalAggregatePlanCacheEntry {
-    schema_fingerprint_method_version: u8,
-    schema_fingerprint: CommitSchemaFingerprint,
+    schema_fingerprint: SqlCompiledSchemaFingerprint,
     prepared_plan: SharedPreparedExecutionPlan,
 }
 
 impl SqlGlobalAggregatePlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
     ) -> Self {
         Self {
-            schema_fingerprint_method_version,
             schema_fingerprint,
             prepared_plan,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
-        self.schema_fingerprint_method_version
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.schema_fingerprint
     }
 
     #[must_use]
@@ -101,33 +104,20 @@ impl SqlGlobalAggregatePlanCacheEntry {
 
 #[derive(Debug)]
 pub(in crate::db) struct SqlGlobalAggregateCountPlanCacheEntry {
-    schema_fingerprint_method_version: u8,
-    schema_fingerprint: CommitSchemaFingerprint,
+    schema_fingerprint: SqlCompiledSchemaFingerprint,
     prefix_specs: Arc<[LoweredIndexPrefixCardinalitySpec]>,
 }
 
 impl SqlGlobalAggregateCountPlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
         prefix_specs: Arc<[LoweredIndexPrefixCardinalitySpec]>,
     ) -> Self {
         Self {
-            schema_fingerprint_method_version,
             schema_fingerprint,
             prefix_specs,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
-        self.schema_fingerprint_method_version
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.schema_fingerprint
     }
 
     #[must_use]
@@ -273,16 +263,13 @@ impl CompiledSqlCommand {
     #[must_use]
     pub(in crate::db) fn cached_select_plan(
         &self,
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
     ) -> Option<(SharedPreparedExecutionPlan, SqlProjectionContract)> {
         let Self::Select { plan_cache, .. } = self else {
             return None;
         };
         let entry = plan_cache.get()?;
-        if entry.schema_fingerprint_method_version() != schema_fingerprint_method_version
-            || entry.schema_fingerprint() != schema_fingerprint
-        {
+        if !entry.schema_fingerprint.matches(schema_fingerprint) {
             return None;
         }
 
@@ -291,14 +278,12 @@ impl CompiledSqlCommand {
 
     pub(in crate::db) fn set_cached_select_plan(
         &self,
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: SqlProjectionContract,
     ) {
         if let Self::Select { plan_cache, .. } = self {
             let _ = plan_cache.set(Arc::new(SqlSelectPlanCacheEntry::new(
-                schema_fingerprint_method_version,
                 schema_fingerprint,
                 prepared_plan,
                 projection,
@@ -309,16 +294,13 @@ impl CompiledSqlCommand {
     #[must_use]
     pub(in crate::db) fn cached_global_aggregate_plan(
         &self,
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
     ) -> Option<SharedPreparedExecutionPlan> {
         let Self::GlobalAggregate { plan_cache, .. } = self else {
             return None;
         };
         let entry = plan_cache.get()?;
-        if entry.schema_fingerprint_method_version() != schema_fingerprint_method_version
-            || entry.schema_fingerprint() != schema_fingerprint
-        {
+        if !entry.schema_fingerprint.matches(schema_fingerprint) {
             return None;
         }
 
@@ -328,8 +310,7 @@ impl CompiledSqlCommand {
     #[must_use]
     pub(in crate::db) fn cached_global_aggregate_count_plan(
         &self,
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
     ) -> Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
         let Self::GlobalAggregate {
             count_plan_cache, ..
@@ -338,9 +319,7 @@ impl CompiledSqlCommand {
             return None;
         };
         let entry = count_plan_cache.get()?;
-        if entry.schema_fingerprint_method_version() != schema_fingerprint_method_version
-            || entry.schema_fingerprint() != schema_fingerprint
-        {
+        if !entry.schema_fingerprint.matches(schema_fingerprint) {
             return None;
         }
 
@@ -349,13 +328,11 @@ impl CompiledSqlCommand {
 
     pub(in crate::db) fn set_cached_global_aggregate_plan(
         &self,
-        schema_fingerprint_method_version: u8,
-        schema_fingerprint: CommitSchemaFingerprint,
+        schema_fingerprint: SqlCompiledSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
     ) {
         if let Self::GlobalAggregate { plan_cache, .. } = self {
             let _ = plan_cache.set(Arc::new(SqlGlobalAggregatePlanCacheEntry::new(
-                schema_fingerprint_method_version,
                 schema_fingerprint,
                 prepared_plan,
             )));
@@ -442,8 +419,8 @@ impl SqlCompiledCommandExecutionContext {
     }
 
     #[must_use]
-    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
-        self.catalog.fingerprint_method_version()
+    pub(in crate::db) const fn compiled_schema_fingerprint(&self) -> SqlCompiledSchemaFingerprint {
+        SqlCompiledSchemaFingerprint::from_catalog(&self.catalog)
     }
 
     #[must_use]

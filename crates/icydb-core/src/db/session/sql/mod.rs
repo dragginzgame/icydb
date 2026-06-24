@@ -71,7 +71,7 @@ pub(in crate::db::session::sql) use compile::{
 };
 pub(in crate::db) use compiled::{
     CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
-    SqlGlobalAggregateCountPlanCacheEntry,
+    SqlCompiledSchemaFingerprint, SqlGlobalAggregateCountPlanCacheEntry,
 };
 #[cfg(test)]
 pub(in crate::db) use delete_policy::{

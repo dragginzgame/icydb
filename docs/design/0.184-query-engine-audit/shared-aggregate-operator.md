@@ -164,6 +164,25 @@ direct-count probing now classifies the probe target once for normal and
 diagnostics execution, and global aggregate execution EXPLAIN derives the base
 query explain once before rendering terminal descriptors.
 
+The next cleanup removed the old wrapper around that probe target. Compiled,
+non-compiled, diagnostics, and runtime direct-count paths now pass the explicit
+target contract directly instead of encoding disabled/fallback/count-plan state
+as nested optional probe/cache-entry state. The matching post-probe outcome is
+also explicit now: direct result and fallback authority are enum variants
+rather than optional fields that must remain mutually exclusive.
+
+The same slice also removed loose compiled-plan schema fingerprint pairs from
+SQL compiled-command cache identity and the compiled SQL SELECT/global
+aggregate plan-entry caches. Those caches now store and compare one
+`SqlCompiledSchemaFingerprint`, leaving raw fingerprint values only at the
+shared query-cache boundary that still owns that API.
+
+The shared query-plan cache key now also stores its existing
+`SchemaCacheIdentity` directly instead of expanding schema version,
+fingerprint method, and fingerprint bytes back into loose key fields. Miss
+classification still preserves method-version, schema-version,
+schema-fingerprint, and visibility distinctions.
+
 Keep the first-class aggregate operator DTO deferred until it removes logic
 from both global and grouped aggregate paths, becomes a shared runtime/EXPLAIN
 handoff, or prevents a real cache/fingerprint identity bug.

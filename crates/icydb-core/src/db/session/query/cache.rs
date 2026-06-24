@@ -87,22 +87,18 @@ pub(in crate::db) enum QueryPlanVisibility {
 /// QueryPlanCacheKey is the session-level identity for one shared prepared
 /// query plan. It includes store visibility and schema identity so cached
 /// plans cannot cross lifecycle or schema boundaries.
-/// Schema version and schema fingerprint are carried as separate facts, and
-/// raw fingerprint bytes are compared together with their method version.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct QueryPlanCacheKey {
     cache_method_version: u8,
     entity_path: &'static str,
-    schema_version: SchemaVersion,
-    schema_fingerprint_method_version: u8,
-    schema_fingerprint: CommitSchemaFingerprint,
+    schema_identity: SchemaCacheIdentity,
     visibility: QueryPlanVisibility,
     structural_query: crate::db::query::intent::StructuralQueryCacheKey,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct SchemaCacheIdentity {
     version: SchemaVersion,
     fingerprint_method_version: u8,
@@ -120,6 +116,15 @@ impl SchemaCacheIdentity {
             fingerprint_method_version,
             fingerprint,
         }
+    }
+
+    fn same_version(self, other: Self) -> bool {
+        self.version == other.version
+    }
+
+    fn same_fingerprint(self, other: Self) -> bool {
+        self.fingerprint_method_version == other.fingerprint_method_version
+            && self.fingerprint == other.fingerprint
     }
 }
 
@@ -187,31 +192,24 @@ fn shared_query_plan_cache_miss_reason(
         }
 
         let same_method_version = candidate.cache_method_version == key.cache_method_version;
-        let same_schema_version = candidate.schema_version == key.schema_version;
-        let same_schema_fingerprint_method =
-            candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version;
-        let same_schema_fingerprint = candidate.schema_fingerprint == key.schema_fingerprint;
+        let same_schema_version = candidate.schema_identity.same_version(key.schema_identity);
+        let same_schema_fingerprint = candidate
+            .schema_identity
+            .same_fingerprint(key.schema_identity);
         let same_visibility = candidate.visibility == key.visibility;
 
-        if same_schema_version
-            && same_schema_fingerprint_method
-            && same_schema_fingerprint
-            && same_visibility
-            && !same_method_version
+        if same_schema_version && same_schema_fingerprint && same_visibility && !same_method_version
         {
             return CacheMissReason::MethodVersion;
         }
 
-        schema_version_mismatch |= same_schema_fingerprint_method
-            && same_schema_fingerprint
+        schema_version_mismatch |= same_schema_fingerprint
             && same_visibility
             && same_method_version
             && !same_schema_version;
-        schema_fingerprint_mismatch |= same_visibility
-            && same_method_version
-            && (!same_schema_fingerprint_method || !same_schema_fingerprint);
+        schema_fingerprint_mismatch |=
+            same_visibility && same_method_version && !same_schema_fingerprint;
         visibility_mismatch |= same_schema_version
-            && same_schema_fingerprint_method
             && same_schema_fingerprint
             && same_method_version
             && !same_visibility;
@@ -1172,9 +1170,7 @@ impl QueryPlanCacheKey {
         Self {
             cache_method_version,
             entity_path,
-            schema_version: schema_identity.version,
-            schema_fingerprint_method_version: schema_identity.fingerprint_method_version,
-            schema_fingerprint: schema_identity.fingerprint,
+            schema_identity,
             visibility,
             structural_query,
         }
