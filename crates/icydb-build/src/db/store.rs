@@ -309,6 +309,24 @@ fn store_wiring_tokens(
         schema_defs,
         store_inits,
     } = store_registry;
+    let store_registry_init = if store_inits.is_empty() {
+        quote! {
+            {
+                ensure_memory_bootstrap();
+                ::icydb::__macro::StoreRegistry::new()
+            }
+        }
+    } else {
+        quote! {
+            {
+                ensure_memory_bootstrap();
+                let mut reg =
+                    ::icydb::__macro::StoreRegistry::new();
+                #store_inits
+                reg
+            }
+        }
+    };
 
     quote! {
         ::icydb::__macro::ic_memory_range!(
@@ -345,20 +363,9 @@ fn store_wiring_tokens(
         #schema_defs
         #entity_runtime_hooks
         thread_local! {
-            #[allow(unused_mut)]
-            #[expect(
-                clippy::let_and_return,
-                reason = "generated registry initialization keeps store setup statements before returning the registry"
-            )]
             static STORE_REGISTRY:
                 ::icydb::__macro::StoreRegistry =
-            {
-                ensure_memory_bootstrap();
-                let mut reg =
-                    ::icydb::__macro::StoreRegistry::new();
-                #store_inits
-                reg
-            };
+                #store_registry_init;
         }
 
         #[doc(hidden)]
@@ -383,6 +390,14 @@ fn store_wiring_tokens(
 mod tests {
     use super::*;
     use icydb_schema::node::Def;
+
+    fn compact_tokens(tokens: TokenStream) -> String {
+        tokens
+            .to_string()
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect()
+    }
 
     fn heap_store() -> Store {
         Store::new_heap(
@@ -466,5 +481,34 @@ mod tests {
         assert!(rendered.contains("icydb.demo.journaled.schema.v1"));
         assert!(rendered.contains("icydb.demo.journaled.journal.v1"));
         assert!(!rendered.contains("init_heap"));
+    }
+
+    #[test]
+    fn store_registry_wiring_does_not_emit_lint_suppressions() {
+        let canister_path: syn::Path = syn::parse_quote!(demo::schema::DemoCanister);
+        let mut store_inits = quote!();
+        store_inits.extend(
+            store_registry_entry_tokens("demo::schema::ScratchStore", &heap_store(), "demo").4,
+        );
+        let registry = StoreRegistryTokens {
+            journal_defs: quote!(),
+            data_defs: quote!(),
+            index_defs: quote!(),
+            schema_defs: quote!(),
+            store_inits,
+        };
+
+        let rendered = compact_tokens(store_wiring_tokens(
+            &canister_path,
+            registry,
+            quote!(),
+            10,
+            19,
+            18,
+            "icydb.demo.commit.v1",
+        ));
+
+        assert!(!rendered.contains("allow(unused_mut)"));
+        assert!(!rendered.contains("expect(clippy::let_and_return"));
     }
 }

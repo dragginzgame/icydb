@@ -9,14 +9,11 @@ fn append_only_field_mutation_plan_is_no_rebuild() {
         plan.compatibility(),
         MutationCompatibility::MetadataOnlySafe
     );
-    assert_eq!(
-        plan.rebuild_requirement(),
-        RebuildRequirement::NoRebuildRequired
-    );
+    assert_eq!(plan.rebuild_requirement(), RebuildRequirement::NoRebuild);
     assert_eq!(plan.added_field_count(), 1);
     assert_eq!(
         plan.mutations(),
-        &[SchemaMutation::AddNullableField {
+        &[SchemaMutation::NullableField {
             field_id: FieldId::new(3),
             name: "nickname".to_string(),
             slot: SchemaFieldSlot::new(2),
@@ -51,10 +48,7 @@ fn index_mutation_plans_are_rebuild_gated() {
 
     for plan in [&field_path, &expression, &drop] {
         assert_eq!(plan.compatibility(), MutationCompatibility::RequiresRebuild);
-        assert_eq!(
-            plan.rebuild_requirement(),
-            RebuildRequirement::IndexRebuildRequired
-        );
+        assert_eq!(plan.rebuild_requirement(), RebuildRequirement::IndexRebuild);
         assert_eq!(
             plan.publication_status(),
             MutationPublicationStatus::Blocked(MutationPublicationBlocker::NotMetadataSafe(
@@ -166,13 +160,13 @@ fn execution_plan_schedules_index_work_before_validation_and_invalidation() {
     assert_eq!(
         execution.readiness(),
         super::SchemaMutationExecutionReadiness::RequiresPhysicalRunner(
-            RebuildRequirement::IndexRebuildRequired,
+            RebuildRequirement::IndexRebuild,
         ),
     );
     assert_eq!(
         execution.execution_gate(),
         super::SchemaMutationExecutionGate::AwaitingPhysicalWork {
-            requirement: RebuildRequirement::IndexRebuildRequired,
+            requirement: RebuildRequirement::IndexRebuild,
             step_count: 3,
         },
     );
@@ -315,7 +309,7 @@ fn supported_developer_physical_path_admits_only_single_field_path_index_add() {
         rewrite.supported_developer_physical_path(),
         Err(
             super::SchemaMutationSupportedPathRejection::UnsupportedRequirement(
-                RebuildRequirement::FullDataRewriteRequired,
+                RebuildRequirement::FullDataRewrite,
             )
         ),
     );
@@ -406,7 +400,7 @@ fn runner_contract_preflight_deduplicates_capabilities_and_preserves_gate() {
     assert_eq!(
         execution.execution_gate(),
         super::SchemaMutationExecutionGate::AwaitingPhysicalWork {
-            requirement: RebuildRequirement::IndexRebuildRequired,
+            requirement: RebuildRequirement::IndexRebuild,
             step_count: 3,
         },
     );
@@ -431,7 +425,7 @@ fn runner_contract_preflight_keeps_no_work_and_rejections_non_executable() {
     assert_eq!(
         runner.preflight(&rewrite.execution_plan()),
         super::SchemaMutationRunnerPreflight::Rejected {
-            requirement: RebuildRequirement::FullDataRewriteRequired,
+            requirement: RebuildRequirement::FullDataRewrite,
         },
     );
     assert_eq!(
@@ -522,7 +516,7 @@ fn runner_outcome_classifies_missing_capabilities_and_unsupported_requirements()
     );
     assert_eq!(
         missing.requirement(),
-        Some(RebuildRequirement::IndexRebuildRequired),
+        Some(RebuildRequirement::IndexRebuild),
     );
     assert_eq!(
         missing.missing_capabilities(),
@@ -544,7 +538,7 @@ fn runner_outcome_classifies_missing_capabilities_and_unsupported_requirements()
     );
     assert_eq!(
         unsupported.requirement(),
-        Some(RebuildRequirement::FullDataRewriteRequired),
+        Some(RebuildRequirement::FullDataRewrite),
     );
     assert!(unsupported.missing_capabilities().is_empty());
 }
@@ -663,7 +657,7 @@ fn noop_runner_accepts_metadata_only_input_and_rejects_physical_work() {
     );
     assert_eq!(
         rejection.requirement(),
-        Some(RebuildRequirement::IndexRebuildRequired),
+        Some(RebuildRequirement::IndexRebuild),
     );
     assert_eq!(
         rejection.missing_capabilities(),
@@ -744,14 +738,12 @@ fn execution_plan_keeps_full_rewrite_and_unsupported_non_executable() {
 
     assert_eq!(
         rewrite_execution.readiness(),
-        super::SchemaMutationExecutionReadiness::Unsupported(
-            RebuildRequirement::FullDataRewriteRequired,
-        ),
+        super::SchemaMutationExecutionReadiness::Unsupported(RebuildRequirement::FullDataRewrite,),
     );
     assert_eq!(
         rewrite_execution.execution_gate(),
         super::SchemaMutationExecutionGate::Rejected {
-            requirement: RebuildRequirement::FullDataRewriteRequired,
+            requirement: RebuildRequirement::FullDataRewrite,
         },
     );
     assert_eq!(
@@ -766,7 +758,7 @@ fn execution_plan_keeps_full_rewrite_and_unsupported_non_executable() {
         rewrite_execution
             .admit_runner_capabilities(&[super::SchemaMutationRunnerCapability::RewriteAllRows,]),
         super::SchemaMutationExecutionAdmission::Rejected {
-            requirement: RebuildRequirement::FullDataRewriteRequired,
+            requirement: RebuildRequirement::FullDataRewrite,
         },
     );
 
@@ -962,7 +954,7 @@ fn unsupported_mutation_plans_fail_closed() {
     );
     assert_eq!(
         incompatible.rebuild_requirement(),
-        RebuildRequirement::FullDataRewriteRequired
+        RebuildRequirement::FullDataRewrite
     );
 }
 
@@ -973,7 +965,7 @@ fn publication_gate_allows_only_metadata_safe_no_rebuild_plans() {
     let metadata_safe_but_rebuild_required = MutationPlan {
         mutations: Vec::new(),
         compatibility: MutationCompatibility::MetadataOnlySafe,
-        rebuild: RebuildRequirement::IndexRebuildRequired,
+        rebuild: RebuildRequirement::IndexRebuild,
     };
     let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
 
@@ -984,7 +976,7 @@ fn publication_gate_allows_only_metadata_safe_no_rebuild_plans() {
     assert_eq!(
         metadata_safe_but_rebuild_required.publication_status(),
         MutationPublicationStatus::Blocked(MutationPublicationBlocker::RebuildRequired(
-            RebuildRequirement::IndexRebuildRequired,
+            RebuildRequirement::IndexRebuild,
         )),
     );
     assert_eq!(
@@ -1039,7 +1031,7 @@ fn publication_preflight_requires_runner_readiness_before_physical_work() {
     assert_eq!(
         incompatible.publication_preflight(&index_runner),
         super::MutationPublicationPreflight::Rejected {
-            requirement: RebuildRequirement::FullDataRewriteRequired,
+            requirement: RebuildRequirement::FullDataRewrite,
         },
     );
 }

@@ -81,13 +81,6 @@ impl ValidatedInEnvelopeIndexRangeCursorAnchor {
         self.identity.decoded_key()
     }
 
-    /// Return the lowered raw key retained on the validated cursor anchor.
-    #[expect(dead_code, reason = "retained for cursor-boundary handoff audits")]
-    #[must_use]
-    pub(in crate::db::cursor) const fn lowered_key(&self) -> &RawIndexStoreKey {
-        self.identity.lowered_key()
-    }
-
     #[must_use]
     pub(in crate::db::cursor) fn last_raw_key(&self) -> &[u8] {
         self.identity.last_raw_key()

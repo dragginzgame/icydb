@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 /// SchemaFieldPathIndexStagedStoreOverlay
 ///
@@ -14,10 +15,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlay {
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages isolated physical-store overlays before IndexStore mutation exists"
-)]
 impl SchemaFieldPathIndexStagedStoreOverlay {
     #[must_use]
     pub(in crate::db::schema) fn new(store: &str) -> Self {
@@ -51,21 +48,8 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
     }
 
     #[must_use]
-    pub(in crate::db::schema) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    #[must_use]
     pub(in crate::db::schema) fn get(&self, key: &RawIndexStoreKey) -> Option<&IndexEntryValue> {
         self.entries.get(key)
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) fn entries(&self) -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
-        self.entries
-            .iter()
-            .map(|(key, entry)| (key.clone(), entry.clone()))
-            .collect()
     }
 
     #[must_use]
@@ -181,13 +165,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlayValidatio
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages isolated overlay validation before publication exists"
-    )
-)]
 impl SchemaFieldPathIndexStagedStoreOverlayValidation {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {

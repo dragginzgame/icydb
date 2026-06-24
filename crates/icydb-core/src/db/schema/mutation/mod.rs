@@ -15,7 +15,6 @@ use crate::db::{
 };
 use crate::error::InternalError;
 use crate::types::EntityTag;
-use std::collections::BTreeMap;
 
 #[cfg(any(test, feature = "sql"))]
 mod field;
@@ -101,10 +100,15 @@ pub(in crate::db) use index_candidate::{
 };
 
 mod index;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use index::SchemaSecondaryIndexDropCleanupTarget;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
+};
+pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
-    SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
+    SchemaFieldPathIndexRebuildTarget,
 };
 #[cfg(test)]
 pub(in crate::db) use index::{
@@ -135,28 +139,28 @@ pub(in crate::db::schema) use identity::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutation {
-    AddNullableField {
+    NullableField {
         field_id: FieldId,
         name: String,
         slot: SchemaFieldSlot,
     },
-    AddDefaultedField {
+    DefaultedField {
         field_id: FieldId,
         name: String,
         slot: SchemaFieldSlot,
     },
-    AddFieldPathIndex {
+    FieldPathIndex {
         target: SchemaFieldPathIndexRebuildTarget,
     },
-    AddExpressionIndex {
+    ExpressionIndex {
         target: SchemaExpressionIndexRebuildTarget,
     },
+    #[cfg(any(test, feature = "sql"))]
     DropNonRequiredSecondaryIndex {
         target: SchemaSecondaryIndexDropCleanupTarget,
     },
-    AlterNullability {
-        field_id: FieldId,
-    },
+    #[cfg(test)]
+    AlterNullability { field_id: FieldId },
 }
 
 ///
@@ -167,13 +171,6 @@ pub(in crate::db::schema) enum SchemaMutation {
 /// must route through this type instead of constructing plans ad hoc.
 ///
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.152 stages the internal mutation request API before every request has a live caller"
-    )
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
     ExactMatch,
@@ -184,9 +181,11 @@ pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
     AddExpressionIndex {
         target: SchemaExpressionIndexRebuildTarget,
     },
+    #[cfg(any(test, feature = "sql"))]
     DropNonRequiredSecondaryIndex {
         target: SchemaSecondaryIndexDropCleanupTarget,
     },
+    #[cfg(test)]
     AlterNullability {
         field_id: FieldId,
     },
@@ -221,6 +220,7 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
 pub(in crate::db::schema) enum MutationCompatibility {
     MetadataOnlySafe,
     RequiresRebuild,
+    #[cfg(test)]
     UnsupportedPreOne,
     Incompatible,
 }
@@ -233,9 +233,10 @@ pub(in crate::db::schema) enum MutationCompatibility {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum RebuildRequirement {
-    NoRebuildRequired,
-    IndexRebuildRequired,
-    FullDataRewriteRequired,
+    NoRebuild,
+    IndexRebuild,
+    FullDataRewrite,
+    #[cfg(test)]
     Unsupported,
 }
 
@@ -255,6 +256,7 @@ pub(in crate::db::schema) enum SchemaRebuildAction {
     BuildExpressionIndex {
         target: SchemaExpressionIndexRebuildTarget,
     },
+    #[cfg(any(test, feature = "sql"))]
     DropSecondaryIndex {
         target: SchemaSecondaryIndexDropCleanupTarget,
     },
@@ -282,7 +284,7 @@ pub(in crate::db::schema) struct SchemaRebuildPlan {
 impl SchemaRebuildPlan {
     const fn no_rebuild() -> Self {
         Self {
-            requirement: RebuildRequirement::NoRebuildRequired,
+            requirement: RebuildRequirement::NoRebuild,
             actions: Vec::new(),
         }
     }
@@ -306,7 +308,7 @@ impl SchemaRebuildPlan {
 
     #[must_use]
     pub(in crate::db::schema) const fn requires_physical_work(&self) -> bool {
-        !matches!(self.requirement, RebuildRequirement::NoRebuildRequired)
+        !matches!(self.requirement, RebuildRequirement::NoRebuild)
     }
 
     #[must_use]
@@ -382,7 +384,7 @@ impl MutationPlan {
         Self {
             mutations: Vec::new(),
             compatibility: MutationCompatibility::MetadataOnlySafe,
-            rebuild: RebuildRequirement::NoRebuildRequired,
+            rebuild: RebuildRequirement::NoRebuild,
         }
     }
 
@@ -393,13 +395,13 @@ impl MutationPlan {
             .iter()
             .map(|field| {
                 if field.default().is_none() {
-                    SchemaMutation::AddNullableField {
+                    SchemaMutation::NullableField {
                         field_id: field.id(),
                         name: field.name().to_string(),
                         slot: field.slot(),
                     }
                 } else {
-                    SchemaMutation::AddDefaultedField {
+                    SchemaMutation::DefaultedField {
                         field_id: field.id(),
                         name: field.name().to_string(),
                         slot: field.slot(),
@@ -411,7 +413,7 @@ impl MutationPlan {
         Self {
             mutations,
             compatibility: MutationCompatibility::MetadataOnlySafe,
-            rebuild: RebuildRequirement::NoRebuildRequired,
+            rebuild: RebuildRequirement::NoRebuild,
         }
     }
 
@@ -420,9 +422,9 @@ impl MutationPlan {
     /// validate the physical index safely.
     fn field_path_index_addition(target: SchemaFieldPathIndexRebuildTarget) -> Self {
         Self {
-            mutations: vec![SchemaMutation::AddFieldPathIndex { target }],
+            mutations: vec![SchemaMutation::FieldPathIndex { target }],
             compatibility: MutationCompatibility::RequiresRebuild,
-            rebuild: RebuildRequirement::IndexRebuildRequired,
+            rebuild: RebuildRequirement::IndexRebuild,
         }
     }
 
@@ -431,24 +433,26 @@ impl MutationPlan {
     /// mutation so canonical expression metadata can be audited independently.
     fn expression_index_addition(target: SchemaExpressionIndexRebuildTarget) -> Self {
         Self {
-            mutations: vec![SchemaMutation::AddExpressionIndex { target }],
+            mutations: vec![SchemaMutation::ExpressionIndex { target }],
             compatibility: MutationCompatibility::RequiresRebuild,
-            rebuild: RebuildRequirement::IndexRebuildRequired,
+            rebuild: RebuildRequirement::IndexRebuild,
         }
     }
 
     /// Stage a supported index drop. Runtime execution is deferred until store
     /// cleanup and planner invalidation are wired through the mutation engine.
+    #[cfg(any(test, feature = "sql"))]
     fn secondary_index_drop(target: SchemaSecondaryIndexDropCleanupTarget) -> Self {
         Self {
             mutations: vec![SchemaMutation::DropNonRequiredSecondaryIndex { target }],
             compatibility: MutationCompatibility::RequiresRebuild,
-            rebuild: RebuildRequirement::IndexRebuildRequired,
+            rebuild: RebuildRequirement::IndexRebuild,
         }
     }
 
     /// Stage a nullability alteration. Pre-1.0 this remains fail-closed because
     /// existing data must be proven or rewritten before accepting it.
+    #[cfg(test)]
     fn nullability_alteration(field_id: FieldId) -> Self {
         Self {
             mutations: vec![SchemaMutation::AlterNullability { field_id }],
@@ -463,45 +467,27 @@ impl MutationPlan {
         Self {
             mutations: Vec::new(),
             compatibility: MutationCompatibility::Incompatible,
-            rebuild: RebuildRequirement::FullDataRewriteRequired,
+            rebuild: RebuildRequirement::FullDataRewrite,
         }
     }
 
     /// Borrow the ordered mutation list.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
-        )
-    )]
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn mutations(&self) -> &[SchemaMutation] {
         self.mutations.as_slice()
     }
 
     /// Return the stable compatibility bucket.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
-        )
-    )]
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn compatibility(&self) -> MutationCompatibility {
         self.compatibility
     }
 
     /// Return the physical rebuild requirement.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
-        )
-    )]
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn rebuild_requirement(&self) -> RebuildRequirement {
         self.rebuild
     }
@@ -561,30 +547,31 @@ impl MutationPlan {
     /// can safely become accepted runtime schema.
     #[must_use]
     pub(in crate::db::schema) fn rebuild_plan(&self) -> SchemaRebuildPlan {
-        if matches!(self.rebuild, RebuildRequirement::NoRebuildRequired) {
+        if matches!(self.rebuild, RebuildRequirement::NoRebuild) {
             return SchemaRebuildPlan::no_rebuild();
         }
 
         let mut actions = Vec::new();
         for mutation in &self.mutations {
             match mutation {
-                SchemaMutation::AddNullableField { .. }
-                | SchemaMutation::AddDefaultedField { .. } => {}
-                SchemaMutation::AddFieldPathIndex { target } => {
+                SchemaMutation::NullableField { .. } | SchemaMutation::DefaultedField { .. } => {}
+                SchemaMutation::FieldPathIndex { target } => {
                     actions.push(SchemaRebuildAction::BuildFieldPathIndex {
                         target: target.clone(),
                     });
                 }
-                SchemaMutation::AddExpressionIndex { target } => {
+                SchemaMutation::ExpressionIndex { target } => {
                     actions.push(SchemaRebuildAction::BuildExpressionIndex {
                         target: target.clone(),
                     });
                 }
+                #[cfg(any(test, feature = "sql"))]
                 SchemaMutation::DropNonRequiredSecondaryIndex { target } => {
                     actions.push(SchemaRebuildAction::DropSecondaryIndex {
                         target: target.clone(),
                     });
                 }
+                #[cfg(test)]
                 SchemaMutation::AlterNullability { .. } => {
                     actions.push(SchemaRebuildAction::Unsupported {
                         reason: "alter nullability requires data proof or rewrite",
@@ -595,14 +582,15 @@ impl MutationPlan {
 
         if actions.is_empty() {
             actions.push(match self.rebuild {
-                RebuildRequirement::FullDataRewriteRequired => SchemaRebuildAction::RewriteAllRows,
+                RebuildRequirement::FullDataRewrite => SchemaRebuildAction::RewriteAllRows,
+                #[cfg(test)]
                 RebuildRequirement::Unsupported => SchemaRebuildAction::Unsupported {
                     reason: "unsupported schema mutation",
                 },
-                RebuildRequirement::IndexRebuildRequired => SchemaRebuildAction::Unsupported {
+                RebuildRequirement::IndexRebuild => SchemaRebuildAction::Unsupported {
                     reason: "index rebuild mutation lacks an index target",
                 },
-                RebuildRequirement::NoRebuildRequired => {
+                RebuildRequirement::NoRebuild => {
                     unreachable!("schema mutation invariant",)
                 }
             });
@@ -626,15 +614,19 @@ impl MutationPlan {
     pub(in crate::db::schema) fn supported_developer_physical_path(
         &self,
     ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
-        let [SchemaMutation::AddFieldPathIndex { target }] = self.mutations.as_slice() else {
+        let [SchemaMutation::FieldPathIndex { target }] = self.mutations.as_slice() else {
             return match self.rebuild {
-                RebuildRequirement::NoRebuildRequired => {
+                RebuildRequirement::NoRebuild => {
                     Err(SchemaMutationSupportedPathRejection::NoPhysicalWork)
                 }
-                RebuildRequirement::IndexRebuildRequired => {
+                RebuildRequirement::IndexRebuild => {
                     Err(SchemaMutationSupportedPathRejection::UnsupportedMutationKind)
                 }
-                RebuildRequirement::FullDataRewriteRequired | RebuildRequirement::Unsupported => {
+                RebuildRequirement::FullDataRewrite => {
+                    Err(SchemaMutationSupportedPathRejection::UnsupportedRequirement(self.rebuild))
+                }
+                #[cfg(test)]
+                RebuildRequirement::Unsupported => {
                     Err(SchemaMutationSupportedPathRejection::UnsupportedRequirement(self.rebuild))
                 }
             };
@@ -656,8 +648,7 @@ impl MutationPlan {
             .filter(|mutation| {
                 matches!(
                     mutation,
-                    SchemaMutation::AddNullableField { .. }
-                        | SchemaMutation::AddDefaultedField { .. }
+                    SchemaMutation::NullableField { .. } | SchemaMutation::DefaultedField { .. }
                 )
             })
             .count()
@@ -674,9 +665,11 @@ impl SchemaMutationRequest<'_> {
             Self::AppendOnlyFields(fields) => MutationPlan::append_only_fields(fields),
             Self::AddFieldPathIndex { target } => MutationPlan::field_path_index_addition(target),
             Self::AddExpressionIndex { target } => MutationPlan::expression_index_addition(target),
+            #[cfg(any(test, feature = "sql"))]
             Self::DropNonRequiredSecondaryIndex { target } => {
                 MutationPlan::secondary_index_drop(target)
             }
+            #[cfg(test)]
             Self::AlterNullability { field_id } => MutationPlan::nullability_alteration(field_id),
             Self::Incompatible => MutationPlan::incompatible(),
         }

@@ -25,7 +25,8 @@ use crate::{
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement,
                 lower_prepared_sql_select_statement_with_schema,
-                lower_sql_command_from_prepared_statement_with_schema, prepare_sql_statement,
+                lower_sql_explain_command_from_prepared_statement_with_schema,
+                prepare_sql_statement,
             },
             parser::{
                 SqlExpr, SqlInsertSource, SqlOrderDirection, SqlOrderTerm, SqlSelectStatement,
@@ -302,7 +303,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepare_local_instructions, prepared) =
             Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let (lower_local_instructions, lowered) = measured(|| {
-            lower_sql_command_from_prepared_statement_with_schema(prepared, model, schema)
+            lower_sql_explain_command_from_prepared_statement_with_schema(prepared, model, schema)
                 .map_err(QueryError::from_sql_lowering_error)
         })?;
 

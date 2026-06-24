@@ -140,6 +140,7 @@ struct SchemaFieldInfo {
     slot: usize,
     ty: FieldType,
     kind: Option<FieldKind>,
+    #[cfg(feature = "sql")]
     nullable: bool,
     leaf_codec: LeafCodec,
     #[cfg(feature = "sql")]
@@ -293,21 +294,9 @@ pub(in crate::db) enum SchemaExpressionIndexKeyItemInfo {
     Expression(Box<SchemaIndexExpressionInfo>),
 }
 
-#[expect(
-    dead_code,
-    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
-)]
 impl SchemaExpressionIndexKeyItemInfo {
-    /// Borrow this key item as a field-path component, when applicable.
-    #[must_use]
-    pub(in crate::db) const fn field_path(&self) -> Option<&SchemaIndexFieldPathInfo> {
-        match self {
-            Self::FieldPath(field_path) => Some(field_path),
-            Self::Expression(_) => None,
-        }
-    }
-
     /// Borrow this key item as an expression component, when applicable.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn expression(&self) -> Option<&SchemaIndexExpressionInfo> {
         match self {
@@ -326,18 +315,13 @@ impl SchemaExpressionIndexKeyItemInfo {
 pub(in crate::db) struct SchemaIndexExpressionInfo {
     op: PersistedIndexExpressionOp,
     source: SchemaIndexFieldPathInfo,
+    #[cfg(test)]
     input_kind: PersistedFieldKind,
+    #[cfg(test)]
     output_kind: PersistedFieldKind,
     canonical_text: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
-    )
-)]
 impl SchemaIndexExpressionInfo {
     /// Return the accepted expression operation.
     #[must_use]
@@ -353,12 +337,14 @@ impl SchemaIndexExpressionInfo {
 
     /// Borrow the accepted expression input kind.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn input_kind(&self) -> &PersistedFieldKind {
         &self.input_kind
     }
 
     /// Borrow the accepted expression output kind.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn output_kind(&self) -> &PersistedFieldKind {
         &self.output_kind
     }
@@ -379,26 +365,24 @@ impl SchemaIndexExpressionInfo {
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SchemaIndexFieldPathInfo {
+    #[cfg(test)]
     field_id: Option<FieldId>,
     field_name: String,
     slot: usize,
     path: Vec<String>,
+    #[cfg(test)]
     ty: FieldType,
+    #[cfg(test)]
     persisted_kind: Option<PersistedFieldKind>,
+    #[cfg(test)]
     nullable: bool,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
-    )
-)]
 impl SchemaIndexFieldPathInfo {
     /// Return the accepted durable top-level field ID, when this came from a
     /// persisted schema snapshot.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn field_id(&self) -> Option<FieldId> {
         self.field_id
     }
@@ -423,6 +407,7 @@ impl SchemaIndexFieldPathInfo {
 
     /// Borrow reduced predicate/query type metadata for this key item.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn ty(&self) -> &FieldType {
         &self.ty
     }
@@ -430,6 +415,7 @@ impl SchemaIndexFieldPathInfo {
     /// Borrow the persisted field kind, when this key item came from accepted
     /// schema authority.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn persisted_kind(&self) -> Option<&PersistedFieldKind> {
         match &self.persisted_kind {
             Some(kind) => Some(kind),
@@ -439,6 +425,7 @@ impl SchemaIndexFieldPathInfo {
 
     /// Return whether this key item permits explicit persisted `NULL`.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
@@ -468,6 +455,7 @@ impl SchemaInfo {
                         slot,
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: Some(field.kind()),
+                        #[cfg(feature = "sql")]
                         nullable: field.nullable(),
                         leaf_codec: field.leaf_codec(),
                         #[cfg(feature = "sql")]
@@ -574,17 +562,6 @@ impl SchemaInfo {
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn entity_name(&self) -> Option<&str> {
         self.entity_name.as_deref()
-    }
-
-    /// Borrow the schema-owned entity path when this schema view was built
-    /// from an entity model or accepted persisted snapshot.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "schema views retain entity-path authority for diagnostics and DDL/reporting slices"
-    )]
-    pub(in crate::db) fn entity_path(&self) -> Option<&str> {
-        self.entity_path.as_deref()
     }
 
     /// Borrow the schema-owned primary-key field name for scalar primary-key
@@ -815,6 +792,7 @@ impl SchemaInfo {
                         slot,
                         ty: field_type_from_persisted_kind(field.kind()),
                         kind: generated_kind,
+                        #[cfg(feature = "sql")]
                         nullable: field.nullable(),
                         leaf_codec: field.leaf_codec(),
                         #[cfg(feature = "sql")]
@@ -913,12 +891,16 @@ fn schema_index_info_from_generated_index(
         .map(|field_name| {
             let field = schema_field_info(fields, field_name)?;
             Some(SchemaIndexFieldPathInfo {
+                #[cfg(test)]
                 field_id: None,
                 field_name: field_name.to_string(),
                 slot: field.slot,
                 path: vec![field_name.to_string()],
+                #[cfg(test)]
                 ty: field.ty.clone(),
+                #[cfg(test)]
                 persisted_kind: None,
+                #[cfg(test)]
                 nullable: field.nullable,
             })
         })
@@ -1015,7 +997,9 @@ fn schema_expression_index_key_item_info(
             SchemaExpressionIndexKeyItemInfo::Expression(Box::new(SchemaIndexExpressionInfo {
                 op: expression.op(),
                 source: schema_index_field_path_info_from_accepted(expression.source(), snapshot),
+                #[cfg(test)]
                 input_kind: expression.input_kind().clone(),
+                #[cfg(test)]
                 output_kind: expression.output_kind().clone(),
                 canonical_text: expression.canonical_text().to_string(),
             }))
@@ -1033,12 +1017,16 @@ fn schema_index_field_path_info_from_accepted(
         .to_string();
 
     SchemaIndexFieldPathInfo {
+        #[cfg(test)]
         field_id: Some(path.field_id()),
         field_name,
         slot: accepted_slot_index(path.slot()),
         path: path.path().to_vec(),
+        #[cfg(test)]
         ty: field_type_from_persisted_kind(path.kind()),
+        #[cfg(test)]
         persisted_kind: Some(path.kind().clone()),
+        #[cfg(test)]
         nullable: path.nullable(),
     }
 }

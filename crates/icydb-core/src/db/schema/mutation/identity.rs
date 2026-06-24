@@ -52,7 +52,7 @@ impl MutationPlan {
 impl SchemaMutation {
     fn hash_into(&self, hasher: &mut sha2::Sha256) {
         match self {
-            Self::AddNullableField {
+            Self::NullableField {
                 field_id,
                 name,
                 slot,
@@ -60,7 +60,7 @@ impl SchemaMutation {
                 write_hash_tag_u8(hasher, 1);
                 hash_field_identity(hasher, *field_id, name, *slot);
             }
-            Self::AddDefaultedField {
+            Self::DefaultedField {
                 field_id,
                 name,
                 slot,
@@ -68,11 +68,11 @@ impl SchemaMutation {
                 write_hash_tag_u8(hasher, 2);
                 hash_field_identity(hasher, *field_id, name, *slot);
             }
-            Self::AddFieldPathIndex { target } => {
+            Self::FieldPathIndex { target } => {
                 write_hash_tag_u8(hasher, 3);
                 target.hash_into(hasher);
             }
-            Self::AddExpressionIndex { target } => {
+            Self::ExpressionIndex { target } => {
                 write_hash_tag_u8(hasher, 4);
                 target.hash_into(hasher);
             }
@@ -104,9 +104,9 @@ impl MutationCompatibility {
 impl RebuildRequirement {
     const fn tag(self) -> u8 {
         match self {
-            Self::NoRebuildRequired => 1,
-            Self::IndexRebuildRequired => 2,
-            Self::FullDataRewriteRequired => 3,
+            Self::NoRebuild => 1,
+            Self::IndexRebuild => 2,
+            Self::FullDataRewrite => 3,
             Self::Unsupported => 4,
         }
     }
@@ -163,13 +163,6 @@ pub(in crate::db::schema) struct SchemaMutationRuntimeEpoch {
     snapshot_fingerprint: [u8; 16],
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-    )
-)]
 impl SchemaMutationRuntimeEpoch {
     pub(in crate::db::schema) fn from_snapshot(
         snapshot: &PersistedSchemaSnapshot,
@@ -182,16 +175,19 @@ impl SchemaMutationRuntimeEpoch {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn entity_path(&self) -> &str {
         self.entity_path.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn schema_version(&self) -> SchemaVersion {
         self.schema_version
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn snapshot_fingerprint(&self) -> [u8; 16] {
         self.snapshot_fingerprint
     }
@@ -212,13 +208,6 @@ pub(in crate::db::schema) struct SchemaMutationPublicationIdentity {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages runtime publication identity before physical runners publish snapshots"
-    )
-)]
 impl SchemaMutationPublicationIdentity {
     pub(in crate::db::schema) fn from_input(
         input: &SchemaMutationRunnerInput<'_>,
@@ -242,11 +231,13 @@ impl SchemaMutationPublicationIdentity {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn visible_epoch(&self) -> &SchemaMutationRuntimeEpoch {
         match self.store_visibility {
             SchemaMutationStoreVisibility::StagedOnly => &self.before,
@@ -255,6 +246,7 @@ impl SchemaMutationPublicationIdentity {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn published_epoch(
         &self,
     ) -> Option<&SchemaMutationRuntimeEpoch> {

@@ -29,14 +29,11 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationPlan {
     store: String,
     entry_count: usize,
     publication_identity: SchemaMutationPublicationIdentity,
+    #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages runtime invalidation before publication exists"
-)]
 impl SchemaFieldPathIndexRuntimeInvalidationPlan {
     pub(in crate::db::schema) fn from_isolated_index_store_validation(
         validation: &SchemaFieldPathIndexIsolatedIndexStoreValidation,
@@ -49,22 +46,26 @@ impl SchemaFieldPathIndexRuntimeInvalidationPlan {
                 input,
                 validation.store_visibility(),
             )?,
+            #[cfg(test)]
             store_visibility: validation.store_visibility(),
             runner_report: validation.runner_report().clone(),
         })
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn entry_count(&self) -> usize {
         self.entry_count
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn publication_identity(
         &self,
     ) -> &SchemaMutationPublicationIdentity {
@@ -72,13 +73,9 @@ impl SchemaFieldPathIndexRuntimeInvalidationPlan {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
-        &self.runner_report
     }
 
     #[must_use]
@@ -91,6 +88,7 @@ impl SchemaFieldPathIndexRuntimeInvalidationPlan {
         &self,
         sink: &mut impl SchemaMutationRuntimeInvalidationSink,
     ) -> SchemaFieldPathIndexRuntimeInvalidationReport {
+        #[cfg(test)]
         let invalidated_epochs = usize::from(self.requires_invalidation());
         if self.requires_invalidation() {
             sink.invalidate_runtime_schema(
@@ -103,8 +101,11 @@ impl SchemaFieldPathIndexRuntimeInvalidationPlan {
         SchemaFieldPathIndexRuntimeInvalidationReport {
             store: self.store.clone(),
             entry_count: self.entry_count,
+            #[cfg(test)]
             publication_identity: self.publication_identity.clone(),
+            #[cfg(test)]
             invalidated_epochs,
+            #[cfg(test)]
             store_visibility: self.store_visibility,
             runner_report: self.runner_report.with_runtime_state_invalidated(),
         }
@@ -122,19 +123,15 @@ impl SchemaFieldPathIndexRuntimeInvalidationPlan {
 pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationReport {
     store: String,
     entry_count: usize,
+    #[cfg(test)]
     publication_identity: SchemaMutationPublicationIdentity,
+    #[cfg(test)]
     invalidated_epochs: usize,
+    #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages runtime invalidation before publication exists"
-    )
-)]
 impl SchemaFieldPathIndexRuntimeInvalidationReport {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -147,6 +144,7 @@ impl SchemaFieldPathIndexRuntimeInvalidationReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn publication_identity(
         &self,
     ) -> &SchemaMutationPublicationIdentity {
@@ -154,11 +152,13 @@ impl SchemaFieldPathIndexRuntimeInvalidationReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn invalidated_epochs(&self) -> usize {
         self.invalidated_epochs
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
@@ -169,6 +169,7 @@ impl SchemaFieldPathIndexRuntimeInvalidationReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn publication_readiness(
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
@@ -225,10 +226,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
-)]
 impl SchemaFieldPathIndexSnapshotPublicationPlan {
     pub(in crate::db::schema) fn from_runtime_invalidation_report(
         report: &SchemaFieldPathIndexRuntimeInvalidationReport,
@@ -259,30 +256,29 @@ impl SchemaFieldPathIndexSnapshotPublicationPlan {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn entry_count(&self) -> usize {
         self.entry_count
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn accepted_after(&self) -> &PersistedSchemaSnapshot {
         &self.accepted_after
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn publication_identity(
         &self,
     ) -> &SchemaMutationPublicationIdentity {
         &self.publication_identity
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
-        &self.runner_report
     }
 
     #[must_use]
@@ -300,8 +296,11 @@ impl SchemaFieldPathIndexSnapshotPublicationPlan {
         SchemaFieldPathIndexSnapshotPublicationReport {
             store: self.store.clone(),
             entry_count: self.entry_count,
+            #[cfg(test)]
             accepted_after: self.accepted_after.clone(),
+            #[cfg(test)]
             publication_identity: self.publication_identity.clone(),
+            #[cfg(test)]
             store_visibility: SchemaMutationStoreVisibility::StagedOnly,
             runner_report: self.runner_report.with_snapshot_published(),
         }
@@ -320,19 +319,15 @@ impl SchemaFieldPathIndexSnapshotPublicationPlan {
 pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationReport {
     store: String,
     entry_count: usize,
+    #[cfg(test)]
     accepted_after: PersistedSchemaSnapshot,
+    #[cfg(test)]
     publication_identity: SchemaMutationPublicationIdentity,
+    #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
-    )
-)]
 impl SchemaFieldPathIndexSnapshotPublicationReport {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -345,11 +340,13 @@ impl SchemaFieldPathIndexSnapshotPublicationReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn accepted_after(&self) -> &PersistedSchemaSnapshot {
         &self.accepted_after
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn publication_identity(
         &self,
     ) -> &SchemaMutationPublicationIdentity {
@@ -357,6 +354,7 @@ impl SchemaFieldPathIndexSnapshotPublicationReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
@@ -367,6 +365,7 @@ impl SchemaFieldPathIndexSnapshotPublicationReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn publication_readiness(
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
@@ -406,10 +405,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStorePlan {
     publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
-)]
 impl SchemaFieldPathIndexPublishedStorePlan {
     pub(in crate::db::schema) fn from_validated_publication(
         validation: &SchemaFieldPathIndexIsolatedIndexStoreValidation,
@@ -444,23 +439,7 @@ impl SchemaFieldPathIndexPublishedStorePlan {
         })
     }
 
-    #[must_use]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn entry_count(&self) -> usize {
-        self.entry_count
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn publication_report(
-        &self,
-    ) -> &SchemaFieldPathIndexSnapshotPublicationReport {
-        &self.publication_report
-    }
-
+    #[cfg(test)]
     pub(in crate::db::schema) fn publish_index_store(
         &self,
         index_store: &mut IndexStore,
@@ -497,7 +476,6 @@ impl SchemaFieldPathIndexPublishedStorePlan {
             return Err(SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch);
         }
 
-        let generation_before = index_store.generation();
         index_store.mark_ready();
         let runner_report = self
             .publication_report
@@ -505,13 +483,14 @@ impl SchemaFieldPathIndexPublishedStorePlan {
             .with_physical_store_published();
 
         Ok(SchemaFieldPathIndexPublishedStoreReport {
+            #[cfg(test)]
             store: self.store.clone(),
+            #[cfg(test)]
             entry_count,
-            generation_before,
-            generation_after: index_store.generation(),
+            #[cfg(test)]
             index_state: index_store.state(),
+            #[cfg(test)]
             store_visibility: SchemaMutationStoreVisibility::Published,
-            publication_report: self.publication_report.clone(),
             runner_report,
         })
     }
@@ -545,56 +524,40 @@ fn target_index_entry_count(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStoreReport {
+    #[cfg(test)]
     store: String,
+    #[cfg(test)]
     entry_count: usize,
-    generation_before: u64,
-    generation_after: u64,
+    #[cfg(test)]
     index_state: IndexState,
+    #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
-    publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
-)]
 impl SchemaFieldPathIndexPublishedStoreReport {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn entry_count(&self) -> usize {
         self.entry_count
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn generation_before(&self) -> u64 {
-        self.generation_before
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn generation_after(&self) -> u64 {
-        self.generation_after
-    }
-
-    #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn index_state(&self) -> IndexState {
         self.index_state
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn publication_report(
-        &self,
-    ) -> &SchemaFieldPathIndexSnapshotPublicationReport {
-        &self.publication_report
     }
 
     #[must_use]
@@ -603,6 +566,7 @@ impl SchemaFieldPathIndexPublishedStoreReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn publication_readiness(
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
@@ -619,6 +583,7 @@ impl SchemaFieldPathIndexPublishedStoreReport {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(test)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStorePublicationBlocker {
     StoreStillStaged,
     PhysicalStateNotValidated,
@@ -637,6 +602,7 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStorePublicationBlocker
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(test)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStorePublicationReadiness {
     store: String,
     entry_count: usize,
@@ -644,15 +610,10 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStorePublicationReadi
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages publication readiness before staged stores can be published"
-    )
-)]
+#[cfg(test)]
 impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn from_overlay_validation(
         validation: &SchemaFieldPathIndexStagedStoreOverlayValidation,
     ) -> Self {

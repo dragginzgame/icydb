@@ -27,9 +27,9 @@ use crate::{
         },
         sql::{
             lowering::{
-                LoweredSqlCommand, LoweredSqlLaneKind, PreparedSqlScalarAggregateStrategy,
-                SqlGlobalAggregateCommand, bind_lowered_sql_explain_global_aggregate_with_schema,
-                bind_lowered_sql_query_structural_with_schema, lowered_sql_command_lane,
+                LoweredSqlCommand, PreparedSqlScalarAggregateStrategy, SqlGlobalAggregateCommand,
+                bind_lowered_sql_explain_global_aggregate_with_schema,
+                bind_lowered_sql_query_structural_with_schema,
             },
             parser::SqlExplainMode,
         },
@@ -37,26 +37,6 @@ use crate::{
     traits::CanisterKind,
     value::Value,
 };
-
-///
-/// ExplainSqlLane
-///
-/// ExplainSqlLane classifies lowered SQL statement families only for the
-/// `EXPLAIN` surface gate. It prevents non-explain statements from slipping
-/// through the explain renderer with ambiguous errors.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ExplainSqlLane {
-    Query,
-    Explain,
-    Describe,
-    ShowIndexes,
-    ShowColumns,
-    ShowEntities,
-    ShowStores,
-    ShowMemory,
-}
 
 // Render one shell-facing SQL execution explain report with a phase legend and
 // one indented immutable diagnostics artifact.
@@ -123,17 +103,7 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema: &AcceptedSchemaSnapshot,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
-        let lane = match lowered_sql_command_lane(lowered) {
-            LoweredSqlLaneKind::Query => ExplainSqlLane::Query,
-            LoweredSqlLaneKind::Explain => ExplainSqlLane::Explain,
-            LoweredSqlLaneKind::Describe => ExplainSqlLane::Describe,
-            LoweredSqlLaneKind::ShowIndexes => ExplainSqlLane::ShowIndexes,
-            LoweredSqlLaneKind::ShowColumns => ExplainSqlLane::ShowColumns,
-            LoweredSqlLaneKind::ShowEntities => ExplainSqlLane::ShowEntities,
-            LoweredSqlLaneKind::ShowStores => ExplainSqlLane::ShowStores,
-            LoweredSqlLaneKind::ShowMemory => ExplainSqlLane::ShowMemory,
-        };
-        if lane != ExplainSqlLane::Explain {
+        if !lowered.is_explain_lane() {
             return Err(QueryError::unsupported_query());
         }
 

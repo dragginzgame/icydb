@@ -347,10 +347,11 @@ pub(in crate::db::schema) fn decide_schema_transition(
                 ),
             );
         }
-        SchemaMutationRequest::AppendOnlyFields(_)
-        | SchemaMutationRequest::DropNonRequiredSecondaryIndex { .. }
-        | SchemaMutationRequest::AlterNullability { .. }
-        | SchemaMutationRequest::Incompatible => {}
+        SchemaMutationRequest::AppendOnlyFields(_) | SchemaMutationRequest::Incompatible => {}
+        #[cfg(any(test, feature = "sql"))]
+        SchemaMutationRequest::DropNonRequiredSecondaryIndex { .. } => {}
+        #[cfg(test)]
+        SchemaMutationRequest::AlterNullability { .. } => {}
     }
 
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);

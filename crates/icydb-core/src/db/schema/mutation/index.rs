@@ -86,15 +86,9 @@ pub(in crate::db) struct SchemaFieldPathIndexRebuildKey {
     pub(in crate::db::schema::mutation) nullable: bool,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-    )
-)]
 impl SchemaFieldPathIndexRebuildKey {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn field_id(&self) -> FieldId {
         self.field_id
     }
@@ -115,11 +109,13 @@ impl SchemaFieldPathIndexRebuildKey {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
         &self.kind
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
@@ -146,21 +142,25 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
 
 impl SchemaExpressionIndexRebuildTarget {
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
     }
@@ -175,6 +175,7 @@ impl SchemaExpressionIndexRebuildTarget {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn key_items(&self) -> &[SchemaExpressionIndexRebuildKey] {
         self.key_items.as_slice()
     }
@@ -208,35 +209,33 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildExpression {
     canonical_text: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
-    )
-)]
 impl SchemaExpressionIndexRebuildExpression {
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
         self.op
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn source(&self) -> &SchemaFieldPathIndexRebuildKey {
         &self.source
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn input_kind(&self) -> &PersistedFieldKind {
         &self.input_kind
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn output_kind(&self) -> &PersistedFieldKind {
         &self.output_kind
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn canonical_text(&self) -> &str {
         self.canonical_text.as_str()
     }
@@ -251,6 +250,7 @@ impl SchemaExpressionIndexRebuildExpression {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct SchemaSecondaryIndexDropCleanupTarget {
     ordinal: u16,
     name: String,
@@ -259,35 +259,34 @@ pub(in crate::db) struct SchemaSecondaryIndexDropCleanupTarget {
     predicate_sql: Option<String>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.152 stages cleanup target contracts before a physical runner consumes them"
-    )
-)]
+#[cfg(any(test, feature = "sql"))]
 impl SchemaSecondaryIndexDropCleanupTarget {
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
         match &self.predicate_sql {
             Some(predicate_sql) => Some(predicate_sql.as_str()),
@@ -695,8 +694,8 @@ impl SchemaExpressionIndexRebuildExpression {
     }
 }
 
+#[cfg(test)]
 impl SchemaSecondaryIndexDropCleanupTarget {
-    #[cfg(test)]
     pub(super) fn hash_into(&self, hasher: &mut sha2::Sha256) {
         write_hash_u32(hasher, u32::from(self.ordinal));
         write_hash_str_u32(hasher, &self.name);

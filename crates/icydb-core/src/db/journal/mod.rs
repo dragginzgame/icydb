@@ -3,14 +3,6 @@
 //! Does not own: runtime data/index/schema wrappers, recovery replay, or fold policy.
 //! Boundary: generated journal memory -> journal tail -> future recovery/fold consumers.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "recovery and fold will consume the remaining journal-tail surface after 0.174.3"
-    )
-)]
-
 mod codec;
 mod store;
 #[cfg(test)]

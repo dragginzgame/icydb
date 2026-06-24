@@ -58,6 +58,7 @@ impl SchemaExpressionIndexStagedEntry {
         &self.key
     }
 
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db::schema) const fn entry(&self) -> &IndexEntryValue {
         &self.entry
@@ -80,13 +81,6 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedRebuild {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.157 stages in-memory expression rebuild output before physical runners publish stores"
-    )
-)]
 impl SchemaExpressionIndexStagedRebuild {
     pub(in crate::db::schema) fn from_rows<'a>(
         _entity_path: &str,
@@ -137,6 +131,7 @@ impl SchemaExpressionIndexStagedRebuild {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn target(&self) -> &SchemaExpressionIndexRebuildTarget {
         &self.target
     }
@@ -147,16 +142,19 @@ impl SchemaExpressionIndexStagedRebuild {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn source_rows(&self) -> usize {
         self.source_rows
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn skipped_rows(&self) -> usize {
         self.skipped_rows
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
@@ -196,13 +194,14 @@ impl SchemaExpressionIndexStagedRebuild {
         })
     }
 
+    #[cfg(test)]
     pub(in crate::db::schema) fn validated_runner_report(
         &self,
         execution_plan: &SchemaMutationExecutionPlan,
     ) -> Result<SchemaMutationRunnerReport, SchemaMutationRunnerRejection> {
         let step_count = match execution_plan.execution_gate() {
             SchemaMutationExecutionGate::AwaitingPhysicalWork {
-                requirement: RebuildRequirement::IndexRebuildRequired,
+                requirement: RebuildRequirement::IndexRebuild,
                 step_count,
             } => step_count,
             SchemaMutationExecutionGate::AwaitingPhysicalWork { requirement, .. }
@@ -213,15 +212,13 @@ impl SchemaExpressionIndexStagedRebuild {
             }
             SchemaMutationExecutionGate::ReadyToPublish => {
                 return Err(SchemaMutationRunnerRejection::unsupported_requirement(
-                    RebuildRequirement::NoRebuildRequired,
+                    RebuildRequirement::NoRebuild,
                 ));
             }
         };
 
         let validation = self.validate().map_err(|_| {
-            SchemaMutationRunnerRejection::validation_failed(
-                RebuildRequirement::IndexRebuildRequired,
-            )
+            SchemaMutationRunnerRejection::validation_failed(RebuildRequirement::IndexRebuild)
         })?;
 
         Ok(SchemaMutationRunnerReport::expression_index_staged(
@@ -299,11 +296,13 @@ impl SchemaExpressionIndexStagedValidation {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn skipped_rows(&self) -> usize {
         self.skipped_rows
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }

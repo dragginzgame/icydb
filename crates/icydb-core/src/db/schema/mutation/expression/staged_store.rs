@@ -17,19 +17,13 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStore {
     report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages in-memory expression index-store writes before physical stores are mutated"
-)]
 impl SchemaExpressionIndexStagedStore {
     pub(in crate::db::schema) fn from_rebuild(
         rebuild: &SchemaExpressionIndexStagedRebuild,
         execution_plan: &SchemaMutationExecutionPlan,
     ) -> Result<Self, SchemaMutationRunnerRejection> {
         let validation = rebuild.validate().map_err(|_| {
-            SchemaMutationRunnerRejection::validation_failed(
-                RebuildRequirement::IndexRebuildRequired,
-            )
+            SchemaMutationRunnerRejection::validation_failed(RebuildRequirement::IndexRebuild)
         })?;
         let report = rebuild.validated_runner_report(execution_plan)?;
 
@@ -49,16 +43,6 @@ impl SchemaExpressionIndexStagedStore {
     #[must_use]
     pub(in crate::db::schema) const fn entries(&self) -> &[SchemaExpressionIndexStagedEntry] {
         self.entries.as_slice()
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn validation(&self) -> SchemaExpressionIndexStagedValidation {
-        self.validation
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn report(&self) -> &SchemaMutationRunnerReport {
-        &self.report
     }
 
     #[must_use]
@@ -111,18 +95,6 @@ impl SchemaExpressionIndexStagedStore {
             runner_report: self.report.clone(),
         }
     }
-
-    #[must_use]
-    pub(in crate::db::schema) fn discard(self) -> SchemaExpressionIndexStagedDiscardReport {
-        let store_visibility = self.store_visibility();
-        let discarded_entries = self.entries.len();
-
-        SchemaExpressionIndexStagedDiscardReport {
-            store: self.store,
-            discarded_entries,
-            store_visibility,
-        }
-    }
 }
 
 ///
@@ -161,13 +133,6 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreWriteReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.157 stages expression writer diagnostics before physical stores are mutated"
-    )
-)]
 impl SchemaExpressionIndexStagedStoreWriteReport {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -207,10 +172,6 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreWriteBatch {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages expression rollback-aware write batches before physical stores are mutated"
-)]
 impl SchemaExpressionIndexStagedStoreWriteBatch {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -237,23 +198,6 @@ impl SchemaExpressionIndexStagedStoreWriteBatch {
     #[must_use]
     pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
         &self.runner_report
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) fn write_to(
-        &self,
-        writer: &mut impl SchemaExpressionIndexStagedStoreWriter,
-    ) -> SchemaExpressionIndexStagedStoreWriteReport {
-        for entry in &self.entries {
-            writer.write_staged_entry(&self.store, entry.key(), entry.entry());
-        }
-
-        SchemaExpressionIndexStagedStoreWriteReport {
-            store: self.store.clone(),
-            intended_entries: self.entries.len(),
-            store_visibility: self.store_visibility,
-            runner_report: self.runner_report.clone(),
-        }
     }
 
     #[must_use]
@@ -289,13 +233,6 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackSnapsho
     previous_entry: Option<IndexEntryValue>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.157 stages expression rollback snapshots before physical stores are mutated"
-    )
-)]
 impl SchemaExpressionIndexStagedStoreRollbackSnapshot {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -327,13 +264,6 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.157 stages expression rollback plans before physical stores are mutated"
-    )
-)]
 impl SchemaExpressionIndexStagedStoreRollbackPlan {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -383,8 +313,6 @@ impl SchemaExpressionIndexStagedStoreRollbackPlan {
             actions_applied: self.actions.len(),
             restored_entries,
             removed_entries,
-            store_visibility: self.store_visibility,
-            runner_report: self.runner_report.clone(),
         }
     }
 }
@@ -419,14 +347,8 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackReport 
     actions_applied: usize,
     restored_entries: usize,
     removed_entries: usize,
-    store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages expression rollback diagnostics before physical stores are mutated"
-)]
 impl SchemaExpressionIndexStagedStoreRollbackReport {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -446,16 +368,6 @@ impl SchemaExpressionIndexStagedStoreRollbackReport {
     #[must_use]
     pub(in crate::db::schema) const fn removed_entries(&self) -> usize {
         self.removed_entries
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
-        &self.runner_report
     }
 }
 
@@ -477,13 +389,6 @@ pub(in crate::db::schema) enum SchemaExpressionIndexStagedStoreRollbackAction {
     },
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.157 stages expression rollback actions before physical stores are mutated"
-    )
-)]
 impl SchemaExpressionIndexStagedStoreRollbackAction {
     #[must_use]
     fn from_snapshot(snapshot: &SchemaExpressionIndexStagedStoreRollbackSnapshot) -> Self {
@@ -520,40 +425,5 @@ impl SchemaExpressionIndexStagedStoreRollbackAction {
             Self::Restore { entry, .. } => Some(entry),
             Self::Remove { .. } => None,
         }
-    }
-}
-
-///
-/// SchemaExpressionIndexStagedDiscardReport
-///
-/// Typed cleanup report for discarding one in-memory staged expression rebuild
-/// buffer.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaExpressionIndexStagedDiscardReport {
-    store: String,
-    discarded_entries: usize,
-    store_visibility: SchemaMutationStoreVisibility,
-}
-
-#[expect(
-    dead_code,
-    reason = "0.157 stages expression rebuild rollback diagnostics before physical stores are mutated"
-)]
-impl SchemaExpressionIndexStagedDiscardReport {
-    #[must_use]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn discarded_entries(&self) -> usize {
-        self.discarded_entries
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
     }
 }

@@ -25,12 +25,17 @@ pub(in crate::db) enum JournalTailVisit {
     /// Continue traversal.
     Continue,
     /// Stop traversal after the current batch.
+    #[cfg(test)]
     Stop,
 }
 
 impl JournalTailVisit {
     const fn should_stop(self) -> bool {
-        matches!(self, Self::Stop)
+        match self {
+            Self::Continue => false,
+            #[cfg(test)]
+            Self::Stop => true,
+        }
     }
 }
 
@@ -233,6 +238,7 @@ impl JournalTailStore {
 
     /// Return the number of complete journal-tail batches.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn len(&self) -> u64 {
         self.map.len().saturating_sub(u64::from(
             self.map.contains_key(&FOLD_WATERMARK_CONTROL_SEQUENCE),
@@ -241,6 +247,7 @@ impl JournalTailStore {
 
     /// Return whether the journal tail is currently empty.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn is_empty(&self) -> bool {
         self.len() == 0
     }

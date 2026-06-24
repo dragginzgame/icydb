@@ -720,15 +720,15 @@ pub(crate) enum SqlScalarFunction {
     EndsWith,
     Exp,
     Floor,
-    #[cfg_attr(not(test), expect(dead_code))]
+    #[cfg(test)]
     IsEmpty,
-    #[cfg_attr(not(test), expect(dead_code))]
+    #[cfg(test)]
     IsMissing,
-    #[cfg_attr(not(test), expect(dead_code))]
+    #[cfg(test)]
     IsNotEmpty,
-    #[cfg_attr(not(test), expect(dead_code))]
+    #[cfg(test)]
     IsNotNull,
-    #[cfg_attr(not(test), expect(dead_code))]
+    #[cfg(test)]
     IsNull,
     Left,
     Length,
@@ -800,10 +800,15 @@ impl SqlScalarFunction {
             Self::EndsWith => Function::EndsWith,
             Self::Exp => Function::Exp,
             Self::Floor => Function::Floor,
+            #[cfg(test)]
             Self::IsEmpty => Function::IsEmpty,
+            #[cfg(test)]
             Self::IsMissing => Function::IsMissing,
+            #[cfg(test)]
             Self::IsNotEmpty => Function::IsNotEmpty,
+            #[cfg(test)]
             Self::IsNotNull => Function::IsNotNull,
+            #[cfg(test)]
             Self::IsNull => Function::IsNull,
             Self::Left => Function::Left,
             Self::Length => Function::Length,
@@ -854,15 +859,14 @@ impl SqlScalarFunction {
             | Self::Log2
             | Self::Sign
             | Self::Sqrt
-            | Self::IsEmpty
-            | Self::IsMissing
-            | Self::IsNotEmpty
-            | Self::IsNotNull
-            | Self::IsNull
             | Self::Lower
             | Self::Upper
             | Self::Length
             | Self::OctetLength => SqlScalarFunctionCallShape::UnaryExpr,
+            #[cfg(test)]
+            Self::IsEmpty | Self::IsMissing | Self::IsNotEmpty | Self::IsNotNull | Self::IsNull => {
+                SqlScalarFunctionCallShape::UnaryExpr
+            }
             Self::Left | Self::Right | Self::StartsWith | Self::EndsWith | Self::Contains => {
                 SqlScalarFunctionCallShape::FieldPlusLiteral
             }

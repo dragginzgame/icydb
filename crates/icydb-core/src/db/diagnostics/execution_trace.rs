@@ -78,115 +78,31 @@ impl ExecutionStats {
     }
 
     /// Return rows encountered before post-access predicate filtering.
+    #[cfg(test)]
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
-        )
-    )]
     pub(in crate::db) const fn rows_scanned_pre_filter(&self) -> u64 {
         self.rows_scanned_pre_filter
     }
 
     /// Return rows retained after predicate filtering.
+    #[cfg(test)]
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
-        )
-    )]
     pub(in crate::db) const fn rows_after_predicate(&self) -> u64 {
         self.rows_after_predicate
     }
 
     /// Return rows retained after final projection/materialization.
+    #[cfg(test)]
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
-        )
-    )]
     pub(in crate::db) const fn rows_after_projection(&self) -> u64 {
         self.rows_after_projection
     }
 
-    /// Return rows retained after DISTINCT processing when applicable.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn rows_after_distinct(&self) -> u64 {
-        self.rows_after_distinct
-    }
-
-    /// Return rows submitted to in-memory ordering.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn rows_sorted(&self) -> u64 {
-        self.rows_sorted
-    }
-
     /// Return number of physical keys yielded by ordered key streams.
+    #[cfg(test)]
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
-        )
-    )]
     pub(in crate::db) const fn keys_streamed(&self) -> u64 {
         self.keys_streamed
-    }
-
-    /// Return microseconds spent polling ordered key streams.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn key_stream_micros(&self) -> u64 {
-        self.key_stream_micros
-    }
-
-    /// Return microseconds spent in in-memory ordering.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn ordering_micros(&self) -> u64 {
-        self.ordering_micros
-    }
-
-    /// Return microseconds spent finalizing projection payloads.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn projection_micros(&self) -> u64 {
-        self.projection_micros
-    }
-
-    /// Return microseconds spent in grouped aggregation fold work.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn aggregation_micros(&self) -> u64 {
-        self.aggregation_micros
     }
 }
 
@@ -385,14 +301,8 @@ impl ExecutionTrace {
     }
 
     /// Return optional operator-level execution stats for this trace.
+    #[cfg(test)]
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution stats are an internal diagnostics/testing surface"
-        )
-    )]
     pub(in crate::db) const fn execution_stats(&self) -> Option<ExecutionStats> {
         self.execution_stats
     }

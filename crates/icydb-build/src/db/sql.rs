@@ -80,7 +80,6 @@ impl SqlSurfaceTokens {
 
         quote! {
             #[cfg(feature = "sql")]
-            #[allow(dead_code)]
             fn __icydb_query_dispatch(
                 sql: &str,
             ) -> Result<
@@ -110,7 +109,6 @@ impl SqlSurfaceTokens {
 
         quote! {
             #[cfg(feature = "sql")]
-            #[allow(dead_code)]
             #[allow(
                 clippy::unnecessary_wraps,
                 reason = "zero-entity canisters still need the macro-owned reset helper to share the fallible reset signature"
@@ -133,7 +131,6 @@ impl SqlSurfaceTokens {
         quote! {
 
             #[cfg(feature = "sql")]
-            #[allow(dead_code)]
             fn icydb_sql_surface_ddl_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
@@ -158,7 +155,6 @@ impl SqlSurfaceTokens {
         quote! {
 
             #[cfg(feature = "sql")]
-            #[allow(dead_code)]
             fn icydb_sql_surface_update_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
@@ -514,6 +510,21 @@ mod tests {
         assert!(!surface.contains("execute_sql_count"));
         assert!(!surface.contains("execute_fluent_count"));
         assert!(!surface.contains("execute_count"));
+    }
+
+    #[test]
+    fn generated_sql_surface_does_not_emit_dead_code_suppressions() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SqlSurfaceTokens::empty(
+            all_sql_surface_flags(),
+            Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
+        );
+
+        surface_tokens.push_entity(&entity_ty);
+
+        let surface = compact_tokens(quote!(#surface_tokens));
+
+        assert!(!surface.contains("allow(dead_code)"));
     }
 
     #[test]

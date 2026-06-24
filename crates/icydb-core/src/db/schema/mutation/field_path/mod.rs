@@ -9,7 +9,9 @@ pub(in crate::db::schema) use self::staged_store::*;
 mod isolated_store;
 pub(in crate::db::schema) use self::isolated_store::*;
 
+#[cfg(test)]
 mod overlay;
+#[cfg(test)]
 pub(in crate::db::schema) use self::overlay::*;
 
 mod publication;

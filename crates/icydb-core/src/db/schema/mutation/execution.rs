@@ -1,10 +1,15 @@
 //! Schema mutation execution and runner-preflight contracts.
 
+#[cfg(any(test, feature = "sql"))]
+use super::SchemaSecondaryIndexDropCleanupTarget;
 use super::{
     MutationPublicationBlocker, RebuildRequirement, SchemaExpressionIndexRebuildTarget,
-    SchemaFieldPathIndexRebuildTarget, SchemaMutationRunnerOutcome, SchemaMutationRunnerRejection,
-    SchemaMutationRunnerReport, SchemaMutationStoreVisibility, SchemaRebuildAction,
-    SchemaRebuildPlan, SchemaSecondaryIndexDropCleanupTarget,
+    SchemaFieldPathIndexRebuildTarget, SchemaRebuildAction, SchemaRebuildPlan,
+};
+#[cfg(test)]
+use super::{
+    SchemaMutationRunnerOutcome, SchemaMutationRunnerRejection, SchemaMutationRunnerReport,
+    SchemaMutationStoreVisibility,
 };
 
 ///
@@ -37,6 +42,7 @@ pub(in crate::db::schema) enum SchemaMutationExecutionStep {
     BuildExpressionIndex {
         target: SchemaExpressionIndexRebuildTarget,
     },
+    #[cfg(any(test, feature = "sql"))]
     DropSecondaryIndex {
         target: SchemaSecondaryIndexDropCleanupTarget,
     },
@@ -60,6 +66,7 @@ pub(in crate::db::schema) enum SchemaMutationExecutionStep {
 pub(in crate::db::schema) enum SchemaMutationRunnerCapability {
     BuildFieldPathIndex,
     BuildExpressionIndex,
+    #[cfg(any(test, feature = "sql"))]
     DropSecondaryIndex,
     ValidatePhysicalWork,
     InvalidateRuntimeState,
@@ -117,13 +124,6 @@ pub(in crate::db::schema) struct SchemaMutationSupportedExecutionPath {
     target: SchemaFieldPathIndexRebuildTarget,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.154 starts supported-path admission before reconciliation consumes it"
-    )
-)]
 impl SchemaMutationSupportedExecutionPath {
     #[must_use]
     pub(in crate::db::schema) const fn new(target: SchemaFieldPathIndexRebuildTarget) -> Self {
@@ -136,6 +136,7 @@ impl SchemaMutationSupportedExecutionPath {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn required_capabilities() -> Vec<SchemaMutationRunnerCapability> {
         vec![
             SchemaMutationRunnerCapability::BuildFieldPathIndex,
@@ -250,6 +251,7 @@ impl SchemaMutationRunnerContract {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn outcome(
         &self,
         execution_plan: &SchemaMutationExecutionPlan,
@@ -321,13 +323,6 @@ pub(in crate::db::schema) struct SchemaMutationExecutionPlan {
     steps: Vec<SchemaMutationExecutionStep>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.152 stages execution-boundary contracts before physical runners consume them"
-    )
-)]
 impl SchemaMutationExecutionPlan {
     const fn publishable_now() -> Self {
         Self {
@@ -344,15 +339,17 @@ impl SchemaMutationExecutionPlan {
         }
 
         let readiness = match rebuild_plan.requirement() {
-            RebuildRequirement::NoRebuildRequired => {
-                SchemaMutationExecutionReadiness::PublishableNow
-            }
-            RebuildRequirement::IndexRebuildRequired => {
+            RebuildRequirement::NoRebuild => SchemaMutationExecutionReadiness::PublishableNow,
+            RebuildRequirement::IndexRebuild => {
                 SchemaMutationExecutionReadiness::RequiresPhysicalRunner(
-                    RebuildRequirement::IndexRebuildRequired,
+                    RebuildRequirement::IndexRebuild,
                 )
             }
-            RebuildRequirement::FullDataRewriteRequired | RebuildRequirement::Unsupported => {
+            RebuildRequirement::FullDataRewrite => {
+                SchemaMutationExecutionReadiness::Unsupported(rebuild_plan.requirement())
+            }
+            #[cfg(test)]
+            RebuildRequirement::Unsupported => {
                 SchemaMutationExecutionReadiness::Unsupported(rebuild_plan.requirement())
             }
         };
@@ -371,6 +368,7 @@ impl SchemaMutationExecutionPlan {
                         target: target.clone(),
                     }
                 }
+                #[cfg(any(test, feature = "sql"))]
                 SchemaRebuildAction::DropSecondaryIndex { target } => {
                     SchemaMutationExecutionStep::DropSecondaryIndex {
                         target: target.clone(),
@@ -395,6 +393,7 @@ impl SchemaMutationExecutionPlan {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn readiness(&self) -> SchemaMutationExecutionReadiness {
         self.readiness
     }
@@ -423,6 +422,7 @@ impl SchemaMutationExecutionPlan {
     }
 
     #[must_use]
+    #[cfg(test)]
     const fn physical_requirement(&self) -> Option<RebuildRequirement> {
         match self.execution_gate() {
             SchemaMutationExecutionGate::ReadyToPublish => None,
@@ -443,6 +443,7 @@ impl SchemaMutationExecutionPlan {
                 SchemaMutationExecutionStep::BuildExpressionIndex { .. } => {
                     Some(SchemaMutationRunnerCapability::BuildExpressionIndex)
                 }
+                #[cfg(any(test, feature = "sql"))]
                 SchemaMutationExecutionStep::DropSecondaryIndex { .. } => {
                     Some(SchemaMutationRunnerCapability::DropSecondaryIndex)
                 }
@@ -497,14 +498,15 @@ impl SchemaMutationExecutionPlan {
 
     #[must_use]
     fn has_unsupported_supported_path_step(&self) -> bool {
-        self.steps.iter().any(|step| {
-            matches!(
-                step,
-                SchemaMutationExecutionStep::BuildExpressionIndex { .. }
-                    | SchemaMutationExecutionStep::DropSecondaryIndex { .. }
-                    | SchemaMutationExecutionStep::RewriteAllRows
-                    | SchemaMutationExecutionStep::Unsupported { .. }
-            )
+        self.steps.iter().any(|step| match step {
+            SchemaMutationExecutionStep::BuildExpressionIndex { .. }
+            | SchemaMutationExecutionStep::RewriteAllRows
+            | SchemaMutationExecutionStep::Unsupported { .. } => true,
+            #[cfg(any(test, feature = "sql"))]
+            SchemaMutationExecutionStep::DropSecondaryIndex { .. } => true,
+            SchemaMutationExecutionStep::BuildFieldPathIndex { .. }
+            | SchemaMutationExecutionStep::ValidatePhysicalWork
+            | SchemaMutationExecutionStep::InvalidateRuntimeState => false,
         })
     }
 
@@ -520,7 +522,7 @@ impl SchemaMutationExecutionPlan {
                 return Err(SchemaMutationSupportedPathRejection::NoPhysicalWork);
             }
             SchemaMutationExecutionReadiness::RequiresPhysicalRunner(
-                RebuildRequirement::IndexRebuildRequired,
+                RebuildRequirement::IndexRebuild,
             ) => {}
             SchemaMutationExecutionReadiness::Unsupported(requirement)
             | SchemaMutationExecutionReadiness::RequiresPhysicalRunner(requirement) => {

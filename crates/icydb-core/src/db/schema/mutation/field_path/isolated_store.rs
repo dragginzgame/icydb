@@ -13,65 +13,69 @@ use super::*;
 pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
     store: String,
     pub(in crate::db::schema) index_store: &'a mut IndexStore,
+    #[cfg(test)]
     generation_before: u64,
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages isolated IndexStore mutation before publication exists"
-    )
-)]
 impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
     pub(in crate::db::schema) fn new(store: &str, index_store: &'a mut IndexStore) -> Self {
+        #[cfg(test)]
         let generation_before = index_store.generation();
         index_store.mark_building();
 
         Self {
             store: store.to_string(),
             index_store,
+            #[cfg(test)]
             generation_before,
             store_visibility: SchemaMutationStoreVisibility::StagedOnly,
         }
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn generation_before(&self) -> u64 {
         self.generation_before
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn generation(&self) -> u64 {
         self.index_store.generation()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn len(&self) -> u64 {
         self.index_store.len()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         self.index_store.get(key)
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn index_state(&self) -> IndexState {
         self.index_store.state()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
 
+    #[cfg(test)]
     pub(in crate::db::schema) fn validate_batch(
         &self,
         batch: &SchemaFieldPathIndexStagedStoreWriteBatch,
@@ -152,7 +156,9 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
         Ok(SchemaFieldPathIndexIsolatedIndexStoreValidation {
             store: self.store.clone(),
             entry_count: batch.entries().len(),
+            #[cfg(test)]
             generation_before: self.generation_before,
+            #[cfg(test)]
             generation_after: self.index_store.generation(),
             index_state: self.index_store.state(),
             store_visibility: self.store_visibility,
@@ -255,20 +261,15 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexIsolatedIndexStoreValidationE
 pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreValidation {
     store: String,
     entry_count: usize,
+    #[cfg(test)]
     generation_before: u64,
+    #[cfg(test)]
     generation_after: u64,
     index_state: IndexState,
     store_visibility: SchemaMutationStoreVisibility,
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages isolated IndexStore validation before publication exists"
-    )
-)]
 impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -281,11 +282,13 @@ impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn generation_before(&self) -> u64 {
         self.generation_before
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn generation_after(&self) -> u64 {
         self.generation_after
     }
@@ -306,6 +309,7 @@ impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn publication_readiness(
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {

@@ -236,7 +236,7 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
     );
     assert_eq!(
         rejection.requirement(),
-        Some(RebuildRequirement::IndexRebuildRequired),
+        Some(RebuildRequirement::IndexRebuild),
     );
 
     let mut mismatched_count = staged.clone();

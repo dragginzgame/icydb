@@ -1,7 +1,10 @@
+#[cfg(test)]
+use super::SchemaMutationRunnerContract;
+#[cfg(test)]
+use super::expression::SchemaExpressionIndexStagedValidation;
 use super::{
     RebuildRequirement, SchemaFieldPathIndexRebuildTarget, SchemaFieldPathIndexStagedValidation,
-    SchemaMutationExecutionPlan, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-    expression::SchemaExpressionIndexStagedValidation,
+    SchemaMutationExecutionPlan, SchemaMutationRunnerCapability,
 };
 use crate::db::schema::PersistedSchemaSnapshot;
 
@@ -12,10 +15,6 @@ use crate::db::schema::PersistedSchemaSnapshot;
 /// making these diagnostics explicit before any runner can mutate storage.
 ///
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages runner outcome diagnostics before physical runners consume them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
     Preflight,
@@ -25,7 +24,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
     InvalidateRuntimeState,
     PublishSnapshot,
     PublishPhysicalStore,
-    Diagnostics,
 }
 
 ///
@@ -36,6 +34,7 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
 /// shapes cannot appear as partially supported diagnostics.
 ///
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationDeveloperKind {
     AddFieldPathIndex,
@@ -83,27 +82,28 @@ pub(in crate::db::schema) enum SchemaMutationPublishStatus {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationDeveloperReport {
+    #[cfg(test)]
     phase: SchemaMutationRunnerPhase,
+    #[cfg(test)]
     mutation_kind: SchemaMutationDeveloperKind,
     entity_path: &'static str,
+    #[cfg(test)]
     target_index: String,
+    #[cfg(test)]
     target_store: String,
+    #[cfg(test)]
     target_fields: Vec<String>,
     rows_scanned: usize,
     index_keys_written: usize,
+    #[cfg(test)]
     validation_status: SchemaMutationValidationStatus,
+    #[cfg(test)]
     publish_status: SchemaMutationPublishStatus,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
-    )
-)]
 impl SchemaMutationDeveloperReport {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn field_path_index_addition(
         phase: SchemaMutationRunnerPhase,
         entity_path: &'static str,
@@ -128,11 +128,31 @@ impl SchemaMutationDeveloperReport {
     }
 
     #[must_use]
+    #[cfg(not(test))]
+    pub(in crate::db::schema) const fn field_path_index_addition(
+        _phase: SchemaMutationRunnerPhase,
+        entity_path: &'static str,
+        _target: &SchemaFieldPathIndexRebuildTarget,
+        rows_scanned: usize,
+        index_keys_written: usize,
+        _validation_status: SchemaMutationValidationStatus,
+        _publish_status: SchemaMutationPublishStatus,
+    ) -> Self {
+        Self {
+            entity_path,
+            rows_scanned,
+            index_keys_written,
+        }
+    }
+
+    #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
         self.phase
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn mutation_kind(&self) -> SchemaMutationDeveloperKind {
         self.mutation_kind
     }
@@ -143,41 +163,49 @@ impl SchemaMutationDeveloperReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn target_index(&self) -> &str {
         self.target_index.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn target_store(&self) -> &str {
         self.target_store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn target_fields(&self) -> &[String] {
         self.target_fields.as_slice()
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) const fn rows_scanned(&self) -> usize {
         self.rows_scanned
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) const fn index_keys_written(&self) -> usize {
         self.index_keys_written
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn validation_status(&self) -> SchemaMutationValidationStatus {
         self.validation_status
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn publish_status(&self) -> SchemaMutationPublishStatus {
         self.publish_status
     }
 }
 
+#[cfg(test)]
 fn target_field_paths(target: &SchemaFieldPathIndexRebuildTarget) -> Vec<String> {
     target
         .key_paths()
@@ -206,18 +234,12 @@ pub(in crate::db::schema) enum SchemaMutationStoreVisibility {
 /// future physical failures distinguishable without matching error strings.
 ///
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRunnerRejectionKind {
+    #[cfg(test)]
     MissingCapabilities,
     UnsupportedRequirement,
-    UnsupportedExecutionStep,
     ValidationFailed,
-    RollbackFailed,
-    PublicationFailed,
 }
 
 ///
@@ -236,13 +258,6 @@ pub(in crate::db::schema) struct SchemaMutationRunnerRejection {
     missing_capabilities: Vec<SchemaMutationRunnerCapability>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
-    )
-)]
 impl SchemaMutationRunnerRejection {
     #[must_use]
     pub(super) const fn unsupported_requirement(requirement: RebuildRequirement) -> Self {
@@ -255,6 +270,7 @@ impl SchemaMutationRunnerRejection {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(super) const fn missing_runner_capabilities(
         requirement: Option<RebuildRequirement>,
         missing_capabilities: Vec<SchemaMutationRunnerCapability>,
@@ -278,21 +294,25 @@ impl SchemaMutationRunnerRejection {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
         self.phase
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn kind(&self) -> SchemaMutationRunnerRejectionKind {
         self.kind
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn requirement(&self) -> Option<RebuildRequirement> {
         self.requirement
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn missing_capabilities(
         &self,
     ) -> &[SchemaMutationRunnerCapability] {
@@ -310,24 +330,21 @@ impl SchemaMutationRunnerRejection {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationRunnerReport {
+    #[cfg(test)]
     step_count: usize,
+    #[cfg(test)]
     required_capabilities: Vec<SchemaMutationRunnerCapability>,
     completed_phases: Vec<SchemaMutationRunnerPhase>,
     store_visibility: Option<SchemaMutationStoreVisibility>,
     rows_scanned: usize,
+    #[cfg(test)]
     rows_skipped: usize,
     index_keys_written: usize,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages runner diagnostics before physical runners consume them"
-    )
-)]
 impl SchemaMutationRunnerReport {
     #[must_use]
+    #[cfg(test)]
     pub(super) fn preflight_ready(
         step_count: usize,
         required_capabilities: Vec<SchemaMutationRunnerCapability>,
@@ -350,8 +367,13 @@ impl SchemaMutationRunnerReport {
         required_capabilities: Vec<SchemaMutationRunnerCapability>,
         validation: SchemaFieldPathIndexStagedValidation,
     ) -> Self {
+        #[cfg(not(test))]
+        let _ = (step_count, required_capabilities);
+
         Self {
+            #[cfg(test)]
             step_count,
+            #[cfg(test)]
             required_capabilities,
             completed_phases: vec![
                 SchemaMutationRunnerPhase::Preflight,
@@ -361,12 +383,14 @@ impl SchemaMutationRunnerReport {
             ],
             store_visibility: Some(validation.store_visibility()),
             rows_scanned: validation.source_rows(),
+            #[cfg(test)]
             rows_skipped: validation.skipped_rows(),
             index_keys_written: validation.entry_count(),
         }
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(super) fn expression_index_staged(
         step_count: usize,
         required_capabilities: Vec<SchemaMutationRunnerCapability>,
@@ -415,11 +439,13 @@ impl SchemaMutationRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn step_count(&self) -> usize {
         self.step_count
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn required_capabilities(
         &self,
     ) -> &[SchemaMutationRunnerCapability] {
@@ -427,6 +453,7 @@ impl SchemaMutationRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn completed_phases(&self) -> &[SchemaMutationRunnerPhase] {
         self.completed_phases.as_slice()
     }
@@ -440,6 +467,7 @@ impl SchemaMutationRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(
         &self,
     ) -> Option<SchemaMutationStoreVisibility> {
@@ -452,6 +480,7 @@ impl SchemaMutationRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn rows_skipped(&self) -> usize {
         self.rows_skipped
     }
@@ -479,6 +508,7 @@ impl SchemaMutationRunnerReport {
 /// the point where a later runner may start staged physical work.
 ///
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRunnerOutcome {
     NoPhysicalWork(SchemaMutationRunnerReport),
@@ -556,6 +586,7 @@ impl<'a> SchemaMutationRunnerInput<'a> {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn outcome(
         &self,
         runner: &SchemaMutationRunnerContract,
@@ -573,18 +604,13 @@ impl<'a> SchemaMutationRunnerInput<'a> {
 /// real staged runner exists.
 ///
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaMutationNoopRunner {
     contract: SchemaMutationRunnerContract,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages the no-op runner adapter before physical runners consume inputs"
-    )
-)]
+#[cfg(test)]
 impl SchemaMutationNoopRunner {
     #[must_use]
     pub(in crate::db::schema) fn new() -> Self {
@@ -602,6 +628,7 @@ impl SchemaMutationNoopRunner {
     }
 }
 
+#[cfg(test)]
 impl Default for SchemaMutationNoopRunner {
     fn default() -> Self {
         Self::new()

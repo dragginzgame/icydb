@@ -196,14 +196,18 @@ pub(crate) fn lower_sql_command_from_prepared_statement_for_model_only(
     lower_prepared_statement_for_model_only(prepared.statement, model)
 }
 
-/// Lower one prepared SQL statement through an explicit schema projection.
+/// Lower one prepared SQL EXPLAIN statement through an explicit schema projection.
 #[inline(never)]
-pub(crate) fn lower_sql_command_from_prepared_statement_with_schema(
+pub(crate) fn lower_sql_explain_command_from_prepared_statement_with_schema(
     prepared: PreparedSqlStatement,
     model: &'static EntityModel,
     schema: &SchemaInfo,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    lower_prepared_statement_with_schema(prepared.statement, model, schema)
+    let SqlStatement::Explain(statement) = prepared.into_statement() else {
+        return Err(SqlLoweringError::unexpected_query_lane_statement());
+    };
+
+    lower_explain_prepared_with_schema(statement, model, schema)
 }
 
 /// Lower one prepared SQL SELECT through an explicit schema projection.
@@ -436,40 +440,6 @@ fn lower_prepared_statement_for_model_only(
         }
         SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
         SqlStatement::Explain(statement) => lower_explain_prepared_for_model_only(statement, model),
-        SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
-        SqlStatement::ShowIndexes(_) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowIndexesEntity))
-        }
-        SqlStatement::ShowColumns(_) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowColumnsEntity))
-        }
-        SqlStatement::ShowEntities(_) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowEntities))
-        }
-        SqlStatement::ShowStores(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowStores)),
-        SqlStatement::ShowMemory(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowMemory)),
-    }
-}
-
-fn lower_prepared_statement_with_schema(
-    statement: SqlStatement,
-    model: &'static EntityModel,
-    schema: &SchemaInfo,
-) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    match statement {
-        SqlStatement::Select(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Select(lower_select_shape_with_schema(statement, model, schema)?),
-        ))),
-        SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Delete(lower_delete_shape(statement)?),
-        ))),
-        SqlStatement::Insert(_) | SqlStatement::Update(_) => {
-            Err(SqlLoweringError::unexpected_query_lane_statement())
-        }
-        SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
-        SqlStatement::Explain(statement) => {
-            lower_explain_prepared_with_schema(statement, model, schema)
-        }
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
         SqlStatement::ShowIndexes(_) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowIndexesEntity))

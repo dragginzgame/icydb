@@ -68,7 +68,7 @@ pub(crate) use prepare::lower_sql_command_from_prepared_statement_for_model_only
 pub(crate) use prepare::{
     extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
     lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement_with_schema,
-    lower_sql_command_from_prepared_statement_with_schema, prepare_sql_statement,
+    lower_sql_explain_command_from_prepared_statement_with_schema, prepare_sql_statement,
 };
 pub(crate) use select::LoweredDeleteShape;
 pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
@@ -101,8 +101,8 @@ pub(in crate::db) use select::{
 pub struct LoweredSqlCommand(pub(in crate::db::sql::lowering) LoweredSqlCommandInner);
 
 #[derive(Clone, Debug)]
-#[cfg_attr(not(test), expect(dead_code))]
 pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
+    #[cfg(test)]
     Query(LoweredSqlQuery),
     Explain {
         mode: SqlExplainMode,
@@ -114,11 +114,17 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
         verbose: bool,
         command: LoweredSqlGlobalAggregateCommand,
     },
+    #[cfg(test)]
     DescribeEntity,
+    #[cfg(test)]
     ShowIndexesEntity,
+    #[cfg(test)]
     ShowColumnsEntity,
+    #[cfg(test)]
     ShowEntities,
+    #[cfg(test)]
     ShowStores,
+    #[cfg(test)]
     ShowMemory,
 }
 
@@ -153,6 +159,15 @@ pub(crate) enum SqlCommand<E: EntityKind> {
 }
 
 impl LoweredSqlCommand {
+    #[must_use]
+    pub(in crate::db) const fn is_explain_lane(&self) -> bool {
+        matches!(
+            self.0,
+            LoweredSqlCommandInner::Explain { .. }
+                | LoweredSqlCommandInner::ExplainGlobalAggregate { .. }
+        )
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn query(&self) -> Option<&LoweredSqlQuery> {
@@ -195,14 +210,16 @@ impl LoweredSqlCommand {
                 verbose,
                 query,
             } => Some((*mode, *verbose, query)),
-            LoweredSqlCommandInner::Query(_)
-            | LoweredSqlCommandInner::ExplainGlobalAggregate { .. }
-            | LoweredSqlCommandInner::DescribeEntity
+            #[cfg(test)]
+            LoweredSqlCommandInner::Query(_) => None,
+            #[cfg(test)]
+            LoweredSqlCommandInner::DescribeEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities
             | LoweredSqlCommandInner::ShowStores
             | LoweredSqlCommandInner::ShowMemory => None,
+            LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => None,
         }
     }
 }
@@ -481,18 +498,6 @@ impl PreparedSqlStatement {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LoweredSqlLaneKind {
-    Query,
-    Explain,
-    Describe,
-    ShowIndexes,
-    ShowColumns,
-    ShowEntities,
-    ShowStores,
-    ShowMemory,
-}
-
 /// Parse and lower one SQL statement into canonical query intent for `E`.
 #[cfg(test)]
 pub(crate) fn compile_sql_command<E: EntityKind>(
@@ -546,19 +551,5 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
         LoweredSqlCommandInner::ShowEntities => Ok(SqlCommand::ShowEntities),
         LoweredSqlCommandInner::ShowStores => Ok(SqlCommand::ShowStores),
         LoweredSqlCommandInner::ShowMemory => Ok(SqlCommand::ShowMemory),
-    }
-}
-
-pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> LoweredSqlLaneKind {
-    match command.0 {
-        LoweredSqlCommandInner::Query(_) => LoweredSqlLaneKind::Query,
-        LoweredSqlCommandInner::Explain { .. }
-        | LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => LoweredSqlLaneKind::Explain,
-        LoweredSqlCommandInner::DescribeEntity => LoweredSqlLaneKind::Describe,
-        LoweredSqlCommandInner::ShowIndexesEntity => LoweredSqlLaneKind::ShowIndexes,
-        LoweredSqlCommandInner::ShowColumnsEntity => LoweredSqlLaneKind::ShowColumns,
-        LoweredSqlCommandInner::ShowEntities => LoweredSqlLaneKind::ShowEntities,
-        LoweredSqlCommandInner::ShowStores => LoweredSqlLaneKind::ShowStores,
-        LoweredSqlCommandInner::ShowMemory => LoweredSqlLaneKind::ShowMemory,
     }
 }

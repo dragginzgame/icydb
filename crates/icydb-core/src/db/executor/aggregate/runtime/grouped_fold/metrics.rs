@@ -276,14 +276,3 @@ pub(in crate::db::executor) fn with_grouped_count_fold_metrics<T>(
 
     (result, metrics)
 }
-
-#[cfg(not(feature = "diagnostics"))]
-#[expect(
-    dead_code,
-    reason = "non-diagnostics builds keep the grouped-count metrics entrypoint aligned with test and diagnostics callers"
-)]
-pub(in crate::db::executor) fn with_grouped_count_fold_metrics<T>(
-    f: impl FnOnce() -> T,
-) -> (T, GroupedCountFoldMetrics) {
-    (f(), GroupedCountFoldMetrics::default())
-}

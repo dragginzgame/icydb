@@ -78,13 +78,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedRebuild {
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages in-memory field-path rebuild output before physical runners publish stores"
-    )
-)]
 impl SchemaFieldPathIndexStagedRebuild {
     pub(in crate::db::schema) fn from_rows<'a>(
         _entity_path: &str,
@@ -145,16 +138,19 @@ impl SchemaFieldPathIndexStagedRebuild {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn source_rows(&self) -> usize {
         self.source_rows
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn skipped_rows(&self) -> usize {
         self.skipped_rows
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
@@ -200,7 +196,7 @@ impl SchemaFieldPathIndexStagedRebuild {
     ) -> Result<SchemaMutationRunnerReport, SchemaMutationRunnerRejection> {
         let step_count = match execution_plan.execution_gate() {
             SchemaMutationExecutionGate::AwaitingPhysicalWork {
-                requirement: RebuildRequirement::IndexRebuildRequired,
+                requirement: RebuildRequirement::IndexRebuild,
                 step_count,
             } => step_count,
             SchemaMutationExecutionGate::AwaitingPhysicalWork { requirement, .. }
@@ -211,15 +207,13 @@ impl SchemaFieldPathIndexStagedRebuild {
             }
             SchemaMutationExecutionGate::ReadyToPublish => {
                 return Err(SchemaMutationRunnerRejection::unsupported_requirement(
-                    RebuildRequirement::NoRebuildRequired,
+                    RebuildRequirement::NoRebuild,
                 ));
             }
         };
 
         let validation = self.validate().map_err(|_| {
-            SchemaMutationRunnerRejection::validation_failed(
-                RebuildRequirement::IndexRebuildRequired,
-            )
+            SchemaMutationRunnerRejection::validation_failed(RebuildRequirement::IndexRebuild)
         })?;
 
         Ok(SchemaMutationRunnerReport::field_path_index_staged(
@@ -301,6 +295,7 @@ impl SchemaFieldPathIndexStagedValidation {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn skipped_rows(self) -> usize {
         self.skipped_rows
     }

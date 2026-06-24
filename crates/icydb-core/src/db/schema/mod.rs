@@ -127,15 +127,18 @@ pub(in crate::db) use mutation::{
     admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
     admit_sql_ddl_secondary_index_drop_candidate,
 };
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use mutation::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
-    SchemaFieldPathIndexRebuildTarget,
+    SchemaExpressionIndexRebuildTarget,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::schema) use mutation::{
     SchemaExpressionIndexRebuildRow, SchemaExpressionIndexStagedEntry,
     SchemaExpressionIndexStagedRebuild, SchemaMutationExecutionStep,
+};
+pub(in crate::db) use mutation::{
+    SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
 };
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};

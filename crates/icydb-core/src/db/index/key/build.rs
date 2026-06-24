@@ -3,6 +3,11 @@
 //! Does not own: raw key byte framing (codec) or index-store writes.
 //! Boundary: planning/mutation paths call into this constructor layer.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::schema::{
+    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
+    SchemaExpressionIndexRebuildTarget,
+};
 #[cfg(test)]
 use crate::model::entity::EntityModel;
 #[cfg(test)]
@@ -27,10 +32,9 @@ use crate::{
         },
         schema::{
             PersistedIndexExpressionOp, SchemaExpressionIndexInfo,
-            SchemaExpressionIndexKeyItemInfo, SchemaExpressionIndexRebuildExpression,
-            SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget,
-            SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
-            SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo,
+            SchemaExpressionIndexKeyItemInfo, SchemaFieldPathIndexRebuildKey,
+            SchemaFieldPathIndexRebuildTarget, SchemaIndexFieldPathInfo, SchemaIndexInfo,
+            SchemaInfo,
         },
     },
     error::InternalError,
@@ -46,6 +50,7 @@ type AcceptedExpressionComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexKeyItemInfo) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 type FieldPathRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaFieldPathIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
+#[cfg(any(test, feature = "sql"))]
 type ExpressionRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 
@@ -224,6 +229,7 @@ impl IndexKey {
     /// Build an expression-index rebuild key from one canonical slot reader
     /// using the accepted mutation target, not generated or runtime planner
     /// metadata.
+    #[cfg(any(test, feature = "sql"))]
     pub(crate) fn new_from_slots_with_expression_rebuild_target(
         entity_tag: EntityTag,
         primary_key: impl Into<PrimaryKeyValue>,
@@ -707,6 +713,7 @@ fn field_path_rebuild_component_bytes_from_slots(
     encode_value_index_component_ref(source)
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn expression_rebuild_component_bytes_from_slots(
     index_name: &str,
     key_item: &SchemaExpressionIndexRebuildKey,
@@ -722,6 +729,7 @@ fn expression_rebuild_component_bytes_from_slots(
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn expression_rebuild_expression_component_bytes_from_slots(
     index_name: &str,
     expression: &SchemaExpressionIndexRebuildExpression,
@@ -872,6 +880,7 @@ fn build_field_path_rebuild_target_key(
     }))
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn build_expression_rebuild_target_key(
     entity_tag: EntityTag,
     primary_key: &PrimaryKeyValue,

@@ -1153,7 +1153,7 @@ impl InternalError {
     }
 
     /// Construct the canonical commit-memory id registration failure.
-    #[cfg_attr(test, expect(dead_code))]
+    #[cfg(not(test))]
     pub(crate) fn commit_memory_id_registration_failed(_err: impl Sized) -> Self {
         Self::store_internal()
     }

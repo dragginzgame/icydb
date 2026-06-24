@@ -17,22 +17,13 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStore {
     report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages in-memory index-store writes before physical stores are mutated"
-    )
-)]
 impl SchemaFieldPathIndexStagedStore {
     pub(in crate::db::schema) fn from_rebuild(
         rebuild: &SchemaFieldPathIndexStagedRebuild,
         execution_plan: &SchemaMutationExecutionPlan,
     ) -> Result<Self, SchemaMutationRunnerRejection> {
         let validation = rebuild.validate().map_err(|_| {
-            SchemaMutationRunnerRejection::validation_failed(
-                RebuildRequirement::IndexRebuildRequired,
-            )
+            SchemaMutationRunnerRejection::validation_failed(RebuildRequirement::IndexRebuild)
         })?;
         let report = rebuild.validated_runner_report(execution_plan)?;
 
@@ -50,16 +41,19 @@ impl SchemaFieldPathIndexStagedStore {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn entries(&self) -> &[SchemaFieldPathIndexStagedEntry] {
         self.entries.as_slice()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn validation(&self) -> SchemaFieldPathIndexStagedValidation {
         self.validation
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn report(&self) -> &SchemaMutationRunnerReport {
         &self.report
     }
@@ -70,11 +64,13 @@ impl SchemaFieldPathIndexStagedStore {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn physical_work_allows_publication(&self) -> bool {
         self.report.physical_work_allows_publication()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn write_to(
         &self,
         writer: &mut impl SchemaFieldPathIndexStagedStoreWriter,
@@ -116,6 +112,7 @@ impl SchemaFieldPathIndexStagedStore {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn discard(self) -> SchemaFieldPathIndexStagedDiscardReport {
         let store_visibility = self.store_visibility();
         let discarded_entries = self.entries.len();
@@ -171,30 +168,27 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages writer diagnostics before physical stores are mutated"
-    )
-)]
 impl SchemaFieldPathIndexStagedStoreWriteReport {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn intended_entries(&self) -> usize {
         self.intended_entries
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
         &self.runner_report
     }
@@ -218,13 +212,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteBatch {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages rollback-aware write batches before physical stores are mutated"
-    )
-)]
 impl SchemaFieldPathIndexStagedStoreWriteBatch {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {
@@ -237,6 +224,7 @@ impl SchemaFieldPathIndexStagedStoreWriteBatch {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn rollback_snapshots(
         &self,
     ) -> &[SchemaFieldPathIndexStagedStoreRollbackSnapshot] {
@@ -244,6 +232,7 @@ impl SchemaFieldPathIndexStagedStoreWriteBatch {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
@@ -304,25 +293,21 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackSnapshot
     previous_entry: Option<IndexEntryValue>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages rollback snapshots before physical stores are mutated"
-    )
-)]
 impl SchemaFieldPathIndexStagedStoreRollbackSnapshot {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn key(&self) -> &RawIndexStoreKey {
         &self.key
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn previous_entry(&self) -> Option<&IndexEntryValue> {
         self.previous_entry.as_ref()
     }
@@ -344,20 +329,15 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages rollback plans before physical stores are mutated"
-    )
-)]
 impl SchemaFieldPathIndexStagedStoreRollbackPlan {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn actions(
         &self,
     ) -> &[SchemaFieldPathIndexStagedStoreRollbackAction] {
@@ -365,11 +345,13 @@ impl SchemaFieldPathIndexStagedStoreRollbackPlan {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
         &self.runner_report
     }
@@ -444,40 +426,39 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages rollback diagnostics before physical stores are mutated"
-    )
-)]
 impl SchemaFieldPathIndexStagedStoreRollbackReport {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn actions_applied(&self) -> usize {
         self.actions_applied
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn restored_entries(&self) -> usize {
         self.restored_entries
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn removed_entries(&self) -> usize {
         self.removed_entries
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
         self.store_visibility
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
         &self.runner_report
     }
@@ -503,13 +484,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreRollbackAction {
     },
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages rollback actions before physical stores are mutated"
-    )
-)]
 impl SchemaFieldPathIndexStagedStoreRollbackAction {
     #[must_use]
     fn from_snapshot(snapshot: &SchemaFieldPathIndexStagedStoreRollbackSnapshot) -> Self {
@@ -527,6 +501,7 @@ impl SchemaFieldPathIndexStagedStoreRollbackAction {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         match self {
             Self::Restore { store, .. } | Self::Remove { store, .. } => store.as_str(),
@@ -534,6 +509,7 @@ impl SchemaFieldPathIndexStagedStoreRollbackAction {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn key(&self) -> &RawIndexStoreKey {
         match self {
             Self::Restore { key, .. } | Self::Remove { key, .. } => key,
@@ -541,6 +517,7 @@ impl SchemaFieldPathIndexStagedStoreRollbackAction {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn restore_entry(&self) -> Option<&IndexEntryValue> {
         match self {
             Self::Restore { entry, .. } => Some(entry),
@@ -557,6 +534,7 @@ impl SchemaFieldPathIndexStagedStoreRollbackAction {
 /// boundary; this shape keeps staged cleanup explicit before stores are mutated.
 ///
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedDiscardReport {
     store: String,
@@ -564,13 +542,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedDiscardReport {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages rebuild rollback diagnostics before physical stores are mutated"
-    )
-)]
+#[cfg(test)]
 impl SchemaFieldPathIndexStagedDiscardReport {
     #[must_use]
     pub(in crate::db::schema) const fn store(&self) -> &str {

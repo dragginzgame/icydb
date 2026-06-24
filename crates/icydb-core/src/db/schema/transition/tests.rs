@@ -422,7 +422,7 @@ fn schema_transition_policy_accepts_metadata_only_generated_index_rename() {
     );
     assert_eq!(
         plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuildRequired,
+        RebuildRequirement::NoRebuild,
     );
 }
 
@@ -461,7 +461,7 @@ fn schema_transition_policy_accepts_generated_index_rename_with_extra_ddl_indexe
     );
     assert_eq!(
         plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuildRequired,
+        RebuildRequirement::NoRebuild,
     );
 }
 
@@ -507,7 +507,7 @@ fn schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_
     );
     assert_eq!(
         plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuildRequired,
+        RebuildRequirement::NoRebuild,
     );
 }
 
@@ -528,7 +528,7 @@ fn schema_transition_policy_accepts_supported_ddl_fields_absent_from_generated_m
     );
     assert_eq!(
         plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuildRequired,
+        RebuildRequirement::NoRebuild,
     );
 }
 
@@ -549,7 +549,7 @@ fn schema_transition_policy_accepts_retired_ddl_slots_absent_from_generated_mode
     );
     assert_eq!(
         plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuildRequired,
+        RebuildRequirement::NoRebuild,
     );
 }
 
@@ -600,7 +600,7 @@ fn schema_transition_policy_accepts_append_only_nullable_fields() {
     );
     assert_eq!(
         plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuildRequired
+        RebuildRequirement::NoRebuild
     );
 }
 

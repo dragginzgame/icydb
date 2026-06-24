@@ -11,8 +11,6 @@
 //! unsupported; the persisted kind tag exists for validation, diagnostics,
 //! cursor/index suffix decoding, and corruption handling.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::{
     MAX_INDEX_FIELDS,
     db::index::IndexId,
@@ -20,7 +18,7 @@ use crate::{
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt};
 
 const TAG_SIZE: usize = 1;
 const NAT64_SIZE: usize = 8;
@@ -337,6 +335,7 @@ impl PrimaryKeyValue {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn component_runtime_value(&self, component_index: usize) -> Option<Value> {
         match self {
             Self::Scalar(component) => (component_index == 0).then(|| component.as_runtime_value()),
@@ -446,6 +445,54 @@ pub(in crate::db) enum CompactStoreKeyDecodeError {
     InvalidPrimaryKey(CompactPrimaryKeyDecodeError),
 }
 
+impl fmt::Display for CompactPrimaryKeyDecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("empty compact primary key"),
+            Self::UnknownKind { tag } => {
+                write!(f, "unknown compact primary-key kind tag {tag:#04x}")
+            }
+            Self::InvalidLength { kind } => {
+                write!(f, "invalid compact primary-key length for kind {kind:?}")
+            }
+            Self::InvalidPrincipalLength => {
+                f.write_str("invalid compact primary-key principal length")
+            }
+            Self::InvalidAccount => f.write_str("invalid compact primary-key account payload"),
+            Self::InvalidCompositeCount { count } => {
+                write!(
+                    f,
+                    "invalid compact composite primary-key component count {count}"
+                )
+            }
+            Self::UnitCompositeComponent { index } => {
+                write!(f, "unit primary-key component at composite index {index}")
+            }
+            Self::NestedComposite => f.write_str("nested compact composite primary key"),
+            Self::CompositeNotScalar => f.write_str("compact composite component is not scalar"),
+            Self::TrailingCompositeBytes => {
+                f.write_str("trailing bytes after compact composite primary key")
+            }
+        }
+    }
+}
+
+impl fmt::Display for CompactStoreKeyDecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DataStoreKeyTooShort => f.write_str("data-store key is too short"),
+            Self::TruncatedIndexSegment => f.write_str("truncated index-store key segment"),
+            Self::UnknownIndexKeyKind => f.write_str("unknown index-store key kind"),
+            Self::EmptyIndexSegment => f.write_str("empty index-store key segment"),
+            Self::InvalidIndexId => f.write_str("invalid index-store key id"),
+            Self::TrailingIndexBytes => f.write_str("trailing index-store key bytes"),
+            Self::TooManyIndexComponents => f.write_str("too many index-store key components"),
+            Self::IndexSegmentTooLarge => f.write_str("index-store key segment is too large"),
+            Self::InvalidPrimaryKey(err) => write!(f, "invalid primary key: {err}"),
+        }
+    }
+}
+
 impl From<CompactPrimaryKeyDecodeError> for CompactStoreKeyDecodeError {
     fn from(err: CompactPrimaryKeyDecodeError) -> Self {
         Self::InvalidPrimaryKey(err)
@@ -503,12 +550,14 @@ impl EncodedPrimaryKey {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn decode_component(
         &self,
     ) -> Result<PrimaryKeyComponent, CompactPrimaryKeyDecodeError> {
         decode_primary_key_component(&self.bytes)
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn decode_composite(
         &self,
     ) -> Result<CompositePrimaryKeyValue, CompactPrimaryKeyDecodeError> {
@@ -520,10 +569,12 @@ impl EncodedPrimaryKey {
         &self.bytes
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn kind(&self) -> Result<PrimaryKeyKind, CompactPrimaryKeyDecodeError> {
         primary_key_kind_from_bytes(self.as_bytes())
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn payload(&self) -> Result<&[u8], CompactPrimaryKeyDecodeError> {
         let _ = self.kind()?;
         Ok(&self.bytes[TAG_SIZE..])
@@ -568,6 +619,7 @@ pub(in crate::db) struct EncodedIndexComponent {
 }
 
 impl EncodedIndexComponent {
+    #[cfg(test)]
     pub(in crate::db) fn encode_primary_overlap(
         value: PrimaryKeyComponent,
     ) -> Result<Self, CompactPrimaryKeyEncodeError> {
@@ -586,6 +638,7 @@ impl EncodedIndexComponent {
         &self.bytes
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn payload(&self) -> Result<&[u8], CompactPrimaryKeyDecodeError> {
         let Some(&tag) = self.bytes.first() else {
             return Err(CompactPrimaryKeyDecodeError::Empty);
@@ -688,6 +741,7 @@ impl RawDataStoreKey {
         Self { bytes }
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn from_bytes(bytes: &[u8]) -> Result<Self, CompactStoreKeyDecodeError> {
         let _ = DataStoreKey::try_from_raw_bytes(bytes)?;
         Ok(Self {
@@ -700,6 +754,7 @@ impl RawDataStoreKey {
         Self { bytes }
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn decode(&self) -> Result<DataStoreKey, CompactStoreKeyDecodeError> {
         DataStoreKey::try_from_raw_bytes(&self.bytes)
     }
@@ -720,6 +775,7 @@ impl RawDataStoreKey {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
@@ -752,6 +808,7 @@ impl RawDataStoreKeyRange {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn contains(&self, key: &RawDataStoreKey) -> bool {
         key.as_bytes() >= self.lower_inclusive.as_slice()
             && self
@@ -806,6 +863,7 @@ pub(in crate::db) struct IndexStoreKey {
 
 impl IndexStoreKey {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn new(
         index_id: IndexId,
         components: Vec<EncodedIndexComponent>,
@@ -858,6 +916,7 @@ impl IndexStoreKey {
         Ok(RawIndexStoreKey { bytes })
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn try_from_raw_bytes(
         bytes: &[u8],
     ) -> Result<Self, CompactStoreKeyDecodeError> {
@@ -891,21 +950,25 @@ impl IndexStoreKey {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn key_kind(&self) -> IndexStoreKeyKind {
         self.key_kind
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn index_id(&self) -> IndexId {
         self.index_id
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn components(&self) -> &[EncodedIndexComponent] {
         &self.components
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn primary_key(&self) -> &EncodedPrimaryKey {
         &self.primary_key
     }
@@ -923,6 +986,7 @@ impl RawIndexStoreKey {
         Self { bytes }
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn from_bytes(bytes: &[u8]) -> Result<Self, CompactStoreKeyDecodeError> {
         let _ = IndexStoreKey::try_from_raw_bytes(bytes)?;
         Ok(Self {
@@ -930,6 +994,7 @@ impl RawIndexStoreKey {
         })
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn decode(&self) -> Result<IndexStoreKey, CompactStoreKeyDecodeError> {
         IndexStoreKey::try_from_raw_bytes(&self.bytes)
     }
@@ -966,6 +1031,7 @@ pub(crate) struct IndexEntryValue {
 
 impl IndexEntryValue {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn presence_only() -> Self {
         Self { bytes: vec![0] }
     }

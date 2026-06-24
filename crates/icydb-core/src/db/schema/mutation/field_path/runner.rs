@@ -156,28 +156,28 @@ impl SchemaFieldPathIndexRunnerFailure {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerReport {
+    #[cfg(test)]
     store: String,
+    #[cfg(test)]
     write_report: SchemaFieldPathIndexStagedStoreWriteReport,
+    #[cfg(test)]
     validation: SchemaFieldPathIndexIsolatedIndexStoreValidation,
+    #[cfg(test)]
     invalidation_report: SchemaFieldPathIndexRuntimeInvalidationReport,
+    #[cfg(test)]
     publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
     published_store_report: SchemaFieldPathIndexPublishedStoreReport,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
-    )
-)]
 impl SchemaFieldPathIndexRunnerReport {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn write_report(
         &self,
     ) -> &SchemaFieldPathIndexStagedStoreWriteReport {
@@ -185,6 +185,7 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn validation(
         &self,
     ) -> &SchemaFieldPathIndexIsolatedIndexStoreValidation {
@@ -192,6 +193,7 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn invalidation_report(
         &self,
     ) -> &SchemaFieldPathIndexRuntimeInvalidationReport {
@@ -199,6 +201,7 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn publication_report(
         &self,
     ) -> &SchemaFieldPathIndexSnapshotPublicationReport {
@@ -206,6 +209,7 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn published_store_report(
         &self,
     ) -> &SchemaFieldPathIndexPublishedStoreReport {
@@ -218,6 +222,7 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) fn publication_readiness(
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
@@ -351,11 +356,19 @@ impl SchemaFieldPathIndexRunner {
                 )
             })?;
 
+        #[cfg(not(test))]
+        let _ = write_report;
+
         Ok(SchemaFieldPathIndexRunnerReport {
+            #[cfg(test)]
             store,
+            #[cfg(test)]
             write_report,
+            #[cfg(test)]
             validation,
+            #[cfg(test)]
             invalidation_report,
+            #[cfg(test)]
             publication_report,
             published_store_report,
         })
