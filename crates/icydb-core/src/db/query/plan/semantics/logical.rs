@@ -241,13 +241,7 @@ impl AccessPlannedQuery {
             return static_contract.predicate_pushdown_diagnostics;
         }
 
-        PredicatePushdownDiagnostics::from_plan(
-            self.scalar_plan().filter_expr.is_some(),
-            self.scalar_plan().predicate_covers_filter_expr,
-            self.scalar_plan().predicate.as_ref(),
-            &self.access,
-            self.residual_filter_shape(),
-        )
+        derive_predicate_pushdown_diagnostics(self, self.residual_filter_shape())
     }
 
     /// Return the planner-owned predicate-pushdown outcome label.
@@ -609,13 +603,8 @@ fn project_static_execution_planning_contract_for_model(
                 compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref())
             })
             .flatten();
-    let predicate_pushdown_diagnostics = PredicatePushdownDiagnostics::from_plan(
-        plan.scalar_plan().filter_expr.is_some(),
-        plan.scalar_plan().predicate_covers_filter_expr,
-        plan.scalar_plan().predicate.as_ref(),
-        &plan.access,
-        residual_filter_shape,
-    );
+    let predicate_pushdown_diagnostics =
+        derive_predicate_pushdown_diagnostics(plan, residual_filter_shape);
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
             compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
@@ -779,6 +768,22 @@ fn derive_has_residual_filter(plan: &AccessPlannedQuery) -> bool {
         (Some(_), None) => true,
         (Some(_) | None, Some(_)) => !plan.predicate_fully_satisfied_by_access_contract(),
     }
+}
+
+// Freeze predicate-pushdown diagnostics from one logical plan shape. This keeps
+// lazy plan accessors and finalized static planning on the same argument
+// contract while leaving route selection and residual filtering unchanged.
+fn derive_predicate_pushdown_diagnostics(
+    plan: &AccessPlannedQuery,
+    residual_filter_shape: ResidualFilterShape,
+) -> PredicatePushdownDiagnostics {
+    PredicatePushdownDiagnostics::from_plan(
+        plan.scalar_plan().filter_expr.is_some(),
+        plan.scalar_plan().predicate_covers_filter_expr,
+        plan.scalar_plan().predicate.as_ref(),
+        &plan.access,
+        residual_filter_shape,
+    )
 }
 
 // Return true when the planner-owned predicate contract is fully satisfied by

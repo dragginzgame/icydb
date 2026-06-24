@@ -483,6 +483,54 @@ where
     save_schema_info: Option<SchemaInfo>,
 }
 
+impl<E> SqlWriteMutationExecution<E>
+where
+    E: PersistedRow + EntityValue,
+{
+    const fn from_unbounded_batch(
+        rows: SqlWriteMutationBatch<E::Key>,
+        kind: SqlWriteKind,
+        mode: MutationMode,
+        context: SanitizeWriteContext,
+        returning_bounds: Option<SqlWriteReturningBounds>,
+        save_schema_info: Option<SchemaInfo>,
+    ) -> Self {
+        let staged_rows = rows.staged_rows();
+
+        Self {
+            rows,
+            staged_rows,
+            kind,
+            mode,
+            context,
+            returning_bounds,
+            save_schema_info,
+        }
+    }
+
+    fn from_bounded_batch(
+        rows: SqlWriteMutationBatch<E::Key>,
+        bounds: SqlWriteCandidateBounds,
+        kind: SqlWriteKind,
+        mode: MutationMode,
+        context: SanitizeWriteContext,
+        returning_bounds: Option<SqlWriteReturningBounds>,
+        save_schema_info: Option<SchemaInfo>,
+    ) -> Result<Self, QueryError> {
+        let staged_rows = rows.validate_staged_rows(bounds)?;
+
+        Ok(Self {
+            rows,
+            staged_rows,
+            kind,
+            mode,
+            context,
+            returning_bounds,
+            save_schema_info,
+        })
+    }
+}
+
 const fn sql_delete_projection_bounds(
     execution_bounds: Option<SqlWriteExecutionBounds>,
     returning: bool,

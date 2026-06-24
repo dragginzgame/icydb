@@ -332,7 +332,6 @@ impl<C: CanisterKind> DbSession<C> {
                         rows = collected_rows;
                     }
                 }
-                let staged_rows = rows.staged_rows();
                 let kind = match &statement.source {
                     SqlInsertSource::Values(_) => SqlWriteKind::Insert,
                     SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
@@ -340,15 +339,14 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_sql_write_mutation_batch::<E>(
                     schema,
                     &descriptor,
-                    SqlWriteMutationExecution {
+                    SqlWriteMutationExecution::from_unbounded_batch(
                         rows,
-                        staged_rows,
                         kind,
-                        mode: MutationMode::Insert,
-                        context: write_context,
-                        returning_bounds: None,
+                        MutationMode::Insert,
+                        write_context,
+                        None,
                         save_schema_info,
-                    },
+                    ),
                     statement.returning.as_ref(),
                 )
             },

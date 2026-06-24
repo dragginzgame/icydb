@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.41` continues the query-engine audit by consolidating load EXPLAIN
+  route facts, SQL mutation execution envelopes, and predicate diagnostics
+  without changing query or write semantics.
+
 - `0.184.40` continues the query-engine write-path cleanup by consolidating
   typed, count-only, and RETURNING DELETE preparation onto one selected-row,
   rollback, and commit-apply boundary without changing delete semantics.

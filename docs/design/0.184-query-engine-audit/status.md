@@ -161,6 +161,10 @@ Status: active.
   selector collection, DELETE still validates inside the structural delete core
   before the commit-window bridge, and full-batch commit semantics are
   unchanged.
+- H6 / D7 / F6 mutation-execution cleanup: INSERT and UPDATE now hand
+  structural mutation batches to the shared `SqlWriteMutationExecution`
+  contract for staged-row derivation or bounded staged-row validation instead
+  of rebuilding that execution envelope at each caller.
 - H6 / D7 / F6 DELETE row-resolution cleanup: typed DELETE, count-only
   structural DELETE, and DELETE RETURNING now record scanned-row attribution
   through the shared candidate resolver. Count-only structural DELETE and
@@ -474,6 +478,11 @@ Status: active.
   accessor and use it for residual-presence checks. The layer-authority
   invariant now rejects new `ResidualFilterShape::from_presence` calls outside
   the planner/explain shape-owner files.
+- F2 / D3 predicate-diagnostics cleanup: lazy `AccessPlannedQuery`
+  diagnostics and finalized static planning now derive
+  `PredicatePushdownDiagnostics` through one logical-plan helper instead of
+  repeating the filter-expression, predicate-coverage, access-path, and
+  residual-shape handoff.
 - H2 / access-choice cleanup follow-up: same-score residual-burden preference
   now stays inside the EXPLAIN candidate loop for rejection labels and the
   chosen-route preference decision instead of building a separate same-score
@@ -653,6 +662,12 @@ Status: active.
   resolution now share cache lookup/insert helpers between normal and
   diagnostics execution. Diagnostics still owns the measured timing boundary,
   and the first-class aggregate-operator DTO remains deferred.
+- D1 / F3 EXPLAIN route-facts cleanup: load EXPLAIN model-only and
+  accepted-authority surfaces now share grouped route-fact freezing and scalar
+  route-fact assembly. The two public freeze functions only own their distinct
+  covering-read eligibility inputs; grouped handoff construction, grouped
+  route planning, scalar route planning, continuation defaults, and hybrid
+  covering payload attachment are centralized without changing EXPLAIN output.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

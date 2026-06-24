@@ -147,20 +147,18 @@ impl<C: CanisterKind> DbSession<C> {
                         Ok((key, patch.clone()))
                     },
                 )?;
-                let candidate_rows =
-                    rows.validate_staged_rows(sql_update_candidate_bounds(execution_bounds))?;
                 self.execute_sql_write_mutation_batch::<E>(
                     schema,
                     &descriptor,
-                    SqlWriteMutationExecution {
+                    SqlWriteMutationExecution::from_bounded_batch(
                         rows,
-                        staged_rows: candidate_rows,
-                        kind: SqlWriteKind::Update,
-                        mode: MutationMode::Update,
-                        context: write_context,
-                        returning_bounds: execution_bounds.map(|bounds| bounds.returning),
-                        save_schema_info: Some(save_schema_info),
-                    },
+                        sql_update_candidate_bounds(execution_bounds),
+                        SqlWriteKind::Update,
+                        MutationMode::Update,
+                        write_context,
+                        execution_bounds.map(|bounds| bounds.returning),
+                        Some(save_schema_info),
+                    )?,
                     statement.returning.as_ref(),
                 )
             },

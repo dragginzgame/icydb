@@ -142,6 +142,45 @@ pub(in crate::db) struct LoadExecutionRouteFacts {
     hybrid_covering_read_plan: Option<CoveringHybridReadExecutionPlan>,
 }
 
+fn freeze_grouped_load_execution_route_facts(
+    plan: &AccessPlannedQuery,
+    explain_preparation: LoadExplainPreparation,
+) -> Result<LoadExecutionRouteFacts, InternalError> {
+    let grouped_handoff = grouped_executor_handoff(plan)?;
+
+    Ok(LoadExecutionRouteFacts {
+        route_plan: build_execution_route_plan(
+            grouped_handoff.base(),
+            RoutePlanRequest::Grouped {
+                grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+            },
+        )?,
+        explain_preparation,
+        hybrid_covering_read_plan: None,
+    })
+}
+
+fn freeze_scalar_load_execution_route_facts(
+    plan: &AccessPlannedQuery,
+    explain_preparation: LoadExplainPreparation,
+    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+    hybrid_covering_read_plan: Option<CoveringHybridReadExecutionPlan>,
+) -> Result<LoadExecutionRouteFacts, InternalError> {
+    Ok(LoadExecutionRouteFacts {
+        route_plan: build_execution_route_plan(
+            plan,
+            RoutePlanRequest::Load {
+                continuation: &crate::db::executor::ScalarContinuationContext::initial(),
+                probe_fetch_hint: None,
+                authority: None,
+                load_terminal_fast_path,
+            },
+        )?,
+        explain_preparation,
+        hybrid_covering_read_plan,
+    })
+}
+
 ///
 /// LoadOrderRouteObservability
 ///
@@ -562,18 +601,7 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
 
     // Grouped explain must stay on the planner-provided grouped handoff.
     if plan.grouped_plan().is_some() {
-        let grouped_handoff = grouped_executor_handoff(plan)?;
-
-        return Ok(LoadExecutionRouteFacts {
-            route_plan: build_execution_route_plan(
-                grouped_handoff.base(),
-                RoutePlanRequest::Grouped {
-                    grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
-                },
-            )?,
-            explain_preparation,
-            hybrid_covering_read_plan: None,
-        });
+        return freeze_grouped_load_execution_route_facts(plan, explain_preparation);
     }
 
     // Scalar explain derives covering-read eligibility from the same field
@@ -590,19 +618,12 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
         None
     };
 
-    Ok(LoadExecutionRouteFacts {
-        route_plan: build_execution_route_plan(
-            plan,
-            RoutePlanRequest::Load {
-                continuation: &crate::db::executor::ScalarContinuationContext::initial(),
-                probe_fetch_hint: None,
-                authority: None,
-                load_terminal_fast_path,
-            },
-        )?,
+    freeze_scalar_load_execution_route_facts(
+        plan,
         explain_preparation,
-        hybrid_covering_read_plan: None,
-    })
+        load_terminal_fast_path,
+        None,
+    )
 }
 
 /// Freeze load execution route facts using accepted executor authority.
@@ -613,18 +634,7 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     let explain_preparation = LoadExplainPreparation::from_plan(plan);
 
     if plan.grouped_plan().is_some() {
-        let grouped_handoff = grouped_executor_handoff(plan)?;
-
-        return Ok(LoadExecutionRouteFacts {
-            route_plan: build_execution_route_plan(
-                grouped_handoff.base(),
-                RoutePlanRequest::Grouped {
-                    grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
-                },
-            )?,
-            explain_preparation,
-            hybrid_covering_read_plan: None,
-        });
+        return freeze_grouped_load_execution_route_facts(plan, explain_preparation);
     }
 
     let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {
@@ -651,19 +661,12 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
             None
         };
 
-    Ok(LoadExecutionRouteFacts {
-        route_plan: build_execution_route_plan(
-            plan,
-            RoutePlanRequest::Load {
-                continuation: &crate::db::executor::ScalarContinuationContext::initial(),
-                probe_fetch_hint: None,
-                authority: None,
-                load_terminal_fast_path,
-            },
-        )?,
+    freeze_scalar_load_execution_route_facts(
+        plan,
         explain_preparation,
+        load_terminal_fast_path,
         hybrid_covering_read_plan,
-    })
+    )
 }
 
 // Project grouped route observability directly onto the access root so the
