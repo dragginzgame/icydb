@@ -10,10 +10,10 @@ use crate::{
         data::DataRow,
         executor::{
             delete::{
-                prepare_delete_commit, prepare_delete_leaf_rows,
+                prepare_delete_leaf_rows, prepare_delete_output_from_leaf,
                 resolve_delete_candidate_rows_recorded_as,
                 types::{
-                    DeleteRow, PreparedDeleteExecutionState, PreparedTypedDelete, TypedDeleteLeaf,
+                    DeleteLeaf, DeleteRow, PreparedDeleteExecutionState, PreparedDeleteOutput,
                 },
             },
             terminal::{RowLayout, decode_data_row_entity_with_layout},
@@ -46,7 +46,7 @@ where
 // rollback rows for commit preparation.
 pub(in crate::db::executor::delete) fn package_typed_delete_rows<E>(
     rows: Vec<DeleteRow<E>>,
-) -> Result<TypedDeleteLeaf<Vec<Row<E>>>, InternalError>
+) -> Result<DeleteLeaf<Vec<Row<E>>>, InternalError>
 where
     E: PersistedRow + EntityValue,
 {
@@ -65,7 +65,7 @@ where
         rollback_rows.push((rollback_key, rollback_row));
     }
 
-    Ok(TypedDeleteLeaf {
+    Ok(DeleteLeaf {
         output: response_rows,
         row_count: rollback_rows.len(),
         rollback_rows,
@@ -78,8 +78,8 @@ pub(in crate::db::executor::delete) fn prepare_typed_delete_core<C, E, T>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
-    package_rows: impl FnOnce(Vec<DeleteRow<E>>) -> Result<TypedDeleteLeaf<T>, InternalError>,
-) -> Result<Option<PreparedTypedDelete<T>>, InternalError>
+    package_rows: impl FnOnce(Vec<DeleteRow<E>>) -> Result<DeleteLeaf<T>, InternalError>,
+) -> Result<Option<PreparedDeleteOutput<T>>, InternalError>
 where
     C: CanisterKind,
     E: PersistedRow + EntityValue,
@@ -94,17 +94,5 @@ where
     // Phase 2: run typed delete post-access selection and package the caller's
     // desired output shape alongside rollback rows.
     let typed = prepare_delete_leaf_rows(prepared, rows, package_rows)?;
-    if typed.row_count == 0 {
-        return Ok(None);
-    }
-
-    // Phase 3: prepare relation validation and commit row ops once for the
-    // already-selected delete targets.
-    let commit = prepare_delete_commit(db, store, &prepared.authority, typed.rollback_rows)?;
-
-    Ok(Some(PreparedTypedDelete {
-        output: typed.output,
-        commit,
-        row_count: typed.row_count,
-    }))
+    prepare_delete_output_from_leaf(db, store, prepared, typed)
 }

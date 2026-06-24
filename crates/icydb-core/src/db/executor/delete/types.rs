@@ -119,15 +119,16 @@ where
 }
 
 ///
-/// TypedDeleteLeaf
+/// DeleteLeaf
 ///
-/// TypedDeleteLeaf carries one typed delete output after shared selection has
-/// completed.
-/// The generic output lets response-row and count-only callers share the same
-/// rollback and commit-preparation path without duplicating row selection.
+/// DeleteLeaf carries one caller-specific delete output after shared selection
+/// has completed.
+/// The generic output lets typed, structural projection, and count-only
+/// callers share the same rollback and commit-preparation path without
+/// duplicating row selection.
 ///
 
-pub(in crate::db::executor::delete) struct TypedDeleteLeaf<T> {
+pub(in crate::db::executor::delete) struct DeleteLeaf<T> {
     pub(in crate::db::executor::delete) output: T,
     pub(in crate::db::executor::delete) row_count: usize,
     pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
@@ -178,6 +179,13 @@ impl DeleteProjectionBounds {
 #[cfg(feature = "sql")]
 impl DeleteProjection {
     #[must_use]
+    pub(in crate::db::executor::delete) const fn empty() -> Self {
+        Self {
+            rows: MaterializedProjectionRows::empty(),
+        }
+    }
+
+    #[must_use]
     pub(in crate::db::executor::delete) const fn new(rows: MaterializedProjectionRows) -> Self {
         Self { rows }
     }
@@ -201,33 +209,6 @@ impl DeleteProjection {
 }
 
 ///
-/// DeletePreparation
-///
-/// Structural delete leaf output carrying already materialized projection rows
-/// plus the rollback rows required by structural commit preparation.
-///
-
-#[cfg(feature = "sql")]
-pub(in crate::db::executor::delete) struct DeletePreparation {
-    pub(in crate::db::executor::delete) response_rows: MaterializedProjectionRows,
-    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
-}
-
-///
-/// DeleteCountPreparation
-///
-/// Structural delete-count payload carrying only the affected-row count plus
-/// rollback rows for commit preparation.
-/// This keeps count-only deletes on the accepted structural row-decode path
-/// without materializing typed response entities or SQL projection rows.
-///
-
-pub(in crate::db::executor::delete) struct DeleteCountPreparation {
-    pub(in crate::db::executor::delete) row_count: usize,
-    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
-}
-
-///
 /// PreparedDeleteCommit
 ///
 /// Generic-free delete commit payload after structural relation validation and
@@ -239,39 +220,16 @@ pub(in crate::db::executor::delete) struct PreparedDeleteCommit {
 }
 
 ///
-/// PreparedTypedDelete
+/// PreparedDeleteOutput
 ///
-/// PreparedTypedDelete pairs a caller-specific typed delete output with the
-/// already assembled commit operations.
-/// It is the typed equivalent of `PreparedDeleteProjection`, keeping commit
-/// application out of the row-selection and packaging helpers.
+/// PreparedDeleteOutput pairs a caller-specific delete output with the already
+/// assembled commit operations.
+/// This keeps commit application out of typed and structural row-selection and
+/// packaging helpers.
 ///
 
-pub(in crate::db::executor::delete) struct PreparedTypedDelete<T> {
+pub(in crate::db::executor::delete) struct PreparedDeleteOutput<T> {
     pub(in crate::db::executor::delete) output: T,
     pub(in crate::db::executor::delete) commit: PreparedDeleteCommit,
     pub(in crate::db::executor::delete) row_count: usize,
 }
-
-///
-/// PreparedDeleteProjection
-///
-/// Structural delete payload paired with its already prepared delete
-/// commit operations.
-/// Keeps the heavy row-resolution and commit-preparation flow on one
-/// nongeneric helper so the typed executor wrapper only handles context,
-/// metrics, and final commit-window application.
-///
-
-#[cfg(feature = "sql")]
-pub(in crate::db::executor::delete) struct PreparedDeleteProjection {
-    pub(in crate::db::executor::delete) projection: DeleteProjection,
-    pub(in crate::db::executor::delete) commit: PreparedDeleteCommit,
-}
-
-pub(in crate::db::executor::delete) type DeleteCommitApplyFn<C> = fn(
-    &crate::db::Db<C>,
-    EntityAuthority,
-    Vec<CommitRowOp>,
-    &'static str,
-) -> Result<(), InternalError>;

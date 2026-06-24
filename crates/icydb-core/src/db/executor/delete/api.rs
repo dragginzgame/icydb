@@ -6,18 +6,19 @@
 
 #[cfg(feature = "sql")]
 use crate::db::executor::delete::{
-    DeleteProjection, DeleteProjectionBounds, execute_structural_delete_count_core_with_bounds,
-    execute_structural_delete_projection_core,
+    DeleteProjection, DeleteProjectionBounds, prepare_structural_delete_count_core_with_bounds,
+    prepare_structural_delete_projection_core,
 };
 use crate::{
     db::{
         Db, PersistedRow,
+        commit::CommitRowOp,
         executor::{
             PreparedExecutionPlan,
             delete::{
-                apply_delete_commit_window_for_type, execute_structural_delete_count_core,
-                package_typed_delete_rows, prepare_delete_runtime, prepare_typed_delete_core,
-                types::PreparedDeleteExecutionState,
+                apply_delete_commit_window_for_type, package_typed_delete_rows,
+                prepare_delete_runtime, prepare_structural_delete_count_core,
+                prepare_typed_delete_core, types::PreparedDeleteExecutionState,
             },
             plan_metrics::{record_plan_metrics, set_rows_from_len},
         },
@@ -55,6 +56,25 @@ where
     #[must_use]
     pub(in crate::db) const fn new(db: Db<E::Canister>) -> Self {
         Self { db }
+    }
+
+    fn apply_prepared_delete_commit(
+        db: &Db<E::Canister>,
+        prepared: &PreparedDeleteExecutionState,
+        row_ops: Vec<CommitRowOp>,
+    ) -> Result<(), InternalError> {
+        apply_delete_commit_window_for_type::<E>(
+            db,
+            prepared.authority.entity.clone(),
+            row_ops,
+            "delete_row_apply",
+        )
+    }
+
+    fn structural_count_row_count(
+        prepared: &crate::db::executor::delete::types::PreparedDeleteOutput<()>,
+    ) -> u32 {
+        u32::try_from(prepared.row_count).unwrap_or(u32::MAX)
     }
 
     // Run one delete plan through the shared outer shell: span setup, runtime
@@ -102,12 +122,7 @@ where
             let row_count = typed.row_count;
 
             // Phase 2: apply the already prepared delete commit payload.
-            apply_delete_commit_window_for_type::<E>(
-                db,
-                prepared.authority.entity,
-                typed.commit.row_ops,
-                "delete_row_apply",
-            )?;
+            Self::apply_prepared_delete_commit(db, &prepared, typed.commit.row_ops)?;
 
             // Phase 3: return the already-prepared typed delete response rows.
             Ok((EntityResponse::new(typed.output), row_count))
@@ -126,18 +141,22 @@ where
         self.execute_with_delete_runtime(plan, |db, prepared, store| {
             // Phase 1: run the shared structural delete core and apply the
             // final typed commit-window bridge only at the boundary.
-            let projection = execute_structural_delete_projection_core(
+            let Some(projection) = prepare_structural_delete_projection_core(
                 db,
                 store,
                 &prepared,
                 bounds,
                 validate_precommit,
-                apply_delete_commit_window_for_type::<E>,
-            )?;
-            let row_count = usize::try_from(projection.row_count()).unwrap_or(usize::MAX);
+            )?
+            else {
+                return Ok((DeleteProjection::empty(), 0));
+            };
+            let row_count = usize::try_from(projection.output.row_count()).unwrap_or(usize::MAX);
+
+            Self::apply_prepared_delete_commit(db, &prepared, projection.commit.row_ops)?;
 
             // Phase 2: return the already prepared structural delete projection.
-            Ok((projection, row_count))
+            Ok((projection.output, row_count))
         })
     }
 
@@ -150,13 +169,13 @@ where
             // Phase 1: run the structural delete-count core so accepted-schema
             // row layouts are preserved for old physical rows. Count-only
             // deletes do not need typed entity materialization.
-            let row_count = execute_structural_delete_count_core(
-                db,
-                store,
-                &prepared,
-                apply_delete_commit_window_for_type::<E>,
-            )?;
-            let row_count_len = usize::try_from(row_count).unwrap_or(usize::MAX);
+            let Some(count) = prepare_structural_delete_count_core(db, store, &prepared)? else {
+                return Ok((0, 0));
+            };
+            let row_count = Self::structural_count_row_count(&count);
+            let row_count_len = count.row_count;
+
+            Self::apply_prepared_delete_commit(db, &prepared, count.commit.row_ops)?;
 
             // Phase 2: return only the final affected-row count.
             Ok((row_count, row_count_len))
@@ -174,14 +193,15 @@ where
         self.execute_with_delete_runtime(plan, |db, prepared, store| {
             // Phase 1: run the structural delete-count core with the SQL
             // exposure-policy bound before applying the commit payload.
-            let row_count = execute_structural_delete_count_core_with_bounds(
-                db,
-                store,
-                &prepared,
-                bounds,
-                apply_delete_commit_window_for_type::<E>,
-            )?;
-            let row_count_len = usize::try_from(row_count).unwrap_or(usize::MAX);
+            let Some(count) =
+                prepare_structural_delete_count_core_with_bounds(db, store, &prepared, bounds)?
+            else {
+                return Ok((0, 0));
+            };
+            let row_count = Self::structural_count_row_count(&count);
+            let row_count_len = count.row_count;
+
+            Self::apply_prepared_delete_commit(db, &prepared, count.commit.row_ops)?;
 
             // Phase 2: return only the final affected-row count.
             Ok((row_count, row_count_len))

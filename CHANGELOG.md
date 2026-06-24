@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.40` continues the query-engine write-path cleanup by consolidating
+  typed, count-only, and RETURNING DELETE preparation onto one selected-row,
+  rollback, and commit-apply boundary without changing delete semantics.
+
 - `0.184.39` continues the query-engine and generated-surface cleanup by
   sharing compiled SQL plan-cache helpers, centralizing COUNT/EXISTS
   cardinality-window semantics, and removing another set of warning

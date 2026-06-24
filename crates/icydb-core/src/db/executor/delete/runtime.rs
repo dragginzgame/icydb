@@ -34,8 +34,12 @@ use crate::{
 };
 use std::sync::Arc;
 
-use crate::db::executor::delete::types::{
-    DeleteExecutionAuthority, PreparedDeleteExecutionState, validate_delete_plan_shape,
+use crate::db::executor::delete::{
+    prepare_delete_commit,
+    types::{
+        DeleteExecutionAuthority, DeleteLeaf, PreparedDeleteExecutionState, PreparedDeleteOutput,
+        validate_delete_plan_shape,
+    },
 };
 
 // Prepare one generic-free delete execution state after the typed plan shell is consumed.
@@ -214,4 +218,29 @@ where
     apply_delete_post_access_rows(prepared, &mut rows)?;
 
     package_rows(rows)
+}
+
+// Prepare relation validation and commit row ops for one already selected
+// delete leaf. Typed and structural delete callers share this final
+// pre-commit payload assembly before their wrapper applies the commit window.
+pub(in crate::db::executor::delete) fn prepare_delete_output_from_leaf<C, T>(
+    db: &Db<C>,
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+    leaf: DeleteLeaf<T>,
+) -> Result<Option<PreparedDeleteOutput<T>>, InternalError>
+where
+    C: crate::traits::CanisterKind,
+{
+    if leaf.row_count == 0 {
+        return Ok(None);
+    }
+
+    let commit = prepare_delete_commit(db, store, &prepared.authority, leaf.rollback_rows)?;
+
+    Ok(Some(PreparedDeleteOutput {
+        output: leaf.output,
+        commit,
+        row_count: leaf.row_count,
+    }))
 }

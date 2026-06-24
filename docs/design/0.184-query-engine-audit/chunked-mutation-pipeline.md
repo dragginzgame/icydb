@@ -120,6 +120,15 @@ DELETE RETURNING. Count-only structural DELETE and DELETE RETURNING also share
 accepted-layout candidate row decoding, then keep their distinct rollback and
 response packaging.
 
+A later cleanup slice replaced the remaining typed-only and structural-only
+delete leaf/prepared payloads with one generic delete output contract. Typed
+DELETE, count-only structural DELETE, and DELETE RETURNING now share selected
+row packaging, rollback-row ownership, row-count propagation, empty-result
+handling, and commit row-op preparation while keeping their outward response
+shaping separate. Structural delete helpers now hand prepared outputs back to
+the `DeleteExecutor` wrapper, so final commit-window application is also owned
+at the same boundary for typed, count-only, and RETURNING deletes.
+
 ## Deferred
 
 - Real chunked preflight/apply.

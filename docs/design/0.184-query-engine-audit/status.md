@@ -166,6 +166,16 @@ Status: active.
   through the shared candidate resolver. Count-only structural DELETE and
   DELETE RETURNING also share accepted-layout candidate row decoding before
   keeping their distinct rollback/response packaging.
+- H6 / D7 / F6 DELETE pre-commit cleanup: typed DELETE, count-only structural
+  DELETE, and DELETE RETURNING now package selected rows into one generic
+  `DeleteLeaf` contract and prepare commit row ops through one
+  `PreparedDeleteOutput` handoff. Response shaping remains typed/count/SQL
+  specific, but rollback rows, row counts, empty-result handling, and
+  relation-validation commit preparation no longer have separate typed versus
+  structural payload flows. Structural count and projection helpers now also
+  return prepared delete outputs to the `DeleteExecutor` API wrapper, so the
+  final commit-window apply boundary is owned in one place for typed,
+  count-only, and RETURNING deletes.
 - H3 / F7 tenth slice: lowered SQL projection expressions now carry their
   `LoweredExprAnalysis` through the SELECT schema-binding seam, and projection
   source-field capability validation consumes the recorded direct/path source

@@ -7,8 +7,7 @@
 #[cfg(feature = "sql")]
 use crate::{
     db::executor::{
-        delete::DeleteProjectionBounds,
-        delete::types::{DeletePreparation, DeleteProjection, PreparedDeleteProjection},
+        delete::DeleteProjectionBounds, delete::types::DeleteProjection,
         projection::MaterializedProjectionRows,
     },
     value::Value,
@@ -18,14 +17,10 @@ use crate::{
         Db,
         executor::{
             delete::{
-                prepare_delete_commit, prepare_delete_leaf_rows,
+                prepare_delete_leaf_rows, prepare_delete_output_from_leaf,
                 resolve_delete_candidate_rows_recorded_as,
-                types::{
-                    DeleteCommitApplyFn, DeleteCountPreparation, PreparedDeleteCommit,
-                    PreparedDeleteExecutionState,
-                },
+                types::{DeleteLeaf, PreparedDeleteExecutionState, PreparedDeleteOutput},
             },
-            saturating_u32_len,
             terminal::{KernelRow, RowDecoder},
         },
         registry::StoreHandle,
@@ -41,7 +36,7 @@ use icydb_diagnostic_code::SqlWriteBoundaryCode;
 #[cfg(feature = "sql")]
 fn package_structural_delete_rows(
     rows: Vec<KernelRow>,
-) -> Result<DeletePreparation, InternalError> {
+) -> Result<DeleteLeaf<DeleteProjection>, InternalError> {
     let mut response_rows = Vec::with_capacity(rows.len());
     let mut rollback_rows = Vec::with_capacity(rows.len());
 
@@ -63,17 +58,16 @@ fn package_structural_delete_rows(
         rollback_rows.push((rollback_key, raw));
     }
 
-    Ok(DeletePreparation {
-        response_rows: MaterializedProjectionRows::from_value_rows(response_rows),
+    Ok(DeleteLeaf {
+        output: DeleteProjection::new(MaterializedProjectionRows::from_value_rows(response_rows)),
+        row_count: rollback_rows.len(),
         rollback_rows,
     })
 }
 
 // Package surviving structural delete kernel rows into rollback rows only when
 // the caller needs affected-row count without response-row materialization.
-fn package_structural_delete_count(
-    rows: Vec<KernelRow>,
-) -> Result<DeleteCountPreparation, InternalError> {
+fn package_structural_delete_count(rows: Vec<KernelRow>) -> Result<DeleteLeaf<()>, InternalError> {
     let row_count = rows.len();
     let mut rollback_rows = Vec::with_capacity(rows.len());
 
@@ -85,7 +79,8 @@ fn package_structural_delete_count(
         rollback_rows.push((rollback_key, raw));
     }
 
-    Ok(DeleteCountPreparation {
+    Ok(DeleteLeaf {
+        output: (),
         row_count,
         rollback_rows,
     })
@@ -108,81 +103,28 @@ fn resolve_structural_delete_kernel_rows(
 fn prepare_structural_delete_leaf_from_access<T>(
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
-    package_rows: impl FnOnce(Vec<KernelRow>) -> Result<T, InternalError>,
-) -> Result<T, InternalError> {
+    package_rows: impl FnOnce(Vec<KernelRow>) -> Result<DeleteLeaf<T>, InternalError>,
+) -> Result<DeleteLeaf<T>, InternalError> {
     let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
 
     prepare_delete_leaf_rows(prepared, rows, package_rows)
 }
 
-// Resolve, filter, and package one structural delete count before the outer
-// typed wrapper applies the final commit window.
-fn prepare_structural_delete_count<C>(
+// Resolve, filter, package, and prepare commit row ops for one structural
+// delete output before the outer typed wrapper applies the final commit
+// window.
+fn prepare_structural_delete_output<C, T>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
-) -> Result<Option<(u32, PreparedDeleteCommit)>, InternalError>
+    package_rows: impl FnOnce(Vec<KernelRow>) -> Result<DeleteLeaf<T>, InternalError>,
+) -> Result<Option<PreparedDeleteOutput<T>>, InternalError>
 where
     C: CanisterKind,
 {
-    // Phase 1: decode rows through the same accepted row layout used by
-    // structural DELETE RETURNING so count-only SQL deletes can remove old
-    // physical rows after append-only nullable schema transitions, then keep
-    // delete filtering, ordering, and rollback packaging on the
-    // structural kernel-row boundary while discarding projection material.
-    let structural = prepare_structural_delete_leaf_from_access(
-        store,
-        prepared,
-        package_structural_delete_count,
-    )?;
-    if structural.row_count == 0 {
-        return Ok(None);
-    }
+    let structural = prepare_structural_delete_leaf_from_access(store, prepared, package_rows)?;
 
-    // Phase 2: prepare relation validation and commit row ops once for the
-    // already-selected delete targets.
-    let row_count = saturating_u32_len(structural.row_count);
-    let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
-
-    Ok(Some((row_count, commit)))
-}
-
-// Resolve, filter, and package one structural delete result before the
-// outer typed wrapper applies the final commit window.
-#[cfg(feature = "sql")]
-fn prepare_structural_delete_projection<C>(
-    db: &Db<C>,
-    store: StoreHandle,
-    prepared: &PreparedDeleteExecutionState,
-) -> Result<PreparedDeleteProjection, InternalError>
-where
-    C: CanisterKind,
-{
-    // Phase 1: resolve structural access rows once through the shared
-    // accepted-layout decode helper, then keep delete filtering, ordering, and
-    // rollback packaging on the structural kernel-row boundary.
-    let structural = prepare_structural_delete_leaf_from_access(
-        store,
-        prepared,
-        package_structural_delete_rows,
-    )?;
-    if structural.response_rows.len() == 0 {
-        return Ok(PreparedDeleteProjection {
-            projection: DeleteProjection::new(MaterializedProjectionRows::empty()),
-            commit: PreparedDeleteCommit {
-                row_ops: Vec::new(),
-            },
-        });
-    }
-
-    // Phase 2: prepare the structural delete commit payload before the typed
-    // wrapper enters the mechanical commit-window apply step.
-    let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
-
-    Ok(PreparedDeleteProjection {
-        projection: DeleteProjection::new(structural.response_rows),
-        commit,
-    })
+    prepare_delete_output_from_leaf(db, store, prepared, structural)
 }
 
 #[cfg(feature = "sql")]
@@ -210,114 +152,93 @@ fn validate_structural_delete_row_count_bounds(
     ))
 }
 
-// Execute one structural delete projection through the shared delete core
-// while leaving only the final typed commit-window bridge to the caller.
+// Prepare one structural delete projection through the shared delete core while
+// leaving the final typed commit-window bridge to the API wrapper.
 #[cfg(feature = "sql")]
-pub(in crate::db::executor::delete) fn execute_structural_delete_projection_core<C>(
+pub(in crate::db::executor::delete) fn prepare_structural_delete_projection_core<C>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
     bounds: DeleteProjectionBounds,
     validate_precommit: impl FnOnce(&DeleteProjection) -> Result<(), InternalError>,
-    apply_delete_commit: DeleteCommitApplyFn<C>,
-) -> Result<DeleteProjection, InternalError>
+) -> Result<Option<PreparedDeleteOutput<DeleteProjection>>, InternalError>
 where
     C: CanisterKind,
 {
-    // Phase 1: run the shared structural delete projection core.
-    let prepared_projection = prepare_structural_delete_projection(db, store, prepared)?;
-    validate_structural_delete_projection_bounds(&prepared_projection.projection, bounds)?;
-    validate_precommit(&prepared_projection.projection)?;
-    if prepared_projection.projection.row_count() == 0 {
-        return Ok(prepared_projection.projection);
-    }
+    // Phase 1: run the shared structural delete output core.
+    let Some(prepared_projection) =
+        prepare_structural_delete_output(db, store, prepared, package_structural_delete_rows)?
+    else {
+        let projection = DeleteProjection::new(MaterializedProjectionRows::empty());
+        validate_structural_delete_projection_bounds(&projection, bounds)?;
+        validate_precommit(&projection)?;
 
-    // Phase 2: apply the already prepared delete commit payload through the
-    // caller-provided commit-window bridge.
-    apply_delete_commit(
-        db,
-        prepared.authority.entity.clone(),
-        prepared_projection.commit.row_ops,
-        "delete_row_apply",
-    )?;
+        return Ok(None);
+    };
+    validate_structural_delete_projection_bounds(&prepared_projection.output, bounds)?;
+    validate_precommit(&prepared_projection.output)?;
 
-    Ok(prepared_projection.projection)
+    Ok(Some(prepared_projection))
 }
 
-// Execute one structural delete count through the shared delete core while
-// leaving only the final typed commit-window bridge to the caller.
-pub(in crate::db::executor::delete) fn execute_structural_delete_count_core<C>(
+// Prepare one structural delete count through the shared delete core while
+// leaving the final typed commit-window bridge to the API wrapper.
+pub(in crate::db::executor::delete) fn prepare_structural_delete_count_core<C>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
-    apply_delete_commit: DeleteCommitApplyFn<C>,
-) -> Result<u32, InternalError>
+) -> Result<Option<PreparedDeleteOutput<()>>, InternalError>
 where
     C: CanisterKind,
 {
-    execute_structural_delete_count_core_with_optional_bounds(
-        db,
-        store,
-        prepared,
-        None,
-        apply_delete_commit,
-    )
+    prepare_structural_delete_count_core_with_optional_bounds(db, store, prepared, None)
 }
 
-fn execute_structural_delete_count_core_with_optional_bounds<C>(
+fn prepare_structural_delete_count_core_with_optional_bounds<C>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
     max_rows: Option<u32>,
-    apply_delete_commit: DeleteCommitApplyFn<C>,
-) -> Result<u32, InternalError>
+) -> Result<Option<PreparedDeleteOutput<()>>, InternalError>
 where
     C: CanisterKind,
 {
     // Phase 1: run the shared structural delete-count core.
-    let Some((row_count, commit)) = prepare_structural_delete_count(db, store, prepared)? else {
-        return Ok(0);
+    let Some(prepared_count) =
+        prepare_structural_delete_output(db, store, prepared, package_structural_delete_count)?
+    else {
+        return Ok(None);
     };
     #[cfg(not(feature = "sql"))]
     let _ = max_rows;
     #[cfg(feature = "sql")]
     if let Some(max_rows) = max_rows {
+        let row_count = u32::try_from(prepared_count.row_count).unwrap_or(u32::MAX);
         validate_structural_delete_row_count_bounds(
             row_count,
             DeleteProjectionBounds::max_rows(max_rows),
         )?;
     }
 
-    // Phase 2: apply the already prepared delete commit payload through the
-    // caller-provided commit-window bridge.
-    apply_delete_commit(
-        db,
-        prepared.authority.entity.clone(),
-        commit.row_ops,
-        "delete_row_apply",
-    )?;
-
-    Ok(row_count)
+    Ok(Some(prepared_count))
 }
 
-// Execute one structural delete count with SQL policy row bounds checked before
+// Prepare one structural delete count with SQL policy row bounds checked before
 // the typed commit-window bridge.
 #[cfg(feature = "sql")]
-pub(in crate::db::executor::delete) fn execute_structural_delete_count_core_with_bounds<C>(
+pub(in crate::db::executor::delete) fn prepare_structural_delete_count_core_with_bounds<C>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
     bounds: DeleteProjectionBounds,
-    apply_delete_commit: DeleteCommitApplyFn<C>,
-) -> Result<u32, InternalError>
+) -> Result<Option<PreparedDeleteOutput<()>>, InternalError>
 where
     C: CanisterKind,
 {
-    execute_structural_delete_count_core_with_optional_bounds(
+    prepare_structural_delete_count_core_with_optional_bounds(
         db,
         store,
         prepared,
         bounds.row_limit(),
-        apply_delete_commit,
     )
 }
