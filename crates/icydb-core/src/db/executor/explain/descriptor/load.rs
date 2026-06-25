@@ -10,9 +10,8 @@ use crate::{
             EntityAuthority, ExecutionPreparation,
             planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
             route::{
-                ExecutionRoutePlan, IndexPrefixChildExpansionHint, LoadTerminalFastPathContract,
-                RoutePlanRequest, TopNSeekSpec, build_execution_route_plan,
-                explain_access_order_satisfied_for_model,
+                ExecutionRoutePlan, LoadTerminalFastPathContract, RoutePlanRequest, TopNSeekSpec,
+                build_execution_route_plan, explain_access_order_satisfied_for_model,
             },
         },
         predicate::IndexPredicateCapability,
@@ -443,19 +442,20 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
-    let child_expansion = route_plan.index_prefix_child_expansion();
-    lines.push(route_diagnostic_line_bool(
-        "index_prefix_child_expansion",
-        child_expansion.is_some(),
-    ));
-    lines.push(route_fetch_diagnostic_line(
-        "index_prefix_child_expansion_target",
-        child_expansion.map(IndexPrefixChildExpansionHint::target_prefix_len),
-    ));
-    lines.push(route_fetch_diagnostic_line(
-        "index_prefix_child_expansion_cap",
-        child_expansion.map(IndexPrefixChildExpansionHint::max_child_prefixes),
-    ));
+    if let Some(child_expansion) = route_plan.index_prefix_child_expansion() {
+        lines.push(route_diagnostic_line_bool(
+            "index_prefix_child_expansion",
+            true,
+        ));
+        lines.push(route_fetch_diagnostic_line(
+            "index_prefix_child_expansion_target",
+            Some(child_expansion.target_prefix_len()),
+        ));
+        lines.push(route_fetch_diagnostic_line(
+            "index_prefix_child_expansion_cap",
+            Some(child_expansion.max_child_prefixes()),
+        ));
+    }
     lines.push(descriptor_route_property_line(
         "diag.r.predicate_stage",
         predicate_stage_observability.label(),
