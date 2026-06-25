@@ -15,9 +15,10 @@ use crate::{
         executor::{
             ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
-            active_lowered_index_prefix_specs, branch_stream_chunk_entries,
-            expand_index_prefix_specs_with_exact_child_prefixes,
-            index_predicate_rejects_prefix_components, lowered_index_prefix_is_proven_empty,
+            active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
+            branch_stream_chunk_entries, expand_index_prefix_specs_with_exact_child_prefixes,
+            index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
+            index_stream_output_limit_for_chunk, lowered_index_prefix_is_proven_empty,
             ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput, route::IndexPrefixChildExpansionHint,
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
@@ -902,23 +903,6 @@ impl IndexRangeKeyStream {
         }
     }
 
-    // Return the remaining output-key budget for the next raw-index chunk.
-    const fn next_output_limit(&self) -> Option<usize> {
-        self.remaining
-    }
-
-    const fn next_chunk_entries(&self) -> usize {
-        let chunk_entries = if self.chunk_entries == 0 {
-            ACCESS_SCAN_CHUNK_ENTRIES
-        } else {
-            self.chunk_entries
-        };
-        match self.remaining {
-            Some(remaining) if remaining < chunk_entries => remaining,
-            Some(_) | None => chunk_entries,
-        }
-    }
-
     // Re-enter the index store for one bounded raw-index chunk.
     fn load_next_chunk(&mut self) -> Result<(), InternalError> {
         if self.exhausted || matches!(self.remaining, Some(0)) {
@@ -926,7 +910,8 @@ impl IndexRangeKeyStream {
             return Ok(());
         }
 
-        let chunk_entries = self.next_chunk_entries();
+        let chunk_entries =
+            index_stream_chunk_entries_for_remaining(self.chunk_entries, self.remaining);
         let continuation = IndexScanContinuationInput::new(self.anchor.as_ref(), self.direction);
         let chunk = IndexScan::chunk_structural(
             self.store,
@@ -935,25 +920,20 @@ impl IndexRangeKeyStream {
             &self.upper,
             continuation,
             chunk_entries,
-            self.next_output_limit(),
+            index_stream_output_limit_for_chunk(self.remaining, chunk_entries),
         )?;
         let (keys, last_raw_key) = chunk.into_decoded_keys_and_resume_anchor();
         let emitted = keys.len();
         self.buffer = keys;
         self.buffer_pos = 0;
 
-        if let Some(raw_key) = last_raw_key {
-            self.anchor = Some(raw_key);
-        } else {
-            self.exhausted = true;
-        }
-
-        if let Some(remaining) = self.remaining.as_mut() {
-            *remaining = remaining.saturating_sub(emitted);
-            if *remaining == 0 {
-                self.exhausted = true;
-            }
-        }
+        apply_index_scan_chunk_progress(
+            &mut self.anchor,
+            &mut self.remaining,
+            &mut self.exhausted,
+            emitted,
+            last_raw_key,
+        );
 
         Ok(())
     }

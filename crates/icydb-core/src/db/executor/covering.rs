@@ -13,8 +13,9 @@ use crate::{
         direction::Direction,
         executor::{
             IndexScan, KeyOrderComparator, active_lowered_index_prefix_specs,
-            apply_data_key_ordered_dedup_window, branch_stream_chunk_entries,
-            index_predicate_rejects_prefix_components, lowered_index_prefix_is_proven_empty,
+            apply_data_key_ordered_dedup_window, apply_index_scan_chunk_progress,
+            branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
+            index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
             read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
             reduce_non_empty_streams_pairwise,
@@ -106,29 +107,6 @@ where
 {
     let continuation = IndexScanContinuationInput::new(None, direction);
 
-    if let [spec] = index_prefix_specs {
-        if index_predicate_rejects_prefix_components(spec.prefix_components(), predicate_execution)
-        {
-            return Ok(Vec::new());
-        }
-
-        let scan_contract = spec.scan_contract();
-        let store = resolve_store_for_index(scan_contract.store_path())?;
-        if lowered_index_prefix_is_proven_empty(store, spec) {
-            return Ok(Vec::new());
-        }
-
-        return resolve_covering_projection_components_for_index_bounds(
-            store,
-            entity_tag,
-            scan_contract,
-            (spec.lower(), spec.upper()),
-            continuation,
-            limit,
-            component_indices,
-            predicate_execution,
-        );
-    }
     if !index_prefix_specs.is_empty() {
         return resolve_covering_projection_components_for_prefix_set(
             entity_tag,
@@ -201,11 +179,52 @@ struct CoveringPrefixSetScan<'a> {
     merge_order_safe: bool,
 }
 
-type ActiveCoveringPrefixSpec<'a> = (
-    &'a LoweredIndexPrefixSpec,
-    LoweredIndexScanContract,
-    StoreHandle,
-);
+struct ActiveCoveringPrefixSpec<'a> {
+    prefix: &'a LoweredIndexPrefixSpec,
+    scan_contract: LoweredIndexScanContract,
+    store: StoreHandle,
+}
+
+fn active_covering_prefix_specs<'a, F>(
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    predicate_execution: Option<IndexPredicateExecution<'_>>,
+    resolve_store_for_index: &mut F,
+) -> Result<Vec<ActiveCoveringPrefixSpec<'a>>, InternalError>
+where
+    F: FnMut(&str) -> Result<StoreHandle, InternalError>,
+{
+    if index_prefix_specs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let first_scan_contract = index_prefix_specs[0].scan_contract();
+    let first_store_path = first_scan_contract.store_path().to_string();
+    let prefix_store = resolve_store_for_index(first_store_path.as_str())?;
+    let same_store = index_prefix_specs
+        .iter()
+        .all(|spec| spec.scan_contract().store_path() == first_store_path.as_str());
+    let empty_proof_store = if same_store { Some(prefix_store) } else { None };
+    let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
+    for spec in active_lowered_index_prefix_specs(
+        empty_proof_store,
+        index_prefix_specs,
+        predicate_execution,
+    ) {
+        let scan_contract = spec.scan_contract();
+        let store = if same_store {
+            prefix_store
+        } else {
+            resolve_store_for_index(scan_contract.store_path())?
+        };
+        active_specs.push(ActiveCoveringPrefixSpec {
+            prefix: spec,
+            scan_contract,
+            store,
+        });
+    }
+
+    Ok(active_specs)
+}
 
 // Resolve a branch/multi-prefix covering projection. Proven ordered prefix
 // sets use the same lazy merge model as scalar branch execution; unsafe sets
@@ -224,29 +243,29 @@ where
     }
 
     let component_indices: Arc<[usize]> = Arc::from(scan.component_indices.to_vec());
-    let first_scan_contract = index_prefix_specs[0].scan_contract();
-    let first_store_path = first_scan_contract.store_path().to_string();
-    let prefix_store = resolve_store_for_index(first_store_path.as_str())?;
-    let same_store = index_prefix_specs
-        .iter()
-        .all(|spec| spec.scan_contract().store_path() == first_store_path.as_str());
-    let empty_proof_store = if same_store { Some(prefix_store) } else { None };
-    let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
-    for spec in active_lowered_index_prefix_specs(
-        empty_proof_store,
+    let mut active_specs = active_covering_prefix_specs(
         index_prefix_specs,
         scan.predicate_execution,
-    ) {
-        let scan_contract = spec.scan_contract();
-        let store = if same_store {
-            prefix_store
-        } else {
-            resolve_store_for_index(scan_contract.store_path())?
-        };
-        active_specs.push((spec, scan_contract, store));
-    }
+        &mut resolve_store_for_index,
+    )?;
     if active_specs.is_empty() {
         return Ok(Vec::new());
+    }
+    if active_specs.len() == 1 {
+        let Some(active) = active_specs.pop() else {
+            return Err(InternalError::query_executor_invariant());
+        };
+
+        return resolve_covering_projection_components_for_index_bounds(
+            active.store,
+            entity_tag,
+            active.scan_contract,
+            (active.prefix.lower(), active.prefix.upper()),
+            IndexScanContinuationInput::new(None, scan.direction),
+            scan.limit,
+            component_indices.as_ref(),
+            scan.predicate_execution,
+        );
     }
     if !scan.merge_order_safe {
         return resolve_materialized_covering_projection_components_for_prefix_set(
@@ -256,33 +275,17 @@ where
             component_indices.as_ref(),
         );
     }
-    if active_specs.len() == 1 {
-        let Some((spec, scan_contract, store)) = active_specs.pop() else {
-            return Err(InternalError::query_executor_invariant());
-        };
-
-        return resolve_covering_projection_components_for_index_bounds(
-            store,
-            entity_tag,
-            scan_contract,
-            (spec.lower(), spec.upper()),
-            IndexScanContinuationInput::new(None, scan.direction),
-            scan.limit,
-            component_indices.as_ref(),
-            scan.predicate_execution,
-        );
-    }
 
     let index_fetch_hint = Some(scan.limit);
     let chunk_entries = branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
     let mut streams = Vec::with_capacity(active_specs.len());
-    for (spec, scan_contract, store) in active_specs {
+    for active in active_specs {
         streams.push(CoveringComponentStreamBox::prefix(
-            store,
+            active.store,
             entity_tag,
-            scan_contract,
-            spec.lower().clone(),
-            spec.upper().clone(),
+            active.scan_contract,
+            active.prefix.lower().clone(),
+            active.prefix.upper().clone(),
             scan.direction,
             Some(scan.limit),
             chunk_entries,
@@ -311,12 +314,12 @@ fn resolve_materialized_covering_projection_components_for_prefix_set(
     component_indices: &[usize],
 ) -> Result<CoveringProjectionComponentRows, InternalError> {
     let mut rows = Vec::new();
-    for (spec, scan_contract, store) in active_specs {
+    for active in active_specs {
         rows.extend(resolve_covering_projection_components_for_index_bounds(
-            store,
+            active.store,
             entity_tag,
-            scan_contract,
-            (spec.lower(), spec.upper()),
+            active.scan_contract,
+            (active.prefix.lower(), active.prefix.upper()),
             IndexScanContinuationInput::new(None, scan.direction),
             usize::MAX,
             component_indices,
@@ -473,16 +476,14 @@ impl<'a> CoveringPrefixComponentStream<'a> {
         }
     }
 
-    const fn next_output_limit(&self) -> Option<usize> {
-        self.remaining
-    }
-
     fn load_next_chunk(&mut self) -> Result<(), InternalError> {
         if self.exhausted || matches!(self.remaining, Some(0)) {
             self.exhausted = true;
             return Ok(());
         }
 
+        let chunk_entries =
+            index_stream_chunk_entries_for_remaining(self.chunk_entries, self.remaining);
         let continuation = IndexScanContinuationInput::new(self.anchor.as_ref(), self.direction);
         let chunk = IndexScan::components_chunk_structural(
             self.store,
@@ -491,9 +492,8 @@ impl<'a> CoveringPrefixComponentStream<'a> {
             &self.lower,
             &self.upper,
             continuation,
-            self.chunk_entries,
-            self.next_output_limit()
-                .map(|limit| limit.min(self.chunk_entries)),
+            chunk_entries,
+            index_stream_output_limit_for_chunk(self.remaining, chunk_entries),
             &self.component_indices,
             self.predicate_execution,
         )?;
@@ -502,18 +502,13 @@ impl<'a> CoveringPrefixComponentStream<'a> {
         self.buffer = rows;
         self.buffer_pos = 0;
 
-        if let Some(raw_key) = last_raw_key {
-            self.anchor = Some(raw_key);
-        } else {
-            self.exhausted = true;
-        }
-
-        if let Some(remaining) = self.remaining.as_mut() {
-            *remaining = remaining.saturating_sub(emitted);
-            if *remaining == 0 {
-                self.exhausted = true;
-            }
-        }
+        apply_index_scan_chunk_progress(
+            &mut self.anchor,
+            &mut self.remaining,
+            &mut self.exhausted,
+            emitted,
+            last_raw_key,
+        );
 
         Ok(())
     }

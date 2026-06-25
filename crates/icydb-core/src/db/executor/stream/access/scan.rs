@@ -69,6 +69,53 @@ pub(in crate::db::executor) const fn branch_stream_chunk_entries(
     prefix_stream_chunk_entries(index_fetch_hint, active_branch_count)
 }
 
+pub(in crate::db::executor) const fn index_stream_chunk_entries_for_remaining(
+    chunk_entries: usize,
+    remaining: Option<usize>,
+) -> usize {
+    let chunk_entries = if chunk_entries == 0 {
+        ACCESS_SCAN_CHUNK_ENTRIES
+    } else {
+        chunk_entries
+    };
+    match remaining {
+        Some(remaining) if remaining < chunk_entries => remaining,
+        Some(_) | None => chunk_entries,
+    }
+}
+
+pub(in crate::db::executor) const fn index_stream_output_limit_for_chunk(
+    remaining: Option<usize>,
+    chunk_entries: usize,
+) -> Option<usize> {
+    match remaining {
+        Some(remaining) if remaining < chunk_entries => Some(remaining),
+        Some(_) => Some(chunk_entries),
+        None => None,
+    }
+}
+
+pub(in crate::db::executor) fn apply_index_scan_chunk_progress(
+    anchor: &mut Option<RawIndexStoreKey>,
+    remaining: &mut Option<usize>,
+    exhausted: &mut bool,
+    emitted: usize,
+    last_raw_key: Option<RawIndexStoreKey>,
+) {
+    if let Some(raw_key) = last_raw_key {
+        *anchor = Some(raw_key);
+    } else {
+        *exhausted = true;
+    }
+
+    if let Some(remaining) = remaining.as_mut() {
+        *remaining = remaining.saturating_sub(emitted);
+        if *remaining == 0 {
+            *exhausted = true;
+        }
+    }
+}
+
 pub(in crate::db::executor) fn index_predicate_rejects_prefix_components(
     prefix_components: &[Vec<u8>],
     predicate_execution: Option<IndexPredicateExecution<'_>>,

@@ -11,8 +11,12 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Materialized covering fallback now uses a shared decoded-key order, dedup,
-  direction, and limit helper.
+- Covering prefix projections now share one active-prefix preparation path
+  before choosing direct single-prefix, materialized fallback, or merged
+  prefix-stream execution.
+- Scalar index streams and covering component streams now share raw-index
+  chunk sizing/output-limit/progress bookkeeping while keeping payload-specific
+  decoding separate.
 - The next narrow duplicate-flow target is remaining structural drift between
   physical prefix streams and covering prefix-component streams. Broader
   branch-tree replacement and cursor-format design remain explicit follow-ups.
@@ -25,6 +29,21 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Covering Prefix Preparation Slice
+
+- Single-prefix and multi-prefix covering projections now share the same
+  active-prefix preparation helper for empty-prefix metadata, index predicate
+  rejection, scan-contract recovery, and store-handle resolution.
+- Covering execution consumes the prepared active-prefix set before choosing
+  direct bounded prefix scan, materialized fallback, or lazy merged prefix
+  streams.
+- If pruning leaves exactly one active covering prefix, the covering lane can
+  use the single-prefix bounded scan instead of materializing an unsafe
+  multi-prefix fallback.
+- Scalar key streams and covering component streams now share the raw-index
+  chunk helpers that cap each pull and advance the resume anchor, remaining
+  output budget, and exhaustion flag.
 
 ## Completed Materialized Covering Window Slice
 
