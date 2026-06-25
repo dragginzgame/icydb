@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Added sparse `IN` over-cap proof for decoded index components, hybrid
-  projections, fluent full-entity loads, and DESC fallback routing on
-  child-prefix-sensitive routes.
-
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
+
+- `0.185.3` extends sparse `IN` terminal proof across SQL and fluent
+  prefix-cardinality COUNT/EXISTS paths, including empty-prefix results,
+  without changing terminal semantics.
+
+- `0.185.2` expands sparse `IN` fallback proof across SQL covering
+  projections, fluent full-entity loads, and DESC child-prefix-sensitive
+  routes without changing routing semantics.
 
 - `0.185.1` hardens sparse `IN` continuation and over-cap covering fallback by
   proving child-prefix resume behavior and making unsafe parent-prefix

@@ -11,8 +11,25 @@ expanding the optimizer.
 
 ## Current Slice
 
-- The current slice is widening over-cap sparse `IN` fallback proof across
-  SQL covering projection lanes and fluent full-entity loads.
+- No active implementation slice is selected after `0.185.3`.
+- The next branch-aware work should choose explicitly between adaptive routing,
+  branch-tree replacement, or cursor-format design before changing runtime
+  behavior.
+
+## Completed Terminal Metadata Slice
+
+- The terminal metadata slice extended sparse `IN` proof into COUNT/EXISTS
+  terminals.
+- SQL sparse `IN` COUNT already uses direct prefix-cardinality metadata; the
+  slice proved the equivalent fluent sparse terminal path does the
+  same for non-empty and empty-prefix count/existence checks.
+- This stayed proof-oriented. It did not change terminal semantics, route
+  admission, branch caps, or prefix-cardinality metadata.
+
+## Completed Projection Boundary Slice
+
+- The projection boundary slice widened over-cap sparse `IN` fallback proof
+  across SQL covering projection lanes and fluent full-entity loads.
 - Combined child-prefix over-cap fixtures now exercise key-only primary-key
   projection, decoded index-component projection, and hybrid row-backed
   projection, plus fluent full-entity hydration, against the same parent-prefix
@@ -26,7 +43,7 @@ expanding the optimizer.
 - The same slice also locks the ASC-only boundary for child-prefix expansion:
   sparse `IN ... ORDER BY id DESC` must stay materialized/fallback and must not
   report the ASC child-prefix expansion hint.
-- This remains proof-oriented. It does not add a cost model or a denser
+- The slice stayed proof-oriented. It did not add a cost model or a denser
   over-cap streaming strategy.
 
 ## Completed Adaptive Boundary Slice

@@ -29,6 +29,14 @@ const SPARSE_COLLECTION_IDS: [&str; 6] = [
     "missing-collection-003",
     "missing-collection-004",
 ];
+#[cfg(feature = "diagnostics")]
+const MISSING_SPARSE_COLLECTION_IDS: [&str; 5] = [
+    "missing-collection-000",
+    "missing-collection-001",
+    "missing-collection-002",
+    "missing-collection-003",
+    "missing-collection-004",
+];
 
 fn branch_target_sql(select: &str, limit: usize) -> String {
     format!(
@@ -164,11 +172,7 @@ fn sparse_collection_desc_sql(select: &str, limit: usize) -> String {
 
 #[cfg(feature = "diagnostics")]
 fn sparse_collection_ordered_sql(select: &str, direction: &str, limit: usize) -> String {
-    let collections = SPARSE_COLLECTION_IDS
-        .into_iter()
-        .map(|collection_id| format!("'{collection_id}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let collections = sparse_collection_literal_list();
 
     format!(
         "SELECT {select} \
@@ -180,20 +184,56 @@ fn sparse_collection_ordered_sql(select: &str, direction: &str, limit: usize) ->
 }
 
 #[cfg(feature = "diagnostics")]
+fn sparse_collection_count_sql() -> String {
+    let collections = sparse_collection_literal_list();
+
+    format!(
+        "SELECT COUNT(*) \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN ({collections})",
+    )
+}
+
+#[cfg(feature = "diagnostics")]
+fn missing_sparse_collection_count_sql() -> String {
+    let collections = missing_sparse_collection_literal_list();
+
+    format!(
+        "SELECT COUNT(*) \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN ({collections})",
+    )
+}
+
+#[cfg(feature = "diagnostics")]
+fn sparse_collection_literal_list() -> String {
+    SPARSE_COLLECTION_IDS
+        .into_iter()
+        .map(|collection_id| format!("'{collection_id}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[cfg(feature = "diagnostics")]
 fn missing_sparse_collection_sql(select: &str, limit: usize) -> String {
+    let collections = missing_sparse_collection_literal_list();
+
     format!(
         "SELECT {select} \
          FROM BranchIndexedSessionSqlEntity \
-         WHERE collection_id IN (\
-             'missing-collection-000', \
-             'missing-collection-001', \
-             'missing-collection-002', \
-             'missing-collection-003', \
-             'missing-collection-004'\
-         ) \
+         WHERE collection_id IN ({collections}) \
          ORDER BY id ASC \
          LIMIT {limit}",
     )
+}
+
+#[cfg(feature = "diagnostics")]
+fn missing_sparse_collection_literal_list() -> String {
+    MISSING_SPARSE_COLLECTION_IDS
+        .into_iter()
+        .map(|collection_id| format!("'{collection_id}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(feature = "diagnostics")]
@@ -710,6 +750,42 @@ fn response_branch_ids(
 }
 
 #[cfg(feature = "diagnostics")]
+fn assert_fluent_prefix_cardinality_terminal(
+    attribution: &crate::db::FluentTerminalExecutionAttribution,
+    context: &str,
+) {
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "{context} should use metadata without row probes",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "{context} should not scan index entries",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 0,
+        "{context} should not open index ranges for missing prefixes",
+    );
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .as_ref()
+        .unwrap_or_else(|| panic!("{context} should report its terminal source"));
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("IndexPrefixCardinality"),
+        "{context} should attribute the exact metadata source",
+    );
+    assert_eq!(
+        scalar_aggregate.terminal_count, 1,
+        "{context} should report one terminal",
+    );
+    assert_eq!(
+        scalar_aggregate.rows_ingested, 0,
+        "{context} should not ingest rows through the buffered reducer",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
 fn fluent_branch_target_query(limit: u32) -> Query<BranchIndexedSessionSqlEntity> {
     Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
         .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
@@ -719,12 +795,19 @@ fn fluent_branch_target_query(limit: u32) -> Query<BranchIndexedSessionSqlEntity
 }
 
 #[cfg(feature = "diagnostics")]
+fn sparse_collection_filter_expr() -> crate::db::FilterExpr {
+    crate::db::query::builder::FieldRef::new("collection_id").in_list(SPARSE_COLLECTION_IDS)
+}
+
+#[cfg(feature = "diagnostics")]
+fn missing_sparse_collection_filter_expr() -> crate::db::FilterExpr {
+    crate::db::query::builder::FieldRef::new("collection_id").in_list(MISSING_SPARSE_COLLECTION_IDS)
+}
+
+#[cfg(feature = "diagnostics")]
 fn fluent_sparse_collection_query(limit: u32) -> Query<BranchIndexedSessionSqlEntity> {
     Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
-        .filter(
-            crate::db::query::builder::FieldRef::new("collection_id")
-                .in_list(SPARSE_COLLECTION_IDS),
-        )
+        .filter(sparse_collection_filter_expr())
         .order_term(crate::db::asc("id"))
         .limit(limit)
 }
@@ -748,10 +831,7 @@ fn execute_fluent_sparse_collection_page(
 ) -> crate::db::PagedLoadExecution<BranchIndexedSessionSqlEntity> {
     let query = session
         .load::<BranchIndexedSessionSqlEntity>()
-        .filter(
-            crate::db::query::builder::FieldRef::new("collection_id")
-                .in_list(SPARSE_COLLECTION_IDS),
-        )
+        .filter(sparse_collection_filter_expr())
         .order_term(crate::db::asc("id"))
         .limit(u32::try_from(limit).expect("sparse collection test limit should fit into u32"));
     let query = if let Some(cursor) = cursor {
@@ -1651,18 +1731,7 @@ fn session_branch_set_sql_sparse_in_count_uses_direct_prefix_cardinality() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_branch_set_fixture(&session);
-    let sql = format!(
-        "SELECT COUNT(*) \
-         FROM BranchIndexedSessionSqlEntity \
-         WHERE collection_id IN (\
-             '{BRANCH_COLLECTION}', \
-             'missing-collection-000', \
-             'missing-collection-001', \
-             'missing-collection-002', \
-             'missing-collection-003', \
-             'missing-collection-004'\
-         )",
-    );
+    let sql = sparse_collection_count_sql();
 
     let (result, attribution) = session
         .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
@@ -1699,6 +1768,144 @@ fn session_branch_set_sql_sparse_in_count_uses_direct_prefix_cardinality() {
     assert_eq!(
         attribution.cache.shared_query_plan_misses, 0,
         "direct sparse COUNT should not build a shared prepared-plan cache entry",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_missing_sparse_in_count_uses_empty_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = missing_sparse_collection_count_sql();
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!("missing sparse collection COUNT SQL should execute: {err:?}")
+        });
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("missing sparse collection COUNT SQL should return a projection row");
+    };
+
+    assert_eq!(
+        rows,
+        vec![outputs(vec![Value::Nat64(0)])],
+        "missing sparse collection COUNT should return zero from empty prefixes",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "missing sparse collection COUNT should use metadata without row probes",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "missing sparse collection COUNT should not scan index entries",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 0,
+        "missing sparse collection COUNT should not open index ranges",
+    );
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .expect("missing sparse collection COUNT should report its terminal source");
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("IndexPrefixCardinality"),
+        "missing sparse collection COUNT should attribute the exact metadata source",
+    );
+    assert_eq!(
+        scalar_aggregate.rows_ingested, 0,
+        "missing sparse metadata COUNT should not ingest rows through the buffered reducer",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_sparse_in_count_uses_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+
+    let (count, attribution) = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .filter(sparse_collection_filter_expr())
+        .count_with_attribution()
+        .unwrap_or_else(|err| panic!("sparse collection fluent COUNT should execute: {err:?}"));
+
+    assert_eq!(
+        count, 16,
+        "fluent sparse collection COUNT should include only the existing collection prefix",
+    );
+    assert_fluent_prefix_cardinality_terminal(&attribution, "fluent sparse collection COUNT");
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_missing_sparse_in_count_uses_empty_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+
+    let (count, attribution) = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .filter(missing_sparse_collection_filter_expr())
+        .count_with_attribution()
+        .unwrap_or_else(|err| {
+            panic!("missing sparse collection fluent COUNT should execute: {err:?}")
+        });
+
+    assert_eq!(
+        count, 0,
+        "fluent missing sparse collection COUNT should return zero from empty prefixes",
+    );
+    assert_fluent_prefix_cardinality_terminal(
+        &attribution,
+        "fluent missing sparse collection COUNT",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_sparse_in_exists_uses_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+
+    let (exists, attribution) = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .filter(sparse_collection_filter_expr())
+        .exists_with_attribution()
+        .unwrap_or_else(|err| panic!("sparse collection fluent EXISTS should execute: {err:?}"));
+
+    assert!(
+        exists,
+        "fluent sparse collection EXISTS should find the existing collection prefix",
+    );
+    assert_fluent_prefix_cardinality_terminal(&attribution, "fluent sparse collection EXISTS");
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_missing_sparse_in_exists_uses_empty_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+
+    let (exists, attribution) = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .filter(missing_sparse_collection_filter_expr())
+        .exists_with_attribution()
+        .unwrap_or_else(|err| {
+            panic!("missing sparse collection fluent EXISTS should execute: {err:?}")
+        });
+
+    assert!(
+        !exists,
+        "fluent missing sparse collection EXISTS should return false from empty prefixes",
+    );
+    assert_fluent_prefix_cardinality_terminal(
+        &attribution,
+        "fluent missing sparse collection EXISTS",
     );
 }
 
