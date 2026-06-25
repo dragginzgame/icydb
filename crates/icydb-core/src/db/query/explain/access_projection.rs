@@ -83,13 +83,15 @@ where
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
-        _ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
+        ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         ExplainAccessPath::IndexBranchSet {
             name: index_name.to_string(),
             fields: index_fields.to_vec(),
             fixed_values: fixed_values.to_vec(),
             branch_values: branch_values.to_vec(),
+            branch_field: index_fields.get(fixed_values.len()).cloned(),
+            ordered_suffix: ordered_suffix.label().to_string(),
         }
     }
 

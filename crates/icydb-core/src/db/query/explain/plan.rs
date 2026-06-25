@@ -435,6 +435,8 @@ pub enum ExplainAccessPath {
         fields: Vec<String>,
         fixed_values: Vec<Value>,
         branch_values: Vec<Value>,
+        branch_field: Option<String>,
+        ordered_suffix: String,
     },
     IndexRange {
         name: String,

@@ -190,13 +190,25 @@ where
             fields,
             fixed_values,
             branch_values,
-        } => projection.index_branch_set(
-            name,
-            fields,
-            fixed_values,
-            branch_values,
-            IndexBranchSetOrderedSuffix::PrimaryKeyAsc,
-        ),
+            branch_field,
+            ordered_suffix,
+        } => {
+            debug_assert_eq!(
+                branch_field.as_deref(),
+                fields.get(fixed_values.len()).map(String::as_str)
+            );
+            debug_assert_eq!(
+                ordered_suffix,
+                IndexBranchSetOrderedSuffix::PrimaryKeyAsc.label()
+            );
+            projection.index_branch_set(
+                name,
+                fields,
+                fixed_values,
+                branch_values,
+                IndexBranchSetOrderedSuffix::PrimaryKeyAsc,
+            )
+        }
         ExplainAccessPath::IndexRange {
             name,
             fields,

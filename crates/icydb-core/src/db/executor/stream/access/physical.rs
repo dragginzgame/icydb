@@ -56,6 +56,12 @@ enum PhysicalKeyResolution {
     },
 }
 
+#[derive(Clone, Copy)]
+enum PrefixMergeResumePolicy {
+    None,
+    PrimaryKeySuffix,
+}
+
 ///
 /// StructuralPhysicalStreamRequest
 ///
@@ -269,47 +275,13 @@ impl KeyAccessRuntime {
         if index_prefix_specs.len() != branch_count {
             return Err(InternalError::query_executor_invariant());
         }
-        if index_prefix_specs.is_empty() {
-            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
-
-        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
-        let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
-        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
-            if proven_empty {
-                continue;
-            }
-            let branch_anchor = continuation
-                .primary_key_boundary()
-                .map(|boundary| primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary))
-                .transpose()?;
-            active_specs.push((spec, branch_anchor));
-        }
-        if active_specs.is_empty() {
-            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
-
-        let branch_chunk_entries =
-            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
-        let mut streams = Vec::with_capacity(active_specs.len());
-        for (spec, branch_anchor) in active_specs {
-            streams.push(OrderedKeyStreamBox::index_range(
-                IndexRangeKeyStream::from_prefix(
-                    self.store,
-                    self.entity_tag,
-                    spec,
-                    continuation.direction(),
-                    branch_anchor,
-                    index_fetch_hint,
-                    branch_chunk_entries,
-                ),
-            ));
-        }
-
-        Ok(OrderedKeyStreamBox::merge_all(
-            streams,
-            KeyOrderComparator::from_direction(continuation.direction()),
-        ))
+        self.resolve_merged_index_prefix_streams(
+            index,
+            index_prefix_specs,
+            continuation,
+            index_fetch_hint,
+            PrefixMergeResumePolicy::PrimaryKeySuffix,
+        )
     }
 
     // Resolve one multi-lookup secondary-index scan and normalize duplicates.
@@ -358,52 +330,19 @@ impl KeyAccessRuntime {
         if index_prefix_specs.len() != value_count {
             return Err(InternalError::query_executor_invariant());
         }
-        if index_prefix_specs.is_empty() {
-            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
+        let resume_policy = if preserve_leaf_index_order {
+            PrefixMergeResumePolicy::PrimaryKeySuffix
+        } else {
+            PrefixMergeResumePolicy::None
+        };
 
-        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
-        let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
-        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
-            if !proven_empty {
-                active_specs.push(spec);
-            }
-        }
-        if active_specs.is_empty() {
-            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
-
-        let branch_chunk_entries =
-            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
-        let mut streams = Vec::with_capacity(active_specs.len());
-        for spec in active_specs {
-            let branch_anchor = if preserve_leaf_index_order {
-                continuation
-                    .primary_key_boundary()
-                    .map(|boundary| {
-                        primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary)
-                    })
-                    .transpose()?
-            } else {
-                None
-            };
-            streams.push(OrderedKeyStreamBox::index_range(
-                IndexRangeKeyStream::from_prefix(
-                    self.store,
-                    self.entity_tag,
-                    spec,
-                    continuation.direction(),
-                    branch_anchor,
-                    index_fetch_hint,
-                    branch_chunk_entries,
-                ),
-            ));
-        }
-
-        Ok(OrderedKeyStreamBox::merge_all(
-            streams,
-            KeyOrderComparator::from_direction(continuation.direction()),
-        ))
+        self.resolve_merged_index_prefix_streams(
+            index,
+            index_prefix_specs,
+            continuation,
+            index_fetch_hint,
+            resume_policy,
+        )
     }
 
     fn expanded_index_multi_lookup_stream(
@@ -429,33 +368,69 @@ impl KeyAccessRuntime {
         }
 
         let expanded_index = index.with_slot_arity(expansion.target_prefix_len());
+        self.resolve_merged_index_prefix_streams(
+            &expanded_index,
+            expanded_specs.as_slice(),
+            continuation,
+            index_fetch_hint,
+            PrefixMergeResumePolicy::PrimaryKeySuffix,
+        )
+        .map(Some)
+    }
+
+    fn resolve_merged_index_prefix_streams(
+        &self,
+        index: &IndexShapeDetails,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        continuation: AccessScanContinuationInput<'_>,
+        index_fetch_hint: Option<usize>,
+        resume_policy: PrefixMergeResumePolicy,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        if index_prefix_specs.is_empty() {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
+
+        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
+        let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
+        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
+            if !proven_empty {
+                active_specs.push(spec);
+            }
+        }
+        if active_specs.is_empty() {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
+
         let branch_chunk_entries =
-            branch_stream_chunk_entries(index_fetch_hint, expanded_specs.len());
-        let mut streams = Vec::with_capacity(expanded_specs.len());
-        for spec in &expanded_specs {
-            let branch_anchor = continuation
-                .primary_key_boundary()
-                .map(|boundary| {
-                    primary_key_suffix_resume_anchor_for_prefix(&expanded_index, spec, boundary)
-                })
-                .transpose()?;
+            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
+        let mut streams = Vec::with_capacity(active_specs.len());
+        for spec in active_specs {
+            let resume_anchor = match resume_policy {
+                PrefixMergeResumePolicy::None => None,
+                PrefixMergeResumePolicy::PrimaryKeySuffix => continuation
+                    .primary_key_boundary()
+                    .map(|boundary| {
+                        primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary)
+                    })
+                    .transpose()?,
+            };
             streams.push(OrderedKeyStreamBox::index_range(
                 IndexRangeKeyStream::from_prefix(
                     self.store,
                     self.entity_tag,
                     spec,
                     continuation.direction(),
-                    branch_anchor,
+                    resume_anchor,
                     index_fetch_hint,
                     branch_chunk_entries,
                 ),
             ));
         }
 
-        Ok(Some(OrderedKeyStreamBox::merge_all(
+        Ok(OrderedKeyStreamBox::merge_all(
             streams,
             KeyOrderComparator::from_direction(continuation.direction()),
-        )))
+        ))
     }
 
     // Resolve one secondary-index range scan.

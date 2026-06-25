@@ -13,9 +13,9 @@ use crate::db::{
                 RouteCapabilityFacts, RouteContinuationPlan,
                 execution::{
                     AggregateSeekSpec, GroupedExecutionMode, GroupedRouteDecisionOutcome,
-                    GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
-                    LoadOrderRouteMode, LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan,
-                    TopNSeekSpec,
+                    GroupedRouteObservability, GroupedRouteRejectionReason,
+                    IndexPrefixChildExpansionHint, IndexRangeLimitSpec, LoadOrderRouteMode,
+                    LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
                 },
                 shape::{FastPathOrder, RouteShapeKind},
             },
@@ -113,6 +113,13 @@ impl ExecutionRoutePlan {
         &self,
     ) -> Option<&LoadTerminalFastPathContract> {
         self.load_terminal_fast_path.as_ref()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn index_prefix_child_expansion(
+        &self,
+    ) -> Option<IndexPrefixChildExpansionHint> {
+        self.scan_hints.index_prefix_child_expansion
     }
 
     #[must_use]

@@ -1,6 +1,7 @@
 # 0.184 Status
 
-Status: active.
+Status: closed after 0.184.50. Keep this line in guard mode unless a concrete
+regression or high-confidence duplicate-flow deletion appears.
 
 ## Completed
 
@@ -758,20 +759,40 @@ Status: active.
   walks are shared non-SQL guards. Keep H3 deferred until a schema-bound
   consumer can delete a real consumer-local expression rewalk.
 
-## Next Candidates
+## Closeout
 
-- Sparse literal `IN` follow-up: scalar/full-entity, key-only/index-covered,
-  and tested hybrid-covering pages now have the shared prefix-cardinality
-  child-expansion path for `(collection_id, stage, id)`. Only tune this further
-  if a new sparse `IN` shape shows up as a repeated hotspot.
-- D1 / F3 is in guard mode: the first-class aggregate operator DTO remains
-  deferred until it deletes duplicate global/grouped logic, becomes the shared
-  EXPLAIN/runtime handoff, or prevents a real cache/fingerprint
-  misclassification risk.
-- H3 / F7: extend the analyzed artifact only after a narrow design for type
-  inference, additional ORDER BY facts beyond the current field proof, and
-  predicate-derivation inputs.
-- H6 / D7 / F6: if write-path cleanup continues, only move beyond the current
-  SQL write-boundary candidate helper when it deletes more real UPDATE/DELETE
-  row-collection duplication. Do not implement real chunked durable commits
-  until atomic preflight or staging-overlay semantics are designed.
+0.184 is complete enough to stop as a query-engine audit cleanup line.
+
+The line closed the correctness locks, removed or centralized the known
+low-risk duplicate flows, and put the remaining broad architecture work behind
+named future lines. Do not keep adding speculative 0.184 cleanup slices just
+because code still has similar-looking typed shells. The stop condition is:
+
+- no known correctness finding is left untested;
+- no currently measured hotspot demands another narrow 0.184 fix;
+- no remaining duplicate-flow candidate deletes meaningful runtime code without
+  becoming a broader architecture migration;
+- branch-aware route work is parked in 0.185;
+- shared filter authority is parked in 0.186;
+- the second mega-audit is parked in 0.187.
+
+## Deferred Work
+
+- 0.185 / branch-aware routing: sparse literal `IN` follow-up is now
+  branch-aware work, not 0.184 cleanup. Scalar/full-entity,
+  key-only/index-covered, and tested hybrid-covering pages already have the
+  shared prefix-cardinality child-expansion path for
+  `(collection_id, stage, id)`. Only tune this further if a new sparse `IN`
+  shape shows up as a repeated hotspot.
+- 0.186 / shared filter authority: H3 / F7 should extend the analyzed artifact
+  only after a narrow design for type inference, additional ORDER BY facts
+  beyond the current field proof, and predicate-derivation inputs. It should
+  not be folded into 0.184.
+- 0.187 / second mega audit: D1 / F3 remains in guard mode. The first-class
+  aggregate operator DTO should stay deferred until it deletes duplicate
+  global/grouped logic, becomes the shared EXPLAIN/runtime handoff, or prevents
+  a real cache/fingerprint misclassification risk.
+- 0.187 / second mega audit: H6 / D7 / F6 write-path work should continue only
+  if a fresh audit finds new UPDATE/DELETE row-collection duplication. Do not
+  implement real chunked durable commits until atomic preflight or
+  staging-overlay semantics are designed.

@@ -230,6 +230,24 @@ fn branch_descriptor(sql: &str) -> ExplainExecutionNodeDescriptor {
         .unwrap_or_else(|err| panic!("branch-set SQL should explain execution: {err:?}"))
 }
 
+fn target_branch_access_path() -> ExplainAccessPath {
+    ExplainAccessPath::IndexBranchSet {
+        name: "collection_stage_id".to_string(),
+        fields: vec![
+            "collection_id".to_string(),
+            "stage".to_string(),
+            "id".to_string(),
+        ],
+        fixed_values: vec![Value::Text(BRANCH_COLLECTION.to_string())],
+        branch_values: vec![
+            Value::Text("Draft".to_string()),
+            Value::Text("Review".to_string()),
+        ],
+        branch_field: Some("stage".to_string()),
+        ordered_suffix: "primary_key_asc".to_string(),
+    }
+}
+
 fn assert_target_branch_route(descriptor: &ExplainExecutionNodeDescriptor) {
     let branch_node =
         explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::IndexBranchSet)
@@ -237,19 +255,7 @@ fn assert_target_branch_route(descriptor: &ExplainExecutionNodeDescriptor) {
 
     assert_eq!(
         branch_node.access_strategy(),
-        Some(&ExplainAccessPath::IndexBranchSet {
-            name: "collection_stage_id".to_string(),
-            fields: vec![
-                "collection_id".to_string(),
-                "stage".to_string(),
-                "id".to_string(),
-            ],
-            fixed_values: vec![Value::Text(BRANCH_COLLECTION.to_string())],
-            branch_values: vec![
-                Value::Text("Draft".to_string()),
-                Value::Text("Review".to_string()),
-            ],
-        }),
+        Some(&target_branch_access_path()),
         "branch route should carry index identity, fixed prefix, and exact branch values",
     );
     assert!(
@@ -722,6 +728,65 @@ fn session_branch_set_sql_rows_match_full_filter_primary_key_sort() {
         rows,
         expected_branch_rows(BRANCH_LIMIT),
         "branch merge should match full filter plus global primary-key ASC sort",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_and_fluent_share_branch_route_identity() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_sql("id", BRANCH_LIMIT);
+    let sql_descriptor = branch_descriptor(sql.as_str());
+    let fluent_query = fluent_branch_target_query(
+        u32::try_from(BRANCH_LIMIT).expect("branch test limit should fit into u32"),
+    );
+    let fluent_descriptor = fluent_query
+        .explain_execution()
+        .expect("fluent branch target should explain execution");
+
+    assert_target_branch_route(&sql_descriptor);
+    assert_target_branch_route(&fluent_descriptor);
+
+    let sql_branch = explain_execution_find_first_node(
+        &sql_descriptor,
+        ExplainExecutionNodeType::IndexBranchSet,
+    )
+    .expect("SQL target should expose one branch route node");
+    let fluent_branch = explain_execution_find_first_node(
+        &fluent_descriptor,
+        ExplainExecutionNodeType::IndexBranchSet,
+    )
+    .expect("fluent target should expose one branch route node");
+
+    assert_eq!(
+        sql_branch.access_strategy(),
+        fluent_branch.access_strategy(),
+        "equivalent SQL and fluent shapes should share the same branch route identity",
+    );
+
+    let sql_rows =
+        statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("branch-set SQL projection should execute: {err:?}"));
+    let (result, attribution) = session
+        .execute_query_result_with_attribution(&fluent_query)
+        .expect("fluent branch target should execute");
+    let crate::db::LoadQueryResult::Rows(page) = result else {
+        panic!("fluent branch target should return scalar rows");
+    };
+    let fluent_rows = response_branch_ids(&page)
+        .into_iter()
+        .map(|id| vec![Value::Ulid(id)])
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        sql_rows, fluent_rows,
+        "equivalent SQL and fluent branch shapes should return the same primary-key page",
+    );
+    assert_eq!(
+        attribution.grouped, None,
+        "fluent branch page convergence check must not invoke grouped/count work",
     );
 }
 
@@ -1418,6 +1483,39 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
     assert!(
         attribution.index_store_range_scan_calls <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
         "sparse collection page should expand only bounded non-empty child prefixes, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_verbose_explain_identifies_child_prefix_expansion() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = sparse_collection_sql("id", 8);
+    let explain_sql = format!("EXPLAIN EXECUTION VERBOSE {sql}");
+
+    let explain =
+        statement_explain_sql::<BranchIndexedSessionSqlEntity>(&session, explain_sql.as_str())
+            .unwrap_or_else(|err| {
+                panic!("sparse collection verbose EXPLAIN should execute: {err:?}")
+            });
+
+    assert!(
+        explain.contains("IndexMultiLookup"),
+        "sparse IN route should remain visibly multi-lookup: {explain}",
+    );
+    assert!(
+        explain.contains("diag.r.index_prefix_child_expansion=true"),
+        "sparse IN route should report child-prefix expansion: {explain}",
+    );
+    assert!(
+        explain.contains("diag.r.index_prefix_child_expansion_target=fetch(2)"),
+        "sparse IN route should report the expanded composite prefix length: {explain}",
+    );
+    assert!(
+        explain.contains("diag.r.index_prefix_child_expansion_cap=fetch(32)"),
+        "sparse IN route should report the child-prefix expansion cap: {explain}",
     );
 }
 

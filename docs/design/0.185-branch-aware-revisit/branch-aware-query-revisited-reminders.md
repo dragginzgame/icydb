@@ -1,6 +1,7 @@
 # 0.185 Branch-Aware Query Revisited Reminders
 
-This is a parking note, not a full design doc.
+This started as a parking note. The active 0.185 baseline is now documented in
+`0.185-design.md` and `status.md`.
 
 ## Reminder List
 

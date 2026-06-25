@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Started the 0.185 branch-aware routing revisit with an explicit
+  design/status baseline, a SQL/fluent convergence guard for equivalent
+  branch-set route identity, and shared physical merged-prefix stream
+  construction for branch-set, multi-lookup, and child-prefix expansion paths;
+  branch-set EXPLAIN access DTOs now also carry branch field and ordered-suffix
+  identity explicitly, and the branch-aware continuation model is documented for
+  the 0.185 cursor follow-up. Sparse `IN` routes now surface child-prefix
+  expansion target/cap diagnostics in verbose EXPLAIN output, with the current
+  adaptive route boundary documented and guarded against accidental DESC
+  child-prefix expansion.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

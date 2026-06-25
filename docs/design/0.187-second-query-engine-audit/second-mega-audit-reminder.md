@@ -9,7 +9,8 @@ and 0.186. It is intentionally blunt.
 
 Run this second mega audit after:
 
-1. 0.184 query-engine audit cleanup is closed.
+1. 0.184 query-engine audit cleanup is closed. As of the 0.184.50 closeout,
+   treat it as guard-mode only unless a regression requires a narrow fix.
 2. 0.185 branch-aware query routing revisit is complete or deliberately
    deferred.
 3. 0.186 shared query filter authority is either implemented, rejected, or
@@ -124,6 +125,10 @@ Carry these into 0.187 only if they still matter after 0.185 and 0.186:
 - retained-slot late-materialization lane;
 - broader expression-analysis artifact with type inference;
 - shared SQL/fluent filter authority, if 0.186 did not finish it.
+
+0.184-specific note: do not reopen 0.184 just to continue cleanup. If this
+audit finds more duplicate authority, make it a 0.187 finding with evidence,
+not another incremental 0.184 slice.
 
 ## Morning Checklist
 
