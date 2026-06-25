@@ -12,7 +12,7 @@ authors = { workspace = true }
 [dependencies]
 candid = { workspace = true }
 ic-testkit = { workspace = true }
-icydb = { workspace = true, features = ["diagnostics", "sql"] }
+icydb = { workspace = true, features = ["diagnostics", "sql", "sql-explain"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

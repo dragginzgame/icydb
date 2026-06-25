@@ -27,6 +27,7 @@ use crate::{
         },
         query::plan::{FieldSlot, expr::Expr},
     },
+    error::InternalError,
     traits::{CanisterKind, EntityValue},
     types::{Decimal, Id},
     value::Value,
@@ -50,6 +51,20 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_with_plan(query, move |load, plan| {
             load.execute_scalar_terminal_request(plan, request)
         })
+    }
+
+    // Execute and decode one scalar terminal boundary so fluent terminal
+    // methods do not each repeat executor-error adaptation.
+    fn execute_scalar_terminal_value<E, T>(
+        &self,
+        query: &Query<E>,
+        request: ScalarTerminalBoundaryRequest,
+        decode: impl FnOnce(ScalarTerminalBoundaryOutput) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        decode(self.execute_scalar_terminal_boundary(query, request)?).map_err(QueryError::execute)
     }
 
     // Execute one scalar terminal boundary with diagnostics attribution. This
@@ -121,6 +136,25 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    // Execute and decode one attributed scalar terminal boundary while keeping
+    // fluent attribution wrapping aligned with the non-attributed terminal path.
+    #[cfg(feature = "diagnostics")]
+    fn execute_scalar_terminal_value_with_attribution<E, T>(
+        &self,
+        query: &Query<E>,
+        request: ScalarTerminalBoundaryRequest,
+        decode: impl FnOnce(ScalarTerminalBoundaryOutput) -> Result<T, InternalError>,
+    ) -> Result<(T, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (output, attribution) =
+            self.execute_scalar_terminal_boundary_with_attribution(query, request)?;
+        let value = decode(output).map_err(QueryError::execute)?;
+
+        Ok((value, attribution))
+    }
+
     // Execute one projection terminal boundary and keep field projection
     // executor details out of fluent query modules.
     fn execute_scalar_projection_boundary<E>(
@@ -137,6 +171,22 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    // Execute and decode one projection terminal boundary so value/count/id
+    // decoding policy stays in the session adapter instead of each fluent method.
+    fn execute_scalar_projection_value<E, T>(
+        &self,
+        query: &Query<E>,
+        target_field: FieldSlot,
+        request: ScalarProjectionBoundaryRequest,
+        decode: impl FnOnce(ScalarProjectionBoundaryOutput) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        decode(self.execute_scalar_projection_boundary(query, target_field, request)?)
+            .map_err(QueryError::execute)
+    }
+
     // Execute one fluent count terminal through its concrete session boundary.
     pub(in crate::db) fn execute_fluent_count_rows_terminal<E>(
         &self,
@@ -147,9 +197,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let request = strategy.into_executor_request();
-        let output = self.execute_scalar_terminal_boundary(query, request)?;
-
-        output.into_count().map_err(QueryError::execute)
+        self.execute_scalar_terminal_value(query, request, ScalarTerminalBoundaryOutput::into_count)
     }
 
     // Execute one fluent count terminal while reporting terminal-specific
@@ -164,11 +212,11 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let request = strategy.into_executor_request();
-        let (output, attribution) =
-            self.execute_scalar_terminal_boundary_with_attribution(query, request)?;
-        let count = output.into_count().map_err(QueryError::execute)?;
-
-        Ok((count, attribution))
+        self.execute_scalar_terminal_value_with_attribution(
+            query,
+            request,
+            ScalarTerminalBoundaryOutput::into_count,
+        )
     }
 
     // Execute one fluent exists terminal through its concrete session boundary.
@@ -181,9 +229,11 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let request = strategy.into_executor_request();
-        let output = self.execute_scalar_terminal_boundary(query, request)?;
-
-        output.into_exists().map_err(QueryError::execute)
+        self.execute_scalar_terminal_value(
+            query,
+            request,
+            ScalarTerminalBoundaryOutput::into_exists,
+        )
     }
 
     // Execute one fluent exists terminal while reporting terminal-specific
@@ -198,11 +248,11 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let request = strategy.into_executor_request();
-        let (output, attribution) =
-            self.execute_scalar_terminal_boundary_with_attribution(query, request)?;
-        let exists = output.into_exists().map_err(QueryError::execute)?;
-
-        Ok((exists, attribution))
+        self.execute_scalar_terminal_value_with_attribution(
+            query,
+            request,
+            ScalarTerminalBoundaryOutput::into_exists,
+        )
     }
 
     // Execute one scalar id terminal request and decode storage keys into typed ids.
@@ -214,9 +264,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_scalar_terminal_boundary(query, request)?
-            .into_id::<E>()
-            .map_err(QueryError::execute)
+        self.execute_scalar_terminal_value(
+            query,
+            request,
+            ScalarTerminalBoundaryOutput::into_id::<E>,
+        )
     }
 
     // Execute one fluent `min()` terminal through its concrete session boundary.
@@ -276,9 +328,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_scalar_terminal_boundary(query, request)?
-            .into_id_pair::<E>()
-            .map_err(QueryError::execute)
+        self.execute_scalar_terminal_value(
+            query,
+            request,
+            ScalarTerminalBoundaryOutput::into_id_pair::<E>,
+        )
     }
 
     // Execute one fluent `first()` terminal through its concrete session boundary.
@@ -426,9 +480,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (target_field, request) = strategy.into_executor_request();
-        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
-
-        output.into_values().map_err(QueryError::execute)
+        self.execute_scalar_projection_value(
+            query,
+            target_field,
+            request,
+            ScalarProjectionBoundaryOutput::into_values,
+        )
     }
 
     // Execute one fluent `project_values(projection)` terminal with the bounded
@@ -442,13 +499,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let output = self.execute_scalar_projection_boundary(
+        self.execute_scalar_projection_value(
             query,
             target_field,
             ScalarProjectionBoundaryRequest::ProjectedValues { projection },
-        )?;
-
-        output.into_values().map_err(QueryError::execute)
+            ScalarProjectionBoundaryOutput::into_values,
+        )
     }
 
     // Execute one fluent `distinct_values_by(field)` terminal through its
@@ -462,9 +518,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (target_field, request) = strategy.into_executor_request();
-        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
-
-        output.into_values().map_err(QueryError::execute)
+        self.execute_scalar_projection_value(
+            query,
+            target_field,
+            request,
+            ScalarProjectionBoundaryOutput::into_values,
+        )
     }
 
     // Execute one fluent `count_distinct_by(field)` terminal through its
@@ -478,9 +537,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (target_field, request) = strategy.into_executor_request();
-        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
-
-        output.into_count().map_err(QueryError::execute)
+        self.execute_scalar_projection_value(
+            query,
+            target_field,
+            request,
+            ScalarProjectionBoundaryOutput::into_count,
+        )
     }
 
     // Execute one fluent `values_by_with_ids(field)` terminal through its
@@ -494,11 +556,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (target_field, request) = strategy.into_executor_request();
-        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
-
-        output
-            .into_values_with_ids::<E>()
-            .map_err(QueryError::execute)
+        self.execute_scalar_projection_value(
+            query,
+            target_field,
+            request,
+            ScalarProjectionBoundaryOutput::into_values_with_ids::<E>,
+        )
     }
 
     // Execute one fluent `project_values_with_ids(projection)` terminal with
@@ -512,15 +575,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let output = self.execute_scalar_projection_boundary(
+        self.execute_scalar_projection_value(
             query,
             target_field,
             ScalarProjectionBoundaryRequest::ProjectedValuesWithIds { projection },
-        )?;
-
-        output
-            .into_values_with_ids::<E>()
-            .map_err(QueryError::execute)
+            ScalarProjectionBoundaryOutput::into_values_with_ids::<E>,
+        )
     }
 
     // Execute one fluent `first_value_by(field)` terminal through its concrete
@@ -534,9 +594,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (target_field, request) = strategy.into_executor_request();
-        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
-
-        output.into_terminal_value().map_err(QueryError::execute)
+        self.execute_scalar_projection_value(
+            query,
+            target_field,
+            request,
+            ScalarProjectionBoundaryOutput::into_terminal_value,
+        )
     }
 
     // Execute one fluent `last_value_by(field)` terminal through its concrete
@@ -550,9 +613,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (target_field, request) = strategy.into_executor_request();
-        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
-
-        output.into_terminal_value().map_err(QueryError::execute)
+        self.execute_scalar_projection_value(
+            query,
+            target_field,
+            request,
+            ScalarProjectionBoundaryOutput::into_terminal_value,
+        )
     }
 
     // Execute one fluent first/last projected-value terminal with projection
@@ -568,16 +634,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let output = self.execute_scalar_projection_boundary(
+        self.execute_scalar_projection_value(
             query,
             target_field,
             ScalarProjectionBoundaryRequest::ProjectedTerminalValue {
                 terminal_kind,
                 projection,
             },
-        )?;
-
-        output.into_terminal_value().map_err(QueryError::execute)
+            ScalarProjectionBoundaryOutput::into_terminal_value,
+        )
     }
 
     // Execute the fluent `bytes()` terminal without leaking executor closure

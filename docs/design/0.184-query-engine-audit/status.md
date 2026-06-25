@@ -528,7 +528,10 @@ Status: active.
   COUNT/EXISTS use the same measured terminal attribution shell. Candidate-row
   window semantics for COUNT/EXISTS are now centralized. COUNT/EXISTS
   prefix-cardinality preflight admission, ordered-plan eligibility, and output
-  conversion now go through one terminal-kind helper; do not merge the
+  conversion now go through one terminal-kind helper. Fluent scalar and
+  projection terminals now also share session-local boundary-output decoding
+  and executor-error adaptation instead of repeating it per terminal; do not
+  merge the
   remaining durable compiled-prefix cache entry with live lowered-prefix
   execution unless a real cache-safety simplification appears.
 - SQL global aggregate direct-count work is still a lightweight singleton
@@ -584,7 +587,11 @@ Status: active.
 - Filter handoff work is in local DRY mode: residual expression and predicate
   accessors remain available for callers that need the actual artifacts, while
   boolean gating should go through the single plan-owned presence helper.
-  CI now guards that split for non-test code.
+  CI now guards that split for non-test code. Access-choice residual-burden
+  ranking now also consumes the planner-owned `ResidualFilterShape` instead of
+  rebuilding expression/predicate presence checks. The layer-authority guard
+  also rejects new direct residual expression/predicate accessor OR gates
+  outside the residual-shape owners.
 - Scalar page terminal execution is in local DRY mode: structural page payload
   materialization and the SQL kernel-row page surface now share the
   scan/post-access/post-scan windowing helper, while direct-data-row fast path,

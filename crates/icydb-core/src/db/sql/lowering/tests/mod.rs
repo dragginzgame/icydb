@@ -3775,6 +3775,45 @@ fn bind_sql_select_with_schema_rejects_group_by_field_missing_from_accepted_sche
 }
 
 #[test]
+fn bind_sql_select_with_schema_derives_predicate_from_bound_filter_expr() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name FROM SqlLowerEntity WHERE name = 7",
+        "accepted-schema numeric name filter",
+    );
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Nat64);
+
+    let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect("accepted schema should bind numeric name filter");
+    assert!(
+        matches!(
+            query.scalar_filter_expr_for_test(),
+            Some(Expr::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            }) if left.as_ref() == &Expr::Field(FieldId::new("name"))
+                && right.as_ref() == &Expr::Literal(Value::Nat64(7))
+        ),
+        "visible filter expression should bind literals through the accepted schema",
+    );
+    assert!(
+        matches!(
+            query.scalar_filter_predicate_for_test(),
+            Some(Predicate::Compare(compare))
+                if compare.field() == "name"
+                    && compare.op() == CompareOp::Eq
+                    && compare.value() == &Value::Nat64(7)
+        ),
+        "predicate extraction should derive from the bound visible expression",
+    );
+}
+
+#[test]
 fn bind_sql_select_with_schema_rejects_non_groupable_accepted_field() {
     let select = lower_sql_select_shape_for_test(
         "SELECT name, COUNT(*) FROM SqlLowerEntity GROUP BY name",

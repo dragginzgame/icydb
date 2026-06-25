@@ -127,6 +127,26 @@ impl StructuralQuery {
     }
 
     #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn scalar_filter_expr_for_test(&self) -> Option<&Expr> {
+        self.intent
+            .scalar_intent_for_cache_key()
+            .filter
+            .as_ref()
+            .and_then(|filter| filter.logical_filter_expr())
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn scalar_filter_predicate_for_test(&self) -> Option<&Predicate> {
+        self.intent
+            .scalar_intent_for_cache_key()
+            .filter
+            .as_ref()
+            .and_then(|filter| filter.predicate_subset())
+    }
+
+    #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db) fn direct_count_cardinality_prefix_candidate(&self) -> bool {
         if self.intent.validate_policy_shape().is_err() {

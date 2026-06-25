@@ -127,11 +127,17 @@ if [[ ${#field_projection_files[@]} -gt 0 ]]; then
   fi
 fi
 
+HAS_RESIDUAL_EXPR_THEN_PREDICATE_PATTERN="has_residual_filter_expr\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*has_residual_filter_predicate\\("
+HAS_RESIDUAL_PREDICATE_THEN_EXPR_PATTERN="has_residual_filter_predicate\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*has_residual_filter_expr\\("
 residual_filter_presence_leaks="$(
-  run_rg "has_residual_filter_expr\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*has_residual_filter_predicate\\(\\)" \
-    "$DB_ROOT" \
-    --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
-    | strip_comment_only
+  {
+    run_rg "$HAS_RESIDUAL_EXPR_THEN_PREDICATE_PATTERN" \
+      "$DB_ROOT" \
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs'
+    run_rg "$HAS_RESIDUAL_PREDICATE_THEN_EXPR_PATTERN" \
+      "$DB_ROOT" \
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs'
+  } | strip_comment_only
 )"
 if [[ -n "$residual_filter_presence_leaks" ]]; then
   echo "[ERROR] Residual-filter presence checks must use AccessPlannedQuery::has_any_residual_filter()." >&2
@@ -139,10 +145,33 @@ if [[ -n "$residual_filter_presence_leaks" ]]; then
   status=1
 fi
 
+RESIDUAL_FILTER_EXPR_THEN_PREDICATE_PATTERN="residual_filter_expr\\(\\)\\.is_some\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*residual_filter_predicate\\(\\)\\.is_some\\("
+RESIDUAL_FILTER_PREDICATE_THEN_EXPR_PATTERN="residual_filter_predicate\\(\\)\\.is_some\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*residual_filter_expr\\(\\)\\.is_some\\("
+residual_filter_accessor_or_leaks="$(
+  {
+    run_rg "$RESIDUAL_FILTER_EXPR_THEN_PREDICATE_PATTERN" \
+      "$DB_ROOT" \
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
+      --glob '!crates/icydb-core/src/db/query/plan/semantics/logical.rs'
+    run_rg "$RESIDUAL_FILTER_PREDICATE_THEN_EXPR_PATTERN" \
+      "$DB_ROOT" \
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
+      --glob '!crates/icydb-core/src/db/query/plan/semantics/logical.rs'
+  } | strip_comment_only
+)"
+if [[ -n "$residual_filter_accessor_or_leaks" ]]; then
+  echo "[ERROR] Residual-filter accessor presence checks must use AccessPlannedQuery::has_any_residual_filter()." >&2
+  echo "$residual_filter_accessor_or_leaks" >&2
+  status=1
+fi
+
+RESIDUAL_FILTER_FIELD_EXPR_THEN_PREDICATE_PATTERN="residual_filter_expr\\.is_some\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*residual_filter_predicate\\.is_some\\("
+RESIDUAL_FILTER_FIELD_PREDICATE_THEN_EXPR_PATTERN="residual_filter_predicate\\.is_some\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*residual_filter_expr\\.is_some\\("
 residual_filter_field_or_leaks="$(
-  run_rg "residual_filter_expr\\.is_some\\(\\)[[:space:]]*\\|\\||\\|\\|[[:space:]][^\\n]*residual_filter_predicate\\.is_some\\(\\)" \
-    "$DB_ROOT" \
-    | strip_comment_only
+  {
+    run_rg "$RESIDUAL_FILTER_FIELD_EXPR_THEN_PREDICATE_PATTERN" "$DB_ROOT"
+    run_rg "$RESIDUAL_FILTER_FIELD_PREDICATE_THEN_EXPR_PATTERN" "$DB_ROOT"
+  } | strip_comment_only
 )"
 if [[ -n "$residual_filter_field_or_leaks" ]]; then
   echo "[ERROR] Residual-filter field presence must flow through ResidualFilterShape." >&2

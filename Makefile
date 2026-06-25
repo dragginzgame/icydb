@@ -1,6 +1,6 @@
 .PHONY: help version tags patch minor major package publish release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-bump build check clippy fmt fmt-check clean install install-dev update-dev \
+        test test-bump test-sql-canister-matrix build check clippy fmt fmt-check clean install install-dev update-dev \
         fetch test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks \
         wasm-size-report wasm-audit-report \
@@ -65,6 +65,8 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
+	@echo "  test-sql-canister-matrix"
+	@echo "                  Run the live generated SQL canister endpoint matrix"
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
@@ -180,6 +182,9 @@ test-unit:
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql_bounded --lib
+
+test-sql-canister-matrix:
+	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister --features icydb/sql-explain -- --nocapture
 
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)

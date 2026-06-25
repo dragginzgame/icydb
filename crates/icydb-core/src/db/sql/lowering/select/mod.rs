@@ -157,8 +157,10 @@ impl LoweredSqlFilter {
     fn apply_to_query(self, query: StructuralQuery, schema: &SchemaInfo) -> StructuralQuery {
         match (self.visible_expr, self.predicate_subset) {
             (Some(filter_expr), Some(predicate)) => {
-                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
                 let filter_expr = canonicalize_sql_filter_expr_for_schema(schema, filter_expr);
+                let predicate =
+                    derive_sql_where_expr_predicate_subset(&filter_expr).unwrap_or(predicate);
+                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
 
                 query.filter_expr_with_normalized_predicate(filter_expr, predicate)
             }

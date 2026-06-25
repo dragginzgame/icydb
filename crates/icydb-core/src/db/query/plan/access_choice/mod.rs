@@ -19,7 +19,7 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
-            AccessPlannedQuery,
+            AccessPlannedQuery, ResidualFilterShape,
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
@@ -366,6 +366,14 @@ struct ResidualBurdenProfile {
 }
 
 impl ResidualBurdenProfile {
+    const fn kind_rank_for_residual_shape(shape: ResidualFilterShape) -> u8 {
+        match shape {
+            ResidualFilterShape::Absent => 0,
+            ResidualFilterShape::Predicate => 1,
+            ResidualFilterShape::Expression | ResidualFilterShape::ExpressionAndPredicate => 2,
+        }
+    }
+
     const fn kind(self) -> AccessChoiceResidualBurden {
         match self.kind_rank {
             0 => AccessChoiceResidualBurden::None,
@@ -588,11 +596,8 @@ fn residual_burden_for_plan(plan: &AccessPlannedQuery) -> ResidualBurdenProfile 
         .effective_execution_predicate()
         .as_ref()
         .map_or(0, count_predicate_terms);
-    let kind_rank = if plan.residual_filter_expr().is_some() {
-        2
-    } else {
-        u8::from(predicate_term_count > 0)
-    };
+    let kind_rank =
+        ResidualBurdenProfile::kind_rank_for_residual_shape(plan.residual_filter_shape());
 
     ResidualBurdenProfile {
         kind_rank,

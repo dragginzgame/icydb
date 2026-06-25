@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Added a repeatable live SQL canister matrix target that runs the generated
+  endpoint suite with the required SQL EXPLAIN and PocketIC setup.
+- Fixed the SQL perf-audit fixture exports so targeted perf tests use the
+  public `icydb_fixtures_*` endpoints and compile without extra feature flags.
+- Moved SQL filter binding closer to a single canonical expression authority by
+  deriving predicates from the schema-bound visible filter expression first.
+- Kept access-choice residual-burden ranking on the planner-owned residual
+  filter shape instead of rebuilding expression/predicate presence checks.
+- Tightened the residual-filter authority invariant so direct expression /
+  predicate accessor OR gates cannot reappear outside the planner-owned shape.
+- Consolidated fluent scalar/projection terminal boundary decoding so executor
+  output-shape adaptation is owned once at the session boundary.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

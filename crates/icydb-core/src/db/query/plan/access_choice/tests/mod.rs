@@ -765,6 +765,30 @@ fn chosen_selection_reason_prefers_lower_residual_burden_before_order_compatibil
 }
 
 #[test]
+fn residual_burden_profile_uses_residual_filter_shape_authority() {
+    use crate::db::query::plan::ResidualFilterShape;
+
+    assert_eq!(
+        super::ResidualBurdenProfile::kind_rank_for_residual_shape(ResidualFilterShape::Absent),
+        0,
+    );
+    assert_eq!(
+        super::ResidualBurdenProfile::kind_rank_for_residual_shape(ResidualFilterShape::Predicate),
+        1,
+    );
+    assert_eq!(
+        super::ResidualBurdenProfile::kind_rank_for_residual_shape(ResidualFilterShape::Expression),
+        2,
+    );
+    assert_eq!(
+        super::ResidualBurdenProfile::kind_rank_for_residual_shape(
+            ResidualFilterShape::ExpressionAndPredicate,
+        ),
+        2,
+    );
+}
+
+#[test]
 fn chosen_selection_reason_prefers_order_compatible_multi_lookup_candidate() {
     let chosen = CandidateScore {
         prefix_len: 1,
