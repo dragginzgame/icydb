@@ -11,16 +11,31 @@ expanding the optimizer.
 
 ## Current Slice
 
-- No active implementation slice is selected after the adaptive cap cleanup.
+- No active implementation slice is selected after the reverse child-prefix
+  expansion cleanup.
 - The remaining major follow-ups are branch-tree replacement and cursor-format
   design; choose one explicitly before changing runtime behavior again.
 
 ## Major Follow-Up Queue
 
 - Adaptive routing: started in `0.185.5` with bounded-page child-prefix cap
-  adjustment. Deferred remainder is a real cost/estimate model.
+  adjustment and continued with reverse child-prefix expansion. Deferred
+  remainder is a real cost/estimate model.
 - Branch-tree replacement: not started.
 - Cursor-format design: not started.
+
+## Completed Reverse Expansion Slice
+
+- Sparse child-prefix expansion now admits primary-key descending order when
+  the expanded prefix leaves exactly the primary-key suffix.
+- The route remains `IndexMultiLookup` with a child-prefix expansion hint; this
+  is not a new logical access path.
+- Covering projection prep uses the requested primary-key scan direction when
+  the route proves the prefix set is primary-key-order safe, so DESC key-only
+  pages can avoid materialized sorting.
+- DESC sparse child-prefix expansion has cursor continuation proof for the
+  current global primary-key boundary model, including bounded resumed
+  child-prefix scans and bounded row hydration.
 
 ## Completed Adaptive Cap Slice
 

@@ -218,6 +218,7 @@ fn derive_route_capability_state_for_model(
         count_pushdown_existing_rows_shape_supported(access_shape_facts);
     let support = RouteDerivationSupport {
         desc_physical_reverse_supported: desc_physical_reverse_traversal_supported(
+            plan,
             access_shape_facts,
             direction,
         ),

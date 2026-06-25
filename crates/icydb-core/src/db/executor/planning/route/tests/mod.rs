@@ -1150,27 +1150,38 @@ fn assert_branch_set_streams_without_child_expansion() {
     );
 }
 
-fn assert_desc_sparse_child_suffix_multi_lookup_does_not_expand_without_reverse_design() {
+fn assert_desc_sparse_child_suffix_multi_lookup_uses_reverse_expansion_proof() {
     let desc_sparse_child_suffix_plan = multi_lookup_primary_key_order_plan(
         ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
         OrderDirection::Desc,
     );
+    let finalized_desc_sparse_child_suffix_plan =
+        finalized_plan_for_authority(route_capability_authority(), &desc_sparse_child_suffix_plan);
     assert!(
-        !super::access_order_satisfied_by_route_mode(&finalized_plan_for_authority(
-            route_capability_authority(),
-            &desc_sparse_child_suffix_plan,
-        )),
-        "DESC sparse child-prefix expansion is not admitted until reverse ordered expansion has a design",
+        super::access_order_satisfied_by_route_mode(&finalized_desc_sparse_child_suffix_plan),
+        "DESC sparse child-prefix expansion should be admitted once the expanded suffix is the primary key",
     );
     let route_plan = build_load_route_plan(&desc_sparse_child_suffix_plan)
-        .expect("DESC sparse child-expansion route plan should build as fallback");
+        .expect("DESC sparse child-expansion route plan should build");
     assert_eq!(
         route_plan.load_order_route_mode(),
-        LoadOrderRouteMode::MaterializedFallback,
+        LoadOrderRouteMode::DirectStreaming,
     );
+    assert_eq!(route_plan.direction(), Direction::Desc);
     assert!(
-        route_plan.index_prefix_child_expansion().is_none(),
-        "DESC sparse multi-lookup must not carry the ASC-only child-prefix expansion hint",
+        route_plan.preserve_ordered_index_leaf_stream(),
+        "DESC child-expanded multi-lookup should preserve index leaf order after expansion",
+    );
+    let expansion = route_plan
+        .index_prefix_child_expansion()
+        .expect("DESC sparse multi-lookup should carry a child-prefix expansion hint");
+    assert_eq!(expansion.target_prefix_len(), 2);
+    assert!(
+        !super::access_preserves_primary_key_order_without_child_expansion(
+            &finalized_desc_sparse_child_suffix_plan,
+            Direction::Desc,
+        ),
+        "DESC consumers that do not execute child-prefix expansion must not inherit the expansion proof",
     );
 }
 
@@ -1184,7 +1195,7 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof();
     assert_sparse_child_suffix_expansion_cap_tracks_bounded_fetch_window();
     assert_branch_set_streams_without_child_expansion();
-    assert_desc_sparse_child_suffix_multi_lookup_does_not_expand_without_reverse_design();
+    assert_desc_sparse_child_suffix_multi_lookup_uses_reverse_expansion_proof();
 }
 
 #[test]

@@ -7,20 +7,22 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Starts adaptive sparse `IN` routing by letting bounded page queries raise the
-  child-prefix expansion cap from the conservative default to the page
-  lookahead window, while preserving a hard ceiling and shared SQL covering
-  behavior, and by allowing exact-cap expansion when trailing parent prefixes
-  are metadata-proven empty.
-
-- Tightens the branch-aware merged-prefix runtime contract so branch-set,
-  streaming multi-lookup, and sparse child-prefix expansion share one explicit
-  stream spec while keeping branch-set ordering independent from child-prefix
-  expansion.
+- Extends sparse `IN` child-prefix expansion to primary-key descending order
+  while keeping the route as `IndexMultiLookup` and avoiding materialized
+  sorting for proven DESC key-only covering pages, including cursor
+  continuation coverage.
 
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
+
+- `0.185.5` starts adaptive sparse `IN` routing by growing child-prefix
+  expansion caps with bounded page windows and safely admitting exact-cap
+  expansion when remaining parent prefixes are metadata-proven empty.
+
+- `0.185.4` tightens merged-prefix runtime ownership so branch-set,
+  streaming multi-lookup, and sparse child-prefix expansion share one explicit
+  stream spec without changing branch-set ordering semantics.
 
 - `0.185.3` extends sparse `IN` terminal proof across SQL and fluent
   prefix-cardinality COUNT/EXISTS paths, including empty-prefix results,

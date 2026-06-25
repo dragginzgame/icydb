@@ -9,7 +9,10 @@ use crate::db::{
     executor::planning::route::{
         ExecutionRoutePlan, RouteCapabilityFacts,
         index_range_limit_pushdown_shape_supported_for_order_contract,
-        pushdown::access_order_satisfied_by_route_mode_with_access_shape_facts,
+        pushdown::{
+            access_order_satisfied_by_route_mode_with_access_shape_facts,
+            child_prefix_expansion_preserves_primary_key_order_for_direction,
+        },
     },
     executor::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
@@ -242,6 +245,13 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
             LoadOrderRouteReason::DistinctRequiresMaterialization,
         ));
     }
+    if child_prefix_expansion_preserves_primary_key_order_for_direction(
+        plan,
+        access_shape_facts,
+        Direction::Desc,
+    ) {
+        return None;
+    }
 
     // Reverse streaming over non-unique secondary-prefix routes is still not
     // page-stable when duplicate secondary values are present, so keep those
@@ -277,6 +287,13 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
     }) else {
         return true;
     };
+    if child_prefix_expansion_preserves_primary_key_order_for_direction(
+        plan,
+        &access_shape_facts,
+        Direction::Desc,
+    ) {
+        return true;
+    }
 
     if let Some(details) = access_shape_facts.single_path_index_prefix_details()
         && !details.is_unique()
@@ -364,11 +381,18 @@ pub(super) fn derive_execution_capability_facts_for_model(
     }
 }
 
-pub(super) const fn desc_physical_reverse_traversal_supported(
+pub(super) fn desc_physical_reverse_traversal_supported(
+    plan: &AccessPlannedQuery,
     access_shape_facts: &AccessShapeFacts,
     direction: Direction,
 ) -> bool {
-    matches!(direction, Direction::Desc) && access_shape_facts.all_paths_support_reverse_traversal()
+    matches!(direction, Direction::Desc)
+        && (access_shape_facts.all_paths_support_reverse_traversal()
+            || child_prefix_expansion_preserves_primary_key_order_for_direction(
+                plan,
+                access_shape_facts,
+                direction,
+            ))
 }
 
 pub(super) fn count_pushdown_existing_rows_shape_supported(

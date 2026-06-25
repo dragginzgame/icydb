@@ -269,17 +269,20 @@ fn access_preserves_primary_key_order_for_route_direction_with_access_shape_fact
         return true;
     }
 
-    matches!(direction, Direction::Asc)
-        && (index_prefix_family_preserves_primary_key_suffix_order(
+    let exact_prefix_family_preserves_primary_key_order = matches!(direction, Direction::Asc)
+        && index_prefix_family_preserves_primary_key_suffix_order(
             access_shape_facts,
             plan.primary_key_names().as_slice(),
-        ) || (allow_child_expansion
-            && ordered_child_prefix_expansion_target_for_primary_key_direction(
-                plan,
-                access_shape_facts,
-                direction,
-            )
-            .is_some()))
+        );
+    let child_prefix_expansion_preserves_primary_key_order = allow_child_expansion
+        && child_prefix_expansion_preserves_primary_key_order_for_direction(
+            plan,
+            access_shape_facts,
+            direction,
+        );
+
+    exact_prefix_family_preserves_primary_key_order
+        || child_prefix_expansion_preserves_primary_key_order
 }
 
 fn index_prefix_family_preserves_primary_key_suffix_order(
@@ -320,31 +323,36 @@ pub(in crate::db::executor::planning::route) fn ordered_child_prefix_expansion_t
     plan: &AccessPlannedQuery,
     access_shape_facts: &AccessShapeFacts,
 ) -> Option<usize> {
-    let direction = plan
-        .scalar_plan()
-        .order
-        .as_ref()?
-        .primary_key_only_direction_fields(&plan.primary_key_names())?;
-    if !matches!(direction, OrderDirection::Asc) {
-        return None;
-    }
+    primary_key_order_direction_for_plan(plan)?;
 
-    ordered_child_prefix_expansion_target_for_primary_key_direction(
-        plan,
-        access_shape_facts,
-        Direction::Asc,
-    )
+    ordered_child_prefix_expansion_target_for_primary_key_order(plan, access_shape_facts)
 }
 
-fn ordered_child_prefix_expansion_target_for_primary_key_direction(
+pub(super) fn child_prefix_expansion_preserves_primary_key_order_for_direction(
     plan: &AccessPlannedQuery,
     access_shape_facts: &AccessShapeFacts,
     direction: Direction,
-) -> Option<usize> {
-    if !matches!(direction, Direction::Asc) {
-        return None;
-    }
+) -> bool {
+    primary_key_order_direction_for_plan(plan) == Some(direction)
+        && ordered_child_prefix_expansion_target_for_primary_key_order(plan, access_shape_facts)
+            .is_some()
+}
 
+fn primary_key_order_direction_for_plan(plan: &AccessPlannedQuery) -> Option<Direction> {
+    plan.scalar_plan()
+        .order
+        .as_ref()?
+        .primary_key_only_direction_fields(&plan.primary_key_names())
+        .map(|direction| match direction {
+            OrderDirection::Asc => Direction::Asc,
+            OrderDirection::Desc => Direction::Desc,
+        })
+}
+
+fn ordered_child_prefix_expansion_target_for_primary_key_order(
+    plan: &AccessPlannedQuery,
+    access_shape_facts: &AccessShapeFacts,
+) -> Option<usize> {
     let single_path = access_shape_facts.single_path_facts()?;
     if !matches!(single_path.kind(), AccessPathKind::IndexMultiLookup) {
         return None;

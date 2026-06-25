@@ -76,10 +76,22 @@ pub(super) fn covering_scan_window(
         && covering_scan_order_can_apply_page_window(order_contract, primary_key_order_scan_safe);
 
     CoveringScanWindow {
-        direction: crate::db::executor::covering_projection_scan_direction(order_contract),
+        direction: covering_scan_direction(order_contract, primary_key_order_scan_safe),
         limit: covering_scan_limit(page_window_can_apply, page),
         page_skip_count: covering_scan_time_page_skip_count(page_window_can_apply, page),
         page_window_applied: covering_scan_time_page_window_applied(page_window_can_apply, page),
+    }
+}
+
+const fn covering_scan_direction(
+    order_contract: CoveringProjectionOrder,
+    primary_key_order_scan_safe: bool,
+) -> Direction {
+    match order_contract {
+        CoveringProjectionOrder::PrimaryKeyOrder(direction) if primary_key_order_scan_safe => {
+            direction
+        }
+        _ => crate::db::executor::covering_projection_scan_direction(order_contract),
     }
 }
 
@@ -654,6 +666,24 @@ mod tests {
 
         assert_eq!(scan_window.limit, usize::MAX);
         assert!(!scan_window.page_window_applied);
+    }
+
+    #[test]
+    fn covering_scan_window_uses_desc_direction_for_proven_primary_key_order() {
+        let scan_window = covering_scan_window(
+            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc),
+            true,
+            true,
+            false,
+            Some(&PageSpec {
+                limit: Some(8),
+                offset: 0,
+            }),
+        );
+
+        assert_eq!(scan_window.direction, Direction::Desc);
+        assert_eq!(scan_window.limit, 8);
+        assert!(scan_window.page_window_applied);
     }
 
     #[test]

@@ -23,6 +23,11 @@ a broad cost-based optimizer design.
   consumed prefix already leaves only the primary-key suffix.
 - Sparse parent-prefix multi-lookup can stream with child-prefix expansion when
   the expanded prefix leaves the primary-key suffix in ascending order.
+- Sparse child-prefix expansion supports primary-key ascending and descending
+  order when the expanded prefix leaves exactly the primary-key suffix.
+- Admitted sparse child-prefix expansion still uses the current global
+  primary-key cursor boundary; both ascending and descending paths must prove
+  resumed prefix streams stay bounded and do not replay the full prefix set.
 - Sparse child-prefix expansion uses a conservative default cap for unbounded
   loads. For bounded first-page loads, the cap may grow with the route-owned
   fetch window, including the continuation lookahead row, up to a small hard
@@ -38,8 +43,6 @@ a broad cost-based optimizer design.
 - Covering projections may keep the fallback row-store-free, but they must
   materialize and sort unsafe parent-prefix sets instead of using the lazy
   primary-key merge reserved for proven child-prefix streams.
-- Descending sparse child-prefix expansion is not admitted yet. It must remain
-  materialized/fallback until reverse ordered expansion has an explicit design.
 - Child-prefix expansion is a route hint, not a new logical access path; the
   route must still identify as `IndexMultiLookup` in EXPLAIN.
 
@@ -61,5 +64,4 @@ sparse child-prefix-expanded multi-lookup before changing thresholds.
   the current bounded-page cap adjustment.
 - A better over-cap strategy that can stream dense parent-prefix work without
   materializing more index entries than necessary.
-- DESC/reverse child-prefix expansion.
 - General branch-tree replacement for every special-case `IN` path.

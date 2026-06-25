@@ -601,11 +601,25 @@ fn expected_collection_ids(limit: usize) -> Vec<Vec<crate::value::OutputValue>> 
 
 #[cfg(feature = "diagnostics")]
 fn expected_collection_ids_desc(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    expected_collection_ulids_desc(limit)
+        .into_iter()
+        .map(|id| outputs(vec![Value::Ulid(id)]))
+        .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_collection_ulids_desc(limit: usize) -> Vec<Ulid> {
     let mut ids = expected_collection_ulids(usize::MAX);
     ids.reverse();
-    ids.into_iter()
+    ids.into_iter().take(limit).collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_collection_desc_page_ulids(limit: usize, page_index: usize) -> Vec<Ulid> {
+    expected_collection_ulids_desc(usize::MAX)
+        .into_iter()
+        .skip(limit.saturating_mul(page_index))
         .take(limit)
-        .map(|id| outputs(vec![Value::Ulid(id)]))
         .collect()
 }
 
@@ -2360,6 +2374,71 @@ fn session_branch_set_sql_sparse_in_cursor_continuation_resumes_expanded_child_p
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn session_branch_set_sql_sparse_in_desc_cursor_resumes_expanded_child_prefixes() {
+    const LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = sparse_collection_desc_sql("*", LIMIT);
+    let query = lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, &sql)
+        .unwrap_or_else(|err| panic!("sparse collection DESC paged SQL should lower: {err:?}"));
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .unwrap_or_else(|err| panic!("first sparse collection DESC page should execute: {err:?}"))
+        .into_execution();
+
+    assert_eq!(
+        paged_branch_ids(&first),
+        expected_collection_desc_page_ulids(LIMIT, 0),
+        "first DESC sparse expanded page should match the first reverse primary-key window",
+    );
+
+    let cursor = crate::db::encode_cursor(
+        first
+            .continuation_cursor()
+            .expect("first DESC sparse expanded page should emit a continuation cursor"),
+    );
+    let range_scans_before = crate::db::index::IndexStore::current_range_scan_call_count();
+    let (second_with_trace, second_store_gets, second_entry_reads) =
+        with_store_and_index_reads(|| {
+            session
+                .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+                .unwrap_or_else(|err| {
+                    panic!("second sparse collection DESC page should execute: {err:?}")
+                })
+        });
+    let second_range_scans = crate::db::index::IndexStore::current_range_scan_call_count()
+        .saturating_sub(range_scans_before);
+    let second = second_with_trace.into_execution();
+
+    assert_eq!(
+        paged_branch_ids(&second),
+        expected_collection_desc_page_ulids(LIMIT, 1),
+        "second DESC sparse expanded page should resume after the prior reverse primary-key boundary",
+    );
+    assert!(
+        second.continuation_cursor().is_none(),
+        "second DESC sparse expanded page should exhaust the fixture window",
+    );
+    assert!(
+        (LIMIT as u64..=u64::try_from(LIMIT + 1).expect("test limit should fit"))
+            .contains(&second_store_gets),
+        "resumed DESC sparse SELECT * page should hydrate only returned rows plus lookahead, got {second_store_gets} row-store gets",
+    );
+    assert!(
+        second_entry_reads < expected_collection_ulids(usize::MAX).len() as u64,
+        "resumed DESC sparse expanded page should not replay all collection-prefix entries, got {second_entry_reads} entry reads",
+    );
+    assert!(
+        second_range_scans <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
+        "resumed DESC sparse expanded page should keep child-prefix streams bounded, got {second_range_scans} range scans",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn session_branch_set_sql_sparse_in_verbose_explain_identifies_child_prefix_expansion() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -2408,7 +2487,7 @@ fn session_branch_set_sql_sparse_in_verbose_explain_identifies_child_prefix_expa
 
 #[cfg(feature = "diagnostics")]
 #[test]
-fn session_branch_set_sql_sparse_in_desc_does_not_use_asc_child_prefix_expansion() {
+fn session_branch_set_sql_sparse_in_desc_uses_reverse_child_prefix_expansion() {
     const LIMIT: usize = 8;
 
     reset_indexed_session_sql_store();
@@ -2422,18 +2501,18 @@ fn session_branch_set_sql_sparse_in_desc_does_not_use_asc_child_prefix_expansion
         .unwrap_or_else(|err| panic!("sparse collection DESC SQL should explain: {err:?}"));
 
     assert!(
-        !explain_execution_contains_node_type(
+        explain_execution_contains_node_type(
             &descriptor,
             ExplainExecutionNodeType::OrderByAccessSatisfied,
         ),
-        "DESC sparse IN route must not reuse the ASC child-prefix order proof: {descriptor:?}",
+        "DESC sparse IN route should prove reverse child-prefix primary-key order: {descriptor:?}",
     );
     assert!(
-        explain_execution_contains_node_type(
+        !explain_execution_contains_node_type(
             &descriptor,
             ExplainExecutionNodeType::OrderByMaterializedSort,
         ),
-        "DESC sparse IN route should stay materialized until reverse child-prefix expansion is designed: {descriptor:?}",
+        "DESC sparse IN route should not materialize-sort after reverse child-prefix expansion: {descriptor:?}",
     );
 
     let explain_sql = format!("EXPLAIN EXECUTION VERBOSE {sql}");
@@ -2444,8 +2523,12 @@ fn session_branch_set_sql_sparse_in_desc_does_not_use_asc_child_prefix_expansion
             });
 
     assert!(
-        !explain.contains("diag.r.index_prefix_child_expansion=true"),
-        "DESC sparse IN route must not report ASC-only child-prefix expansion: {explain}",
+        explain.contains("diag.r.index_prefix_child_expansion=true"),
+        "DESC sparse IN route should report reverse child-prefix expansion: {explain}",
+    );
+    assert!(
+        explain.contains("diag.r.index_prefix_child_expansion_cap=fetch(32)"),
+        "DESC sparse IN route should report the child-prefix expansion cap: {explain}",
     );
 
     let (result, attribution) = session
@@ -2462,7 +2545,11 @@ fn session_branch_set_sql_sparse_in_desc_does_not_use_asc_child_prefix_expansion
     );
     assert_eq!(
         attribution.store_get_calls, 0,
-        "DESC key-only sparse IN fallback should stay row-store-free",
+        "DESC key-only sparse IN expansion should stay row-store-free",
+    );
+    assert!(
+        attribution.index_store_range_scan_calls <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
+        "DESC sparse IN expansion should scan only bounded non-empty child prefixes, got {attribution:?}",
     );
 }
 
