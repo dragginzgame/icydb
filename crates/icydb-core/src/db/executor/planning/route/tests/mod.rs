@@ -1075,12 +1075,45 @@ fn assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof() {
         .index_prefix_child_expansion
         .expect("sparse child-expansion route should carry an expansion hint");
     assert_eq!(expansion.target_prefix_len(), 2);
+    assert_eq!(
+        expansion.max_child_prefixes(),
+        32,
+        "unbounded sparse child expansion should keep the default conservative cap",
+    );
     assert!(
         !super::access_preserves_primary_key_order_without_child_expansion(
             &finalized_sparse_child_suffix_plan,
             Direction::Asc,
         ),
         "consumers that do not execute child-prefix expansion must not inherit the scalar expansion proof",
+    );
+}
+
+fn assert_sparse_child_suffix_expansion_cap_tracks_bounded_fetch_window() {
+    let mut page_plan = multi_lookup_primary_key_order_plan(
+        ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
+        OrderDirection::Asc,
+    );
+    page_plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(50),
+        offset: 0,
+    });
+    let route_plan =
+        build_load_route_plan(&page_plan).expect("paged sparse child route plan should build");
+    let expansion = route_plan
+        .scan_hints
+        .index_prefix_child_expansion
+        .expect("paged sparse child route should carry an expansion hint");
+
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(51),
+        "bounded load scan budget should include the page lookahead row",
+    );
+    assert_eq!(
+        expansion.max_child_prefixes(),
+        51,
+        "sparse child expansion cap should follow the bounded page fetch window",
     );
 }
 
@@ -1149,6 +1182,7 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert_exact_prefix_multi_lookup_streams_without_child_expansion();
     assert_composite_suffix_multi_lookup_is_rejected();
     assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof();
+    assert_sparse_child_suffix_expansion_cap_tracks_bounded_fetch_window();
     assert_branch_set_streams_without_child_expansion();
     assert_desc_sparse_child_suffix_multi_lookup_does_not_expand_without_reverse_design();
 }

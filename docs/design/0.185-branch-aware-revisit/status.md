@@ -11,11 +11,29 @@ expanding the optimizer.
 
 ## Current Slice
 
-- No active implementation slice is selected after the merged-prefix contract
-  cleanup.
-- The next branch-aware work should choose explicitly between adaptive routing,
-  branch-tree replacement, or cursor-format design before changing runtime
-  behavior.
+- No active implementation slice is selected after the adaptive cap cleanup.
+- The remaining major follow-ups are branch-tree replacement and cursor-format
+  design; choose one explicitly before changing runtime behavior again.
+
+## Major Follow-Up Queue
+
+- Adaptive routing: started in `0.185.5` with bounded-page child-prefix cap
+  adjustment. Deferred remainder is a real cost/estimate model.
+- Branch-tree replacement: not started.
+- Cursor-format design: not started.
+
+## Completed Adaptive Cap Slice
+
+- Sparse child-prefix expansion now keeps the default conservative cap for
+  unbounded loads and grows the cap with bounded page fetch windows up to a
+  small hard ceiling.
+- Route planning and covering projection prep consume the same cap calculation,
+  so EXPLAIN diagnostics and covering execution do not diverge.
+- Runtime expansion treats the cap as a limit on non-empty child prefixes, not
+  on parent literals inspected: if the cap is exactly filled, trailing parent
+  prefixes must be metadata-proven empty before expansion remains admitted.
+- This is still not a broad cost-based optimizer: it does not change branch-set
+  admission, DESC expansion, prefix-cardinality metadata, or cursor format.
 
 ## Completed Merged-Prefix Contract Slice
 

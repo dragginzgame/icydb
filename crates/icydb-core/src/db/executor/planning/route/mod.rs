@@ -55,7 +55,8 @@ pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_mode;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use pushdown::access_preserves_primary_key_order_without_child_expansion;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
-pub(in crate::db::executor) use pushdown::index_prefix_child_expansion_hint_for_plan;
+pub(in crate::db::executor) use pushdown::index_prefix_child_expansion_hint_for_access_window;
+pub(in crate::db::executor) use pushdown::index_prefix_child_expansion_hint_for_fetch_limit;
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
     LoadTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,

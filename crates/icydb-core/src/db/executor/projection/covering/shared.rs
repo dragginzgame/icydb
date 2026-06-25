@@ -14,7 +14,7 @@ use crate::{
             resolve_covering_projection_components_from_lowered_specs,
             route::{
                 access_preserves_primary_key_order_without_child_expansion,
-                index_prefix_child_expansion_hint_for_plan,
+                index_prefix_child_expansion_hint_for_fetch_limit,
             },
         },
         index::predicate::IndexPredicateExecution,
@@ -174,7 +174,10 @@ where
         return Ok((None, true));
     }
 
-    let Some(expansion) = index_prefix_child_expansion_hint_for_plan(plan) else {
+    let Some(expansion) = index_prefix_child_expansion_hint_for_fetch_limit(
+        plan,
+        covering_child_prefix_expansion_fetch_limit(plan.scalar_plan().page.as_ref()),
+    ) else {
         return Ok((None, false));
     };
     let Some(index) = plan.access_shape_facts().single_path_index_prefix_details() else {
@@ -192,6 +195,19 @@ where
     };
 
     Ok((Some(expanded_specs), true))
+}
+
+fn covering_child_prefix_expansion_fetch_limit(page: Option<&PageSpec>) -> Option<usize> {
+    let page = page?;
+    let limit = page.limit?;
+    if limit == 0 {
+        return Some(0);
+    }
+
+    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+
+    Some(offset.saturating_add(limit).saturating_add(1))
 }
 
 pub(super) fn apply_covering_page_window<T>(
@@ -638,5 +654,38 @@ mod tests {
 
         assert_eq!(scan_window.limit, usize::MAX);
         assert!(!scan_window.page_window_applied);
+    }
+
+    #[test]
+    fn covering_child_prefix_expansion_fetch_limit_matches_scalar_lookahead_window() {
+        assert_eq!(
+            covering_child_prefix_expansion_fetch_limit(Some(&PageSpec {
+                limit: Some(50),
+                offset: 0,
+            })),
+            Some(51),
+            "covering child-prefix expansion should use the same page lookahead fetch as route planning",
+        );
+        assert_eq!(
+            covering_child_prefix_expansion_fetch_limit(Some(&PageSpec {
+                limit: Some(2),
+                offset: 3,
+            })),
+            Some(6),
+            "covering child-prefix expansion should include offset and lookahead",
+        );
+        assert_eq!(
+            covering_child_prefix_expansion_fetch_limit(Some(&PageSpec {
+                limit: Some(0),
+                offset: 4,
+            })),
+            Some(0),
+            "LIMIT 0 should remain a zero-fetch expansion window",
+        );
+        assert_eq!(
+            covering_child_prefix_expansion_fetch_limit(None),
+            None,
+            "unpaged covering scans should keep the default child-prefix cap",
+        );
     }
 }

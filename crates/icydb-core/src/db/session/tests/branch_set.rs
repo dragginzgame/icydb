@@ -21,6 +21,8 @@ const SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS: usize =
 const SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_STAGES: [&str; 3] =
     ["Draft", "Review", "Queued"];
 #[cfg(feature = "diagnostics")]
+const SPARSE_COLLECTION_CHILD_PREFIX_EXACT_CAP_PARENTS: usize = 11;
+#[cfg(feature = "diagnostics")]
 const SPARSE_COLLECTION_IDS: [&str; 6] = [
     BRANCH_COLLECTION,
     "missing-collection-000",
@@ -253,6 +255,23 @@ fn combined_child_prefix_over_cap_sql(select: &str, limit: usize) -> String {
     )
 }
 
+#[cfg(feature = "diagnostics")]
+fn combined_child_prefix_exact_cap_with_missing_sql(select: &str, limit: usize) -> String {
+    let collections = combined_child_prefix_exact_cap_with_missing_collection_ids()
+        .into_iter()
+        .map(|collection_id| format!("'{collection_id}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN ({collections}) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
 fn seed_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
     seed_branch_indexed_session_sql_entities(
         session,
@@ -329,6 +348,15 @@ fn combined_child_prefix_collection_ids() -> Vec<String> {
     (0..SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS)
         .map(combined_child_prefix_collection_id)
         .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn combined_child_prefix_exact_cap_with_missing_collection_ids() -> Vec<String> {
+    let mut collection_ids = (0..SPARSE_COLLECTION_CHILD_PREFIX_EXACT_CAP_PARENTS)
+        .map(combined_child_prefix_collection_id)
+        .collect::<Vec<_>>();
+    collection_ids.extend((0..5).map(|index| format!("cap-missing-{index:02}")));
+    collection_ids
 }
 
 #[cfg(feature = "diagnostics")]
@@ -614,6 +642,26 @@ fn combined_child_prefix_sorted_rows() -> Vec<(u128, String, String)> {
 }
 
 #[cfg(feature = "diagnostics")]
+fn combined_child_prefix_exact_cap_sorted_rows() -> Vec<(u128, String, String)> {
+    let mut rows = (0..SPARSE_COLLECTION_CHILD_PREFIX_EXACT_CAP_PARENTS)
+        .flat_map(|parent_index| {
+            (0..SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_STAGES.len()).map(
+                move |stage_index| {
+                    (
+                        combined_child_prefix_row_id(parent_index, stage_index),
+                        combined_child_prefix_collection_id(parent_index),
+                        combined_child_prefix_title(parent_index, stage_index),
+                    )
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.sort_unstable_by_key(|(id, _, _)| *id);
+
+    rows
+}
+
+#[cfg(feature = "diagnostics")]
 fn combined_child_prefix_fixture_entry_count() -> u64 {
     u64::try_from(
         SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS
@@ -629,6 +677,17 @@ fn expected_combined_child_prefix_over_cap_ids(
     expected_combined_child_prefix_over_cap_ulids(limit)
         .into_iter()
         .map(|id| outputs(vec![Value::Ulid(id)]))
+        .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_combined_child_prefix_exact_cap_ids(
+    limit: usize,
+) -> Vec<Vec<crate::value::OutputValue>> {
+    combined_child_prefix_exact_cap_sorted_rows()
+        .into_iter()
+        .take(limit)
+        .map(|(id, _, _)| outputs(vec![Value::Ulid(Ulid::from_u128(id))]))
         .collect()
 }
 
@@ -2000,6 +2059,45 @@ fn session_branch_set_sql_sparse_in_child_prefix_over_cap_falls_back_safely() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn session_branch_set_sql_sparse_in_exact_cap_ignores_trailing_empty_parent_prefixes() {
+    const LIMIT: usize = 32;
+    const EXACT_CHILD_PREFIX_COUNT: u64 = 33;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_combined_child_prefix_over_cap_fixture(&session);
+    let sql = combined_child_prefix_exact_cap_with_missing_sql("id", LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!("exact-cap sparse collection page SQL should execute: {err:?}")
+        });
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("exact-cap sparse collection page SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_combined_child_prefix_exact_cap_ids(LIMIT),
+        "exact-cap child-prefix expansion should keep rows from every non-empty child prefix",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "exact-cap key-only sparse collection expansion should stay row-store-free",
+    );
+    assert!(
+        attribution.index_store_range_scan_calls >= EXACT_CHILD_PREFIX_COUNT,
+        "exact-cap sparse collection route should expand child prefixes instead of falling back to parent-prefix scans, got {attribution:?}",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate, None,
+        "exact-cap sparse collection default page path must not invoke count",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn session_branch_set_sql_sparse_in_combined_child_prefix_over_cap_falls_back_completely() {
     const LIMIT: usize = 8;
 
@@ -2290,6 +2388,21 @@ fn session_branch_set_sql_sparse_in_verbose_explain_identifies_child_prefix_expa
     assert!(
         explain.contains("diag.r.index_prefix_child_expansion_cap=fetch(32)"),
         "sparse IN route should report the child-prefix expansion cap: {explain}",
+    );
+
+    let wider_sql = sparse_collection_sql("id", 50);
+    let wider_explain_sql = format!("EXPLAIN EXECUTION VERBOSE {wider_sql}");
+    let wider_explain = statement_explain_sql::<BranchIndexedSessionSqlEntity>(
+        &session,
+        wider_explain_sql.as_str(),
+    )
+    .unwrap_or_else(|err| {
+        panic!("wider sparse collection verbose EXPLAIN should execute: {err:?}")
+    });
+
+    assert!(
+        wider_explain.contains("diag.r.index_prefix_child_expansion_cap=fetch(51)"),
+        "bounded sparse IN route should adapt the child-prefix expansion cap to the page lookahead window: {wider_explain}",
     );
 }
 

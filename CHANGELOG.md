@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Starts adaptive sparse `IN` routing by letting bounded page queries raise the
+  child-prefix expansion cap from the conservative default to the page
+  lookahead window, while preserving a hard ceiling and shared SQL covering
+  behavior, and by allowing exact-cap expansion when trailing parent prefixes
+  are metadata-proven empty.
+
 - Tightens the branch-aware merged-prefix runtime contract so branch-set,
   streaming multi-lookup, and sparse child-prefix expansion share one explicit
   stream spec while keeping branch-set ordering independent from child-prefix

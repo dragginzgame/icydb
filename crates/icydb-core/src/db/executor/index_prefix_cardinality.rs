@@ -131,6 +131,21 @@ pub(in crate::db::executor) fn expand_index_prefix_specs_with_exact_child_prefix
         }
         let remaining = total_cap.saturating_sub(expanded_specs.len());
         if remaining == 0 {
+            let Some(child_prefixes) = store.with_index(|index_store| {
+                index_store.exact_child_prefixes(
+                    data_generation,
+                    IndexKeyKind::User,
+                    index_id,
+                    spec.prefix_components(),
+                    1,
+                )
+            }) else {
+                return Ok(None);
+            };
+            if child_prefixes.is_empty() {
+                continue;
+            }
+
             return Ok(None);
         }
 

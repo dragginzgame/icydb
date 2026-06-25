@@ -7,7 +7,8 @@ use crate::db::{
     access::{AccessPathKind, AccessShapeFacts, IndexShapeDetails, SemanticIndexKeyItemsRef},
     direction::Direction,
     executor::route::{
-        IndexPrefixChildExpansionHint, PushdownApplicability, SecondaryOrderPushdownRejection,
+        AccessWindow, IndexPrefixChildExpansionHint, PushdownApplicability,
+        SecondaryOrderPushdownRejection,
     },
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
@@ -17,7 +18,8 @@ use crate::db::{
     },
 };
 
-const MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES: usize = 32;
+const DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES: usize = 32;
+const MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES: usize = 128;
 
 fn validated_secondary_order_contract(
     planner_route_profile: &PlannerRouteProfile,
@@ -363,17 +365,40 @@ fn ordered_child_prefix_expansion_target_for_primary_key_direction(
 }
 
 #[must_use]
-pub(in crate::db::executor) fn index_prefix_child_expansion_hint_for_plan(
+pub(in crate::db::executor) fn index_prefix_child_expansion_hint_for_access_window(
     plan: &AccessPlannedQuery,
+    access_window: AccessWindow,
+) -> Option<IndexPrefixChildExpansionHint> {
+    index_prefix_child_expansion_hint_for_fetch_limit(plan, access_window.fetch_limit())
+}
+
+#[must_use]
+pub(in crate::db::executor) fn index_prefix_child_expansion_hint_for_fetch_limit(
+    plan: &AccessPlannedQuery,
+    fetch_limit: Option<usize>,
 ) -> Option<IndexPrefixChildExpansionHint> {
     ordered_child_prefix_expansion_target_for_route(plan, &plan.access_shape_facts()).map(
         |target_prefix_len| {
             IndexPrefixChildExpansionHint::new(
                 target_prefix_len,
-                MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES,
+                adaptive_child_prefix_expansion_cap(fetch_limit),
             )
         },
     )
+}
+
+const fn adaptive_child_prefix_expansion_cap(fetch_limit: Option<usize>) -> usize {
+    let Some(fetch_limit) = fetch_limit else {
+        return DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES;
+    };
+    if fetch_limit < DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES {
+        return DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES;
+    }
+    if fetch_limit > MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES {
+        return MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES;
+    }
+
+    fetch_limit
 }
 
 fn index_suffix_matches_primary_key_order_from_prefix(

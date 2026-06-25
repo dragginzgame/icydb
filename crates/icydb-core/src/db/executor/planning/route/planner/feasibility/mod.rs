@@ -23,7 +23,7 @@ use crate::db::{
             },
             count_pushdown_fetch_hint, derive_aggregate_route_direction,
             derive_execution_capability_facts_for_model, derive_load_route_direction,
-            index_prefix_child_expansion_hint_for_plan, load_scan_budget_hint,
+            index_prefix_child_expansion_hint_for_access_window, load_scan_budget_hint,
             planner::{
                 RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage,
                 feasibility::gates::{
@@ -306,7 +306,12 @@ fn derive_route_scan_hints_for_model(
         .map_or(load_physical_fetch_hint, |_| aggregate_physical_fetch_hint);
     let index_prefix_child_expansion = inputs
         .load_scan_hints_enabled
-        .then(|| index_prefix_child_expansion_hint_for_plan(inputs.plan))
+        .then(|| {
+            index_prefix_child_expansion_hint_for_access_window(
+                inputs.plan,
+                *inputs.continuation.fetch_access_window(),
+            )
+        })
         .flatten();
     (
         ScanHintPlan {
