@@ -12,6 +12,14 @@ const BRANCH_HEAD_MERGE_READ_CAP: u64 = BRANCH_FETCH + 1;
 const BRANCH_INDEX_RESIDUAL_READ_CAP: u64 = 10;
 #[cfg(feature = "diagnostics")]
 const SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP: u64 = 12;
+#[cfg(feature = "diagnostics")]
+const SPARSE_COLLECTION_CHILD_PREFIX_OVER_CAP: usize = 40;
+#[cfg(feature = "diagnostics")]
+const SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS: usize =
+    crate::db::access::MAX_INDEX_BRANCH_SET_VALUES;
+#[cfg(feature = "diagnostics")]
+const SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_STAGES: [&str; 3] =
+    ["Draft", "Review", "Queued"];
 
 fn branch_target_sql(select: &str, limit: usize) -> String {
     format!(
@@ -170,6 +178,22 @@ fn missing_sparse_collection_sql(select: &str, limit: usize) -> String {
     )
 }
 
+#[cfg(feature = "diagnostics")]
+fn combined_child_prefix_over_cap_sql(select: &str, limit: usize) -> String {
+    let collections = (0..SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS)
+        .map(|index| format!("'cap-parent-{index:02}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN ({collections}) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
 fn seed_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
     seed_branch_indexed_session_sql_entities(
         session,
@@ -217,6 +241,80 @@ fn seed_skew_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
             (10_530, SKEW_BRANCH_COLLECTION, "Review", "review-530"),
             (10_540, SKEW_BRANCH_COLLECTION, "Review", "review-540"),
         ],
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+fn combined_child_prefix_parent_base_id(parent_index: usize) -> u128 {
+    let parent_offset = u128::try_from(parent_index).expect("test index should fit");
+    if parent_index + 1 == SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS {
+        21_000
+    } else {
+        30_000 + parent_offset * 100
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+fn combined_child_prefix_row_id(parent_index: usize, stage_index: usize) -> u128 {
+    combined_child_prefix_parent_base_id(parent_index)
+        + u128::try_from(stage_index).expect("test index should fit")
+}
+
+#[cfg(feature = "diagnostics")]
+fn seed_combined_child_prefix_over_cap_fixture(session: &DbSession<SessionSqlCanister>) {
+    let rows = (0..SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS)
+        .flat_map(|parent_index| {
+            SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_STAGES
+                .iter()
+                .enumerate()
+                .map(move |(stage_index, stage)| {
+                    let id = combined_child_prefix_row_id(parent_index, stage_index);
+                    (
+                        id,
+                        format!("cap-parent-{parent_index:02}"),
+                        (*stage).to_string(),
+                        format!("cap-parent-{parent_index:02}-{stage_index:02}"),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+
+    insert_session_fixture_rows(
+        session,
+        rows,
+        |(id, collection_id, stage, title)| BranchIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            collection_id,
+            stage,
+            title,
+        },
+        "combined child-prefix over-cap branch indexed SQL",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+fn seed_child_prefix_over_cap_fixture(session: &DbSession<SessionSqlCanister>) {
+    let rows = (0..SPARSE_COLLECTION_CHILD_PREFIX_OVER_CAP)
+        .map(|index| {
+            (
+                20_000 + u128::try_from(index).expect("test index should fit") * 10,
+                BRANCH_COLLECTION.to_string(),
+                format!("Stage{index:02}"),
+                format!("cap-{index:02}"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    insert_session_fixture_rows(
+        session,
+        rows,
+        |(id, collection_id, stage, title)| BranchIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            collection_id,
+            stage,
+            title,
+        },
+        "child-prefix over-cap branch indexed SQL",
     );
 }
 
@@ -394,6 +492,36 @@ fn expected_collection_ids(limit: usize) -> Vec<Vec<crate::value::OutputValue>> 
     expected_collection_ulids(limit)
         .into_iter()
         .map(|id| outputs(vec![Value::Ulid(id)]))
+        .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_child_prefix_over_cap_ids(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    (0..SPARSE_COLLECTION_CHILD_PREFIX_OVER_CAP)
+        .take(limit)
+        .map(|index| {
+            outputs(vec![Value::Ulid(Ulid::from_u128(
+                20_000 + u128::try_from(index).expect("test index should fit") * 10,
+            ))])
+        })
+        .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_combined_child_prefix_over_cap_ids(
+    limit: usize,
+) -> Vec<Vec<crate::value::OutputValue>> {
+    let mut ids = (0..SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS)
+        .flat_map(|parent_index| {
+            (0..SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_STAGES.len())
+                .map(move |stage_index| combined_child_prefix_row_id(parent_index, stage_index))
+        })
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+
+    ids.into_iter()
+        .take(limit)
+        .map(|id| outputs(vec![Value::Ulid(Ulid::from_u128(id))]))
         .collect()
 }
 
@@ -1514,6 +1642,87 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
     assert!(
         attribution.index_store_range_scan_calls <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
         "sparse collection page should expand only bounded non-empty child prefixes, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_child_prefix_over_cap_falls_back_safely() {
+    const LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_child_prefix_over_cap_fixture(&session);
+    let sql = sparse_collection_sql("id", LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!("over-cap sparse collection page SQL should execute: {err:?}")
+        });
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("over-cap sparse collection page SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_child_prefix_over_cap_ids(LIMIT),
+        "over-cap sparse collection page should fall back without losing primary-key order",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "over-cap key-only sparse collection fallback should stay row-store-free",
+    );
+    assert!(
+        attribution.index_store_entry_reads >= SPARSE_COLLECTION_CHILD_PREFIX_OVER_CAP as u64,
+        "over-cap sparse collection fallback should materialize the parent prefix instead of pretending the capped child-prefix expansion succeeded, got {attribution:?}",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate, None,
+        "over-cap sparse collection default page path must not invoke count",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_combined_child_prefix_over_cap_falls_back_completely() {
+    const LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_combined_child_prefix_over_cap_fixture(&session);
+    let sql = combined_child_prefix_over_cap_sql("id", LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!("combined over-cap sparse collection page SQL should execute: {err:?}")
+        });
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("combined over-cap sparse collection page SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_combined_child_prefix_over_cap_ids(LIMIT),
+        "combined over-cap child-prefix fallback must not lose rows from prefixes beyond the expansion cap",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "combined over-cap key-only sparse collection fallback should stay row-store-free",
+    );
+    assert!(
+        attribution.index_store_entry_reads
+            >= u64::try_from(
+                SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_PARENTS
+                    * SPARSE_COLLECTION_CHILD_PREFIX_COMBINED_OVER_CAP_STAGES.len(),
+            )
+            .expect("fixture size should fit"),
+        "combined over-cap sparse collection fallback should materialize the complete parent-prefix route, got {attribution:?}",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate, None,
+        "combined over-cap sparse collection default page path must not invoke count",
     );
 }
 

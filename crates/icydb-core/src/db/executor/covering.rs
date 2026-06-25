@@ -101,6 +101,7 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     limit: usize,
     component_indices: &[usize],
     predicate_execution: Option<IndexPredicateExecution<'_>>,
+    prefix_set_merge_order_safe: bool,
     mut resolve_store_for_index: F,
 ) -> Result<CoveringProjectionComponentRows, InternalError>
 where
@@ -125,10 +126,13 @@ where
         return resolve_covering_projection_components_for_prefix_set(
             entity_tag,
             index_prefix_specs,
-            direction,
-            limit,
-            component_indices,
-            predicate_execution,
+            CoveringPrefixSetScan {
+                direction,
+                limit,
+                component_indices,
+                predicate_execution,
+                merge_order_safe: prefix_set_merge_order_safe,
+            },
             resolve_store_for_index,
         );
     }
@@ -172,32 +176,42 @@ where
         usize::MAX,
         &[component_index],
         None,
+        false,
         resolve_store_for_index,
     )
 }
 
-// Resolve a branch/multi-prefix covering projection as merged component
-// streams. This keeps the covering lane aligned with scalar branch execution:
-// each prefix owns its range cursor, merge order is primary-key comparator
-// driven, duplicate keys are suppressed, and collection stops at the requested
-// output limit.
+struct CoveringPrefixSetScan<'a> {
+    direction: Direction,
+    limit: usize,
+    component_indices: &'a [usize],
+    predicate_execution: Option<IndexPredicateExecution<'a>>,
+    merge_order_safe: bool,
+}
+
+type ActiveCoveringPrefixSpec<'a> = (
+    &'a LoweredIndexPrefixSpec,
+    LoweredIndexScanContract,
+    StoreHandle,
+);
+
+// Resolve a branch/multi-prefix covering projection. Proven ordered prefix
+// sets use the same lazy merge model as scalar branch execution; unsafe sets
+// materialize completely before dedup/sort/windowing.
 fn resolve_covering_projection_components_for_prefix_set<F>(
     entity_tag: EntityTag,
     index_prefix_specs: &[LoweredIndexPrefixSpec],
-    direction: Direction,
-    limit: usize,
-    component_indices: &[usize],
-    predicate_execution: Option<IndexPredicateExecution<'_>>,
+    scan: CoveringPrefixSetScan<'_>,
     mut resolve_store_for_index: F,
 ) -> Result<CoveringProjectionComponentRows, InternalError>
 where
     F: FnMut(&str) -> Result<StoreHandle, InternalError>,
 {
-    if limit == 0 || index_prefix_specs.is_empty() {
+    if scan.limit == 0 || index_prefix_specs.is_empty() {
         return Ok(Vec::new());
     }
 
-    let component_indices: Arc<[usize]> = Arc::from(component_indices.to_vec());
+    let component_indices: Arc<[usize]> = Arc::from(scan.component_indices.to_vec());
     let first_scan_contract = index_prefix_specs[0].scan_contract();
     let first_store_path = first_scan_contract.store_path().to_string();
     let prefix_store = resolve_store_for_index(first_store_path.as_str())?;
@@ -211,7 +225,10 @@ where
     };
     let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
     for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
-        if prefix_components_rejected_by_predicate(spec.prefix_components(), predicate_execution) {
+        if prefix_components_rejected_by_predicate(
+            spec.prefix_components(),
+            scan.predicate_execution,
+        ) {
             continue;
         }
         if proven_empty {
@@ -228,6 +245,14 @@ where
     if active_specs.is_empty() {
         return Ok(Vec::new());
     }
+    if !scan.merge_order_safe {
+        return resolve_materialized_covering_projection_components_for_prefix_set(
+            entity_tag,
+            active_specs,
+            &scan,
+            component_indices.as_ref(),
+        );
+    }
     if active_specs.len() == 1 {
         let Some((spec, scan_contract, store)) = active_specs.pop() else {
             return Err(InternalError::query_executor_invariant());
@@ -238,14 +263,14 @@ where
             entity_tag,
             scan_contract,
             (spec.lower(), spec.upper()),
-            IndexScanContinuationInput::new(None, direction),
-            limit,
+            IndexScanContinuationInput::new(None, scan.direction),
+            scan.limit,
             component_indices.as_ref(),
-            predicate_execution,
+            scan.predicate_execution,
         );
     }
 
-    let chunk_entries = covering_branch_component_chunk_entries(limit, active_specs.len());
+    let chunk_entries = covering_branch_component_chunk_entries(scan.limit, active_specs.len());
     let mut streams = Vec::with_capacity(active_specs.len());
     for (spec, scan_contract, store) in active_specs {
         streams.push(CoveringComponentStreamBox::prefix(
@@ -254,11 +279,11 @@ where
             scan_contract,
             spec.lower().clone(),
             spec.upper().clone(),
-            direction,
-            Some(limit),
+            scan.direction,
+            Some(scan.limit),
             chunk_entries,
             Arc::clone(&component_indices),
-            predicate_execution,
+            scan.predicate_execution,
         ));
     }
     if streams.is_empty() {
@@ -267,12 +292,43 @@ where
 
     let Some(mut stream) = CoveringComponentStreamBox::merge_all(
         streams,
-        KeyOrderComparator::from_direction(direction),
+        KeyOrderComparator::from_direction(scan.direction),
     ) else {
         return Ok(Vec::new());
     };
 
-    stream.collect_limit(limit)
+    stream.collect_limit(scan.limit)
+}
+
+fn resolve_materialized_covering_projection_components_for_prefix_set(
+    entity_tag: EntityTag,
+    active_specs: Vec<ActiveCoveringPrefixSpec<'_>>,
+    scan: &CoveringPrefixSetScan<'_>,
+    component_indices: &[usize],
+) -> Result<CoveringProjectionComponentRows, InternalError> {
+    let mut rows = Vec::new();
+    for (spec, scan_contract, store) in active_specs {
+        rows.extend(resolve_covering_projection_components_for_index_bounds(
+            store,
+            entity_tag,
+            scan_contract,
+            (spec.lower(), spec.upper()),
+            IndexScanContinuationInput::new(None, scan.direction),
+            usize::MAX,
+            component_indices,
+            scan.predicate_execution,
+        )?);
+    }
+    rows.sort_by(|left, right| left.0.cmp(&right.0));
+    rows.dedup_by(|left, right| left.0 == right.0);
+    if matches!(scan.direction, Direction::Desc) {
+        rows.reverse();
+    }
+    if scan.limit != usize::MAX {
+        rows.truncate(scan.limit);
+    }
+
+    Ok(rows)
 }
 
 fn prefix_components_rejected_by_predicate(

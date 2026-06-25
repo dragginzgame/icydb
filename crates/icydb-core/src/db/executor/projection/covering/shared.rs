@@ -146,6 +146,8 @@ where
             scan_window.limit,
             component_indices.as_slice(),
             index_predicate_execution,
+            primary_key_order_scan_safe
+                || matches!(order_contract, CoveringProjectionOrder::IndexOrder(_)),
             |store_path| db.recovered_store(store_path),
         )?
     };

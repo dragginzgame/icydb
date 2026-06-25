@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Added a branch-aware continuation proof for sparse `IN` routes that expand
-  parent index prefixes into child prefix streams, guarding that page-two
-  execution resumes after the primary-key cursor boundary without replaying all
-  expanded prefix entries.
-
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
+
+- `0.185.1` hardens sparse `IN` continuation and over-cap covering fallback by
+  proving child-prefix resume behavior and making unsafe parent-prefix
+  fallbacks materialize before sorting/windowing.
 
 - `0.185.0` starts the branch-aware query revisit by documenting the next
   routing contract, sharing merged-prefix stream construction, proving

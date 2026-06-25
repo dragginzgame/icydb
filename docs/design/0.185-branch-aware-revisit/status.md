@@ -11,18 +11,37 @@ expanding the optimizer.
 
 ## Current Slice
 
-- 0.185.1 is hardening continuation proof for the shared merged-prefix stream
-  helper.
-- Branch-set continuation already proves page-two resume after the global
-  primary-key cursor boundary.
-- The active proof gap is sparse `IN` child-prefix expansion, because that path
-  now shares the same merged-prefix helper but used to have only first-page
-  coverage.
-- The new proof compares SQL and fluent sparse-expanded page/resume behavior
-  using each surface's own continuation token. Byte-identical cursor signatures
-  for SQL `SELECT *` versus fluent full-entity sparse routes remain a separate
-  projection-identity question and are not changed in this slice.
-- This slice stays deliberately below a cursor-format hard-cut: it proves the
+- The current slice is hardening adaptive sparse `IN` child-prefix expansion
+  boundaries.
+- When exact child-prefix metadata can expand a sparse parent prefix within the
+  cap, the route may stream the expanded child prefixes through the shared
+  merged-prefix helper.
+- When exact child-prefix metadata exceeds the cap, runtime must fail open to a
+  safe parent-prefix fallback instead of pretending capped expansion produced a
+  complete ordered branch set.
+- The over-cap fallback must preserve primary-key order, avoid row-store
+  hydration for key-only projections, and avoid accidental count execution on
+  default page queries.
+- Key-only covering fallback must not lazily merge parent-prefix streams unless
+  the route proves each stream is already ordered by the final merge key; unsafe
+  parent-prefix sets materialize, deduplicate, sort, and then apply the normal
+  page window.
+- This slice still stays below a cost-based optimizer: it proves the current
+  cap boundary and fallback behavior, without changing thresholds or adding
+  prefix cardinality estimates.
+
+## Completed Continuation Slice
+
+- Branch-set continuation proves page-two resume after the global primary-key
+  cursor boundary.
+- Sparse `IN` child-prefix expansion continuation now has page/resume coverage,
+  because that path shares the same merged-prefix helper but previously had only
+  first-page coverage.
+- The proof compares SQL and fluent sparse-expanded page/resume behavior using
+  each surface's own continuation token. Byte-identical cursor signatures for
+  SQL `SELECT *` versus fluent full-entity sparse routes remain a separate
+  projection-identity question and were not changed.
+- The slice stayed deliberately below a cursor-format hard-cut: it proved the
   current global primary-key boundary model for admitted primary-key suffix
   streams, without adding per-branch cursor payloads.
 

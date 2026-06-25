@@ -23,6 +23,14 @@ a broad cost-based optimizer design.
   consumed prefix already leaves only the primary-key suffix.
 - Sparse parent-prefix multi-lookup can stream with child-prefix expansion when
   the expanded prefix leaves the primary-key suffix in ascending order.
+- If exact child-prefix metadata expansion exceeds the expansion cap, runtime
+  must treat the expansion as unavailable and fall back to the parent-prefix
+  route. The fallback may do more index traversal, but it must preserve
+  filtering before primary-key windowing and must not report a partial expanded
+  prefix set as complete.
+- Covering projections may keep the fallback row-store-free, but they must
+  materialize and sort unsafe parent-prefix sets instead of using the lazy
+  primary-key merge reserved for proven child-prefix streams.
 - Descending sparse child-prefix expansion is not admitted yet. It must remain
   materialized/fallback until reverse ordered expansion has an explicit design.
 - Child-prefix expansion is a route hint, not a new logical access path; the
@@ -43,5 +51,7 @@ sparse child-prefix-expanded multi-lookup before changing thresholds.
 
 - Cost-based choice between branch-set, child-prefix expansion, and fallback.
 - Prefix-cardinality-aware estimates for dense versus sparse `IN` lists.
+- A better over-cap strategy that can stream dense parent-prefix work without
+  materializing more index entries than necessary.
 - DESC/reverse child-prefix expansion.
 - General branch-tree replacement for every special-case `IN` path.
