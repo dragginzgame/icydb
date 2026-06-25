@@ -13,6 +13,7 @@ use crate::{
         direction::Direction,
         executor::{
             IndexScan, KeyOrderComparator, lowered_index_prefix_empty_bitmap,
+            lowered_index_prefix_is_proven_empty, prefix_stream_chunk_entries,
             read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
@@ -38,9 +39,6 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
-const COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES: usize = 2;
-const COVERING_BRANCH_MAX_CHUNK_ENTRIES: usize = 64;
-
 pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
 
 pub(in crate::db::executor) type CoveringProjectionComponentRows = Vec<(
@@ -111,8 +109,13 @@ where
 
     if let [spec] = index_prefix_specs {
         let scan_contract = spec.scan_contract();
+        let store = resolve_store_for_index(scan_contract.store_path())?;
+        if lowered_index_prefix_is_proven_empty(store, spec) {
+            return Ok(Vec::new());
+        }
+
         return resolve_covering_projection_components_for_index_bounds(
-            resolve_store_for_index(scan_contract.store_path())?,
+            store,
             entity_tag,
             scan_contract,
             (spec.lower(), spec.upper()),
@@ -270,7 +273,7 @@ where
         );
     }
 
-    let chunk_entries = covering_branch_component_chunk_entries(scan.limit, active_specs.len());
+    let chunk_entries = prefix_stream_chunk_entries(Some(scan.limit), active_specs.len());
     let mut streams = Vec::with_capacity(active_specs.len());
     for (spec, scan_contract, store) in active_specs {
         streams.push(CoveringComponentStreamBox::prefix(
@@ -340,30 +343,6 @@ fn prefix_components_rejected_by_predicate(
             eval_index_program_on_prefix_components(prefix_components, execution.program)
         })
         .is_some_and(|passed| !passed)
-}
-
-const fn covering_branch_component_chunk_entries(limit: usize, branch_count: usize) -> usize {
-    if limit <= COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES.saturating_mul(2) {
-        return COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES;
-    }
-
-    let branch_count = if branch_count == 0 { 1 } else { branch_count };
-    if branch_count <= 2 {
-        return if limit > COVERING_BRANCH_MAX_CHUNK_ENTRIES {
-            COVERING_BRANCH_MAX_CHUNK_ENTRIES
-        } else {
-            limit
-        };
-    }
-
-    let fair_branch_window = limit.div_ceil(branch_count);
-    if fair_branch_window < COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES {
-        COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES
-    } else if fair_branch_window > COVERING_BRANCH_MAX_CHUNK_ENTRIES {
-        COVERING_BRANCH_MAX_CHUNK_ENTRIES
-    } else {
-        fair_branch_window
-    }
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.

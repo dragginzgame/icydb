@@ -230,6 +230,18 @@ fn missing_sparse_collection_sql(select: &str, limit: usize) -> String {
 }
 
 #[cfg(feature = "diagnostics")]
+fn missing_collection_stage_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = 'missing-collection-000' \
+           AND stage = 'Draft' \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
+#[cfg(feature = "diagnostics")]
 fn missing_sparse_collection_literal_list() -> String {
     MISSING_SPARSE_COLLECTION_IDS
         .into_iter()
@@ -2579,6 +2591,39 @@ fn session_branch_set_sql_sparse_in_key_only_empty_expansion_returns_empty_page(
     assert_eq!(
         attribution.index_store_entry_reads, 0,
         "missing sparse collection page should not scan index entries after empty child-prefix expansion",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_missing_exact_covering_prefix_skips_range_scan() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = missing_collection_stage_sql("id", 8);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("missing exact covering SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("missing exact covering SQL should return projection rows");
+    };
+
+    assert!(
+        rows.is_empty(),
+        "missing exact covering prefix should return no rows",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "missing exact key-only prefix should stay row-store-free",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "missing exact covering prefix should not read index entries",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 0,
+        "missing exact covering prefix should skip raw index range traversal",
     );
 }
 

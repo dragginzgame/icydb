@@ -37,6 +37,30 @@ pub(in crate::db::executor) type IndexComponentRows = Vec<(
 )>;
 
 pub(in crate::db::executor) const ACCESS_SCAN_CHUNK_ENTRIES: usize = 64;
+const PREFIX_STREAM_SMALL_CHUNK_ENTRIES: usize = 2;
+const PREFIX_STREAM_MAX_CHUNK_ENTRIES: usize = 64;
+
+pub(in crate::db::executor) const fn prefix_stream_chunk_entries(
+    fetch_hint: Option<usize>,
+    prefix_count: usize,
+) -> usize {
+    let Some(fetch_hint) = fetch_hint else {
+        return ACCESS_SCAN_CHUNK_ENTRIES;
+    };
+    if fetch_hint <= PREFIX_STREAM_SMALL_CHUNK_ENTRIES.saturating_mul(2) {
+        return PREFIX_STREAM_SMALL_CHUNK_ENTRIES;
+    }
+
+    let prefix_count = if prefix_count == 0 { 1 } else { prefix_count };
+    let fair_prefix_window = fetch_hint.div_ceil(prefix_count);
+    if fair_prefix_window < PREFIX_STREAM_SMALL_CHUNK_ENTRIES {
+        PREFIX_STREAM_SMALL_CHUNK_ENTRIES
+    } else if fair_prefix_window > PREFIX_STREAM_MAX_CHUNK_ENTRIES {
+        PREFIX_STREAM_MAX_CHUNK_ENTRIES
+    } else {
+        fair_prefix_window
+    }
+}
 
 ///
 /// PrimaryScan

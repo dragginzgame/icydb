@@ -17,9 +17,9 @@ use crate::{
             LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
             expand_index_prefix_specs_with_exact_child_prefixes, lowered_index_prefix_empty_bitmap,
             lowered_index_prefix_is_proven_empty, ordered_key_stream_from_materialized_keys,
-            pipeline::contracts::AccessScanContinuationInput, route::IndexPrefixChildExpansionHint,
-            route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
-            traversal::IndexRangeTraversalContract,
+            pipeline::contracts::AccessScanContinuationInput, prefix_stream_chunk_entries,
+            route::IndexPrefixChildExpansionHint, route::primary_scan_fetch_hint_shape_supported,
+            stream::key::KeyOrderComparator, traversal::IndexRangeTraversalContract,
         },
         index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
         key_taxonomy::RawDataStoreKeyRange,
@@ -30,9 +30,6 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
-
-const BRANCH_STREAM_SMALL_CHUNK_ENTRIES: usize = 2;
-const BRANCH_STREAM_MAX_CHUNK_ENTRIES: usize = 64;
 
 ///
 /// KeyOrderState
@@ -126,7 +123,7 @@ impl<'a> MergedIndexPrefixStreamSpec<'a> {
     }
 
     const fn chunk_entries(self, active_prefix_count: usize) -> usize {
-        branch_stream_chunk_entries(self.index_fetch_hint, active_prefix_count)
+        prefix_stream_chunk_entries(self.index_fetch_hint, active_prefix_count)
     }
 }
 
@@ -816,25 +813,6 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
             );
             count
         }))
-    }
-}
-
-const fn branch_stream_chunk_entries(fetch_hint: Option<usize>, branch_count: usize) -> usize {
-    let Some(fetch_hint) = fetch_hint else {
-        return ACCESS_SCAN_CHUNK_ENTRIES;
-    };
-    if fetch_hint <= BRANCH_STREAM_SMALL_CHUNK_ENTRIES.saturating_mul(2) {
-        return BRANCH_STREAM_SMALL_CHUNK_ENTRIES;
-    }
-
-    let branch_count = if branch_count == 0 { 1 } else { branch_count };
-    let fair_branch_window = fetch_hint.div_ceil(branch_count);
-    if fair_branch_window < BRANCH_STREAM_SMALL_CHUNK_ENTRIES {
-        BRANCH_STREAM_SMALL_CHUNK_ENTRIES
-    } else if fair_branch_window > BRANCH_STREAM_MAX_CHUNK_ENTRIES {
-        BRANCH_STREAM_MAX_CHUNK_ENTRIES
-    } else {
-        fair_branch_window
     }
 }
 

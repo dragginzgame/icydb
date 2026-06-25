@@ -11,11 +11,11 @@ expanding the optimizer.
 
 ## Current Slice
 
-- No active implementation slice is selected after the physical prefix-stream
-  cleanup.
-- The remaining major follow-ups are broader branch-tree replacement and
-  cursor-format design; choose one explicitly before changing runtime behavior
-  again.
+- Single-prefix covering empty-prefix pruning and shared prefix-stream chunk
+  sizing are complete.
+- The next narrow duplicate-flow target is remaining structural drift between
+  physical prefix streams and covering prefix-component streams. Broader
+  branch-tree replacement and cursor-format design remain explicit follow-ups.
 
 ## Major Follow-Up Queue
 
@@ -25,6 +25,19 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Covering Empty-Prefix Slice
+
+- Single-prefix covering projections now consult synchronized empty-prefix
+  metadata before opening a raw index range scan.
+- This aligns the direct covering lane with scalar prefix streams and
+  multi-prefix covering streams: metadata-proven empty exact prefixes return an
+  empty page without row-store reads, index-entry reads, or range-scan calls.
+- Scalar prefix streams and covering prefix-component streams now share one
+  scan-owned prefix chunk sizing helper, avoiding separate tuning formulas for
+  key streams versus key-only/covered projection streams.
+- The helper stays fail-open. If metadata cannot prove the prefix is empty, the
+  existing covering scan path is still used.
 
 ## Completed Physical Prefix-Stream Cleanup Slice
 

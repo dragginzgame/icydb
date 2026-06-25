@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.8` continues branch-tree cleanup by sharing prefix-stream
+  empty-prefix pruning and chunk sizing across scalar and covering projection
+  paths without changing route admission.
+
 - `0.185.7` starts the next branch-tree cleanup by sharing physical
   prefix-family stream setup across single-prefix, multi-prefix, branch-set,
   and sparse child-prefix routes without changing route admission.
