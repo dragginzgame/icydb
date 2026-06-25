@@ -11,7 +11,27 @@ expanding the optimizer.
 
 ## Current Slice
 
-- The current slice is hardening adaptive sparse `IN` child-prefix expansion
+- The current slice is widening over-cap sparse `IN` fallback proof across
+  SQL covering projection lanes and fluent full-entity loads.
+- Combined child-prefix over-cap fixtures now exercise key-only primary-key
+  projection, decoded index-component projection, and hybrid row-backed
+  projection, plus fluent full-entity hydration, against the same parent-prefix
+  fallback boundary.
+- The goal is to prove the shared covering resolver fix is not a key-only
+  special case: unsafe parent-prefix sets must sort before projection/windowing,
+  index-backed fields must stay row-store-free, and hybrid projections must
+  report both index-field decode and final-page row-backed hydration while the
+  fluent surface preserves the same primary-key order and bounded row-store
+  hydration.
+- The same slice also locks the ASC-only boundary for child-prefix expansion:
+  sparse `IN ... ORDER BY id DESC` must stay materialized/fallback and must not
+  report the ASC child-prefix expansion hint.
+- This remains proof-oriented. It does not add a cost model or a denser
+  over-cap streaming strategy.
+
+## Completed Adaptive Boundary Slice
+
+- The adaptive boundary slice hardened sparse `IN` child-prefix expansion
   boundaries.
 - When exact child-prefix metadata can expand a sparse parent prefix within the
   cap, the route may stream the expanded child prefixes through the shared
@@ -26,7 +46,7 @@ expanding the optimizer.
   the route proves each stream is already ordered by the final merge key; unsafe
   parent-prefix sets materialize, deduplicate, sort, and then apply the normal
   page window.
-- This slice still stays below a cost-based optimizer: it proves the current
+- The slice stayed below a cost-based optimizer: it proved the current
   cap boundary and fallback behavior, without changing thresholds or adding
   prefix cardinality estimates.
 

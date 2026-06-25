@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Added sparse `IN` over-cap proof for decoded index components, hybrid
+  projections, fluent full-entity loads, and DESC fallback routing on
+  child-prefix-sensitive routes.
+
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
