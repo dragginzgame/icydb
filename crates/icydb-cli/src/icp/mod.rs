@@ -58,6 +58,16 @@ pub(crate) fn known_canisters(environment: &str) -> Result<Vec<String>, String> 
     project::known_canisters(environment)
 }
 
+pub(crate) fn build_target_for_environment(
+    environment: &str,
+) -> icydb_config::GeneratedBuildTarget {
+    if project::environment_targets_local(environment) {
+        icydb_config::GeneratedBuildTarget::Local
+    } else {
+        icydb_config::GeneratedBuildTarget::Ic
+    }
+}
+
 pub(crate) fn require_created_canister(environment: &str, canister: &str) -> Result<(), String> {
     project::require_created_canister(environment, canister)
 }

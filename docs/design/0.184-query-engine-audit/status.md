@@ -684,9 +684,22 @@ Status: active.
   terminal field metadata stamping. Typed query EXPLAIN and execution EXPLAIN
   now also share the session-visible access-choice finalization helper before
   rendering. Plan-hash rendering now lives on the logical plan and is reused
-  by prepared-plan and query-plan wrappers, so EXPLAIN, trace, planned, and
-  compiled query surfaces do not each repeat the fingerprint conversion. The
-  single-use shared-plan mapper left behind by that cleanup was also removed.
+  by the shared prepared-plan and query-plan wrappers, so EXPLAIN, trace,
+  planned, and compiled query surfaces do not each repeat the fingerprint
+  conversion. The trace and terminal-explain surfaces now read the shared
+  prepared-plan shell directly instead of cloning typed prepared plans for
+  generic diagnostics facts, and the leftover shared-plan mapper left behind
+  by that cleanup was also removed.
+- D1 / F3 attribution DTO cleanup: fluent paged query attribution and fluent
+  scalar-terminal attribution now share one compile/cache/store counter builder
+  before filling their distinct public DTO fields. Measurement boundaries,
+  scalar aggregate terminal counters, grouped/query phase counters, and public
+  attribution field names are unchanged. SQL query attribution shaping and SQL
+  output-blob accounting also moved out of the top-level SQL session module
+  into the SQL attribution module, leaving SQL orchestration responsible only
+  for measurement boundaries and execution. SQL scalar-aggregate execute
+  diagnostics now also share one helper for scalar-terminal attribution around
+  measured physical-access execution.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

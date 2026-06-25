@@ -156,11 +156,7 @@ fn execute_expression_index_store_mutation(
         .validate()
         .map_err(|_error| InternalError::store_unsupported())?;
 
-    index_store.mark_building();
-    for entry in staged.entries() {
-        index_store.insert(entry.key().clone(), entry.entry().clone());
-    }
-    validate_expression_index_store_batch(
+    publish_expression_index_store_batch(
         index_store,
         entity_path,
         target,
@@ -170,6 +166,74 @@ fn execute_expression_index_store_mutation(
     index_store.mark_ready();
 
     Ok((validation.source_rows(), validation.entry_count()))
+}
+
+fn publish_expression_index_store_batch(
+    index_store: &mut IndexStore,
+    entity_path: &'static str,
+    target: &SchemaExpressionIndexRebuildTarget,
+    target_index_id: &IndexId,
+    entries: &[SchemaExpressionIndexStagedEntry],
+) -> Result<(), InternalError> {
+    index_store.mark_building();
+    let result = insert_and_validate_expression_index_store_batch(
+        index_store,
+        entity_path,
+        target,
+        target_index_id,
+        entries,
+    );
+    match result {
+        Ok(()) => {
+            index_store.mark_ready();
+            Ok(())
+        }
+        Err(error) => {
+            rollback_expression_index_store_batch(index_store, entries);
+            index_store.mark_ready();
+            Err(error)
+        }
+    }
+}
+
+fn insert_and_validate_expression_index_store_batch(
+    index_store: &mut IndexStore,
+    entity_path: &'static str,
+    target: &SchemaExpressionIndexRebuildTarget,
+    target_index_id: &IndexId,
+    entries: &[SchemaExpressionIndexStagedEntry],
+) -> Result<(), InternalError> {
+    for entry in entries {
+        index_store.insert(entry.key().clone(), entry.entry().clone());
+    }
+
+    validate_expression_index_store_batch(
+        index_store,
+        entity_path,
+        target,
+        target_index_id,
+        entries,
+    )
+}
+
+fn rollback_expression_index_store_batch(
+    index_store: &mut IndexStore,
+    entries: &[SchemaExpressionIndexStagedEntry],
+) {
+    for entry in entries {
+        index_store.remove(entry.key());
+    }
+}
+
+#[cfg(test)]
+pub(super) fn publish_expression_index_store_batch_for_test(
+    index_store: &mut IndexStore,
+    entity_path: &'static str,
+    target: &SchemaExpressionIndexRebuildTarget,
+    target_index_id: &IndexId,
+    entries: &[SchemaExpressionIndexStagedEntry],
+) -> Result<(), InternalError> {
+    publish_expression_index_store_batch(index_store, entity_path, target, target_index_id, entries)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1,4 +1,7 @@
-use super::startup_field_path::{self, SchemaPublicationGate};
+use super::{
+    startup_expression,
+    startup_field_path::{self, SchemaPublicationGate},
+};
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
@@ -8,10 +11,14 @@ use crate::{
         registry::StoreRegistry,
         schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
-            SchemaFieldSlot, SchemaMutationRunnerInput, SchemaRowLayout, SchemaStore,
-            SchemaVersion, compiled_schema_proposal_for_model,
+            PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+            PersistedSchemaSnapshot, SchemaExpressionIndexRebuildRow,
+            SchemaExpressionIndexStagedRebuild, SchemaFieldDefault, SchemaFieldPathIndexRebuildRow,
+            SchemaFieldPathIndexRunner, SchemaFieldSlot, SchemaMutationRequest,
+            SchemaMutationRunnerInput, SchemaRowLayout, SchemaStore, SchemaVersion,
+            compiled_schema_proposal_for_model,
         },
     },
     error::ErrorClass,
@@ -271,6 +278,41 @@ fn indexed_schema_ddl_extra_index() -> PersistedIndexSnapshot {
         "schema::reconcile::tests::IndexedSchemaEntity::ddl_name_idx".to_string(),
         false,
         expected_index.key().clone(),
+        None,
+    )
+}
+
+fn indexed_schema_lower_name_expression_index() -> PersistedIndexSnapshot {
+    let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let name_field = expected
+        .fields()
+        .iter()
+        .find(|field| field.name() == "name")
+        .expect("indexed schema fixture should have a name field");
+    let source = PersistedIndexFieldPathSnapshot::new(
+        name_field.id(),
+        name_field.slot(),
+        vec!["name".to_string()],
+        name_field.kind().clone(),
+        name_field.nullable(),
+    );
+    let expression = PersistedIndexExpressionSnapshot::new(
+        PersistedIndexExpressionOp::Lower,
+        source.clone(),
+        source.kind().clone(),
+        source.kind().clone(),
+        "expr:v1:LOWER(name)".to_string(),
+    );
+
+    PersistedIndexSnapshot::new_sql_ddl(
+        2,
+        "ddl_lower_name_idx".to_string(),
+        "schema::reconcile::tests::IndexedSchemaEntity::ddl_lower_name_idx".to_string(),
+        false,
+        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+            Box::new(expression),
+        )]),
         None,
     )
 }
@@ -824,6 +866,83 @@ fn field_path_startup_index_store_preflight_classifies_target_and_other_entries(
     assert_eq!(preflight.target_index_entries(), 1);
     assert_eq!(preflight.other_index_entries(), 1);
     assert_eq!(preflight.total_entries(), 2);
+}
+
+#[test]
+fn expression_index_store_batch_rolls_back_on_post_insert_validation_failure() {
+    reset_reconcile_stores();
+
+    let stored_without_index = indexed_schema_snapshot_without_indexes();
+    let accepted = AcceptedSchemaSnapshot::try_new(stored_without_index)
+        .expect("index-free snapshot should be accepted");
+    let row_contract = StructuralRowContract::from_accepted_schema_snapshot(
+        IndexedSchemaEntity::MODEL.path(),
+        &accepted,
+    )
+    .expect("accepted row contract should build");
+    insert_indexed_schema_row(15_403, "Ada");
+    let store = RECONCILE_DB
+        .store_handle(SchemaReconcileTestStore::PATH)
+        .expect("reconcile store should be registered");
+    let raw_rows = startup_field_path::field_path_rebuild_raw_rows_for_entity(
+        store,
+        IndexedSchemaEntity::ENTITY_TAG,
+        IndexedSchemaEntity::MODEL.path(),
+    )
+    .expect("indexed rows should scan");
+    let rows = startup_field_path::decode_field_path_rebuild_rows(
+        raw_rows.as_slice(),
+        IndexedSchemaEntity::ENTITY_TAG,
+        IndexedSchemaEntity::MODEL.path(),
+        row_contract,
+    )
+    .expect("accepted rows should decode");
+    let request = SchemaMutationRequest::from_accepted_expression_index(
+        &indexed_schema_lower_name_expression_index(),
+    )
+    .expect("expression index snapshot should lower to an accepted mutation request");
+    let SchemaMutationRequest::AddExpressionIndex { target } = request else {
+        panic!("expression index snapshot should produce an expression target");
+    };
+    let rebuild_rows = rows
+        .iter()
+        .map(|row| SchemaExpressionIndexRebuildRow::new(row.primary_key_value, &row.slots));
+    let staged = SchemaExpressionIndexStagedRebuild::from_rows(
+        IndexedSchemaEntity::MODEL.path(),
+        IndexedSchemaEntity::ENTITY_TAG,
+        target.clone(),
+        None,
+        rebuild_rows,
+    )
+    .expect("accepted expression rows should stage");
+    assert_eq!(staged.entries().len(), 1);
+
+    let wrong_target_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal() + 1);
+    let err = RECONCILE_INDEX_STORE
+        .with_borrow_mut(|index_store| {
+            startup_expression::publish_expression_index_store_batch_for_test(
+                index_store,
+                IndexedSchemaEntity::MODEL.path(),
+                &target,
+                &wrong_target_id,
+                staged.entries(),
+            )
+        })
+        .expect_err("post-insert validation failure should reject publication");
+    assert_runtime_unsupported_diagnostic(&err, "expression index rollback");
+
+    RECONCILE_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.state(),
+            IndexState::Ready,
+            "failed expression publication should restore planner-visible store state",
+        );
+        assert_eq!(
+            store.len(),
+            0,
+            "failed expression publication should remove staged physical keys",
+        );
+    });
 }
 
 #[test]

@@ -23,7 +23,10 @@ pub(crate) use surface::{
     SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT,
 };
 
-use crate::{cli::ConfigArgs, icp::known_canisters};
+use crate::{
+    cli::ConfigArgs,
+    icp::{build_target_for_environment, known_canisters},
+};
 
 use resolution::load_resolved_config;
 
@@ -99,6 +102,33 @@ pub(crate) fn require_configured_endpoint(
     ))
 }
 
+/// Fail before calling an environment-sensitive generated endpoint.
+pub(crate) fn require_configured_endpoint_for_environment(
+    environment: &str,
+    canister: &str,
+    endpoint: ConfiguredEndpoint,
+) -> Result<(), String> {
+    let (_, resolved) = load_resolved_config(None, &[])?;
+    let build_target = build_target_for_environment(environment);
+
+    let surface = endpoint.surface();
+    if surface::config_surface_enabled_for_resolved_build_target(
+        &resolved,
+        canister,
+        surface,
+        build_target,
+    ) {
+        return Ok(());
+    }
+
+    Err(surface::disabled_config_surface_message_for_build_target(
+        &resolved,
+        canister,
+        surface,
+        build_target,
+    ))
+}
+
 fn print_config_check_passed(environment: Option<&str>) {
     println!("IcyDB config check passed");
     if environment.is_none() {
@@ -159,6 +189,20 @@ pub(crate) mod test_support {
         endpoint: ConfiguredEndpoint,
     ) -> bool {
         surface::configured_endpoint_enabled_for_resolved(resolved, canister, endpoint)
+    }
+
+    pub(crate) fn configured_endpoint_enabled_for_resolved_build_target(
+        resolved: &icydb_config::ResolvedIcydbConfig,
+        canister: &str,
+        endpoint: ConfiguredEndpoint,
+        build_target: icydb_config::GeneratedBuildTarget,
+    ) -> bool {
+        surface::configured_endpoint_enabled_for_resolved_build_target(
+            resolved,
+            canister,
+            endpoint,
+            build_target,
+        )
     }
 
     pub(crate) fn render_config_report(

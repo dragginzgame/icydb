@@ -5,7 +5,7 @@
 use crate::{
     db::executor::{
         aggregate::{
-            ExecutionContext, FieldSlot,
+            EffectiveRuntimeFilterProgram, ExecutionContext, FieldSlot,
             runtime::grouped_fold::{
                 count::GroupedCountState,
                 metrics,
@@ -17,12 +17,62 @@ use crate::{
             },
         },
         group::{GroupKey, StableHash, StableHashMap},
-        pipeline::runtime::RowView,
+        pipeline::contracts::{GroupedRouteStage, ResolvedExecutionKeyStream},
+        pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
     },
     error::InternalError,
     model::field_kind_has_identity_group_canonical_form,
     value::Value,
 };
+
+// Fold row-view grouped-count input through one statically selected ingest
+// function so borrowed and owned paths are resolved before the source-row loop.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper preserves the pre-existing hot-loop data flow while avoiding dynamic dispatch"
+)]
+pub(super) fn fold_row_view_count_rows(
+    route: &GroupedRouteStage,
+    row_runtime: &StructuralGroupedRowRuntime,
+    resolved: &mut ResolvedExecutionKeyStream,
+    effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
+    grouped_execution_context: &mut ExecutionContext,
+    grouped_counts: &mut GroupedCountState,
+    counters: (&mut usize, &mut usize),
+    mut increment_row: impl FnMut(
+        &mut GroupedCountState,
+        &RowView,
+        &[FieldSlot],
+        &mut ExecutionContext,
+    ) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    let consistency = route.consistency();
+    let (scanned_rows, filtered_rows) = counters;
+
+    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
+        let (row_materialization_local_instructions, row_view) =
+            metrics::measure(|| row_runtime.read_row_view(consistency, &data_key));
+        metrics::record_row_materialization(row_materialization_local_instructions);
+        let Some(row_view) = row_view? else {
+            continue;
+        };
+        *scanned_rows = scanned_rows.saturating_add(1);
+        if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
+            && !row_view.eval_filter_program(effective_runtime_filter_program)?
+        {
+            continue;
+        }
+        *filtered_rows = filtered_rows.saturating_add(1);
+        increment_row(
+            grouped_counts,
+            &row_view,
+            route.group_fields(),
+            grouped_execution_context,
+        )?;
+    }
+
+    Ok(())
+}
 
 impl GroupedCountState {
     // Increment one grouped count row through the borrowed row-view probe path.

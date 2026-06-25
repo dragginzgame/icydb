@@ -22,7 +22,7 @@ icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-default-empty-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-config = { workspace = true }
 icydb-testing-audit-default-empty-fixtures = { workspace = true }
 
 [lints]

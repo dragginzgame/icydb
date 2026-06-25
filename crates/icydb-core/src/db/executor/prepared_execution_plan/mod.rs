@@ -13,23 +13,26 @@ mod shared_plan;
 #[cfg(test)]
 mod snapshot;
 
+use self::contracts::QueryMode;
 #[cfg(test)]
-use self::contracts::ExecutionOrdering;
-use self::contracts::{AccessPlannedQuery, OrderSpec, QueryMode};
+use self::contracts::{AccessPlannedQuery, ExecutionOrdering, OrderSpec};
 #[cfg(test)]
 use crate::db::executor::LoweredIndexPrefixSpec;
 use crate::{
     db::{
         cursor::{ValidatedCursor, ValidatedGroupedCursor},
-        executor::{
-            EntityAuthority, ExecutorPlanError,
-            explain::assemble_load_execution_node_descriptor_for_authority,
-        },
-        predicate::MissingRowPolicy,
-        query::explain::ExplainExecutionNodeDescriptor,
+        executor::{EntityAuthority, ExecutorPlanError},
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityKind,
+};
+#[cfg(test)]
+use crate::{
+    db::{
+        executor::explain::assemble_load_execution_node_descriptor_for_authority,
+        predicate::MissingRowPolicy, query::explain::ExplainExecutionNodeDescriptor,
+    },
+    traits::EntityValue,
 };
 use std::marker::PhantomData;
 
@@ -87,6 +90,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     }
 
     /// Explain scalar load execution shape as one canonical execution-node descriptor tree.
+    #[cfg(test)]
     pub(in crate::db) fn explain_load_execution_node_descriptor(
         &self,
     ) -> Result<ExplainExecutionNodeDescriptor, InternalError>
@@ -130,14 +134,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     /// Borrow the structural logical plan behind this prepared execution plan.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn logical_plan(&self) -> &AccessPlannedQuery {
         self.core.plan()
-    }
-
-    /// Return the stable logical plan hash for diagnostics and trace payloads.
-    #[must_use]
-    pub(in crate::db) fn plan_hash_hex(&self) -> String {
-        self.core.plan_hash_hex()
     }
 
     /// Expose planner-projected execution ordering for executor/lowering tests.
@@ -146,24 +145,21 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         self.core.execution_ordering()
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn access(&self) -> &crate::db::access::AccessPlan<crate::value::Value> {
         &self.core.plan().access
     }
 
-    /// Borrow canonical executor authority for descriptor-only runtime helpers.
-    #[must_use]
-    pub(in crate::db::executor) fn authority(&self) -> EntityAuthority {
-        self.authority.clone()
-    }
-
     /// Borrow scalar row-consistency policy for runtime row reads.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn consistency(&self) -> MissingRowPolicy {
         self.core.consistency()
     }
 
     /// Classify canonical `bytes_by(field)` execution mode for this plan/field.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::executor) fn bytes_by_projection_mode(
         &self,
         target_field: &str,
@@ -178,20 +174,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         )
     }
 
-    /// Return a stable explain/diagnostic label for one bytes-by mode.
-    #[must_use]
-    pub(in crate::db::executor) const fn bytes_by_projection_mode_label(
-        mode: BytesByProjectionMode,
-    ) -> &'static str {
-        match mode {
-            BytesByProjectionMode::Materialized => "field_materialized",
-            BytesByProjectionMode::CoveringIndex => "field_covering_index",
-            BytesByProjectionMode::CoveringConstant => "field_covering_constant",
-        }
-    }
-
     /// Borrow scalar ORDER BY contract for this prepared execution plan, if any.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::executor) fn order_spec(&self) -> Option<&OrderSpec> {
         self.core.order_spec()
     }
@@ -206,6 +191,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     /// Return whether this prepared execution plan has a residual predicate.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::executor) fn has_predicate(&self) -> bool {
         self.core.has_predicate()
     }

@@ -20,7 +20,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_shared_query_plan_for_entity(query, CompiledQuery::<E>::from_plan)
+        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
+
+        Ok(CompiledQuery::from_plan(
+            prepared_plan.logical_plan().clone(),
+        ))
     }
 
     /// Build one logical planned-query shell using only indexes currently visible for the recovered store.
@@ -31,6 +35,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_shared_query_plan_for_entity(query, PlannedQuery::<E>::from_plan)
+        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
+
+        Ok(PlannedQuery::from_plan(
+            prepared_plan.logical_plan().clone(),
+        ))
     }
 }

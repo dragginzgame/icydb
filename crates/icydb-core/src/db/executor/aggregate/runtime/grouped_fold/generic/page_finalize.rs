@@ -1,4 +1,4 @@
-//! Module: db::executor::aggregate::runtime::grouped_fold::page_finalize
+//! Module: db::executor::aggregate::runtime::grouped_fold::generic::page_finalize
 //! Finalizes grouped-fold candidate streams into grouped result pages.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

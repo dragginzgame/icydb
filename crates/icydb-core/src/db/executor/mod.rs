@@ -278,6 +278,7 @@ impl ExecutorPlanError {
 
     /// Construct one executor plan error for load execution descriptor access
     /// attempted against non-load prepared execution plans.
+    #[cfg(test)]
     pub(in crate::db::executor) fn load_execution_descriptor_requires_load_plan() -> Self {
         Self::continuation_cursor_invariant()
     }

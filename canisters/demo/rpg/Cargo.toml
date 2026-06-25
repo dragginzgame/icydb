@@ -25,7 +25,6 @@ icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-demo-rpg-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-config = { workspace = true }
 icydb-testing-demo-rpg-fixtures = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

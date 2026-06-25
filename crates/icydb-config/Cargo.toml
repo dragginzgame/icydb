@@ -9,6 +9,7 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
+icydb-build = { workspace = true }
 serde = { workspace = true, features = ["derive", "std"] }
 thiserror = { workspace = true }
 toml = "1.1"

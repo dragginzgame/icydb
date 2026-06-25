@@ -12,7 +12,7 @@ use crate::db::query::builder::AggregateExpr;
 use crate::{
     db::{
         Query, TraceReuseEvent,
-        executor::{BytesByProjectionMode, EntityAuthority, PreparedExecutionPlan},
+        executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::{
             builder::{AggregateExplain, ProjectionExplain},
             explain::{
@@ -390,10 +390,7 @@ impl StructuralQuery {
     }
 }
 
-impl<E> PreparedExecutionPlan<E>
-where
-    E: EntityValue + EntityKind,
-{
+impl SharedPreparedExecutionPlan {
     /// Explain one cached prepared aggregate terminal route without running it.
     pub(in crate::db) fn explain_prepared_aggregate_terminal<S>(
         &self,
@@ -406,7 +403,7 @@ where
             return Err(QueryError::invariant());
         };
         let aggregate = self
-            .authority()
+            .authority_ref()
             .aggregate_route_shape(kind, strategy.explain_projected_field())
             .map_err(QueryError::execute)?;
         let execution =
@@ -424,9 +421,11 @@ where
         terminal_label: &str,
         field_label: &str,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let mut descriptor = self
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
+        let mut descriptor = assemble_load_execution_node_descriptor_for_authority(
+            self.authority_ref(),
+            self.logical_plan(),
+        )
+        .map_err(QueryError::execute)?;
 
         descriptor
             .node_properties
@@ -447,18 +446,14 @@ where
         let mut descriptor =
             self.explain_prepared_terminal_load_descriptor("bytes_by", target_field)?;
         let projection_mode = self.bytes_by_projection_mode(target_field);
-        let projection_mode_label = Self::bytes_by_projection_mode_label(projection_mode);
 
         descriptor.node_properties.insert(
             property_keys::TERMINAL_PROJECTION_MODE,
-            Value::from(projection_mode_label),
+            Value::from(projection_mode.label()),
         );
         descriptor.node_properties.insert(
             property_keys::TERMINAL_INDEX_ONLY,
-            Value::from(matches!(
-                projection_mode,
-                BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
-            )),
+            Value::from(projection_mode.is_index_only()),
         );
 
         Ok(descriptor)

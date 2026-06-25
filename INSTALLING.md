@@ -23,6 +23,9 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28", 
 The public `icydb` crate path supports Rust `1.88.0` and newer. Repository
 maintenance uses the newer internal toolchain listed below.
 
+Generated endpoint build scripts should depend on `icydb-config` with the same
+tag as `icydb` and call `icydb_config::build_configured_canister!()`.
+
 ## Generated Endpoint Config
 
 Local canisters load generated endpoint switches from `icydb.toml` through
@@ -56,8 +59,8 @@ local = true
 ic = false
 
 [canisters.demo_rpg.metrics]
-enabled = true
-extended = true
+local = "extended"
+ic = "simple"
 
 [canisters.demo_rpg.snapshot]
 enabled = true
@@ -77,6 +80,7 @@ Current generated surfaces:
 - `__icydb_snapshot` for storage inventory and stable allocation metadata
 - `__icydb_schema` and `__icydb_schema_check` for accepted schema diagnostics
 - `__icydb_metrics` and `__icydb_metrics_reset` for default runtime metrics
+- `__icydb_metrics_extended` when the target metrics mode is `extended`
 
 Fixture loading calls a plain non-exported user hook when present:
 

@@ -36,13 +36,12 @@ use crate::{
 use std::sync::Arc;
 
 #[cfg(feature = "diagnostics")]
-use super::diagnostics::measure_execute_phase_with_physical_access;
+use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::measure_sql_stage;
 #[cfg(feature = "diagnostics")]
-use crate::db::{
-    executor::with_scalar_aggregate_terminal_attribution,
-    session::{query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution},
+use crate::db::session::{
+    query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -474,26 +473,23 @@ impl<C: CanisterKind> DbSession<C> {
         let (
             scalar_aggregate_terminal,
             ((execute_local_instructions, store_local_instructions), result),
-        ) = with_scalar_aggregate_terminal_attribution(|| {
-            measure_execute_phase_with_physical_access(|| {
-                self.execute_direct_count_cardinality_global_aggregate::<E>(
-                    authority.clone(),
-                    &count_plan,
-                )
-            })
+        ) = measure_scalar_aggregate_execute_phase_with_physical_access(|| {
+            self.execute_direct_count_cardinality_global_aggregate::<E>(
+                authority.clone(),
+                &count_plan,
+            )
         });
         if let Some(value) = result? {
             let (result, cache_attribution) =
                 direct_count_rows_statement_result(projection, value, SqlCacheAttribution::none());
-            let phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
-                execute_local_instructions,
-                store_local_instructions,
-            )
-            .with_query_plan_compile_attribution(
-                plan_compile_attribution.planner_local_instructions(),
-                plan_compile_attribution,
-            )
-            .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
+            let phase_attribution =
+                SqlExecutePhaseAttribution::from_query_plan_execute_total_and_store_total(
+                    plan_compile_attribution.planner_local_instructions(),
+                    plan_compile_attribution,
+                    execute_local_instructions,
+                    store_local_instructions,
+                )
+                .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
 
             return Ok(MeasuredDirectCountCardinalityOutcome::Direct {
                 result,
@@ -883,26 +879,23 @@ impl<C: CanisterKind> DbSession<C> {
         let (
             scalar_aggregate_terminal,
             ((execute_local_instructions, store_local_instructions), result),
-        ) = with_scalar_aggregate_terminal_attribution(|| {
-            measure_execute_phase_with_physical_access(|| {
-                self.execute_global_aggregate_with_prepared_plan::<E>(
-                    command,
-                    catalog,
-                    &prepared_plan,
-                    cache_attribution,
-                )
-            })
+        ) = measure_scalar_aggregate_execute_phase_with_physical_access(|| {
+            self.execute_global_aggregate_with_prepared_plan::<E>(
+                command,
+                catalog,
+                &prepared_plan,
+                cache_attribution,
+            )
         });
         let (result, cache_attribution) = result?;
-        let phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
-            execute_local_instructions.saturating_add(direct_execute_local_instructions),
-            store_local_instructions.saturating_add(direct_store_local_instructions),
-        )
-        .with_query_plan_compile_attribution(
-            plan_compile_attribution.planner_local_instructions(),
-            plan_compile_attribution,
-        )
-        .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
+        let phase_attribution =
+            SqlExecutePhaseAttribution::from_query_plan_execute_total_and_store_total(
+                plan_compile_attribution.planner_local_instructions(),
+                plan_compile_attribution,
+                execute_local_instructions.saturating_add(direct_execute_local_instructions),
+                store_local_instructions.saturating_add(direct_store_local_instructions),
+            )
+            .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
 
         Ok((result, cache_attribution, phase_attribution))
     }

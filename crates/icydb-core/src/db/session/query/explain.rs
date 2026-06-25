@@ -145,10 +145,10 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: &S,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
-        E: EntityValue + EntityKind<Canister = C>,
+        E: EntityKind<Canister = C>,
         S: AggregateExplain,
     {
-        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        let (plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
         plan.explain_prepared_aggregate_terminal(strategy)
     }
@@ -161,9 +161,9 @@ impl<C: CanisterKind> DbSession<C> {
         target_field: &str,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
-        E: EntityValue + EntityKind<Canister = C>,
+        E: EntityKind<Canister = C>,
     {
-        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        let (plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
         plan.explain_bytes_by_terminal(target_field)
     }
@@ -176,10 +176,10 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: &S,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
-        E: EntityValue + EntityKind<Canister = C>,
+        E: EntityKind<Canister = C>,
         S: ProjectionExplain,
     {
-        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        let (plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
         plan.explain_prepared_projection_terminal(strategy)
     }
@@ -193,7 +193,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let (prepared_plan, cache_attribution) =
-            self.cached_prepared_query_plan_for_entity::<E>(query)?;
+            self.cached_shared_query_plan_for_entity::<E>(query)?;
         let logical_plan = prepared_plan.logical_plan();
         let explain = logical_plan.explain();
         let plan_hash = prepared_plan.plan_hash_hex();

@@ -5,7 +5,8 @@ fixtures = true
 update = "bounded"
 
 [canisters.test_sql_bounded.metrics]
-enabled = true
+local = "simple"
+ic = "simple"
 
 [canisters.test_sql_bounded.snapshot]
 enabled = true

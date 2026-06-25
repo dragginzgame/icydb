@@ -1144,9 +1144,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
         "bytes-by classifier should mark eligible ordered index-prefix shapes as covering-index",
     );
     assert_eq!(
-        PreparedExecutionPlan::<PushdownParityEntity>::bytes_by_projection_mode_label(
-            covering_index_mode
-        ),
+        covering_index_mode.label(),
         "field_covering_index",
         "bytes-by classifier labels should remain stable for covering-index mode",
     );
@@ -1169,9 +1167,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
         "bytes-by classifier should mark prefix-bound fields as covering-constant",
     );
     assert_eq!(
-        PreparedExecutionPlan::<PushdownParityEntity>::bytes_by_projection_mode_label(
-            constant_mode
-        ),
+        constant_mode.label(),
         "field_covering_constant",
         "bytes-by classifier labels should remain stable for covering-constant mode",
     );
@@ -1192,7 +1188,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
         "strict bytes-by classifier should fail closed to materialized mode",
     );
     assert_eq!(
-        PreparedExecutionPlan::<PushdownParityEntity>::bytes_by_projection_mode_label(strict_mode),
+        strict_mode.label(),
         "field_materialized",
         "bytes-by classifier labels should remain stable for strict materialized mode",
     );

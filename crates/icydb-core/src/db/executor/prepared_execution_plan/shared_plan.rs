@@ -1,26 +1,25 @@
-use super::contracts::AccessPlannedQuery;
+use super::contracts::{AccessPlannedQuery, QueryMode};
 #[cfg(feature = "sql")]
 use super::contracts::{CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan};
 #[cfg(feature = "sql")]
-use crate::{
-    db::executor::{
-        ExecutorPlanError, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
-        SharedPreparedProjectionRuntimeHandoff,
-        pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
-    },
-    error::InternalError,
+use crate::db::executor::{
+    ExecutorPlanError, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
+    SharedPreparedProjectionRuntimeHandoff,
+    pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
 };
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         executor::{
-            EntityAuthority,
+            BytesByProjectionMode, EntityAuthority, ExecutionFamily,
+            classify_bytes_by_projection_mode,
             prepared_execution_plan::{
                 PreparedExecutionPlan, PreparedExecutionPlanCore,
                 build_prepared_execution_plan_core_with_schema_fingerprint,
             },
         },
     },
+    error::InternalError,
     traits::EntityKind,
 };
 use std::marker::PhantomData;
@@ -81,8 +80,43 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
+    pub(in crate::db) fn access(&self) -> &crate::db::access::AccessPlan<crate::value::Value> {
+        &self.core.plan().access
+    }
+
+    /// Classify canonical `bytes_by(field)` execution mode for this plan/field.
+    #[must_use]
+    pub(in crate::db::executor) fn bytes_by_projection_mode(
+        &self,
+        target_field: &str,
+    ) -> BytesByProjectionMode {
+        classify_bytes_by_projection_mode(
+            self.access(),
+            self.core.order_spec(),
+            self.core.consistency(),
+            self.core.has_predicate(),
+            target_field,
+            &self.logical_plan().primary_key_names(),
+        )
+    }
+
+    #[must_use]
+    pub(in crate::db) fn mode(&self) -> QueryMode {
+        self.core.mode()
+    }
+
+    pub(in crate::db) fn execution_family(&self) -> Result<ExecutionFamily, InternalError> {
+        self.core.execution_family()
+    }
+
+    #[must_use]
     pub(in crate::db) fn plan_hash_hex(&self) -> String {
         self.core.plan_hash_hex()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn authority_ref(&self) -> &EntityAuthority {
+        &self.authority
     }
 
     #[must_use]

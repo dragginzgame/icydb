@@ -10,6 +10,7 @@ use std::{
 };
 
 use clap::Parser;
+use icydb_config::GeneratedBuildTarget;
 
 use crate::{
     cli::{CliArgs, CliCommand, ConfigCommand},
@@ -20,7 +21,8 @@ use crate::{
         init_config_with_existing_config_for_test, init_config_without_existing_config,
         test_support::{
             config_surface_enabled_for_resolved, config_sync_issues,
-            configured_endpoint_enabled_for_resolved, disabled_config_surface_message,
+            configured_endpoint_enabled_for_resolved,
+            configured_endpoint_enabled_for_resolved_build_target, disabled_config_surface_message,
             render_config_report,
         },
     },
@@ -68,7 +70,7 @@ fn config_init_writes_default_config_at_workspace_root() {
     assert!(!package.join("icydb.toml").exists());
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\nupdate = true\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\nupdate = true\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nlocal = \"extended\"\nic = \"simple\"\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -106,7 +108,7 @@ fn config_init_writes_bounded_update_policy() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nlocal = \"simple\"\nic = \"simple\"\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -143,7 +145,7 @@ fn config_init_can_disable_default_metrics_surface() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = false\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = false\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nlocal = \"off\"\nic = \"off\"\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -312,7 +314,7 @@ fn config_init_force_replaces_existing_config() {
 }
 
 #[test]
-fn config_init_rejects_canister_names_that_need_quoted_toml_keys() {
+fn config_init_rejects_non_snake_canister_names() {
     let root = config_init_test_root("invalid-canister-key");
     let start_dir = root.join("project").join("canisters").join("demo");
     std::fs::create_dir_all(start_dir.as_path()).expect("test directory should be created");
@@ -324,17 +326,17 @@ fn config_init_rejects_canister_names_that_need_quoted_toml_keys() {
         "--start-dir",
         start_dir.to_str().expect("test path should be UTF-8"),
         "--canister",
-        "demo.rpg",
+        "demo-rpg",
     ])
     .expect("config init args should parse");
     let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
         panic!("expected config init command");
     };
 
-    let err = init_config_without_existing_config(args)
-        .expect_err("invalid bare TOML key canister name should fail");
+    let err =
+        init_config_without_existing_config(args).expect_err("non-snake canister name should fail");
 
-    assert!(err.contains("cannot be rendered as an icydb.toml bare key"));
+    assert!(err.contains("lower snake_case ASCII"));
     assert!(!start_dir.join("icydb.toml").exists());
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -359,8 +361,8 @@ fn config_report_marks_canister_settings_against_icp_environment() {
             update = true
 
             [canisters.demo_rpg.metrics]
-            enabled = true
-            extended = true
+            local = "extended"
+            ic = "simple"
 
             [canisters.demo_rpg.snapshot]
             enabled = true
@@ -400,7 +402,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
             && line.contains("ddl")
             && line.contains("fixtures")
             && line.contains("update:primary_key")
-            && line.contains("enabled, extended")
+            && line.contains("local:extended, ic:simple")
             && line.contains("ok")
     }));
     assert!(report.lines().any(|line| {
@@ -493,8 +495,8 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
             update = true
 
             [canisters.demo_rpg.metrics]
-            enabled = true
-            extended = false
+            local = "simple"
+            ic = "simple"
 
             [canisters.demo_rpg.snapshot]
             enabled = true
@@ -581,8 +583,8 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
             update = true
 
             [canisters.demo_rpg.metrics]
-            enabled = true
-            extended = true
+            local = "extended"
+            ic = "simple"
 
             [canisters.demo_rpg.snapshot]
             enabled = true
@@ -628,10 +630,22 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
         "demo_rpg",
         METRICS_ENDPOINT,
     ));
-    assert!(configured_endpoint_enabled_for_resolved(
+    assert!(!configured_endpoint_enabled_for_resolved(
         &resolved,
         "demo_rpg",
         METRICS_EXTENDED_ENDPOINT,
+    ));
+    assert!(configured_endpoint_enabled_for_resolved_build_target(
+        &resolved,
+        "demo_rpg",
+        METRICS_EXTENDED_ENDPOINT,
+        GeneratedBuildTarget::Local,
+    ));
+    assert!(!configured_endpoint_enabled_for_resolved_build_target(
+        &resolved,
+        "demo_rpg",
+        METRICS_EXTENDED_ENDPOINT,
+        GeneratedBuildTarget::Ic,
     ));
     assert!(configured_endpoint_enabled_for_resolved(
         &resolved,
@@ -675,7 +689,7 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
         disabled_config_surface_message(&resolved, "demo_rpg", ConfigSurface::MetricsExtended);
 
     assert!(message.contains("metrics"));
-    assert!(message.contains("canisters.<name>.metrics.extended"));
+    assert!(message.contains("canisters.<name>.metrics"));
     assert!(message.contains(config_path.to_string_lossy().as_ref()));
     assert!(message.contains("rebuild and deploy"));
     std::fs::remove_dir_all(root).expect("test directory should be removed");

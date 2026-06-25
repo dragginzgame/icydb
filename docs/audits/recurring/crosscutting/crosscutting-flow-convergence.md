@@ -6,6 +6,22 @@ Audit whether IcyDB query construction, planning, routing, execution, projection
 
 This audit is concerned with duplicate flows, compatibility shims, redundant adapters, stale execution paths, and places where equivalent query semantics are implemented more than once.
 
+## Audit Identity
+
+Definition path:
+`docs/audits/recurring/crosscutting/crosscutting-flow-convergence.md`
+
+Report scope: `flow-convergence`
+
+Current method tag: `Flow Convergence Method V2`
+
+Use `docs/audits/reports/YYYY-MM/YYYY-MM-DD/flow-convergence.md` for the
+first run of a day. Same-day reruns must use `flow-convergence-2.md`,
+`flow-convergence-3.md`, and so on.
+
+Method V2 refreshes the current split session-query, grouped-fold, shared
+plan-cache, and executor-explain ownership checks from the original V1 report.
+
 ## Scope
 
 Primary scope:
@@ -29,6 +45,15 @@ Code roots to inspect:
 * `crates/icydb-core/src/db/cursor/`
 * `crates/icydb/src/db/session/`
 
+Current hotspot roots:
+
+* `crates/icydb-core/src/db/session/query/*`
+* `crates/icydb-core/src/db/session/sql/execute/*`
+* `crates/icydb-core/src/db/executor/pipeline/entrypoints/*`
+* `crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/*`
+* `crates/icydb-core/src/db/executor/explain/*`
+* `crates/icydb-core/src/db/query/plan/*`
+
 ## Core Questions
 
 1. Do SQL and Fluent converge into the same canonical plan model?
@@ -44,18 +69,28 @@ Code roots to inspect:
 Run and record:
 
 ```bash
-rg "SQL|Sql|sql" crates/icydb-core/src/db/session crates/icydb-core/src/db/executor crates/icydb-core/src/db/query
-rg "Fluent|fluent" crates/icydb-core/src/db crates/icydb/src/db
-rg "prepared|Prepared" crates/icydb-core/src/db/session crates/icydb-core/src/db/executor crates/icydb-core/src/db/query
-rg "compat|legacy|shim|fallback|adapter|wrapper" crates/icydb-core/src crates/icydb/src
-rg "clone\\(|to_vec\\(|to_string\\(" crates/icydb-core/src/db/session crates/icydb-core/src/db/query crates/icydb-core/src/db/executor
-rg "execute_.*stage|finalize|project_.*projection|cursor|continuation" crates/icydb-core/src/db/executor
+rg "execute_query_result|execute_prepared|execute_delete_count" crates/icydb-core/src/db/session/query
+rg "execute_compiled_sql_owned|execute_compiled_sql_with_cache_attribution|execute_select_compiled_sql_with_cache_attribution|execute_global_aggregate" crates/icydb-core/src/db/session/sql/execute
+rg "execute_prepared_scalar|execute_prepared_grouped|execute_group_fold_stage|execute_global_distinct_grouped_fold_stage|execute_generic_grouped_fold_stage|execute_single_grouped_count_fold_stage" crates/icydb-core/src/db/executor
+rg "finalize_structural_grouped_projection_result|grouped_next_cursor_boundary|group_key_matches_row_view|borrowed_group_probe_supported" crates/icydb-core/src/db
+rg "compat|legacy|shim|fallback|adapter|wrapper" crates/icydb-core/src/db crates/icydb/src/db
+rg "clone\\(|cloned\\(|to_vec\\(|to_string\\(" crates/icydb-core/src/db/session/query crates/icydb-core/src/db/session/sql/execute crates/icydb-core/src/db/query crates/icydb-core/src/db/executor
 ```
 
 Also inspect module sizes:
 
 ```bash
 find crates/icydb-core/src/db -name '*.rs' -print0 | xargs -0 wc -l | sort -nr | head -40
+wc -l crates/icydb-core/src/db/session/query/mod.rs \
+  crates/icydb-core/src/db/session/query/execution.rs \
+  crates/icydb-core/src/db/session/query/fluent.rs \
+  crates/icydb-core/src/db/session/query/cache.rs \
+  crates/icydb-core/src/db/session/sql/execute/mod.rs \
+  crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/mod.rs \
+  crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs \
+  crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs \
+  crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/distinct.rs \
+  crates/icydb-core/src/db/executor/explain/mod.rs
 ```
 
 ## Classification Model
@@ -144,6 +179,15 @@ Produce a report with:
    * grep checks
    * compile/clippy commands
 
+Use normalized verification statuses:
+
+* `PASS`
+* `FAIL`
+* `BLOCKED`
+
+Use `PARTIAL` only in findings when evidence is mixed. Verification commands
+must resolve to `PASS`, `FAIL`, or `BLOCKED`.
+
 ## Output Path
 
 Save recurring definition as:
@@ -164,6 +208,19 @@ Artifacts should go under:
 docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/flow-convergence/
 ```
 
+## Read-Only Run Mode
+
+When asked to run this audit read-only:
+
+* do not modify product code or generated artifacts as a result of findings
+* write only the requested audit definition/report updates and optional report
+  artifacts
+* do not start, stop, reset, or reconfigure external services
+* prefer targeted convergence tests and invariant scripts over broad mutation-
+  heavy validation
+* record checks that require a non-read-only build, staged fixture, or external
+  service as `BLOCKED`
+
 ## Guardrails
 
 Do not recommend deleting a path unless its callers and semantic coverage are proven.
@@ -178,14 +235,22 @@ Prefer canonical owner boundaries over generic shared helpers.
 
 ## Validation Commands
 
-At minimum, after any follow-up patch:
+Read-only baseline:
+
+```bash
+make check-invariants
+cargo test -p icydb-core --features sql execution_convergence -- --nocapture
+cargo test -p icydb-core --features sql explain_cache_convergence -- --nocapture
+cargo test -p icydb-core --features sql shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces -- --nocapture
+git diff --check
+```
+
+After any follow-up product-code patch, add:
 
 ```bash
 cargo fmt --all
-cargo check -p icydb-core --all-targets
-cargo clippy -p icydb-core --all-targets -- -D warnings
-cargo test -p icydb-core grouped -- --nocapture
-cargo test -p icydb-core sql -- --nocapture
-make check-invariants
-git diff --check
+cargo check -p icydb-core --all-targets --features sql
+cargo clippy -p icydb-core --all-targets --features sql -- -D warnings
+cargo test -p icydb-core --features sql grouped -- --nocapture
+cargo test -p icydb-core --features sql sql -- --nocapture
 ```

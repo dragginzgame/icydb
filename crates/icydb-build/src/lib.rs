@@ -313,7 +313,7 @@ macro_rules! build_with_options {
 
         // Render the actor module into Cargo's output directory.
         let out_dir = var("OUT_DIR").expect("OUT_DIR not set");
-        let output = ::icydb::build::generate_with_options($actor, $options);
+        let output = $crate::generate_with_options($actor, $options);
         let actor_file = PathBuf::from(out_dir.clone()).join("actor.rs");
         let mut file = File::create(actor_file)?;
         file.write_all(output.as_bytes())?;

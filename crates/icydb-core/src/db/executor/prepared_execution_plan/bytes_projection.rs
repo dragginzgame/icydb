@@ -25,6 +25,23 @@ pub(in crate::db::executor) enum BytesByProjectionMode {
     CoveringConstant,
 }
 
+impl BytesByProjectionMode {
+    /// Return a stable explain/diagnostic label for this bytes-by mode.
+    #[must_use]
+    pub(in crate::db::executor) const fn label(self) -> &'static str {
+        match self {
+            Self::Materialized => "field_materialized",
+            Self::CoveringIndex => "field_covering_index",
+            Self::CoveringConstant => "field_covering_constant",
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn is_index_only(self) -> bool {
+        matches!(self, Self::CoveringIndex | Self::CoveringConstant)
+    }
+}
+
 /// Classify canonical `bytes_by(field)` execution mode from one neutral access context.
 #[must_use]
 pub(in crate::db::executor) fn classify_bytes_by_projection_mode(

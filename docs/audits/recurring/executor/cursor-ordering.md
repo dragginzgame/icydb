@@ -1,5 +1,10 @@
 # Weekly Audit: Cursor Ordering & Continuation Correctness
 
+## Audit Identity
+
+Definition path:
+`docs/audits/recurring/executor/cursor-ordering.md`
+
 Canonical report scope:
 
 * `cursor-ordering`
@@ -10,6 +15,22 @@ Use this exact scope for report files:
 
 Do not introduce alternate names such as `continuation-cursors`,
 `pagination-cursors`, or `cursor-audit` for this recurring pass.
+
+Current method tag/version:
+
+* `Method V5`
+
+Method V5 keeps the Method V4 scalar/grouped cursor, envelope, accepted
+authority, and live-state checks, but updates the verification surface for the
+current source tree:
+
+* the old top-level `crates/icydb-core/tests/write_boundary_guards.rs`
+  integration target no longer exists
+* continuation ownership guards now live in executor unit tests backed by
+  source-guard helpers
+* schema-bound continuation signatures and accepted query-cache fingerprints
+  are verified through source inspection and focused unit tests
+* verification statuses are normalized to `PASS`, `FAIL`, and `BLOCKED`
 
 ## Scope
 
@@ -130,8 +151,13 @@ Primary owners to inspect:
 * `db/executor/pipeline/entrypoints/mod.rs`
   * `execute_paged_with_cursor_traced`
   * grouped paged continuation entrypoints when applicable
-* `crates/icydb-core/tests/write_boundary_guards.rs`
-  * cursor authority and generated-runtime fallback guards
+* `db/executor/tests/continuation_structure.rs`
+  * cursor semantic ownership and signature-validation source guards
+* `db/executor/authority/entity.rs`
+  * accepted `SchemaInfo` authority tests for executor finalization/cursor schema
+* `db/session/tests/sql_surface.rs`
+  * accepted schema fingerprint/cache identity tests relevant to stale cursor
+    rejection and prepared-plan reuse
 
 Historical targets such as `plan_cursor` are obsolete and must not be used as
 the audit frame.
@@ -212,8 +238,8 @@ Verify:
   through the cursor spine
 * index-range cursor anchors use accepted index contracts after schema
   reconciliation
-* `write_boundary_guards` prevents reintroducing generated schema/model lookup
-  in accepted-runtime cursor validation
+* continuation ownership guards prevent executor-side duplication of cursor
+  ordering, resume, and signature-validation semantics
 * generated/model-only cursor surfaces are explicitly named and excluded from
   accepted runtime
 
@@ -290,7 +316,10 @@ Use current tests from:
 * `db/executor/tests/pagination.rs`
 * `db/executor/tests/live_state.rs`
 * `db/index/envelope/tests.rs`
-* `crates/icydb-core/tests/write_boundary_guards.rs`
+* `db/executor/tests/continuation_structure.rs`
+* `db/executor/authority/entity.rs`
+* `db/query/fingerprint/shape_signature/tests/mod.rs`
+* `db/session/tests/sql_surface.rs`
 
 Required live command baseline:
 
@@ -301,7 +330,10 @@ Required live command baseline:
 * `cargo test -p icydb-core desc_anchor_equal_to_lower_resumes_to_empty_envelope --features sql -- --nocapture`
 * `cargo test -p icydb-core load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strictly_monotonic --features sql -- --nocapture`
 * `cargo test -p icydb-core load_cursor_live_state_delete_between_pages_can_shrink_remaining_results --features sql -- --nocapture`
-* `cargo test -p icydb-core --test write_boundary_guards -- --nocapture`
+* `cargo test -p icydb-core runtime_continuation_semantic_definitions_stay_cursor_owned --features sql -- --nocapture`
+* `cargo test -p icydb-core runtime_cursor_signature_validation_internals_stay_cursor_owned --features sql -- --nocapture`
+* `cargo test -p icydb-core authority_finalization_uses_authority_schema_when_shape_is_missing --features sql -- --nocapture`
+* `cargo test -p icydb-core shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed --features sql -- --nocapture`
 
 If a critical scenario is not covered by an existing test, call that out
 explicitly as a coverage gap.

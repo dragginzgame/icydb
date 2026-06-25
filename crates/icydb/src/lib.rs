@@ -65,9 +65,6 @@
 extern crate self as icydb;
 
 use icydb_core::{error::InternalError, traits::Visitable};
-// crates
-pub use icydb_build as build;
-pub use icydb_build::build_with_options;
 pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 

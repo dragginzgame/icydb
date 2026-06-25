@@ -14,8 +14,8 @@ pub(crate) const DEFAULT_SQL_FIXTURES_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_INTROSPECTION_LOCAL_ENABLED: bool = true;
 pub(crate) const DEFAULT_SQL_INTROSPECTION_IC_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_UPDATE_POLICY: Option<GeneratedSqlUpdatePolicy> = None;
-pub(crate) const DEFAULT_METRICS_ENABLED: bool = true;
-pub(crate) const DEFAULT_METRICS_EXTENDED_ENABLED: bool = false;
+pub(crate) const DEFAULT_METRICS_LOCAL_MODE: GeneratedMetricsMode = GeneratedMetricsMode::Simple;
+pub(crate) const DEFAULT_METRICS_IC_MODE: GeneratedMetricsMode = GeneratedMetricsMode::Simple;
 pub(crate) const DEFAULT_SNAPSHOT_ENABLED: bool = false;
 pub(crate) const DEFAULT_SCHEMA_ENABLED: bool = false;
 
@@ -133,20 +133,60 @@ impl GeneratedIcydbConfig {
     /// Return whether metrics report endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_metrics_enabled(&self, canister_name: &str) -> bool {
-        self.canister_enabled(
-            canister_name,
-            DEFAULT_METRICS_ENABLED,
-            GeneratedCanisterConfig::metrics,
-        )
+        self.canister_metrics_mode(canister_name).enabled()
+    }
+
+    /// Return whether metrics report endpoints should be generated for one target.
+    #[must_use]
+    pub fn canister_metrics_enabled_for_build_target(
+        &self,
+        canister_name: &str,
+        build_target: GeneratedBuildTarget,
+    ) -> bool {
+        self.canister_metrics_mode_for_build_target(canister_name, build_target)
+            .enabled()
     }
 
     /// Return whether extended metrics report endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_metrics_extended_enabled(&self, canister_name: &str) -> bool {
-        self.canister_enabled(
-            canister_name,
-            DEFAULT_METRICS_EXTENDED_ENABLED,
-            GeneratedCanisterConfig::metrics_extended,
+        self.canister_metrics_extended_enabled_for_build_target(canister_name, self.build_target)
+    }
+
+    /// Return whether extended metrics should be generated for one canister and target.
+    #[must_use]
+    pub fn canister_metrics_extended_enabled_for_build_target(
+        &self,
+        canister_name: &str,
+        build_target: GeneratedBuildTarget,
+    ) -> bool {
+        self.canister_metrics_mode_for_build_target(canister_name, build_target)
+            .extended()
+    }
+
+    /// Return the metrics mode selected for one canister and this build target.
+    #[must_use]
+    pub fn canister_metrics_mode(&self, canister_name: &str) -> GeneratedMetricsMode {
+        self.canister_metrics_mode_for_build_target(canister_name, self.build_target)
+    }
+
+    /// Return the metrics mode selected for one canister and build target.
+    #[must_use]
+    pub fn canister_metrics_mode_for_build_target(
+        &self,
+        canister_name: &str,
+        build_target: GeneratedBuildTarget,
+    ) -> GeneratedMetricsMode {
+        self.canister_metrics_policy(canister_name)
+            .mode_for(build_target)
+    }
+
+    /// Return the local/IC metrics policy for one canister.
+    #[must_use]
+    pub fn canister_metrics_policy(&self, canister_name: &str) -> GeneratedMetricsPolicy {
+        self.canisters.get(canister_name).map_or_else(
+            GeneratedMetricsPolicy::default,
+            GeneratedCanisterConfig::metrics_policy,
         )
     }
 
@@ -253,13 +293,19 @@ impl GeneratedCanisterConfig {
     /// Return whether generated actor glue should export metrics report endpoints.
     #[must_use]
     pub const fn metrics(&self) -> bool {
-        self.metrics.enabled
+        self.metrics.policy().any_enabled()
     }
 
     /// Return whether generated actor glue should export extended metrics report endpoints.
     #[must_use]
     pub const fn metrics_extended(&self) -> bool {
-        self.metrics.extended
+        self.metrics.policy().any_extended()
+    }
+
+    /// Return the local/IC policy for generated metrics endpoints.
+    #[must_use]
+    pub const fn metrics_policy(&self) -> GeneratedMetricsPolicy {
+        self.metrics.policy()
     }
 
     /// Return whether generated actor glue should export storage snapshot endpoints.
@@ -396,16 +442,106 @@ pub enum GeneratedSqlUpdatePolicy {
     PublicBoundedDeterministic,
 }
 
+/// Metrics endpoint mode selected by `icydb.toml`.
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GeneratedMetricsMode {
+    /// Do not expose generated metrics endpoints.
+    Off,
+    /// Expose compact metrics endpoints.
+    Simple,
+    /// Expose compact and extended metrics endpoints.
+    Extended,
+}
+
+impl GeneratedMetricsMode {
+    /// Return whether compact metrics endpoints should be generated.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Simple | Self::Extended => true,
+        }
+    }
+
+    /// Return whether the extended metrics endpoint should be generated.
+    #[must_use]
+    pub const fn extended(self) -> bool {
+        match self {
+            Self::Off | Self::Simple => false,
+            Self::Extended => true,
+        }
+    }
+}
+
+/// Local/IC policy for generated metrics endpoints.
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GeneratedMetricsPolicy {
+    local: GeneratedMetricsMode,
+    ic: GeneratedMetricsMode,
+}
+
+impl GeneratedMetricsPolicy {
+    /// Build one metrics policy from explicit target modes.
+    #[must_use]
+    pub const fn new(local: GeneratedMetricsMode, ic: GeneratedMetricsMode) -> Self {
+        Self { local, ic }
+    }
+
+    /// Return the local build metrics mode.
+    #[must_use]
+    pub const fn local(self) -> GeneratedMetricsMode {
+        self.local
+    }
+
+    /// Return the IC build metrics mode.
+    #[must_use]
+    pub const fn ic(self) -> GeneratedMetricsMode {
+        self.ic
+    }
+
+    /// Return whether any build target exposes compact metrics.
+    #[must_use]
+    pub const fn any_enabled(self) -> bool {
+        self.local.enabled() || self.ic.enabled()
+    }
+
+    /// Return whether any build target exposes extended metrics.
+    #[must_use]
+    pub const fn any_extended(self) -> bool {
+        self.local.extended() || self.ic.extended()
+    }
+
+    /// Return the metrics mode selected for one build target.
+    #[must_use]
+    pub const fn mode_for(self, build_target: GeneratedBuildTarget) -> GeneratedMetricsMode {
+        match build_target {
+            GeneratedBuildTarget::Local => self.local,
+            GeneratedBuildTarget::Ic | GeneratedBuildTarget::Unknown => self.ic,
+        }
+    }
+}
+
+impl Default for GeneratedMetricsPolicy {
+    fn default() -> Self {
+        Self::new(DEFAULT_METRICS_LOCAL_MODE, DEFAULT_METRICS_IC_MODE)
+    }
+}
+
 /// Validated generated metrics endpoint switches for one canister.
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GeneratedCanisterMetricsConfig {
-    enabled: bool,
-    extended: bool,
+    policy: GeneratedMetricsPolicy,
 }
 
 impl GeneratedCanisterMetricsConfig {
-    pub(crate) const fn new(enabled: bool, extended: bool) -> Self {
-        Self { enabled, extended }
+    pub(crate) const fn new(policy: GeneratedMetricsPolicy) -> Self {
+        Self { policy }
+    }
+
+    const fn policy(self) -> GeneratedMetricsPolicy {
+        self.policy
     }
 }

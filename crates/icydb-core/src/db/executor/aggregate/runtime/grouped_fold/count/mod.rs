@@ -12,9 +12,12 @@ mod window;
 use crate::{
     db::executor::{
         aggregate::{
-            EffectiveRuntimeFilterProgram, ExecutionContext, FieldSlot, ProjectionSpec,
+            ExecutionContext, ProjectionSpec,
             runtime::grouped_fold::{
-                count::{finalize::finalize_grouped_count_page, state::GroupedCountState},
+                count::{
+                    finalize::finalize_grouped_count_page, ingest::fold_row_view_count_rows,
+                    state::GroupedCountState,
+                },
                 dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
                 metrics,
                 utils::group_capacity_hint,
@@ -22,8 +25,7 @@ use crate::{
         },
         pipeline::{
             contracts::GroupedRouteStage,
-            contracts::ResolvedExecutionKeyStream,
-            runtime::{GroupedFoldStage, GroupedStreamStage, RowView, StructuralGroupedRowRuntime},
+            runtime::{GroupedFoldStage, GroupedStreamStage},
         },
     },
     error::InternalError,
@@ -120,53 +122,4 @@ pub(super) fn execute_single_grouped_count_fold_stage(
         stream,
         scanned_rows,
     ))
-}
-
-// Fold row-view grouped-count input through one statically selected ingest
-// function so borrowed and owned paths are resolved before the source-row loop.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the helper preserves the pre-existing hot-loop data flow while avoiding dynamic dispatch"
-)]
-fn fold_row_view_count_rows(
-    route: &GroupedRouteStage,
-    row_runtime: &StructuralGroupedRowRuntime,
-    resolved: &mut ResolvedExecutionKeyStream,
-    effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-    grouped_execution_context: &mut ExecutionContext,
-    grouped_counts: &mut GroupedCountState,
-    counters: (&mut usize, &mut usize),
-    mut increment_row: impl FnMut(
-        &mut GroupedCountState,
-        &RowView,
-        &[FieldSlot],
-        &mut ExecutionContext,
-    ) -> Result<(), InternalError>,
-) -> Result<(), InternalError> {
-    let consistency = route.consistency();
-    let (scanned_rows, filtered_rows) = counters;
-
-    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-        let (row_materialization_local_instructions, row_view) =
-            metrics::measure(|| row_runtime.read_row_view(consistency, &data_key));
-        metrics::record_row_materialization(row_materialization_local_instructions);
-        let Some(row_view) = row_view? else {
-            continue;
-        };
-        *scanned_rows = scanned_rows.saturating_add(1);
-        if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
-            && !row_view.eval_filter_program(effective_runtime_filter_program)?
-        {
-            continue;
-        }
-        *filtered_rows = filtered_rows.saturating_add(1);
-        increment_row(
-            grouped_counts,
-            &row_view,
-            route.group_fields(),
-            grouped_execution_context,
-        )?;
-    }
-
-    Ok(())
 }

@@ -28,6 +28,39 @@ That means the method must optimize for:
 
 ---
 
+## Audit Identity
+
+- Definition path:
+  `docs/audits/recurring/crosscutting/crosscutting-completeness.md`
+- Report scope: `completeness`
+- Current method tag: `Completeness Method V2`
+- Report naming:
+  `docs/audits/reports/YYYY-MM/YYYY-MM-DD/completeness.md`
+
+If the same audit is rerun more than once on the same day, keep the canonical
+report path for the final readout and record superseded same-day attempts in the
+report preamble.
+
+`Completeness Method V2` keeps the original feature-breadth and pipeline-depth
+model, but refreshes the required proof surface for the current public contract:
+
+- the current SQL contract in `docs/contracts/SQL_SUBSET.md`
+- public SQL read, write, DDL, introspection, and `EXPLAIN` entrypoints
+- SQL mutation and `RETURNING` semantics where they are part of the public
+  session/library surface
+- DDL-published schema and index transitions, including expression indexes and
+  supported `ALTER TABLE` forms
+- blob value handling where the SQL contract admits it
+- prepared and cached execution proof where the feature depends on reuse or
+  identity stability
+- read-only validation discipline and normalized verification statuses
+
+Reports using V2 should explicitly say whether they are comparable with older
+V1 reports. A material public-contract expansion should be marked as a method
+refresh rather than a direct feature-state regression.
+
+---
+
 ## Audit Output
 
 A completeness audit using this method should produce:
@@ -107,6 +140,11 @@ Examples:
 If the audit later claims a feature is complete, that claim only applies to the
 named proof surfaces for that run.
 
+For the current recurring run, `docs/contracts/SQL_SUBSET.md` is the boundary
+authority for public SQL support. The audit may inspect code and tests for
+evidence, but the report should not widen or narrow the public contract based on
+implementation details alone.
+
 ---
 
 ## Step 2. Inventory Major System Areas
@@ -129,6 +167,10 @@ Examples:
 - LIMIT / OFFSET
 - DISTINCT
 - mutation
+- SQL DDL
+- public SQL writes and `RETURNING`
+- blob values and blob predicates
+- SQL introspection
 - prepared SQL
 - EXPLAIN
 
@@ -257,6 +299,17 @@ Use when the feature is expected inside the audited boundary but is absent.
 Use when the feature is intentionally outside the audited boundary.
 
 This must be kept distinct from Missing.
+
+Feature-state labels are separate from validation statuses. Use feature states
+for product and subsystem completeness, and use validation statuses for command
+or inspection outcomes:
+
+- `PASS`: the check completed and supports the claimed evidence
+- `FAIL`: the check completed and found a contradiction or regression
+- `BLOCKED`: the check could not be run in the current audit constraints
+
+Use `PARTIAL` only as a feature or stage classification, not as a verification
+status.
 
 ### Required Derivation Rule
 
@@ -483,6 +536,49 @@ change the score without any real product movement.
 
 Numeric scoring is optional. A qualitative audit is still valid if it clearly
 distinguishes complete, partial, bounded, missing, and out-of-scope areas.
+
+---
+
+## Read-Only Run Mode
+
+When the user asks to run this audit read-only:
+
+- do not modify product code, generated artifacts, lockfiles, package manifests,
+  or release metadata
+- only update the audit definition when the audit method itself is stale
+- only create or update the matching audit report artifact
+- do not start or stop external services
+- treat live canister or network-dependent checks as `BLOCKED` unless the
+  required service is already running and the check is explicitly read-only
+- record broad checks that would mutate state or require unavailable services as
+  `BLOCKED`, not as failures
+
+Existing dirty worktree changes may be inspected for context, but the report
+must distinguish them from stable evidence unless the relevant checks pass on
+the current snapshot.
+
+---
+
+## Recommended Read-Only Baseline
+
+Use focused checks that exercise breadth across the admitted public surface
+without mutating repository state beyond normal build/test artifacts:
+
+- `make check-invariants`
+- `cargo test -p icydb-core --features sql query_lowering -- --nocapture`
+- `cargo test -p icydb-core --features sql predicate_convergence -- --nocapture`
+- `cargo test -p icydb-core --features sql execution_convergence -- --nocapture`
+- `cargo test -p icydb-core --features sql explain_cache_convergence -- --nocapture`
+- `cargo test -p icydb-core --features sql sql_blob -- --nocapture`
+- `cargo test -p icydb-core --features sql execute_sql_query_admits_supported_single_entity_read_shapes -- --nocapture`
+- `cargo test -p icydb-core --features sql compile_sql_query_and_execute_compiled_preserve_supported_read_families -- --nocapture`
+- `cargo test -p icydb-core --features sql execute_sql_update_admits_supported_single_entity_mutation_shapes -- --nocapture`
+- `cargo test -p icydb-core --features sql execute_sql_ddl_publishes_supported_expression_index -- --nocapture`
+- `cargo test -p icydb-core --features sql execute_sql_ddl_rename_column_updates_expression_index_metadata -- --nocapture`
+- `git diff --check`
+
+The report may substitute nearby focused filters when names drift, but it should
+record the substitution and why it preserves the same proof intent.
 
 ---
 

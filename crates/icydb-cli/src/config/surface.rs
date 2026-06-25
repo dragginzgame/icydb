@@ -5,6 +5,8 @@
 
 use crate::config::ResolvedConfig;
 
+use icydb_config::GeneratedBuildTarget;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConfigSurface {
     SqlReadonly,
@@ -37,11 +39,22 @@ impl ConfigSurface {
             Self::SqlDdl => "canisters.<name>.sql.ddl",
             Self::SqlFixtures => "canisters.<name>.sql.fixtures",
             Self::SqlUpdate => "canisters.<name>.sql.update",
-            Self::Metrics => "canisters.<name>.metrics.enabled",
-            Self::MetricsExtended => "canisters.<name>.metrics.extended",
+            Self::Metrics | Self::MetricsExtended => "canisters.<name>.metrics",
             Self::Snapshot => "canisters.<name>.snapshot.enabled",
             Self::Schema => "canisters.<name>.schema.enabled",
         }
+    }
+
+    const fn key_for_target(self, build_target: GeneratedBuildTarget) -> &'static str {
+        if matches!(self, Self::Metrics | Self::MetricsExtended) {
+            return match build_target {
+                GeneratedBuildTarget::Local => "canisters.<name>.metrics.local",
+                GeneratedBuildTarget::Ic => "canisters.<name>.metrics.ic",
+                GeneratedBuildTarget::Unknown => "canisters.<name>.metrics",
+            };
+        }
+
+        self.key()
     }
 }
 
@@ -107,6 +120,20 @@ pub(super) fn disabled_config_surface_message(
     canister: &str,
     surface: ConfigSurface,
 ) -> String {
+    disabled_config_surface_message_for_build_target(
+        resolved,
+        canister,
+        surface,
+        GeneratedBuildTarget::Unknown,
+    )
+}
+
+pub(super) fn disabled_config_surface_message_for_build_target(
+    resolved: &ResolvedConfig,
+    canister: &str,
+    surface: ConfigSurface,
+    build_target: GeneratedBuildTarget,
+) -> String {
     let config_location = resolved.config_path().map_or_else(
         || "not found".to_string(),
         |path| path.display().to_string(),
@@ -115,7 +142,7 @@ pub(super) fn disabled_config_surface_message(
     format!(
         "IcyDB config does not enable {} for canister '{canister}' (config file: {config_location}). Enable `{}` in icydb.toml, then rebuild and deploy the canister.",
         surface.label(),
-        surface.key(),
+        surface.key_for_target(build_target),
     )
 }
 
@@ -124,14 +151,32 @@ pub(super) fn config_surface_enabled_for_resolved(
     canister: &str,
     surface: ConfigSurface,
 ) -> bool {
+    config_surface_enabled_for_resolved_build_target(
+        resolved,
+        canister,
+        surface,
+        GeneratedBuildTarget::Unknown,
+    )
+}
+
+pub(super) fn config_surface_enabled_for_resolved_build_target(
+    resolved: &ResolvedConfig,
+    canister: &str,
+    surface: ConfigSurface,
+    build_target: GeneratedBuildTarget,
+) -> bool {
     let config = resolved.config();
     match surface {
         ConfigSurface::SqlReadonly => config.canister_sql_readonly_enabled(canister),
         ConfigSurface::SqlDdl => config.canister_sql_ddl_enabled(canister),
         ConfigSurface::SqlFixtures => config.canister_sql_fixtures_enabled(canister),
         ConfigSurface::SqlUpdate => config.canister_sql_update_policy(canister).is_some(),
-        ConfigSurface::Metrics => config.canister_metrics_enabled(canister),
-        ConfigSurface::MetricsExtended => config.canister_metrics_extended_enabled(canister),
+        ConfigSurface::Metrics => {
+            config.canister_metrics_enabled_for_build_target(canister, build_target)
+        }
+        ConfigSurface::MetricsExtended => {
+            config.canister_metrics_extended_enabled_for_build_target(canister, build_target)
+        }
         ConfigSurface::Snapshot => config.canister_snapshot_enabled(canister),
         ConfigSurface::Schema => config.canister_schema_enabled(canister),
     }
@@ -143,4 +188,19 @@ pub(super) fn configured_endpoint_enabled_for_resolved(
     endpoint: ConfiguredEndpoint,
 ) -> bool {
     config_surface_enabled_for_resolved(resolved, canister, endpoint.surface())
+}
+
+#[cfg(test)]
+pub(super) fn configured_endpoint_enabled_for_resolved_build_target(
+    resolved: &ResolvedConfig,
+    canister: &str,
+    endpoint: ConfiguredEndpoint,
+    build_target: GeneratedBuildTarget,
+) -> bool {
+    config_surface_enabled_for_resolved_build_target(
+        resolved,
+        canister,
+        endpoint.surface(),
+        build_target,
+    )
 }

@@ -15,11 +15,12 @@ mod resolve;
 #[cfg(test)]
 mod tests;
 
-pub use emit::emit_config_for_build_script;
+pub use emit::{emit_config_for_build_script, emit_configured_canister_for_build_script};
 pub use error::ConfigError;
 pub use model::{
-    GeneratedBuildTarget, GeneratedCanisterConfig, GeneratedIcydbConfig,
-    GeneratedSqlIntrospectionPolicy, GeneratedSqlUpdatePolicy, ResolvedIcydbConfig,
+    GeneratedBuildTarget, GeneratedCanisterConfig, GeneratedIcydbConfig, GeneratedMetricsMode,
+    GeneratedMetricsPolicy, GeneratedSqlIntrospectionPolicy, GeneratedSqlUpdatePolicy,
+    ResolvedIcydbConfig,
 };
 pub use parse::load_resolved_icydb_toml;
 pub use resolve::resolve_existing_icydb_toml;
@@ -29,3 +30,13 @@ pub const ICYDB_CONFIG_FILE_NAME: &str = "icydb.toml";
 /// Build-script environment variable used to resolve target-sensitive defaults.
 pub const ICYDB_BUILD_TARGET_ENV: &str = "ICYDB_BUILD_TARGET";
 const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
+
+/// Emit generated actor glue for one canister using the effective
+/// `icydb.toml` switches.
+#[macro_export]
+macro_rules! build_configured_canister {
+    ($canister_ty:ty, $canister_path:literal, $canister_name:literal) => {{
+        let _ = ::std::any::TypeId::of::<$canister_ty>();
+        $crate::emit_configured_canister_for_build_script($canister_path, $canister_name)?;
+    }};
+}

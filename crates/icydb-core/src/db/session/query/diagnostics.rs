@@ -16,7 +16,10 @@ use crate::{
             ScalarAggregateTerminalAttribution, ScalarExecutePhaseAttribution,
         },
         session::finalize_structural_grouped_projection_result,
-        session::query::{PreparedQueryExecutionOutcome, PreparedQueryExecutionOutput},
+        session::query::{
+            PreparedQueryExecutionOutcome, PreparedQueryExecutionOutput, QueryPlanCacheAttribution,
+            QueryPlanCompilePhaseAttribution,
+        },
     },
     traits::{CanisterKind, EntityValue},
 };
@@ -288,6 +291,47 @@ pub struct FluentTerminalExecutionAttribution {
     pub shared_query_plan_cache_misses: u64,
 }
 
+///
+/// QueryAttributionCommon
+///
+/// QueryAttributionCommon carries compile/cache/store counters shared by
+/// paged query attribution and fluent scalar terminal attribution. It keeps the
+/// two public DTO builders aligned without changing their public field shapes.
+///
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db::session::query) struct QueryAttributionCommon {
+    compile_phase_attribution: QueryPlanCompilePhaseAttribution,
+    plan_lookup_local_instructions: u64,
+    store_counters: StoreCounterSnapshot,
+    cache_attribution: QueryPlanCacheAttribution,
+}
+
+impl QueryAttributionCommon {
+    #[must_use]
+    pub(in crate::db::session::query) const fn new(
+        plan_lookup_local_instructions: u64,
+        compile_phase_attribution: QueryPlanCompilePhaseAttribution,
+        cache_attribution: QueryPlanCacheAttribution,
+        store_counters: StoreCounterSnapshot,
+    ) -> Self {
+        Self {
+            compile_phase_attribution,
+            plan_lookup_local_instructions,
+            store_counters,
+            cache_attribution,
+        }
+    }
+
+    const fn compile_local_instructions(self) -> u64 {
+        self.plan_lookup_local_instructions
+    }
+
+    const fn total_local_instructions(self, execute_local_instructions: u64) -> u64 {
+        self.compile_local_instructions()
+            .saturating_add(execute_local_instructions)
+    }
+}
+
 // QueryExecutionAttribution
 //
 // QueryExecutionAttribution records the top-level compile/execute split for
@@ -353,6 +397,93 @@ struct QueryExecutePhaseAttribution {
     direct_data_row: Option<DirectDataRowAttribution>,
     kernel_row: Option<KernelRowAttribution>,
     grouped: Option<GroupedExecutionAttribution>,
+}
+
+impl FluentTerminalExecutionAttribution {
+    pub(in crate::db::session::query) const fn from_common(
+        common: QueryAttributionCommon,
+        executor_invocation_local_instructions: u64,
+        scalar_aggregate: Option<ScalarAggregateAttribution>,
+    ) -> Self {
+        let execute_local_instructions = executor_invocation_local_instructions;
+
+        Self {
+            compile_local_instructions: common.compile_local_instructions(),
+            compile_schema_catalog_local_instructions: common
+                .compile_phase_attribution
+                .schema_catalog,
+            compile_schema_info_local_instructions: common.compile_phase_attribution.schema_info,
+            compile_prepare_local_instructions: common.compile_phase_attribution.prepare,
+            compile_cache_key_local_instructions: common.compile_phase_attribution.cache_key,
+            compile_cache_lookup_local_instructions: common.compile_phase_attribution.cache_lookup,
+            compile_plan_build_local_instructions: common.compile_phase_attribution.plan_build,
+            compile_cache_insert_local_instructions: common.compile_phase_attribution.cache_insert,
+            plan_lookup_local_instructions: common.plan_lookup_local_instructions,
+            executor_invocation_local_instructions,
+            execute_local_instructions,
+            total_local_instructions: common.total_local_instructions(execute_local_instructions),
+            store_get_calls: common.store_counters.data_store_get_calls,
+            index_store_get_calls: common.store_counters.index_store_get_calls,
+            index_store_range_scan_calls: common.store_counters.index_store_range_scan_calls,
+            index_store_entry_reads: common.store_counters.index_store_entry_reads,
+            scalar_aggregate,
+            shared_query_plan_cache_hits: common.cache_attribution.hits,
+            shared_query_plan_cache_misses: common.cache_attribution.misses,
+        }
+    }
+}
+
+impl QueryExecutionAttribution {
+    const fn from_common(
+        common: QueryAttributionCommon,
+        execute_phase_attribution: &QueryExecutePhaseAttribution,
+        response_decode_local_instructions: u64,
+    ) -> Self {
+        let execute_local_instructions = execute_phase_attribution
+            .executor_invocation_local_instructions
+            .saturating_add(execute_phase_attribution.response_finalization_local_instructions);
+
+        Self {
+            compile_local_instructions: common.compile_local_instructions(),
+            compile_schema_catalog_local_instructions: common
+                .compile_phase_attribution
+                .schema_catalog,
+            compile_schema_info_local_instructions: common.compile_phase_attribution.schema_info,
+            compile_prepare_local_instructions: common.compile_phase_attribution.prepare,
+            compile_cache_key_local_instructions: common.compile_phase_attribution.cache_key,
+            compile_cache_lookup_local_instructions: common.compile_phase_attribution.cache_lookup,
+            compile_plan_build_local_instructions: common.compile_phase_attribution.plan_build,
+            compile_cache_insert_local_instructions: common.compile_phase_attribution.cache_insert,
+            plan_lookup_local_instructions: common.plan_lookup_local_instructions,
+            executor_invocation_local_instructions: execute_phase_attribution
+                .executor_invocation_local_instructions,
+            response_finalization_local_instructions: execute_phase_attribution
+                .response_finalization_local_instructions,
+            load_plan_local_instructions: execute_phase_attribution.load_plan_local_instructions,
+            row_layout_local_instructions: execute_phase_attribution.row_layout_local_instructions,
+            continuation_signature_local_instructions: execute_phase_attribution
+                .continuation_signature_local_instructions,
+            scalar_runtime_handoff_local_instructions: execute_phase_attribution
+                .scalar_runtime_handoff_local_instructions,
+            route_plan_local_instructions: execute_phase_attribution.route_plan_local_instructions,
+            runtime_prepare_local_instructions: execute_phase_attribution
+                .runtime_prepare_local_instructions,
+            runtime_local_instructions: execute_phase_attribution.runtime_local_instructions,
+            finalize_local_instructions: execute_phase_attribution.finalize_local_instructions,
+            direct_data_row: execute_phase_attribution.direct_data_row,
+            kernel_row: execute_phase_attribution.kernel_row,
+            grouped: execute_phase_attribution.grouped,
+            response_decode_local_instructions,
+            execute_local_instructions,
+            total_local_instructions: common.total_local_instructions(execute_local_instructions),
+            store_get_calls: common.store_counters.data_store_get_calls,
+            index_store_get_calls: common.store_counters.index_store_get_calls,
+            index_store_range_scan_calls: common.store_counters.index_store_range_scan_calls,
+            index_store_entry_reads: common.store_counters.index_store_entry_reads,
+            shared_query_plan_cache_hits: common.cache_attribution.hits,
+            shared_query_plan_cache_misses: common.cache_attribution.misses,
+        }
+    }
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -439,7 +570,6 @@ impl<C: CanisterKind> DbSession<C> {
             self.cached_prepared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)
         });
         let (plan, cache_attribution, compile_phase_attribution) = plan_and_cache?;
-        let compile_local_instructions = plan_lookup_local_instructions;
 
         // Phase 2: execute one prepared plan through the shared execution
         // pipeline, preserving the same outer invocation measurement boundary.
@@ -454,55 +584,20 @@ impl<C: CanisterKind> DbSession<C> {
                 outcome,
                 executor_invocation_local_instructions,
             )?;
-        let execute_local_instructions = execute_phase_attribution
-            .executor_invocation_local_instructions
-            .saturating_add(execute_phase_attribution.response_finalization_local_instructions);
-        let total_local_instructions =
-            compile_local_instructions.saturating_add(execute_local_instructions);
+        let common_attribution = QueryAttributionCommon::new(
+            plan_lookup_local_instructions,
+            compile_phase_attribution,
+            cache_attribution,
+            store_counters,
+        );
 
         Ok((
             result,
-            QueryExecutionAttribution {
-                compile_local_instructions,
-                compile_schema_catalog_local_instructions: compile_phase_attribution.schema_catalog,
-                compile_schema_info_local_instructions: compile_phase_attribution.schema_info,
-                compile_prepare_local_instructions: compile_phase_attribution.prepare,
-                compile_cache_key_local_instructions: compile_phase_attribution.cache_key,
-                compile_cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
-                compile_plan_build_local_instructions: compile_phase_attribution.plan_build,
-                compile_cache_insert_local_instructions: compile_phase_attribution.cache_insert,
-                plan_lookup_local_instructions,
-                executor_invocation_local_instructions: execute_phase_attribution
-                    .executor_invocation_local_instructions,
-                response_finalization_local_instructions: execute_phase_attribution
-                    .response_finalization_local_instructions,
-                load_plan_local_instructions: execute_phase_attribution
-                    .load_plan_local_instructions,
-                row_layout_local_instructions: execute_phase_attribution
-                    .row_layout_local_instructions,
-                continuation_signature_local_instructions: execute_phase_attribution
-                    .continuation_signature_local_instructions,
-                scalar_runtime_handoff_local_instructions: execute_phase_attribution
-                    .scalar_runtime_handoff_local_instructions,
-                route_plan_local_instructions: execute_phase_attribution
-                    .route_plan_local_instructions,
-                runtime_prepare_local_instructions: execute_phase_attribution
-                    .runtime_prepare_local_instructions,
-                runtime_local_instructions: execute_phase_attribution.runtime_local_instructions,
-                finalize_local_instructions: execute_phase_attribution.finalize_local_instructions,
-                direct_data_row: execute_phase_attribution.direct_data_row,
-                kernel_row: execute_phase_attribution.kernel_row,
-                grouped: execute_phase_attribution.grouped,
+            QueryExecutionAttribution::from_common(
+                common_attribution,
+                &execute_phase_attribution,
                 response_decode_local_instructions,
-                execute_local_instructions,
-                total_local_instructions,
-                store_get_calls: store_counters.data_store_get_calls,
-                index_store_get_calls: store_counters.index_store_get_calls,
-                index_store_range_scan_calls: store_counters.index_store_range_scan_calls,
-                index_store_entry_reads: store_counters.index_store_entry_reads,
-                shared_query_plan_cache_hits: cache_attribution.hits,
-                shared_query_plan_cache_misses: cache_attribution.misses,
-            },
+            ),
         ))
     }
 

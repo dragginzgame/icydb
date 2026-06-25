@@ -5,7 +5,10 @@
 
 use std::{collections::BTreeSet, fmt::Write as _, path::Path};
 
-use icydb_config::{GeneratedSqlIntrospectionPolicy, GeneratedSqlUpdatePolicy};
+use icydb_config::{
+    GeneratedMetricsMode, GeneratedMetricsPolicy, GeneratedSqlIntrospectionPolicy,
+    GeneratedSqlUpdatePolicy,
+};
 
 use crate::{
     config::ResolvedConfig,
@@ -151,7 +154,7 @@ fn canister_config_row(
             canister.sql_introspection_policy(),
             canister.sql_update_policy(),
         ),
-        metrics_surface_status(canister.metrics(), canister.metrics_extended()).to_string(),
+        metrics_surface_status(canister.metrics_policy()),
         enabled_status(canister.snapshot()).to_string(),
         enabled_status(canister.schema()).to_string(),
     ]
@@ -233,12 +236,23 @@ const fn sql_introspection_status(policy: GeneratedSqlIntrospectionPolicy) -> &'
     }
 }
 
-const fn metrics_surface_status(metrics: bool, extended: bool) -> &'static str {
-    match (metrics, extended) {
-        (true, true) => "enabled, extended",
-        (true, false) => "enabled",
-        (false, true) => "extended",
-        (false, false) => "off",
+fn metrics_surface_status(policy: GeneratedMetricsPolicy) -> String {
+    if policy.local() == policy.ic() {
+        metrics_mode_status(policy.local()).to_string()
+    } else {
+        format!(
+            "local:{}, ic:{}",
+            metrics_mode_status(policy.local()),
+            metrics_mode_status(policy.ic()),
+        )
+    }
+}
+
+const fn metrics_mode_status(mode: GeneratedMetricsMode) -> &'static str {
+    match mode {
+        GeneratedMetricsMode::Off => "off",
+        GeneratedMetricsMode::Simple => "simple",
+        GeneratedMetricsMode::Extended => "extended",
     }
 }
 

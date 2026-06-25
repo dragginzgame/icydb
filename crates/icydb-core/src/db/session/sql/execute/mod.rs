@@ -17,8 +17,6 @@ mod write_returning;
 #[cfg(feature = "sql-explain")]
 use crate::db::executor::EntityAuthority;
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::with_scalar_aggregate_terminal_attribution;
-#[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 #[cfg(feature = "sql-explain")]
 use crate::db::sql::lowering::LoweredSqlCommand;
@@ -42,7 +40,7 @@ use crate::{
     traits::{CanisterKind, EntityValue},
 };
 #[cfg(feature = "diagnostics")]
-use diagnostics::measure_execute_phase_with_physical_access;
+use diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
 #[cfg(test)]
 use icydb_diagnostic_code::SqlLoweringCode;
 
@@ -199,9 +197,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (
             scalar_aggregate_terminal,
             ((execute_local_instructions, store_local_instructions), result),
-        ) = with_scalar_aggregate_terminal_attribution(|| {
-            measure_execute_phase_with_physical_access(execute)
-        });
+        ) = measure_scalar_aggregate_execute_phase_with_physical_access(execute);
         let (result, cache_attribution) = result?;
         let phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
             execute_local_instructions,

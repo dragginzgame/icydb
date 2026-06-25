@@ -1,0 +1,3 @@
+[canisters.one_entity_fluent_execute.metrics]
+local = "off"
+ic = "off"

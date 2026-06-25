@@ -13,14 +13,15 @@ mod fixtures;
 use crate::{
     config::{FIXTURES_LOAD_ENDPOINT, configured_endpoint_enabled},
     icp::{
+        build_target_for_environment,
         process::{
             canister_id, canister_is_installed, run_external_command, unreachable_network_hint,
         },
-        project::{environment_targets_local, known_canisters},
+        project::known_canisters,
     },
     table::{ColumnAlign, append_indented_table},
 };
-use icydb_config::{GeneratedBuildTarget, ICYDB_BUILD_TARGET_ENV};
+use icydb_config::ICYDB_BUILD_TARGET_ENV;
 
 type CanisterListRow = [String; 3];
 
@@ -209,14 +210,6 @@ fn append_build_target_env(command: &mut Command, environment: &str) {
         ICYDB_BUILD_TARGET_ENV,
         build_target_for_environment(environment).env_value(),
     );
-}
-
-fn build_target_for_environment(environment: &str) -> GeneratedBuildTarget {
-    if environment_targets_local(environment) {
-        GeneratedBuildTarget::Local
-    } else {
-        GeneratedBuildTarget::Ic
-    }
 }
 
 fn default_canister_wasm_path(canister: &str) -> PathBuf {

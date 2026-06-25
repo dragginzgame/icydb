@@ -3,6 +3,8 @@
 //! Does not own: query planning semantics, execution, or cache-key fingerprint generation.
 //! Boundary: resolves store visibility and memoizes prepared plans for typed and SQL callers.
 
+#[cfg(feature = "sql")]
+use crate::db::query::plan::AccessPlannedQuery;
 #[cfg(feature = "sql-explain")]
 use crate::db::schema::accepted_schema_cache_fingerprint;
 #[cfg(feature = "sql")]
@@ -21,10 +23,7 @@ use crate::{
         commit::CommitSchemaFingerprint,
         executor::{EntityAuthority, PreparedExecutionPlan, SharedPreparedExecutionPlan},
         predicate::predicate_fingerprint_normalized,
-        query::{
-            intent::StructuralQuery,
-            plan::{AccessPlannedQuery, VisibleIndexes},
-        },
+        query::{intent::StructuralQuery, plan::VisibleIndexes},
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, SchemaInfo, SchemaVersion,
@@ -1168,22 +1167,6 @@ impl<C: CanisterKind> DbSession<C> {
             query.structural(),
             recorder,
         )
-    }
-
-    // Map one typed query onto one cached lower prepared plan so session-owned
-    // planned and compiled wrappers reuse the same cache lookup while returning
-    // query-owned neutral plan DTOs.
-    pub(in crate::db::session) fn map_cached_shared_query_plan_for_entity<E, T>(
-        &self,
-        query: &Query<E>,
-        map: impl FnOnce(AccessPlannedQuery) -> T,
-    ) -> Result<T, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
-
-        Ok(map(prepared_plan.logical_plan().clone()))
     }
 }
 

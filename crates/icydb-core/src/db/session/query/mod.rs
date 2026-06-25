@@ -14,7 +14,7 @@ mod paging;
 mod planning;
 
 pub(in crate::db) use cache::QueryPlanCacheAttribution;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
 #[cfg(test)]
 pub(in crate::db) use cache::QueryPlanVisibility;
@@ -23,6 +23,8 @@ pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
 pub(in crate::db) use cache::{
     reset_visible_index_projection_count_for_tests, visible_index_projection_count_for_tests,
 };
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::session::query) use diagnostics::QueryAttributionCommon;
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::{
     DirectDataRowAttribution, FluentTerminalExecutionAttribution, GroupedCountAttribution,

@@ -116,6 +116,10 @@ struct ConfigInitSurfaceArgs {
     #[arg(long = "metrics-extended")]
     metrics_extended: bool,
 
+    /// Also generate extended metrics report endpoint for IC builds.
+    #[arg(long = "metrics-extended-ic")]
+    metrics_extended_ic: bool,
+
     /// Also generate storage snapshot endpoint.
     #[arg(long)]
     snapshot: bool,
@@ -158,12 +162,27 @@ impl ConfigInitArgs {
         self.surfaces.update_config_value()
     }
 
+    #[cfg(test)]
     pub(crate) const fn metrics(&self) -> bool {
         self.surfaces.metrics()
     }
 
-    pub(crate) const fn metrics_extended(&self) -> bool {
-        self.surfaces.metrics_extended()
+    pub(crate) const fn metrics_local_config_value(&self) -> &'static str {
+        self.surfaces.metrics_local_config_value()
+    }
+
+    pub(crate) const fn metrics_ic_config_value(&self) -> &'static str {
+        self.surfaces.metrics_ic_config_value()
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn metrics_extended_local(&self) -> bool {
+        self.surfaces.metrics_extended_local()
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn metrics_extended_ic(&self) -> bool {
+        self.surfaces.metrics_extended_ic()
     }
 
     pub(crate) const fn snapshot(&self) -> bool {
@@ -202,8 +221,30 @@ impl ConfigInitSurfaceArgs {
         !self.no_metrics
     }
 
-    const fn metrics_extended(&self) -> bool {
+    const fn metrics_local_config_value(&self) -> &'static str {
+        self.metrics_mode_config_value(self.metrics_extended_local())
+    }
+
+    const fn metrics_ic_config_value(&self) -> &'static str {
+        self.metrics_mode_config_value(self.metrics_extended_ic())
+    }
+
+    const fn metrics_mode_config_value(&self, extended: bool) -> &'static str {
+        if !self.metrics() {
+            "off"
+        } else if extended {
+            "extended"
+        } else {
+            "simple"
+        }
+    }
+
+    const fn metrics_extended_local(&self) -> bool {
         !self.no_metrics && self.surface_enabled(self.metrics_extended)
+    }
+
+    const fn metrics_extended_ic(&self) -> bool {
+        !self.no_metrics && self.metrics_extended_ic
     }
 
     const fn snapshot(&self) -> bool {

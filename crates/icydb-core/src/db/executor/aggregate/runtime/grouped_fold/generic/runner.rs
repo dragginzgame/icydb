@@ -10,7 +10,6 @@ use crate::{
             runtime::grouped_fold::{
                 bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
                 dispatch::group_fields_support_borrowed_group_probe,
-                page_finalize::finalize_grouped_page,
                 utils::group_capacity_hint,
             },
         },
@@ -21,6 +20,8 @@ use crate::{
     },
     error::InternalError,
 };
+
+use super::page_finalize::finalize_grouped_page;
 
 ///
 /// GenericGroupedFoldRunner

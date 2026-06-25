@@ -6,11 +6,12 @@
 use crate::{
     ConfigError, GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig,
     model::{
-        DEFAULT_METRICS_ENABLED, DEFAULT_METRICS_EXTENDED_ENABLED, DEFAULT_SCHEMA_ENABLED,
+        DEFAULT_METRICS_IC_MODE, DEFAULT_METRICS_LOCAL_MODE, DEFAULT_SCHEMA_ENABLED,
         DEFAULT_SNAPSHOT_ENABLED, DEFAULT_SQL_DDL_ENABLED, DEFAULT_SQL_FIXTURES_ENABLED,
         DEFAULT_SQL_INTROSPECTION_IC_ENABLED, DEFAULT_SQL_INTROSPECTION_LOCAL_ENABLED,
         DEFAULT_SQL_READONLY_ENABLED, DEFAULT_SQL_UPDATE_POLICY, GeneratedCanisterMetricsConfig,
-        GeneratedCanisterSqlConfig, GeneratedSqlIntrospectionPolicy,
+        GeneratedCanisterSqlConfig, GeneratedMetricsMode, GeneratedMetricsPolicy,
+        GeneratedSqlIntrospectionPolicy,
     },
     resolve::resolve_config_path,
 };
@@ -93,7 +94,6 @@ fn validate_canisters(
     path: &Path,
     known_by_normalized: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, GeneratedCanisterConfig>, ConfigError> {
-    let mut normalized_seen = BTreeMap::new();
     let mut generated = BTreeMap::new();
 
     for (raw_name, raw_config) in raw_canisters {
@@ -102,25 +102,18 @@ fn validate_canisters(
                 path: path.to_path_buf(),
             });
         }
-        let normalized = normalize_canister_name(raw_name.as_str());
-        match normalized_seen.entry(normalized.clone()) {
-            Entry::Vacant(slot) => {
-                slot.insert(raw_name.clone());
-            }
-            Entry::Occupied(existing) => {
-                return Err(ConfigError::AmbiguousCanisterName {
-                    path: path.to_path_buf(),
-                    first: existing.get().clone(),
-                    second: raw_name,
-                });
-            }
+        if !is_snake_canister_name(raw_name.as_str()) {
+            return Err(ConfigError::InvalidCanisterName {
+                path: path.to_path_buf(),
+                canister: raw_name,
+            });
         }
 
         let resolved_name = if known_by_normalized.is_empty() {
             raw_name
         } else {
             known_by_normalized
-                .get(normalized.as_str())
+                .get(raw_name.as_str())
                 .cloned()
                 .ok_or_else(|| ConfigError::UnknownCanister {
                     path: path.to_path_buf(),
@@ -136,13 +129,6 @@ fn validate_canisters(
 fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCanisterConfig {
     let sql = raw_config.sql.as_ref();
     let metrics = raw_config.metrics.as_ref();
-    let metrics_enabled = metrics
-        .and_then(|metrics| metrics.enabled)
-        .unwrap_or(DEFAULT_METRICS_ENABLED);
-    let metrics_extended_enabled = metrics_enabled
-        && metrics
-            .and_then(|metrics| metrics.extended)
-            .unwrap_or(DEFAULT_METRICS_EXTENDED_ENABLED);
 
     GeneratedCanisterConfig::new(
         GeneratedCanisterSqlConfig::new(
@@ -158,7 +144,7 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
                 RawCanisterSqlUpdateConfig::generated_policy,
             ),
         ),
-        GeneratedCanisterMetricsConfig::new(metrics_enabled, metrics_extended_enabled),
+        GeneratedCanisterMetricsConfig::new(metrics_policy(metrics)),
         raw_config
             .snapshot
             .as_ref()
@@ -177,8 +163,13 @@ fn normalized_known_canisters(
 ) -> Result<BTreeMap<String, String>, ConfigError> {
     let mut known_by_normalized = BTreeMap::new();
     for known in known_canisters {
-        let normalized = normalize_canister_name(known);
-        match known_by_normalized.entry(normalized) {
+        if !is_snake_canister_name(known) {
+            return Err(ConfigError::InvalidKnownCanisterName {
+                canister: (*known).to_string(),
+            });
+        }
+
+        match known_by_normalized.entry((*known).to_string()) {
             Entry::Vacant(slot) => {
                 slot.insert((*known).to_string());
             }
@@ -194,13 +185,13 @@ fn normalized_known_canisters(
     Ok(known_by_normalized)
 }
 
-fn normalize_canister_name(name: &str) -> String {
-    name.chars()
-        .map(|ch| match ch {
-            '-' => '_',
-            other => other.to_ascii_lowercase(),
-        })
-        .collect()
+fn is_snake_canister_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase()
+        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -284,8 +275,37 @@ impl RawGeneratedSqlUpdatePolicy {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawCanisterMetricsConfig {
-    enabled: Option<bool>,
-    extended: Option<bool>,
+    local: Option<RawGeneratedMetricsMode>,
+    ic: Option<RawGeneratedMetricsMode>,
+}
+
+fn metrics_policy(raw: Option<&RawCanisterMetricsConfig>) -> GeneratedMetricsPolicy {
+    GeneratedMetricsPolicy::new(
+        raw.and_then(|raw| raw.local).map_or(
+            DEFAULT_METRICS_LOCAL_MODE,
+            RawGeneratedMetricsMode::generated,
+        ),
+        raw.and_then(|raw| raw.ic)
+            .map_or(DEFAULT_METRICS_IC_MODE, RawGeneratedMetricsMode::generated),
+    )
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RawGeneratedMetricsMode {
+    Off,
+    Simple,
+    Extended,
+}
+
+impl RawGeneratedMetricsMode {
+    const fn generated(self) -> GeneratedMetricsMode {
+        match self {
+            Self::Off => GeneratedMetricsMode::Off,
+            Self::Simple => GeneratedMetricsMode::Simple,
+            Self::Extended => GeneratedMetricsMode::Extended,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

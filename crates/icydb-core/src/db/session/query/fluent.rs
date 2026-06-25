@@ -4,6 +4,8 @@
 //! Boundary: maps fluent prepared strategies into executor requests and maps executor outputs back into fluent DTOs.
 
 #[cfg(feature = "diagnostics")]
+use super::QueryAttributionCommon;
+#[cfg(feature = "diagnostics")]
 use crate::db::{
     FluentTerminalExecutionAttribution, ScalarAggregateAttribution,
     diagnostics::{StoreCounterSnapshot, measure_local_instruction_delta as measure_query_stage},
@@ -89,7 +91,6 @@ impl<C: CanisterKind> DbSession<C> {
             self.cached_prepared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)
         });
         let (plan, cache_attribution, compile_phase_attribution) = plan_and_cache?;
-        let compile_local_instructions = plan_lookup_local_instructions;
 
         let store_counters_before = StoreCounterSnapshot::capture();
         let (scalar_aggregate_terminal, (executor_invocation_local_instructions, output)) =
@@ -104,35 +105,20 @@ impl<C: CanisterKind> DbSession<C> {
             });
         let output = output?;
         let store_counters = store_counters_before.delta_since();
-        let execute_local_instructions = executor_invocation_local_instructions;
-        let total_local_instructions =
-            compile_local_instructions.saturating_add(execute_local_instructions);
+        let common_attribution = QueryAttributionCommon::new(
+            plan_lookup_local_instructions,
+            compile_phase_attribution,
+            cache_attribution,
+            store_counters,
+        );
 
         Ok((
             output,
-            FluentTerminalExecutionAttribution {
-                compile_local_instructions,
-                compile_schema_catalog_local_instructions: compile_phase_attribution.schema_catalog,
-                compile_schema_info_local_instructions: compile_phase_attribution.schema_info,
-                compile_prepare_local_instructions: compile_phase_attribution.prepare,
-                compile_cache_key_local_instructions: compile_phase_attribution.cache_key,
-                compile_cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
-                compile_plan_build_local_instructions: compile_phase_attribution.plan_build,
-                compile_cache_insert_local_instructions: compile_phase_attribution.cache_insert,
-                plan_lookup_local_instructions,
+            FluentTerminalExecutionAttribution::from_common(
+                common_attribution,
                 executor_invocation_local_instructions,
-                execute_local_instructions,
-                total_local_instructions,
-                store_get_calls: store_counters.data_store_get_calls,
-                index_store_get_calls: store_counters.index_store_get_calls,
-                index_store_range_scan_calls: store_counters.index_store_range_scan_calls,
-                index_store_entry_reads: store_counters.index_store_entry_reads,
-                scalar_aggregate: ScalarAggregateAttribution::from_executor(
-                    scalar_aggregate_terminal,
-                ),
-                shared_query_plan_cache_hits: cache_attribution.hits,
-                shared_query_plan_cache_misses: cache_attribution.misses,
-            },
+                ScalarAggregateAttribution::from_executor(scalar_aggregate_terminal),
+            ),
         ))
     }
 

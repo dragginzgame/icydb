@@ -4,8 +4,8 @@
 //! Boundary: exercises crate-local host config contracts with filesystem fixtures.
 
 use crate::{
-    ConfigError, GeneratedBuildTarget, GeneratedSqlUpdatePolicy, ICYDB_CONFIG_FILE_NAME,
-    load_resolved_icydb_toml,
+    ConfigError, GeneratedBuildTarget, GeneratedMetricsMode, GeneratedSqlUpdatePolicy,
+    ICYDB_CONFIG_FILE_NAME, load_resolved_icydb_toml,
     parse::parse_icydb_toml,
     resolve::{resolve_config_path, resolve_existing_icydb_toml},
 };
@@ -23,28 +23,36 @@ fn absent_config_defaults_minimal_metrics_on() {
     assert!(!config.canister_sql_introspection_policy("demo_rpg").ic());
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Local),
+        GeneratedMetricsMode::Simple,
+    );
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Ic),
+        GeneratedMetricsMode::Simple,
+    );
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
 }
 
 #[test]
-fn explicit_false_disables_metrics_default_surface() {
+fn explicit_off_disables_metrics_default_surface() {
     let config = parse_icydb_toml(
-        r"
+        r#"
             [canisters.demo_rpg.sql]
             readonly = false
 
             [canisters.demo_rpg.metrics]
-            enabled = false
-            extended = false
+            local = "off"
+            ic = "off"
 
             [canisters.demo_rpg.snapshot]
             enabled = false
 
             [canisters.demo_rpg.schema]
             enabled = false
-        ",
+        "#,
         &["demo_rpg"],
     )
     .expect("valid config should parse");
@@ -54,6 +62,14 @@ fn explicit_false_disables_metrics_default_surface() {
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(!config.canister_metrics_enabled("demo_rpg"));
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Local),
+        GeneratedMetricsMode::Off,
+    );
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Ic),
+        GeneratedMetricsMode::Off,
+    );
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
@@ -62,13 +78,13 @@ fn explicit_false_disables_metrics_default_surface() {
 #[test]
 fn partial_metrics_config_uses_default_enabled_surface() {
     let config = parse_icydb_toml(
-        r"
+        r#"
             [canisters.demo_rpg.sql]
             ddl = true
 
             [canisters.demo_rpg.metrics]
-            extended = true
-        ",
+            local = "extended"
+        "#,
         &["demo_rpg"],
     )
     .expect("valid config should parse");
@@ -78,7 +94,24 @@ fn partial_metrics_config_uses_default_enabled_surface() {
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(config.canister_metrics_enabled("demo_rpg"));
-    assert!(config.canister_metrics_extended_enabled("demo_rpg"));
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Local),
+        GeneratedMetricsMode::Extended,
+    );
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Ic),
+        GeneratedMetricsMode::Simple,
+    );
+    assert!(config.canister_metrics_extended_enabled_for_build_target(
+        "demo_rpg",
+        GeneratedBuildTarget::Local,
+    ));
+    assert!(
+        !config.canister_metrics_extended_enabled_for_build_target(
+            "demo_rpg",
+            GeneratedBuildTarget::Ic,
+        )
+    );
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
 }
@@ -86,7 +119,7 @@ fn partial_metrics_config_uses_default_enabled_surface() {
 #[test]
 fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
     let config = parse_icydb_toml(
-        r"
+        r#"
             [canisters.demo_rpg.sql]
             readonly = true
             ddl = true
@@ -94,15 +127,15 @@ fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
             update = true
 
             [canisters.demo_rpg.metrics]
-            enabled = true
-            extended = true
+            local = "extended"
+            ic = "extended"
 
             [canisters.demo_rpg.snapshot]
             enabled = true
 
             [canisters.demo_rpg.schema]
             enabled = true
-        ",
+        "#,
         &["demo_rpg"],
     )
     .expect("valid config should parse");
@@ -117,6 +150,24 @@ fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
         Some(GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly),
     );
     assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Local),
+        GeneratedMetricsMode::Extended,
+    );
+    assert_eq!(
+        config.canister_metrics_mode_for_build_target("demo_rpg", GeneratedBuildTarget::Ic),
+        GeneratedMetricsMode::Extended,
+    );
+    assert!(config.canister_metrics_extended_enabled_for_build_target(
+        "demo_rpg",
+        GeneratedBuildTarget::Local,
+    ));
+    assert!(
+        config.canister_metrics_extended_enabled_for_build_target(
+            "demo_rpg",
+            GeneratedBuildTarget::Ic,
+        )
+    );
     assert!(config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(config.canister_snapshot_enabled("demo_rpg"));
     assert!(config.canister_schema_enabled("demo_rpg"));
@@ -244,16 +295,15 @@ fn explicit_false_disables_sql_update_policy() {
 }
 
 #[test]
-fn metrics_reset_config_field_fails_parse() {
+fn unknown_metrics_mode_fails_parse() {
     let err = parse_icydb_toml(
-        r"
+        r#"
             [canisters.demo_rpg.metrics]
-            enabled = true
-            reset = true
-        ",
+            local = "full"
+        "#,
         &["demo_rpg"],
     )
-    .expect_err("metrics reset is bundled with metrics.enabled and no longer configurable");
+    .expect_err("unknown metrics mode must fail");
 
     std::assert_matches!(err, ConfigError::Parse { .. });
 }
@@ -304,35 +354,37 @@ fn unknown_generated_canister_fails_validation() {
 }
 
 #[test]
-fn known_canister_validation_normalizes_config_names() {
-    let config = parse_icydb_toml(
+fn non_snake_config_canister_names_fail_validation() {
+    let err = parse_icydb_toml(
         r"
             [canisters.demo-rpg.sql]
             readonly = true
         ",
         &["demo_rpg"],
     )
-    .expect("config canister name should resolve through normalized known canister names");
+    .expect_err("config canister names must be lower snake_case");
 
-    assert!(config.canister_sql_readonly_enabled("demo_rpg"));
-    assert!(!config.canisters().contains_key("demo-rpg"));
+    std::assert_matches!(
+        err,
+        ConfigError::InvalidCanisterName { canister, .. } if canister == "demo-rpg"
+    );
 }
 
 #[test]
-fn ambiguous_canister_names_fail_validation() {
+fn non_snake_known_canister_names_fail_validation() {
     let err = parse_icydb_toml(
         r"
-            [canisters.demo-rpg.sql]
-            readonly = true
-
             [canisters.demo_rpg.sql]
             ddl = true
         ",
-        &[],
+        &["DemoRpg"],
     )
-    .expect_err("normalized duplicate canister names should fail");
+    .expect_err("known canister names must be lower snake_case");
 
-    std::assert_matches!(err, ConfigError::AmbiguousCanisterName { .. });
+    std::assert_matches!(
+        err,
+        ConfigError::InvalidKnownCanisterName { canister } if canister == "DemoRpg"
+    );
 }
 
 #[test]

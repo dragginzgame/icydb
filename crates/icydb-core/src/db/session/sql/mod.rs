@@ -17,8 +17,6 @@ mod update_policy;
 mod write_policy;
 
 #[cfg(feature = "diagnostics")]
-use crate::db::GroupedExecutionAttribution;
-#[cfg(feature = "diagnostics")]
 use crate::db::diagnostics::StoreCounterSnapshot;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::{
@@ -29,8 +27,6 @@ use crate::db::executor::{
 use crate::db::sql::parser::SqlExplainTarget;
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
-#[cfg(feature = "diagnostics")]
-use crate::value::OutputValue;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
@@ -58,6 +54,8 @@ pub(in crate::db::session::sql) use crate::db::diagnostics::measure_local_instru
 pub use crate::db::sql::ddl::{SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport};
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use attribution::SqlExecutePhaseAttribution;
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::session::sql) use attribution::SqlQueryExecutionAttributionInputs;
 #[cfg(feature = "diagnostics")]
 pub use attribution::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
@@ -102,81 +100,6 @@ pub use write_policy::{
     SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds, SqlWriteReturningShape,
     SqlWriteStatementShape, SqlWriteWhereProof,
 };
-
-#[cfg(feature = "diagnostics")]
-#[derive(Clone, Copy)]
-struct SqlQueryExecutionAttributionInputs {
-    compile_local_instructions: u64,
-    compile_phase_attribution: SqlCompilePhaseAttribution,
-    compile_cache_attribution: SqlCacheAttribution,
-    execute_cache_attribution: SqlCacheAttribution,
-    execute_phase_attribution: SqlExecutePhaseAttribution,
-    pure_covering_decode_local_instructions: u64,
-    pure_covering_row_assembly_local_instructions: u64,
-    projection_materialization: SqlProjectionMaterializationMetrics,
-    store_counters: StoreCounterSnapshot,
-}
-
-#[cfg(feature = "diagnostics")]
-const fn sql_execute_local_instructions_from_phase(phase: &SqlExecutePhaseAttribution) -> u64 {
-    phase
-        .planner_local_instructions
-        .saturating_add(phase.store_local_instructions)
-        .saturating_add(phase.executor_local_instructions)
-        .saturating_add(phase.response_finalization_local_instructions)
-}
-
-#[cfg(feature = "diagnostics")]
-fn sql_query_execution_attribution_from_inputs(
-    result: &SqlStatementResult,
-    inputs: &SqlQueryExecutionAttributionInputs,
-) -> SqlQueryExecutionAttribution {
-    let execute_phase = &inputs.execute_phase_attribution;
-    let execute_local_instructions = sql_execute_local_instructions_from_phase(execute_phase);
-    let total_local_instructions = inputs
-        .compile_local_instructions
-        .saturating_add(execute_local_instructions);
-    let grouped = matches!(result, SqlStatementResult::Grouped { .. }).then_some(
-        GroupedExecutionAttribution::from_executor_parts(
-            execute_phase.grouped_stream_local_instructions,
-            execute_phase.grouped_fold_local_instructions,
-            execute_phase.grouped_finalize_local_instructions,
-            execute_phase.grouped_count,
-        ),
-    );
-
-    SqlQueryExecutionAttribution {
-        compile_local_instructions: inputs.compile_local_instructions,
-        compile: SqlCompileAttribution::from_phase(inputs.compile_phase_attribution),
-        plan_lookup_local_instructions: execute_phase.planner_local_instructions,
-        execution: SqlExecutionAttribution::from_phase(execute_phase),
-        direct_data_row: execute_phase.direct_data_row,
-        kernel_row: execute_phase.kernel_row,
-        grouped,
-        scalar_aggregate: SqlScalarAggregateAttribution::from_executor(
-            execute_phase.scalar_aggregate_terminal,
-        ),
-        pure_covering: SqlPureCoveringAttribution::from_local_instructions(
-            inputs.pure_covering_decode_local_instructions,
-            inputs.pure_covering_row_assembly_local_instructions,
-        ),
-        hybrid_covering: SqlHybridCoveringAttribution::from_projection_metrics(
-            inputs.projection_materialization,
-        ),
-        output_blob: sql_output_blob_attribution(result),
-        store_get_calls: inputs.store_counters.data_store_get_calls,
-        index_store_get_calls: inputs.store_counters.index_store_get_calls,
-        index_store_range_scan_calls: inputs.store_counters.index_store_range_scan_calls,
-        index_store_entry_reads: inputs.store_counters.index_store_entry_reads,
-        response_decode_local_instructions: 0,
-        execute_local_instructions,
-        total_local_instructions,
-        cache: SqlQueryCacheAttribution::from_phases(
-            inputs.compile_cache_attribution,
-            inputs.execute_cache_attribution,
-        ),
-    }
-}
 
 /// Parsed SQL endpoint surface used by generated SQL helper dispatch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -230,93 +153,6 @@ impl SqlStatementDispatch {
     #[must_use]
     pub const fn requires_introspection(&self) -> bool {
         self.requires_introspection
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn sql_output_blob_attribution(result: &SqlStatementResult) -> SqlOutputBlobAttribution {
-    let mut attribution = SqlOutputBlobAttribution::default();
-
-    match result {
-        SqlStatementResult::Projection { rows, .. } => {
-            for row in rows {
-                for value in row {
-                    record_output_value_blob_attribution(value, &mut attribution);
-                }
-            }
-        }
-        SqlStatementResult::Grouped { rows, .. } => {
-            for row in rows {
-                for value in row.group_key().iter().chain(row.aggregate_values()) {
-                    record_output_value_blob_attribution(value, &mut attribution);
-                }
-            }
-        }
-        SqlStatementResult::Count { .. }
-        | SqlStatementResult::Describe(_)
-        | SqlStatementResult::ShowIndexes(_)
-        | SqlStatementResult::ShowColumns(_)
-        | SqlStatementResult::ShowEntities { .. }
-        | SqlStatementResult::ShowStores { .. }
-        | SqlStatementResult::ShowMemory(_)
-        | SqlStatementResult::Ddl(_) => {}
-        #[cfg(feature = "sql-explain")]
-        SqlStatementResult::Explain(_) => {}
-    }
-
-    attribution
-}
-
-#[cfg(feature = "diagnostics")]
-fn record_output_value_blob_attribution(
-    value: &OutputValue,
-    attribution: &mut SqlOutputBlobAttribution,
-) {
-    match value {
-        OutputValue::Blob(bytes) => {
-            let byte_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-            attribution.projected_values = attribution.projected_values.saturating_add(1);
-            attribution.projected_bytes = attribution.projected_bytes.saturating_add(byte_len);
-            attribution.rendered_hex_bytes = attribution
-                .rendered_hex_bytes
-                .saturating_add(byte_len.saturating_mul(2).saturating_add(2));
-        }
-        OutputValue::Enum(value) => {
-            if let Some(payload) = value.payload() {
-                record_output_value_blob_attribution(payload, attribution);
-            }
-        }
-        OutputValue::List(items) => {
-            for item in items {
-                record_output_value_blob_attribution(item, attribution);
-            }
-        }
-        OutputValue::Map(entries) => {
-            for (key, value) in entries {
-                record_output_value_blob_attribution(key, attribution);
-                record_output_value_blob_attribution(value, attribution);
-            }
-        }
-        OutputValue::Account(_)
-        | OutputValue::Bool(_)
-        | OutputValue::Date(_)
-        | OutputValue::Decimal(_)
-        | OutputValue::Duration(_)
-        | OutputValue::Float32(_)
-        | OutputValue::Float64(_)
-        | OutputValue::Int64(_)
-        | OutputValue::Int128(_)
-        | OutputValue::IntBig(_)
-        | OutputValue::Null
-        | OutputValue::Principal(_)
-        | OutputValue::Subaccount(_)
-        | OutputValue::Text(_)
-        | OutputValue::Timestamp(_)
-        | OutputValue::Nat64(_)
-        | OutputValue::Nat128(_)
-        | OutputValue::NatBig(_)
-        | OutputValue::Ulid(_)
-        | OutputValue::Unit => {}
     }
 }
 
@@ -734,7 +570,7 @@ impl<C: CanisterKind> DbSession<C> {
         let pure_covering_row_assembly_local_instructions =
             current_pure_covering_row_assembly_local_instructions()
                 .saturating_sub(pure_covering_row_assembly_before);
-        let attribution = sql_query_execution_attribution_from_inputs(
+        let attribution = SqlQueryExecutionAttribution::from_inputs(
             &result,
             &SqlQueryExecutionAttributionInputs {
                 compile_local_instructions,

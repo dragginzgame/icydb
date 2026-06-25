@@ -4,6 +4,10 @@
 //! Boundary: keeps measurement scaffolding out of the root SQL execution shell.
 
 #[cfg(feature = "diagnostics")]
+use crate::db::executor::{
+    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
+};
+#[cfg(feature = "diagnostics")]
 use crate::db::physical_access::with_physical_access_attribution;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::measure_sql_stage;
@@ -16,9 +20,18 @@ use crate::{
 };
 
 #[cfg(feature = "diagnostics")]
+type MeasuredPhysicalAccessResult<T, E> = ((u64, u64), Result<T, E>);
+
+#[cfg(feature = "diagnostics")]
+type MeasuredScalarAggregatePhysicalAccessResult<T, E> = (
+    ScalarAggregateTerminalAttribution,
+    MeasuredPhysicalAccessResult<T, E>,
+);
+
+#[cfg(feature = "diagnostics")]
 pub(super) fn measure_execute_phase_with_physical_access<T, E>(
     run: impl FnOnce() -> Result<T, E>,
-) -> ((u64, u64), Result<T, E>) {
+) -> MeasuredPhysicalAccessResult<T, E> {
     let (store_local_instructions, (execute_local_instructions, result)) =
         with_physical_access_attribution(|| measure_sql_stage(run));
 
@@ -26,6 +39,13 @@ pub(super) fn measure_execute_phase_with_physical_access<T, E>(
         (execute_local_instructions, store_local_instructions),
         result,
     )
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn measure_scalar_aggregate_execute_phase_with_physical_access<T, E>(
+    run: impl FnOnce() -> Result<T, E>,
+) -> MeasuredScalarAggregatePhysicalAccessResult<T, E> {
+    with_scalar_aggregate_terminal_attribution(|| measure_execute_phase_with_physical_access(run))
 }
 
 ///

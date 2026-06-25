@@ -4,7 +4,8 @@ ddl = true
 fixtures = true
 
 [canisters.demo_rpg.metrics]
-enabled = true
+local = "extended"
+ic = "simple"
 
 [canisters.demo_rpg.snapshot]
 enabled = true

@@ -13,6 +13,21 @@ Use this exact scope for report files:
 Do not introduce alternate names such as `access-index-integrity`,
 `index-audit`, or `index-authority` for this recurring pass.
 
+Current method tag/version:
+
+* `Method V5`
+
+Method V5 keeps the Method V4 index ordering, namespace, accepted-authority, and
+replay checks, but updates catalog mutation readiness for the current split
+between startup reconciliation and SQL DDL execution:
+
+* startup reconciliation remains a narrower generated-proposal path
+* SQL DDL execution owns supported field-path index build, deterministic
+  expression-index build, DDL-owned index drop, uniqueness validation, physical
+  cleanup, and accepted snapshot publication
+* generated index drops and unsupported index shapes must still fail closed
+* verification statuses are normalized to `PASS`, `FAIL`, and `BLOCKED`
+
 ## Purpose
 
 Verify that the index subsystem preserves:
@@ -352,15 +367,19 @@ Required fail-closed checks:
 
 Verify index mutations are classified before any runtime visibility change.
 
-Initial mutation cases:
+Mutation cases:
 
 * add non-unique field-path index
+* add unique field-path index
 * add non-unique deterministic expression index
+* add unique deterministic expression index
 * drop non-required secondary index
+* reject generated secondary index drop
 * change uniqueness
 * change key shape or key slot order
 * change partial/filter predicate
 * change expression text/fingerprint
+* reject unsupported index order such as SQL `DESC`
 
 Produce:
 
@@ -369,10 +388,14 @@ Produce:
 Required classifications:
 
 * metadata-only safe
-* supported startup rebuild publication for the single non-unique field-path
-  index-add path
-* index rebuild required but still blocked for expression-index rebuilds and
-  secondary-index cleanup
+* startup reconciliation support for its narrow field-path index-add physical
+  path
+* SQL DDL support for accepted field-path index addition, deterministic
+  expression-index addition, DDL-owned index drop, uniqueness validation, and
+  accepted snapshot publication after physical validation
+* generated index drop rejection, including `IF EXISTS`
+* rebuild-required or unsupported catalog changes outside those supported lanes
+  remaining blocked before runtime visibility
 * full data rewrite required
 * unsupported pre-1.0
 * incompatible/fail-closed
@@ -380,11 +403,17 @@ Required classifications:
 Verify:
 
 * mutation plans do not silently hide persisted indexes with missing metadata
-* the supported field-path index-add path publishes only after target-scoped
-  physical validation, runtime invalidation, startup rebuild-gate revalidation,
-  physical-store publication, final target-index physical-store revalidation,
-  and accepted snapshot insertion
-* required rebuilds outside the supported path are explicit and remain blocked
+* the supported startup field-path index-add path publishes only after
+  target-scoped physical validation, runtime invalidation, startup rebuild-gate
+  revalidation, physical-store publication, final target-index physical-store
+  revalidation, and accepted snapshot insertion
+* SQL DDL index additions publish only after accepted-before identity validation,
+  target physical build, uniqueness validation when applicable, runtime
+  invalidation, final physical-store validation, and accepted snapshot insertion
+* SQL DDL index drops clean the target physical namespace before accepted
+  metadata removal becomes visible
+* required rebuilds outside the supported startup or SQL DDL lanes are explicit
+  and remain blocked
 * planner/cache invalidation is attached to accepted fingerprint changes
 * unsupported changes fail before accepted snapshot publication
 
@@ -535,12 +564,34 @@ Minimum verification set:
 * `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay --features sql -- --nocapture`
 * `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed --features sql -- --nocapture`
 * `cargo test -p icydb-core load_cursor_live_state_delete_between_pages_can_shrink_remaining_results --features sql -- --nocapture`
-* `cargo test -p icydb-core --test write_boundary_guards -- --nocapture`
+* `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_index_membership --features sql -- --nocapture`
+* `cargo test -p icydb-core accepted_snapshot_schema_info_exposes_persisted_expression_indexes --features sql -- --nocapture`
+* `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_strong_relation_authority --features sql -- --nocapture`
+* `cargo test -p icydb-core schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_model --features sql -- --nocapture`
+* `cargo test -p icydb-core ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename --features sql -- --nocapture`
+* `cargo test -p icydb-core sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority --features sql -- --nocapture`
+* `cargo test -p icydb-core expression_index_store_batch_rolls_back_on_post_insert_validation_failure --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_field_path_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_expression_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_unique_field_path_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_publishes_supported_unique_expression_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_rejects_duplicate_unique_field_path_values_without_publication --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_rejects_duplicate_unique_expression_values_without_publication --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_drops_supported_ddl_published_index --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_rejects_generated_index_drop_with_structured_detail --features sql -- --nocapture`
+* `cargo test -p icydb-core execute_sql_ddl_publication_invalidates_shared_query_plan_cache_key --features sql -- --nocapture`
 
 If the audit touches mutation-readiness claims, also run:
 
 * `cargo test -p icydb-core schema::mutation --features sql -- --nocapture`
 * `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
+* `git diff --check`
+
+Read-only runs may update only this recurring definition and the matching report
+artifact. Do not edit product code, generated artifacts, package manifests,
+lockfiles, or release metadata. Do not start or stop external services. Mark
+service-dependent or mutating checks `BLOCKED` when they cannot be run under
+read-only constraints.
 
 ---
 
@@ -573,6 +624,12 @@ Run metadata must include:
   day's `index-integrity.md` baseline)
 - method tag/version
 - comparability status (`comparable` or `non-comparable` with reason)
+
+Verification readouts must use only:
+
+- `PASS`: check completed and supports the claim
+- `FAIL`: check completed and contradicts the claim
+- `BLOCKED`: check could not run under current audit constraints
 
 ---
 

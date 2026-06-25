@@ -7,6 +7,7 @@
 use crate::db::{
     DirectDataRowAttribution, GroupedExecutionAttribution, KernelRowAttribution,
     ScalarAggregateAttribution,
+    diagnostics::StoreCounterSnapshot,
     executor::{
         GroupedCountAttribution as ExecutorGroupedCountAttribution, GroupedExecutePhaseAttribution,
         ScalarAggregateTerminalAttribution,
@@ -15,10 +16,12 @@ use crate::db::{
         query::QueryPlanCompilePhaseAttribution,
         sql::{
             cache::SqlCacheAttribution, compile::SqlCompilePhaseAttribution,
-            projection::SqlProjectionMaterializationMetrics,
+            projection::SqlProjectionMaterializationMetrics, result::SqlStatementResult,
         },
     },
 };
+#[cfg(feature = "diagnostics")]
+use crate::value::OutputValue;
 #[cfg(feature = "diagnostics")]
 use candid::CandidType;
 #[cfg(feature = "diagnostics")]
@@ -266,6 +269,170 @@ pub struct SqlQueryExecutionAttribution {
     pub cache: SqlQueryCacheAttribution,
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy)]
+pub(in crate::db::session::sql) struct SqlQueryExecutionAttributionInputs {
+    pub compile_local_instructions: u64,
+    pub compile_phase_attribution: SqlCompilePhaseAttribution,
+    pub compile_cache_attribution: SqlCacheAttribution,
+    pub execute_cache_attribution: SqlCacheAttribution,
+    pub execute_phase_attribution: SqlExecutePhaseAttribution,
+    pub pure_covering_decode_local_instructions: u64,
+    pub pure_covering_row_assembly_local_instructions: u64,
+    pub projection_materialization: SqlProjectionMaterializationMetrics,
+    pub store_counters: StoreCounterSnapshot,
+}
+
+#[cfg(feature = "diagnostics")]
+impl SqlQueryExecutionAttribution {
+    pub(in crate::db::session::sql) fn from_inputs(
+        result: &SqlStatementResult,
+        inputs: &SqlQueryExecutionAttributionInputs,
+    ) -> Self {
+        let execute_phase = &inputs.execute_phase_attribution;
+        let execute_local_instructions = sql_execute_local_instructions_from_phase(execute_phase);
+        let total_local_instructions = inputs
+            .compile_local_instructions
+            .saturating_add(execute_local_instructions);
+        let grouped = matches!(result, SqlStatementResult::Grouped { .. }).then_some(
+            GroupedExecutionAttribution::from_executor_parts(
+                execute_phase.grouped_stream_local_instructions,
+                execute_phase.grouped_fold_local_instructions,
+                execute_phase.grouped_finalize_local_instructions,
+                execute_phase.grouped_count,
+            ),
+        );
+
+        Self {
+            compile_local_instructions: inputs.compile_local_instructions,
+            compile: SqlCompileAttribution::from_phase(inputs.compile_phase_attribution),
+            plan_lookup_local_instructions: execute_phase.planner_local_instructions,
+            execution: SqlExecutionAttribution::from_phase(execute_phase),
+            direct_data_row: execute_phase.direct_data_row,
+            kernel_row: execute_phase.kernel_row,
+            grouped,
+            scalar_aggregate: SqlScalarAggregateAttribution::from_executor(
+                execute_phase.scalar_aggregate_terminal,
+            ),
+            pure_covering: SqlPureCoveringAttribution::from_local_instructions(
+                inputs.pure_covering_decode_local_instructions,
+                inputs.pure_covering_row_assembly_local_instructions,
+            ),
+            hybrid_covering: SqlHybridCoveringAttribution::from_projection_metrics(
+                inputs.projection_materialization,
+            ),
+            output_blob: sql_output_blob_attribution(result),
+            store_get_calls: inputs.store_counters.data_store_get_calls,
+            index_store_get_calls: inputs.store_counters.index_store_get_calls,
+            index_store_range_scan_calls: inputs.store_counters.index_store_range_scan_calls,
+            index_store_entry_reads: inputs.store_counters.index_store_entry_reads,
+            response_decode_local_instructions: 0,
+            execute_local_instructions,
+            total_local_instructions,
+            cache: SqlQueryCacheAttribution::from_phases(
+                inputs.compile_cache_attribution,
+                inputs.execute_cache_attribution,
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+const fn sql_execute_local_instructions_from_phase(phase: &SqlExecutePhaseAttribution) -> u64 {
+    phase
+        .planner_local_instructions
+        .saturating_add(phase.store_local_instructions)
+        .saturating_add(phase.executor_local_instructions)
+        .saturating_add(phase.response_finalization_local_instructions)
+}
+
+#[cfg(feature = "diagnostics")]
+fn sql_output_blob_attribution(result: &SqlStatementResult) -> SqlOutputBlobAttribution {
+    let mut attribution = SqlOutputBlobAttribution::default();
+
+    match result {
+        SqlStatementResult::Projection { rows, .. } => {
+            for row in rows {
+                for value in row {
+                    record_output_value_blob_attribution(value, &mut attribution);
+                }
+            }
+        }
+        SqlStatementResult::Grouped { rows, .. } => {
+            for row in rows {
+                for value in row.group_key().iter().chain(row.aggregate_values()) {
+                    record_output_value_blob_attribution(value, &mut attribution);
+                }
+            }
+        }
+        SqlStatementResult::Count { .. }
+        | SqlStatementResult::Describe(_)
+        | SqlStatementResult::ShowIndexes(_)
+        | SqlStatementResult::ShowColumns(_)
+        | SqlStatementResult::ShowEntities { .. }
+        | SqlStatementResult::ShowStores { .. }
+        | SqlStatementResult::ShowMemory(_)
+        | SqlStatementResult::Ddl(_) => {}
+        #[cfg(feature = "sql-explain")]
+        SqlStatementResult::Explain(_) => {}
+    }
+
+    attribution
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_output_value_blob_attribution(
+    value: &OutputValue,
+    attribution: &mut SqlOutputBlobAttribution,
+) {
+    match value {
+        OutputValue::Blob(bytes) => {
+            let byte_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+            attribution.projected_values = attribution.projected_values.saturating_add(1);
+            attribution.projected_bytes = attribution.projected_bytes.saturating_add(byte_len);
+            attribution.rendered_hex_bytes = attribution
+                .rendered_hex_bytes
+                .saturating_add(byte_len.saturating_mul(2).saturating_add(2));
+        }
+        OutputValue::Enum(value) => {
+            if let Some(payload) = value.payload() {
+                record_output_value_blob_attribution(payload, attribution);
+            }
+        }
+        OutputValue::List(items) => {
+            for item in items {
+                record_output_value_blob_attribution(item, attribution);
+            }
+        }
+        OutputValue::Map(entries) => {
+            for (key, value) in entries {
+                record_output_value_blob_attribution(key, attribution);
+                record_output_value_blob_attribution(value, attribution);
+            }
+        }
+        OutputValue::Account(_)
+        | OutputValue::Bool(_)
+        | OutputValue::Date(_)
+        | OutputValue::Decimal(_)
+        | OutputValue::Duration(_)
+        | OutputValue::Float32(_)
+        | OutputValue::Float64(_)
+        | OutputValue::Int64(_)
+        | OutputValue::Int128(_)
+        | OutputValue::IntBig(_)
+        | OutputValue::Null
+        | OutputValue::Principal(_)
+        | OutputValue::Subaccount(_)
+        | OutputValue::Text(_)
+        | OutputValue::Timestamp(_)
+        | OutputValue::Nat64(_)
+        | OutputValue::Nat128(_)
+        | OutputValue::NatBig(_)
+        | OutputValue::Ulid(_)
+        | OutputValue::Unit => {}
+    }
+}
+
 ///
 /// SqlExecutePhaseAttribution
 ///
@@ -328,6 +495,20 @@ impl SqlExecutePhaseAttribution {
     }
 
     #[must_use]
+    pub(in crate::db) const fn from_query_plan_execute_total_and_store_total(
+        planner_local_instructions: u64,
+        plan_compile_attribution: QueryPlanCompilePhaseAttribution,
+        execute_local_instructions: u64,
+        store_local_instructions: u64,
+    ) -> Self {
+        Self::from_execute_total_and_store_total(
+            execute_local_instructions,
+            store_local_instructions,
+        )
+        .with_query_plan_compile_attribution(planner_local_instructions, plan_compile_attribution)
+    }
+
+    #[must_use]
     pub(in crate::db) const fn from_grouped_select_phase(
         planner_local_instructions: u64,
         plan_compile_attribution: QueryPlanCompilePhaseAttribution,
@@ -338,11 +519,12 @@ impl SqlExecutePhaseAttribution {
     ) -> Self {
         let execute_without_response =
             execute_local_instructions.saturating_sub(response_finalization_local_instructions);
-        let mut attribution = Self::from_execute_total_and_store_total(
+        let mut attribution = Self::from_query_plan_execute_total_and_store_total(
+            planner_local_instructions,
+            plan_compile_attribution,
             execute_without_response,
             store_local_instructions,
-        )
-        .with_query_plan_compile_attribution(planner_local_instructions, plan_compile_attribution);
+        );
         attribution.response_finalization_local_instructions =
             response_finalization_local_instructions;
         attribution.grouped_stream_local_instructions =
@@ -366,11 +548,12 @@ impl SqlExecutePhaseAttribution {
         direct_data_row: Option<DirectDataRowAttribution>,
         kernel_row: Option<KernelRowAttribution>,
     ) -> Self {
-        let mut attribution = Self::from_execute_total_and_store_total(
+        let mut attribution = Self::from_query_plan_execute_total_and_store_total(
+            planner_local_instructions,
+            plan_compile_attribution,
             execute_local_instructions,
             store_local_instructions,
-        )
-        .with_query_plan_compile_attribution(planner_local_instructions, plan_compile_attribution);
+        );
         attribution.response_finalization_local_instructions =
             response_finalization_local_instructions;
         attribution.direct_data_row = direct_data_row;

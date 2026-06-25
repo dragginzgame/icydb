@@ -3,7 +3,7 @@
 //! Does not own: runtime database errors, schema diagnostics, or CLI rendering policy.
 //! Boundary: captures config discovery, read, parse, and canister-name validation failures.
 
-use std::{io, path::PathBuf};
+use std::{env, io, path::PathBuf};
 
 use thiserror::Error as ThisError;
 
@@ -23,18 +23,20 @@ pub enum ConfigError {
     #[error("failed to resolve current directory for IcyDB config discovery: {source}")]
     CurrentDir { source: io::Error },
 
+    #[error("failed to resolve generated actor output directory from OUT_DIR: {source}")]
+    OutDir { source: env::VarError },
+
+    #[error("failed to write generated actor at '{}': {source}", path.display())]
+    WriteGeneratedActor { path: PathBuf, source: io::Error },
+
     #[error("IcyDB config at '{}' contains an empty canister name", path.display())]
     EmptyCanisterName { path: PathBuf },
 
     #[error(
-        "IcyDB config at '{}' has ambiguous canister names '{first}' and '{second}' after normalization",
+        "IcyDB config at '{}' contains canister '{canister}', but canister names must be lower snake_case ASCII",
         path.display()
     )]
-    AmbiguousCanisterName {
-        path: PathBuf,
-        first: String,
-        second: String,
-    },
+    InvalidCanisterName { path: PathBuf, canister: String },
 
     #[error(
         "IcyDB config at '{}' contains canister '{canister}' but the generated schema has no matching canister",
@@ -42,8 +44,9 @@ pub enum ConfigError {
     )]
     UnknownCanister { path: PathBuf, canister: String },
 
-    #[error(
-        "generated schema canister names '{first}' and '{second}' are ambiguous after normalization"
-    )]
+    #[error("generated schema canister name '{canister}' is not lower snake_case ASCII")]
+    InvalidKnownCanisterName { canister: String },
+
+    #[error("generated schema canister name '{first}' is duplicated by '{second}'")]
     AmbiguousKnownCanister { first: String, second: String },
 }

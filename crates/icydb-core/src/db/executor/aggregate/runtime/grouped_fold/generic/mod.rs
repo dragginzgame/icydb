@@ -2,6 +2,7 @@
 //! Responsibility: generic grouped reducer execution.
 //! Boundary: exports the runner entrypoint for grouped fold orchestration.
 
+mod page_finalize;
 mod runner;
 
 pub(super) use runner::execute_generic_grouped_fold_stage;

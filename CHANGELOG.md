@@ -7,14 +7,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Shared typed query EXPLAIN plan finalization with execution EXPLAIN so
-  session-visible access-choice facts are frozen through one path, while
-  logical plans own plan-hash rendering reused by EXPLAIN, trace, planned, and
-  compiled query surfaces and a single-use shared-plan mapper is removed.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.47` continues the query-engine diagnostics cleanup by consolidating
+  fluent and SQL attribution shaping into owner modules without changing
+  public attribution fields.
+
+- `0.184.46` continues the generated-surface and schema-publication audit by
+  hard-cutting canister build configuration through target-aware metrics modes
+  and rolling back failed SQL DDL expression-index publication cleanly.
+
+- `0.184.45` continues the query-engine audit by sharing prepared-plan
+  EXPLAIN, trace, plan-hash, planned, and compiled query surfaces through the
+  shared plan shell without changing query semantics.
 
 - `0.184.44` continues the query-engine audit by tightening SQL/filter
   authority, residual-shape guardrails, live SQL matrix coverage, and fluent

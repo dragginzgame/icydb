@@ -435,10 +435,6 @@ fn assert_execution_public_metadata_parity(
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "public-contract metadata parity test keeps one full route-shape matrix inline"
-)]
 fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_shapes() {
     let mut fast_path_properties = ExplainPropertyMap::new();
     fast_path_properties.insert("fast_path", Value::Text("secondary_index".to_string()));

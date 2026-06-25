@@ -244,6 +244,7 @@ check-versioning: security-check
 
 check-invariants:
 	bash scripts/ci/check-dependency-graph-invariants.sh
+	bash scripts/ci/check-generated-build-config-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh

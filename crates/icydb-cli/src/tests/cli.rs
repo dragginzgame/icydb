@@ -345,7 +345,8 @@ fn cli_args_group_config_init_under_config_keyword() {
     assert!(args.fixtures());
     assert_eq!(args.update_config_value(), "true");
     assert!(args.metrics());
-    assert!(args.metrics_extended());
+    assert!(args.metrics_extended_local());
+    assert!(!args.metrics_extended_ic());
     assert!(args.snapshot());
     assert!(args.schema());
     assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
@@ -410,7 +411,8 @@ fn cli_args_config_init_no_readonly_overrides_all() {
     assert!(args.fixtures());
     assert_eq!(args.update_config_value(), "true");
     assert!(args.metrics());
-    assert!(args.metrics_extended());
+    assert!(args.metrics_extended_local());
+    assert!(!args.metrics_extended_ic());
     assert!(args.snapshot());
     assert!(args.schema());
 }
@@ -431,7 +433,28 @@ fn cli_args_config_init_metrics_extended_implies_metrics_surface() {
     };
 
     assert!(args.metrics());
-    assert!(args.metrics_extended());
+    assert!(args.metrics_extended_local());
+    assert!(!args.metrics_extended_ic());
+}
+
+#[test]
+fn cli_args_config_init_metrics_extended_ic_is_separate_target() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--canister",
+        "demo_rpg",
+        "--metrics-extended-ic",
+    ])
+    .expect("IC extended metrics config init should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    assert!(args.metrics());
+    assert!(!args.metrics_extended_local());
+    assert!(args.metrics_extended_ic());
 }
 
 #[test]

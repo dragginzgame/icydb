@@ -11,7 +11,7 @@ use crate::{
     cli::{CanisterTarget, MetricsArgs},
     config::{
         ConfiguredEndpoint, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT, METRICS_RESET_ENDPOINT,
-        require_configured_endpoint,
+        require_configured_endpoint_for_environment,
     },
     icp::require_created_canister,
     observability::{call_query, call_update, endpoint_result_error},
@@ -22,7 +22,11 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     let target = args.target();
     let endpoint = metrics_endpoint(args.reset(), args.extended());
 
-    require_configured_endpoint(target.canister_name(), endpoint)?;
+    require_configured_endpoint_for_environment(
+        target.environment(),
+        target.canister_name(),
+        endpoint,
+    )?;
     require_created_canister(target.environment(), target.canister_name())?;
 
     if args.reset() {
