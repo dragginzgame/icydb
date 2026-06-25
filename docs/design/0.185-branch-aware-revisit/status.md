@@ -11,14 +11,31 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Promote the reminder note into an actionable 0.185 design/status baseline.
-- Add a focused SQL/fluent convergence guard for the original 0.183 target
+- 0.185.1 is hardening continuation proof for the shared merged-prefix stream
+  helper.
+- Branch-set continuation already proves page-two resume after the global
+  primary-key cursor boundary.
+- The active proof gap is sparse `IN` child-prefix expansion, because that path
+  now shares the same merged-prefix helper but used to have only first-page
+  coverage.
+- The new proof compares SQL and fluent sparse-expanded page/resume behavior
+  using each surface's own continuation token. Byte-identical cursor signatures
+  for SQL `SELECT *` versus fluent full-entity sparse routes remain a separate
+  projection-identity question and are not changed in this slice.
+- This slice stays deliberately below a cursor-format hard-cut: it proves the
+  current global primary-key boundary model for admitted primary-key suffix
+  streams, without adding per-branch cursor payloads.
+
+## Completed 185.0 Baseline
+
+- Promoted the reminder note into an actionable 0.185 design/status baseline.
+- Added a focused SQL/fluent convergence guard for the original 0.183 target
   shape.
-- Start branch-tree cleanup by sharing physical merged-prefix stream
+- Started branch-tree cleanup by sharing physical merged-prefix stream
   construction across branch-set, streaming multi-lookup, and child-prefix
   expansion routes.
-- Keep continuation and adaptive-routing work queued behind the convergence and
-  shared-runtime proof.
+- Kept broader adaptive routing and cursor-format redesign queued behind the
+  convergence and shared-runtime proof.
 
 ## First Representation Audit
 

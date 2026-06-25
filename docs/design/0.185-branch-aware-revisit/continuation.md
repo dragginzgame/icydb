@@ -20,6 +20,10 @@ not a full cursor redesign.
   primary-key boundary.
 - Diagnostics-gated tests prove branch-prefix entries are not replayed
   wholesale after continuation.
+- Sparse `IN` child-prefix expansion now has a matching continuation proof:
+  page two resumes expanded child-prefix streams after the global primary-key
+  boundary, keeps child-prefix stream opens bounded, and does not replay all
+  collection-prefix index entries.
 - The physical merged-prefix helper now centralizes the prefix-empty pruning,
   fair chunk sizing, primary-key suffix resume-anchor creation, and ordered
   merge construction used by branch-set and related prefix-expansion paths.

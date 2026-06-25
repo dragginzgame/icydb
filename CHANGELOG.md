@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Added a branch-aware continuation proof for sparse `IN` routes that expand
+  parent index prefixes into child prefix streams, guarding that page-two
+  execution resumes after the primary-key cursor boundary without replaying all
+  expanded prefix entries.
+
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)

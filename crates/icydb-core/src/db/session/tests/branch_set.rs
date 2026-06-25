@@ -499,6 +499,37 @@ fn fluent_sparse_collection_query(limit: u32) -> Query<BranchIndexedSessionSqlEn
 }
 
 #[cfg(feature = "diagnostics")]
+fn execute_fluent_sparse_collection_page(
+    session: &DbSession<SessionSqlCanister>,
+    limit: usize,
+    cursor: Option<&str>,
+) -> crate::db::PagedLoadExecution<BranchIndexedSessionSqlEntity> {
+    let query = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .filter(
+            crate::db::query::builder::FieldRef::new("collection_id").in_list([
+                BRANCH_COLLECTION,
+                "missing-collection-000",
+                "missing-collection-001",
+                "missing-collection-002",
+                "missing-collection-003",
+                "missing-collection-004",
+            ]),
+        )
+        .order_term(crate::db::asc("id"))
+        .limit(u32::try_from(limit).expect("sparse collection test limit should fit into u32"));
+    let query = if let Some(cursor) = cursor {
+        query.cursor(cursor)
+    } else {
+        query
+    };
+
+    query
+        .execute_paged()
+        .unwrap_or_else(|err| panic!("sparse collection fluent page should execute: {err:?}"))
+}
+
+#[cfg(feature = "diagnostics")]
 fn with_store_and_index_reads<T>(run: impl FnOnce() -> T) -> (T, u64, u64) {
     let store_gets_before = crate::db::data::DataStore::current_get_call_count();
     let index_entries_before = crate::db::index::IndexStore::current_entry_read_count();
@@ -1483,6 +1514,96 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
     assert!(
         attribution.index_store_range_scan_calls <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
         "sparse collection page should expand only bounded non-empty child prefixes, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_cursor_continuation_resumes_expanded_child_prefixes() {
+    const LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = sparse_collection_sql("*", LIMIT);
+    let query = lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, &sql)
+        .unwrap_or_else(|err| panic!("sparse collection paged SQL should lower: {err:?}"));
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .unwrap_or_else(|err| panic!("first sparse collection page should execute: {err:?}"))
+        .into_execution();
+
+    assert_eq!(
+        paged_branch_ids(&first),
+        expected_collection_ulids(LIMIT),
+        "first sparse expanded page should match the first primary-key window",
+    );
+    let fluent_first = execute_fluent_sparse_collection_page(&session, LIMIT, None);
+    assert_eq!(
+        paged_branch_ids(&first),
+        paged_branch_ids(&fluent_first),
+        "SQL and fluent sparse expanded first pages should share key order",
+    );
+
+    let cursor = crate::db::encode_cursor(
+        first
+            .continuation_cursor()
+            .expect("first sparse expanded page should emit a continuation cursor"),
+    );
+    let fluent_cursor = crate::db::encode_cursor(
+        fluent_first
+            .continuation_cursor()
+            .expect("first fluent sparse expanded page should emit a continuation cursor"),
+    );
+    let range_scans_before = crate::db::index::IndexStore::current_range_scan_call_count();
+    let (second_with_trace, second_store_gets, second_entry_reads) =
+        with_store_and_index_reads(|| {
+            session
+                .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+                .unwrap_or_else(|err| {
+                    panic!("second sparse collection page should execute: {err:?}")
+                })
+        });
+    let second_range_scans = crate::db::index::IndexStore::current_range_scan_call_count()
+        .saturating_sub(range_scans_before);
+    let second = second_with_trace.into_execution();
+    let fluent_second =
+        execute_fluent_sparse_collection_page(&session, LIMIT, Some(&fluent_cursor));
+
+    assert_eq!(
+        paged_branch_ids(&second),
+        expected_collection_ulids(LIMIT * 2)
+            .into_iter()
+            .skip(LIMIT)
+            .collect::<Vec<_>>(),
+        "second sparse expanded page should resume after the prior primary-key boundary",
+    );
+    assert_eq!(
+        paged_branch_ids(&second),
+        paged_branch_ids(&fluent_second),
+        "SQL and fluent sparse expanded continuation pages should share key order",
+    );
+    assert!(
+        second.continuation_cursor().is_none(),
+        "second sparse expanded page should exhaust the fixture window",
+    );
+    assert!(
+        fluent_second.continuation_cursor().is_none(),
+        "fluent sparse expanded continuation page should exhaust the fixture window",
+    );
+    assert!(
+        (LIMIT as u64..=u64::try_from(LIMIT + 1).expect("test limit should fit"))
+            .contains(&second_store_gets),
+        "resumed sparse SELECT * page should hydrate only returned rows plus lookahead, got {second_store_gets} row-store gets",
+    );
+    assert!(
+        second_entry_reads < expected_collection_ulids(usize::MAX).len() as u64,
+        "resumed sparse expanded page should not replay all collection-prefix entries, got {second_entry_reads} entry reads",
+    );
+    assert!(
+        second_range_scans <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
+        "resumed sparse expanded page should keep child-prefix streams bounded, got {second_range_scans} range scans",
     );
 }
 
