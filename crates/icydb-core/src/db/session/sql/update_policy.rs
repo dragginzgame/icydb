@@ -13,7 +13,7 @@ use crate::db::{
         SqlWriteExecutionBounds, SqlWritePlanCore, SqlWritePolicyBounds,
         SqlWritePrimaryKeyPlanProof, SqlWriteReturningBounds, SqlWriteStatementShape,
         SqlWriteStatementShapeInput, classify_write_statement_shape, contains_field,
-        current_table_field_name, owned_write_field_names,
+        current_table_field_name,
     },
     sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
 };
@@ -472,46 +472,35 @@ fn validated_update_plan(
     match policy {
         SqlUpdateExposurePolicy::SessionWriteCurrent => {
             SqlValidatedUpdatePlan::SessionCurrent(SqlSessionCurrentUpdatePlan {
-                core: update_plan_core(statement, classification, execution_bounds),
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
             })
         }
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => {
             SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyUpdatePlan {
-                core: update_plan_core(statement, classification, execution_bounds),
-                primary_key_proof: SqlWritePrimaryKeyPlanProof::new(owned_write_field_names(
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
+                primary_key_proof: SqlWritePrimaryKeyPlanProof::from_field_names(
                     context.primary_key_fields,
-                )),
+                ),
             })
         }
         SqlUpdateExposurePolicy::PublicBoundedDeterministic => {
             SqlValidatedUpdatePlan::PublicBoundedDeterministic(SqlPublicBoundedUpdatePlan {
-                core: update_plan_core(statement, classification, execution_bounds),
-                bounded_proof: SqlWriteBoundedPlanProof::new(
-                    classification
-                        .write_shape
-                        .limit
-                        .expect("bounded policy admitted a limit"),
-                    owned_write_field_names(context.primary_key_fields),
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
+                bounded_proof: SqlWriteBoundedPlanProof::from_admitted_shape(
+                    &classification.write_shape,
+                    context.primary_key_fields,
                 ),
             })
         }
         SqlUpdateExposurePolicy::AdminBulk => {
             SqlValidatedUpdatePlan::AdminBulk(SqlAdminBulkUpdatePlan {
-                core: update_plan_core(statement, classification, execution_bounds),
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
             })
         }
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated update plans")
         }
     }
-}
-
-fn update_plan_core(
-    statement: &SqlUpdateStatement,
-    classification: &SqlUpdateStatementClassification,
-    execution_bounds: SqlWriteExecutionBounds,
-) -> SqlUpdatePlanCore {
-    SqlWritePlanCore::new(statement.clone(), classification.clone(), execution_bounds)
 }
 
 fn execution_bounds(

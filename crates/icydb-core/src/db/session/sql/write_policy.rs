@@ -236,6 +236,16 @@ impl<S, C> SqlWritePlanCore<S, C> {
     }
 }
 
+impl<S: Clone, C: Clone> SqlWritePlanCore<S, C> {
+    pub(in crate::db::session::sql) fn from_borrowed(
+        statement: &S,
+        classification: &C,
+        execution_bounds: SqlWriteExecutionBounds,
+    ) -> Self {
+        Self::new(statement.clone(), classification.clone(), execution_bounds)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) struct SqlWritePrimaryKeyPlanProof {
     primary_key_fields: Vec<String>,
@@ -244,6 +254,10 @@ pub(in crate::db::session::sql) struct SqlWritePrimaryKeyPlanProof {
 impl SqlWritePrimaryKeyPlanProof {
     pub(in crate::db::session::sql) const fn new(primary_key_fields: Vec<String>) -> Self {
         Self { primary_key_fields }
+    }
+
+    pub(in crate::db::session::sql) fn from_field_names(primary_key_fields: &[&str]) -> Self {
+        Self::new(owned_write_field_names(primary_key_fields))
     }
 
     pub(in crate::db::session::sql) const fn primary_key_fields(&self) -> &[String] {
@@ -274,6 +288,16 @@ impl SqlWriteBoundedPlanProof {
 
     pub(in crate::db::session::sql) const fn ordered_primary_key_fields(&self) -> &[String] {
         self.ordered_primary_key_fields.as_slice()
+    }
+
+    pub(in crate::db::session::sql) fn from_admitted_shape(
+        shape: &SqlWriteStatementShape,
+        ordered_primary_key_fields: &[&str],
+    ) -> Self {
+        Self::new(
+            shape.limit.expect("bounded policy admitted a limit"),
+            owned_write_field_names(ordered_primary_key_fields),
+        )
     }
 }
 

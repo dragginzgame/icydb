@@ -12,7 +12,7 @@ use crate::db::{
         SqlWriteAdmissionLane, SqlWriteBoundedPlanProof, SqlWriteBoundedPolicyRejection,
         SqlWriteExecutionBounds, SqlWritePlanCore, SqlWritePolicyBounds,
         SqlWritePrimaryKeyPlanProof, SqlWriteReturningBounds, SqlWriteStatementShape,
-        SqlWriteStatementShapeInput, classify_write_statement_shape, owned_write_field_names,
+        SqlWriteStatementShapeInput, classify_write_statement_shape,
     },
     sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql_with_attribution},
 };
@@ -448,46 +448,35 @@ fn validated_delete_plan(
     match policy {
         SqlDeleteExposurePolicy::SessionWriteCurrent => {
             SqlValidatedDeletePlan::SessionCurrent(SqlSessionCurrentDeletePlan {
-                core: delete_plan_core(statement, classification, execution_bounds),
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
             })
         }
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => {
             SqlValidatedDeletePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyDeletePlan {
-                core: delete_plan_core(statement, classification, execution_bounds),
-                primary_key_proof: SqlWritePrimaryKeyPlanProof::new(owned_write_field_names(
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
+                primary_key_proof: SqlWritePrimaryKeyPlanProof::from_field_names(
                     context.primary_key_fields,
-                )),
+                ),
             })
         }
         SqlDeleteExposurePolicy::PublicBoundedDeterministic => {
             SqlValidatedDeletePlan::PublicBoundedDeterministic(SqlPublicBoundedDeletePlan {
-                core: delete_plan_core(statement, classification, execution_bounds),
-                bounded_proof: SqlWriteBoundedPlanProof::new(
-                    classification
-                        .write_shape
-                        .limit
-                        .expect("bounded policy admitted a limit"),
-                    owned_write_field_names(context.primary_key_fields),
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
+                bounded_proof: SqlWriteBoundedPlanProof::from_admitted_shape(
+                    &classification.write_shape,
+                    context.primary_key_fields,
                 ),
             })
         }
         SqlDeleteExposurePolicy::AdminBulk => {
             SqlValidatedDeletePlan::AdminBulk(SqlAdminBulkDeletePlan {
-                core: delete_plan_core(statement, classification, execution_bounds),
+                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
             })
         }
         SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies never produce validated delete plans")
         }
     }
-}
-
-fn delete_plan_core(
-    statement: &SqlDeleteStatement,
-    classification: &SqlDeleteStatementClassification,
-    execution_bounds: SqlWriteExecutionBounds,
-) -> SqlDeletePlanCore {
-    SqlWritePlanCore::new(statement.clone(), classification.clone(), execution_bounds)
 }
 
 fn execution_bounds(

@@ -728,6 +728,16 @@ Status: active.
   now live with the SQL write executor. The root SQL execution dispatcher keeps
   only command-family routing and no longer owns write-specific metrics/error
   shaping.
+- H6 / D7 / F6 DELETE owner cleanup: SQL DELETE execution, DELETE RETURNING
+  projection bounds, DELETE write metrics, and public DELETE policy execution
+  adapters now live in the SQL write delete module beside the existing insert
+  and update owner modules. The shared SQL write module keeps dispatch,
+  descriptor, candidate-batch, mutation-execution, and shared metrics helpers.
+- H6 / D7 / F6 write-policy proof cleanup: UPDATE and DELETE policy
+  classifiers now share admitted plan-core, primary-key proof, and bounded
+  proof construction through the shared write-policy module. UPDATE still owns
+  assignment safety checks, and DELETE still owns DELETE-specific admission
+  semantics.
 - D1 / F3 metadata dispatch cleanup: DESCRIBE/SHOW metadata execution now owns
   its default cache-attribution envelope locally. The root SQL execution
   dispatcher no longer exports a generic statement-result cache wrapper for
