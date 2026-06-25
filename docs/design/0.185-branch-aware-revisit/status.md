@@ -11,10 +11,22 @@ expanding the optimizer.
 
 ## Current Slice
 
-- No active implementation slice is selected after `0.185.3`.
+- No active implementation slice is selected after the merged-prefix contract
+  cleanup.
 - The next branch-aware work should choose explicitly between adaptive routing,
   branch-tree replacement, or cursor-format design before changing runtime
   behavior.
+
+## Completed Merged-Prefix Contract Slice
+
+- The physical merged-prefix runtime now carries selected index shape, lowered
+  prefix specs, continuation, fetch hint, and primary-key suffix resume policy
+  through one local spec instead of loose helper arguments.
+- Branch-set routes still consume the spec-derived branch count before entering
+  the stream merger, while sparse child-prefix expansion still enters only
+  after metadata-backed expansion produces exact child prefixes.
+- Route proof now asserts that branch-set primary-key ordering does not depend
+  on sparse child-prefix expansion hints.
 
 ## Completed Terminal Metadata Slice
 

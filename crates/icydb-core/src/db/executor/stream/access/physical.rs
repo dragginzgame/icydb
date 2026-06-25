@@ -63,6 +63,74 @@ enum PrefixMergeResumePolicy {
 }
 
 ///
+/// MergedIndexPrefixStreamSpec
+///
+/// Runtime-local contract for one family of exact secondary-index prefix
+/// streams that may be merged by decoded primary key.
+///
+
+#[derive(Clone, Copy)]
+struct MergedIndexPrefixStreamSpec<'a> {
+    index: &'a IndexShapeDetails,
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    continuation: AccessScanContinuationInput<'a>,
+    index_fetch_hint: Option<usize>,
+    resume_policy: PrefixMergeResumePolicy,
+}
+
+impl<'a> MergedIndexPrefixStreamSpec<'a> {
+    const fn primary_key_suffix(
+        index: &'a IndexShapeDetails,
+        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+        continuation: AccessScanContinuationInput<'a>,
+        index_fetch_hint: Option<usize>,
+    ) -> Self {
+        Self {
+            index,
+            index_prefix_specs,
+            continuation,
+            index_fetch_hint,
+            resume_policy: PrefixMergeResumePolicy::PrimaryKeySuffix,
+        }
+    }
+
+    const fn plain(
+        index: &'a IndexShapeDetails,
+        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+        continuation: AccessScanContinuationInput<'a>,
+        index_fetch_hint: Option<usize>,
+    ) -> Self {
+        Self {
+            index,
+            index_prefix_specs,
+            continuation,
+            index_fetch_hint,
+            resume_policy: PrefixMergeResumePolicy::None,
+        }
+    }
+
+    fn resume_anchor_for(
+        self,
+        spec: &LoweredIndexPrefixSpec,
+    ) -> Result<Option<RawIndexStoreKey>, InternalError> {
+        match self.resume_policy {
+            PrefixMergeResumePolicy::None => Ok(None),
+            PrefixMergeResumePolicy::PrimaryKeySuffix => self
+                .continuation
+                .primary_key_boundary()
+                .map(|boundary| {
+                    primary_key_suffix_resume_anchor_for_prefix(self.index, spec, boundary)
+                })
+                .transpose(),
+        }
+    }
+
+    const fn chunk_entries(self, active_prefix_count: usize) -> usize {
+        branch_stream_chunk_entries(self.index_fetch_hint, active_prefix_count)
+    }
+}
+
+///
 /// StructuralPhysicalStreamRequest
 ///
 /// StructuralPhysicalStreamRequest is the generic-free physical access request
@@ -275,13 +343,12 @@ impl KeyAccessRuntime {
         if index_prefix_specs.len() != branch_count {
             return Err(InternalError::query_executor_invariant());
         }
-        self.resolve_merged_index_prefix_streams(
+        self.resolve_merged_index_prefix_streams(MergedIndexPrefixStreamSpec::primary_key_suffix(
             index,
             index_prefix_specs,
             continuation,
             index_fetch_hint,
-            PrefixMergeResumePolicy::PrimaryKeySuffix,
-        )
+        ))
     }
 
     // Resolve one multi-lookup secondary-index scan and normalize duplicates.
@@ -330,19 +397,23 @@ impl KeyAccessRuntime {
         if index_prefix_specs.len() != value_count {
             return Err(InternalError::query_executor_invariant());
         }
-        let resume_policy = if preserve_leaf_index_order {
-            PrefixMergeResumePolicy::PrimaryKeySuffix
+        let spec = if preserve_leaf_index_order {
+            MergedIndexPrefixStreamSpec::primary_key_suffix(
+                index,
+                index_prefix_specs,
+                continuation,
+                index_fetch_hint,
+            )
         } else {
-            PrefixMergeResumePolicy::None
+            MergedIndexPrefixStreamSpec::plain(
+                index,
+                index_prefix_specs,
+                continuation,
+                index_fetch_hint,
+            )
         };
 
-        self.resolve_merged_index_prefix_streams(
-            index,
-            index_prefix_specs,
-            continuation,
-            index_fetch_hint,
-            resume_policy,
-        )
+        self.resolve_merged_index_prefix_streams(spec)
     }
 
     fn expanded_index_multi_lookup_stream(
@@ -368,31 +439,27 @@ impl KeyAccessRuntime {
         }
 
         let expanded_index = index.with_slot_arity(expansion.target_prefix_len());
-        self.resolve_merged_index_prefix_streams(
+        self.resolve_merged_index_prefix_streams(MergedIndexPrefixStreamSpec::primary_key_suffix(
             &expanded_index,
             expanded_specs.as_slice(),
             continuation,
             index_fetch_hint,
-            PrefixMergeResumePolicy::PrimaryKeySuffix,
-        )
+        ))
         .map(Some)
     }
 
     fn resolve_merged_index_prefix_streams(
         &self,
-        index: &IndexShapeDetails,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        continuation: AccessScanContinuationInput<'_>,
-        index_fetch_hint: Option<usize>,
-        resume_policy: PrefixMergeResumePolicy,
+        request: MergedIndexPrefixStreamSpec<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        if index_prefix_specs.is_empty() {
+        if request.index_prefix_specs.is_empty() {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
 
-        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
-        let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
-        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
+        let empty_prefixes =
+            lowered_index_prefix_empty_bitmap(self.store, request.index_prefix_specs);
+        let mut active_specs = Vec::with_capacity(request.index_prefix_specs.len());
+        for (spec, proven_empty) in request.index_prefix_specs.iter().zip(empty_prefixes) {
             if !proven_empty {
                 active_specs.push(spec);
             }
@@ -401,27 +468,18 @@ impl KeyAccessRuntime {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
 
-        let branch_chunk_entries =
-            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
+        let branch_chunk_entries = request.chunk_entries(active_specs.len());
         let mut streams = Vec::with_capacity(active_specs.len());
         for spec in active_specs {
-            let resume_anchor = match resume_policy {
-                PrefixMergeResumePolicy::None => None,
-                PrefixMergeResumePolicy::PrimaryKeySuffix => continuation
-                    .primary_key_boundary()
-                    .map(|boundary| {
-                        primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary)
-                    })
-                    .transpose()?,
-            };
+            let resume_anchor = request.resume_anchor_for(spec)?;
             streams.push(OrderedKeyStreamBox::index_range(
                 IndexRangeKeyStream::from_prefix(
                     self.store,
                     self.entity_tag,
                     spec,
-                    continuation.direction(),
+                    request.continuation.direction(),
                     resume_anchor,
-                    index_fetch_hint,
+                    request.index_fetch_hint,
                     branch_chunk_entries,
                 ),
             ));
@@ -429,7 +487,7 @@ impl KeyAccessRuntime {
 
         Ok(OrderedKeyStreamBox::merge_all(
             streams,
-            KeyOrderComparator::from_direction(continuation.direction()),
+            KeyOrderComparator::from_direction(request.continuation.direction()),
         ))
     }
 

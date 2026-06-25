@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Tightens the branch-aware merged-prefix runtime contract so branch-set,
+  streaming multi-lookup, and sparse child-prefix expansion share one explicit
+  stream spec while keeping branch-set ordering independent from child-prefix
+  expansion.
+
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)

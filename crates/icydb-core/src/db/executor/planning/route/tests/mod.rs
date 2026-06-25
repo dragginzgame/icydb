@@ -28,7 +28,7 @@ use super::{
 };
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::{AccessPath, AccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract},
         cursor::{CursorBoundary, ValidatedCursor},
         direction::Direction,
         executor::{
@@ -939,6 +939,29 @@ fn multi_lookup_primary_key_order_plan(
     plan
 }
 
+fn branch_set_primary_key_order_plan(direction: OrderDirection) -> AccessPlannedQuery {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexBranchSet {
+            spec: IndexBranchSetSpec::from_primary_key_asc_contract(
+                SemanticIndexAccessContract::model_only_from_generated_index(
+                    ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
+                ),
+                vec![Value::Nat64(1)],
+                vec![
+                    Value::Text("draft".to_string()),
+                    Value::Text("review".to_string()),
+                ],
+            ),
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field("id", direction)],
+    });
+
+    plan
+}
+
 fn assert_primary_scan_primary_key_order_is_satisfied() {
     let mut primary_plan =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
@@ -1061,6 +1084,39 @@ fn assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof() {
     );
 }
 
+fn assert_branch_set_streams_without_child_expansion() {
+    let branch_set_plan = branch_set_primary_key_order_plan(OrderDirection::Asc);
+    let finalized_branch_set_plan =
+        finalized_plan_for_authority(route_capability_authority(), &branch_set_plan);
+
+    assert!(
+        super::access_order_satisfied_by_route_mode(&finalized_branch_set_plan),
+        "branch-set primary-key order should come from its own ordered suffix proof",
+    );
+    assert!(
+        super::access_preserves_primary_key_order_without_child_expansion(
+            &finalized_branch_set_plan,
+            Direction::Asc,
+        ),
+        "branch-set primary-key order must not depend on child-prefix expansion",
+    );
+
+    let route_plan =
+        build_load_route_plan(&branch_set_plan).expect("branch-set route plan should build");
+    assert_eq!(
+        route_plan.load_order_route_mode(),
+        LoadOrderRouteMode::DirectStreaming,
+    );
+    assert!(
+        route_plan.preserve_ordered_index_leaf_stream(),
+        "branch-set prefix streams should preserve index leaf order for lazy merging",
+    );
+    assert!(
+        route_plan.index_prefix_child_expansion().is_none(),
+        "branch-set routes must not carry the sparse multi-lookup child-expansion hint",
+    );
+}
+
 fn assert_desc_sparse_child_suffix_multi_lookup_does_not_expand_without_reverse_design() {
     let desc_sparse_child_suffix_plan = multi_lookup_primary_key_order_plan(
         ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
@@ -1093,6 +1149,7 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert_exact_prefix_multi_lookup_streams_without_child_expansion();
     assert_composite_suffix_multi_lookup_is_rejected();
     assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof();
+    assert_branch_set_streams_without_child_expansion();
     assert_desc_sparse_child_suffix_multi_lookup_does_not_expand_without_reverse_design();
 }
 
