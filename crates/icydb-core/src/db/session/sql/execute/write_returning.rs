@@ -43,6 +43,63 @@ struct SqlReturningProjectionRows {
     row_count: u32,
 }
 
+struct SqlReturningFieldProjection {
+    output_columns: Vec<String>,
+    selection: Vec<(usize, usize)>,
+    output_ordered: bool,
+}
+
+impl SqlReturningFieldProjection {
+    fn from_fields(input_columns: &[String], fields: &[String]) -> Result<Self, QueryError> {
+        let indices = sql_returning_field_indices(input_columns, fields)?;
+        let selection = sql_returning_field_selection(&indices)?;
+        let output_ordered = sql_returning_selection_is_output_ordered(selection.as_slice());
+
+        Ok(Self {
+            output_columns: fields.to_vec(),
+            selection,
+            output_ordered,
+        })
+    }
+
+    fn output_columns(&self) -> Vec<String> {
+        self.output_columns.clone()
+    }
+
+    fn output_fixed_scales(&self) -> Vec<Option<u32>> {
+        vec![None; self.output_columns.len()]
+    }
+
+    fn project_entity<E>(&self, entity: &E) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        let mut projected = (0..self.output_columns.len())
+            .map(|_| None)
+            .collect::<Vec<_>>();
+
+        for (input_index, output_index) in &self.selection {
+            let value = entity
+                .get_value_by_index(*input_index)
+                .ok_or_else(QueryError::invariant)?;
+            projected[*output_index] = Some(value);
+        }
+
+        projected
+            .into_iter()
+            .map(|value| value.ok_or_else(sql_returning_projection_alignment_error))
+            .collect()
+    }
+
+    fn project_owned_row(&self, row: Vec<Value>) -> Result<Vec<Value>, QueryError> {
+        sql_returning_project_owned_row_for_selection(
+            row,
+            self.selection.as_slice(),
+            self.output_ordered,
+        )
+    }
+}
+
 /// Shape one SQL INSERT/UPDATE mutation result after the write has already run.
 ///
 /// This helper owns only the statement-result envelope conversion for rows that
@@ -75,17 +132,19 @@ where
         }
         Some(SqlReturningProjection::Fields(fields)) => {
             let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let indices = sql_returning_field_indices(&all_columns, fields)?;
+            let projection = SqlReturningFieldProjection::from_fields(&all_columns, fields)?;
+            let output_columns = projection.output_columns();
+            let fixed_scales = projection.output_fixed_scales();
 
             // Project field-list RETURNING rows directly from typed mutation
             // outputs. This avoids constructing full rows for blob-heavy
             // entities when callers return only a small subset of fields.
             sql_projection_statement_result_from_fallible_value_rows(
-                fields.clone(),
-                vec![None; fields.len()],
+                output_columns,
+                fixed_scales,
                 entities
                     .into_iter()
-                    .map(|entity| sql_returning_selected_values(&entity, indices.as_slice())),
+                    .map(|entity| projection.project_entity(&entity)),
                 row_count,
             )
         }
@@ -117,9 +176,7 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fi
         return Ok(());
     };
     let columns = projection_labels_from_accepted_write_descriptor(descriptor);
-    let indices = sql_returning_field_indices(columns.as_slice(), fields)?;
-
-    sql_returning_field_selection(indices.as_slice()).map(|_| ())
+    SqlReturningFieldProjection::from_fields(columns.as_slice(), fields).map(|_| ())
 }
 
 /// Validate one SQL write `RETURNING` row and response budget against the
@@ -232,24 +289,6 @@ where
     Ok(row)
 }
 
-// Project a typed write result into the caller-requested RETURNING field list
-// without first materializing the full entity row.
-fn sql_returning_selected_values<E>(entity: &E, indices: &[usize]) -> Result<Vec<Value>, QueryError>
-where
-    E: EntityValue,
-{
-    let mut row = Vec::with_capacity(indices.len());
-
-    for index in indices {
-        let value = entity
-            .get_value_by_index(*index)
-            .ok_or_else(QueryError::invariant)?;
-        row.push(value);
-    }
-
-    Ok(row)
-}
-
 fn encoded_sql_returning_projection_response_len<E>(
     entity_name: &str,
     entities: &[E],
@@ -309,19 +348,20 @@ where
         }
         SqlReturningProjection::Fields(fields) => {
             let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
-            let indices = sql_returning_field_indices(&all_columns, fields)
+            let projection = SqlReturningFieldProjection::from_fields(&all_columns, fields)
                 .map_err(query_error_to_internal_invariant)?;
             let rows = entities
                 .iter()
                 .map(|entity| {
-                    sql_returning_selected_values(entity, indices.as_slice())
+                    projection
+                        .project_entity(entity)
                         .map(sql_returning_output_value_row)
                         .map_err(query_error_to_internal_invariant)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(SqlReturningProjectionRows {
-                columns: fields.clone(),
+                columns: projection.output_columns(),
                 rows,
                 row_count,
             })
@@ -350,27 +390,21 @@ fn sql_materialized_returning_projection_rows(
             row_count,
         }),
         SqlReturningProjection::Fields(fields) => {
-            let indices = sql_returning_field_indices(columns, fields)
+            let projection = SqlReturningFieldProjection::from_fields(columns, fields)
                 .map_err(query_error_to_internal_invariant)?;
-            let selection = sql_returning_field_selection(&indices)
-                .map_err(query_error_to_internal_invariant)?;
-            let output_ordered = sql_returning_selection_is_output_ordered(selection.as_slice());
             let rows = rows
                 .iter()
                 .cloned()
                 .map(|row| {
-                    sql_returning_project_owned_row_for_selection(
-                        row,
-                        selection.as_slice(),
-                        output_ordered,
-                    )
-                    .map(sql_returning_output_value_row)
-                    .map_err(query_error_to_internal_invariant)
+                    projection
+                        .project_owned_row(row)
+                        .map(sql_returning_output_value_row)
+                        .map_err(query_error_to_internal_invariant)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(SqlReturningProjectionRows {
-                columns: fields.clone(),
+                columns: projection.output_columns(),
                 rows,
                 row_count,
             })
@@ -423,20 +457,15 @@ pub(in crate::db::session::sql::execute) fn sql_returning_statement_projection(
             row_count,
         )),
         SqlReturningProjection::Fields(fields) => {
-            let indices = sql_returning_field_indices(&columns, fields)?;
-            let selection = sql_returning_field_selection(&indices)?;
-            let output_ordered = sql_returning_selection_is_output_ordered(selection.as_slice());
+            let projection = SqlReturningFieldProjection::from_fields(&columns, fields)?;
+            let output_columns = projection.output_columns();
+            let fixed_scales = projection.output_fixed_scales();
 
             sql_projection_statement_result_from_fallible_value_rows(
-                fields.clone(),
-                vec![None; fields.len()],
-                rows.into_iter().map(|row| {
-                    sql_returning_project_owned_row_for_selection(
-                        row,
-                        selection.as_slice(),
-                        output_ordered,
-                    )
-                }),
+                output_columns,
+                fixed_scales,
+                rows.into_iter()
+                    .map(|row| projection.project_owned_row(row)),
                 row_count,
             )
         }

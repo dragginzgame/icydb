@@ -31,6 +31,7 @@ use crate::{
 use super::diagnostics::GroupedSqlDiagnosticsCollector;
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_execute_phase_with_physical_access;
+#[cfg(feature = "diagnostics")]
 use super::select_plan::ResolvedSelectPreparedPlan;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::projection::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;

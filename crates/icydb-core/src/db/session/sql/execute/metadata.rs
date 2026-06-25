@@ -39,12 +39,6 @@ fn filter_show_entity_catalog(
         .collect()
 }
 
-fn sql_statement_result_with_default_cache(
-    result: Result<SqlStatementResult, QueryError>,
-) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-    result.map(|result| (result, SqlCacheAttribution::default()))
-}
-
 impl<C: CanisterKind> DbSession<C> {
     pub(super) fn describe_entity_sql_statement_result<E>(
         &self,
@@ -183,6 +177,6 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Explain(_) => return None,
         };
 
-        Some(sql_statement_result_with_default_cache(result))
+        Some(SqlCacheAttribution::with_default(result))
     }
 }

@@ -738,10 +738,20 @@ Status: active.
   proof construction through the shared write-policy module. UPDATE still owns
   assignment safety checks, and DELETE still owns DELETE-specific admission
   semantics.
+- H6 / D7 / F6 SQL write RETURNING cleanup: field-list `RETURNING` validation,
+  typed INSERT/UPDATE response shaping, materialized DELETE response shaping,
+  and response-size probing now share one field-projection plan. Entity-backed
+  and materialized row readers remain separate because they consume different
+  row sources, but field lookup, duplicate rejection, output ordering, and
+  selected-column movement no longer have separate flows.
+- D1 / F3 default cache-envelope cleanup: metadata execution and write
+  execution no longer carry separate local helpers for pairing non-cache-using
+  SQL statement results with default SQL cache attribution. The generic wrapper
+  now lives on `SqlCacheAttribution`, leaving command owner modules to shape
+  results and record owner-specific metrics only.
 - D1 / F3 metadata dispatch cleanup: DESCRIBE/SHOW metadata execution now owns
-  its default cache-attribution envelope locally. The root SQL execution
-  dispatcher no longer exports a generic statement-result cache wrapper for
-  metadata-only use.
+  metadata command routing and response shaping locally. The root SQL
+  execution dispatcher no longer exports metadata-only result wrapping.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

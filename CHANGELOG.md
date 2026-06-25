@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.50` continues the SQL write and execution cleanup by sharing
+  `RETURNING` field-projection planning and default cache-attribution wrapping
+  without changing query or write semantics.
+
 - `0.184.49` continues the SQL write cleanup by moving DELETE execution into
   its owner module and sharing admitted write-plan proof construction across
   UPDATE and DELETE policies without changing write semantics.

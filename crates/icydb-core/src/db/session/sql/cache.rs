@@ -220,6 +220,12 @@ impl SqlCacheAttribution {
         }
     }
 
+    pub(in crate::db::session::sql) fn with_default<T>(
+        result: Result<T, QueryError>,
+    ) -> Result<(T, Self), QueryError> {
+        result.map(|result| (result, Self::default()))
+    }
+
     #[cfg(feature = "diagnostics")]
     #[must_use]
     pub(in crate::db::session::sql) const fn merge(self, other: Self) -> Self {

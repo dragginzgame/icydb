@@ -75,12 +75,6 @@ where
     }
 }
 
-fn sql_statement_result_with_default_cache(
-    result: Result<SqlStatementResult, QueryError>,
-) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-    result.map(|result| (result, SqlCacheAttribution::default()))
-}
-
 fn sql_write_statement_result_with_default_cache<E, C>(
     kind: SqlWriteKind,
     result: Result<SqlStatementResult, QueryError>,
@@ -90,7 +84,7 @@ where
     C: CanisterKind,
 {
     record_sql_write_error::<E, C>(kind, &result);
-    sql_statement_result_with_default_cache(result)
+    SqlCacheAttribution::with_default(result)
 }
 
 pub(super) fn execute_compiled_sql_write_with_default_cache<E, C>(
