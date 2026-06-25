@@ -13,9 +13,11 @@ use crate::{
         direction::Direction,
         executor::{
             IndexScan, KeyOrderComparator, active_lowered_index_prefix_specs,
-            index_predicate_rejects_prefix_components, lowered_index_prefix_is_proven_empty,
-            prefix_stream_chunk_entries, read_row_presence_with_consistency_from_data_store,
+            branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
+            lowered_index_prefix_is_proven_empty,
+            read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
+            reduce_non_empty_streams_pairwise,
         },
         index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
@@ -271,7 +273,8 @@ where
         );
     }
 
-    let chunk_entries = prefix_stream_chunk_entries(Some(scan.limit), active_specs.len());
+    let index_fetch_hint = Some(scan.limit);
+    let chunk_entries = branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
     let mut streams = Vec::with_capacity(active_specs.len());
     for (spec, scan_contract, store) in active_specs {
         streams.push(CoveringComponentStreamBox::prefix(
@@ -399,28 +402,10 @@ impl<'a> CoveringComponentStreamBox<'a> {
         )))
     }
 
-    fn merge_all(mut streams: Vec<Self>, comparator: KeyOrderComparator) -> Option<Self> {
-        if streams.is_empty() {
-            return None;
-        }
-        if streams.len() == 1 {
-            return streams.pop();
-        }
-
-        while streams.len() > 1 {
-            let mut next_round = Vec::with_capacity(streams.len().div_ceil(2));
-            let mut iter = streams.into_iter();
-            while let Some(left) = iter.next() {
-                if let Some(right) = iter.next() {
-                    next_round.push(Self::merge(left, right, comparator));
-                } else {
-                    next_round.push(left);
-                }
-            }
-            streams = next_round;
-        }
-
-        streams.pop()
+    fn merge_all(streams: Vec<Self>, comparator: KeyOrderComparator) -> Option<Self> {
+        reduce_non_empty_streams_pairwise(streams, |left, right| {
+            Self::merge(left, right, comparator)
+        })
     }
 
     fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {

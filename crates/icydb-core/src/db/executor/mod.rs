@@ -173,13 +173,14 @@ pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
 pub(in crate::db::executor) use stream::access::{
     ACCESS_SCAN_CHUNK_ENTRIES, ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
     active_lowered_index_prefix_specs, branch_stream_chunk_entries,
-    index_predicate_rejects_prefix_components, prefix_stream_chunk_entries,
+    index_predicate_rejects_prefix_components,
 };
 pub(in crate::db::executor) use stream::key::{
     KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,
     exact_output_key_count_hint, key_stream_budget_is_redundant,
     ordered_key_stream_from_materialized_keys,
 };
+pub(in crate::db::executor) use stream::reduce_non_empty_streams_pairwise;
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.10` continues branch-tree cleanup by sharing active-branch chunk
+  sizing and pairwise stream-set reduction across scalar and covering branch
+  execution without collapsing their payload-specific stream types.
+
 - `0.185.9` shares active-prefix predicate and empty-prefix pruning across
   scalar, covering, and range-prefix paths, and keeps delete-only tag
   maintenance out of expensive pre-push checks.

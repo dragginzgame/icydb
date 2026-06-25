@@ -11,8 +11,8 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Exact-prefix and range-prefix index-predicate rejection sharing is complete,
-  including shared active-prefix selection for scalar and covering prefix sets.
+- Covering branch projections now share the branch-specific active-branch
+  chunk sizing contract with scalar branch execution.
 - The next narrow duplicate-flow target is remaining structural drift between
   physical prefix streams and covering prefix-component streams. Broader
   branch-tree replacement and cursor-format design remain explicit follow-ups.
@@ -25,6 +25,20 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Covering Branch Chunk Contract Slice
+
+- Covering branch and multi-prefix projections now call the same
+  branch-specific chunk sizing wrapper as scalar branch execution.
+- The wrapper still delegates to the shared prefix-stream sizing formula; this
+  slice is about preserving the active-branch-count contract at both runtime
+  surfaces.
+- The index-range invariant check now guards covering branch projections
+  against sizing pulls from the original prefix count after empty-prefix
+  pruning.
+- Covering component-stream merge and key-stream intersection now share a small
+  payload-agnostic pairwise stream reducer, avoiding a duplicate merge-tree
+  loop without forcing component-row streams into the key-stream abstraction.
 
 ## Completed Exact-Prefix Predicate Rejection Slice
 

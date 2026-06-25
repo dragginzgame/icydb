@@ -12,6 +12,7 @@ use crate::{
                 DistinctOrderedKeyStream, FlatMergeOrderedKeyStream, IntersectOrderedKeyStream,
                 KeyOrderComparator, MergeOrderedKeyStream,
             },
+            reduce_non_empty_streams_pairwise,
         },
     },
     error::InternalError,
@@ -222,36 +223,10 @@ impl OrderedKeyStreamBox {
         streams: Vec<Self>,
         comparator: KeyOrderComparator,
     ) -> Self {
-        Self::reduce_pairwise(streams, |left, right| {
+        reduce_non_empty_streams_pairwise(streams, |left, right| {
             Self::intersect(left, right, comparator)
         })
-    }
-
-    fn reduce_pairwise<F>(mut streams: Vec<Self>, combiner: F) -> Self
-    where
-        F: Fn(Self, Self) -> Self,
-    {
-        if streams.is_empty() {
-            return Self::empty();
-        }
-        if streams.len() == 1 {
-            return streams.pop().unwrap_or_else(Self::empty);
-        }
-
-        while streams.len() > 1 {
-            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
-            let mut iter = streams.into_iter();
-            while let Some(left) = iter.next() {
-                if let Some(right) = iter.next() {
-                    next_round.push(combiner(left, right));
-                } else {
-                    next_round.push(left);
-                }
-            }
-            streams = next_round;
-        }
-
-        streams.pop().unwrap_or_else(Self::empty)
+        .unwrap_or_else(Self::empty)
     }
 }
 

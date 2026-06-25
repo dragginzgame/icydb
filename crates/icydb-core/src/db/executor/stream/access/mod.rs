@@ -16,6 +16,5 @@ pub(in crate::db::executor) use physical::{IndexRangeKeyStream, PrimaryRangeKeyS
 pub(in crate::db::executor) use scan::{
     ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, PrimaryScan, active_lowered_index_prefix_specs,
     branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
-    prefix_stream_chunk_entries,
 };
 pub(in crate::db::executor) use traversal::TraversalRuntime;

@@ -43,10 +43,7 @@ pub(in crate::db::executor) const ACCESS_SCAN_CHUNK_ENTRIES: usize = 64;
 const PREFIX_STREAM_SMALL_CHUNK_ENTRIES: usize = 2;
 const PREFIX_STREAM_MAX_CHUNK_ENTRIES: usize = 64;
 
-pub(in crate::db::executor) const fn prefix_stream_chunk_entries(
-    fetch_hint: Option<usize>,
-    prefix_count: usize,
-) -> usize {
+const fn prefix_stream_chunk_entries(fetch_hint: Option<usize>, prefix_count: usize) -> usize {
     let Some(fetch_hint) = fetch_hint else {
         return ACCESS_SCAN_CHUNK_ENTRIES;
     };

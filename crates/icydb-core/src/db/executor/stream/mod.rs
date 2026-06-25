@@ -5,3 +5,33 @@
 
 pub(super) mod access;
 pub(super) mod key;
+
+pub(in crate::db::executor) fn reduce_non_empty_streams_pairwise<T, F>(
+    mut streams: Vec<T>,
+    combiner: F,
+) -> Option<T>
+where
+    F: Fn(T, T) -> T,
+{
+    if streams.is_empty() {
+        return None;
+    }
+    if streams.len() == 1 {
+        return streams.pop();
+    }
+
+    while streams.len() > 1 {
+        let mut next_round = Vec::with_capacity(streams.len().div_ceil(2));
+        let mut iter = streams.into_iter();
+        while let Some(left) = iter.next() {
+            if let Some(right) = iter.next() {
+                next_round.push(combiner(left, right));
+            } else {
+                next_round.push(left);
+            }
+        }
+        streams = next_round;
+    }
+
+    streams.pop()
+}
