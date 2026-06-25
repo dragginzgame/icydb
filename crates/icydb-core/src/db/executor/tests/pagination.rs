@@ -6,11 +6,19 @@
 use super::support::*;
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
-        cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot, ValidatedCursor},
+        access::{AccessPath, AccessPlan, SemanticIndexRangeSpec, lower_access},
+        cursor::{
+            ContinuationToken, CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput,
+            ValidatedCursor,
+        },
         diagnostics::ExecutionOptimization,
-        executor::PreparedExecutionPlan,
+        direction::Direction,
         executor::pipeline::contracts::{CursorPage, PageCursor},
+        executor::{IndexScan, PreparedExecutionPlan},
+        index::{
+            IndexCompareOp, IndexLiteral, IndexPredicateProgram,
+            predicate::{IndexPredicateExecution, literal_index_component_bytes},
+        },
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::explain::ExplainAccessPath,
         query::plan::{
@@ -6233,6 +6241,67 @@ fn load_index_prefix_empty_value_skips_range_scan() {
     assert_eq!(
         range_scans, 0,
         "empty indexed equality load should skip raw index range traversal (range_scans={range_scans})",
+    );
+}
+
+#[test]
+fn lowered_index_range_rejected_prefix_predicate_skips_range_scan() {
+    setup_pagination_test();
+
+    seed_pushdown_rows(&pushdown_rows_window(19_601));
+
+    let access = AccessPlan::<Value>::index_range(SemanticIndexRangeSpec::new(
+        PUSHDOWN_PARITY_INDEX_MODELS[0],
+        vec![0, 1],
+        vec![Value::Nat64(7)],
+        Bound::Included(Value::Nat64(10)),
+        Bound::Unbounded,
+    ));
+    let lowered = lower_access(PushdownParityEntity::ENTITY_TAG, &access)
+        .expect("composite range access should lower");
+    let [spec] = lowered.index_range_specs() else {
+        panic!("composite range access should lower to one range spec");
+    };
+    assert_eq!(
+        spec.prefix_components().len(),
+        1,
+        "lowered range spec should retain the exact group prefix",
+    );
+
+    let literal =
+        literal_index_component_bytes(&Value::Nat64(9)).expect("predicate literal should encode");
+    let program = IndexPredicateProgram::Compare {
+        component_index: 0,
+        op: IndexCompareOp::Gt,
+        literal: IndexLiteral::One(literal),
+    };
+    let predicate_execution = IndexPredicateExecution {
+        program: &program,
+        rejected_keys_counter: None,
+    };
+    let store = DB
+        .with_store_registry(|registry| registry.try_get_store(TestDataStore::PATH))
+        .expect("test store should resolve");
+    let range_scans_before = IndexStore::current_range_scan_call_count();
+    let keys = IndexScan::range_structural(
+        store,
+        PushdownParityEntity::ENTITY_TAG,
+        spec,
+        IndexScanContinuationInput::new(None, Direction::Asc),
+        usize::MAX,
+        Some(predicate_execution),
+    )
+    .expect("range scan should resolve");
+    let range_scans =
+        IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+
+    assert!(
+        keys.is_empty(),
+        "range prefix rejected by index predicate should return no keys",
+    );
+    assert_eq!(
+        range_scans, 0,
+        "range prefix rejected by index predicate should skip raw index range traversal",
     );
 }
 

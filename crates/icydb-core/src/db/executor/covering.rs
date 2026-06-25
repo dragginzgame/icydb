@@ -12,15 +12,12 @@ use crate::{
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
-            IndexScan, KeyOrderComparator, lowered_index_prefix_empty_bitmap,
-            lowered_index_prefix_is_proven_empty, prefix_stream_chunk_entries,
-            read_row_presence_with_consistency_from_data_store,
+            IndexScan, KeyOrderComparator, active_lowered_index_prefix_specs,
+            index_predicate_rejects_prefix_components, lowered_index_prefix_is_proven_empty,
+            prefix_stream_chunk_entries, read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
-        index::{
-            IndexEntryExistenceWitness, RawIndexStoreKey,
-            predicate::{IndexPredicateExecution, eval_index_program_on_prefix_components},
-        },
+        index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
@@ -108,6 +105,11 @@ where
     let continuation = IndexScanContinuationInput::new(None, direction);
 
     if let [spec] = index_prefix_specs {
+        if index_predicate_rejects_prefix_components(spec.prefix_components(), predicate_execution)
+        {
+            return Ok(Vec::new());
+        }
+
         let scan_contract = spec.scan_contract();
         let store = resolve_store_for_index(scan_contract.store_path())?;
         if lowered_index_prefix_is_proven_empty(store, spec) {
@@ -141,6 +143,11 @@ where
     }
 
     if let [spec] = index_range_specs {
+        if index_predicate_rejects_prefix_components(spec.prefix_components(), predicate_execution)
+        {
+            return Ok(Vec::new());
+        }
+
         let scan_contract = spec.scan_contract();
         return resolve_covering_projection_components_for_index_bounds(
             resolve_store_for_index(scan_contract.store_path())?,
@@ -221,22 +228,13 @@ where
     let same_store = index_prefix_specs
         .iter()
         .all(|spec| spec.scan_contract().store_path() == first_store_path.as_str());
-    let empty_prefixes = if same_store {
-        lowered_index_prefix_empty_bitmap(prefix_store, index_prefix_specs)
-    } else {
-        vec![false; index_prefix_specs.len()]
-    };
+    let empty_proof_store = if same_store { Some(prefix_store) } else { None };
     let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
-    for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
-        if prefix_components_rejected_by_predicate(
-            spec.prefix_components(),
-            scan.predicate_execution,
-        ) {
-            continue;
-        }
-        if proven_empty {
-            continue;
-        }
+    for spec in active_lowered_index_prefix_specs(
+        empty_proof_store,
+        index_prefix_specs,
+        scan.predicate_execution,
+    ) {
         let scan_contract = spec.scan_contract();
         let store = if same_store {
             prefix_store
@@ -332,17 +330,6 @@ fn resolve_materialized_covering_projection_components_for_prefix_set(
     }
 
     Ok(rows)
-}
-
-fn prefix_components_rejected_by_predicate(
-    prefix_components: &[Vec<u8>],
-    predicate_execution: Option<IndexPredicateExecution<'_>>,
-) -> bool {
-    predicate_execution
-        .and_then(|execution| {
-            eval_index_program_on_prefix_components(prefix_components, execution.program)
-        })
-        .is_some_and(|passed| !passed)
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.

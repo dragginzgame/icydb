@@ -98,6 +98,32 @@ fn branch_target_index_residual_sql(select: &str, limit: usize) -> String {
     )
 }
 
+#[cfg(feature = "diagnostics")]
+fn branch_target_rejected_prefix_predicate_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage = 'Draft' \
+           AND stage > 'Review' \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
+#[cfg(feature = "diagnostics")]
+fn branch_target_rejected_multi_prefix_predicate_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ('Draft', 'Review') \
+           AND stage > 'Review' \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
 fn branch_target_wide_sql(select: &str, limit: usize) -> String {
     format!(
         "SELECT {select} \
@@ -1672,6 +1698,109 @@ fn session_branch_set_sql_index_residual_covering_projection_stays_row_store_fre
     assert!(
         attribution.index_store_entry_reads <= BRANCH_INDEX_RESIDUAL_READ_CAP,
         "index-residual pruned prefix stream should remain bounded by the page, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_rejected_prefix_predicate_skips_covering_range_scan() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_rejected_prefix_predicate_sql("id, stage", BRANCH_LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("rejected-prefix covered branch SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("rejected-prefix covered branch SQL should return projection rows");
+    };
+
+    assert!(
+        rows.is_empty(),
+        "index predicate rejected by the exact prefix should return no rows",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "rejected-prefix covered projection should stay row-store-free",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "rejected-prefix covered projection should not read index entries",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 0,
+        "rejected-prefix covered projection should skip raw index range traversal",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_rejected_prefix_predicate_skips_scalar_range_scan() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_rejected_prefix_predicate_sql("id, title", BRANCH_LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!("rejected-prefix non-covered branch SQL should execute: {err:?}")
+        });
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("rejected-prefix non-covered branch SQL should return projection rows");
+    };
+
+    assert!(
+        rows.is_empty(),
+        "scalar path should return no rows when the exact prefix rejects the index predicate",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "scalar path should not hydrate rows after exact-prefix predicate rejection",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "scalar path should not read index entries after exact-prefix predicate rejection",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 0,
+        "scalar path should skip raw index range traversal after exact-prefix predicate rejection",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_rejected_multi_prefix_predicate_skips_scalar_range_scans() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_rejected_multi_prefix_predicate_sql("id, title", BRANCH_LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!("rejected multi-prefix non-covered branch SQL should execute: {err:?}")
+        });
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("rejected multi-prefix non-covered branch SQL should return projection rows");
+    };
+
+    assert!(
+        rows.is_empty(),
+        "scalar multi-prefix path should return no rows when every exact prefix rejects the index predicate",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "scalar multi-prefix path should not hydrate rows after exact-prefix predicate rejection",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "scalar multi-prefix path should not read index entries after exact-prefix predicate rejection",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 0,
+        "scalar multi-prefix path should skip raw index range traversal after exact-prefix predicate rejection",
     );
 }
 

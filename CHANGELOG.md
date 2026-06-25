@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.9` shares active-prefix predicate and empty-prefix pruning across
+  scalar, covering, and range-prefix paths, and keeps delete-only tag
+  maintenance out of expensive pre-push checks.
+
 - `0.185.8` continues branch-tree cleanup by sharing prefix-stream
   empty-prefix pruning and chunk sizing across scalar and covering projection
   paths without changing route admission.

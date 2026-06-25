@@ -11,8 +11,8 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Single-prefix covering empty-prefix pruning and shared prefix-stream chunk
-  sizing are complete.
+- Exact-prefix and range-prefix index-predicate rejection sharing is complete,
+  including shared active-prefix selection for scalar and covering prefix sets.
 - The next narrow duplicate-flow target is remaining structural drift between
   physical prefix streams and covering prefix-component streams. Broader
   branch-tree replacement and cursor-format design remain explicit follow-ups.
@@ -25,6 +25,26 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Exact-Prefix Predicate Rejection Slice
+
+- Index-only predicates can now be evaluated against known exact prefix bytes
+  through one scan-owned helper.
+- Covering projections no longer own a private copy of prefix-predicate
+  rejection logic.
+- Scalar physical prefix streams and covering prefix-component streams now
+  share the same active-prefix selection helper for empty-prefix metadata and
+  prefix-predicate rejection.
+- Materialized scalar prefix access now skips raw index range traversal when a
+  single exact prefix, or every exact prefix in a multi-prefix set, proves the
+  index predicate false before any key reads.
+- Lowered range specs now retain exact prefix bytes, so structural range scans
+  can reject impossible prefix predicates before opening the raw index range.
+- Covered and non-covered SQL projection tests prove rejected-prefix query
+  shapes return without row-store reads, index-entry reads, or range-scan
+  calls.
+- A direct executor range-spec test protects the range-prefix case because SQL
+  can now fold some contradictory range predicates before route selection.
 
 ## Completed Covering Empty-Prefix Slice
 

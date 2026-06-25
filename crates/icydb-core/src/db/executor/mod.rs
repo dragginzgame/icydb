@@ -172,7 +172,8 @@ pub(in crate::db::executor) use runtime_context::{
 pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
 pub(in crate::db::executor) use stream::access::{
     ACCESS_SCAN_CHUNK_ENTRIES, ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
-    prefix_stream_chunk_entries,
+    active_lowered_index_prefix_specs, branch_stream_chunk_entries,
+    index_predicate_rejects_prefix_components, prefix_stream_chunk_entries,
 };
 pub(in crate::db::executor) use stream::key::{
     KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,

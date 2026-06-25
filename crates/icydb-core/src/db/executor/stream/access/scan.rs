@@ -13,13 +13,16 @@ use crate::{
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-            record_row_check_index_entry_scanned, record_row_check_index_key_owned_entry,
-            record_row_check_index_row_identity_decoded,
+            lowered_index_prefix_empty_bitmap, record_row_check_index_entry_scanned,
+            record_row_check_index_key_owned_entry, record_row_check_index_row_identity_decoded,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
             RawIndexStoreKey,
-            predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
+            predicate::{
+                IndexPredicateExecution, eval_index_execution_on_decoded_key,
+                eval_index_program_on_prefix_components,
+            },
         },
         registry::StoreHandle,
     },
@@ -60,6 +63,49 @@ pub(in crate::db::executor) const fn prefix_stream_chunk_entries(
     } else {
         fair_prefix_window
     }
+}
+
+pub(in crate::db::executor) const fn branch_stream_chunk_entries(
+    index_fetch_hint: Option<usize>,
+    active_branch_count: usize,
+) -> usize {
+    prefix_stream_chunk_entries(index_fetch_hint, active_branch_count)
+}
+
+pub(in crate::db::executor) fn index_predicate_rejects_prefix_components(
+    prefix_components: &[Vec<u8>],
+    predicate_execution: Option<IndexPredicateExecution<'_>>,
+) -> bool {
+    predicate_execution
+        .and_then(|execution| {
+            eval_index_program_on_prefix_components(prefix_components, execution.program)
+        })
+        .is_some_and(|passed| !passed)
+}
+
+pub(in crate::db::executor) fn active_lowered_index_prefix_specs<'a>(
+    empty_proof_store: Option<StoreHandle>,
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    predicate_execution: Option<IndexPredicateExecution<'_>>,
+) -> Vec<&'a LoweredIndexPrefixSpec> {
+    let empty_prefixes = empty_proof_store.map_or_else(
+        || vec![false; index_prefix_specs.len()],
+        |store| lowered_index_prefix_empty_bitmap(store, index_prefix_specs),
+    );
+    let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
+    for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
+        if proven_empty {
+            continue;
+        }
+        if index_predicate_rejects_prefix_components(spec.prefix_components(), predicate_execution)
+        {
+            continue;
+        }
+
+        active_specs.push(spec);
+    }
+
+    active_specs
 }
 
 ///
@@ -237,6 +283,11 @@ impl IndexScan {
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
+        if index_predicate_rejects_prefix_components(spec.prefix_components(), predicate_execution)
+        {
+            return Ok(Vec::new());
+        }
+
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,

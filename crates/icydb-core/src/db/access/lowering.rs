@@ -261,6 +261,7 @@ pub(in crate::db) struct LoweredIndexRangeSpec {
     scan_contract: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
+    prefix_components: Vec<Vec<u8>>,
 }
 
 impl LoweredIndexRangeSpec {
@@ -269,11 +270,13 @@ impl LoweredIndexRangeSpec {
         index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
+        prefix_components: Vec<Vec<u8>>,
     ) -> Self {
         Self {
             scan_contract: LoweredIndexScanContract::from_access_contract(index),
             lower,
             upper,
+            prefix_components,
         }
     }
 
@@ -290,6 +293,11 @@ impl LoweredIndexRangeSpec {
     #[must_use]
     pub(in crate::db) const fn upper(&self) -> &Bound<LoweredKey> {
         &self.upper
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
+        self.prefix_components.as_slice()
     }
 
     // Build the canonical lowering-time invariant for validated range specs
@@ -315,6 +323,18 @@ fn lower_index_range_bounds_for_scope(
         IndexBoundsSpec::component_range(prefix, lower, upper),
     )
     .map_err(LoweredIndexRangeSpec::validated_spec_not_indexable)
+}
+
+fn lower_index_range_prefix_components(prefix: &[Value]) -> Result<Vec<Vec<u8>>, InternalError> {
+    if prefix.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    Ok(EncodedValue::try_encode_all(prefix)
+        .map_err(|_| InternalError::query_executor_invariant())?
+        .into_iter()
+        .map(|encoded| encoded.encoded().to_vec())
+        .collect())
 }
 
 // Lower one access node and collect raw index-bound specs in the same
@@ -414,7 +434,14 @@ fn lower_index_specs_for_path<K>(
                 spec.upper(),
             )
             .map_err(|_err| LoweredAccessError::IndexRange)?;
-            index_range_specs.push(LoweredIndexRangeSpec::new(spec.index(), lower, upper));
+            let prefix_components = lower_index_range_prefix_components(spec.prefix_values())
+                .map_err(|_err| LoweredAccessError::IndexRange)?;
+            index_range_specs.push(LoweredIndexRangeSpec::new(
+                spec.index(),
+                lower,
+                upper,
+                prefix_components,
+            ));
         }
         AccessPath::ByKey(_)
         | AccessPath::ByKeys(_)

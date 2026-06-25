@@ -15,11 +15,13 @@ use crate::{
         executor::{
             ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
-            expand_index_prefix_specs_with_exact_child_prefixes, lowered_index_prefix_empty_bitmap,
-            lowered_index_prefix_is_proven_empty, ordered_key_stream_from_materialized_keys,
-            pipeline::contracts::AccessScanContinuationInput, prefix_stream_chunk_entries,
-            route::IndexPrefixChildExpansionHint, route::primary_scan_fetch_hint_shape_supported,
-            stream::key::KeyOrderComparator, traversal::IndexRangeTraversalContract,
+            active_lowered_index_prefix_specs, branch_stream_chunk_entries,
+            expand_index_prefix_specs_with_exact_child_prefixes,
+            index_predicate_rejects_prefix_components, lowered_index_prefix_is_proven_empty,
+            ordered_key_stream_from_materialized_keys,
+            pipeline::contracts::AccessScanContinuationInput, route::IndexPrefixChildExpansionHint,
+            route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
+            traversal::IndexRangeTraversalContract,
         },
         index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
         key_taxonomy::RawDataStoreKeyRange,
@@ -120,10 +122,6 @@ impl<'a> MergedIndexPrefixStreamSpec<'a> {
                 })
                 .transpose(),
         }
-    }
-
-    const fn chunk_entries(self, active_prefix_count: usize) -> usize {
-        prefix_stream_chunk_entries(self.index_fetch_hint, active_prefix_count)
     }
 }
 
@@ -272,6 +270,12 @@ impl KeyAccessRuntime {
         } else {
             KeyOrderState::Unordered
         };
+        if index_predicate_rejects_prefix_components(
+            spec.prefix_components(),
+            index_predicate_execution,
+        ) {
+            return Ok((Vec::new(), key_order_state));
+        }
         if lowered_index_prefix_is_proven_empty(self.store, spec) {
             return Ok((Vec::new(), key_order_state));
         }
@@ -355,7 +359,11 @@ impl KeyAccessRuntime {
         }
 
         let mut keys = Vec::new();
-        for spec in active_index_prefix_specs(self.store, index_prefix_specs) {
+        for spec in active_lowered_index_prefix_specs(
+            Some(self.store),
+            index_prefix_specs,
+            index_predicate_execution,
+        ) {
             keys.extend(IndexScan::prefix_structural(
                 self.store,
                 self.entity_tag,
@@ -443,12 +451,15 @@ impl KeyAccessRuntime {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
 
-        let active_specs = active_index_prefix_specs(self.store, request.index_prefix_specs);
+        let active_specs =
+            active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
         if active_specs.is_empty() {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
 
-        let branch_chunk_entries = request.chunk_entries(active_specs.len());
+        let index_fetch_hint = request.index_fetch_hint;
+        let branch_chunk_entries =
+            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
         let mut streams = Vec::with_capacity(active_specs.len());
         for spec in active_specs {
             let resume_anchor = request.resume_anchor_for(spec)?;
@@ -481,6 +492,12 @@ impl KeyAccessRuntime {
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         let spec = require_index_range_spec(index_range_spec)?;
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
+        let key_order_state = if index_fetch_hint.is_some() {
+            KeyOrderState::FinalOrder
+        } else {
+            KeyOrderState::Unordered
+        };
+
         let keys = IndexScan::range_structural(
             self.store,
             self.entity_tag,
@@ -489,11 +506,6 @@ impl KeyAccessRuntime {
             fetch_limit,
             index_predicate_execution,
         )?;
-        let key_order_state = if index_fetch_hint.is_some() {
-            KeyOrderState::FinalOrder
-        } else {
-            KeyOrderState::Unordered
-        };
 
         Ok((keys, key_order_state))
     }
@@ -517,21 +529,6 @@ impl KeyAccessRuntime {
             ),
         ))
     }
-}
-
-fn active_index_prefix_specs(
-    store: StoreHandle,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-) -> Vec<&LoweredIndexPrefixSpec> {
-    let empty_prefixes = lowered_index_prefix_empty_bitmap(store, index_prefix_specs);
-    let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
-    for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
-        if !proven_empty {
-            active_specs.push(spec);
-        }
-    }
-
-    active_specs
 }
 
 fn primary_key_suffix_resume_anchor_for_prefix(
