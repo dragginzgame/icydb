@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Extends sparse `IN` child-prefix expansion to primary-key descending order
-  while keeping the route as `IndexMultiLookup` and avoiding materialized
-  sorting for proven DESC key-only covering pages, including cursor
-  continuation coverage.
-
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
+
+- `0.185.7` starts the next branch-tree cleanup by sharing physical
+  prefix-family stream setup across single-prefix, multi-prefix, branch-set,
+  and sparse child-prefix routes without changing route admission.
+
+- `0.185.6` extends sparse `IN` child-prefix expansion to primary-key
+  descending order, including key-only covering pages and cursor continuation,
+  while keeping the route identity as `IndexMultiLookup`.
 
 - `0.185.5` starts adaptive sparse `IN` routing by growing child-prefix
   expansion caps with bounded page windows and safely admitting exact-cap

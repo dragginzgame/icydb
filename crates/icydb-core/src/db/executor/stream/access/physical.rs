@@ -303,29 +303,23 @@ impl KeyAccessRuntime {
         let [spec] = index_prefix_specs else {
             return Err(InternalError::query_executor_invariant());
         };
-        if lowered_index_prefix_is_proven_empty(self.store, spec) {
-            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
-        let resume_anchor = if preserve_leaf_index_order {
-            continuation
-                .primary_key_boundary()
-                .map(|boundary| primary_key_suffix_resume_anchor_for_prefix(index, spec, boundary))
-                .transpose()?
+        let spec = if preserve_leaf_index_order {
+            MergedIndexPrefixStreamSpec::primary_key_suffix(
+                index,
+                std::slice::from_ref(spec),
+                continuation,
+                index_fetch_hint,
+            )
         } else {
-            None
+            MergedIndexPrefixStreamSpec::plain(
+                index,
+                std::slice::from_ref(spec),
+                continuation,
+                index_fetch_hint,
+            )
         };
 
-        Ok(OrderedKeyStreamBox::index_range(
-            IndexRangeKeyStream::from_prefix(
-                self.store,
-                self.entity_tag,
-                spec,
-                continuation.direction(),
-                resume_anchor,
-                index_fetch_hint,
-                ACCESS_SCAN_CHUNK_ENTRIES,
-            ),
-        ))
+        self.resolve_merged_index_prefix_streams(spec)
     }
 
     // Resolve a branch-aware composite prefix scan as lazily merged dynamic
@@ -363,12 +357,8 @@ impl KeyAccessRuntime {
             return Err(InternalError::query_executor_invariant());
         }
 
-        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
         let mut keys = Vec::new();
-        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
-            if proven_empty {
-                continue;
-            }
+        for spec in active_index_prefix_specs(self.store, index_prefix_specs) {
             keys.extend(IndexScan::prefix_structural(
                 self.store,
                 self.entity_tag,
@@ -456,14 +446,7 @@ impl KeyAccessRuntime {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
 
-        let empty_prefixes =
-            lowered_index_prefix_empty_bitmap(self.store, request.index_prefix_specs);
-        let mut active_specs = Vec::with_capacity(request.index_prefix_specs.len());
-        for (spec, proven_empty) in request.index_prefix_specs.iter().zip(empty_prefixes) {
-            if !proven_empty {
-                active_specs.push(spec);
-            }
-        }
+        let active_specs = active_index_prefix_specs(self.store, request.index_prefix_specs);
         if active_specs.is_empty() {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
@@ -537,6 +520,21 @@ impl KeyAccessRuntime {
             ),
         ))
     }
+}
+
+fn active_index_prefix_specs(
+    store: StoreHandle,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+) -> Vec<&LoweredIndexPrefixSpec> {
+    let empty_prefixes = lowered_index_prefix_empty_bitmap(store, index_prefix_specs);
+    let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
+    for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
+        if !proven_empty {
+            active_specs.push(spec);
+        }
+    }
+
+    active_specs
 }
 
 fn primary_key_suffix_resume_anchor_for_prefix(

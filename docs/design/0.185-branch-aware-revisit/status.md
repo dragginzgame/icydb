@@ -11,18 +11,31 @@ expanding the optimizer.
 
 ## Current Slice
 
-- No active implementation slice is selected after the reverse child-prefix
-  expansion cleanup.
-- The remaining major follow-ups are branch-tree replacement and cursor-format
-  design; choose one explicitly before changing runtime behavior again.
+- No active implementation slice is selected after the physical prefix-stream
+  cleanup.
+- The remaining major follow-ups are broader branch-tree replacement and
+  cursor-format design; choose one explicitly before changing runtime behavior
+  again.
 
 ## Major Follow-Up Queue
 
 - Adaptive routing: started in `0.185.5` with bounded-page child-prefix cap
   adjustment and continued with reverse child-prefix expansion. Deferred
   remainder is a real cost/estimate model.
-- Branch-tree replacement: not started.
+- Branch-tree replacement: started with physical prefix-stream consolidation.
+  Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Physical Prefix-Stream Cleanup Slice
+
+- Single-prefix index streaming now consumes the same merged-prefix stream spec
+  as branch-set, streaming multi-lookup, and sparse child-prefix expansion.
+- Materialized multi-lookup and merged-prefix streaming now share one local
+  active-prefix pruning helper, so empty-prefix metadata is interpreted once in
+  the physical stream owner.
+- This does not add a new route shape, change branch-set admission, or change
+  cursor format. It is a branch-tree cleanup step under the existing route
+  families.
 
 ## Completed Reverse Expansion Slice
 
