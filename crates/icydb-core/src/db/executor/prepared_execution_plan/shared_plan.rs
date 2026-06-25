@@ -81,6 +81,11 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
+    pub(in crate::db) fn plan_hash_hex(&self) -> String {
+        self.core.plan_hash_hex()
+    }
+
+    #[must_use]
     pub(in crate::db) fn authority(&self) -> EntityAuthority {
         self.authority.clone()
     }

@@ -65,8 +65,9 @@ BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS=(
 REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/access/path.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
   "crates/icydb-core/src/db/access/lowering.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
-  "crates/icydb-core/src/db/query/intent/cache_key.rs:::ordered_suffix: branch_set_ordered_suffix_cache_label\\(spec\\.ordered_suffix\\(\\)\\):::branch-set cache identity must include the ordered suffix proof"
-  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::branch_set_ordered_suffix_label\\(ordered_suffix\\):::branch-set fingerprint identity must include the ordered suffix proof"
+  "crates/icydb-core/src/db/access/path.rs:::pub\\(in crate::db\\) const fn label\\(self\\) -> &'static str:::branch-set ordered suffix label must stay access-owned"
+  "crates/icydb-core/src/db/query/intent/cache_key.rs:::ordered_suffix: spec\\.ordered_suffix\\(\\)\\.label\\(\\):::branch-set cache identity must include the ordered suffix proof"
+  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_str\\(self\\.hasher, ordered_suffix\\.label\\(\\)\\):::branch-set fingerprint identity must include the ordered suffix proof"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::index_prefix_offset < self.index_prefix_specs.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::validate_index_prefix_spec_alignment:::missing invariant error for misaligned index-prefix specs in physical path resolution"

@@ -579,6 +579,11 @@ impl QueryPlanHandle {
     }
 
     #[must_use]
+    fn plan_hash_hex(&self) -> String {
+        self.logical_plan().plan_hash_hex()
+    }
+
+    #[must_use]
     #[cfg(test)]
     fn into_inner(self) -> AccessPlannedQuery {
         *self.plan
@@ -615,7 +620,7 @@ impl<E: EntityKind> PlannedQuery<E> {
     /// Return the stable plan hash for this planned query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.plan.logical_plan().fingerprint().to_string()
+        self.plan.plan_hash_hex()
     }
 }
 
@@ -651,7 +656,7 @@ impl<E: EntityKind> CompiledQuery<E> {
     /// Return the stable plan hash for this compiled query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.plan.logical_plan().fingerprint().to_string()
+        self.plan.plan_hash_hex()
     }
 
     #[must_use]
@@ -732,7 +737,7 @@ impl<E: EntityKind> Query<E> {
     ) -> Result<String, QueryError> {
         let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
-        Ok(plan.fingerprint().to_string())
+        Ok(plan.plan_hash_hex())
     }
 
     // Build one typed access plan using either schema-owned indexes or the
@@ -1039,7 +1044,7 @@ impl<E: EntityKind> Query<E> {
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
         let plan = self.inner.build_plan()?;
 
-        Ok(plan.fingerprint().to_string())
+        Ok(plan.plan_hash_hex())
     }
 
     /// Plan this intent into a neutral planned query contract.

@@ -306,6 +306,11 @@ impl PreparedExecutionPlanCore {
         &self.residents.plan
     }
 
+    #[must_use]
+    pub(in crate::db::executor::prepared_execution_plan) fn plan_hash_hex(&self) -> String {
+        self.plan().plan_hash_hex()
+    }
+
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_shape(
         &self,
         authority: EntityAuthority,

@@ -29,25 +29,10 @@ const fn trace_execution_family_from_executor(family: ExecutionFamily) -> TraceE
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Borrow the cached logical plan for read-only query diagnostics so explain
-    // and hash surfaces do not clone the full access-planned query.
-    fn try_map_cached_logical_query_plan<E, T>(
-        &self,
-        query: &Query<E>,
-        map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        self.try_map_cached_shared_query_plan_ref_for_entity::<E, T>(query, |prepared_plan| {
-            map(prepared_plan.logical_plan())
-        })
-    }
-
-    // Reuse the same cached logical plan as execution explain, then freeze the
-    // explain-only access-choice facts for the effective session-visible index
-    // slice before route facts are assembled.
-    fn cached_execution_explain_plan<E>(
+    // Reuse one cached logical plan, then freeze the explain-only
+    // access-choice facts for the effective session-visible index slice before
+    // descriptor or route facts are assembled.
+    fn cached_finalized_explain_plan<E>(
         &self,
         query: &Query<E>,
         visible_indexes: &VisibleIndexes<'_>,
@@ -88,19 +73,9 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
-            self.try_map_cached_logical_query_plan(query, |plan| {
-                let mut plan = plan.clone();
-                let schema_info = visible_indexes
-                    .accepted_schema_info()
-                    .ok_or_else(QueryError::invariant)?;
-                plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
-                    query.structural().model(),
-                    visible_indexes.accepted_semantic_index_contracts(),
-                    schema_info,
-                );
+            let (plan, _, _) = self.cached_finalized_explain_plan::<E>(query, visible_indexes)?;
 
-                Ok(plan.explain())
-            })
+            Ok(plan.explain())
         })
     }
 
@@ -113,7 +88,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.try_map_cached_logical_query_plan(query, |plan| Ok(plan.fingerprint().to_string()))
+        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
+
+        Ok(prepared_plan.plan_hash_hex())
     }
 
     // Explain one load execution shape using only planner-visible
@@ -127,7 +104,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
             let (plan, authority, _) =
-                self.cached_execution_explain_plan::<E>(query, visible_indexes)?;
+                self.cached_finalized_explain_plan::<E>(query, visible_indexes)?;
 
             query
                 .structural()
@@ -146,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
             let (plan, authority, cache_attribution) =
-                self.cached_execution_explain_plan::<E>(query, visible_indexes)?;
+                self.cached_finalized_explain_plan::<E>(query, visible_indexes)?;
 
             query
                 .structural()
@@ -219,7 +196,7 @@ impl<C: CanisterKind> DbSession<C> {
             self.cached_prepared_query_plan_for_entity::<E>(query)?;
         let logical_plan = prepared_plan.logical_plan();
         let explain = logical_plan.explain();
-        let plan_hash = logical_plan.fingerprint().to_string();
+        let plan_hash = prepared_plan.plan_hash_hex();
         let executable_access = prepared_plan.access().executable_contract();
         let access_strategy = summarize_executable_access_plan(&executable_access);
         let execution_family = match prepared_plan.mode() {

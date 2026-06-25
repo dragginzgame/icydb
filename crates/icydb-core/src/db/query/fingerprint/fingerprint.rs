@@ -49,6 +49,12 @@ impl AccessPlannedQuery {
 
         PlanFingerprint(finalize_sha256_digest(hasher))
     }
+
+    /// Render the stable logical-plan fingerprint as lowercase hexadecimal.
+    #[must_use]
+    pub(in crate::db) fn plan_hash_hex(&self) -> String {
+        self.fingerprint().to_string()
+    }
 }
 
 impl ExplainPlan {

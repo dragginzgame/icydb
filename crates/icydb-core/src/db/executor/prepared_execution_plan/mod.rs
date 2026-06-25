@@ -134,6 +134,12 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         self.core.plan()
     }
 
+    /// Return the stable logical plan hash for diagnostics and trace payloads.
+    #[must_use]
+    pub(in crate::db) fn plan_hash_hex(&self) -> String {
+        self.core.plan_hash_hex()
+    }
+
     /// Expose planner-projected execution ordering for executor/lowering tests.
     #[cfg(test)]
     pub(in crate::db) fn execution_ordering(&self) -> Result<ExecutionOrdering, InternalError> {

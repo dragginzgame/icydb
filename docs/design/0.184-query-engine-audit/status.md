@@ -681,7 +681,12 @@ Status: active.
   EXPLAIN descriptor/verbose surfaces now share the plan build plus
   access-choice finalization step before rendering. Prepared `bytes_by` and
   projection terminal explains also share base load-descriptor construction and
-  terminal field metadata stamping.
+  terminal field metadata stamping. Typed query EXPLAIN and execution EXPLAIN
+  now also share the session-visible access-choice finalization helper before
+  rendering. Plan-hash rendering now lives on the logical plan and is reused
+  by prepared-plan and query-plan wrappers, so EXPLAIN, trace, planned, and
+  compiled query surfaces do not each repeat the fingerprint conversion. The
+  single-use shared-plan mapper left behind by that cleanup was also removed.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

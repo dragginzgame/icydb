@@ -1170,22 +1170,6 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    // Borrow one cached shared plan only for derived read-only facts. The helper
-    // still clones the cheap shared prepared-plan shell out of the cache map, but
-    // it avoids cloning the owned `AccessPlannedQuery` carried inside it.
-    pub(in crate::db::session) fn try_map_cached_shared_query_plan_ref_for_entity<E, T>(
-        &self,
-        query: &Query<E>,
-        map: impl FnOnce(&SharedPreparedExecutionPlan) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
-
-        map(&prepared_plan)
-    }
-
     // Map one typed query onto one cached lower prepared plan so session-owned
     // planned and compiled wrappers reuse the same cache lookup while returning
     // query-owned neutral plan DTOs.

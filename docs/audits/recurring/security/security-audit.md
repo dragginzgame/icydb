@@ -27,6 +27,23 @@ It is a strict public-boundary and fail-closed behavior audit.
 
 ---
 
+## Audit Identity
+
+Definition path: `docs/audits/recurring/security/security-audit.md`
+
+Report scope: `security-boundary`
+
+Current method tag: `Security Boundary Method V2`
+
+Use `docs/audits/reports/YYYY-MM/YYYY-MM-DD/security-boundary.md` for the
+first run of a day. Same-day reruns must use `security-boundary-2.md`,
+`security-boundary-3.md`, and so on.
+
+Method V2 refreshes the owner paths, grouped resource-policy checks, cache
+fail-closed checks, and read-only run discipline from the original V1 report.
+
+---
+
 ## Security Lenses
 
 Evaluate findings through these lenses:
@@ -60,11 +77,12 @@ Primary owners:
   * `execute_compiled_sql`
   * SQL query/update routing
   * grouped SQL execution routing
-* `db/session/sql/explain.rs`
+* `db/session/sql/execute/explain.rs`
   * explain-only SQL boundary
 * `db/sql/lowering/mod.rs`
   * `compile_sql_command`
-* `db/session/query.rs`
+* `db/session/query/mod.rs`
+* `db/session/query/*`
   * typed/fluent query execution
   * cursor token ingress at the session boundary
 * `db/cursor/*`
@@ -468,13 +486,15 @@ Use normalized statuses:
 
 * `PASS`
 * `FAIL`
-* `PARTIAL`
 * `BLOCKED`
+
+Use `PARTIAL` only in the findings table when a reviewed area has mixed
+evidence. Verification commands must resolve to `PASS`, `FAIL`, or `BLOCKED`.
 
 ## 7. Follow-Up Actions
 
-If any result is `FAIL`/`PARTIAL` or risk score is `>= 5`, include owner,
-action, and target report run.
+If any finding is `FAIL`/`PARTIAL`, any verification is `FAIL`/`BLOCKED`, or
+risk score is `>= 5`, include owner, action, and target report run.
 
 If not needed, state:
 
@@ -489,17 +509,27 @@ Start with the checks IcyDB already uses as security-adjacent evidence:
 * `bash scripts/ci/check-index-range-spec-invariants.sh`
 * `bash scripts/ci/check-memory-id-invariants.sh`
 * `bash scripts/ci/check-layer-authority-invariants.sh`
-* `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture`
-* `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture`
-* `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
-* `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
-* `cargo test -p icydb-core grouped_plan_rejects_validation_shape_matrix -- --nocapture`
-* `cargo test -p icydb-core sql_query_surfaces_reject_non_query_statement_lanes_matrix -- --nocapture`
-* `cargo test -p icydb-core grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy -- --nocapture`
-* `cargo test -p icydb-core shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces -- --nocapture`
-* `cargo test -p icydb-core sql_compile_cache_keeps_query_and_update_surfaces_separate -- --nocapture`
+* `cargo test -p icydb-core --features sql sql_query_surfaces_reject_non_query_statement_lanes_matrix -- --nocapture`
+* `cargo test -p icydb-core --features sql execute_sql_query_rejects_invalid_grouped_projection_shapes -- --nocapture`
+* `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_rejects_validation_shape_matrix -- --nocapture`
+* `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_having_order_limit_composition_enforces_bounded_policy -- --nocapture`
+* `cargo test -p icydb-core --features sql db::executor::planning::route::tests::route_grouped_runtime_revalidation_flags_match_baseline -- --nocapture`
+* `cargo test -p icydb-core --features sql grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy -- --nocapture`
+* `cargo test -p icydb-core --features sql anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture`
+* `cargo test -p icydb-core --features sql recovery_replay_is_idempotent -- --nocapture`
+* `cargo test -p icydb-core --features sql unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
+* `cargo test -p icydb-core --features sql recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
+* `cargo test -p icydb-core --features sql shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces -- --nocapture`
+* `cargo test -p icydb-core --features sql shared_query_plan_cache_key_version_mismatch_fails_closed -- --nocapture`
+* `cargo test -p icydb-core --features sql shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed -- --nocapture`
+* `cargo test -p icydb-core --features sql shared_query_plan_cache_schema_version_mismatch_fails_closed -- --nocapture`
+* `cargo test -p icydb-core --features sql sql_compile_cache_keeps_query_and_update_surfaces_separate -- --nocapture`
 
 Then add targeted checks for any newly widened public surface.
+
+Use the current `scripts/ci/` inventory as authoritative. Do not retain
+historical removed script names in this baseline; if a guardrail moved into a
+broader invariant script, record the live script that owns it.
 
 For the current architecture, this should also include live canister checks
 for:
@@ -508,6 +538,23 @@ for:
 * forged or mismatched continuation payloads
 * update-warms-query cache reuse without standalone query persistence claims
 * query-lane mutation rejection at the public SQL canister boundary
+
+Run live canister checks only when the user-managed local ICP network is
+already available. Do not start or stop that network as part of this audit; mark
+the live checks `BLOCKED` with the concrete reason when the environment is not
+available.
+
+### Read-Only Run Mode
+
+When asked to run this audit read-only:
+
+* do not modify product code or generated artifacts as a result of findings
+* write only the requested audit report and any explicitly required report
+  artifacts
+* prefer static evidence and focused verification over broad mutation-heavy
+  commands
+* do not start, stop, reset, or reconfigure external services
+* record skipped environment-dependent checks as `BLOCKED`, not as failures
 
 ---
 
