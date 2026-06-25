@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.48` continues the query-engine cleanup by moving SQL execution
+  plan, request, count, write, and metadata handoffs into owner modules without
+  changing query or write semantics.
+
 - `0.184.47` continues the query-engine diagnostics cleanup by consolidating
   fluent and SQL attribution shaping into owner modules without changing
   public attribution fields.

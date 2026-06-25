@@ -700,6 +700,38 @@ Status: active.
   for measurement boundaries and execution. SQL scalar-aggregate execute
   diagnostics now also share one helper for scalar-terminal attribution around
   measured physical-access execution.
+- D1 / F3 direct-count cleanup: SQL global aggregate orchestration now
+  consumes direct COUNT row and cardinality target/outcome contracts from a
+  dedicated execution submodule. The normal and diagnostics row-count plus
+  prefix-cardinality planning/probe/cache behavior is unchanged, but global
+  aggregate orchestration no longer owns those direct-count internals directly.
+- D1 / F3 aggregate request cleanup: SQL global aggregate orchestration now
+  consumes prepared aggregate request bundles from a dedicated SQL-to-executor
+  request adapter. Terminal-kind mapping and projection-contract construction
+  remain unchanged, but the execution adapter no longer owns terminal DTO
+  construction directly.
+- D1 / F3 aggregate plan cleanup: SQL global aggregate orchestration now
+  consumes prepared-plan resolution from a dedicated plan-cache/authority
+  module. Compiled-command cache hits, shared lower-plan cache misses, and
+  diagnostics compile-phase attribution are unchanged, but the execution
+  adapter no longer owns global aggregate plan-cache mechanics directly.
+- D1 / F3 SELECT plan cleanup: SQL SELECT execution now consumes compiled
+  SELECT prepared-plan hits, accepted-authority resolution, shared lower-plan
+  resolution, projection contracts, and diagnostics compile-phase attribution
+  from a dedicated plan module. The SELECT execution adapter keeps row
+  materialization, grouped execution, and response shaping only. The same
+  SELECT plan module now also owns the snapshot-based prepared-plan helper
+  used by write-source projections, so the broad SQL session module no longer
+  carries SELECT-only plan/projection construction.
+- H6 / D7 / F6 write dispatch cleanup: compiled SQL write dispatch, write
+  error classification, INSERT shape attribution, and default cache wrapping
+  now live with the SQL write executor. The root SQL execution dispatcher keeps
+  only command-family routing and no longer owns write-specific metrics/error
+  shaping.
+- D1 / F3 metadata dispatch cleanup: DESCRIBE/SHOW metadata execution now owns
+  its default cache-attribution envelope locally. The root SQL execution
+  dispatcher no longer exports a generic statement-result cache wrapper for
+  metadata-only use.
 - H3 / F7 checkpoint: a follow-up scan found no safe expression-analysis code
   slice to take for `.32`. The remaining parser `contains_aggregate` checks are
   cheap lane/admission screens, and the remaining planner `references_only`

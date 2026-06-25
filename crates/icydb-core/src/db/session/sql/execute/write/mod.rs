@@ -7,6 +7,7 @@ use crate::{
         data::{FieldSlot, StructuralPatch},
         executor::{DeleteProjectionBounds, EntityAuthority, MutationMode},
         query::intent::StructuralQuery,
+        response::ResponseError,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
             SchemaInfo, accepted_commit_schema_fingerprint,
@@ -16,9 +17,10 @@ use crate::{
         session::{
             AcceptedSaveContract, accepted_save_contract_for_descriptor,
             sql::{
-                SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
-                SqlPublicPrimaryKeyDeletePlan, SqlStatementResult, SqlValidatedDeletePlan,
-                classify_sql_delete_policy, combined_optional_row_bound,
+                CompiledSqlCommand, SqlCacheAttribution, SqlDeleteExposurePolicy,
+                SqlDeletePolicyContext, SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan,
+                SqlStatementResult, SqlValidatedDeletePlan, classify_sql_delete_policy,
+                combined_optional_row_bound,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, sql_write_statement_result,
@@ -30,15 +32,120 @@ use crate::{
         },
         sql::{
             lowering::bind_sql_delete_statement_structural_with_schema,
-            parser::{SqlDeleteStatement, SqlReturningProjection},
+            parser::{
+                SqlDeleteStatement, SqlInsertSource, SqlInsertStatement, SqlReturningProjection,
+            },
         },
     },
+    error::ErrorClass,
     metrics::sink::{MetricsEvent, SqlWriteKind, record},
     sanitize::SanitizeWriteContext,
     traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
     value::Value,
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
+
+// Collapse SQL execution failures into the stable error taxonomy used by the
+// public metrics report instead of exposing internal query-error variants.
+const fn sql_write_error_class(error: &QueryError) -> ErrorClass {
+    match error {
+        QueryError::Execute(err) => err.as_internal().class(),
+        QueryError::Response(ResponseError::NotFound { .. }) => ErrorClass::NotFound,
+        QueryError::Response(ResponseError::NotUnique { .. }) => ErrorClass::Conflict,
+        QueryError::Validate(_)
+        | QueryError::Plan(_)
+        | QueryError::Intent(_)
+        | QueryError::AccessRequirement(_) => ErrorClass::Unsupported,
+    }
+}
+
+// Preserve the important INSERT shape distinction because `INSERT ... SELECT`
+// has very different execution and debugging characteristics from VALUES.
+const fn sql_insert_write_kind(statement: &SqlInsertStatement) -> SqlWriteKind {
+    match &statement.source {
+        SqlInsertSource::Values(_) => SqlWriteKind::Insert,
+        SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
+    }
+}
+
+// Record only rejected SQL writes at the statement boundary. Successful writes
+// are counted by the write executors after they know row cardinalities.
+fn record_sql_write_error<E, C>(kind: SqlWriteKind, result: &Result<SqlStatementResult, QueryError>)
+where
+    E: PersistedRow<Canister = C> + EntityValue,
+    C: CanisterKind,
+{
+    if let Err(error) = result {
+        record(MetricsEvent::SqlWriteError {
+            entity_path: E::PATH,
+            kind,
+            class: sql_write_error_class(error),
+        });
+    }
+}
+
+fn sql_statement_result_with_default_cache(
+    result: Result<SqlStatementResult, QueryError>,
+) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+    result.map(|result| (result, SqlCacheAttribution::default()))
+}
+
+fn sql_write_statement_result_with_default_cache<E, C>(
+    kind: SqlWriteKind,
+    result: Result<SqlStatementResult, QueryError>,
+) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+where
+    E: PersistedRow<Canister = C> + EntityValue,
+    C: CanisterKind,
+{
+    record_sql_write_error::<E, C>(kind, &result);
+    sql_statement_result_with_default_cache(result)
+}
+
+pub(super) fn execute_compiled_sql_write_with_default_cache<E, C>(
+    session: &DbSession<C>,
+    compiled: &CompiledSqlCommand,
+) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
+where
+    E: PersistedRow<Canister = C> + EntityValue,
+    C: CanisterKind,
+{
+    match compiled {
+        CompiledSqlCommand::Delete { query, returning } => {
+            let result =
+                session.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
+            Some(sql_write_statement_result_with_default_cache::<E, C>(
+                SqlWriteKind::Delete,
+                result,
+            ))
+        }
+        CompiledSqlCommand::Insert(command) => {
+            let result = session
+                .execute_sql_insert_statement::<E>(command.statement(), command.source_query());
+            Some(sql_write_statement_result_with_default_cache::<E, C>(
+                sql_insert_write_kind(command.statement()),
+                result,
+            ))
+        }
+        CompiledSqlCommand::Update(statement) => {
+            let result = session.execute_sql_update_statement::<E>(statement);
+            Some(sql_write_statement_result_with_default_cache::<E, C>(
+                SqlWriteKind::Update,
+                result,
+            ))
+        }
+        CompiledSqlCommand::Select { .. }
+        | CompiledSqlCommand::GlobalAggregate { .. }
+        | CompiledSqlCommand::DescribeEntity
+        | CompiledSqlCommand::ShowIndexesEntity
+        | CompiledSqlCommand::ShowColumnsEntity
+        | CompiledSqlCommand::ShowEntities { .. }
+        | CompiledSqlCommand::ShowStores { .. }
+        | CompiledSqlCommand::ShowMemory => None,
+        #[cfg(feature = "sql-explain")]
+        CompiledSqlCommand::Explain(..) => None,
+    }
+}
 
 fn sql_write_key_from_literal<E>(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,

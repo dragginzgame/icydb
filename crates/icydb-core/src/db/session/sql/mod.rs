@@ -30,8 +30,6 @@ use crate::db::sql::parser::parse_sql;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        executor::{EntityAuthority, SharedPreparedExecutionPlan},
-        query::intent::StructuralQuery,
         schema::AcceptedSchemaSnapshot,
         schema::{
             execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
@@ -39,8 +37,7 @@ use crate::{
             execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
             execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
         },
-        session::sql::projection::projection_contract_from_projection_spec,
-        session::{AcceptedSchemaCatalogContext, query::QueryPlanCacheAttribution},
+        session::AcceptedSchemaCatalogContext,
         sql::{
             ddl::{PreparedSqlDdlCommand, prepare_sql_ddl_statement},
             parser::{SqlDdlStatement, SqlStatement, parse_sql_with_attribution},
@@ -319,145 +316,6 @@ fn measured<T>(stage: impl FnOnce() -> Result<T, QueryError>) -> Result<(u64, T)
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Resolve one SQL SELECT through a caller-selected accepted authority and
-    // accepted schema snapshot. Typed SQL entrypoints use this to avoid passing
-    // generated authority through the runtime cache boundary.
-    fn sql_select_prepared_plan_for_accepted_authority(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let schema_fingerprint =
-            crate::db::schema::accepted_schema_cache_fingerprint(accepted_schema)
-                .map_err(QueryError::execute)?;
-
-        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-            query,
-            authority,
-            accepted_schema,
-            schema_fingerprint,
-        )
-    }
-
-    fn sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
-                authority.clone(),
-                accepted_schema,
-                schema_fingerprint,
-                query,
-            )?;
-        Ok(Self::sql_select_projection_from_prepared_plan(
-            prepared_plan,
-            authority,
-            cache_attribution,
-        ))
-    }
-
-    fn sql_select_prepared_plan_for_accepted_authority_with_catalog(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog(
-                authority.clone(),
-                catalog,
-                query,
-            )?;
-        Ok(Self::sql_select_projection_from_prepared_plan(
-            prepared_plan,
-            authority,
-            cache_attribution,
-        ))
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn sql_select_prepared_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-            crate::db::session::query::QueryPlanCompilePhaseAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, cache_attribution, plan_compile_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
-                authority.clone(),
-                catalog,
-                query,
-            )?;
-        let (prepared_plan, projection, cache_attribution) =
-            Self::sql_select_projection_from_prepared_plan(
-                prepared_plan,
-                authority,
-                cache_attribution,
-            );
-
-        Ok((
-            prepared_plan,
-            projection,
-            cache_attribution,
-            plan_compile_attribution,
-        ))
-    }
-
-    fn sql_select_projection_from_prepared_plan(
-        prepared_plan: SharedPreparedExecutionPlan,
-        authority: EntityAuthority,
-        cache_attribution: QueryPlanCacheAttribution,
-    ) -> (
-        SharedPreparedExecutionPlan,
-        SqlProjectionContract,
-        SqlCacheAttribution,
-    ) {
-        let projection_spec = prepared_plan
-            .logical_plan()
-            .projection_spec(authority.model());
-        let projection = projection_contract_from_projection_spec(&projection_spec);
-
-        (
-            prepared_plan,
-            projection,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        )
-    }
-
     // Keep query/update surface gating owned by one helper so the SQL
     // compiled-command lane does not duplicate the same statement-family split
     // just to change the outward error wording.

@@ -21,8 +21,6 @@ use crate::{
     traits::{CanisterKind, EntityValue},
 };
 
-use super::sql_statement_result_with_default_cache;
-
 fn filter_show_entity_catalog(
     entities: Vec<EntityCatalogDescription>,
     entity: &str,
@@ -39,6 +37,12 @@ fn filter_show_entity_catalog(
             }
         })
         .collect()
+}
+
+fn sql_statement_result_with_default_cache(
+    result: Result<SqlStatementResult, QueryError>,
+) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+    result.map(|result| (result, SqlCacheAttribution::default()))
 }
 
 impl<C: CanisterKind> DbSession<C> {
