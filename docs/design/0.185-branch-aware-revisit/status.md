@@ -11,8 +11,8 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Covering branch projections now share the branch-specific active-branch
-  chunk sizing contract with scalar branch execution.
+- Materialized covering fallback now uses a shared decoded-key order, dedup,
+  direction, and limit helper.
 - The next narrow duplicate-flow target is remaining structural drift between
   physical prefix streams and covering prefix-component streams. Broader
   branch-tree replacement and cursor-format design remain explicit follow-ups.
@@ -25,6 +25,15 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Materialized Covering Window Slice
+
+- Covering fallback for unsafe prefix sets no longer owns a hand-written
+  decoded-key sort, dedup, direction, and limit block.
+- The new executor utility owns only in-memory row mechanics; callers still
+  decide whether a full materialized fallback is required.
+- Focused utility tests prove ascending, descending, deduplication, and limit
+  behavior over arbitrary row payloads.
 
 ## Completed Covering Branch Chunk Contract Slice
 

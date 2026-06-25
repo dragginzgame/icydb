@@ -13,8 +13,8 @@ use crate::{
         direction::Direction,
         executor::{
             IndexScan, KeyOrderComparator, active_lowered_index_prefix_specs,
-            branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
-            lowered_index_prefix_is_proven_empty,
+            apply_data_key_ordered_dedup_window, branch_stream_chunk_entries,
+            index_predicate_rejects_prefix_components, lowered_index_prefix_is_proven_empty,
             read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
             reduce_non_empty_streams_pairwise,
@@ -323,14 +323,7 @@ fn resolve_materialized_covering_projection_components_for_prefix_set(
             scan.predicate_execution,
         )?);
     }
-    rows.sort_by(|left, right| left.0.cmp(&right.0));
-    rows.dedup_by(|left, right| left.0 == right.0);
-    if matches!(scan.direction, Direction::Desc) {
-        rows.reverse();
-    }
-    if scan.limit != usize::MAX {
-        rows.truncate(scan.limit);
-    }
+    apply_data_key_ordered_dedup_window(&mut rows, scan.direction, scan.limit, |row| &row.0);
 
     Ok(rows)
 }

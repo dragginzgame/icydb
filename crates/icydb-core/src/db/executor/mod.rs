@@ -194,9 +194,10 @@ pub(crate) use terminal::{
 pub(in crate::db) use terminal::{
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
-pub(in crate::db::executor) use util::apply_offset_limit_window;
-pub(in crate::db::executor) use util::saturating_row_len;
-pub(in crate::db::executor) use util::saturating_u32_len;
+pub(in crate::db::executor) use util::{
+    apply_data_key_ordered_dedup_window, apply_offset_limit_window, saturating_row_len,
+    saturating_u32_len,
+};
 pub(in crate::db::executor) use window::page_window_state;
 
 ///
