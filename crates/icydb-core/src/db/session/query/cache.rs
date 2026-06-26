@@ -28,7 +28,7 @@ use crate::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, SchemaInfo, SchemaVersion,
         },
-        session::AcceptedSchemaCatalogContext,
+        session::{AcceptedSchemaCatalogContext, bounded_cache::BoundedCache},
     },
     metrics::sink::{
         CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
@@ -51,6 +51,7 @@ fn measure_query_plan_compile_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
 // Bump this when the shared lower query-plan cache key meaning changes in a
 // way that must force old in-heap entries to miss instead of aliasing.
 const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 3;
+const SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES: usize = 1024;
 
 #[cfg(test)]
 thread_local! {
@@ -235,7 +236,8 @@ struct QueryPlanCompilePhaseRecorder<'a> {
     attribution: Option<&'a mut QueryPlanCompilePhaseAttribution>,
 }
 
-pub(in crate::db) type QueryPlanCache = HashMap<QueryPlanCacheKey, SharedPreparedExecutionPlan>;
+pub(in crate::db) type QueryPlanCache =
+    BoundedCache<QueryPlanCacheKey, SharedPreparedExecutionPlan>;
 
 // Classify one shared query-plan cache miss by comparing the missed key against
 // already-warmed plans. The buckets mirror the identity dimensions that can
@@ -439,7 +441,9 @@ impl<C: CanisterKind> DbSession<C> {
 
         QUERY_PLAN_CACHES.with(|caches| {
             let mut caches = caches.borrow_mut();
-            let cache = caches.entry(scope_id).or_default();
+            let cache = caches
+                .entry(scope_id)
+                .or_insert_with(|| QueryPlanCache::new(SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES));
 
             f(cache)
         })
@@ -806,11 +810,12 @@ impl<C: CanisterKind> DbSession<C> {
                     planning_state,
                 )?;
 
-                Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
+                SharedPreparedExecutionPlan::from_plan(
                     authority.clone(),
                     plan,
                     schema.fingerprint(),
-                ))
+                )
+                .map_err(QueryError::execute)
             },
         )
     }
@@ -901,11 +906,12 @@ impl<C: CanisterKind> DbSession<C> {
                     return Err(QueryError::invariant());
                 };
 
-                Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
+                SharedPreparedExecutionPlan::from_plan(
                     authority.clone(),
                     plan,
                     schema_identity.fingerprint,
-                ))
+                )
+                .map_err(QueryError::execute)
             },
         )
     }
@@ -986,7 +992,12 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let (prepared_plan, attribution) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
-        Ok((prepared_plan.typed_clone::<E>(), attribution))
+        Ok((
+            prepared_plan
+                .typed_clone::<E>()
+                .map_err(QueryError::execute)?,
+            attribution,
+        ))
     }
 
     #[cfg(feature = "diagnostics")]
@@ -1010,7 +1021,9 @@ impl<C: CanisterKind> DbSession<C> {
             self.cached_shared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)?;
 
         Ok((
-            prepared_plan.typed_clone::<E>(),
+            prepared_plan
+                .typed_clone::<E>()
+                .map_err(QueryError::execute)?,
             cache_attribution,
             compile_attribution,
         ))

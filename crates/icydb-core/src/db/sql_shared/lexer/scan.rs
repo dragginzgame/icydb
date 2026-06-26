@@ -1,6 +1,7 @@
 use crate::db::sql_shared::{
-    SqlParseError, SqlSyntaxErrorKind, TokenKind,
+    MAX_SQL_TOKENS, SqlParseError, SqlSyntaxErrorKind, TokenKind,
     lexer::{Lexer, keywords::is_identifier_start},
+    sql_token_limit_error,
     types::Token,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
@@ -19,6 +20,9 @@ impl<'a> Lexer<'a> {
         let mut tokens = Vec::with_capacity(initial_token_capacity(sql));
 
         while let Some(token) = lexer.next_token()? {
+            if tokens.len() >= MAX_SQL_TOKENS {
+                return Err(sql_token_limit_error());
+            }
             tokens.push(token);
         }
 

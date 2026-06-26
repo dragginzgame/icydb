@@ -86,7 +86,16 @@ fn canonical_cmp_same_rank(left: &Value, right: &Value) -> Ordering {
         (Value::NatBig(a), Value::NatBig(b)) => a.cmp(b),
         (Value::Ulid(a), Value::Ulid(b)) => a.cmp(b),
         (Value::Null, Value::Null) | (Value::Unit, Value::Unit) => Ordering::Equal,
-        _ => Ordering::Equal,
+        _ => {
+            debug_assert_ne!(
+                left.canonical_rank(),
+                right.canonical_rank(),
+                "canonical ranks must stay unique across mismatched value variants",
+            );
+            left.canonical_tag()
+                .to_u8()
+                .cmp(&right.canonical_tag().to_u8())
+        }
     }
 }
 

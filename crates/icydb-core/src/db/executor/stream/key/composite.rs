@@ -6,7 +6,10 @@
 use crate::{
     db::{
         data::DecodedDataStoreKey,
-        executor::stream::key::{KeyOrderComparator, OrderedKeyStream},
+        executor::stream::{
+            FlatMergeOrderedChild, FlatMergeStream,
+            key::{KeyOrderComparator, OrderedKeyStream},
+        },
         key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
@@ -19,7 +22,7 @@ const fn row_key_witness(key: &DecodedDataStoreKey) -> RowKeyWitness {
     (key.entity_tag(), key.primary_key_value())
 }
 
-fn witness_matches_key(witness: &RowKeyWitness, key: &DecodedDataStoreKey) -> bool {
+fn row_witness_matches_key(witness: &RowKeyWitness, key: &DecodedDataStoreKey) -> bool {
     witness.0 == key.entity_tag() && witness.1 == key.primary_key_value()
 }
 
@@ -235,7 +238,7 @@ where
             if self
                 .last_emitted
                 .as_ref()
-                .is_some_and(|last| witness_matches_key(last, &next))
+                .is_some_and(|last| row_witness_matches_key(last, &next))
             {
                 continue;
             }
@@ -246,17 +249,53 @@ where
     }
 }
 
-struct FlatMergeChild<S> {
+struct KeyFlatMergeChild<S> {
     stream: S,
     state: StreamSideState,
 }
 
-impl<S> FlatMergeChild<S> {
+impl<S> KeyFlatMergeChild<S> {
     const fn new(stream: S, comparator: KeyOrderComparator) -> Self {
         Self {
             stream,
             state: StreamSideState::new(comparator),
         }
+    }
+}
+
+impl<S> FlatMergeOrderedChild for KeyFlatMergeChild<S>
+where
+    S: OrderedKeyStream,
+{
+    type Item = DecodedDataStoreKey;
+    type KeyWitness = RowKeyWitness;
+
+    fn ensure_item(&mut self) -> Result<(), InternalError> {
+        self.state.ensure_item(&mut self.stream)
+    }
+
+    fn head_key(&self) -> Option<&DecodedDataStoreKey> {
+        self.state.item.as_ref()
+    }
+
+    fn take_item(&mut self) -> Option<Self::Item> {
+        self.state.take_item()
+    }
+
+    fn clear_item(&mut self) {
+        self.state.clear_item();
+    }
+
+    fn item_key(item: &Self::Item) -> &DecodedDataStoreKey {
+        item
+    }
+
+    fn key_witness(key: &DecodedDataStoreKey) -> Self::KeyWitness {
+        row_key_witness(key)
+    }
+
+    fn witness_matches_key(witness: &Self::KeyWitness, key: &DecodedDataStoreKey) -> bool {
+        row_witness_matches_key(witness, key)
     }
 }
 
@@ -269,10 +308,11 @@ impl<S> FlatMergeChild<S> {
 /// ordering information.
 ///
 
-pub(in crate::db::executor) struct FlatMergeOrderedKeyStream<S> {
-    children: Vec<FlatMergeChild<S>>,
-    comparator: KeyOrderComparator,
-    last_emitted: Option<RowKeyWitness>,
+pub(in crate::db::executor) struct FlatMergeOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    inner: FlatMergeStream<KeyFlatMergeChild<S>>,
 }
 
 impl<S> FlatMergeOrderedKeyStream<S>
@@ -285,61 +325,13 @@ where
         streams: Vec<S>,
         comparator: KeyOrderComparator,
     ) -> Self {
+        let children = streams
+            .into_iter()
+            .map(|stream| KeyFlatMergeChild::new(stream, comparator))
+            .collect();
+
         Self {
-            children: streams
-                .into_iter()
-                .map(|stream| FlatMergeChild::new(stream, comparator))
-                .collect(),
-            comparator,
-            last_emitted: None,
-        }
-    }
-
-    fn ensure_items(&mut self) -> Result<(), InternalError> {
-        for child in &mut self.children {
-            child.state.ensure_item(&mut child.stream)?;
-        }
-
-        Ok(())
-    }
-
-    fn next_child_index(&self) -> Option<usize> {
-        let mut best = None;
-        for (index, child) in self.children.iter().enumerate() {
-            let Some(candidate) = child.state.item.as_ref() else {
-                continue;
-            };
-            let Some(best_index) = best else {
-                best = Some(index);
-                continue;
-            };
-            let Some(best_key) = self.children[best_index].state.item.as_ref() else {
-                best = Some(index);
-                continue;
-            };
-            if self
-                .comparator
-                .compare_data_keys(candidate, best_key)
-                .is_lt()
-            {
-                best = Some(index);
-            }
-        }
-
-        best
-    }
-
-    fn clear_duplicate_heads(&mut self, emitted: &DecodedDataStoreKey) {
-        let emitted_witness = row_key_witness(emitted);
-        for child in &mut self.children {
-            if child
-                .state
-                .item
-                .as_ref()
-                .is_some_and(|key| witness_matches_key(&emitted_witness, key))
-            {
-                child.state.clear_item();
-            }
+            inner: FlatMergeStream::new(children, comparator),
         }
     }
 }
@@ -349,27 +341,7 @@ where
     S: OrderedKeyStream,
 {
     fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        loop {
-            self.ensure_items()?;
-            let Some(child_index) = self.next_child_index() else {
-                return Ok(None);
-            };
-            let Some(next) = self.children[child_index].state.take_item() else {
-                return Ok(None);
-            };
-            self.clear_duplicate_heads(&next);
-
-            if self
-                .last_emitted
-                .as_ref()
-                .is_some_and(|last| witness_matches_key(last, &next))
-            {
-                continue;
-            }
-
-            self.last_emitted = Some(row_key_witness(&next));
-            return Ok(Some(next));
-        }
+        self.inner.next_item()
     }
 }
 
@@ -450,7 +422,7 @@ where
                 if self
                     .last_emitted
                     .as_ref()
-                    .is_some_and(|last| witness_matches_key(last, &next))
+                    .is_some_and(|last| row_witness_matches_key(last, &next))
                 {
                     continue;
                 }

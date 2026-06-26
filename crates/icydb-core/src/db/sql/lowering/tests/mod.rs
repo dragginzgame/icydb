@@ -32,10 +32,11 @@ use crate::{
                 lower_supported_order_expr_text, prepare_sql_statement,
             },
             parser::{
-                SqlAggregateCall, SqlAggregateKind, SqlExpr, SqlExprBinaryOp, SqlParseError,
-                parse_sql,
+                SqlAggregateCall, SqlAggregateKind, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp,
+                SqlParseError, SqlProjection, SqlSelectStatement, SqlStatement, parse_sql,
             },
         },
+        sql_shared::{MAX_SQL_EXPR_DEPTH, SqlSyntaxErrorKind},
         test_support::source_guard::{collect_rust_sources, relative_rust_source_path},
     },
     model::field::{FieldKind, FieldStorageDecode, LeafCodec},
@@ -1760,6 +1761,45 @@ fn prepare_sql_statement_rejects_parameters_before_lowering() {
             "{context} should be rejected by the prepared parameter contract: {err:?}",
         );
     }
+}
+
+#[test]
+fn prepare_sql_statement_rejects_excessive_constructed_ast_depth() {
+    let mut predicate = SqlExpr::Field("age".to_string());
+    for _ in 0..140 {
+        predicate = SqlExpr::Unary {
+            op: SqlExprUnaryOp::Not,
+            expr: Box::new(predicate),
+        };
+    }
+    let statement = SqlStatement::Select(SqlSelectStatement {
+        entity: SqlLowerEntity::MODEL.name().to_string(),
+        table_alias: None,
+        projection: SqlProjection::All,
+        projection_aliases: Vec::new(),
+        predicate: Some(predicate),
+        distinct: false,
+        group_by: Vec::new(),
+        having: Vec::new(),
+        order_by: Vec::new(),
+        limit: None,
+        offset: None,
+    });
+
+    let err = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
+        .expect_err("constructed deep AST should reject at prepare");
+
+    assert!(
+        matches!(
+            err,
+            SqlLoweringError::Parse(SqlParseError::InvalidSyntax {
+                kind: SqlSyntaxErrorKind::ExpressionDepthLimit {
+                    max_depth: MAX_SQL_EXPR_DEPTH
+                }
+            })
+        ),
+        "constructed deep AST should fail with expression depth limit: {err:?}",
+    );
 }
 
 #[test]

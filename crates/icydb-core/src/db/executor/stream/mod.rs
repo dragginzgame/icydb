@@ -4,7 +4,12 @@
 //! Boundary: shared key-stream infrastructure consumed by executor load routes.
 
 pub(super) mod access;
+mod flat_merge;
 pub(super) mod key;
+
+pub(in crate::db::executor) use flat_merge::{
+    FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
+};
 
 pub(in crate::db::executor) fn reduce_non_empty_streams_pairwise<T, F>(
     mut streams: Vec<T>,

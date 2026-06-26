@@ -83,6 +83,7 @@ fn round_projection_scale(column: &str) -> Option<u32> {
 }
 
 fn render_decimal_with_fixed_scale(decimal: &Decimal, scale: u32) -> String {
+    let scale = scale.min(Decimal::max_supported_scale());
     let rounded = decimal.round_dp(scale);
 
     if rounded.mantissa() == 0 {
@@ -124,4 +125,20 @@ fn decimal_digits_with_scale(digits: &str, current_scale: u32, target_scale: u32
     }
 
     rendered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_decimal_with_fixed_scale_clamps_zero_scale_width() {
+        let rendered = render_projection_value_text(
+            Some(&"ROUND(amount, 4000000000)".to_string()),
+            None,
+            &OutputValue::Decimal(Decimal::ZERO),
+        );
+
+        assert_eq!(rendered, "0.0000000000000000000000000000");
+    }
 }

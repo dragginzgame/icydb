@@ -16,14 +16,59 @@ pub struct E164PhoneNumber;
 
 impl Sanitizer<String> for E164PhoneNumber {
     fn sanitize(&self, value: &mut String) -> Result<(), String> {
-        // Retain only ASCII digits
-        value.retain(|c| c.is_ascii_digit());
+        let trimmed = value.trim();
 
-        if !value.is_empty() {
-            // Prepend '+'
-            value.insert(0, '+');
+        if trimmed.is_empty() || trimmed.starts_with('+') {
+            *value = trimmed.to_owned();
+            return Ok(());
         }
 
+        if trimmed.chars().all(|c| c.is_ascii_digit()) {
+            *value = format!("+{trimmed}");
+            return Ok(());
+        }
+
+        *value = trimmed.to_owned();
+
         Ok(())
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phone_sanitizer_preserves_canonical_e164() {
+        let sanitizer = E164PhoneNumber;
+        let mut value = "  +15551234567  ".to_string();
+
+        sanitizer.sanitize(&mut value).unwrap();
+
+        assert_eq!(value, "+15551234567");
+    }
+
+    #[test]
+    fn phone_sanitizer_adds_plus_to_plain_digits() {
+        let sanitizer = E164PhoneNumber;
+        let mut value = "15551234567".to_string();
+
+        sanitizer.sanitize(&mut value).unwrap();
+
+        assert_eq!(value, "+15551234567");
+    }
+
+    #[test]
+    fn phone_sanitizer_preserves_non_digit_input_for_validator_rejection() {
+        let sanitizer = E164PhoneNumber;
+        let mut value = "+1 (555) 123-4567".to_string();
+
+        sanitizer.sanitize(&mut value).unwrap();
+
+        assert_eq!(value, "+1 (555) 123-4567");
     }
 }

@@ -9,6 +9,7 @@ use crate::{
         schema::SchemaVersion,
         session::{
             AcceptedSchemaCatalogContext,
+            bounded_cache::BoundedCache,
             sql::compiled::{CompiledSqlCommand, SqlCompiledSchemaFingerprint},
         },
     },
@@ -31,6 +32,7 @@ use crate::metrics::sink::{CacheKind, record_cache_entries};
 // front-end prepared/template lane. Grouped semantic canonicalization and
 // grouped structural/cache identity do not flow into this key.
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 2;
+const SQL_COMPILED_COMMAND_CACHE_MAX_ENTRIES: usize = 1024;
 
 ///
 /// SqlCacheAttribution
@@ -83,7 +85,7 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
 }
 
 pub(in crate::db) type SqlCompiledCommandCache =
-    HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
+    BoundedCache<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
 
 // Classify one SQL compiled-command cache miss by comparing the missed key
 // against already-warmed entries. The comparison order preserves the most
@@ -412,7 +414,9 @@ impl<C: CanisterKind> DbSession<C> {
 
         SQL_COMPILED_COMMAND_CACHES.with(|caches| {
             let mut caches = caches.borrow_mut();
-            let cache = caches.entry(scope_id).or_default();
+            let cache = caches.entry(scope_id).or_insert_with(|| {
+                SqlCompiledCommandCache::new(SQL_COMPILED_COMMAND_CACHE_MAX_ENTRIES)
+            });
 
             f(cache)
         })

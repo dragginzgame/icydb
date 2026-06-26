@@ -40,7 +40,7 @@ pub(super) fn build_scalar_page_cursor(
         continuation.cursor_boundary(),
         continuation.previous_index_range_anchor(),
         direction,
-        continuation.continuation_signature(),
+        continuation.continuation_signature()?,
     )?
     .map(PageCursor::Scalar))
 }

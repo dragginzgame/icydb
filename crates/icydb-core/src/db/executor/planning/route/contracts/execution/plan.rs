@@ -145,16 +145,20 @@ impl ExecutionRoutePlan {
     ///
     /// Non-grouped routes intentionally report no grouped diagnostics payload.
     #[must_use]
-    pub(in crate::db::executor) const fn grouped_observability(
+    pub(in crate::db::executor) fn grouped_observability(
         &self,
     ) -> Option<GroupedRouteObservability> {
         match self.route_shape_kind() {
             RouteShapeKind::AggregateGrouped => {
-                let grouped_plan_strategy =
-                    self.grouped_plan_strategy.expect("grouped route invariant");
-                let grouped_execution_mode = self
-                    .grouped_execution_mode
-                    .expect("grouped route invariant");
+                let (Some(grouped_plan_strategy), Some(grouped_execution_mode)) =
+                    (self.grouped_plan_strategy, self.grouped_execution_mode)
+                else {
+                    debug_assert!(
+                        false,
+                        "grouped route observability requires grouped payloads"
+                    );
+                    return None;
+                };
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if eligible {
                     debug_assert!(

@@ -170,7 +170,12 @@ fn collect_delete_rows_from_key_stream<S, T>(
 where
     S: crate::db::executor::OrderedKeyStream + ?Sized,
 {
-    let mut rows = Vec::with_capacity(key_stream.exact_key_count_hint().unwrap_or(0));
+    let mut rows = Vec::with_capacity(
+        key_stream
+            .exact_key_count_hint()
+            .unwrap_or(0)
+            .min(crate::db::executor::ACCESS_SCAN_CHUNK_ENTRIES),
+    );
     let mut rows_loaded = 0usize;
 
     while let Some(key) = key_stream.next_key()? {

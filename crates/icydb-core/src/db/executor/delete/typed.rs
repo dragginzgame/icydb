@@ -86,7 +86,7 @@ where
 {
     // Phase 1: resolve delete access rows once through the shared executor
     // key-stream seam and record the real candidate count for metrics.
-    let row_layout = prepared.authority.entity.row_layout();
+    let row_layout = prepared.authority.entity.row_layout()?;
     let rows = resolve_delete_candidate_rows_recorded_as(store, prepared, |row| {
         DeleteRow::<E>::from_delete_data_row(&row_layout, row)
     })?;

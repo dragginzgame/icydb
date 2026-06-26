@@ -19,6 +19,7 @@ use crate::{
             AcceptedSaveContract, accepted_save_contract_for_descriptor,
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
+                combined_optional_row_bound,
                 execute::write_returning::{
                     sql_write_statement_result, validate_sql_returning_bounds,
                     validate_sql_returning_projection_fields,
@@ -35,6 +36,8 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
+
+const SQL_WRITE_MUTATION_BATCH_INITIAL_RESERVE_ROWS: usize = 64;
 
 // Collapse SQL execution failures into the stable error taxonomy used by the
 // public metrics report instead of exposing internal query-error variants.
@@ -363,6 +366,10 @@ struct SqlWriteRowAttribution {
 struct SqlWriteCandidateRows(usize);
 
 impl SqlWriteCandidateRows {
+    const fn from_len(len: usize) -> Self {
+        Self(len)
+    }
+
     const fn len(self) -> usize {
         self.0
     }
@@ -407,6 +414,24 @@ fn sql_update_candidate_bounds(
     SqlWriteCandidateBounds::from_max_rows(
         execution_bounds.and_then(|bounds| bounds.max_staged_rows),
     )
+}
+
+fn sql_insert_candidate_bounds(
+    execution_bounds: Option<SqlWriteExecutionBounds>,
+    returning: bool,
+) -> SqlWriteCandidateBounds {
+    let Some(execution_bounds) = execution_bounds else {
+        return SqlWriteCandidateBounds::from_max_rows(None);
+    };
+
+    if !returning {
+        return SqlWriteCandidateBounds::from_max_rows(execution_bounds.max_staged_rows);
+    }
+
+    SqlWriteCandidateBounds::from_max_rows(combined_optional_row_bound(
+        execution_bounds.max_staged_rows,
+        execution_bounds.returning.max_rows,
+    ))
 }
 
 impl SqlWriteRowAttribution {
@@ -542,27 +567,6 @@ impl<E> SqlWriteMutationExecution<E>
 where
     E: PersistedRow + EntityValue,
 {
-    const fn from_unbounded_batch(
-        rows: SqlWriteMutationBatch<E::Key>,
-        kind: SqlWriteKind,
-        mode: MutationMode,
-        context: SanitizeWriteContext,
-        returning_bounds: Option<SqlWriteReturningBounds>,
-        save_schema_info: Option<SchemaInfo>,
-    ) -> Self {
-        let staged_rows = rows.staged_rows();
-
-        Self {
-            rows,
-            staged_rows,
-            kind,
-            mode,
-            context,
-            returning_bounds,
-            save_schema_info,
-        }
-    }
-
     fn from_bounded_batch(
         rows: SqlWriteMutationBatch<E::Key>,
         bounds: SqlWriteCandidateBounds,
@@ -636,7 +640,11 @@ impl<C: CanisterKind> DbSession<C> {
                 schema,
             )?;
         let (_, _, projected_rows, _) = payload.into_components();
-        let mut rows = SqlWriteMutationBatch::with_capacity(projected_rows.len());
+        let mut rows = SqlWriteMutationBatch::with_capacity(
+            projected_rows
+                .len()
+                .min(SQL_WRITE_MUTATION_BATCH_INITIAL_RESERVE_ROWS),
+        );
         for row in projected_rows {
             let (key, patch) = row_to_patch(row.as_slice())?;
             rows.push(key, patch);

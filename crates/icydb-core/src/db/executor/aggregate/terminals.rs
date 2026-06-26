@@ -123,7 +123,7 @@ where
         ),
     };
     let state =
-        ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate);
+        ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate)?;
 
     let output = ExecutionKernel::execute_prepared_aggregate_state(executor, state)?;
     #[cfg(feature = "diagnostics")]

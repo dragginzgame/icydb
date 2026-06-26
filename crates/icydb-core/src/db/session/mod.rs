@@ -3,6 +3,7 @@
 //! Does not own: planning semantics, cursor validation rules, or storage mutation protocol.
 //! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
 
+mod bounded_cache;
 mod query;
 mod response;
 #[cfg(feature = "sql")]

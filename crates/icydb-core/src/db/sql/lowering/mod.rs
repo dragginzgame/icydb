@@ -5,6 +5,7 @@
 
 mod aggregate;
 mod analysis;
+mod ast_depth;
 mod expr;
 mod normalize;
 #[cfg(test)]

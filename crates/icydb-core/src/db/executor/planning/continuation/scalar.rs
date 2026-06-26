@@ -206,15 +206,11 @@ impl ScalarContinuationContext {
     }
 
     /// Borrow continuation signature for this runtime continuation context.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called on an initial or planning-only scalar continuation
-    /// context before runtime cursor resolution attaches a continuation
-    /// signature.
-    #[must_use]
-    pub(in crate::db::executor) const fn continuation_signature(&self) -> ContinuationSignature {
-        self.continuation_signature.expect("continuation invariant")
+    pub(in crate::db::executor) fn continuation_signature(
+        &self,
+    ) -> Result<ContinuationSignature, InternalError> {
+        self.continuation_signature
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Validate load scan-budget hint preconditions under this continuation context.

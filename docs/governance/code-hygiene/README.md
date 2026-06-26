@@ -221,6 +221,12 @@ invariant failure remains visible through a public API, document it as an
 invariant violation rather than a normal caller contract. Tests may still use
 `expect` when it improves failure messages.
 
+Production executor code has the stricter canister-runtime rule: no panicking
+`panic!`, `assert!`, `.unwrap()`, or `.expect()` in runtime paths. Return
+`InternalError` or a more specific typed error, and reserve `debug_assert!` for
+documenting invariants that are already enforced by fallible code. Test and
+benchmark-only code may still use panicking assertions for clarity.
+
 Workspace lint policy for panic docs is tracked in
 [`panic-docs-clippy-lint.md`](/home/adam/projects/icydb/docs/design/ideas/panic-docs-clippy-lint.md).
 
@@ -316,6 +322,8 @@ Visibility should be minimized wherever possible.
 ## 9. Invariant Handling
 
 Use invariant helpers rather than `panic!` or `unwrap()` for internal correctness checks.
+In production executor code, use fallible invariant helpers or typed
+`InternalError` returns rather than panicking assertions or unwrap/expect calls.
 
 Examples:
 

@@ -93,7 +93,7 @@ fn resolve_structural_delete_kernel_rows(
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
 ) -> Result<Vec<KernelRow>, InternalError> {
-    let row_layout = prepared.authority.entity.row_layout();
+    let row_layout = prepared.authority.entity.row_layout()?;
     let row_decoder = RowDecoder::structural();
     resolve_delete_candidate_rows_recorded_as(store, prepared, |data_row| {
         row_decoder.decode(&row_layout, data_row)

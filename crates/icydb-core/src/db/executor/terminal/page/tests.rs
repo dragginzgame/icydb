@@ -171,7 +171,8 @@ fn load_cursor_and_pagination_window_compacts_in_one_pass() {
         Some((&resolved_order, &boundary)),
         1,
         Some(2),
-    );
+    )
+    .expect("valid cursor boundary should apply");
 
     assert_eq!(rows_after_cursor, 3);
     assert_eq!(
@@ -189,7 +190,8 @@ fn load_pagination_window_without_cursor_skips_offset_then_limits() {
         kernel_row_u64(40),
     ];
 
-    let rows_after_cursor = apply_load_cursor_and_pagination_window(&mut rows, None, 2, Some(1));
+    let rows_after_cursor = apply_load_cursor_and_pagination_window(&mut rows, None, 2, Some(1))
+        .expect("pagination without cursor should apply");
 
     assert_eq!(rows_after_cursor, 4);
     assert_eq!(

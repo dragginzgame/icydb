@@ -38,6 +38,8 @@ use std::{
     thread::LocalKey,
 };
 
+const MUTATION_COMMIT_INITIAL_RESERVE_ROWS: usize = 64;
+
 ///
 /// PreparedRowOpDelta
 ///
@@ -155,8 +157,10 @@ struct PreparedRowOpBatch {
 impl PreparedRowOpBatch {
     // Allocate one preflight batch with enough room for the expected row count.
     fn with_row_capacity(row_count: usize) -> Self {
+        let reserve_rows = row_count.min(MUTATION_COMMIT_INITIAL_RESERVE_ROWS);
+
         Self {
-            prepared_row_ops: Vec::with_capacity(row_count),
+            prepared_row_ops: Vec::with_capacity(reserve_rows),
             index_store_guards: Vec::new(),
             delta: PreparedRowOpDelta::zero(),
         }
@@ -263,10 +267,12 @@ struct PreflightStoreOverlay<'a, C: CanisterKind> {
 impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
     /// Construct one empty preflight overlay for staged mutation simulation.
     fn with_row_capacity(db: &'a Db<C>, row_count: usize) -> Self {
+        let reserve_rows = row_count.min(MUTATION_COMMIT_INITIAL_RESERVE_ROWS);
+
         Self {
             db,
-            data_overrides: HashMap::with_capacity(row_count),
-            index_overrides: HashMap::with_capacity(row_count),
+            data_overrides: HashMap::with_capacity(reserve_rows),
+            index_overrides: HashMap::with_capacity(reserve_rows),
         }
     }
 
@@ -392,9 +398,9 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                     match (*override_key).cmp(raw_key) {
                         std::cmp::Ordering::Less => {
                             let override_key = (*override_key).clone();
-                            let (_, override_entry) = overrides
-                                .next()
-                                .expect("peeked override entry must be present");
+                            let Some((_, override_entry)) = overrides.next() else {
+                                return Err(InternalError::query_executor_invariant());
+                            };
                             if push_optional_index_entry_primary_key_values(
                                 index,
                                 &override_key,
@@ -409,9 +415,9 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                         }
                         std::cmp::Ordering::Equal => {
                             let override_key = (*override_key).clone();
-                            let (_, override_entry) = overrides
-                                .next()
-                                .expect("peeked override entry must be present");
+                            let Some((_, override_entry)) = overrides.next() else {
+                                return Err(InternalError::query_executor_invariant());
+                            };
                             if push_optional_index_entry_primary_key_values(
                                 index,
                                 &override_key,
@@ -760,7 +766,9 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
         // row op remains.
         if prepared_row_ops.len() == 1 {
             let mut prepared_iter = prepared_row_ops.into_iter();
-            let row_op = prepared_iter.next().expect("commit window invariant");
+            let Some(row_op) = prepared_iter.next() else {
+                return Err(InternalError::query_executor_invariant());
+            };
             apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
 
             row_op.apply();
@@ -916,7 +924,9 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window<E: EntityKind +
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     if row_ops.len() == 1 {
-        let row_op = row_ops.into_iter().next().expect("commit window invariant");
+        let Some(row_op) = row_ops.into_iter().next() else {
+            return Err(InternalError::query_executor_invariant());
+        };
 
         return commit_single_delete_row_op_with_window::<E>(db, row_op, apply_phase);
     }
@@ -938,7 +948,9 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     if row_ops.len() == 1 {
-        let row_op = row_ops.into_iter().next().expect("commit window invariant");
+        let Some(row_op) = row_ops.into_iter().next() else {
+            return Err(InternalError::query_executor_invariant());
+        };
 
         return commit_single_delete_row_op_with_window_for_path(
             db,

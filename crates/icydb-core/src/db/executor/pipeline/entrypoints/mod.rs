@@ -132,7 +132,7 @@ where
         plan: PreparedExecutionPlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
         let plan = plan.into_prepared_load_plan();
-        let row_layout = plan.authority().row_layout();
+        let row_layout = plan.authority().row_layout()?;
         let page = execute_prepared_scalar_rows_for_canister(&self.db, self.debug, plan)?;
         let (data_rows, _) = page.into_data_rows_and_cursor();
 
@@ -153,6 +153,7 @@ where
             measure_load_entry_phase(|| plan.into_prepared_load_plan());
         let (row_layout_local_instructions, row_layout) =
             measure_load_entry_phase(|| plan.authority().row_layout());
+        let row_layout = row_layout?;
         let (page, mut phase_attribution) =
             execute_prepared_scalar_rows_for_canister_with_phase_attribution(
                 &self.db, self.debug, plan,

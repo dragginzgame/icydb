@@ -9,7 +9,7 @@ use crate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
             parse_sql_predicate,
         },
-        sql_shared::SqlParseError,
+        sql_shared::{MAX_SQL_EXPR_DEPTH, SqlParseError, SqlSyntaxErrorKind},
     },
     value::Value,
 };
@@ -451,6 +451,45 @@ fn parse_sql_predicate_normalizes_swapped_field_equality_to_deterministic_order(
             "dexterity",
             CoercionId::Strict,
         )),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_rejects_excessive_not_depth() {
+    let mut sql = String::new();
+    for _ in 0..140 {
+        sql.push_str("NOT ");
+    }
+    sql.push_str("active = true");
+
+    let err = parse_sql_predicate(sql.as_str()).expect_err("deep NOT predicates should reject");
+
+    assert_eq!(
+        err,
+        SqlParseError::InvalidSyntax {
+            kind: SqlSyntaxErrorKind::ExpressionDepthLimit {
+                max_depth: MAX_SQL_EXPR_DEPTH
+            },
+        }
+    );
+}
+
+#[test]
+fn parse_sql_predicate_rejects_excessive_boolean_chain_depth() {
+    let mut sql = String::from("active = true");
+    for _ in 0..140 {
+        sql.push_str(" OR active = true");
+    }
+
+    let err = parse_sql_predicate(sql.as_str()).expect_err("deep boolean chains should reject");
+
+    assert_eq!(
+        err,
+        SqlParseError::InvalidSyntax {
+            kind: SqlSyntaxErrorKind::ExpressionDepthLimit {
+                max_depth: MAX_SQL_EXPR_DEPTH
+            },
+        }
     );
 }
 

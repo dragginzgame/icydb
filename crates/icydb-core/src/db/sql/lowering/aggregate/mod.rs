@@ -25,8 +25,7 @@ pub(in crate::db::sql::lowering) use command::compile_sql_global_aggregate_comma
 pub(in crate::db) use command::compile_sql_global_aggregate_command_from_prepared_with_schema;
 pub(in crate::db::sql::lowering) use command::lower_global_aggregate_select_shape;
 pub(in crate::db::sql::lowering) use grouped::{
-    extend_unique_sql_expr_aggregate_calls, extend_unique_sql_select_item_aggregate_calls,
-    resolve_having_aggregate_expr_index,
+    SqlAggregateCallInterner, resolve_having_aggregate_expr_index,
 };
 pub(in crate::db::sql::lowering) use lowering::{
     lower_aggregate_call, lower_grouped_aggregate_call,

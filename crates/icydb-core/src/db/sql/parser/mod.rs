@@ -17,8 +17,9 @@ use crate::{
     db::{
         diagnostics::measure_local_instruction_delta as measure_parse_stage,
         sql_shared::{
-            Keyword, SqlExpectedToken, SqlIntegerLiteralClause, SqlSyntaxErrorKind, SqlTokenCursor,
-            TokenKind, tokenize_sql,
+            Keyword, MAX_SQL_EXPR_DEPTH, SqlExpectedToken, SqlIntegerLiteralClause,
+            SqlSyntaxErrorKind, SqlTokenCursor, TokenKind, sql_expr_depth_limit_error,
+            tokenize_sql,
         },
     },
     value::Value,
@@ -131,6 +132,7 @@ struct Parser {
     cursor: SqlTokenCursor,
     attribution: SqlParsePhaseAttribution,
     next_param_index: usize,
+    expr_depth: usize,
 }
 
 impl Parser {
@@ -144,6 +146,7 @@ impl Parser {
                 predicate: 0,
             },
             next_param_index: 0,
+            expr_depth: 0,
         }
     }
 
@@ -231,6 +234,20 @@ impl Parser {
         self.next_param_index = self.next_param_index.saturating_add(1);
 
         index
+    }
+
+    fn enter_sql_expr_depth(&mut self) -> Result<(), SqlParseError> {
+        if self.expr_depth >= MAX_SQL_EXPR_DEPTH {
+            return Err(sql_expr_depth_limit_error());
+        }
+
+        self.expr_depth = self.expr_depth.saturating_add(1);
+
+        Ok(())
+    }
+
+    fn leave_sql_expr_depth(&mut self) {
+        self.expr_depth = self.expr_depth.saturating_sub(1);
     }
 
     fn peek_keyword(&self, keyword: Keyword) -> bool {

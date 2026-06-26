@@ -255,8 +255,7 @@ fn for_each_grouped_page_candidate(
                 &candidate,
                 compiled_order,
                 group_fields,
-            )
-            .expect("grouped finalize invariant");
+            )?;
         }
 
         visit_candidate(candidate)?;

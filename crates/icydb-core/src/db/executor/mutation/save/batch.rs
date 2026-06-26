@@ -17,6 +17,8 @@ use std::collections::HashSet;
 
 use crate::db::executor::mutation::save::{SaveExecutor, SaveMode, SavePreflightInputs, SaveRule};
 
+const SAVE_BATCH_INITIAL_RESERVE_ROWS: usize = 64;
+
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Save a batch with explicitly non-atomic semantics.
     ///
@@ -28,7 +30,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
-        let mut out = Vec::with_capacity(iter.size_hint().0);
+        let mut out = Vec::with_capacity(iter.size_hint().0.min(SAVE_BATCH_INITIAL_RESERVE_ROWS));
         let ctx = mutation_write_context::<E>(&self.db)?;
         let save_rule = SaveRule::from_mode(mode);
         let schema = self.accepted_schema_info();
@@ -196,9 +198,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let mut span = Span::<E>::new(ExecKind::Save);
         let result = (|| {
             let ctx = mutation_write_context::<E>(&self.db)?;
-            let mut out = Vec::with_capacity(entities.len());
-            let mut marker_row_ops = Vec::with_capacity(entities.len());
-            let mut seen_row_keys = HashSet::with_capacity(entities.len());
+            let reserve_rows = entities.len().min(SAVE_BATCH_INITIAL_RESERVE_ROWS);
+            let mut out = Vec::with_capacity(reserve_rows);
+            let mut marker_row_ops = Vec::with_capacity(reserve_rows);
+            let mut seen_row_keys = HashSet::with_capacity(reserve_rows);
             let schema = self.accepted_schema_info();
             let schema_fingerprint = self.accepted_schema_fingerprint();
             let validate_relations = schema.has_any_strong_relations();

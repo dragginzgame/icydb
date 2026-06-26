@@ -12,7 +12,21 @@ mod tags;
 mod tests;
 mod walk;
 
-use crate::value::Value;
+use crate::{db::data::structural_field::FieldDecodeError, value::Value};
+
+const MAX_VALUE_STORAGE_DECODE_DEPTH: usize = 64;
+
+fn next_value_storage_decode_depth(depth: usize) -> Result<usize, FieldDecodeError> {
+    if depth >= MAX_VALUE_STORAGE_DECODE_DEPTH {
+        return Err(FieldDecodeError::new());
+    }
+
+    Ok(depth.saturating_add(1))
+}
+
+fn reserve_one_value_storage_item<T>(items: &mut Vec<T>) -> Result<(), FieldDecodeError> {
+    items.try_reserve(1).map_err(|_| FieldDecodeError::new())
+}
 
 pub(in crate::db) use decode::{
     ValueStorageView, decode_account, decode_decimal, decode_enum, decode_int, decode_int128,

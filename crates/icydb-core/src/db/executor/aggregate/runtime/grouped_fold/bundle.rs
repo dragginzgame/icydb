@@ -162,12 +162,13 @@ impl GroupedFinalizeGroup {
     /// Finalize one single-aggregate grouped row directly.
     pub(super) fn finalize_single(self) -> Result<(GroupKey, Value), InternalError> {
         let mut aggregate_states = self.aggregate_states.into_iter();
-        let aggregate_value = aggregate_states
-            .next()
-            .expect("grouped aggregate invariant")
-            .finalize()?;
-        let has_trailing_aggregate_state = aggregate_states.next().is_some();
-        debug_assert!(!has_trailing_aggregate_state, "grouped aggregate invariant");
+        let Some(aggregate_state) = aggregate_states.next() else {
+            return Err(InternalError::query_executor_invariant());
+        };
+        let aggregate_value = aggregate_state.finalize()?;
+        if aggregate_states.next().is_some() {
+            return Err(InternalError::query_executor_invariant());
+        }
 
         Ok((self.group_key, aggregate_value))
     }

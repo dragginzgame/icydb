@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     db::session::sql::{
         DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT, DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
-        DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES,
+        DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES, DEFAULT_PUBLIC_INSERT_STAGED_ROWS,
         DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
     },
     db::{
@@ -3233,6 +3233,67 @@ fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
             ],
         ],
         "late INSERT SELECT failure must not commit the earlier projected row",
+    );
+}
+
+#[test]
+fn execute_sql_update_insert_values_rejects_public_staged_row_cap_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let row_count = DEFAULT_PUBLIC_INSERT_STAGED_ROWS + 1;
+    let values = (1..=row_count)
+        .map(|id| format!("({id}, 'Name{id}', 21)"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!("INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES {values}");
+
+    let err = session
+        .execute_sql_update::<SessionSqlWriteEntity>(&sql)
+        .expect_err("public update surface INSERT VALUES should enforce staged-row cap");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
+    assert!(
+        persisted_write_rows(&session).is_empty(),
+        "oversized public INSERT VALUES must not commit partial rows",
+    );
+}
+
+#[test]
+fn execute_sql_update_insert_select_rejects_public_staged_row_cap_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let source_count = DEFAULT_PUBLIC_INSERT_STAGED_ROWS + 1;
+    for id in 1..=source_count {
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::from_u128(u128::from(id)),
+                name: format!("Name{id}"),
+                age: 21,
+            })
+            .expect("typed source setup insert should succeed");
+    }
+    let baseline = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM SessionSqlEntity ORDER BY id ASC",
+    )
+    .expect("baseline projection should succeed");
+
+    let err = session
+        .execute_sql_update::<SessionSqlEntity>(
+            "INSERT INTO SessionSqlEntity (name, age) \
+             SELECT name, age FROM SessionSqlEntity ORDER BY id ASC",
+        )
+        .expect_err("public update surface INSERT SELECT should enforce staged-row cap");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
+    assert_eq!(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT name, age FROM SessionSqlEntity ORDER BY id ASC",
+        )
+        .expect("post-rejection projection should succeed"),
+        baseline,
+        "oversized public INSERT SELECT must reject before mutation commit",
     );
 }
 

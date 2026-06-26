@@ -21,6 +21,7 @@ use crate::db::{
         plan::{AccessPlannedQuery, AggregateKind},
     },
 };
+use crate::error::InternalError;
 
 ///
 /// AggregateExplainPreparation
@@ -43,7 +44,7 @@ impl AggregateExplainPreparation {
         plan: &AccessPlannedQuery,
         aggregate: AggregateRouteShape<'_>,
         aggregation: AggregateKind,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
         let execution_preparation =
             ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
         let route_plan = build_execution_route_plan(
@@ -53,19 +54,14 @@ impl AggregateExplainPreparation {
                 execution_preparation: &execution_preparation,
             },
         )
-        // Aggregate descriptor assembly only receives planner-owned aggregate
-        // route shapes, so route-plan failure indicates planner/executor drift
-        // rather than a recoverable EXPLAIN caller error.
-        .expect(
-            "aggregate explain route planning should not fail for planner-owned aggregate shapes",
-        );
+        .map_err(|_err| InternalError::query_executor_invariant())?;
         let covering_projection =
             aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
 
-        Self {
+        Ok(Self {
             route_plan,
             covering_projection,
-        }
+        })
     }
 }
 
@@ -75,7 +71,7 @@ impl AggregateExplainPreparation {
 pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
-) -> ExplainExecutionDescriptor {
+) -> Result<ExplainExecutionDescriptor, InternalError> {
     let aggregation = aggregate.kind();
 
     assemble_aggregate_terminal_execution_descriptor_from_shape(
@@ -95,7 +91,7 @@ pub(in crate::db) fn assemble_scalar_aggregate_execution_descriptor_with_project
     aggregate: AggregateRouteShape<'_>,
     aggregation: AggregateKind,
     projected_field: Option<&str>,
-) -> ExplainExecutionDescriptor {
+) -> Result<ExplainExecutionDescriptor, InternalError> {
     assemble_aggregate_terminal_execution_descriptor_from_shape(
         plan,
         aggregate,
@@ -109,9 +105,10 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     aggregate: AggregateRouteShape<'_>,
     aggregation: AggregateKind,
     projected_field: Option<&str>,
-) -> ExplainExecutionDescriptor {
+) -> Result<ExplainExecutionDescriptor, InternalError> {
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
-    let explain_preparation = AggregateExplainPreparation::from_shape(plan, aggregate, aggregation);
+    let explain_preparation =
+        AggregateExplainPreparation::from_shape(plan, aggregate, aggregation)?;
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.
     let ordering_source = explain_aggregate_ordering_source(&explain_preparation.route_plan);
@@ -128,7 +125,7 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     // surface. COUNT/EXISTS/extrema use their own planner-visible route
     // contracts, so aggregate EXPLAIN should not reintroduce load-side
     // correctness vocabulary here.
-    ExplainExecutionDescriptor {
+    Ok(ExplainExecutionDescriptor {
         access_strategy: explain_access_plan(&plan.access),
         // Covering flag reflects index-only aggregate fast-path eligibility for
         // scalar aggregate terminals.
@@ -139,5 +136,5 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
         limit: explain_preparation.route_plan.continuation().limit(),
         cursor: explain_preparation.route_plan.continuation().applied(),
         node_properties,
-    }
+    })
 }

@@ -406,7 +406,7 @@ where
         );
         let runtime = TraversalRuntime::new(store, authority.entity_tag());
         let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
-        let row_layout = authority.row_layout();
+        let row_layout = authority.row_layout()?;
         let row_decoder = RowDecoder::structural();
 
         // Phase 2: walk the key stream once and invoke the caller fold only

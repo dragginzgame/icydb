@@ -4346,7 +4346,8 @@ fn assert_sql_write_boundary_detail(err: QueryError, expected_boundary: SqlWrite
             Some(ErrorDetail::Query(QueryErrorDetail::SqlWriteBoundary { boundary }))
                 if *boundary == expected_boundary
         ),
-        "SQL write boundary detail code should be preserved",
+        "SQL write boundary detail code should be preserved: expected {expected_boundary:?}, got {:?}",
+        internal.detail(),
     );
 }
 

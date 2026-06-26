@@ -185,7 +185,7 @@ impl GroupedPathRuntimeContext {
             execution_preparation,
             StructuralGroupedRowRuntime::new(
                 self.row_store,
-                self.authority.row_layout(),
+                self.authority.row_layout()?,
                 grouped_slot_layout,
             ),
         )
@@ -215,29 +215,30 @@ impl PreparedGroupedRouteRuntime {
         runtime: GroupedPathRuntimeContext,
         prepared_execution_preparation: Option<ExecutionPreparation>,
         prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
         let execution_preparation = prepared_execution_preparation.unwrap_or_else(|| {
             ExecutionPreparation::from_runtime_plan(
                 route.plan(),
                 route.plan().slot_map().map(<[usize]>::to_vec),
             )
         });
-        let grouped_slot_layout = prepared_grouped_slot_layout.unwrap_or_else(|| {
-            compile_grouped_row_slot_layout_from_inputs(
-                runtime.authority.row_layout(),
+        let grouped_slot_layout = match prepared_grouped_slot_layout {
+            Some(layout) => layout,
+            None => compile_grouped_row_slot_layout_from_inputs(
+                runtime.authority.row_layout()?,
                 route.group_fields(),
                 route.grouped_aggregate_execution_specs(),
                 route.grouped_distinct_execution_strategy(),
                 execution_preparation.effective_runtime_filter_program(),
-            )
-        });
+            ),
+        };
 
-        Self {
+        Ok(Self {
             route,
             runtime,
             execution_preparation,
             grouped_slot_layout,
-        }
+        })
     }
 }
 
@@ -254,16 +255,16 @@ where
     C: CanisterKind,
 {
     let authority = plan.authority();
-    let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff();
+    let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff()?;
     let route = resolve_grouped_route_for_plan(plan, cursor, debug)?;
     let store = db.recovered_store(authority.store_path())?;
 
-    Ok(PreparedGroupedRouteRuntime::new(
+    PreparedGroupedRouteRuntime::new(
         route,
         GroupedPathRuntimeContext::from_store(store, authority),
         prepared_runtime_handoff.execution_preparation,
         prepared_runtime_handoff.grouped_slot_layout,
-    ))
+    )
 }
 
 // Execute one fully resolved grouped route through the canonical grouped
@@ -459,12 +460,12 @@ where
         prepared_execution_preparation: Option<ExecutionPreparation>,
         prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
     ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
-        Ok(PreparedGroupedRouteRuntime::new(
+        PreparedGroupedRouteRuntime::new(
             route,
             self.grouped_path_runtime(authority)?,
             prepared_execution_preparation,
             prepared_grouped_slot_layout,
-        ))
+        )
     }
 
     // Execute one traced paged grouped load and materialize grouped output.
@@ -506,7 +507,7 @@ where
             return Err(InternalError::query_executor_invariant());
         };
 
-        let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff();
+        let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff()?;
         let authority = plan.authority();
         let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
         let prepared = self.prepare_grouped_route_runtime(

@@ -80,7 +80,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             .with_cursor_schema_info_for_test(
                 crate::db::schema::SchemaInfo::cached_for_generated_entity_model(E::MODEL).clone(),
             );
-        authority.finalize_planner_route_profile(&mut plan);
+        authority
+            .finalize_planner_route_profile(&mut plan)
+            .expect("test prepared execution plan route profile should finalize");
 
         Self {
             authority: authority.clone(),

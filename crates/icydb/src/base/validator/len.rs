@@ -27,13 +27,13 @@ impl HasLen for Blob {
 
 impl HasLen for str {
     fn len(&self) -> usize {
-        Self::len(self)
+        self.chars().count()
     }
 }
 
 impl HasLen for String {
     fn len(&self) -> usize {
-        Self::len(self)
+        self.chars().count()
     }
 }
 
@@ -245,6 +245,29 @@ mod tests {
         v.validate("abc", &mut ctx);
 
         assert!(ctx.issues.is_empty());
+    }
+
+    #[test]
+    fn text_length_counts_unicode_scalar_values_not_utf8_bytes() {
+        let one_scalar_four_bytes = "\u{1F525}";
+
+        let equal_one = Equal::new(1);
+        let min_two = Min::new(2);
+        let max_one = Max::new(1);
+        let mut equal_ctx = TestCtx::new();
+        let mut min_ctx = TestCtx::new();
+        let mut max_ctx = TestCtx::new();
+
+        equal_one.validate(one_scalar_four_bytes, &mut equal_ctx);
+        min_two.validate(one_scalar_four_bytes, &mut min_ctx);
+        max_one.validate(one_scalar_four_bytes, &mut max_ctx);
+
+        assert!(equal_ctx.issues.is_empty());
+        assert_eq!(
+            min_ctx.issues.get("").expect("root issue should exist")[0].message(),
+            "length (1) is lower than minimum of 2"
+        );
+        assert!(max_ctx.issues.is_empty());
     }
 
     #[test]

@@ -273,7 +273,7 @@ fn compare_ranked_rows_infallible<K, R>(
 where
     K: Ord,
 {
-    compare_ranked_keys_and_values(
+    match compare_ranked_keys_and_values(
         target_field,
         field_slot,
         &left.0.0,
@@ -281,8 +281,16 @@ where
         &right.0.0,
         &right.1,
         direction,
-    )
-    .expect("ranking invariant")
+    ) {
+        Ok(ordering) => ordering,
+        Err(_err) => {
+            debug_assert!(
+                false,
+                "ranked value domain validation must admit every comparator pair",
+            );
+            left.0.0.cmp(&right.0.0)
+        }
+    }
 }
 
 // Validate that every ranked value belongs to one comparable domain before

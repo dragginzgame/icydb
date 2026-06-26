@@ -180,17 +180,18 @@ impl PreparedLoadPlan {
         let prepared_projection_contract = if projection_materialization.validate_projection()
             && !core.plan().projection_is_model_identity()
         {
-            core.get_or_init_projection_shape(authority.clone())
+            core.get_or_init_projection_shape(authority.clone())?
         } else {
             None
         };
-        let retained_slot_layout = retained_slot_layout_override.or_else(|| {
-            core.get_or_init_scalar_layout(
+        let retained_slot_layout = match retained_slot_layout_override {
+            Some(layout) => Some(layout),
+            None => core.get_or_init_scalar_layout(
                 authority.clone(),
                 projection_materialization,
                 cursor_emission,
-            )
-        });
+            )?,
+        };
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
         if core.residents.index_prefix_spec_invalid {
             return Err(
@@ -210,24 +211,23 @@ impl PreparedLoadPlan {
         })
     }
 
-    #[must_use]
     pub(in crate::db::executor) fn cloned_grouped_runtime_handoff(
         &self,
-    ) -> PreparedGroupedRuntimeHandoff {
+    ) -> Result<PreparedGroupedRuntimeHandoff, InternalError> {
         let Some(residents) = self
             .core
-            .get_or_init_grouped_runtime_residents(self.authority.clone())
+            .get_or_init_grouped_runtime_residents(self.authority.clone())?
         else {
-            return PreparedGroupedRuntimeHandoff {
+            return Ok(PreparedGroupedRuntimeHandoff {
                 execution_preparation: None,
                 grouped_slot_layout: None,
-            };
+            });
         };
 
-        PreparedGroupedRuntimeHandoff {
+        Ok(PreparedGroupedRuntimeHandoff {
             execution_preparation: Some(residents.execution_preparation()),
             grouped_slot_layout: Some(residents.grouped_slot_layout()),
-        }
+        })
     }
 
     pub(in crate::db::executor) fn into_access_plan_handoff(

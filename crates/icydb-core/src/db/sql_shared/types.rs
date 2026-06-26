@@ -71,6 +71,15 @@ pub(crate) enum SqlSyntaxErrorKind {
     BlobLiteralTooLarge {
         max_decoded_bytes: usize,
     },
+    InputTooLong {
+        max_bytes: usize,
+    },
+    TokenLimit {
+        max_tokens: usize,
+    },
+    ExpressionDepthLimit {
+        max_depth: usize,
+    },
     #[cfg(feature = "sql")]
     IntegerLiteralRequiresNonNegative {
         clause: SqlIntegerLiteralClause,

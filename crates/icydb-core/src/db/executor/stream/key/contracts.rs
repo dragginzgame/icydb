@@ -7,6 +7,7 @@ use crate::{
     db::{
         data::DecodedDataStoreKey,
         executor::stream::{
+            FlatMergeSiblingSet,
             access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
             key::{
                 DistinctOrderedKeyStream, FlatMergeOrderedKeyStream, IntersectOrderedKeyStream,
@@ -199,21 +200,13 @@ impl OrderedKeyStreamBox {
         streams: Vec<Self>,
         comparator: KeyOrderComparator,
     ) -> Self {
-        match streams.len() {
-            0 => Self::empty(),
-            1 => {
-                let mut streams = streams;
-                streams.pop().unwrap_or_else(Self::empty)
-            }
-            2 => {
-                let mut streams = streams;
-                let right = streams.pop().unwrap_or_else(Self::empty);
-                let left = streams.pop().unwrap_or_else(Self::empty);
-                Self::merge(left, right, comparator)
-            }
-            _ => Self::FlatMerge(FlatMergeOrderedKeyStream::new_with_comparator(
-                streams, comparator,
-            )),
+        match FlatMergeSiblingSet::from_vec(streams) {
+            FlatMergeSiblingSet::Empty => Self::empty(),
+            FlatMergeSiblingSet::Single(stream) => stream,
+            FlatMergeSiblingSet::Pair(left, right) => Self::merge(left, right, comparator),
+            FlatMergeSiblingSet::Many(streams) => Self::FlatMerge(
+                FlatMergeOrderedKeyStream::new_with_comparator(streams, comparator),
+            ),
         }
     }
 
@@ -299,7 +292,10 @@ pub(in crate::db::executor) fn ordered_key_stream_from_materialized_keys(
 ) -> OrderedKeyStreamBox {
     match keys.len() {
         0 => OrderedKeyStreamBox::empty(),
-        1 => OrderedKeyStreamBox::single(keys.pop().expect("key stream invariant")),
+        1 => match keys.pop() {
+            Some(key) => OrderedKeyStreamBox::single(key),
+            None => OrderedKeyStreamBox::empty(),
+        },
         _ => OrderedKeyStreamBox::materialized(keys),
     }
 }

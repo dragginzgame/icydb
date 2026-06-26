@@ -242,7 +242,8 @@ impl<C: CanisterKind> DbSession<C> {
                 let route_facts = freeze_load_execution_route_facts_for_authority(&authority, plan)
                     .map_err(QueryError::execute)?;
                 let mut descriptor =
-                    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts);
+                    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
+                        .map_err(QueryError::execute)?;
                 annotate_sql_projection_debug_on_execution_descriptor(
                     &mut descriptor,
                     plan,
@@ -400,7 +401,8 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?,
             strategy.aggregate_kind(),
             strategy.projected_field(),
-        );
+        )
+        .map_err(QueryError::execute)?;
         if let Some(filter_expr) = strategy.filter_expr() {
             execution.node_properties.insert(
                 property_keys::FILTER_EXPR,

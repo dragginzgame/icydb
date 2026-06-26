@@ -307,7 +307,7 @@ where
         &prepared,
         projection_runtime_mode,
         suppress_route_scan_hints,
-    );
+    )?;
 
     prepare_initial_scalar_route_runtime_from_handoff(
         db,
@@ -348,9 +348,9 @@ fn initial_retained_slot_layout(
     prepared: &PreparedScalarRuntimeHandoff,
     projection_runtime_mode: ScalarProjectionRuntimeMode,
     suppress_route_scan_hints: bool,
-) -> Option<RetainedSlotLayout> {
+) -> Result<Option<RetainedSlotLayout>, InternalError> {
     if prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints {
-        None
+        Ok(None)
     } else if projection_runtime_mode.validate_projection()
         || projection_runtime_mode.retain_slot_rows()
     {
@@ -360,7 +360,7 @@ fn initial_retained_slot_layout(
             CursorEmissionMode::Suppress,
         )
     } else {
-        prepared.retained_slot_layout.clone()
+        Ok(prepared.retained_slot_layout.clone())
     }
 }
 
@@ -527,7 +527,7 @@ fn build_prepared_scalar_route_runtime(
     projection_runtime_mode: ScalarProjectionRuntimeMode,
     suppress_route_scan_hints: bool,
     debug: bool,
-) -> PreparedScalarRouteRuntime {
+) -> Result<PreparedScalarRouteRuntime, InternalError> {
     let projection = PreparedExecutionProjection::compile(
         authority.clone(),
         plan_core.plan(),
@@ -535,9 +535,9 @@ fn build_prepared_scalar_route_runtime(
         prepared_retained_slot_layout,
         projection_runtime_mode,
         cursor_emission,
-    );
+    )?;
 
-    PreparedScalarRouteRuntime {
+    Ok(PreparedScalarRouteRuntime {
         store,
         authority,
         plan_core,
@@ -550,7 +550,7 @@ fn build_prepared_scalar_route_runtime(
         projection_runtime_mode,
         suppress_route_scan_hints,
         debug,
-    }
+    })
 }
 
 // Prepare one scalar runtime bundle after the caller has already resolved the
@@ -610,7 +610,7 @@ where
     }
 
     // Phase 3: hand off one canonical prepared runtime bundle to scalar execution.
-    Ok(build_prepared_scalar_route_runtime(
+    build_prepared_scalar_route_runtime(
         store,
         authority,
         prep,
@@ -624,7 +624,7 @@ where
         projection_runtime_mode,
         suppress_route_scan_hints,
         debug,
-    ))
+    )
 }
 
 // Build the deterministic no-cursor load route for initial scalar execution.

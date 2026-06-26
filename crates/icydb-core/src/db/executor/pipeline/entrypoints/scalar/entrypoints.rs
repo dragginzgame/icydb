@@ -128,7 +128,7 @@ where
         plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
-        let row_layout = plan.authority().row_layout();
+        let row_layout = plan.authority().row_layout()?;
         let surface = self.execute_load_surface(
             plan,
             cursor,

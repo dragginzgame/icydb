@@ -147,6 +147,29 @@ fn binary_value_storage_rejects_truncated_nested_list_item() {
 }
 
 #[test]
+fn binary_value_storage_rejects_unvalidated_declared_list_count_without_large_reserve() {
+    let mut encoded = Vec::new();
+    push_len_prefixed_head(&mut encoded, TAG_LIST, u32::MAX);
+
+    assert!(decode_value_storage_value(&encoded).is_err());
+    assert!(decode_value_storage_list_item_slices(&encoded).is_err());
+}
+
+#[test]
+fn binary_value_storage_rejects_excessive_nested_list_depth() {
+    let mut encoded = vec![TAG_NULL];
+    for _ in 0..70 {
+        let mut outer = Vec::new();
+        push_len_prefixed_head(&mut outer, TAG_LIST, 1);
+        outer.extend_from_slice(&encoded);
+        encoded = outer;
+    }
+
+    assert!(validate_structural_value_storage_bytes(&encoded).is_err());
+    assert!(decode_value_storage_value(&encoded).is_err());
+}
+
+#[test]
 fn binary_value_storage_rejects_truncated_nested_map_value() {
     let mut encoded = Vec::new();
     push_len_prefixed_head(&mut encoded, TAG_MAP, 1);

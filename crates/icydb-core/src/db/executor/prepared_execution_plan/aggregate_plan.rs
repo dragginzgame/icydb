@@ -79,11 +79,10 @@ impl PreparedAggregatePlan {
 
     /// Re-shape one prepared aggregate plan into one grouped prepared load plan
     /// without reconstructing a typed `PreparedExecutionPlan<E>` shell.
-    #[must_use]
     pub(in crate::db::executor) fn into_grouped_load_plan(
         self,
         group: GroupSpec,
-    ) -> PreparedLoadPlan {
+    ) -> Result<PreparedLoadPlan, InternalError> {
         let Self { authority, core } = self;
         let residents = core.into_residents();
         let mut grouped_plan = Arc::unwrap_or_clone(residents.plan).into_grouped(group);
@@ -91,9 +90,9 @@ impl PreparedAggregatePlan {
         // Grouped DISTINCT rewrites change continuation/static execution planning contract,
         // but `AccessPlannedQuery::into_grouped` carries the same access payload,
         // so preserve lowered access specs and refresh only grouped metadata.
-        authority.finalize_static_execution_planning_contract(&mut grouped_plan);
+        authority.finalize_static_execution_planning_contract(&mut grouped_plan)?;
 
-        PreparedLoadPlan {
+        Ok(PreparedLoadPlan {
             authority: authority.clone(),
             core: build_prepared_execution_plan_core_with_lowered_access(
                 authority,
@@ -104,6 +103,6 @@ impl PreparedAggregatePlan {
                 residents.index_range_specs,
                 residents.index_range_spec_invalid,
             ),
-        }
+        })
     }
 }

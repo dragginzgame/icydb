@@ -12,13 +12,13 @@ use crate::{
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
-            IndexScan, KeyOrderComparator, active_lowered_index_prefix_specs,
+            FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, IndexScan,
+            KeyOrderComparator, active_lowered_index_prefix_specs,
             apply_data_key_ordered_dedup_window, apply_index_scan_chunk_progress,
             branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
             index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
             read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
-            reduce_non_empty_streams_pairwise,
         },
         index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
@@ -362,6 +362,7 @@ fn resolve_covering_projection_components_for_index_bounds(
 enum CoveringComponentStreamBox<'a> {
     Prefix(Box<CoveringPrefixComponentStream<'a>>),
     Merge(Box<MergeCoveringComponentStream<'a>>),
+    FlatMerge(Box<FlatMergeStream<CoveringComponentFlatMergeChild<'a>>>),
 }
 
 impl<'a> CoveringComponentStreamBox<'a> {
@@ -399,15 +400,27 @@ impl<'a> CoveringComponentStreamBox<'a> {
     }
 
     fn merge_all(streams: Vec<Self>, comparator: KeyOrderComparator) -> Option<Self> {
-        reduce_non_empty_streams_pairwise(streams, |left, right| {
-            Self::merge(left, right, comparator)
-        })
+        match FlatMergeSiblingSet::from_vec(streams) {
+            FlatMergeSiblingSet::Empty => None,
+            FlatMergeSiblingSet::Single(stream) => Some(stream),
+            FlatMergeSiblingSet::Pair(left, right) => Some(Self::merge(left, right, comparator)),
+            FlatMergeSiblingSet::Many(streams) => {
+                Some(Self::FlatMerge(Box::new(FlatMergeStream::new(
+                    streams
+                        .into_iter()
+                        .map(|stream| CoveringComponentFlatMergeChild::new(stream, comparator))
+                        .collect(),
+                    comparator,
+                ))))
+            }
+        }
     }
 
     fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {
         match self {
             Self::Prefix(stream) => stream.next_row(),
             Self::Merge(stream) => stream.next_row(),
+            Self::FlatMerge(stream) => stream.next_item(),
         }
     }
 
@@ -660,6 +673,53 @@ impl<'a> MergeCoveringComponentStream<'a> {
             self.last_emitted = Some(next.0.clone());
             return Ok(Some(next));
         }
+    }
+}
+
+struct CoveringComponentFlatMergeChild<'a> {
+    stream: CoveringComponentStreamBox<'a>,
+    state: CoveringComponentStreamSideState,
+}
+
+impl<'a> CoveringComponentFlatMergeChild<'a> {
+    const fn new(stream: CoveringComponentStreamBox<'a>, comparator: KeyOrderComparator) -> Self {
+        Self {
+            stream,
+            state: CoveringComponentStreamSideState::new(comparator),
+        }
+    }
+}
+
+impl FlatMergeOrderedChild for CoveringComponentFlatMergeChild<'_> {
+    type Item = CoveringProjectionComponentRow;
+    type KeyWitness = DecodedDataStoreKey;
+
+    fn ensure_item(&mut self) -> Result<(), InternalError> {
+        self.state.ensure_row(&mut self.stream)
+    }
+
+    fn head_key(&self) -> Option<&DecodedDataStoreKey> {
+        self.state.row.as_ref().map(|row| &row.0)
+    }
+
+    fn take_item(&mut self) -> Option<Self::Item> {
+        self.state.take_row()
+    }
+
+    fn clear_item(&mut self) {
+        self.state.clear_row();
+    }
+
+    fn item_key(item: &Self::Item) -> &DecodedDataStoreKey {
+        &item.0
+    }
+
+    fn key_witness(key: &DecodedDataStoreKey) -> Self::KeyWitness {
+        key.clone()
+    }
+
+    fn witness_matches_key(witness: &Self::KeyWitness, key: &DecodedDataStoreKey) -> bool {
+        witness == key
     }
 }
 

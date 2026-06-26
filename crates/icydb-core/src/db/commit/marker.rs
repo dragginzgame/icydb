@@ -473,10 +473,13 @@ pub(in crate::db) fn decode_commit_marker_payload(
     let mut cursor = 0;
     let id = read_fixed_array::<COMMIT_MARKER_ID_BYTES>(bytes, &mut cursor, "commit marker id")?;
     let row_op_count = read_len_u32(bytes, &mut cursor, "commit marker row count")? as usize;
-    let mut row_ops = Vec::with_capacity(row_op_count);
+    let mut row_ops = Vec::new();
 
     // Phase 2: parse each length-delimited row op without routing through generic decode.
     for _ in 0..row_op_count {
+        row_ops
+            .try_reserve(1)
+            .map_err(|_| InternalError::commit_corruption())?;
         let entity_path_bytes =
             read_len_prefixed_bytes(bytes, &mut cursor, "commit marker entity_path")?;
         let entity_path = std::str::from_utf8(entity_path_bytes)
@@ -523,8 +526,11 @@ pub(in crate::db) fn decode_commit_marker_payload(
 
     let journal_batch_count =
         read_len_u32(bytes, &mut cursor, "commit marker journal batch count")? as usize;
-    let mut journal_batches = Vec::with_capacity(journal_batch_count);
+    let mut journal_batches = Vec::new();
     for _ in 0..journal_batch_count {
+        journal_batches
+            .try_reserve(1)
+            .map_err(|_| InternalError::commit_corruption())?;
         let encoded = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker journal batch")?;
         journal_batches.push(decode_journal_batch(encoded)?);
     }

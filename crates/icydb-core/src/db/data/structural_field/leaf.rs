@@ -341,8 +341,9 @@ fn decode_big_integer_magnitude_payload(raw_bytes: &[u8]) -> Result<BigUint, Fie
     }
 
     let mut cursor = payload_start;
-    let mut limbs = Vec::with_capacity(len as usize);
+    let mut limbs = Vec::new();
     for _ in 0..len {
+        limbs.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
         let limb_start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
         limbs.push(decode_required_u32_payload(&raw_bytes[limb_start..cursor])?);

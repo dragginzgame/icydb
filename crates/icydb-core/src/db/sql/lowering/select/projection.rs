@@ -5,7 +5,7 @@ use crate::{
             identifier::split_qualified_identifier,
             lowering::{
                 AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
-                aggregate::extend_unique_sql_select_item_aggregate_calls,
+                aggregate::SqlAggregateCallInterner,
                 expr::{SqlExprPhase, lower_sql_expr},
                 select::order::LoweredSqlOrderTerm,
             },
@@ -168,6 +168,7 @@ pub(super) fn lower_grouped_projection(
     let mut fields = Vec::with_capacity(items.len());
     let mut projection_facts = Vec::with_capacity(items.len());
     let mut aggregate_calls = Vec::new();
+    let mut aggregate_call_interner = SqlAggregateCallInterner::new();
 
     for (index, item) in items.into_iter().enumerate() {
         let analyzed =
@@ -182,7 +183,7 @@ pub(super) fn lower_grouped_projection(
         validate_grouped_projection_expr(index, grouped_field_names.as_slice(), expr_facts)?;
         seen_aggregate |= contains_aggregate;
         if contains_aggregate {
-            extend_unique_sql_select_item_aggregate_calls(&mut aggregate_calls, &item);
+            aggregate_call_interner.extend_select_item(&mut aggregate_calls, &item);
         }
 
         let (expr, expr_facts) = analyzed.into_parts();

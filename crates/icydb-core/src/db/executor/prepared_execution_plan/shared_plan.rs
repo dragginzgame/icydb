@@ -40,38 +40,35 @@ pub(in crate::db) struct SharedPreparedExecutionPlan {
 }
 
 impl SharedPreparedExecutionPlan {
-    #[must_use]
     pub(in crate::db) fn from_plan(
         authority: EntityAuthority,
         mut plan: AccessPlannedQuery,
         schema_fingerprint: CommitSchemaFingerprint,
-    ) -> Self {
-        authority.finalize_planner_route_profile(&mut plan);
+    ) -> Result<Self, InternalError> {
+        authority.finalize_planner_route_profile(&mut plan)?;
 
-        Self {
+        Ok(Self {
             authority: authority.clone(),
             core: build_prepared_execution_plan_core_with_schema_fingerprint(
                 authority,
                 plan,
                 Some(schema_fingerprint),
-            ),
-        }
+            )?,
+        })
     }
 
-    #[must_use]
-    pub(in crate::db) fn typed_clone<E: EntityKind>(&self) -> PreparedExecutionPlan<E> {
-        assert!(
-            self.authority.entity_path() == E::PATH,
-            "shared prepared plan entity mismatch: cached for '{}', requested '{}'",
-            self.authority.entity_path(),
-            E::PATH,
-        );
+    pub(in crate::db) fn typed_clone<E: EntityKind>(
+        &self,
+    ) -> Result<PreparedExecutionPlan<E>, InternalError> {
+        if self.authority.entity_path() != E::PATH {
+            return Err(InternalError::query_executor_invariant());
+        }
 
-        PreparedExecutionPlan {
+        Ok(PreparedExecutionPlan {
             authority: self.authority.clone(),
             core: self.core.clone(),
             marker: PhantomData,
-        }
+        })
     }
 
     #[must_use]
@@ -166,12 +163,12 @@ impl SharedPreparedExecutionPlan {
         self,
     ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
-        let prepared_projection_contract = core.get_or_init_projection_shape(authority.clone());
+        let prepared_projection_contract = core.get_or_init_projection_shape(authority.clone())?;
         let retained_slot_layout = core.get_or_init_scalar_layout(
             authority.clone(),
             ProjectionMaterializationMode::RetainSlotRows,
             CursorEmissionMode::Suppress,
-        );
+        )?;
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
         if core.residents.index_prefix_spec_invalid {
             return Err(

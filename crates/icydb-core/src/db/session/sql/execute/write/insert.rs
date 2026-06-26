@@ -1,6 +1,7 @@
 use super::{
-    SqlWriteMutationBatch, SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
+    SqlWriteCandidateRows, SqlWriteMutationBatch, SqlWriteMutationExecution,
+    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
+    sql_insert_candidate_bounds, sql_write_key_from_component_literals,
     sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
 };
 use crate::{
@@ -14,6 +15,10 @@ use crate::{
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
         },
         session::sql::SqlStatementResult,
+        session::sql::write_policy::{
+            DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
+            SqlWriteExecutionBounds, SqlWriteReturningBounds,
+        },
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection},
         sql_shared::SqlSyntaxErrorKind,
     },
@@ -25,6 +30,26 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
+
+const SQL_INSERT_VALUES_INITIAL_RESERVE_ROWS: usize = 64;
+
+const fn sql_insert_update_surface_execution_bounds(
+    returning: Option<&crate::db::sql::parser::SqlReturningProjection>,
+) -> SqlWriteExecutionBounds {
+    let returning_requested = returning.is_some();
+
+    SqlWriteExecutionBounds {
+        max_staged_rows: Some(DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT),
+        returning: SqlWriteReturningBounds {
+            max_rows: if returning_requested {
+                Some(DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT)
+            } else {
+                None
+            },
+            max_response_bytes: Some(DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES),
+        },
+    }
+}
 
 const fn write_policy_for_accepted_field(
     field: &AcceptedRowLayoutRuntimeField<'_>,
@@ -289,6 +314,37 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        self.execute_sql_insert_statement_with_execution_bounds::<E>(statement, source_query, None)
+    }
+
+    pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement_with_update_surface_bounds<
+        E,
+    >(
+        &self,
+        statement: &SqlInsertStatement,
+        source_query: Option<&StructuralQuery>,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_sql_insert_statement_with_execution_bounds::<E>(
+            statement,
+            source_query,
+            Some(sql_insert_update_surface_execution_bounds(
+                statement.returning.as_ref(),
+            )),
+        )
+    }
+
+    fn execute_sql_insert_statement_with_execution_bounds<E>(
+        &self,
+        statement: &SqlInsertStatement,
+        source_query: Option<&StructuralQuery>,
+        execution_bounds: Option<SqlWriteExecutionBounds>,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             statement.returning.as_ref(),
             |schema, descriptor| {
@@ -296,12 +352,15 @@ impl<C: CanisterKind> DbSession<C> {
                 ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
                 let write_context =
                     SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
+                let candidate_bounds =
+                    sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some());
                 let mut rows = SqlWriteMutationBatch::new();
                 let mut save_schema_info = None;
 
                 match &statement.source {
                     SqlInsertSource::Values(values) => {
-                        rows.reserve(values.len());
+                        candidate_bounds.validate(SqlWriteCandidateRows::from_len(values.len()))?;
+                        rows.reserve(values.len().min(SQL_INSERT_VALUES_INITIAL_RESERVE_ROWS));
                         for tuple in values {
                             if tuple.len() != columns.len() {
                                 return Err(QueryError::from_sql_parse_error(
@@ -339,14 +398,15 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_sql_write_mutation_batch::<E>(
                     schema,
                     &descriptor,
-                    SqlWriteMutationExecution::from_unbounded_batch(
+                    SqlWriteMutationExecution::from_bounded_batch(
                         rows,
+                        candidate_bounds,
                         kind,
                         MutationMode::Insert,
                         write_context,
-                        None,
+                        execution_bounds.map(|bounds| bounds.returning),
                         save_schema_info,
-                    ),
+                    )?,
                     statement.returning.as_ref(),
                 )
             },

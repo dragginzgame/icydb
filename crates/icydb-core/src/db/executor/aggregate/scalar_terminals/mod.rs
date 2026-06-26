@@ -72,7 +72,7 @@ where
                 } else {
                     let count = self
                         .execute_scalar_terminal_request(
-                            shared_plan.typed_clone::<E>(),
+                            shared_plan.typed_clone::<E>()?,
                             ScalarTerminalBoundaryRequest::Count,
                         )?
                         .into_count()?;
@@ -97,7 +97,7 @@ where
         // executor-owned.
         if !scalar_aggregate_terminals.is_empty() {
             let terminal_values = self.execute_scalar_aggregate_terminals(
-                shared_plan.typed_clone::<E>(),
+                shared_plan.typed_clone::<E>()?,
                 PreparedScalarAggregateTerminalSet::new(scalar_aggregate_terminals),
             )?;
             if terminal_values.len() != scalar_aggregate_terminal_positions.len() {

@@ -197,7 +197,20 @@ impl Parser {
         surface: SqlExprParseSurface,
         min_precedence: u8,
     ) -> Result<SqlExpr, SqlParseError> {
+        self.enter_sql_expr_depth()?;
+        let result = self.parse_sql_expr_at_current_depth(surface, min_precedence);
+        self.leave_sql_expr_depth();
+
+        result
+    }
+
+    fn parse_sql_expr_at_current_depth(
+        &mut self,
+        surface: SqlExprParseSurface,
+        min_precedence: u8,
+    ) -> Result<SqlExpr, SqlParseError> {
         let mut left = self.parse_sql_expr_prefix(surface)?;
+        let mut binary_chain_depth = 1usize;
 
         loop {
             if surface.allows_predicate_postfix()
@@ -216,7 +229,12 @@ impl Parser {
             }
 
             let _ = self.cursor.advance();
+            let next_binary_chain_depth = binary_chain_depth.saturating_add(1);
+            if next_binary_chain_depth > crate::db::sql_shared::MAX_SQL_EXPR_DEPTH {
+                return Err(crate::db::sql_shared::sql_expr_depth_limit_error());
+            }
             let right = self.parse_sql_expr(surface, precedence.saturating_add(1))?;
+            binary_chain_depth = next_binary_chain_depth;
             left = SqlExpr::Binary {
                 op,
                 left: Box::new(left),
@@ -228,6 +246,17 @@ impl Parser {
     }
 
     fn parse_sql_expr_prefix(
+        &mut self,
+        surface: SqlExprParseSurface,
+    ) -> Result<SqlExpr, SqlParseError> {
+        self.enter_sql_expr_depth()?;
+        let result = self.parse_sql_expr_prefix_at_current_depth(surface);
+        self.leave_sql_expr_depth();
+
+        result
+    }
+
+    fn parse_sql_expr_prefix_at_current_depth(
         &mut self,
         surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, SqlParseError> {

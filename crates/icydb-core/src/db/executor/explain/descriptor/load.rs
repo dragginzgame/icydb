@@ -223,10 +223,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor(
     let route_facts =
         freeze_load_execution_route_facts_for_model_only(fields, &primary_key_names, plan)?;
 
-    Ok(assemble_load_execution_node_descriptor_from_route_facts(
-        plan,
-        &route_facts,
-    ))
+    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
 }
 
 // Assemble one canonical scalar load execution descriptor tree through
@@ -237,10 +234,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_for_authority(
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
     let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)?;
 
-    Ok(assemble_load_execution_node_descriptor_from_route_facts(
-        plan,
-        &route_facts,
-    ))
+    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
 }
 
 /// Assemble one canonical scalar load execution descriptor tree from frozen
@@ -248,7 +242,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_for_authority(
 pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     plan: &AccessPlannedQuery,
     route_facts: &LoadExecutionRouteFacts,
-) -> ExplainExecutionNodeDescriptor {
+) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
     let route_plan = &route_facts.route_plan;
     let explain_preparation = &route_facts.explain_preparation;
 
@@ -283,7 +277,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         property_keys::ORDER_ROUTE_REASON,
         Value::from(order_observability.reason),
     );
-    annotate_access_choice_node_properties(&mut root, plan.access_choice());
+    annotate_access_choice_node_properties(&mut root, plan.access_choice())?;
     let covering_scan = covering_projection_selected;
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
@@ -340,7 +334,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         hybrid_covering_read_plan,
     ));
 
-    root
+    Ok(root)
 }
 
 fn load_modifier_execution_nodes(

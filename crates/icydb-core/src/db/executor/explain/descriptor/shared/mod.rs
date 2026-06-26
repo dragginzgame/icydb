@@ -30,6 +30,7 @@ use crate::{
             },
         },
     },
+    error::InternalError,
     value::Value,
 };
 use std::fmt::{Debug, Write};
@@ -232,12 +233,12 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown
 pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     access_choice: &AccessChoiceExplainSnapshot,
-) {
-    let chosen_label = explain_access_strategy_label(
-        node.access_strategy
-            .as_ref()
-            .expect("access root must carry an access strategy"),
-    );
+) -> Result<(), InternalError> {
+    let access_strategy = node
+        .access_strategy
+        .as_ref()
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    let chosen_label = explain_access_strategy_label(access_strategy);
     node.node_properties
         .insert(property_keys::ACCESS_CHOICE, Value::from(chosen_label));
     node.node_properties.insert(
@@ -252,6 +253,8 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
         property_keys::ACCESS_REJECTIONS,
         value_list(access_choice.rejected.iter().cloned()),
     );
+
+    Ok(())
 }
 
 pub(in crate::db::executor::explain::descriptor) fn descriptor_route_property_line(

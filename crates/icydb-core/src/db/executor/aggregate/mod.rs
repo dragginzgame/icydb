@@ -115,7 +115,7 @@ where
         &self,
         prepared: PreparedAggregateStreamingInputs<'_>,
     ) -> Result<(Vec<DataRow>, RowLayout), InternalError> {
-        let row_layout = prepared.authority.row_layout();
+        let row_layout = prepared.authority.row_layout()?;
         let page = self.execute_scalar_materialized_page_stage(prepared)?;
         let (rows, _) = page.into_data_rows_and_cursor();
 
@@ -129,7 +129,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor::aggregate) fn prepare_aggregate_execution_state_from_prepared(
         prepared: PreparedAggregateStreamingInputs<'_>,
         aggregate: PreparedAggregateSpec,
-    ) -> PreparedAggregateExecutionState<'_> {
+    ) -> Result<PreparedAggregateExecutionState<'_>, InternalError> {
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
         let route_plan = build_execution_route_plan(
@@ -139,17 +139,17 @@ impl ExecutionKernel {
                 execution_preparation: &prepared.execution_preparation,
             },
         )
-        .expect("aggregate invariant");
+        .map_err(|_err| InternalError::query_executor_invariant())?;
         let direction = route_plan.direction();
 
-        PreparedAggregateExecutionState {
+        Ok(PreparedAggregateExecutionState {
             dispatch: AggregateExecutionDispatch {
                 aggregate,
                 direction,
                 route_plan,
             },
             prepared,
-        }
+        })
     }
 
     // Consume one executable aggregate plan into canonical streaming execution

@@ -222,7 +222,7 @@ where
         prepared: PreparedScalarMaterializedBoundary<'_>,
         target_field: PlannedFieldSlot,
     ) -> Result<u64, InternalError> {
-        let row_layout = prepared.authority.row_layout();
+        let row_layout = prepared.authority.row_layout()?;
         let field_slot = resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
             .map_err(AggregateFieldValueError::into_internal_error)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;

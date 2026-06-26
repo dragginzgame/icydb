@@ -7,6 +7,11 @@ use crate::db::{
         },
     },
 };
+use std::collections::HashMap;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 ///
 /// GlobalAggregateTerminalCollectionMode
@@ -30,6 +35,7 @@ enum GlobalAggregateTerminalCollectionMode {
 pub(super) struct GlobalAggregateTerminalInterner {
     terminals: Vec<LoweredSqlGlobalAggregateTerminal>,
     semantic_keys: Vec<AggregateTerminalSemanticKey>,
+    indices_by_semantic_fingerprint: HashMap<u64, Vec<usize>>,
 }
 
 impl GlobalAggregateTerminalInterner {
@@ -37,6 +43,7 @@ impl GlobalAggregateTerminalInterner {
         Self {
             terminals: Vec::with_capacity(capacity),
             semantic_keys: Vec::with_capacity(capacity),
+            indices_by_semantic_fingerprint: HashMap::with_capacity(capacity),
         }
     }
 
@@ -57,10 +64,15 @@ impl GlobalAggregateTerminalInterner {
         self.assert_aligned();
 
         let semantic_key = AggregateTerminalSemanticKey::from_aggregate_expr(aggregate_expr);
-        if let Some(index) = self
-            .semantic_keys
+        let fingerprint = aggregate_terminal_semantic_key_fingerprint(&semantic_key);
+        let indices = self
+            .indices_by_semantic_fingerprint
+            .entry(fingerprint)
+            .or_default();
+        if let Some(index) = indices
             .iter()
-            .position(|current| current == &semantic_key)
+            .copied()
+            .find(|index| self.semantic_keys.get(*index) == Some(&semantic_key))
         {
             return Ok(index);
         }
@@ -72,6 +84,7 @@ impl GlobalAggregateTerminalInterner {
         let index = self.terminals.len();
         self.terminals.push(terminal);
         self.semantic_keys.push(semantic_key);
+        indices.push(index);
 
         Ok(index)
     }
@@ -118,5 +131,19 @@ impl GlobalAggregateTerminalInterner {
             self.semantic_keys.len(),
             "global aggregate terminal semantic keys must stay aligned with retained terminals",
         );
+        debug_assert_eq!(
+            self.terminals.len(),
+            self.indices_by_semantic_fingerprint
+                .values()
+                .map(Vec::len)
+                .sum::<usize>(),
+            "global aggregate terminal semantic-key index must retain one slot per terminal",
+        );
     }
+}
+
+fn aggregate_terminal_semantic_key_fingerprint(key: &AggregateTerminalSemanticKey) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    format!("{key:?}").hash(&mut hasher);
+    hasher.finish()
 }

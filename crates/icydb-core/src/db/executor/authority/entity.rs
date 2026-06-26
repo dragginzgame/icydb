@@ -171,17 +171,15 @@ impl EntityAuthority {
     }
 
     /// Borrow the frozen structural row-decode layout for this entity.
-    #[must_use]
-    pub(in crate::db::executor) fn row_layout(&self) -> RowLayout {
-        self.row_layout_ref().clone()
+    pub(in crate::db::executor) fn row_layout(&self) -> Result<RowLayout, InternalError> {
+        Ok(self.row_layout_ref()?.clone())
     }
 
     /// Borrow the frozen structural row-decode layout for metadata-only callers.
-    #[must_use]
-    pub(in crate::db::executor) const fn row_layout_ref(&self) -> &RowLayout {
-        self.row_layout.as_ref().expect(
-            "entity authority row layout must be selected from accepted schema or explicit test layout",
-        )
+    pub(in crate::db::executor) fn row_layout_ref(&self) -> Result<&RowLayout, InternalError> {
+        self.row_layout
+            .as_ref()
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Borrow the accepted schema view attached to this executor authority.
@@ -227,7 +225,7 @@ impl EntityAuthority {
     pub(in crate::db::executor) fn finalize_static_execution_planning_contract(
         &self,
         plan: &mut AccessPlannedQuery,
-    ) {
+    ) -> Result<(), InternalError> {
         // Cached/session planning may already have frozen static execution
         // metadata with accepted schema authority. Do not overwrite that
         // schema-selected slot contract while lowering the executor core.
@@ -236,30 +234,34 @@ impl EntityAuthority {
                 self.entity_path(),
                 PreparedShapeFinalizationOutcome::AlreadyFinalized,
             );
-            return;
+            return Ok(());
         }
 
         let schema_info = self
             .accepted_schema_info
             .as_ref()
-            .expect("executor authority invariant");
+            .ok_or_else(InternalError::query_executor_invariant)?;
         plan.finalize_static_execution_planning_contract_for_model_with_schema(
             self.model,
             schema_info,
         )
-        .expect("executor authority invariant");
+        .map_err(|_err| InternalError::query_executor_invariant())?;
+
+        Ok(())
     }
 
     /// Finalize planner-owned route profiling through canonical entity authority.
     pub(in crate::db::executor) fn finalize_planner_route_profile(
         &self,
         plan: &mut AccessPlannedQuery,
-    ) {
+    ) -> Result<(), InternalError> {
         let schema_info = self
             .accepted_schema_info
             .as_ref()
-            .expect("executor authority invariant");
+            .ok_or_else(InternalError::query_executor_invariant)?;
         plan.finalize_planner_route_profile_for_model_with_schema(schema_info);
+
+        Ok(())
     }
 
     /// Validate one access-planned query against authority-owned structural contracts.
@@ -509,7 +511,9 @@ mod tests {
             .expect("schema-finalized static shape should build");
         assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
 
-        authority.finalize_static_execution_planning_contract(&mut plan);
+        authority
+            .finalize_static_execution_planning_contract(&mut plan)
+            .expect("authority finalization should preserve finalized static contract");
 
         assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
 
@@ -535,7 +539,9 @@ mod tests {
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 
-        authority.finalize_static_execution_planning_contract(&mut plan);
+        authority
+            .finalize_static_execution_planning_contract(&mut plan)
+            .expect("authority finalization should use accepted schema layout");
 
         assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
     }

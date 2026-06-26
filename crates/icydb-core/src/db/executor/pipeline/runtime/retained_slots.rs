@@ -14,6 +14,7 @@ use crate::{
         predicate::IndexCompileTarget,
         query::plan::AccessPlannedQuery,
     },
+    error::InternalError,
     model::field::{LeafCodec, ScalarCodec},
 };
 
@@ -24,7 +25,7 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode(
     plan: &AccessPlannedQuery,
     projection_materialization: ProjectionMaterializationMode,
     cursor_emission: CursorEmissionMode,
-) -> Option<RetainedSlotLayout> {
+) -> Result<Option<RetainedSlotLayout>, InternalError> {
     compile_retained_slot_layout_for_mode_with_extra_slots(
         authority,
         plan,
@@ -43,7 +44,7 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
     projection_materialization: ProjectionMaterializationMode,
     cursor_emission: CursorEmissionMode,
     extra_slots: &[usize],
-) -> Option<RetainedSlotLayout> {
+) -> Result<Option<RetainedSlotLayout>, InternalError> {
     let projection_validation_enabled =
         projection_materialization.validate_projection() && !plan.projection_is_model_identity();
     let retain_slot_rows = projection_materialization.retain_slot_rows();
@@ -69,8 +70,8 @@ fn compile_retained_slot_layout(
     retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
     extra_slots: &[usize],
-) -> Option<RetainedSlotLayout> {
-    let row_layout = authority.row_layout_ref();
+) -> Result<Option<RetainedSlotLayout>, InternalError> {
+    let row_layout = authority.row_layout_ref()?;
     let mut required_slots = RetainedSlotRequirements::new(row_layout.field_count());
     let residual_filter_program = plan.effective_runtime_filter_program();
 
@@ -125,14 +126,14 @@ fn compile_retained_slot_layout(
     let (required_slots, value_modes) = required_slots.into_slots_and_value_modes();
 
     if required_slots.is_empty() && !retain_slot_rows {
-        return None;
+        return Ok(None);
     }
 
-    Some(RetainedSlotLayout::compile_with_value_modes(
+    Ok(Some(RetainedSlotLayout::compile_with_value_modes(
         row_layout.field_count(),
         required_slots,
         value_modes,
-    ))
+    )))
 }
 
 // Mark projection-driven retained slots while preserving byte-length-only

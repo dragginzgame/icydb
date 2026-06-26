@@ -17,9 +17,10 @@ use crate::{
                     decode_binary_blob_value_at, decode_binary_i64_value_at,
                     decode_binary_text_value_at, decode_binary_u64_value_at,
                 },
-                value::decode_value_storage_slice,
+                value::decode_value_storage_slice_at_depth,
             },
-            skip::skip_value_storage_binary_value,
+            next_value_storage_decode_depth,
+            skip::skip_value_storage_binary_value_at_depth,
             tags::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
                 VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_FLOAT32,
@@ -43,7 +44,9 @@ use crate::{
 pub(super) fn decode_value_storage_binary_value_at(
     raw_bytes: &[u8],
     offset: usize,
+    depth: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
+    let depth = next_value_storage_decode_depth(depth)?;
     let Some(&tag) = raw_bytes.get(offset) else {
         return Err(FieldDecodeError::new());
     };
@@ -62,6 +65,7 @@ pub(super) fn decode_value_storage_binary_value_at(
                 raw_bytes,
                 offset,
                 false,
+                depth,
                 decode_value_storage_binary_value_at,
             )?;
 
@@ -72,6 +76,7 @@ pub(super) fn decode_value_storage_binary_value_at(
                 raw_bytes,
                 offset,
                 false,
+                depth,
                 decode_value_storage_binary_value_at,
             )?;
             let value = Value::from_map(entries).map_err(|_| FieldDecodeError::new())?;
@@ -93,9 +98,9 @@ pub(super) fn decode_value_storage_binary_value_at(
         | VALUE_BINARY_TAG_NAT128
         | VALUE_BINARY_TAG_NAT_BIG
         | VALUE_BINARY_TAG_ULID => {
-            let cursor = skip_value_storage_binary_value(raw_bytes, offset)?;
+            let cursor = skip_value_storage_binary_value_at_depth(raw_bytes, offset, depth)?;
             let slice = ValueStorageSlice::from_skip_bounded_unchecked(&raw_bytes[offset..cursor]);
-            let value = decode_value_storage_slice(slice)?;
+            let value = decode_value_storage_slice_at_depth(slice, depth)?;
 
             Ok((value, cursor))
         }

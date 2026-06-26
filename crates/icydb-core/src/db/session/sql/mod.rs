@@ -74,6 +74,9 @@ pub(in crate::db) use compiled::{
 pub(in crate::db) use delete_policy::{
     DEFAULT_PUBLIC_BOUNDED_DELETE_LIMIT, DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES,
 };
+#[cfg(test)]
+pub(in crate::db) const DEFAULT_PUBLIC_INSERT_STAGED_ROWS: u32 =
+    write_policy::DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT;
 pub use delete_policy::{
     SqlAdminBulkDeletePlan, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
     SqlDeletePolicyRejection, SqlDeletePolicyReport, SqlDeleteStatementClassification,
@@ -456,7 +459,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let compiled = self.compile_sql_update::<E>(sql)?;
 
-        self.execute_compiled_sql_owned::<E>(compiled)
+        self.execute_update_surface_compiled_sql_owned::<E>(compiled)
     }
 
     /// Prepare one SQL DDL statement against the accepted schema catalog.

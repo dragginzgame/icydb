@@ -7,13 +7,25 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Covering prefix projections now share active-prefix preparation and raw-index
-  chunk progress helpers before selecting direct, materialized, or merged
-  execution.
-
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
+
+- `0.185.14` hardens SQL, persistence-decode, mutation, rendering, and facade
+  validation boundaries against audit-identified trap and allocation
+  denial-of-service surfaces while adding executor panic guardrails.
+
+- `0.185.13` shares the flat ordered sibling-merge driver across scalar key
+  streams and covering component streams, reducing branch-shaped merge
+  duplication without changing route semantics.
+
+- `0.185.12` continues covering branch cleanup by sharing active-prefix
+  preparation and raw-index chunk progress across direct, materialized, and
+  merged covering prefix execution.
+
+- `0.185.11` removes another covering fallback duplicate by sharing the
+  decoded-key order, deduplication, direction, and limit window used after
+  unsafe prefix-set materialization.
 
 - `0.185.10` continues branch-tree cleanup by sharing active-branch chunk
   sizing and pairwise stream-set reduction across scalar and covering branch

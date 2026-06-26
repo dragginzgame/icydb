@@ -29,6 +29,7 @@ pub(super) const TAG_VARIANT_PAYLOAD: u8 = 0x31;
 
 const WORD32_LEN: usize = 4;
 const WORD64_LEN: usize = 8;
+const MAX_STRUCTURAL_BINARY_SKIP_DEPTH: usize = 64;
 
 /// Append one tag-only Structural Binary v1 value.
 pub(super) fn push_binary_tag(out: &mut Vec<u8>, tag: u8) {
@@ -202,6 +203,18 @@ pub(super) fn parse_binary_head(
 
 // Skip one self-contained Structural Binary v1 value without decoding it.
 pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, FieldDecodeError> {
+    skip_binary_value_at_depth(bytes, offset, 0)
+}
+
+fn skip_binary_value_at_depth(
+    bytes: &[u8],
+    offset: usize,
+    depth: usize,
+) -> Result<usize, FieldDecodeError> {
+    if depth >= MAX_STRUCTURAL_BINARY_SKIP_DEPTH {
+        return Err(FieldDecodeError::new());
+    }
+    let depth = depth.saturating_add(1);
     let Some((tag, len, payload_offset)) = parse_binary_head(bytes, offset)? else {
         return Err(FieldDecodeError::new());
     };
@@ -222,10 +235,10 @@ pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, Fi
             head.payload_offset,
             usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?,
         ),
-        TAG_LIST => skip_list_payload(bytes, head),
-        TAG_MAP => skip_map_payload(bytes, head),
+        TAG_LIST => skip_list_payload(bytes, head, depth),
+        TAG_MAP => skip_map_payload(bytes, head, depth),
         TAG_VARIANT_UNIT => skip_variant_unit_payload(bytes, head),
-        TAG_VARIANT_PAYLOAD => skip_variant_payload(bytes, head),
+        TAG_VARIANT_PAYLOAD => skip_variant_payload(bytes, head, depth),
         _ => unreachable!("unknown tags are rejected above"),
     }
 }
@@ -337,7 +350,7 @@ pub(super) fn split_binary_variant_payload(
         TAG_VARIANT_PAYLOAD => {
             let label = decode_variant_label_bytes(raw_bytes, head)?;
             let payload_start = variant_payload_end(head, label.len())?;
-            let payload_end = skip_binary_value(raw_bytes, payload_start)?;
+            let payload_end = skip_binary_value_at_depth(raw_bytes, payload_start, 1)?;
             if payload_end != raw_bytes.len() {
                 return Err(FieldDecodeError::new());
             }
@@ -369,21 +382,29 @@ fn checked_advance(bytes: &[u8], offset: usize, len: usize) -> Result<usize, Fie
 }
 
 // Skip one list payload by recursively skipping its declared item count.
-fn skip_list_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, FieldDecodeError> {
+fn skip_list_payload(
+    bytes: &[u8],
+    head: BinaryHead,
+    depth: usize,
+) -> Result<usize, FieldDecodeError> {
     let mut cursor = head.payload_offset;
     for _ in 0..head.len {
-        cursor = skip_binary_value(bytes, cursor)?;
+        cursor = skip_binary_value_at_depth(bytes, cursor, depth)?;
     }
 
     Ok(cursor)
 }
 
 // Skip one map payload by recursively skipping its declared key/value entry pairs.
-fn skip_map_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, FieldDecodeError> {
+fn skip_map_payload(
+    bytes: &[u8],
+    head: BinaryHead,
+    depth: usize,
+) -> Result<usize, FieldDecodeError> {
     let mut cursor = head.payload_offset;
     for _ in 0..head.len {
-        cursor = skip_binary_value(bytes, cursor)?;
-        cursor = skip_binary_value(bytes, cursor)?;
+        cursor = skip_binary_value_at_depth(bytes, cursor, depth)?;
+        cursor = skip_binary_value_at_depth(bytes, cursor, depth)?;
     }
 
     Ok(cursor)
@@ -397,11 +418,15 @@ fn skip_variant_unit_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, Fi
 }
 
 // Skip one payload-bearing variant by advancing over the label bytes and then one nested payload.
-fn skip_variant_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, FieldDecodeError> {
+fn skip_variant_payload(
+    bytes: &[u8],
+    head: BinaryHead,
+    depth: usize,
+) -> Result<usize, FieldDecodeError> {
     let label_len = usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?;
     let payload_start = checked_advance(bytes, head.payload_offset, label_len)?;
 
-    skip_binary_value(bytes, payload_start)
+    skip_binary_value_at_depth(bytes, payload_start, depth)
 }
 
 // Decode one raw variant label slice from a previously parsed variant head.

@@ -1,3 +1,4 @@
+use super::ast_depth::validate_sql_statement_ast_depth;
 #[cfg(test)]
 use crate::db::sql::lowering::select::lower_select_shape_for_model_only;
 #[cfg(any(test, feature = "sql-explain"))]
@@ -42,6 +43,7 @@ pub(crate) fn prepare_sql_statement(
     statement: &SqlStatement,
     expected_entity: &str,
 ) -> Result<PreparedSqlStatement, SqlLoweringError> {
+    validate_sql_statement_ast_depth(statement)?;
     let statement = prepare_statement(statement, expected_entity)?;
     validate_prepared_statement_parameters(&statement)?;
 

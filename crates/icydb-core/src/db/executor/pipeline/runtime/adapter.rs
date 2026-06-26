@@ -184,14 +184,14 @@ impl ExecutionRuntimeAdapter {
         runtime: TraversalRuntime,
         store: StoreHandle,
         authority: EntityAuthority,
-    ) -> Self {
-        let row_layout = authority.row_layout();
+    ) -> Result<Self, InternalError> {
+        let row_layout = authority.row_layout()?;
 
-        Self {
+        Ok(Self {
             runtime,
             authority: Some(authority),
             scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, row_layout)),
-        }
+        })
     }
 
     /// Build one stream-only runtime adapter for key-stream resolution paths

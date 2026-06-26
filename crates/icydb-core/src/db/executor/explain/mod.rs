@@ -99,9 +99,10 @@ impl StructuralQuery {
         plan: &AccessPlannedQuery,
         route_facts: &crate::db::executor::explain::descriptor::LoadExecutionRouteFacts,
         reuse: Option<TraceReuseEvent>,
-    ) -> FinalizedQueryDiagnostics {
+    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
         let descriptor =
-            assemble_load_execution_node_descriptor_from_route_facts(plan, route_facts);
+            assemble_load_execution_node_descriptor_from_route_facts(plan, route_facts)
+                .map_err(QueryError::execute)?;
         let route_diagnostics =
             assemble_load_execution_verbose_diagnostics_from_route_facts(plan, route_facts);
         let explain = plan.explain();
@@ -148,7 +149,12 @@ impl StructuralQuery {
         logical_diagnostics.push(format!("diag.p.page={:?}", explain.page()));
         logical_diagnostics.push(format!("diag.p.consistency={:?}", explain.consistency()));
 
-        FinalizedQueryDiagnostics::new(descriptor, route_diagnostics, logical_diagnostics, reuse)
+        Ok(FinalizedQueryDiagnostics::new(
+            descriptor,
+            route_diagnostics,
+            logical_diagnostics,
+            reuse,
+        ))
     }
 
     // Assemble one model-only execution descriptor from a previously built
@@ -166,10 +172,8 @@ impl StructuralQuery {
         )
         .map_err(QueryError::execute)?;
 
-        Ok(assemble_load_execution_node_descriptor_from_route_facts(
-            plan,
-            &route_facts,
-        ))
+        assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
+            .map_err(QueryError::execute)
     }
 
     // Assemble one execution descriptor from accepted executor authority.
@@ -182,10 +186,8 @@ impl StructuralQuery {
         let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
             .map_err(QueryError::execute)?;
 
-        Ok(assemble_load_execution_node_descriptor_from_route_facts(
-            plan,
-            &route_facts,
-        ))
+        assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
+            .map_err(QueryError::execute)
     }
 
     // Render one standalone model-only verbose execution explain payload from
@@ -205,11 +207,7 @@ impl StructuralQuery {
         )
         .map_err(QueryError::execute)?;
 
-        Ok(Self::finalized_execution_diagnostics_from_route_facts(
-            plan,
-            &route_facts,
-            reuse,
-        ))
+        Self::finalized_execution_diagnostics_from_route_facts(plan, &route_facts, reuse)
     }
 
     /// Freeze one immutable diagnostics artifact through accepted executor
@@ -225,7 +223,7 @@ impl StructuralQuery {
         let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
             .map_err(QueryError::execute)?;
         let mut diagnostics =
-            Self::finalized_execution_diagnostics_from_route_facts(plan, &route_facts, reuse);
+            Self::finalized_execution_diagnostics_from_route_facts(plan, &route_facts, reuse)?;
         mutate_descriptor(&mut diagnostics.execution);
 
         Ok(diagnostics)
@@ -380,7 +378,8 @@ impl StructuralQuery {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
         let query_explain = plan.explain();
         let terminal = aggregate.kind();
-        let execution = assemble_aggregate_terminal_execution_descriptor(&plan, aggregate);
+        let execution = assemble_aggregate_terminal_execution_descriptor(&plan, aggregate)
+            .map_err(QueryError::execute)?;
 
         Ok(ExplainAggregateTerminalPlan::new(
             query_explain,
@@ -407,7 +406,8 @@ impl SharedPreparedExecutionPlan {
             .aggregate_route_shape(kind, strategy.explain_projected_field())
             .map_err(QueryError::execute)?;
         let execution =
-            assemble_aggregate_terminal_execution_descriptor(self.logical_plan(), aggregate);
+            assemble_aggregate_terminal_execution_descriptor(self.logical_plan(), aggregate)
+                .map_err(QueryError::execute)?;
 
         Ok(ExplainAggregateTerminalPlan::new(
             self.logical_plan().explain(),

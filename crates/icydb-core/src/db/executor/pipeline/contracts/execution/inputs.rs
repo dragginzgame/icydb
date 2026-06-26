@@ -26,6 +26,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
     },
+    error::InternalError,
     value::Value,
 };
 
@@ -64,7 +65,7 @@ impl PreparedExecutionProjection {
         prepared_retained_slot_layout: Option<RetainedSlotLayout>,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
         // Phase 1: projection validation is only meaningful when the frozen
         // projection is not already model identity. Identity projections would
         // immediately no-op inside the validator, so skip building projection
@@ -77,9 +78,10 @@ impl PreparedExecutionProjection {
         // keep their slot layout separately and do not read the prepared
         // projection shape back through this contract.
         let projection_validation = if projection_validation_enabled {
-            Some(prepared_projection_validation.expect(
-                "shared scalar execution requires one frozen prepared projection validation shape",
-            ))
+            Some(
+                prepared_projection_validation
+                    .ok_or_else(InternalError::query_executor_invariant)?,
+            )
         } else {
             None
         };
@@ -87,18 +89,19 @@ impl PreparedExecutionProjection {
         // Phase 3: reuse one frozen retained-slot layout whenever the
         // prepared-plan boundary already compiled the canonical scalar
         // execution shape. Non-prepared callers still compile on demand.
-        let retained_slot_layout = prepared_retained_slot_layout.or_else(|| {
-            compile_retained_slot_layout_for_mode(
+        let retained_slot_layout = match prepared_retained_slot_layout {
+            Some(layout) => Some(layout),
+            None => compile_retained_slot_layout_for_mode(
                 &authority,
                 plan,
                 projection_materialization,
                 cursor_emission,
-            )
-        });
-        Self {
+            )?,
+        };
+        Ok(Self {
             retained_slot_layout,
             projection_validation,
-        }
+        })
     }
 
     #[must_use]

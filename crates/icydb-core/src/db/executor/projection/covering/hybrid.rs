@@ -63,7 +63,7 @@ where
     };
 
     metrics.record_hybrid_path_hit();
-    let row_layout = authority.row_layout();
+    let row_layout = authority.row_layout()?;
 
     store.with_data(|data_store| {
         let projected_rows = if row_presence_proven {

@@ -20,12 +20,14 @@ use crate::{
         },
         value_storage::{
             decode::{ValueStorageSlice, cursor::decode_value_storage_binary_value_at},
+            next_value_storage_decode_depth,
             primitives::{
                 decode_binary_required_bytes, decode_binary_required_i64,
                 decode_binary_required_text, decode_binary_required_u64,
                 decode_value_storage_binary_payload, split_binary_tuple_2,
                 split_value_storage_tuple_3,
             },
+            reserve_one_value_storage_item,
             skip::skip_value_storage_binary_value,
             tags::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
@@ -334,8 +336,9 @@ pub(in crate::db) fn decode_value_storage_list_item_slices(
     }
 
     let mut cursor = payload_start;
-    let mut items = Vec::with_capacity(len as usize);
+    let mut items = Vec::new();
     for _ in 0..len {
+        reserve_one_value_storage_item(&mut items)?;
         let item_start = cursor;
         cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
         items.push(&raw_bytes[item_start..cursor]);
@@ -360,8 +363,9 @@ pub(in crate::db) fn decode_value_storage_map_entry_slices(
     }
 
     let mut cursor = payload_start;
-    let mut entries = Vec::with_capacity(len as usize);
+    let mut entries = Vec::new();
     for _ in 0..len {
+        reserve_one_value_storage_item(&mut entries)?;
         let key_start = cursor;
         cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
         let value_start = cursor;
@@ -383,6 +387,14 @@ pub(in crate::db) fn decode_value_storage_map_entry_slices(
 pub(super) fn decode_value_storage_slice(
     slice: ValueStorageSlice<'_>,
 ) -> Result<Value, FieldDecodeError> {
+    decode_value_storage_slice_at_depth(slice, 0)
+}
+
+pub(super) fn decode_value_storage_slice_at_depth(
+    slice: ValueStorageSlice<'_>,
+    depth: usize,
+) -> Result<Value, FieldDecodeError> {
+    let depth = next_value_storage_decode_depth(depth)?;
     let raw_bytes = slice.as_bytes();
     let Some(&tag) = raw_bytes.first() else {
         return Err(FieldDecodeError::new());
@@ -404,8 +416,8 @@ pub(super) fn decode_value_storage_slice(
         TAG_BYTES => Some(Value::Blob(decode_structural_value_storage_blob_bytes(
             raw_bytes,
         )?)),
-        TAG_LIST => Some(decode_value_storage_binary_list_bytes(raw_bytes)?),
-        TAG_MAP => Some(decode_value_storage_binary_map_bytes(raw_bytes)?),
+        TAG_LIST => Some(decode_value_storage_binary_list_bytes(raw_bytes, depth)?),
+        TAG_MAP => Some(decode_value_storage_binary_map_bytes(raw_bytes, depth)?),
         _ => None,
     };
     if let Some(value) = generic {
@@ -423,7 +435,7 @@ pub(super) fn decode_value_storage_slice(
         VALUE_BINARY_TAG_DURATION => {
             decode_structural_value_storage_duration_bytes(raw_bytes).map(Value::Duration)
         }
-        VALUE_BINARY_TAG_ENUM => decode_binary_enum_value(raw_bytes),
+        VALUE_BINARY_TAG_ENUM => decode_binary_enum_value(raw_bytes, depth),
         VALUE_BINARY_TAG_FLOAT32 => {
             decode_structural_value_storage_float32_bytes(raw_bytes).map(Value::Float32)
         }
@@ -452,12 +464,12 @@ pub(super) fn decode_value_storage_slice(
 
 // Decode one local enum payload from the fixed positional tuple
 // `(variant, path, payload)`.
-fn decode_binary_enum_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+fn decode_binary_enum_value(raw_bytes: &[u8], depth: usize) -> Result<Value, FieldDecodeError> {
     let (variant, path, nested) = decode_enum(raw_bytes)?;
 
     let mut value = ValueEnum::new(&variant, path.as_deref());
     if let Some(nested) = nested {
-        let payload = decode_bounded_value_storage_slice(nested)?;
+        let payload = decode_bounded_value_storage_slice(nested, depth)?;
         value = value.with_payload(payload);
     }
 
@@ -465,7 +477,10 @@ fn decode_binary_enum_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError>
 }
 
 // Decode one binary list payload recursively from raw item bytes.
-fn decode_value_storage_binary_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+fn decode_value_storage_binary_list_bytes(
+    raw_bytes: &[u8],
+    depth: usize,
+) -> Result<Value, FieldDecodeError> {
     // TODO(value-storage zero-copy): recursive decode must allocate the final
     // runtime Vec<Value>, but a future projection-only path can use the walker
     // directly and avoid materializing each item.
@@ -473,6 +488,7 @@ fn decode_value_storage_binary_list_bytes(raw_bytes: &[u8]) -> Result<Value, Fie
         raw_bytes,
         0,
         true,
+        depth,
         decode_value_storage_binary_value_at,
     )?;
 
@@ -481,7 +497,10 @@ fn decode_value_storage_binary_list_bytes(raw_bytes: &[u8]) -> Result<Value, Fie
 
 // Decode one binary map payload recursively while preserving runtime map
 // invariants.
-fn decode_value_storage_binary_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+fn decode_value_storage_binary_map_bytes(
+    raw_bytes: &[u8],
+    depth: usize,
+) -> Result<Value, FieldDecodeError> {
     // TODO(value-storage zero-copy): recursive map decode allocates the final
     // runtime Vec<(Value, Value)>. Projection and validation paths should use a
     // streaming visitor before constructing owned runtime pairs.
@@ -489,6 +508,7 @@ fn decode_value_storage_binary_map_bytes(raw_bytes: &[u8]) -> Result<Value, Fiel
         raw_bytes,
         0,
         true,
+        depth,
         decode_value_storage_binary_value_at,
     )?;
 
@@ -507,8 +527,9 @@ fn decode_binary_big_integer_magnitude_digits(
     }
 
     let mut cursor = payload_start;
-    let mut digits = Vec::with_capacity(len as usize);
+    let mut digits = Vec::new();
     for _ in 0..len {
+        reserve_one_value_storage_item(&mut digits)?;
         let start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
         let digit = decode_binary_required_u64(&raw_bytes[start..cursor])?;
@@ -551,8 +572,11 @@ fn decode_binary_optional_text(raw_bytes: &[u8]) -> Result<Option<&str>, FieldDe
 
 // Materialize a nested value-storage payload whose exact byte range was already
 // bounded by tuple/list/map traversal.
-fn decode_bounded_value_storage_slice(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+fn decode_bounded_value_storage_slice(
+    raw_bytes: &[u8],
+    depth: usize,
+) -> Result<Value, FieldDecodeError> {
     let slice = ValueStorageSlice::from_skip_bounded_unchecked(raw_bytes);
 
-    decode_value_storage_slice(slice)
+    decode_value_storage_slice_at_depth(slice, depth)
 }

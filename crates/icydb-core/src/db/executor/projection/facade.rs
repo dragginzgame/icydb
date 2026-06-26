@@ -165,7 +165,7 @@ where
     // Phase 2: execute the canonical scalar retained-slot path and let the
     // projection materializer choose slot-row, data-row, or scalar fallback
     // shaping behind the executor boundary.
-    let row_layout = authority.row_layout();
+    let row_layout = authority.row_layout()?;
     let prepared_projection = prepared_projection_contract
         .as_deref()
         .ok_or_else(InternalError::query_executor_invariant)?;

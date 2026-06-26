@@ -360,27 +360,30 @@ fn derive_grouped_execution_mode_for_intent(
     capability_facts: RouteCapabilityFacts,
     desc_physical_reverse_supported: bool,
 ) -> Option<GroupedExecutionMode> {
-    grouped.then(|| {
+    if !grouped {
+        return None;
+    }
+
+    let Some(planner_grouped_strategy) = grouped_plan_strategy else {
         debug_assert!(
-            grouped_plan_strategy.is_some(),
+            false,
             "route invariant: grouped feasibility derivation requires planner-projected grouped strategy",
         );
-        debug_assert!(
-            grouped_aggregate_allowed,
-            "route invariant: grouped feasibility derivation requires planner-projected grouped aggregate eligibility",
-        );
-        let planner_grouped_strategy = grouped_plan_strategy
-            .expect("route feasibility invariant");
+        return None;
+    };
 
-        GroupedExecutionMode::from_planner_strategy(
-            planner_grouped_strategy,
-            GroupedExecutionModeContext::from_route_inputs(
-                direction,
-                desc_physical_reverse_supported,
-                capability_facts
-                    .load_order_route_mode()
-                    .allows_ordered_group_projection(),
-            ),
-        )
-    })
+    debug_assert!(
+        grouped_aggregate_allowed,
+        "route invariant: grouped feasibility derivation requires planner-projected grouped aggregate eligibility",
+    );
+    Some(GroupedExecutionMode::from_planner_strategy(
+        planner_grouped_strategy,
+        GroupedExecutionModeContext::from_route_inputs(
+            direction,
+            desc_physical_reverse_supported,
+            capability_facts
+                .load_order_route_mode()
+                .allows_ordered_group_projection(),
+        ),
+    ))
 }

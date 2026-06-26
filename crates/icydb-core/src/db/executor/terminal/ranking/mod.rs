@@ -96,7 +96,7 @@ where
         plan: PreparedLoadPlan,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
-        let row_layout = plan.authority().row_layout();
+        let row_layout = plan.authority().row_layout()?;
         let prepared = self.prepare_scalar_materialized_boundary(plan)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
         let (mut data_rows, _) = page.into_data_rows_and_cursor();
@@ -141,7 +141,7 @@ where
     ) -> Result<RankingTerminalBoundaryOutput<E>, InternalError> {
         let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
             .map_err(AggregateFieldValueError::into_internal_error)?;
-        let row_layout = prepared.authority.row_layout();
+        let row_layout = prepared.authority.row_layout()?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
         let target_field = target_field.field();
 

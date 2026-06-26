@@ -181,7 +181,9 @@ pub(in crate::db::executor) use stream::key::{
     exact_output_key_count_hint, key_stream_budget_is_redundant,
     ordered_key_stream_from_materialized_keys,
 };
-pub(in crate::db::executor) use stream::reduce_non_empty_streams_pairwise;
+pub(in crate::db::executor) use stream::{
+    FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
+};
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};

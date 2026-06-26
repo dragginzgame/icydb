@@ -129,7 +129,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority,
-    );
+    )?;
     let plan = plan_core.plan();
     let index_prefix_specs = plan_core.index_prefix_specs()?;
     let index_range_specs = plan_core.index_range_specs()?;

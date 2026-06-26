@@ -31,7 +31,7 @@ fn delete_before_image_bytes(
     authority: &DeleteExecutionAuthority,
     raw_row: &RawRow,
 ) -> Result<Vec<u8>, InternalError> {
-    let row_layout = authority.entity.row_layout();
+    let row_layout = authority.entity.row_layout()?;
     let canonical = row_layout.canonical_row_from_raw_row(raw_row)?;
 
     Ok(canonical.into_raw_row().into_bytes())

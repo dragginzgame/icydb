@@ -19,7 +19,10 @@ use super::{
 use super::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
-    db::sql_shared::{SqlClauseOrderRule, SqlSyntaxErrorKind},
+    db::sql_shared::{
+        MAX_SQL_EXPR_DEPTH, MAX_SQL_INPUT_BYTES, MAX_SQL_TOKENS, SqlClauseOrderRule,
+        SqlSyntaxErrorKind,
+    },
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
@@ -4849,4 +4852,80 @@ fn parse_sql_normalization_is_case_and_whitespace_insensitive() {
             .expect("variant statement should parse");
 
     assert_eq!(canonical, variant);
+}
+
+#[test]
+fn parse_sql_rejects_excessive_expression_depth() {
+    let mut predicate = String::new();
+    for _ in 0..140 {
+        predicate.push_str("NOT ");
+    }
+    predicate.push_str("active");
+    let sql = format!("SELECT name FROM users WHERE {predicate}");
+
+    let err = parse_sql(sql.as_str()).expect_err("deep expressions should reject before recursion");
+
+    assert_eq!(
+        err,
+        SqlParseError::InvalidSyntax {
+            kind: SqlSyntaxErrorKind::ExpressionDepthLimit {
+                max_depth: MAX_SQL_EXPR_DEPTH
+            },
+        }
+    );
+}
+
+#[test]
+fn parse_sql_rejects_excessive_binary_chain_depth() {
+    let mut predicate = String::from("active");
+    for _ in 0..140 {
+        predicate.push_str(" OR active");
+    }
+    let sql = format!("SELECT name FROM users WHERE {predicate}");
+
+    let err = parse_sql(sql.as_str()).expect_err("deep binary chains should reject during parse");
+
+    assert_eq!(
+        err,
+        SqlParseError::InvalidSyntax {
+            kind: SqlSyntaxErrorKind::ExpressionDepthLimit {
+                max_depth: MAX_SQL_EXPR_DEPTH
+            },
+        }
+    );
+}
+
+#[test]
+fn parse_sql_rejects_excessive_input_bytes() {
+    let sql = " ".repeat(MAX_SQL_INPUT_BYTES.saturating_add(1));
+
+    let err = parse_sql(sql.as_str()).expect_err("oversized SQL text should reject before lexing");
+
+    assert_eq!(
+        err,
+        SqlParseError::InvalidSyntax {
+            kind: SqlSyntaxErrorKind::InputTooLong {
+                max_bytes: MAX_SQL_INPUT_BYTES
+            },
+        }
+    );
+}
+
+#[test]
+fn parse_sql_rejects_excessive_token_count() {
+    let mut sql = String::from("SELECT ");
+    for _ in 0..=MAX_SQL_TOKENS {
+        sql.push_str("name,");
+    }
+
+    let err = parse_sql(sql.as_str()).expect_err("oversized token streams should reject in lexer");
+
+    assert_eq!(
+        err,
+        SqlParseError::InvalidSyntax {
+            kind: SqlSyntaxErrorKind::TokenLimit {
+                max_tokens: MAX_SQL_TOKENS
+            },
+        }
+    );
 }

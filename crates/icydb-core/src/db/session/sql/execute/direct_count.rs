@@ -221,7 +221,7 @@ impl<C: CanisterKind> DbSession<C> {
         let count = self
             .with_metrics(|| {
                 self.load_executor::<E>().execute_scalar_terminal_request(
-                    prepared_plan.typed_clone::<E>(),
+                    prepared_plan.typed_clone::<E>()?,
                     ScalarTerminalBoundaryRequest::Count,
                 )
             })

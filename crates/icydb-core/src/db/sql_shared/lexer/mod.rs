@@ -2,7 +2,7 @@ mod keywords;
 mod scan;
 mod token_body;
 
-use crate::db::sql_shared::{SqlParseError, types::Token};
+use crate::db::sql_shared::{SqlParseError, types::Token, validate_sql_input_bytes};
 
 ///
 /// Lexer
@@ -17,5 +17,7 @@ struct Lexer<'a> {
 }
 
 pub(crate) fn tokenize_sql(sql: &str) -> Result<Vec<Token>, SqlParseError> {
+    validate_sql_input_bytes(sql)?;
+
     Lexer::tokenize(sql)
 }

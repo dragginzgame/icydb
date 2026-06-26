@@ -114,7 +114,7 @@ where
         .map_err(|reason| reason.into_global_distinct_prepare_internal_error(kind))?;
 
         resolve_grouped_route_for_plan(
-            plan.into_grouped_load_plan(grouped_shape),
+            plan.into_grouped_load_plan(grouped_shape)?,
             ValidatedGroupedCursor::none(),
             self.debug,
         )

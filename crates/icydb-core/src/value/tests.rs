@@ -12,7 +12,7 @@ use crate::{
         canonicalize_value_set, hash_value,
     },
 };
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::BTreeSet};
 
 // ---- helpers -----------------------------------------------------------
 
@@ -203,6 +203,49 @@ fn canonical_tag_and_rank_are_stable() {
             "value: {value:?}"
         );
         assert_eq!(value.canonical_rank(), expected_tag - 1, "value: {value:?}");
+    }
+}
+
+#[test]
+fn canonical_ranks_are_unique_across_value_variants() {
+    let map = Value::Map(vec![]);
+    let list = Value::List(vec![]);
+    let cases = vec![
+        Value::Account(Account::from_owner_and_subaccount(
+            Principal::from_slice(&[7]),
+            Some(Subaccount::from_array([7; 32])),
+        )),
+        Value::Blob(vec![1u8]),
+        Value::Bool(true),
+        Value::Date(Date::new(2024, 1, 2)),
+        Value::Decimal(Decimal::new(123, 2)),
+        Value::Duration(Duration::from_secs(1)),
+        Value::Enum(ValueEnum::loose("example")),
+        Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite")),
+        Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite")),
+        Value::Int64(-7),
+        Value::Int128(123i128),
+        Value::IntBig(IntBig::from(99i32)),
+        list,
+        map,
+        Value::Null,
+        Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
+        Value::Subaccount(Subaccount::from_array([1u8; 32])),
+        Value::Text("example".to_string()),
+        Value::Timestamp(Timestamp::from_secs(1)),
+        Value::Nat64(7),
+        Value::Nat128(9u128),
+        Value::NatBig(NatBig::from(11u64)),
+        Value::Ulid(Ulid::from_u128(42)),
+        Value::Unit,
+    ];
+
+    let mut ranks = BTreeSet::new();
+    for value in cases {
+        assert!(
+            ranks.insert(value.canonical_rank()),
+            "canonical rank should be unique for {value:?}",
+        );
     }
 }
 

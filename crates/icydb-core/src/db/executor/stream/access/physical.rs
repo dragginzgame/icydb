@@ -353,12 +353,14 @@ impl KeyAccessRuntime {
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         value_count: usize,
         direction: Direction,
+        index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         if index_prefix_specs.len() != value_count {
             return Err(InternalError::query_executor_invariant());
         }
 
+        let per_prefix_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let mut keys = Vec::new();
         for spec in active_lowered_index_prefix_specs(
             Some(self.store),
@@ -370,7 +372,7 @@ impl KeyAccessRuntime {
                 self.entity_tag,
                 spec,
                 direction,
-                usize::MAX,
+                per_prefix_limit,
                 index_predicate_execution,
             )?);
         }
@@ -1005,6 +1007,7 @@ fn resolve_index_multi_lookup_physical_key_stream(
             request.index_prefix_specs,
             value_count,
             request.continuation.direction(),
+            request.physical_fetch_hint,
             request.index_predicate_execution,
         )?;
 
@@ -1031,6 +1034,7 @@ fn resolve_index_multi_lookup_physical_key_stream(
         request.index_prefix_specs,
         value_count,
         request.continuation.direction(),
+        request.physical_fetch_hint,
         request.index_predicate_execution,
     )?;
 
@@ -1102,6 +1106,7 @@ fn resolve_index_physical_key_stream(
                 request.index_prefix_specs,
                 *branch_count,
                 request.continuation.direction(),
+                request.physical_fetch_hint,
                 request.index_predicate_execution,
             )?
         }

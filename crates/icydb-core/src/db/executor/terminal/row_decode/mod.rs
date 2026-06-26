@@ -176,14 +176,13 @@ impl RowLayout {
         values.reserve(slots.field_count());
 
         for slot in 0..slots.field_count() {
-            let value = slots.get_value(slot)?.ok_or_else(|| {
-                let field = self
-                    .contract
-                    .field_name(slot)
-                    .expect("row decode invariant");
-
-                InternalError::persisted_row_declared_field_missing(field)
-            })?;
+            let value = match slots.get_value(slot)? {
+                Some(value) => value,
+                None => {
+                    let field = self.contract.field_name(slot)?;
+                    return Err(InternalError::persisted_row_declared_field_missing(field));
+                }
+            };
             values.push(value);
         }
 
@@ -432,12 +431,8 @@ fn decode_structural_slots(
 
     // Phase 2: sparse callers decode only the slots their compiled plan will
     // actually touch without building the general row-reader cache.
-    decode_sparse_raw_row_with_contract(
-        row,
-        layout.contract.clone(),
-        expected_key,
-        required_slots.expect("dense full-slot callers return earlier"),
-    )
+    let required_slots = required_slots.ok_or_else(InternalError::query_executor_invariant)?;
+    decode_sparse_raw_row_with_contract(row, layout.contract.clone(), expected_key, required_slots)
 }
 
 // Detect the dense retained-slot case up front so full-row and full-slot

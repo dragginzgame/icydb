@@ -261,7 +261,7 @@ impl PreparedScalarPlanCore {
         authority: EntityAuthority,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
-    ) -> Option<RetainedSlotLayout> {
+    ) -> Result<Option<RetainedSlotLayout>, InternalError> {
         self.core
             .get_or_init_scalar_layout(authority, projection_materialization, cursor_emission)
     }
@@ -314,20 +314,27 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_shape(
         &self,
         authority: EntityAuthority,
-    ) -> Option<Arc<PreparedProjectionContract>> {
+    ) -> Result<Option<Arc<PreparedProjectionContract>>, InternalError> {
         // Projection adapters consume this shape directly; scalar validation
         // callers request it explicitly before execution.
-        self.residents
+        if let Some(cached) = self.residents.prepared_projection_contract.get() {
+            return Ok(cached.clone());
+        }
+
+        let prepared = if self.residents.plan.scalar_projection_plan().is_some() {
+            Some(Arc::new(prepare_projection_contract_from_plan(
+                authority.row_layout_ref()?,
+                &self.residents.plan,
+            )?))
+        } else {
+            None
+        };
+        let _ = self
+            .residents
             .prepared_projection_contract
-            .get_or_init(|| {
-                self.residents.plan.scalar_projection_plan().map(|_| {
-                    Arc::new(prepare_projection_contract_from_plan(
-                        authority.row_layout_ref(),
-                        &self.residents.plan,
-                    ))
-                })
-            })
-            .clone()
+            .set(prepared.clone());
+
+        Ok(prepared)
     }
 
     #[cfg(feature = "sql")]
@@ -372,37 +379,48 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_grouped_runtime_residents(
         &self,
         authority: EntityAuthority,
-    ) -> Option<Arc<PreparedGroupedRuntimeResidents>> {
+    ) -> Result<Option<Arc<PreparedGroupedRuntimeResidents>>, InternalError> {
         // Grouped execution needs both the runtime preparation and slot layout
         // together, so cache them behind one grouped-resident initializer.
-        self.residents
-            .prepared_grouped_runtime_residents
-            .get_or_init(|| {
-                self.residents.plan.grouped_plan().and_then(|grouped_plan| {
-                    let grouped_distinct_execution_strategy =
-                        self.residents.plan.grouped_distinct_execution_strategy()?;
-                    let execution_preparation = ExecutionPreparation::from_runtime_plan(
-                        &self.residents.plan,
-                        self.residents.plan.slot_map().map(<[usize]>::to_vec),
-                    );
-                    let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
-                        authority.row_layout(),
-                        grouped_plan.group.group_fields.as_slice(),
-                        self.residents
-                            .plan
-                            .grouped_aggregate_execution_specs()
-                            .unwrap_or(&[]),
-                        grouped_distinct_execution_strategy,
-                        execution_preparation.effective_runtime_filter_program(),
-                    );
+        if let Some(cached) = self.residents.prepared_grouped_runtime_residents.get() {
+            return Ok(cached.clone());
+        }
 
-                    Some(Arc::new(PreparedGroupedRuntimeResidents::new(
-                        execution_preparation,
-                        grouped_slot_layout,
-                    )))
-                })
-            })
-            .clone()
+        let prepared = if let Some(grouped_plan) = self.residents.plan.grouped_plan() {
+            if let Some(grouped_distinct_execution_strategy) =
+                self.residents.plan.grouped_distinct_execution_strategy()
+            {
+                let execution_preparation = ExecutionPreparation::from_runtime_plan(
+                    &self.residents.plan,
+                    self.residents.plan.slot_map().map(<[usize]>::to_vec),
+                );
+                let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
+                    authority.row_layout()?,
+                    grouped_plan.group.group_fields.as_slice(),
+                    self.residents
+                        .plan
+                        .grouped_aggregate_execution_specs()
+                        .unwrap_or(&[]),
+                    grouped_distinct_execution_strategy,
+                    execution_preparation.effective_runtime_filter_program(),
+                );
+
+                Some(Arc::new(PreparedGroupedRuntimeResidents::new(
+                    execution_preparation,
+                    grouped_slot_layout,
+                )))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let _ = self
+            .residents
+            .prepared_grouped_runtime_residents
+            .set(prepared.clone());
+
+        Ok(prepared)
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_scalar_execution_preparation(
@@ -472,7 +490,7 @@ impl PreparedExecutionPlanCore {
         authority: EntityAuthority,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
-    ) -> Option<RetainedSlotLayout> {
+    ) -> Result<Option<RetainedSlotLayout>, InternalError> {
         // Each scalar entrypoint consumes at most one retained-slot layout
         // family, so compile only the selected `(projection, cursor)` shape.
         let layout_cache = match (projection_materialization, cursor_emission) {
@@ -487,19 +505,22 @@ impl PreparedExecutionPlanCore {
             (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
                 &self.residents.none_suppress_retained_slot_layout
             }
-            _ => return None,
+            _ => return Ok(None),
         };
 
-        layout_cache
-            .get_or_init(|| {
-                compile_retained_slot_layout_for_mode(
-                    &authority,
-                    &self.residents.plan,
-                    projection_materialization,
-                    cursor_emission,
-                )
-            })
-            .clone()
+        if let Some(cached) = layout_cache.get() {
+            return Ok(cached.clone());
+        }
+
+        let layout = compile_retained_slot_layout_for_mode(
+            &authority,
+            &self.residents.plan,
+            projection_materialization,
+            cursor_emission,
+        )?;
+        let _ = layout_cache.set(layout.clone());
+
+        Ok(layout)
     }
 
     #[must_use]
@@ -695,14 +716,15 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     plan: AccessPlannedQuery,
 ) -> PreparedExecutionPlanCore {
     build_prepared_execution_plan_core_with_schema_fingerprint(authority, plan, None)
+        .expect("test prepared execution plan core should build")
 }
 
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(
     authority: EntityAuthority,
     mut plan: AccessPlannedQuery,
     schema_fingerprint: Option<CommitSchemaFingerprint>,
-) -> PreparedExecutionPlanCore {
-    authority.finalize_static_execution_planning_contract(&mut plan);
+) -> Result<PreparedExecutionPlanCore, InternalError> {
+    authority.finalize_static_execution_planning_contract(&mut plan)?;
 
     // Phase 1: lower access-derived execution specs once and retain invariant
     // state. Projection shapes, grouped residents, and retained-slot layouts are
@@ -739,7 +761,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         ),
     };
 
-    build_prepared_execution_plan_core_with_lowered_access(
+    Ok(build_prepared_execution_plan_core_with_lowered_access(
         authority,
         plan,
         schema_fingerprint,
@@ -747,7 +769,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         index_prefix_spec_invalid,
         index_range_specs,
         index_range_spec_invalid,
-    )
+    ))
 }
 
 // Rebuild prepared metadata from one already-finalized logical plan plus

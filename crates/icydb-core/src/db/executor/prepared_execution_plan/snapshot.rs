@@ -26,7 +26,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         let authority = self.authority.clone();
         let projection_spec = plan.frozen_projection_spec();
         let projection_selection = if plan.grouped_plan().is_some()
-            || projection_spec.len() != authority.row_layout().field_count()
+            || projection_spec.len() != authority.row_layout()?.field_count()
         {
             "Declared"
         } else {

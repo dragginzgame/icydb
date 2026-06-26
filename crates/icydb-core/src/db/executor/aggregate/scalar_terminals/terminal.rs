@@ -194,7 +194,7 @@ impl PreparedScalarAggregateTerminalSet {
             ProjectionMaterializationMode::RetainSlotRows,
             CursorEmissionMode::Suppress,
             extra_slots.as_slice(),
-        )
+        )?
         .ok_or_else(InternalError::query_executor_invariant)
     }
 

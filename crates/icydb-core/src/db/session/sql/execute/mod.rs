@@ -61,6 +61,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one owned compiled reduced SQL statement into one unified SQL payload.
+    #[cfg(test)]
     pub(in crate::db) fn execute_compiled_sql_owned<E>(
         &self,
         compiled: CompiledSqlCommand,
@@ -71,6 +72,38 @@ impl<C: CanisterKind> DbSession<C> {
         let (result, _) = self.execute_compiled_sql_with_cache_attribution::<E>(&compiled)?;
 
         Ok(result)
+    }
+
+    pub(in crate::db::session::sql) fn execute_update_surface_compiled_sql_owned<E>(
+        &self,
+        compiled: CompiledSqlCommand,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match &compiled {
+            CompiledSqlCommand::Delete { query, returning } => {
+                self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
+            }
+            CompiledSqlCommand::Insert(command) => self
+                .execute_sql_insert_statement_with_update_surface_bounds::<E>(
+                    command.statement(),
+                    command.source_query(),
+                ),
+            CompiledSqlCommand::Update(statement) => {
+                self.execute_sql_update_statement::<E>(statement)
+            }
+            CompiledSqlCommand::Select { .. }
+            | CompiledSqlCommand::GlobalAggregate { .. }
+            | CompiledSqlCommand::DescribeEntity
+            | CompiledSqlCommand::ShowIndexesEntity
+            | CompiledSqlCommand::ShowColumnsEntity
+            | CompiledSqlCommand::ShowEntities { .. }
+            | CompiledSqlCommand::ShowStores { .. }
+            | CompiledSqlCommand::ShowMemory => Err(QueryError::unsupported_query()),
+            #[cfg(feature = "sql-explain")]
+            CompiledSqlCommand::Explain(..) => Err(QueryError::unsupported_query()),
+        }
     }
 
     // Keep one perf-only execution entrypoint that returns cache attribution

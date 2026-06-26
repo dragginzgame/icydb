@@ -11,12 +11,9 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Covering prefix projections now share one active-prefix preparation path
-  before choosing direct single-prefix, materialized fallback, or merged
-  prefix-stream execution.
-- Scalar index streams and covering component streams now share raw-index
-  chunk sizing/output-limit/progress bookkeeping while keeping payload-specific
-  decoding separate.
+- Scalar key streams and covering component streams now share one generic flat
+  sibling-merge driver for three or more active ordered branch streams while
+  keeping payload-specific child adapters separate.
 - The next narrow duplicate-flow target is remaining structural drift between
   physical prefix streams and covering prefix-component streams. Broader
   branch-tree replacement and cursor-format design remain explicit follow-ups.
@@ -29,6 +26,19 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Shared Flat Merge Slice
+
+- Scalar key streams and covering component streams now use one generic
+  payload-agnostic flat merge driver for larger sibling sets.
+- Payload-specific child adapters still own polling and monotonicity state:
+  scalar streams emit decoded keys, while covering streams emit decoded
+  component rows.
+- The shared flat-merge owner now also owns the zero/one/two/many sibling-set
+  shape split, so scalar and covering routes cannot drift on when they keep a
+  simple pair merge versus when they use a flat merge.
+- The shared driver owns sibling head selection, duplicate-head clearing, and
+  defensive duplicate output suppression.
 
 ## Completed Covering Prefix Preparation Slice
 

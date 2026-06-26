@@ -42,6 +42,8 @@ impl Sanitizer<String> for Url {
 
         let normalized = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
             trimmed.to_owned()
+        } else if trimmed.contains("://") || has_explicit_non_numeric_colon(trimmed) {
+            return Err("URL scheme must be http or https".to_string());
         } else {
             format!("https://{trimmed}")
         };
@@ -50,6 +52,18 @@ impl Sanitizer<String> for Url {
 
         Ok(())
     }
+}
+
+fn has_explicit_non_numeric_colon(value: &str) -> bool {
+    let boundary = value
+        .find(|ch| matches!(ch, '/' | '?' | '#'))
+        .unwrap_or(value.len());
+    let head = &value[..boundary];
+    let Some((_host, port_or_scheme)) = head.rsplit_once(':') else {
+        return false;
+    };
+
+    port_or_scheme.is_empty() || !port_or_scheme.chars().all(|ch| ch.is_ascii_digit())
 }
 
 ///
@@ -88,6 +102,10 @@ mod tests {
         let mut v = " www.example.com ".to_string();
         sanitizer.sanitize(&mut v).unwrap();
         assert_eq!(v, "https://www.example.com");
+
+        let mut v = "example.com:8080/path".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "https://example.com:8080/path");
     }
 
     #[test]
@@ -114,5 +132,16 @@ mod tests {
         let mut v = "   example.com   ".to_string();
         sanitizer.sanitize(&mut v).unwrap();
         assert_eq!(v, "https://example.com");
+    }
+
+    #[test]
+    fn test_url_sanitize_rejects_explicit_unsupported_scheme() {
+        let sanitizer = Url;
+
+        let mut v = "ftp://example.com".to_string();
+        assert!(sanitizer.sanitize(&mut v).is_err());
+
+        let mut v = "javascript:alert(1)".to_string();
+        assert!(sanitizer.sanitize(&mut v).is_err());
     }
 }

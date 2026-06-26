@@ -264,22 +264,40 @@ pub(in crate::db::executor) fn compare_orderable_row_with_boundary<R>(
     row: &R,
     resolved_order: &ResolvedOrder,
     boundary: &CursorBoundary,
-) -> Ordering
+) -> Result<Ordering, InternalError>
 where
     R: OrderReadableRow,
 {
-    compare_structural_order_slots(resolved_order, |slot_index, field_index, direction| {
-        let row_slot = order_value_from_row(row, field_index);
+    compare_structural_order_slots_fallible(resolved_order, |slot_index, source, direction| {
+        let row_slot = order_value_from_row(row, source);
         let boundary_slot = boundary
             .slots
             .get(slot_index)
-            .expect("executor order invariant");
+            .ok_or_else(InternalError::query_executor_invariant)?;
 
-        apply_order_direction(
+        Ok(apply_order_direction(
             compare_order_value_with_boundary(row_slot, boundary_slot),
             direction,
-        )
+        ))
     })
+}
+
+fn compare_structural_order_slots_fallible(
+    resolved_order: &ResolvedOrder,
+    mut compare_slot: impl FnMut(
+        usize,
+        &ResolvedOrderValueSource,
+        OrderDirection,
+    ) -> Result<Ordering, InternalError>,
+) -> Result<Ordering, InternalError> {
+    for (slot_index, field) in resolved_order.fields().iter().enumerate() {
+        let ordering = compare_slot(slot_index, field.source(), field.direction())?;
+        if ordering != Ordering::Equal {
+            return Ok(ordering);
+        }
+    }
+
+    Ok(Ordering::Equal)
 }
 
 /// Materialize one cursor boundary directly from one already-decoded row under
@@ -507,24 +525,6 @@ fn compare_cached_order_value_lists(
             compare_cached_order_values(left_slot.as_ref(), right_slot.as_ref()),
             field.direction(),
         );
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    Ordering::Equal
-}
-
-// Compare one structural ordering tuple by resolving slot pairs lazily in canonical field order.
-fn compare_structural_order_slots<F>(
-    resolved_order: &ResolvedOrder,
-    mut compare_slot: F,
-) -> Ordering
-where
-    F: FnMut(usize, &ResolvedOrderValueSource, OrderDirection) -> Ordering,
-{
-    for (slot_index, field) in resolved_order.fields().iter().enumerate() {
-        let ordering = compare_slot(slot_index, field.source(), field.direction());
         if ordering != Ordering::Equal {
             return ordering;
         }

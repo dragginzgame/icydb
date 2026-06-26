@@ -319,7 +319,7 @@ where
                     ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
                         prepared,
                         PreparedAggregateSpec::terminal(AggregateKind::Count),
-                    ),
+                    )?,
                 )?
                 .into_count()?;
                 let output_len = usize::try_from(row_count).unwrap_or(usize::MAX);
@@ -441,7 +441,7 @@ where
         let consistency = prepared.consistency();
         let store = prepared.store;
         let entity_tag = prepared.authority.entity_tag();
-        let row_layout = prepared.authority.row_layout();
+        let row_layout = prepared.authority.row_layout()?;
         let aggregate = if terminal_kind.is_extrema() {
             PreparedAggregateSpec::field_target(
                 terminal_kind,
@@ -457,7 +457,7 @@ where
             PreparedAggregateSpec::terminal(terminal_kind)
         };
         let state =
-            ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate);
+            ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate)?;
         let selected_key = ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_optional_id_terminal(terminal_kind)?;
         let Some(selected_key) = selected_key else {
@@ -492,7 +492,7 @@ where
             ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
                 prepared,
                 PreparedAggregateSpec::terminal(AggregateKind::Exists),
-            ),
+            )?,
         )?
         .into_exists()
     }

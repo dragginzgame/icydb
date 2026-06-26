@@ -111,7 +111,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
                     .map(|(boundary, resolved_order)| (resolved_order, boundary)),
                 ExecutionKernel::effective_page_offset(plan, cursor),
                 logical.page.as_ref().and_then(|page| page.limit),
-            )
+            )?
         }
     } else {
         rows_after_order
@@ -150,7 +150,7 @@ fn apply_measured_load_cursor_and_pagination_window(
     cursor: Option<(&ResolvedOrder, &CursorBoundary)>,
     offset: u32,
     limit: Option<u32>,
-) -> usize {
+) -> Result<usize, InternalError> {
     #[cfg(feature = "diagnostics")]
     {
         let (page_window_local_instructions, rows_after_cursor) = measure_kernel_row_phase(|| {
@@ -270,22 +270,25 @@ pub(super) fn apply_load_cursor_and_pagination_window(
     cursor: Option<(&ResolvedOrder, &CursorBoundary)>,
     offset: u32,
     limit: Option<u32>,
-) -> usize {
+) -> Result<usize, InternalError> {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     if cursor.is_none() {
         let rows_after_cursor = rows.len();
         apply_kernel_row_page_window(rows, offset, limit);
 
-        return rows_after_cursor;
+        return Ok(rows_after_cursor);
     }
 
-    let (resolved_order, boundary) = cursor.expect("post-access invariant");
+    let Some((resolved_order, boundary)) = cursor else {
+        return Err(InternalError::query_executor_invariant());
+    };
     let mut kept_after_cursor = 0usize;
     let mut kept_after_page = 0usize;
     let mut limit_remaining = limit.map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
     for read_index in 0..rows.len() {
-        if !compare_orderable_row_with_boundary(&rows[read_index], resolved_order, boundary).is_gt()
+        if !compare_orderable_row_with_boundary(&rows[read_index], resolved_order, boundary)?
+            .is_gt()
         {
             continue;
         }
@@ -310,7 +313,7 @@ pub(super) fn apply_load_cursor_and_pagination_window(
 
     rows.truncate(kept_after_page);
 
-    kept_after_cursor
+    Ok(kept_after_cursor)
 }
 
 // Apply the LIMIT/OFFSET page window for the common no-cursor path without

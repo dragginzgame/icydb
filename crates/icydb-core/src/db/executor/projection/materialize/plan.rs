@@ -245,18 +245,15 @@ pub(in crate::db::executor) trait ProjectionValidationRow {
 }
 
 /// Build one executor-owned prepared projection contract from planner-frozen metadata.
-#[must_use]
 pub(in crate::db) fn prepare_projection_contract_from_plan(
     row_layout: &RowLayout,
     plan: &AccessPlannedQuery,
-) -> PreparedProjectionContract {
+) -> Result<PreparedProjectionContract, InternalError> {
     #[cfg(any(test, feature = "sql"))]
     let projection = plan.frozen_projection_spec().clone();
     let compiled_projection = plan
         .scalar_projection_plan()
-        .expect(
-            "scalar execution projection contracts must carry one planner-compiled scalar program",
-        )
+        .ok_or_else(InternalError::query_executor_invariant)?
         .to_vec();
     #[cfg(any(test, feature = "sql"))]
     let retained_slot_direct_projection_slots =
@@ -278,7 +275,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     #[cfg(not(any(test, feature = "sql")))]
     let _ = row_layout;
 
-    PreparedProjectionContract {
+    Ok(PreparedProjectionContract {
         #[cfg(any(test, feature = "sql"))]
         projection,
         prepared: PreparedProjectionPlan::Scalar(compiled_projection),
@@ -291,7 +288,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
         data_row_direct_projection_slots,
         #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
         projected_slot_mask,
-    }
+    })
 }
 
 /// Validate projection expressions against one row-domain that can expose

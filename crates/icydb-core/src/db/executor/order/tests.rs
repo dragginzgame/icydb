@@ -152,9 +152,25 @@ fn compare_orderable_row_with_boundary_respects_desc_direction() {
         &row,
         &resolved_order(&[(0, OrderDirection::Desc)]),
         &boundary,
-    );
+    )
+    .expect("valid cursor boundary should compare");
 
     assert_eq!(ordering, Ordering::Less);
+}
+
+#[test]
+fn compare_orderable_row_with_boundary_rejects_short_boundary() {
+    let row = TestRow::new(vec![Some(Value::Nat64(7))]);
+    let boundary = CursorBoundary { slots: Vec::new() };
+
+    assert!(
+        compare_orderable_row_with_boundary(
+            &row,
+            &resolved_order(&[(0, OrderDirection::Asc)]),
+            &boundary,
+        )
+        .is_err()
+    );
 }
 
 #[test]
