@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.16` moves covering index-backed shape admission onto shared access
+  shape facts so planner, executor, and terminal routes use the same secondary
+  index access predicate.
+
 - `0.185.15` continues branch-aware executor cleanup by making leaf-order,
   access-stream, and index-prefix-set page-window policies explicit without
   changing route admission or cursor semantics.

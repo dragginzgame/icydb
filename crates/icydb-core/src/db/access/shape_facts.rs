@@ -195,6 +195,14 @@ impl AccessShapeFacts {
     }
 
     #[must_use]
+    pub(in crate::db) const fn has_selected_index_access_path(&self) -> bool {
+        match &self.single_path {
+            Some(path) => path.index_prefix_details.is_some() || path.index_range_details.is_some(),
+            None => false,
+        }
+    }
+
+    #[must_use]
     pub(in crate::db) fn single_path_index_prefix_details(&self) -> Option<IndexShapeDetails> {
         match &self.single_path {
             Some(path) => path.index_prefix_details(),

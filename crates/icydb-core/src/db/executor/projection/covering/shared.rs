@@ -108,11 +108,7 @@ pub(super) fn resolve_index_backed_covering_scan<C>(
 where
     C: CanisterKind,
 {
-    if plan.access.as_index_prefix_contract_path().is_none()
-        && plan.access.as_index_multi_lookup_contract_path().is_none()
-        && plan.access.as_index_branch_set_spec_path().is_none()
-        && plan.access.as_index_range_path().is_none()
-    {
+    if !plan.access.has_selected_index_access_path() {
         return Ok(None);
     }
 

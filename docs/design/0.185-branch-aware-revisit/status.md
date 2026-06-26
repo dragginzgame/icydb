@@ -11,14 +11,16 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Scalar page-window fetch-hint and branch-set row-cap gates now consume
-  route capability helpers for index-prefix-set shape classification instead
-  of re-matching raw access variants in terminal/runtime code.
-- The shared helpers keep the `IndexMultiLookup`/`IndexBranchSet` page-fetch
-  shape split and branch-set-only row-cap shape split in the route capability
-  layer, beside the other execution-shape predicates.
-- Existing residual-filter, distinct, ORDER BY, load-mode, route-mode, page
-  limit, and continuation lookahead gates remain unchanged.
+- Covering planner admission, executor covering scan resolution, and
+  count/existence existing-row route capability now consume the same
+  `AccessShapeFacts::has_selected_index_access_path()` predicate for
+  secondary-index prefix/range access.
+- The local covering helper no longer re-matches `IndexPrefix`,
+  `IndexMultiLookup`, `IndexBranchSet`, and `IndexRange` just to decide
+  whether an access path is index-backed.
+- Detailed covering payload extraction still stays with the covering fact
+  builder because it needs variant-specific prefix values and branch/range
+  metadata.
 - The next narrow duplicate-flow target is any remaining branch-tree
   replacement work that can stay below cursor-format design and broader
   cost-based routing. Those remain explicit follow-ups.
@@ -31,6 +33,21 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Covering Index-Shape Admission Slice
+
+- `AccessShapeFacts` now owns the selected-secondary-index access predicate for
+  single-path prefix-family and range access.
+- `AccessPlan::has_selected_index_access_path()` delegates to that access-shape
+  predicate instead of recomputing prefix/range facts.
+- Covering planner admission and executor covering scan resolution consume the
+  shared predicate instead of re-matching raw index access variants.
+- Count/existence existing-row route capability also consumes the same
+  predicate, keeping terminal and covering gates aligned on one access-shape
+  authority.
+- Covering detail extraction remains variant-specific in the covering owner,
+  because it still needs prefix constants, branch-set metadata, and range
+  bounds.
 
 ## Completed Index-Prefix-Set Page Shape Slice
 

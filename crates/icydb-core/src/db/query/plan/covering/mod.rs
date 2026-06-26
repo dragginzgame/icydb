@@ -705,10 +705,7 @@ fn constant_covering_projection_value_from_prefix(
 }
 
 fn index_backed_covering_shape_supported<K>(access: &AccessPlan<K>) -> bool {
-    access.as_index_prefix_contract_path().is_some()
-        || access.as_index_multi_lookup_contract_path().is_some()
-        || access.as_index_branch_set_spec_path().is_some()
-        || access.as_index_range_path().is_some()
+    access.has_selected_index_access_path()
 }
 
 ///

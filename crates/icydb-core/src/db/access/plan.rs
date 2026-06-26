@@ -238,13 +238,7 @@ impl<K> AccessPlan<K> {
     /// Return true when this plan selects one secondary-index access shape.
     #[must_use]
     pub(in crate::db) fn has_selected_index_access_path(&self) -> bool {
-        self.shape_facts()
-            .single_path_index_prefix_details()
-            .is_some()
-            || self
-                .shape_facts()
-                .single_path_index_range_details()
-                .is_some()
+        self.shape_facts().has_selected_index_access_path()
     }
 
     /// Project this semantic access tree into one executable contract.

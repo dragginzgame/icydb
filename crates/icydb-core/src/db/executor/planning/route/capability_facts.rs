@@ -414,15 +414,10 @@ pub(super) fn desc_physical_reverse_traversal_supported(
             ))
 }
 
-pub(super) fn count_pushdown_existing_rows_shape_supported(
+pub(super) const fn count_pushdown_existing_rows_shape_supported(
     access_shape_facts: &crate::db::access::AccessShapeFacts,
 ) -> bool {
-    access_shape_facts
-        .single_path_index_prefix_details()
-        .is_some()
-        || access_shape_facts
-            .single_path_index_range_details()
-            .is_some()
+    access_shape_facts.has_selected_index_access_path()
 }
 
 pub(super) fn index_range_limit_pushdown_shape_supported_for_model(
