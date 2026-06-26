@@ -46,6 +46,22 @@ a broad cost-based optimizer design.
 - Child-prefix expansion is a route hint, not a new logical access path; the
   route must still identify as `IndexMultiLookup` in EXPLAIN.
 
+## 0.185 Budget And Selectivity Decision
+
+- The expansion budget is a route-owned bounded fanout contract: a default
+  floor for small or unbounded pages, bounded growth with the effective page
+  lookahead window, and a hard ceiling for large windows.
+- Exact prefix-cardinality metadata is synchronized to a specific row-store
+  generation. It remains an execution-time proof for empty-prefix pruning,
+  child-prefix enumeration, and COUNT/EXISTS terminal preflight.
+- Route plans and SQL/query compiled artifacts are cacheable across executions,
+  so 0.185 does not thread generation-bound cardinality counts into
+  compile-time route scoring.
+- The over-cap strategy for 0.185 is therefore explicit: try bounded
+  metadata-proven child expansion; if the complete child set cannot be proven
+  inside the budget, fall back to complete parent-prefix materialization before
+  primary-key ordering and windowing.
+
 ## Diagnostics
 
 Verbose EXPLAIN reports:
@@ -57,11 +73,13 @@ Verbose EXPLAIN reports:
 These diagnostics make it possible to distinguish a plain multi-lookup from a
 sparse child-prefix-expanded multi-lookup before changing thresholds.
 
-## Deferred Work
+## Remaining 0.185 Work
 
-- Cost-based choice between branch-set, child-prefix expansion, and fallback.
-- Prefix-cardinality-aware estimates for dense versus sparse `IN` lists beyond
-  the current bounded-page cap adjustment.
+- General branch-tree replacement for every special-case `IN` path.
+
+## Future Work Outside 0.185 Branch-Aware Closeout
+
+- Broad cost-based route optimization that can safely combine cacheable route
+  plans with generation-bound runtime prefix-cardinality metadata.
 - A better over-cap strategy that can stream dense parent-prefix work without
   materializing more index entries than necessary.
-- General branch-tree replacement for every special-case `IN` path.

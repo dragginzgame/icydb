@@ -8,25 +8,21 @@ Branch-aware query routing revisit after the 0.184 query-engine audit cleanup.
 The 0.185 line has proved and documented that SQL and fluent equivalent
 branch-heavy shapes converge on the same explicit route contracts, and has
 cleaned up the executor handoff boundaries that could be tightened without
-changing cursor format or adding a cost model.
+changing cursor format or adding a broad optimizer.
 
 ## Current Slice
 
-- The current cleanup baseline is validated: invariant scripts, feature
-  matrix, workspace Clippy, and workspace/unit test coverage have been
-  rechecked after the route-shape cleanup slices.
-- No SQL/fluent semantics, route admission, cursor format, result payload,
-  persistence format, page-window, or diagnostics changes are intended in the
-  validation slice.
-- Remaining cost-model and general branch-tree work stays in the 0.185
-  branch-aware queue.
+- Sparse child-prefix expansion now has an explicit route-owned budget
+  contract for its default floor, bounded page-window growth, and hard ceiling.
+- Compile-time prefix-cardinality scoring is explicitly ruled out for 0.185
+  branch-aware routing because exact prefix metadata is synchronized to runtime
+  store generations while route plans are cacheable across executions.
+- Remaining general branch-tree work stays in the 0.185 branch-aware queue.
 
 ## Remaining 0.185 Branch-Aware Queue
 
-- Adaptive large-`IN` cost model and prefix-cardinality-aware selectivity
-  estimates.
 - General branch-tree replacement for every special-case branch or `IN` flow.
-- Final closeout after those branch-aware items are either implemented or
+- Final closeout after branch-tree replacement is either implemented or
   explicitly ruled out with local proof.
 
 ## Future Work Outside 0.185 Branch-Aware Closeout
@@ -34,8 +30,22 @@ changing cursor format or adding a cost model.
 - Wider downstream-specific query tuning and performance benchmarking.
 - Arbitrary non-primary-key branch merge ordering unless a concrete 0.185
   correctness issue requires it.
-- Prefix-cardinality metadata redesign beyond what the large-`IN` cost model
-  needs.
+- Broad cost-based optimization that threads generation-bound runtime metadata
+  into route selection.
+
+## Completed Adaptive Expansion Budget Decision Slice
+
+- Sparse child-prefix expansion now carries a named route budget instead of an
+  anonymous cap helper.
+- Route proof covers the three budget cases: small bounded pages keep the
+  default expansion floor, normal bounded pages follow the page lookahead
+  window, and large bounded pages stop at the hard child-prefix ceiling.
+- The 0.185 cost/selectivity question is closed at the route boundary:
+  synchronized prefix-cardinality metadata remains an execution-time proof and
+  terminal preflight input, not a compile-time route-cache scoring input.
+- Existing over-cap sparse `IN` runtime coverage remains the fallback proof:
+  capped child-prefix expansion must fail open to complete parent-prefix
+  materialization before primary-key ordering/windowing.
 
 ## Completed Branch Continuation Hard-Cut Decision Slice
 
@@ -441,9 +451,10 @@ changing cursor format or adding a cost model.
 
 ## Carried Forward From 185.0 Baseline
 
-- Adaptive large-`IN` cost model.
 - Shared branch-tree replacement for every special-case branch or `IN` flow.
 
 ## Future Tuning Outside 0.185 Branch-Aware Closeout
 
 - Wider downstream-specific query tuning.
+- Broad cost-based route optimization over runtime prefix-cardinality
+  metadata.

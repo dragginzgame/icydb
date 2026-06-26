@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.20` makes sparse child-prefix expansion budget policy explicit and
+  closes the 0.185 adaptive route-cost question by keeping generation-bound
+  prefix-cardinality metadata at execution time.
+
 - `0.185.19` records the final validation baseline for the current
   branch-aware cleanup, proves admitted branch continuations still use the
   global primary-key cursor boundary, and keeps remaining cost/branch-tree

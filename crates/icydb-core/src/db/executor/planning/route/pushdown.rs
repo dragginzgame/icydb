@@ -7,8 +7,8 @@ use crate::db::{
     access::{AccessPathKind, AccessShapeFacts, IndexShapeDetails, SemanticIndexKeyItemsRef},
     direction::Direction,
     executor::route::{
-        AccessWindow, IndexPrefixChildExpansionHint, PushdownApplicability,
-        SecondaryOrderPushdownRejection,
+        AccessWindow, IndexPrefixChildExpansionBudget, IndexPrefixChildExpansionHint,
+        PushdownApplicability, SecondaryOrderPushdownRejection,
     },
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
@@ -17,9 +17,6 @@ use crate::db::{
         deterministic_secondary_index_key_items_order_compatibility,
     },
 };
-
-const DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES: usize = 32;
-const MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES: usize = 128;
 
 fn validated_secondary_order_contract(
     planner_route_profile: &PlannerRouteProfile,
@@ -388,24 +385,10 @@ fn index_prefix_child_expansion_hint_for_fetch_limit(
         |target_prefix_len| {
             IndexPrefixChildExpansionHint::new(
                 target_prefix_len,
-                adaptive_child_prefix_expansion_cap(fetch_limit),
+                IndexPrefixChildExpansionBudget::from_fetch_limit(fetch_limit),
             )
         },
     )
-}
-
-const fn adaptive_child_prefix_expansion_cap(fetch_limit: Option<usize>) -> usize {
-    let Some(fetch_limit) = fetch_limit else {
-        return DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES;
-    };
-    if fetch_limit < DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES {
-        return DEFAULT_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES;
-    }
-    if fetch_limit > MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES {
-        return MAX_INDEX_PREFIX_CHILD_EXPANSION_PREFIXES;
-    }
-
-    fetch_limit
 }
 
 fn index_suffix_matches_primary_key_order_from_prefix(

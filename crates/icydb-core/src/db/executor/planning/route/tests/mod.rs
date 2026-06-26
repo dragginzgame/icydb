@@ -1135,13 +1135,13 @@ fn assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof() {
     );
 }
 
-fn assert_sparse_child_suffix_expansion_cap_tracks_bounded_fetch_window() {
+fn sparse_child_expansion_cap_for_page_limit(limit: u32) -> (Option<usize>, usize) {
     let mut page_plan = multi_lookup_primary_key_order_plan(
         ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
         OrderDirection::Asc,
     );
     page_plan.scalar_plan_mut().page = Some(PageSpec {
-        limit: Some(50),
+        limit: Some(limit),
         offset: 0,
     });
     let route_plan =
@@ -1151,15 +1151,44 @@ fn assert_sparse_child_suffix_expansion_cap_tracks_bounded_fetch_window() {
         .index_prefix_child_expansion
         .expect("paged sparse child route should carry an expansion hint");
 
-    assert_eq!(
+    (
         route_plan.scan_hints.load_scan_budget_hint,
+        expansion.max_child_prefixes(),
+    )
+}
+
+fn assert_sparse_child_suffix_expansion_budget_tracks_access_window() {
+    let (small_fetch, small_cap) = sparse_child_expansion_cap_for_page_limit(8);
+    assert_eq!(
+        small_fetch,
+        Some(9),
+        "bounded load scan budget should include the page lookahead row",
+    );
+    assert_eq!(
+        small_cap, 32,
+        "small sparse pages should keep the default child-prefix expansion floor",
+    );
+
+    let (window_fetch, window_cap) = sparse_child_expansion_cap_for_page_limit(50);
+    assert_eq!(
+        window_fetch,
         Some(51),
         "bounded load scan budget should include the page lookahead row",
     );
     assert_eq!(
-        expansion.max_child_prefixes(),
-        51,
+        window_cap, 51,
         "sparse child expansion cap should follow the bounded page fetch window",
+    );
+
+    let (large_fetch, large_cap) = sparse_child_expansion_cap_for_page_limit(400);
+    assert_eq!(
+        large_fetch,
+        Some(401),
+        "large bounded load scan budget should still include the page lookahead row",
+    );
+    assert_eq!(
+        large_cap, 128,
+        "large sparse pages should stop at the hard child-prefix expansion ceiling",
     );
 }
 
@@ -1243,7 +1272,7 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert_exact_prefix_multi_lookup_streams_without_child_expansion();
     assert_composite_suffix_multi_lookup_is_rejected();
     assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof();
-    assert_sparse_child_suffix_expansion_cap_tracks_bounded_fetch_window();
+    assert_sparse_child_suffix_expansion_budget_tracks_access_window();
     assert_branch_set_streams_without_child_expansion();
     assert_desc_sparse_child_suffix_multi_lookup_uses_reverse_expansion_proof();
 }

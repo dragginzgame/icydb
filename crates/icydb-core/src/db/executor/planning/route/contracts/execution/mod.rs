@@ -262,6 +262,53 @@ pub(in crate::db::executor) struct ScanHintPlan {
 }
 
 ///
+/// IndexPrefixChildExpansionBudget
+///
+/// Route-owned bounded selectivity budget for sparse prefix-family child
+/// expansion. The default floor avoids under-expanding small first pages, while
+/// the hard ceiling prevents a bounded page from turning a large `IN` route into
+/// an unbounded child-stream fanout.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct IndexPrefixChildExpansionBudget {
+    max_child_prefixes: usize,
+}
+
+impl IndexPrefixChildExpansionBudget {
+    const DEFAULT_PREFIXES: usize = 32;
+    const MAX_PREFIXES: usize = 128;
+
+    #[must_use]
+    pub(in crate::db::executor) const fn from_fetch_limit(fetch_limit: Option<usize>) -> Self {
+        let Some(fetch_limit) = fetch_limit else {
+            return Self {
+                max_child_prefixes: Self::DEFAULT_PREFIXES,
+            };
+        };
+        if fetch_limit < Self::DEFAULT_PREFIXES {
+            return Self {
+                max_child_prefixes: Self::DEFAULT_PREFIXES,
+            };
+        }
+        if fetch_limit > Self::MAX_PREFIXES {
+            return Self {
+                max_child_prefixes: Self::MAX_PREFIXES,
+            };
+        }
+
+        Self {
+            max_child_prefixes: fetch_limit,
+        }
+    }
+
+    #[must_use]
+    const fn max_child_prefixes(self) -> usize {
+        self.max_child_prefixes
+    }
+}
+
+///
 /// IndexPrefixChildExpansionHint
 ///
 /// Route-owned contract for sparse prefix-family execution. It says a
@@ -272,18 +319,18 @@ pub(in crate::db::executor) struct ScanHintPlan {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct IndexPrefixChildExpansionHint {
     target_prefix_len: usize,
-    max_child_prefixes: usize,
+    budget: IndexPrefixChildExpansionBudget,
 }
 
 impl IndexPrefixChildExpansionHint {
     #[must_use]
     pub(in crate::db::executor) const fn new(
         target_prefix_len: usize,
-        max_child_prefixes: usize,
+        budget: IndexPrefixChildExpansionBudget,
     ) -> Self {
         Self {
             target_prefix_len,
-            max_child_prefixes,
+            budget,
         }
     }
 
@@ -294,7 +341,7 @@ impl IndexPrefixChildExpansionHint {
 
     #[must_use]
     pub(in crate::db::executor) const fn max_child_prefixes(self) -> usize {
-        self.max_child_prefixes
+        self.budget.max_child_prefixes()
     }
 }
 
