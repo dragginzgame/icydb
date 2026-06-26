@@ -26,7 +26,7 @@ pub(in crate::db::predicate::parser::expression) fn parse_predicate_from_cursor_
     crate::db::predicate::parser::expression::chain::parse_or_predicate(cursor, parse_depth)
 }
 
-pub(in crate::db::predicate::parser::expression) fn descend_predicate_parse_depth(
+pub(in crate::db::predicate::parser::expression) const fn descend_predicate_parse_depth(
     parse_depth: usize,
 ) -> Result<usize, SqlParseError> {
     if parse_depth >= MAX_SQL_EXPR_DEPTH {
@@ -36,7 +36,7 @@ pub(in crate::db::predicate::parser::expression) fn descend_predicate_parse_dept
     Ok(parse_depth.saturating_add(1))
 }
 
-pub(in crate::db::predicate::parser::expression) fn validate_predicate_tree_depth(
+pub(in crate::db::predicate::parser::expression) const fn validate_predicate_tree_depth(
     tree_depth: usize,
 ) -> Result<(), SqlParseError> {
     if tree_depth > MAX_SQL_EXPR_DEPTH {

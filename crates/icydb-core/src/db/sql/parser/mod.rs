@@ -236,7 +236,7 @@ impl Parser {
         index
     }
 
-    fn enter_sql_expr_depth(&mut self) -> Result<(), SqlParseError> {
+    const fn enter_sql_expr_depth(&mut self) -> Result<(), SqlParseError> {
         if self.expr_depth >= MAX_SQL_EXPR_DEPTH {
             return Err(sql_expr_depth_limit_error());
         }
@@ -246,7 +246,7 @@ impl Parser {
         Ok(())
     }
 
-    fn leave_sql_expr_depth(&mut self) {
+    const fn leave_sql_expr_depth(&mut self) {
         self.expr_depth = self.expr_depth.saturating_sub(1);
     }
 

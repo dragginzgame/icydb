@@ -176,12 +176,9 @@ impl RowLayout {
         values.reserve(slots.field_count());
 
         for slot in 0..slots.field_count() {
-            let value = match slots.get_value(slot)? {
-                Some(value) => value,
-                None => {
-                    let field = self.contract.field_name(slot)?;
-                    return Err(InternalError::persisted_row_declared_field_missing(field));
-                }
+            let Some(value) = slots.get_value(slot)? else {
+                let field = self.contract.field_name(slot)?;
+                return Err(InternalError::persisted_row_declared_field_missing(field));
             };
             values.push(value);
         }

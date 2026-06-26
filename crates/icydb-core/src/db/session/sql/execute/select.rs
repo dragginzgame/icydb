@@ -218,7 +218,9 @@ impl<C: CanisterKind> DbSession<C> {
                         prepared_plan,
                         projection,
                         |session, prepared_plan| {
-                            let plan = prepared_plan.typed_clone::<E>();
+                            let plan = prepared_plan
+                                .typed_clone::<E>()
+                                .map_err(QueryError::execute)?;
                             session
                                 .execute_grouped_with_phase_attribution(plan, None)
                                 .map(|(result, _trace, phase_attribution)| {

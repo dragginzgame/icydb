@@ -4,7 +4,7 @@
 //! Boundary: keeps global session caches from growing without limit.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::Entry},
     hash::Hash,
 };
 
@@ -39,8 +39,8 @@ where
     }
 
     pub(in crate::db::session) fn insert(&mut self, key: K, value: V) -> Option<V> {
-        if self.entries.contains_key(&key) {
-            return self.entries.insert(key, value);
+        if let Entry::Occupied(mut entry) = self.entries.entry(key.clone()) {
+            return Some(entry.insert(value));
         }
 
         self.evict_until_new_key_fits();

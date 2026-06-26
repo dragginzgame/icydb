@@ -416,7 +416,7 @@ fn sql_update_candidate_bounds(
     )
 }
 
-fn sql_insert_candidate_bounds(
+const fn sql_insert_candidate_bounds(
     execution_bounds: Option<SqlWriteExecutionBounds>,
     returning: bool,
 ) -> SqlWriteCandidateBounds {

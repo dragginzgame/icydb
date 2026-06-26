@@ -32,7 +32,7 @@ pub(crate) const fn sql_token_limit_error() -> SqlParseError {
     })
 }
 
-pub(crate) fn validate_sql_input_bytes(sql: &str) -> Result<(), SqlParseError> {
+pub(crate) const fn validate_sql_input_bytes(sql: &str) -> Result<(), SqlParseError> {
     if sql.len() > MAX_SQL_INPUT_BYTES {
         return Err(SqlParseError::invalid_syntax(
             SqlSyntaxErrorKind::InputTooLong {

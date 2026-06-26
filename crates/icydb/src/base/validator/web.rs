@@ -71,8 +71,7 @@ fn split_http_url_rest(s: &str) -> Option<&str> {
 }
 
 fn url_host_end(rest: &str) -> usize {
-    rest.find(|ch| matches!(ch, '/' | '?' | '#'))
-        .unwrap_or(rest.len())
+    rest.find(['/', '?', '#']).unwrap_or(rest.len())
 }
 
 fn url_host_and_port_are_valid(host: &str) -> bool {

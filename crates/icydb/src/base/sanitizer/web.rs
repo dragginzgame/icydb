@@ -55,9 +55,7 @@ impl Sanitizer<String> for Url {
 }
 
 fn has_explicit_non_numeric_colon(value: &str) -> bool {
-    let boundary = value
-        .find(|ch| matches!(ch, '/' | '?' | '#'))
-        .unwrap_or(value.len());
+    let boundary = value.find(['/', '?', '#']).unwrap_or(value.len());
     let head = &value[..boundary];
     let Some((_host, port_or_scheme)) = head.rsplit_once(':') else {
         return false;

@@ -16,7 +16,7 @@ use crate::{db::data::structural_field::FieldDecodeError, value::Value};
 
 const MAX_VALUE_STORAGE_DECODE_DEPTH: usize = 64;
 
-fn next_value_storage_decode_depth(depth: usize) -> Result<usize, FieldDecodeError> {
+const fn next_value_storage_decode_depth(depth: usize) -> Result<usize, FieldDecodeError> {
     if depth >= MAX_VALUE_STORAGE_DECODE_DEPTH {
         return Err(FieldDecodeError::new());
     }
