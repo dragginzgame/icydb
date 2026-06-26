@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.18` moves indexed `IN` EXISTS prefix-cardinality preflight
+  admission onto shared route access-shape facts while keeping exact-prefix
+  lowering in the cardinality owner.
+
 - `0.185.17` moves index-range cursor runtime shape checks onto shared access
   shape facts, aligning retained-slot layout and continuation-token minting.
 

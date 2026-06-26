@@ -86,6 +86,15 @@ pub(in crate::db::executor) const fn index_prefix_set_page_fetch_hint_shape_supp
     )
 }
 
+/// Return whether EXISTS can use index-prefix-cardinality preflight for this path.
+#[must_use]
+pub(in crate::db::executor) const fn index_multi_lookup_prefix_cardinality_preflight_shape_supported(
+    shape_facts: &SinglePathAccessShapeFacts,
+) -> bool {
+    matches!(shape_facts.kind(), AccessPathKind::IndexMultiLookup)
+        && shape_facts.index_prefix_spec_count() > 1
+}
+
 /// Return whether this path can use branch-set page keep caps.
 #[must_use]
 pub(in crate::db::executor) const fn branch_set_page_keep_cap_shape_supported(

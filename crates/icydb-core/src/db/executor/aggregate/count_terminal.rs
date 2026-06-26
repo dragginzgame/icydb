@@ -16,6 +16,7 @@ use crate::{
             exact_count_cardinality_prefixes_for_plan,
             pipeline::contracts::LoadExecutor,
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
+            planning::route::index_multi_lookup_prefix_cardinality_preflight_shape_supported,
             validate_executor_plan_for_authority,
         },
         index::{IndexId, IndexKeyKind},
@@ -177,14 +178,12 @@ pub(super) fn try_prepare_scalar_terminal_preflight<'plan>(
 }
 
 fn exists_index_prefix_cardinality_preflight_supported(logical_plan: &AccessPlannedQuery) -> bool {
-    match logical_plan
-        .access
-        .as_path()
-        .and_then(|path| path.as_index_multi_lookup_contract())
-    {
-        Some((_index, values)) => values.len() > 1,
-        None => false,
-    }
+    logical_plan
+        .access_shape_facts()
+        .single_path_facts()
+        .is_some_and(|shape_facts| {
+            index_multi_lookup_prefix_cardinality_preflight_shape_supported(&shape_facts)
+        })
 }
 
 fn try_prepare_index_prefix_cardinality_preflight(

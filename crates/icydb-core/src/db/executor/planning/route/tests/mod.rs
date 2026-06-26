@@ -20,6 +20,7 @@ use super::{
     build_execution_route_plan,
     capability_facts::{
         count_pushdown_existing_rows_shape_supported,
+        index_multi_lookup_prefix_cardinality_preflight_shape_supported,
         index_range_limit_pushdown_shape_supported_for_model,
     },
     derive_secondary_pushdown_applicability_from_contract,
@@ -311,6 +312,17 @@ fn load_index_range_limit_pushdown_shape_supported(plan: &AccessPlannedQuery) ->
         finalized.planner_route_profile(),
         &access_shape_facts,
     )
+}
+
+fn load_index_multi_lookup_prefix_cardinality_preflight_shape_supported(
+    plan: &AccessPlannedQuery,
+) -> bool {
+    finalized_plan_for_authority(route_capability_authority(), plan)
+        .access_shape_facts()
+        .single_path_facts()
+        .is_some_and(|shape_facts| {
+            index_multi_lookup_prefix_cardinality_preflight_shape_supported(&shape_facts)
+        })
 }
 
 fn build_mutation_route_plan(
@@ -1022,6 +1034,24 @@ fn assert_pk_suffix_multi_lookup_streams_in_primary_key_order() {
             .index_leaf_order_policy()
             .preserves_leaf_index_order(),
         "pk-suffix multi-lookup should preserve index leaf order for lazy merging",
+    );
+    assert!(
+        load_index_multi_lookup_prefix_cardinality_preflight_shape_supported(&pk_suffix_plan),
+        "multi-lookup with more than one exact prefix should admit prefix-cardinality preflight",
+    );
+
+    let single_prefix_plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexMultiLookup {
+            index: SemanticIndexAccessContract::model_only_from_generated_index(
+                ROUTE_CAPABILITY_PK_SUFFIX_INDEX_MODEL,
+            ),
+            values: vec![Value::Nat64(1)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    assert!(
+        !load_index_multi_lookup_prefix_cardinality_preflight_shape_supported(&single_prefix_plan),
+        "single-prefix multi-lookup should not use the multi-prefix preflight gate",
     );
 }
 

@@ -38,10 +38,12 @@ use pushdown::secondary_order_contract_active;
 pub(in crate::db::executor) use capability_facts::explain_access_order_satisfied_for_model;
 pub(in crate::db::executor) use capability_facts::{
     branch_set_page_keep_cap_shape_supported, count_pushdown_shape_supported,
-    direct_primary_key_lookup_shape_supported, index_prefix_set_page_fetch_hint_shape_supported,
-    ordered_key_stream_window_shape_supported, paged_primary_key_numeric_fold_shape_supported,
-    primary_key_stream_window_shape_supported, primary_scan_fetch_hint_shape_supported,
-    streaming_numeric_fold_shape_supported, top_n_seek_lookahead_required_for_shape,
+    direct_primary_key_lookup_shape_supported,
+    index_multi_lookup_prefix_cardinality_preflight_shape_supported,
+    index_prefix_set_page_fetch_hint_shape_supported, ordered_key_stream_window_shape_supported,
+    paged_primary_key_numeric_fold_shape_supported, primary_key_stream_window_shape_supported,
+    primary_scan_fetch_hint_shape_supported, streaming_numeric_fold_shape_supported,
+    top_n_seek_lookahead_required_for_shape,
 };
 pub(in crate::db) use contracts::AggregateRouteShape;
 pub use contracts::RouteExecutionMode;

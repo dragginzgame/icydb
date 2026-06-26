@@ -11,16 +11,15 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Retained-slot layout compilation now consumes
-  `AccessShapeFacts::has_single_path_index_range_access_path()` before adding
-  the index key-item slots needed to reconstruct index-range cursor anchors.
-- Continuation-token minting uses the same predicate before requiring and
-  validating the already-materialized raw index-range anchor.
-- This removes cursor-runtime raw `IndexRange` shape checks from retained-slot
-  layout and token construction while keeping cursor anchor construction in the
-  page cursor owner, where the concrete range spec payload is still needed.
-- Access-shape tests now assert the single-path index-range predicate beside
-  the existing range detail and traversal facts.
+- Route capability facts now own the indexed `IN` EXISTS prefix-cardinality
+  preflight shape predicate.
+- Aggregate EXISTS preflight admission consumes the shared predicate through
+  `AccessShapeFacts` instead of matching raw `IndexMultiLookup` payload values.
+- This removes a shape-only raw multi-lookup check from the aggregate count
+  terminal while leaving exact-prefix lowering and cardinality execution with
+  the owners that still need concrete prefix bytes and index identity.
+- Route tests now assert that multi-prefix lookup admits the preflight gate
+  while single-prefix lookup does not.
 - The next narrow duplicate-flow target is any remaining branch-tree
   replacement work that can stay below cursor-format design and broader
   cost-based routing. Those remain explicit follow-ups.
@@ -33,6 +32,20 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Indexed-IN Prefix-Cardinality Admission Slice
+
+- Route capability facts now own the shape predicate for indexed `IN` EXISTS
+  prefix-cardinality preflight admission.
+- The predicate admits only single-path `IndexMultiLookup` access with more
+  than one exact prefix, matching the previous aggregate-terminal behavior.
+- Aggregate EXISTS preflight admission now consumes `AccessShapeFacts` and the
+  shared route helper instead of borrowing the raw multi-lookup access payload.
+- Exact prefix materialization and cardinality lookup still live with the
+  prefix-cardinality owner because those steps require concrete prefix bytes
+  and index identity.
+- Existing aggregate prefix-cardinality coverage remains the semantic proof;
+  route capability coverage now guards the shared shape predicate directly.
 
 ## Completed Index-Range Cursor Retained-Slot Shape Slice
 
