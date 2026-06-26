@@ -202,6 +202,14 @@ fn initial_scalar_continuation_context() -> ScalarContinuationContext {
     ScalarContinuationContext::initial()
 }
 
+fn cursor_boundary_continuation_context() -> ScalarContinuationContext {
+    ScalarContinuationContext::new(ValidatedCursor::new_validated(
+        CursorBoundary { slots: Vec::new() },
+        None,
+        0,
+    ))
+}
+
 fn route_capability_authority() -> EntityAuthority {
     EntityAuthority::for_generated_type_for_test::<RouteCapabilityEntity>()
         .with_cursor_schema_info_for_test(
@@ -1241,6 +1249,73 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
 }
 
 #[test]
+fn route_branch_continuation_uses_global_primary_key_boundary_for_admitted_prefix_streams() {
+    let continuation = cursor_boundary_continuation_context();
+
+    let branch_set_plan = branch_set_primary_key_order_plan(OrderDirection::Asc);
+    let branch_set_route = build_load_route_plan_with_continuation(&branch_set_plan, &continuation)
+        .expect("branch-set resumed route should build");
+    assert_eq!(
+        branch_set_route.continuation().mode(),
+        ContinuationMode::CursorBoundary,
+        "branch-set continuation should consume the global cursor boundary",
+    );
+    assert_eq!(
+        branch_set_route.load_order_route_mode(),
+        LoadOrderRouteMode::DirectStreaming,
+    );
+    assert!(
+        branch_set_route.index_prefix_child_expansion().is_none(),
+        "branch-set routes use their own ordered suffix proof, not sparse child expansion",
+    );
+
+    let sparse_child_plan = multi_lookup_primary_key_order_plan(
+        ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
+        OrderDirection::Asc,
+    );
+    let sparse_child_route =
+        build_load_route_plan_with_continuation(&sparse_child_plan, &continuation)
+            .expect("sparse child-expanded resumed route should build");
+    assert_eq!(
+        sparse_child_route.continuation().mode(),
+        ContinuationMode::CursorBoundary,
+        "sparse child expansion should resume from the same global cursor boundary",
+    );
+    assert_eq!(
+        sparse_child_route.load_order_route_mode(),
+        LoadOrderRouteMode::DirectStreaming,
+    );
+    assert!(
+        sparse_child_route.index_prefix_child_expansion().is_some(),
+        "sparse multi-lookup must keep child-prefix expansion explicit",
+    );
+
+    let desc_sparse_child_plan = multi_lookup_primary_key_order_plan(
+        ROUTE_CAPABILITY_SPARSE_PK_SUFFIX_INDEX_MODEL,
+        OrderDirection::Desc,
+    );
+    let desc_sparse_child_route =
+        build_load_route_plan_with_continuation(&desc_sparse_child_plan, &continuation)
+            .expect("DESC sparse child-expanded resumed route should build");
+    assert_eq!(
+        desc_sparse_child_route.continuation().mode(),
+        ContinuationMode::CursorBoundary,
+        "DESC sparse child expansion should also resume from the global cursor boundary",
+    );
+    assert_eq!(
+        desc_sparse_child_route.direction(),
+        Direction::Desc,
+        "DESC sparse child expansion should preserve the requested primary-key direction",
+    );
+    assert!(
+        desc_sparse_child_route
+            .index_prefix_child_expansion()
+            .is_some(),
+        "DESC sparse multi-lookup must keep child-prefix expansion explicit",
+    );
+}
+
+#[test]
 fn route_plan_load_uses_route_owned_fast_path_order() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
@@ -1346,11 +1421,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         limit: Some(2),
         offset: 0,
     });
-    let continuation = ScalarContinuationContext::new(ValidatedCursor::new_validated(
-        CursorBoundary { slots: Vec::new() },
-        None,
-        0,
-    ));
+    let continuation = cursor_boundary_continuation_context();
     let route_plan = build_load_route_plan_with_continuation(&plan, &continuation)
         .expect("load route plan should build");
 

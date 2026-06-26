@@ -5,33 +5,59 @@ Status: active.
 ## Focus
 
 Branch-aware query routing revisit after the 0.184 query-engine audit cleanup.
-The first goal is to prove and document that SQL and fluent equivalent
-branch-heavy shapes converge on the same explicit route contract before
-expanding the optimizer.
+The 0.185 line has proved and documented that SQL and fluent equivalent
+branch-heavy shapes converge on the same explicit route contracts, and has
+cleaned up the executor handoff boundaries that could be tightened without
+changing cursor format or adding a cost model.
 
 ## Current Slice
 
-- Route capability facts now own the indexed `IN` EXISTS prefix-cardinality
-  preflight shape predicate.
-- Aggregate EXISTS preflight admission consumes the shared predicate through
-  `AccessShapeFacts` instead of matching raw `IndexMultiLookup` payload values.
-- This removes a shape-only raw multi-lookup check from the aggregate count
-  terminal while leaving exact-prefix lowering and cardinality execution with
-  the owners that still need concrete prefix bytes and index identity.
-- Route tests now assert that multi-prefix lookup admits the preflight gate
-  while single-prefix lookup does not.
-- The next narrow duplicate-flow target is any remaining branch-tree
-  replacement work that can stay below cursor-format design and broader
-  cost-based routing. Those remain explicit follow-ups.
+- The current cleanup baseline is validated: invariant scripts, feature
+  matrix, workspace Clippy, and workspace/unit test coverage have been
+  rechecked after the route-shape cleanup slices.
+- No SQL/fluent semantics, route admission, cursor format, result payload,
+  persistence format, page-window, or diagnostics changes are intended in the
+  validation slice.
+- Remaining cost-model and general branch-tree work stays in the 0.185
+  branch-aware queue.
 
-## Major Follow-Up Queue
+## Remaining 0.185 Branch-Aware Queue
 
-- Adaptive routing: started in `0.185.5` with bounded-page child-prefix cap
-  adjustment and continued with reverse child-prefix expansion. Deferred
-  remainder is a real cost/estimate model.
-- Branch-tree replacement: started with physical prefix-stream consolidation.
-  Full branch-tree replacement remains deferred.
-- Cursor-format design: not started.
+- Adaptive large-`IN` cost model and prefix-cardinality-aware selectivity
+  estimates.
+- General branch-tree replacement for every special-case branch or `IN` flow.
+- Final closeout after those branch-aware items are either implemented or
+  explicitly ruled out with local proof.
+
+## Future Work Outside 0.185 Branch-Aware Closeout
+
+- Wider downstream-specific query tuning and performance benchmarking.
+- Arbitrary non-primary-key branch merge ordering unless a concrete 0.185
+  correctness issue requires it.
+- Prefix-cardinality metadata redesign beyond what the large-`IN` cost model
+  needs.
+
+## Completed Branch Continuation Hard-Cut Decision Slice
+
+- Route-level proof now asserts that branch-set, sparse child-prefix ASC, and
+  sparse child-prefix DESC routes all resume through the existing global
+  `CursorBoundary` mode.
+- The proof keeps child-prefix expansion explicit on sparse multi-lookup routes
+  and confirms branch-set routes rely on their own ordered suffix proof.
+- The 0.185 cursor hard-cut question is closed for currently admitted
+  primary-key suffix branch routes: no per-branch cursor payload is needed
+  unless a later route broadens branch merging beyond global primary-key suffix
+  continuation.
+
+## Completed Validation Matrix Baseline Slice
+
+- The validation baseline keeps the 0.185 boundary clear: route convergence,
+  sparse child-prefix expansion, covering fallback proof, terminal metadata
+  proof, stream-policy cleanup, access-shape cleanup, and docs are complete.
+- Cost-based large-`IN` routing and full branch-tree replacement remain
+  visible 0.185 queue items rather than hidden future work.
+- Final validation rechecked invariants, feature combinations, full Clippy,
+  and workspace/unit test coverage.
 
 ## Completed Indexed-IN Prefix-Cardinality Admission Slice
 
@@ -354,6 +380,9 @@ expanding the optimizer.
 - The slice stayed deliberately below a cursor-format hard-cut: it proved the
   current global primary-key boundary model for admitted primary-key suffix
   streams, without adding per-branch cursor payloads.
+- The later route-level hard-cut decision closed this question for 0.185 by
+  proving resumed branch-set, sparse child-prefix ASC, and sparse child-prefix
+  DESC routes all stay on global `CursorBoundary` continuation.
 
 ## Completed 185.0 Baseline
 
@@ -410,9 +439,11 @@ expanding the optimizer.
 - `docs/design/0.185-branch-aware-revisit/adaptive-routing.md`
 - `docs/design/0.185-branch-aware-revisit/continuation.md`
 
-## Deferred From 185.0
+## Carried Forward From 185.0 Baseline
 
-- Full per-branch cursor continuation hard-cut.
 - Adaptive large-`IN` cost model.
 - Shared branch-tree replacement for every special-case branch or `IN` flow.
+
+## Future Tuning Outside 0.185 Branch-Aware Closeout
+
 - Wider downstream-specific query tuning.

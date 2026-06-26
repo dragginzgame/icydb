@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.19` records the final validation baseline for the current
+  branch-aware cleanup, proves admitted branch continuations still use the
+  global primary-key cursor boundary, and keeps remaining cost/branch-tree
+  work in the 0.185 queue.
+
 - `0.185.18` moves indexed `IN` EXISTS prefix-cardinality preflight
   admission onto shared route access-shape facts while keeping exact-prefix
   lowering in the cardinality owner.

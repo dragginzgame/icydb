@@ -38,9 +38,24 @@ not a full cursor redesign.
 - It should not be used when the access route cannot prove every prefix stream
   shares the same ordered suffix.
 
-## Deferred Hard-Cut Question
+## 0.185 Hard-Cut Decision
 
-A future branch-tree cursor format may need to carry per-child anchors if 0.185
-or later broadens branch merging beyond global primary-key suffix continuation.
-Do not add compatibility fallbacks before 1.0.0; if the format changes, hard-cut
-to the latest cursor contract.
+No per-branch cursor format hard-cut is needed for the branch-aware routes
+currently admitted in 0.185.
+
+The route planner admits lazy branch-set and child-prefix-expanded continuation
+only when every active prefix stream shares the same primary-key suffix order
+and direction. Under that contract the existing global cursor boundary is
+sufficient: each active prefix stream can derive its own resume anchor from the
+same primary-key boundary, and the shared merge continues after the last
+emitted global key.
+
+Route tests now guard this directly for branch-set, sparse child-prefix ASC,
+and sparse child-prefix DESC routes under resumed execution.
+
+## Future Hard-Cut Boundary
+
+A future branch-tree cursor format may still need per-child anchors if a later
+line broadens branch merging beyond global primary-key suffix continuation.
+Do not add compatibility fallbacks before 1.0.0; if the format changes,
+hard-cut to the latest cursor contract.
