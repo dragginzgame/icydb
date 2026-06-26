@@ -56,6 +56,7 @@ fn access_shape_facts_preserve_pure_index_range_details() {
     assert_eq!(path.index_prefix_spec_count(), 0);
     assert!(path.consumes_index_range_spec());
     assert!(shape_facts.all_paths_support_reverse_traversal());
+    assert!(shape_facts.has_single_path_index_range_access_path());
     assert_eq!(shape_facts.first_index_range_details(), Some(range_details));
 }
 

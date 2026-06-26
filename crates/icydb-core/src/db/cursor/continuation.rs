@@ -196,7 +196,10 @@ fn next_cursor_for_row<K>(
         index_anchor,
     } = row;
 
-    let token = if access.as_index_range_path().is_some() {
+    let token = if access
+        .shape_facts()
+        .has_single_path_index_range_access_path()
+    {
         let Some(last_emitted_raw_key) = index_anchor.as_ref() else {
             return Err(InternalError::cursor_executor_invariant());
         };

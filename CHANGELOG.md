@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.17` moves index-range cursor runtime shape checks onto shared access
+  shape facts, aligning retained-slot layout and continuation-token minting.
+
 - `0.185.16` moves covering index-backed shape admission onto shared access
   shape facts so planner, executor, and terminal routes use the same secondary
   index access predicate.

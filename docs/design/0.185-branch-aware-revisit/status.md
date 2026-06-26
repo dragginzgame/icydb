@@ -11,16 +11,16 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Covering planner admission, executor covering scan resolution, and
-  count/existence existing-row route capability now consume the same
-  `AccessShapeFacts::has_selected_index_access_path()` predicate for
-  secondary-index prefix/range access.
-- The local covering helper no longer re-matches `IndexPrefix`,
-  `IndexMultiLookup`, `IndexBranchSet`, and `IndexRange` just to decide
-  whether an access path is index-backed.
-- Detailed covering payload extraction still stays with the covering fact
-  builder because it needs variant-specific prefix values and branch/range
-  metadata.
+- Retained-slot layout compilation now consumes
+  `AccessShapeFacts::has_single_path_index_range_access_path()` before adding
+  the index key-item slots needed to reconstruct index-range cursor anchors.
+- Continuation-token minting uses the same predicate before requiring and
+  validating the already-materialized raw index-range anchor.
+- This removes cursor-runtime raw `IndexRange` shape checks from retained-slot
+  layout and token construction while keeping cursor anchor construction in the
+  page cursor owner, where the concrete range spec payload is still needed.
+- Access-shape tests now assert the single-path index-range predicate beside
+  the existing range detail and traversal facts.
 - The next narrow duplicate-flow target is any remaining branch-tree
   replacement work that can stay below cursor-format design and broader
   cost-based routing. Those remain explicit follow-ups.
@@ -33,6 +33,19 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Index-Range Cursor Retained-Slot Shape Slice
+
+- `AccessShapeFacts` now owns a dedicated single-path index-range predicate
+  for consumers that only need the access shape.
+- Retained-slot layout derivation uses that predicate before retaining the
+  index key-item slots required for cursor anchor reconstruction.
+- Continuation-token minting uses that predicate before requiring and
+  validating the raw index-range anchor carried by the materialized cursor row.
+- The page cursor anchor builder still reads the raw range spec because anchor
+  construction needs the range payload, not just access shape.
+- Existing access-shape regression coverage now asserts the new predicate for
+  pure index-range plans.
 
 ## Completed Covering Index-Shape Admission Slice
 

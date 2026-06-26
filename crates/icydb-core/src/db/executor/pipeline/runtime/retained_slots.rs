@@ -107,7 +107,10 @@ fn compile_retained_slot_layout(
     // no longer force shared validation state, so keep these slots explicit
     // for cursor-emitting index-range paths.
     if cursor_emission.enabled()
-        && plan.access.as_index_range_path().is_some()
+        && plan
+            .access
+            .shape_facts()
+            .has_single_path_index_range_access_path()
         && let Some(index_compile_targets) = plan.index_compile_targets()
     {
         required_slots.mark_index_compile_target_slots(index_compile_targets);
