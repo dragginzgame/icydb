@@ -13,8 +13,8 @@ use crate::{
             stream::{
                 access::{
                     bindings::{
-                        AccessSpecCursor, ExecutableAccess, IndexStreamConstraints,
-                        StreamExecutionHints,
+                        AccessSpecCursor, AccessStreamExecutionPolicy, ExecutableAccess,
+                        IndexLeafOrderPolicy, IndexStreamConstraints,
                     },
                     physical,
                 },
@@ -42,9 +42,8 @@ struct TraversalInputs<'a> {
     index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     index_range_specs: &'a [LoweredIndexRangeSpec],
     continuation: AccessScanContinuationInput<'a>,
-    physical_fetch_hint: Option<usize>,
+    execution_policy: AccessStreamExecutionPolicy,
     index_predicate_execution: Option<crate::db::index::predicate::IndexPredicateExecution<'a>>,
-    preserve_leaf_index_order: bool,
     index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
@@ -52,7 +51,9 @@ impl<'a> TraversalInputs<'a> {
     // Clone this traversal envelope with one overridden physical fetch hint.
     const fn with_physical_fetch_hint(self, physical_fetch_hint: Option<usize>) -> Self {
         Self {
-            physical_fetch_hint,
+            execution_policy: self
+                .execution_policy
+                .with_physical_fetch_hint(physical_fetch_hint),
             ..self
         }
     }
@@ -61,7 +62,9 @@ impl<'a> TraversalInputs<'a> {
     // merge/intersection reducers can consume them under one shared key comparator.
     const fn without_leaf_index_order_preservation(self) -> Self {
         Self {
-            preserve_leaf_index_order: false,
+            execution_policy: self
+                .execution_policy
+                .with_index_leaf_order_policy(IndexLeafOrderPolicy::CanonicalKeyOrder),
             ..self
         }
     }
@@ -115,9 +118,8 @@ impl TraversalRuntime {
         self.ordered_key_stream_from_executable_plan(
             &request.plan,
             request.bindings,
-            request.physical_fetch_hint,
+            request.execution_policy,
             request.index_predicate_execution,
-            request.preserve_leaf_index_order,
         )
     }
 
@@ -127,17 +129,15 @@ impl TraversalRuntime {
         &self,
         plan: &ExecutableAccessPlan<'_, Value>,
         bindings: AccessStreamBindings<'input>,
-        physical_fetch_hint: Option<usize>,
+        execution_policy: AccessStreamExecutionPolicy,
         index_predicate_execution: Option<IndexPredicateExecution<'input>>,
-        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let inputs = TraversalInputs {
             index_prefix_specs: bindings.index_prefix_specs,
             index_range_specs: bindings.index_range_specs,
             continuation: bindings.continuation,
-            physical_fetch_hint,
+            execution_policy,
             index_predicate_execution,
-            preserve_leaf_index_order,
             index_prefix_child_expansion: bindings.index_prefix_child_expansion,
         };
         let mut spec_cursor = inputs.spec_cursor();
@@ -161,20 +161,14 @@ impl TraversalRuntime {
             prefixes: index_prefix_specs,
             range: index_range_spec,
         };
-        let hints = StreamExecutionHints {
-            physical_fetch_hint: inputs.physical_fetch_hint,
-            predicate_execution: inputs.index_predicate_execution,
-        };
-
         path.resolve_structural_physical_key_stream(physical::StructuralPhysicalStreamRequest {
             store: self.store,
             entity_tag: self.entity_tag,
             index_prefix_specs: constraints.prefixes,
             index_range_spec: constraints.range,
             continuation: inputs.continuation,
-            physical_fetch_hint: hints.physical_fetch_hint,
-            index_predicate_execution: hints.predicate_execution,
-            preserve_leaf_index_order: inputs.preserve_leaf_index_order,
+            execution_policy: inputs.execution_policy,
+            index_predicate_execution: inputs.index_predicate_execution,
             index_prefix_child_expansion: inputs.index_prefix_child_expansion,
         })
     }

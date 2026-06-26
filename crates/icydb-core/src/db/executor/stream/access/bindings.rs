@@ -108,6 +108,77 @@ fn validate_index_range_specs_consumed(
     IndexRangeTraversalContract::validate_specs_consumed(consumed, available)
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(in crate::db::executor) enum IndexLeafOrderPolicy {
+    CanonicalKeyOrder,
+    PreservePhysicalLeafOrder,
+}
+
+impl IndexLeafOrderPolicy {
+    #[must_use]
+    pub(in crate::db::executor) const fn preserves_leaf_index_order(self) -> bool {
+        matches!(self, Self::PreservePhysicalLeafOrder)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct AccessStreamExecutionPolicy {
+    physical_fetch_hint: Option<usize>,
+    index_leaf_order_policy: IndexLeafOrderPolicy,
+}
+
+impl AccessStreamExecutionPolicy {
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        physical_fetch_hint: Option<usize>,
+        index_leaf_order_policy: IndexLeafOrderPolicy,
+    ) -> Self {
+        Self {
+            physical_fetch_hint,
+            index_leaf_order_policy,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn canonical_key_order(
+        physical_fetch_hint: Option<usize>,
+    ) -> Self {
+        Self::new(physical_fetch_hint, IndexLeafOrderPolicy::CanonicalKeyOrder)
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn physical_fetch_hint(self) -> Option<usize> {
+        self.physical_fetch_hint
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn index_leaf_order_policy(self) -> IndexLeafOrderPolicy {
+        self.index_leaf_order_policy
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn with_physical_fetch_hint(
+        self,
+        physical_fetch_hint: Option<usize>,
+    ) -> Self {
+        Self {
+            physical_fetch_hint,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn with_index_leaf_order_policy(
+        self,
+        index_leaf_order_policy: IndexLeafOrderPolicy,
+    ) -> Self {
+        Self {
+            index_leaf_order_policy,
+            ..self
+        }
+    }
+}
+
 ///
 /// ExecutableAccess
 ///
@@ -119,9 +190,8 @@ fn validate_index_range_specs_consumed(
 pub(in crate::db::executor) struct ExecutableAccess<'a, K> {
     pub(in crate::db::executor) plan: ExecutableAccessPlan<'a, K>,
     pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
-    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
+    pub(in crate::db::executor) execution_policy: AccessStreamExecutionPolicy,
     pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    pub(in crate::db::executor) preserve_leaf_index_order: bool,
 }
 
 impl<'a, K> ExecutableAccess<'a, K> {
@@ -133,21 +203,29 @@ impl<'a, K> ExecutableAccess<'a, K> {
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
+        Self::from_executable_plan_with_policy(
+            plan,
+            bindings,
+            AccessStreamExecutionPolicy::canonical_key_order(physical_fetch_hint),
+            index_predicate_execution,
+        )
+    }
+
+    /// Build one runtime request from one executable access plan and explicit
+    /// stream execution policy.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_executable_plan_with_policy(
+        plan: ExecutableAccessPlan<'a, K>,
+        bindings: AccessStreamBindings<'a>,
+        execution_policy: AccessStreamExecutionPolicy,
+        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    ) -> Self {
         Self {
             plan,
             bindings,
-            physical_fetch_hint,
+            execution_policy,
             index_predicate_execution,
-            preserve_leaf_index_order: false,
         }
-    }
-
-    /// Mark this executable access request as one top-level single-path index
-    /// scan whose physical traversal order is part of the observable contract.
-    #[must_use]
-    pub(in crate::db::executor) const fn with_preserved_leaf_index_order(mut self) -> Self {
-        self.preserve_leaf_index_order = true;
-        self
     }
 }
 
@@ -162,16 +240,4 @@ impl<'a, K> ExecutableAccess<'a, K> {
 pub(in crate::db::executor) struct IndexStreamConstraints<'a> {
     pub(in crate::db::executor) prefixes: &'a [LoweredIndexPrefixSpec],
     pub(in crate::db::executor) range: Option<&'a LoweredIndexRangeSpec>,
-}
-
-///
-/// StreamExecutionHints
-///
-/// Canonical execution-hint envelope for access-path stream production.
-/// Keeps bounded fetch and index-predicate pushdown hints grouped and extensible.
-///
-
-pub(in crate::db::executor) struct StreamExecutionHints<'a> {
-    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
-    pub(in crate::db::executor) predicate_execution: Option<IndexPredicateExecution<'a>>,
 }

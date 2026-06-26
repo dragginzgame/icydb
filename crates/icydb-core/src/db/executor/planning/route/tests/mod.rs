@@ -1018,7 +1018,9 @@ fn assert_pk_suffix_multi_lookup_streams_in_primary_key_order() {
         LoadOrderRouteMode::DirectStreaming
     );
     assert!(
-        route_plan.preserve_ordered_index_leaf_stream(),
+        route_plan
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order(),
         "pk-suffix multi-lookup should preserve index leaf order for lazy merging",
     );
 }
@@ -1071,7 +1073,9 @@ fn assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof() {
         LoadOrderRouteMode::DirectStreaming,
     );
     assert!(
-        route_plan.preserve_ordered_index_leaf_stream(),
+        route_plan
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order(),
         "child-expanded multi-lookup should preserve index leaf order after expansion",
     );
     let expansion = route_plan
@@ -1145,7 +1149,9 @@ fn assert_branch_set_streams_without_child_expansion() {
         LoadOrderRouteMode::DirectStreaming,
     );
     assert!(
-        route_plan.preserve_ordered_index_leaf_stream(),
+        route_plan
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order(),
         "branch-set prefix streams should preserve index leaf order for lazy merging",
     );
     assert!(
@@ -1173,7 +1179,9 @@ fn assert_desc_sparse_child_suffix_multi_lookup_uses_reverse_expansion_proof() {
     );
     assert_eq!(route_plan.direction(), Direction::Desc);
     assert!(
-        route_plan.preserve_ordered_index_leaf_stream(),
+        route_plan
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order(),
         "DESC child-expanded multi-lookup should preserve index leaf order after expansion",
     );
     let expansion = route_plan

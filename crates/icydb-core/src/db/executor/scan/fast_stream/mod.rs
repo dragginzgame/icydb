@@ -14,8 +14,9 @@ use crate::{
     db::{
         access::ExecutableAccessPlan,
         executor::{
-            AccessStreamBindings, ExecutionOptimization, OrderedKeyStreamBox,
-            pipeline::contracts::FastPathKeyResult, stream::access::TraversalRuntime,
+            AccessStreamBindings, AccessStreamExecutionPolicy, ExecutionOptimization,
+            OrderedKeyStreamBox, pipeline::contracts::FastPathKeyResult,
+            stream::access::TraversalRuntime,
         },
     },
     error::InternalError,
@@ -41,16 +42,15 @@ pub(in crate::db::executor) fn execute_structural_fast_stream_request(
     runtime: &TraversalRuntime,
     executable_access: &ExecutableAccessPlan<'_, Value>,
     bindings: AccessStreamBindings<'_>,
-    physical_fetch_hint: Option<usize>,
+    execution_policy: AccessStreamExecutionPolicy,
     index_predicate_execution: Option<crate::db::index::predicate::IndexPredicateExecution<'_>>,
     optimization: ExecutionOptimization,
 ) -> Result<FastPathKeyResult, InternalError> {
     let key_stream = runtime.ordered_key_stream_from_executable_plan(
         executable_access,
         bindings,
-        physical_fetch_hint,
+        execution_policy,
         index_predicate_execution,
-        false,
     )?;
 
     Ok(finalize_fast_path_key_stream(key_stream, optimization))

@@ -130,7 +130,7 @@ fn fast_stream_allows_missing_exact_key_count_hint() {
         &runtime,
         &access.plan,
         access.bindings,
-        access.physical_fetch_hint,
+        access.execution_policy,
         access.index_predicate_execution,
         ExecutionOptimization::PrimaryKey,
     )
@@ -173,7 +173,7 @@ fn fast_stream_defers_unbounded_primary_scan_candidate_counting() {
         &runtime,
         &access.plan,
         access.bindings,
-        access.physical_fetch_hint,
+        access.execution_policy,
         access.index_predicate_execution,
         ExecutionOptimization::PrimaryKey,
     )

@@ -54,7 +54,9 @@ impl UnpagedLoadHintStrategy {
             return Self::TopNSeekWindow { fetch };
         }
 
-        if route_plan.preserve_ordered_index_leaf_stream()
+        if route_plan
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order()
             && route_plan.scan_hints.physical_fetch_hint.is_none()
         {
             return Self::PreserveOrderedIndexLeafStream;

@@ -13,11 +13,11 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrefixSetExecutionShape,
-            PrefixSetMergeSafety, PrimaryScan, active_lowered_index_prefix_specs,
-            apply_index_scan_chunk_progress, branch_stream_chunk_entries,
-            expand_index_prefix_family_with_exact_child_prefixes,
+            ACCESS_SCAN_CHUNK_ENTRIES, AccessStreamExecutionPolicy, IndexLeafOrderPolicy,
+            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
+            OrderedKeyStreamBox, PrefixSetExecutionShape, PrefixSetMergeSafety, PrimaryScan,
+            active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
+            branch_stream_chunk_entries, expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, lowered_index_prefix_is_proven_empty,
             ordered_key_stream_from_materialized_keys,
@@ -64,11 +64,10 @@ enum PrefixMergeResumePolicy {
 }
 
 impl PrefixMergeResumePolicy {
-    const fn for_leaf_index_order_preservation(preserve_leaf_index_order: bool) -> Self {
-        if preserve_leaf_index_order {
-            Self::PrimaryKeySuffix
-        } else {
-            Self::None
+    const fn from_index_leaf_order_policy(policy: IndexLeafOrderPolicy) -> Self {
+        match policy {
+            IndexLeafOrderPolicy::CanonicalKeyOrder => Self::None,
+            IndexLeafOrderPolicy::PreservePhysicalLeafOrder => Self::PrimaryKeySuffix,
         }
     }
 }
@@ -138,9 +137,8 @@ pub(super) struct StructuralPhysicalStreamRequest<'a> {
     pub(super) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     pub(super) index_range_spec: Option<&'a LoweredIndexRangeSpec>,
     pub(super) continuation: AccessScanContinuationInput<'a>,
-    pub(super) physical_fetch_hint: Option<usize>,
+    pub(super) execution_policy: AccessStreamExecutionPolicy,
     pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    pub(super) preserve_leaf_index_order: bool,
     pub(super) index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
@@ -158,9 +156,8 @@ struct PhysicalStreamBindings<'a> {
     index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     index_range_spec: Option<&'a LoweredIndexRangeSpec>,
     continuation: AccessScanContinuationInput<'a>,
-    physical_fetch_hint: Option<usize>,
+    execution_policy: AccessStreamExecutionPolicy,
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    preserve_leaf_index_order: bool,
     index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
@@ -297,7 +294,7 @@ impl KeyAccessRuntime {
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
-        preserve_leaf_index_order: bool,
+        index_leaf_order_policy: IndexLeafOrderPolicy,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         self.resolve_index_prefix_family_stream(
             index,
@@ -305,7 +302,7 @@ impl KeyAccessRuntime {
             1,
             continuation,
             index_fetch_hint,
-            PrefixMergeResumePolicy::for_leaf_index_order_preservation(preserve_leaf_index_order),
+            PrefixMergeResumePolicy::from_index_leaf_order_policy(index_leaf_order_policy),
         )
     }
 
@@ -372,7 +369,7 @@ impl KeyAccessRuntime {
         value_count: usize,
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
-        preserve_leaf_index_order: bool,
+        index_leaf_order_policy: IndexLeafOrderPolicy,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         self.resolve_index_prefix_family_stream(
             index,
@@ -380,7 +377,7 @@ impl KeyAccessRuntime {
             value_count,
             continuation,
             index_fetch_hint,
-            PrefixMergeResumePolicy::for_leaf_index_order_preservation(preserve_leaf_index_order),
+            PrefixMergeResumePolicy::from_index_leaf_order_policy(index_leaf_order_policy),
         )
     }
 
@@ -997,7 +994,11 @@ fn normalize_ordered_keys(
 // order directly instead of materializing to sort or deduplicate `DecodedDataStoreKey`s.
 const fn index_path_can_stream_in_final_order(request: PhysicalStreamBindings<'_>) -> bool {
     request.index_predicate_execution.is_none()
-        && (request.preserve_leaf_index_order || request.physical_fetch_hint.is_some())
+        && (request
+            .execution_policy
+            .index_leaf_order_policy()
+            .preserves_leaf_index_order()
+            || request.execution_policy.physical_fetch_hint().is_some())
 }
 
 fn validate_index_prefix_count(
@@ -1023,7 +1024,7 @@ fn resolve_index_multi_lookup_physical_key_stream(
             request.index_prefix_specs,
             value_count,
             request.continuation,
-            request.physical_fetch_hint,
+            request.execution_policy.physical_fetch_hint(),
             expansion,
         )? {
             return Ok(PhysicalKeyResolution::Stream(Box::new(stream)));
@@ -1033,7 +1034,7 @@ fn resolve_index_multi_lookup_physical_key_stream(
             request.index_prefix_specs,
             value_count,
             request.continuation.direction(),
-            request.physical_fetch_hint,
+            request.execution_policy.physical_fetch_hint(),
             request.index_predicate_execution,
         )?;
 
@@ -1050,8 +1051,8 @@ fn resolve_index_multi_lookup_physical_key_stream(
                 request.index_prefix_specs,
                 value_count,
                 request.continuation,
-                request.physical_fetch_hint,
-                request.preserve_leaf_index_order,
+                request.execution_policy.physical_fetch_hint(),
+                request.execution_policy.index_leaf_order_policy(),
             )?,
         )));
     }
@@ -1060,7 +1061,7 @@ fn resolve_index_multi_lookup_physical_key_stream(
         request.index_prefix_specs,
         value_count,
         request.continuation.direction(),
-        request.physical_fetch_hint,
+        request.execution_policy.physical_fetch_hint(),
         request.index_predicate_execution,
     )?;
 
@@ -1083,8 +1084,8 @@ fn resolve_index_physical_key_stream(
                         index,
                         request.index_prefix_specs,
                         request.continuation,
-                        request.physical_fetch_hint,
-                        request.preserve_leaf_index_order,
+                        request.execution_policy.physical_fetch_hint(),
+                        request.execution_policy.index_leaf_order_policy(),
                     )?,
                 )));
             }
@@ -1092,7 +1093,7 @@ fn resolve_index_physical_key_stream(
             runtime.resolve_index_prefix(
                 request.index_prefix_specs,
                 request.continuation.direction(),
-                request.physical_fetch_hint,
+                request.execution_policy.physical_fetch_hint(),
                 request.index_predicate_execution,
             )?
         }
@@ -1123,7 +1124,7 @@ fn resolve_index_physical_key_stream(
                         request.index_prefix_specs,
                         *branch_count,
                         request.continuation,
-                        request.physical_fetch_hint,
+                        request.execution_policy.physical_fetch_hint(),
                     )?,
                 )));
             }
@@ -1132,7 +1133,7 @@ fn resolve_index_physical_key_stream(
                 request.index_prefix_specs,
                 *branch_count,
                 request.continuation.direction(),
-                request.physical_fetch_hint,
+                request.execution_policy.physical_fetch_hint(),
                 request.index_predicate_execution,
             )?
         }
@@ -1142,7 +1143,7 @@ fn resolve_index_physical_key_stream(
                     runtime.resolve_index_range_stream(
                         request.index_range_spec,
                         request.continuation.index_scan_continuation(),
-                        request.physical_fetch_hint,
+                        request.execution_policy.physical_fetch_hint(),
                     )?,
                 )));
             }
@@ -1150,7 +1151,7 @@ fn resolve_index_physical_key_stream(
             runtime.resolve_index_range(
                 request.index_range_spec,
                 request.continuation.index_scan_continuation(),
-                request.physical_fetch_hint,
+                request.execution_policy.physical_fetch_hint(),
                 request.index_predicate_execution,
             )?
         }
@@ -1175,7 +1176,7 @@ fn resolve_physical_key_stream(
 ) -> Result<OrderedKeyStreamBox, InternalError> {
     let path_facts = path.shape_facts();
     let primary_scan_fetch_hint = if primary_scan_fetch_hint_shape_supported(&path_facts) {
-        request.physical_fetch_hint
+        request.execution_policy.physical_fetch_hint()
     } else {
         None
     };
@@ -1216,7 +1217,10 @@ fn resolve_physical_key_stream(
     // paging without an extra materialized reorder. Composite child streams
     // still disable this flag so merge/intersection reducers continue to
     // consume canonical `DecodedDataStoreKey` order.
-    if request.preserve_leaf_index_order
+    if request
+        .execution_policy
+        .index_leaf_order_policy()
+        .preserves_leaf_index_order()
         && matches!(
             path,
             ExecutionPathPayload::IndexPrefix { .. } | ExecutionPathPayload::IndexRange { .. }
@@ -1249,9 +1253,8 @@ impl ExecutionPathPayload<'_, Value> {
             index_prefix_specs: request.index_prefix_specs,
             index_range_spec: request.index_range_spec,
             continuation: request.continuation,
-            physical_fetch_hint: request.physical_fetch_hint,
+            execution_policy: request.execution_policy,
             index_predicate_execution: request.index_predicate_execution,
-            preserve_leaf_index_order: request.preserve_leaf_index_order,
             index_prefix_child_expansion: request.index_prefix_child_expansion,
         };
 

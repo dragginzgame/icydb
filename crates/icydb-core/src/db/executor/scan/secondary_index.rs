@@ -8,8 +8,8 @@ use crate::{
         access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
-            AccessStreamBindings, ExecutionOptimization, LoweredIndexPrefixSpec,
-            pipeline::contracts::FastPathKeyResult,
+            AccessStreamBindings, AccessStreamExecutionPolicy, ExecutionOptimization,
+            LoweredIndexPrefixSpec, pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
         },
@@ -52,7 +52,7 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
         runtime,
         executable,
         AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
-        probe_fetch_hint,
+        AccessStreamExecutionPolicy::canonical_key_order(probe_fetch_hint),
         index_predicate_execution,
         ExecutionOptimization::SecondaryOrderPushdown,
     )?;

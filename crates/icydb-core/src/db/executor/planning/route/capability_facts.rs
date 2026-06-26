@@ -75,6 +75,25 @@ pub(in crate::db::executor) const fn top_n_seek_lookahead_required_for_shape(
     )
 }
 
+/// Return whether this path can use index-prefix-set page fetch hints.
+#[must_use]
+pub(in crate::db::executor) const fn index_prefix_set_page_fetch_hint_shape_supported(
+    shape_facts: &SinglePathAccessShapeFacts,
+) -> bool {
+    matches!(
+        shape_facts.kind(),
+        AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
+    )
+}
+
+/// Return whether this path can use branch-set page keep caps.
+#[must_use]
+pub(in crate::db::executor) const fn branch_set_page_keep_cap_shape_supported(
+    shape_facts: &SinglePathAccessShapeFacts,
+) -> bool {
+    matches!(shape_facts.kind(), AccessPathKind::IndexBranchSet)
+}
+
 /// Return whether this path can use a primary-scan fetch hint.
 #[must_use]
 pub(in crate::db::executor) const fn primary_scan_fetch_hint_shape_supported(

@@ -7,7 +7,8 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
+            AccessScanContinuationInput, AccessStreamBindings, AccessStreamExecutionPolicy,
+            ExecutionKernel,
             aggregate::{
                 AccessPlannedQuery, AggregateFastPathInputs, AggregateFoldMode, AggregateKind,
                 ScalarAggregateOutput, ScalarTerminalKind,
@@ -66,9 +67,8 @@ impl ExecutionKernel {
         let mut key_stream = traversal_runtime.ordered_key_stream_from_executable_plan(
             executable_access,
             bindings,
-            physical_fetch_hint,
+            AccessStreamExecutionPolicy::canonical_key_order(physical_fetch_hint),
             index_predicate_execution,
-            false,
         )?;
 
         Self::run_streaming_aggregate_reducer(

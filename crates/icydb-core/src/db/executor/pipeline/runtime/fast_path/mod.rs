@@ -8,7 +8,7 @@ mod strategy;
 use crate::{
     db::{
         executor::{
-            ExecutionOptimization, ExecutionPlan,
+            AccessStreamExecutionPolicy, ExecutionOptimization, ExecutionPlan,
             pipeline::{contracts::ResolvedExecutionKeyStream, runtime::ExecutionAttemptKernel},
         },
         index::{
@@ -133,7 +133,10 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
         let fallback_fetch_hint = self
             .route_plan
             .fallback_physical_fetch_hint(self.kernel.inputs.stream_bindings().direction());
-        let preserve_leaf_index_order = self.route_plan.preserve_ordered_index_leaf_stream();
+        let execution_policy = AccessStreamExecutionPolicy::new(
+            fallback_fetch_hint,
+            self.route_plan.index_leaf_order_policy(),
+        );
         let key_stream = self
             .kernel
             .inputs
@@ -141,9 +144,8 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
             .resolve_fallback_execution_key_stream(
                 self.kernel.inputs.executable_access().clone(),
                 *self.kernel.inputs.stream_bindings(),
-                fallback_fetch_hint,
+                execution_policy,
                 self.index_predicate_execution,
-                preserve_leaf_index_order,
             )?;
 
         Ok(ResolvedExecutionKeyStream::new(

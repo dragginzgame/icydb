@@ -11,7 +11,9 @@ mod physical;
 mod scan;
 mod traversal;
 
-pub(in crate::db::executor) use bindings::ExecutableAccess;
+pub(in crate::db::executor) use bindings::{
+    AccessStreamExecutionPolicy, ExecutableAccess, IndexLeafOrderPolicy,
+};
 pub(in crate::db::executor) use physical::{IndexRangeKeyStream, PrimaryRangeKeyStream};
 pub(in crate::db::executor) use scan::{
     ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, PrimaryScan, active_lowered_index_prefix_specs,

@@ -19,7 +19,10 @@ use crate::{
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
-            route::access_order_satisfied_by_route_mode,
+            route::{
+                access_order_satisfied_by_route_mode, branch_set_page_keep_cap_shape_supported,
+                index_prefix_set_page_fetch_hint_shape_supported,
+            },
         },
         index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,
@@ -45,11 +48,17 @@ fn apply_index_set_page_fetch_hint(
     continuation: &ScalarContinuationContext,
     residual_filter_present: bool,
 ) {
-    let branch_set_page = plan.access.as_index_branch_set_spec_path().is_some();
-    let multi_lookup_page = plan.access.as_index_multi_lookup_contract_path().is_some();
+    let access_shape_facts = plan.access_shape_facts();
+    let single_path_facts = access_shape_facts.single_path_facts();
+    let branch_set_page = single_path_facts
+        .as_ref()
+        .is_some_and(branch_set_page_keep_cap_shape_supported);
+    let index_prefix_set_page = single_path_facts
+        .as_ref()
+        .is_some_and(index_prefix_set_page_fetch_hint_shape_supported);
     if route_plan.scan_hints.physical_fetch_hint.is_some()
         || residual_filter_present
-        || (!branch_set_page && !multi_lookup_page)
+        || !index_prefix_set_page
         || !plan.scalar_plan().mode.is_load()
         || plan.scalar_plan().distinct
         || (branch_set_page

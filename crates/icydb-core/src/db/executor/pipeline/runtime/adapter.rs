@@ -13,8 +13,9 @@ use crate::{
         access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, EntityAuthority, ExecutableAccess,
-            ExecutionKernel, LoweredIndexRangeSpec, OrderedKeyStreamBox, ScalarContinuationContext,
+            AccessScanContinuationInput, AccessStreamBindings, AccessStreamExecutionPolicy,
+            EntityAuthority, ExecutableAccess, ExecutionKernel, LoweredIndexRangeSpec,
+            OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{
                 CursorEmissionMode, FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest,
                 KernelPageMaterializationRequest, MaterializedExecutionPayload,
@@ -354,19 +355,15 @@ impl ExecutionRuntimeAdapter {
         &self,
         executable_access: ExecutableAccessPlan<'_, Value>,
         bindings: AccessStreamBindings<'_>,
-        physical_fetch_hint: Option<usize>,
+        execution_policy: AccessStreamExecutionPolicy,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let mut access = ExecutableAccess::from_executable_plan(
+        let access = ExecutableAccess::from_executable_plan_with_policy(
             executable_access,
             bindings,
-            physical_fetch_hint,
+            execution_policy,
             index_predicate_execution,
         );
-        if preserve_leaf_index_order {
-            access = access.with_preserved_leaf_index_order();
-        }
 
         self.runtime.ordered_key_stream_from_runtime_access(access)
     }

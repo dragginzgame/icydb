@@ -8,7 +8,10 @@ use crate::{
                 ScalarMaterializationCapabilities,
             },
             projection::PreparedSlotProjectionValidation,
-            route::{LoadOrderRouteMode, access_order_satisfied_by_route_mode},
+            route::{
+                LoadOrderRouteMode, access_order_satisfied_by_route_mode,
+                branch_set_page_keep_cap_shape_supported,
+            },
             terminal::page::{
                 KernelRow, KernelRowPayloadMode, ResidualFilterScanMode, RetainedSlotLayout,
                 ScalarRowRuntimeHandle,
@@ -92,6 +95,11 @@ impl<'a> ScalarMaterializationPlan<'a> {
         continuation: &ScalarContinuationContext,
     ) -> Option<usize> {
         let logical = plan.scalar_plan();
+        let branch_set_page = plan
+            .access_shape_facts()
+            .single_path_facts()
+            .as_ref()
+            .is_some_and(branch_set_page_keep_cap_shape_supported);
         if !logical.mode.is_load()
             || logical.distinct
             || logical
@@ -99,7 +107,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
                 .as_ref()
                 .is_none_or(|order| order.fields.is_empty())
             || !access_order_satisfied_by_route_mode(plan)
-            || plan.access.as_index_branch_set_spec_path().is_none()
+            || !branch_set_page
             || !matches!(
                 self.post_access_strategy.predicate_strategy,
                 PostAccessPredicateStrategy::NotPresent

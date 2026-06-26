@@ -11,21 +11,14 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Physical key prefix streams and covering component prefix streams now share
-  one generic prefix-set execution-shape selector for empty, single-prefix,
-  materialized fallback, and ordered-merge decisions.
-- The shared prefix-set selector now consumes an explicit merge-safety
-  contract, so physical and covering callers state whether sibling streams may
-  be lazily ordered-merged or must materialize.
-- Covering child-prefix expansion now consumes the same scalar lookahead
-  fetch-window projection as route planning instead of keeping page arithmetic
-  locally.
-- Metadata-backed child-prefix expansion now returns one expanded prefix-family
-  contract that carries both lowered child-prefix specs and the adjusted index
-  shape.
-- Physical prefix-family streaming now passes the primary-key suffix resume
-  policy explicitly instead of deriving it inside the shared helper from a
-  generic leaf-order preservation flag.
+- Scalar page-window fetch-hint and branch-set row-cap gates now consume
+  route capability helpers for index-prefix-set shape classification instead
+  of re-matching raw access variants in terminal/runtime code.
+- The shared helpers keep the `IndexMultiLookup`/`IndexBranchSet` page-fetch
+  shape split and branch-set-only row-cap shape split in the route capability
+  layer, beside the other execution-shape predicates.
+- Existing residual-filter, distinct, ORDER BY, load-mode, route-mode, page
+  limit, and continuation lookahead gates remain unchanged.
 - The next narrow duplicate-flow target is any remaining branch-tree
   replacement work that can stay below cursor-format design and broader
   cost-based routing. Those remain explicit follow-ups.
@@ -38,6 +31,56 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Index-Prefix-Set Page Shape Slice
+
+- Route capability facts now own the shape predicates for index-prefix-set
+  page fetch hints and branch-set page keep caps.
+- Scalar materialized fallback no longer peeks directly at raw
+  `IndexMultiLookup`/`IndexBranchSet` access variants to decide whether a
+  bounded page fetch hint can be applied.
+- Terminal page materialization no longer peeks directly at raw
+  `IndexBranchSet` access variants to decide whether the merged lookahead row
+  cap can be applied.
+- The existing non-shape gates still live with their runtime owners because
+  they depend on residual filters, distinct handling, ordered-load route mode,
+  post-access strategy, page limits, and continuation state.
+
+## Completed Access Stream Execution Policy Slice
+
+- Executor fallback stream resolution now passes one
+  `AccessStreamExecutionPolicy` instead of separate physical fetch-hint and
+  leaf-order arguments.
+- The policy pairs `physical_fetch_hint` with `IndexLeafOrderPolicy`, keeping
+  route-owned stream mechanics together after scan-hint derivation.
+- Verified fast-stream and aggregate direct traversal callers pass canonical
+  key-order access policies explicitly.
+- Executable access bindings, traversal inputs, structural physical requests,
+  and physical stream bindings carry the grouped policy across their handoff
+  boundaries.
+- Composite traversal children still preserve the fetch hint override behavior
+  while resetting the leaf-order member to canonical key order before
+  merge/intersection reducers consume child streams.
+- The obsolete `StreamExecutionHints` wrapper was removed once policy grouping
+  made it redundant.
+
+## Completed Index Leaf Order Policy Slice
+
+- Route planning now exposes ordered secondary-index leaf preservation as an
+  `IndexLeafOrderPolicy` instead of a raw boolean.
+- Fallback stream runtime, executable access bindings, traversal inputs, and
+  physical stream bindings carry the same policy type across their handoff
+  boundaries.
+- Composite traversal children still reset the policy to canonical key order
+  before merge/intersection reducers consume child streams.
+- Aggregate fast-path and verified fast-stream execution pass canonical
+  key-order policy explicitly because those paths do not preserve ordered index
+  leaf streams.
+- Physical single-prefix and multi-lookup stream setup converts the policy to
+  its local prefix-merge resume policy only at the point where resume anchors
+  are constructed.
+- Route tests now assert ordered leaf-stream preservation through the policy
+  contract.
 
 ## Completed Prefix-Set Shape Slice
 

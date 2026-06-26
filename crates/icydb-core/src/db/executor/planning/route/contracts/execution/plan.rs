@@ -6,6 +6,7 @@
 use crate::db::{
     direction::Direction,
     executor::{
+        IndexLeafOrderPolicy,
         aggregate::AggregateFoldMode,
         route::{
             LoadTerminalFastPathContract, PushdownApplicability,
@@ -199,10 +200,15 @@ impl ExecutionRoutePlan {
         self.secondary_pushdown_applicability.is_eligible()
     }
 
-    /// Return whether fallback stream resolution should preserve leaf index order.
-    pub(in crate::db::executor) const fn preserve_ordered_index_leaf_stream(&self) -> bool {
-        self.secondary_fast_path_eligible()
+    /// Return the route-owned policy for physical secondary-index leaf order.
+    pub(in crate::db::executor) const fn index_leaf_order_policy(&self) -> IndexLeafOrderPolicy {
+        if self.secondary_fast_path_eligible()
             || self.capability_facts.ordered_index_leaf_stream_eligible
+        {
+            IndexLeafOrderPolicy::PreservePhysicalLeafOrder
+        } else {
+            IndexLeafOrderPolicy::CanonicalKeyOrder
+        }
     }
 
     /// Return whether the plan shape supports direct PK ordered streaming fast path.

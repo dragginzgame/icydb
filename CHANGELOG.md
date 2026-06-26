@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.15` continues branch-aware executor cleanup by making leaf-order,
+  access-stream, and index-prefix-set page-window policies explicit without
+  changing route admission or cursor semantics.
+
 - `0.185.14` shares prefix-set execution-shape and child-prefix expansion
   window contracts across physical and covering branch paths without changing
   route admission, cursor semantics, or payload-specific stream adapters.
