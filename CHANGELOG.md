@@ -11,13 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
-- `0.185.14` hardens SQL, persistence-decode, mutation, rendering, and facade
-  validation boundaries against audit-identified trap and allocation
-  denial-of-service surfaces while adding executor panic guardrails.
+- `0.185.14` shares prefix-set execution-shape and child-prefix expansion
+  window contracts across physical and covering branch paths without changing
+  route admission, cursor semantics, or payload-specific stream adapters.
 
-- `0.185.13` shares the flat ordered sibling-merge driver across scalar key
-  streams and covering component streams, reducing branch-shaped merge
-  duplication without changing route semantics.
+- `0.185.13` pairs the flat ordered sibling-merge cleanup with audit hardening
+  that bounds SQL, persistence-decode, mutation, rendering, and facade
+  validation denial-of-service surfaces while adding executor panic guardrails.
 
 - `0.185.12` continues covering branch cleanup by sharing active-prefix
   preparation and raw-index chunk progress across direct, materialized, and

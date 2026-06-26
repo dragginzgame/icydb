@@ -13,10 +13,11 @@ use crate::{
         direction::Direction,
         executor::{
             FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, IndexScan,
-            KeyOrderComparator, active_lowered_index_prefix_specs,
-            apply_data_key_ordered_dedup_window, apply_index_scan_chunk_progress,
-            branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
-            index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
+            KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
+            active_lowered_index_prefix_specs, apply_data_key_ordered_dedup_window,
+            apply_index_scan_chunk_progress, branch_stream_chunk_entries,
+            index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
+            index_stream_output_limit_for_chunk,
             read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
@@ -99,7 +100,7 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     limit: usize,
     component_indices: &[usize],
     predicate_execution: Option<IndexPredicateExecution<'_>>,
-    prefix_set_merge_order_safe: bool,
+    prefix_set_merge_safety: PrefixSetMergeSafety,
     mut resolve_store_for_index: F,
 ) -> Result<CoveringProjectionComponentRows, InternalError>
 where
@@ -116,7 +117,7 @@ where
                 limit,
                 component_indices,
                 predicate_execution,
-                merge_order_safe: prefix_set_merge_order_safe,
+                merge_safety: prefix_set_merge_safety,
             },
             resolve_store_for_index,
         );
@@ -166,7 +167,7 @@ where
         usize::MAX,
         &[component_index],
         None,
-        false,
+        PrefixSetMergeSafety::RequiresMaterialization,
         resolve_store_for_index,
     )
 }
@@ -176,7 +177,7 @@ struct CoveringPrefixSetScan<'a> {
     limit: usize,
     component_indices: &'a [usize],
     predicate_execution: Option<IndexPredicateExecution<'a>>,
-    merge_order_safe: bool,
+    merge_safety: PrefixSetMergeSafety,
 }
 
 struct ActiveCoveringPrefixSpec<'a> {
@@ -243,68 +244,62 @@ where
     }
 
     let component_indices: Arc<[usize]> = Arc::from(scan.component_indices.to_vec());
-    let mut active_specs = active_covering_prefix_specs(
+    let active_specs = active_covering_prefix_specs(
         index_prefix_specs,
         scan.predicate_execution,
         &mut resolve_store_for_index,
     )?;
-    if active_specs.is_empty() {
-        return Ok(Vec::new());
-    }
-    if active_specs.len() == 1 {
-        let Some(active) = active_specs.pop() else {
-            return Err(InternalError::query_executor_invariant());
-        };
+    match PrefixSetExecutionShape::from_active_prefixes(active_specs, scan.merge_safety) {
+        PrefixSetExecutionShape::Empty => Ok(Vec::new()),
+        PrefixSetExecutionShape::Single(active) => {
+            resolve_covering_projection_components_for_index_bounds(
+                active.store,
+                entity_tag,
+                active.scan_contract,
+                (active.prefix.lower(), active.prefix.upper()),
+                IndexScanContinuationInput::new(None, scan.direction),
+                scan.limit,
+                component_indices.as_ref(),
+                scan.predicate_execution,
+            )
+        }
+        PrefixSetExecutionShape::Materialized(active_specs) => {
+            resolve_materialized_covering_projection_components_for_prefix_set(
+                entity_tag,
+                active_specs,
+                &scan,
+                component_indices.as_ref(),
+            )
+        }
+        PrefixSetExecutionShape::OrderedMerge(active_specs) => {
+            let index_fetch_hint = Some(scan.limit);
+            let chunk_entries = branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
+            let mut streams = Vec::with_capacity(active_specs.len());
+            for active in active_specs {
+                streams.push(CoveringComponentStreamBox::prefix(
+                    active.store,
+                    entity_tag,
+                    active.scan_contract,
+                    active.prefix.lower().clone(),
+                    active.prefix.upper().clone(),
+                    scan.direction,
+                    Some(scan.limit),
+                    chunk_entries,
+                    Arc::clone(&component_indices),
+                    scan.predicate_execution,
+                ));
+            }
 
-        return resolve_covering_projection_components_for_index_bounds(
-            active.store,
-            entity_tag,
-            active.scan_contract,
-            (active.prefix.lower(), active.prefix.upper()),
-            IndexScanContinuationInput::new(None, scan.direction),
-            scan.limit,
-            component_indices.as_ref(),
-            scan.predicate_execution,
-        );
-    }
-    if !scan.merge_order_safe {
-        return resolve_materialized_covering_projection_components_for_prefix_set(
-            entity_tag,
-            active_specs,
-            &scan,
-            component_indices.as_ref(),
-        );
-    }
+            let Some(mut stream) = CoveringComponentStreamBox::merge_all(
+                streams,
+                KeyOrderComparator::from_direction(scan.direction),
+            ) else {
+                return Ok(Vec::new());
+            };
 
-    let index_fetch_hint = Some(scan.limit);
-    let chunk_entries = branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
-    let mut streams = Vec::with_capacity(active_specs.len());
-    for active in active_specs {
-        streams.push(CoveringComponentStreamBox::prefix(
-            active.store,
-            entity_tag,
-            active.scan_contract,
-            active.prefix.lower().clone(),
-            active.prefix.upper().clone(),
-            scan.direction,
-            Some(scan.limit),
-            chunk_entries,
-            Arc::clone(&component_indices),
-            scan.predicate_execution,
-        ));
+            stream.collect_limit(scan.limit)
+        }
     }
-    if streams.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let Some(mut stream) = CoveringComponentStreamBox::merge_all(
-        streams,
-        KeyOrderComparator::from_direction(scan.direction),
-    ) else {
-        return Ok(Vec::new());
-    };
-
-    stream.collect_limit(scan.limit)
 }
 
 fn resolve_materialized_covering_projection_components_for_prefix_set(

@@ -11,12 +11,24 @@ expanding the optimizer.
 
 ## Current Slice
 
-- Scalar key streams and covering component streams now share one generic flat
-  sibling-merge driver for three or more active ordered branch streams while
-  keeping payload-specific child adapters separate.
-- The next narrow duplicate-flow target is remaining structural drift between
-  physical prefix streams and covering prefix-component streams. Broader
-  branch-tree replacement and cursor-format design remain explicit follow-ups.
+- Physical key prefix streams and covering component prefix streams now share
+  one generic prefix-set execution-shape selector for empty, single-prefix,
+  materialized fallback, and ordered-merge decisions.
+- The shared prefix-set selector now consumes an explicit merge-safety
+  contract, so physical and covering callers state whether sibling streams may
+  be lazily ordered-merged or must materialize.
+- Covering child-prefix expansion now consumes the same scalar lookahead
+  fetch-window projection as route planning instead of keeping page arithmetic
+  locally.
+- Metadata-backed child-prefix expansion now returns one expanded prefix-family
+  contract that carries both lowered child-prefix specs and the adjusted index
+  shape.
+- Physical prefix-family streaming now passes the primary-key suffix resume
+  policy explicitly instead of deriving it inside the shared helper from a
+  generic leaf-order preservation flag.
+- The next narrow duplicate-flow target is any remaining branch-tree
+  replacement work that can stay below cursor-format design and broader
+  cost-based routing. Those remain explicit follow-ups.
 
 ## Major Follow-Up Queue
 
@@ -26,6 +38,38 @@ expanding the optimizer.
 - Branch-tree replacement: started with physical prefix-stream consolidation.
   Full branch-tree replacement remains deferred.
 - Cursor-format design: not started.
+
+## Completed Prefix-Set Shape Slice
+
+- Physical key prefix streams and covering component prefix streams now share
+  one payload-agnostic prefix-set shape classifier after each path has already
+  pruned inactive prefixes.
+- The shared classifier owns only the empty, single-prefix, materialized
+  fallback, and ordered-merge split. Store handles, component decoding, resume
+  anchors, predicate pruning, and route admission remain with their existing
+  owners.
+- The classifier takes `OrderedMergeSafe` versus `RequiresMaterialization`
+  explicitly instead of receiving a raw boolean at shared helper boundaries.
+- The physical path uses the shared split before constructing direct
+  single-prefix streams or ordered sibling merges; the covering path uses it
+  before choosing direct bounded scans, materialized fallback, or ordered
+  component-stream merge.
+- Covering child-prefix expansion now derives its bounded expansion cap input
+  from the planner-owned scalar access-window projection, matching route
+  planning's offset, limit, and lookahead semantics without a private helper.
+- Covering child-prefix expansion now calls the route helper with the
+  route-owned access-window contract, leaving raw fetch-limit adaptation
+  private to route pushdown.
+- Metadata-backed child-prefix expansion now returns one expanded prefix-family
+  bundle, so the physical stream path no longer reconstructs the expanded
+  index slot arity beside the shared metadata enumeration.
+- Physical single-prefix, multi-lookup, and branch-set streaming now share the
+  same prefix-family stream helper for expected-prefix-count validation and
+  merged stream request construction.
+- Shared physical prefix-family streaming now receives the route's exact
+  primary-key suffix resume policy at the helper boundary.
+- Sparse child-prefix expansion now validates lowered prefix count through the
+  same physical multi-lookup guard before opening metadata-backed expansion.
 
 ## Completed Shared Flat Merge Slice
 

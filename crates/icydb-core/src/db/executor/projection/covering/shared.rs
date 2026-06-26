@@ -5,8 +5,9 @@ use crate::{
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
-            CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
-            apply_offset_limit_window, expand_index_prefix_specs_with_exact_child_prefixes,
+            AccessWindow, CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
+            PrefixSetMergeSafety, apply_offset_limit_window,
+            expand_index_prefix_family_with_exact_child_prefixes,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
                 CoveringReadField, CoveringReadFieldSource, PageSpec,
@@ -14,7 +15,7 @@ use crate::{
             resolve_covering_projection_components_from_lowered_specs,
             route::{
                 access_preserves_primary_key_order_without_child_expansion,
-                index_prefix_child_expansion_hint_for_fetch_limit,
+                index_prefix_child_expansion_hint_for_access_window,
             },
         },
         index::predicate::IndexPredicateExecution,
@@ -158,8 +159,13 @@ where
             scan_window.limit,
             component_indices.as_slice(),
             index_predicate_execution,
-            primary_key_order_scan_safe
-                || matches!(order_contract, CoveringProjectionOrder::IndexOrder(_)),
+            if primary_key_order_scan_safe
+                || matches!(order_contract, CoveringProjectionOrder::IndexOrder(_))
+            {
+                PrefixSetMergeSafety::OrderedMergeSafe
+            } else {
+                PrefixSetMergeSafety::RequiresMaterialization
+            },
             |store_path| db.recovered_store(store_path),
         )?
     };
@@ -186,16 +192,16 @@ where
         return Ok((None, true));
     }
 
-    let Some(expansion) = index_prefix_child_expansion_hint_for_fetch_limit(
+    let Some(expansion) = index_prefix_child_expansion_hint_for_access_window(
         plan,
-        covering_child_prefix_expansion_fetch_limit(plan.scalar_plan().page.as_ref()),
+        covering_child_prefix_expansion_access_window(plan),
     ) else {
         return Ok((None, false));
     };
     let Some(index) = plan.access_shape_facts().single_path_index_prefix_details() else {
         return Ok((None, false));
     };
-    let Some(expanded_specs) = expand_index_prefix_specs_with_exact_child_prefixes(
+    let Some(expanded_family) = expand_index_prefix_family_with_exact_child_prefixes(
         db.recovered_store(authority.store_path())?,
         authority.entity_tag(),
         &index,
@@ -206,20 +212,13 @@ where
         return Ok((None, false));
     };
 
-    Ok((Some(expanded_specs), true))
+    Ok((Some(expanded_family.into_specs()), true))
 }
 
-fn covering_child_prefix_expansion_fetch_limit(page: Option<&PageSpec>) -> Option<usize> {
-    let page = page?;
-    let limit = page.limit?;
-    if limit == 0 {
-        return Some(0);
-    }
+fn covering_child_prefix_expansion_access_window(plan: &AccessPlannedQuery) -> AccessWindow {
+    let window = plan.scalar_access_window_plan(false);
 
-    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-
-    Some(offset.saturating_add(limit).saturating_add(1))
+    AccessWindow::new(window.lower_bound(), window.limit(), window.fetch_count())
 }
 
 pub(super) fn apply_covering_page_window<T>(
@@ -590,6 +589,16 @@ mod tests {
         plan
     }
 
+    fn finalized_paged_prefix_plan(page: Option<PageSpec>) -> AccessPlannedQuery {
+        let mut plan = finalized_plan(AccessPath::IndexPrefix {
+            index: index_contract(),
+            values: vec![Value::Text("collection-a".to_string())],
+        });
+        plan.scalar_plan_mut().page = page;
+
+        plan
+    }
+
     #[test]
     fn covering_window_rejects_prefix_before_primary_key_suffix() {
         let plan = finalized_plan(AccessPath::IndexPrefix {
@@ -687,33 +696,43 @@ mod tests {
     }
 
     #[test]
-    fn covering_child_prefix_expansion_fetch_limit_matches_scalar_lookahead_window() {
+    fn covering_child_prefix_expansion_access_window_matches_scalar_lookahead_window() {
         assert_eq!(
-            covering_child_prefix_expansion_fetch_limit(Some(&PageSpec {
-                limit: Some(50),
-                offset: 0,
-            })),
+            covering_child_prefix_expansion_access_window(&finalized_paged_prefix_plan(Some(
+                PageSpec {
+                    limit: Some(50),
+                    offset: 0,
+                },
+            )))
+            .fetch_limit(),
             Some(51),
-            "covering child-prefix expansion should use the same page lookahead fetch as route planning",
+            "covering child-prefix expansion should use the scalar route lookahead fetch",
         );
         assert_eq!(
-            covering_child_prefix_expansion_fetch_limit(Some(&PageSpec {
-                limit: Some(2),
-                offset: 3,
-            })),
+            covering_child_prefix_expansion_access_window(&finalized_paged_prefix_plan(Some(
+                PageSpec {
+                    limit: Some(2),
+                    offset: 3,
+                },
+            )))
+            .fetch_limit(),
             Some(6),
             "covering child-prefix expansion should include offset and lookahead",
         );
         assert_eq!(
-            covering_child_prefix_expansion_fetch_limit(Some(&PageSpec {
-                limit: Some(0),
-                offset: 4,
-            })),
+            covering_child_prefix_expansion_access_window(&finalized_paged_prefix_plan(Some(
+                PageSpec {
+                    limit: Some(0),
+                    offset: 4,
+                },
+            )))
+            .fetch_limit(),
             Some(0),
             "LIMIT 0 should remain a zero-fetch expansion window",
         );
         assert_eq!(
-            covering_child_prefix_expansion_fetch_limit(None),
+            covering_child_prefix_expansion_access_window(&finalized_paged_prefix_plan(None))
+                .fetch_limit(),
             None,
             "unpaged covering scans should keep the default child-prefix cap",
         );

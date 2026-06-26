@@ -62,6 +62,40 @@ impl LoweredIndexPrefixCardinalityKey {
     }
 }
 
+pub(in crate::db::executor) struct ExpandedIndexPrefixFamily {
+    index: IndexShapeDetails,
+    specs: Vec<LoweredIndexPrefixSpec>,
+}
+
+impl ExpandedIndexPrefixFamily {
+    fn new(
+        index: &IndexShapeDetails,
+        target_prefix_len: usize,
+        specs: Vec<LoweredIndexPrefixSpec>,
+    ) -> Self {
+        Self {
+            index: index.with_slot_arity(target_prefix_len),
+            specs,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn index(&self) -> &IndexShapeDetails {
+        &self.index
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn specs(&self) -> &[LoweredIndexPrefixSpec] {
+        self.specs.as_slice()
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) fn into_specs(self) -> Vec<LoweredIndexPrefixSpec> {
+        self.specs
+    }
+}
+
 /// Return one fail-open empty-prefix bitmap for a lowered branch-prefix set.
 #[must_use]
 pub(in crate::db::executor) fn lowered_index_prefix_empty_bitmap(
@@ -102,13 +136,13 @@ pub(in crate::db::executor) fn lowered_index_prefix_is_proven_empty(
 /// suffix match primary-key order, and this helper enumerates those child
 /// prefixes only when synchronized cardinality metadata can prove the complete
 /// bounded child set.
-pub(in crate::db::executor) fn expand_index_prefix_specs_with_exact_child_prefixes(
+pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefixes(
     store: StoreHandle,
     entity_tag: EntityTag,
     index: &IndexShapeDetails,
     specs: &[LoweredIndexPrefixSpec],
     expansion: IndexPrefixChildExpansionHint,
-) -> Result<Option<Vec<LoweredIndexPrefixSpec>>, InternalError> {
+) -> Result<Option<ExpandedIndexPrefixFamily>, InternalError> {
     if index.slot_arity().saturating_add(1) != expansion.target_prefix_len() {
         return Err(InternalError::query_executor_invariant());
     }
@@ -170,7 +204,11 @@ pub(in crate::db::executor) fn expand_index_prefix_specs_with_exact_child_prefix
         }
     }
 
-    Ok(Some(expanded_specs))
+    Ok(Some(ExpandedIndexPrefixFamily::new(
+        index,
+        expansion.target_prefix_len(),
+        expanded_specs,
+    )))
 }
 
 #[cfg(feature = "sql")]

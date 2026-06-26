@@ -6,10 +6,12 @@
 pub(super) mod access;
 mod flat_merge;
 pub(super) mod key;
+mod prefix_set;
 
 pub(in crate::db::executor) use flat_merge::{
     FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
 };
+pub(in crate::db::executor) use prefix_set::{PrefixSetExecutionShape, PrefixSetMergeSafety};
 
 pub(in crate::db::executor) fn reduce_non_empty_streams_pairwise<T, F>(
     mut streams: Vec<T>,

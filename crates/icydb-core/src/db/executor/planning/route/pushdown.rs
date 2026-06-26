@@ -380,8 +380,7 @@ pub(in crate::db::executor) fn index_prefix_child_expansion_hint_for_access_wind
     index_prefix_child_expansion_hint_for_fetch_limit(plan, access_window.fetch_limit())
 }
 
-#[must_use]
-pub(in crate::db::executor) fn index_prefix_child_expansion_hint_for_fetch_limit(
+fn index_prefix_child_expansion_hint_for_fetch_limit(
     plan: &AccessPlannedQuery,
     fetch_limit: Option<usize>,
 ) -> Option<IndexPrefixChildExpansionHint> {

@@ -89,7 +89,7 @@ pub(in crate::db) use index_prefix_cardinality::{
     LoweredIndexPrefixCardinalityPlan, exact_count_cardinality_prefixes_for_plan,
 };
 pub(in crate::db::executor) use index_prefix_cardinality::{
-    expand_index_prefix_specs_with_exact_child_prefixes, lowered_index_prefix_empty_bitmap,
+    expand_index_prefix_family_with_exact_child_prefixes, lowered_index_prefix_empty_bitmap,
     lowered_index_prefix_is_proven_empty,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
@@ -182,7 +182,8 @@ pub(in crate::db::executor) use stream::key::{
     ordered_key_stream_from_materialized_keys,
 };
 pub(in crate::db::executor) use stream::{
-    FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
+    FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, PrefixSetExecutionShape,
+    PrefixSetMergeSafety,
 };
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(feature = "diagnostics")]

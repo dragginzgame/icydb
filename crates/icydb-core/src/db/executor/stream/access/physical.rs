@@ -14,9 +14,10 @@ use crate::{
         direction::Direction,
         executor::{
             ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
-            active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
-            branch_stream_chunk_entries, expand_index_prefix_specs_with_exact_child_prefixes,
+            LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrefixSetExecutionShape,
+            PrefixSetMergeSafety, PrimaryScan, active_lowered_index_prefix_specs,
+            apply_index_scan_chunk_progress, branch_stream_chunk_entries,
+            expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, lowered_index_prefix_is_proven_empty,
             ordered_key_stream_from_materialized_keys,
@@ -62,6 +63,16 @@ enum PrefixMergeResumePolicy {
     PrimaryKeySuffix,
 }
 
+impl PrefixMergeResumePolicy {
+    const fn for_leaf_index_order_preservation(preserve_leaf_index_order: bool) -> Self {
+        if preserve_leaf_index_order {
+            Self::PrimaryKeySuffix
+        } else {
+            Self::None
+        }
+    }
+}
+
 ///
 /// MergedIndexPrefixStreamSpec
 ///
@@ -79,33 +90,19 @@ struct MergedIndexPrefixStreamSpec<'a> {
 }
 
 impl<'a> MergedIndexPrefixStreamSpec<'a> {
-    const fn primary_key_suffix(
+    const fn new(
         index: &'a IndexShapeDetails,
         index_prefix_specs: &'a [LoweredIndexPrefixSpec],
         continuation: AccessScanContinuationInput<'a>,
         index_fetch_hint: Option<usize>,
+        resume_policy: PrefixMergeResumePolicy,
     ) -> Self {
         Self {
             index,
             index_prefix_specs,
             continuation,
             index_fetch_hint,
-            resume_policy: PrefixMergeResumePolicy::PrimaryKeySuffix,
-        }
-    }
-
-    const fn plain(
-        index: &'a IndexShapeDetails,
-        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-        continuation: AccessScanContinuationInput<'a>,
-        index_fetch_hint: Option<usize>,
-    ) -> Self {
-        Self {
-            index,
-            index_prefix_specs,
-            continuation,
-            index_fetch_hint,
-            resume_policy: PrefixMergeResumePolicy::None,
+            resume_policy,
         }
     }
 
@@ -302,26 +299,14 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
         preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let [spec] = index_prefix_specs else {
-            return Err(InternalError::query_executor_invariant());
-        };
-        let spec = if preserve_leaf_index_order {
-            MergedIndexPrefixStreamSpec::primary_key_suffix(
-                index,
-                std::slice::from_ref(spec),
-                continuation,
-                index_fetch_hint,
-            )
-        } else {
-            MergedIndexPrefixStreamSpec::plain(
-                index,
-                std::slice::from_ref(spec),
-                continuation,
-                index_fetch_hint,
-            )
-        };
-
-        self.resolve_merged_index_prefix_streams(spec)
+        self.resolve_index_prefix_family_stream(
+            index,
+            index_prefix_specs,
+            1,
+            continuation,
+            index_fetch_hint,
+            PrefixMergeResumePolicy::for_leaf_index_order_preservation(preserve_leaf_index_order),
+        )
     }
 
     // Resolve a branch-aware composite prefix scan as lazily merged dynamic
@@ -336,15 +321,14 @@ impl KeyAccessRuntime {
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        if index_prefix_specs.len() != branch_count {
-            return Err(InternalError::query_executor_invariant());
-        }
-        self.resolve_merged_index_prefix_streams(MergedIndexPrefixStreamSpec::primary_key_suffix(
+        self.resolve_index_prefix_family_stream(
             index,
             index_prefix_specs,
+            branch_count,
             continuation,
             index_fetch_hint,
-        ))
+            PrefixMergeResumePolicy::PrimaryKeySuffix,
+        )
     }
 
     // Resolve one multi-lookup secondary-index scan and normalize duplicates.
@@ -356,9 +340,7 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
-        if index_prefix_specs.len() != value_count {
-            return Err(InternalError::query_executor_invariant());
-        }
+        validate_index_prefix_count(index_prefix_specs, value_count)?;
 
         let per_prefix_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let mut keys = Vec::new();
@@ -392,24 +374,33 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
         preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        if index_prefix_specs.len() != value_count {
-            return Err(InternalError::query_executor_invariant());
-        }
-        let spec = if preserve_leaf_index_order {
-            MergedIndexPrefixStreamSpec::primary_key_suffix(
-                index,
-                index_prefix_specs,
-                continuation,
-                index_fetch_hint,
-            )
-        } else {
-            MergedIndexPrefixStreamSpec::plain(
-                index,
-                index_prefix_specs,
-                continuation,
-                index_fetch_hint,
-            )
-        };
+        self.resolve_index_prefix_family_stream(
+            index,
+            index_prefix_specs,
+            value_count,
+            continuation,
+            index_fetch_hint,
+            PrefixMergeResumePolicy::for_leaf_index_order_preservation(preserve_leaf_index_order),
+        )
+    }
+
+    fn resolve_index_prefix_family_stream(
+        &self,
+        index: &IndexShapeDetails,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        expected_prefix_count: usize,
+        continuation: AccessScanContinuationInput<'_>,
+        index_fetch_hint: Option<usize>,
+        resume_policy: PrefixMergeResumePolicy,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        validate_index_prefix_count(index_prefix_specs, expected_prefix_count)?;
+        let spec = MergedIndexPrefixStreamSpec::new(
+            index,
+            index_prefix_specs,
+            continuation,
+            index_fetch_hint,
+            resume_policy,
+        );
 
         self.resolve_merged_index_prefix_streams(spec)
     }
@@ -418,11 +409,14 @@ impl KeyAccessRuntime {
         &self,
         index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
+        value_count: usize,
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         expansion: IndexPrefixChildExpansionHint,
     ) -> Result<Option<OrderedKeyStreamBox>, InternalError> {
-        let Some(expanded_specs) = expand_index_prefix_specs_with_exact_child_prefixes(
+        validate_index_prefix_count(index_prefix_specs, value_count)?;
+
+        let Some(expanded_family) = expand_index_prefix_family_with_exact_child_prefixes(
             self.store,
             self.entity_tag,
             index,
@@ -432,16 +426,16 @@ impl KeyAccessRuntime {
         else {
             return Ok(None);
         };
-        if expanded_specs.is_empty() {
+        if expanded_family.specs().is_empty() {
             return Ok(Some(ordered_key_stream_from_materialized_keys(Vec::new())));
         }
 
-        let expanded_index = index.with_slot_arity(expansion.target_prefix_len());
-        self.resolve_merged_index_prefix_streams(MergedIndexPrefixStreamSpec::primary_key_suffix(
-            &expanded_index,
-            expanded_specs.as_slice(),
+        self.resolve_merged_index_prefix_streams(MergedIndexPrefixStreamSpec::new(
+            expanded_family.index(),
+            expanded_family.specs(),
             continuation,
             index_fetch_hint,
+            PrefixMergeResumePolicy::PrimaryKeySuffix,
         ))
         .map(Some)
     }
@@ -456,32 +450,52 @@ impl KeyAccessRuntime {
 
         let active_specs =
             active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
-        if active_specs.is_empty() {
-            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
+        match PrefixSetExecutionShape::from_active_prefixes(
+            active_specs,
+            PrefixSetMergeSafety::OrderedMergeSafe,
+        ) {
+            PrefixSetExecutionShape::Empty => {
+                Ok(ordered_key_stream_from_materialized_keys(Vec::new()))
+            }
+            PrefixSetExecutionShape::Single(spec) => self.index_prefix_stream(request, spec, 1),
+            PrefixSetExecutionShape::OrderedMerge(active_specs) => {
+                let branch_count = active_specs.len();
+                let mut streams = Vec::with_capacity(branch_count);
+                for spec in active_specs {
+                    streams.push(self.index_prefix_stream(request, spec, branch_count)?);
+                }
 
-        let index_fetch_hint = request.index_fetch_hint;
+                Ok(OrderedKeyStreamBox::merge_all(
+                    streams,
+                    KeyOrderComparator::from_direction(request.continuation.direction()),
+                ))
+            }
+            PrefixSetExecutionShape::Materialized(_) => {
+                Err(InternalError::query_executor_invariant())
+            }
+        }
+    }
+
+    fn index_prefix_stream(
+        &self,
+        request: MergedIndexPrefixStreamSpec<'_>,
+        spec: &LoweredIndexPrefixSpec,
+        active_branch_count: usize,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
         let branch_chunk_entries =
-            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
-        let mut streams = Vec::with_capacity(active_specs.len());
-        for spec in active_specs {
-            let resume_anchor = request.resume_anchor_for(spec)?;
-            streams.push(OrderedKeyStreamBox::index_range(
-                IndexRangeKeyStream::from_prefix(
-                    self.store,
-                    self.entity_tag,
-                    spec,
-                    request.continuation.direction(),
-                    resume_anchor,
-                    request.index_fetch_hint,
-                    branch_chunk_entries,
-                ),
-            ));
-        }
+            branch_stream_chunk_entries(request.index_fetch_hint, active_branch_count);
+        let resume_anchor = request.resume_anchor_for(spec)?;
 
-        Ok(OrderedKeyStreamBox::merge_all(
-            streams,
-            KeyOrderComparator::from_direction(request.continuation.direction()),
+        Ok(OrderedKeyStreamBox::index_range(
+            IndexRangeKeyStream::from_prefix(
+                self.store,
+                self.entity_tag,
+                spec,
+                request.continuation.direction(),
+                resume_anchor,
+                request.index_fetch_hint,
+                branch_chunk_entries,
+            ),
         ))
     }
 
@@ -986,6 +1000,17 @@ const fn index_path_can_stream_in_final_order(request: PhysicalStreamBindings<'_
         && (request.preserve_leaf_index_order || request.physical_fetch_hint.is_some())
 }
 
+fn validate_index_prefix_count(
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    expected_prefix_count: usize,
+) -> Result<(), InternalError> {
+    if index_prefix_specs.len() != expected_prefix_count {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    Ok(())
+}
+
 fn resolve_index_multi_lookup_physical_key_stream(
     index: &IndexShapeDetails,
     value_count: usize,
@@ -996,6 +1021,7 @@ fn resolve_index_multi_lookup_physical_key_stream(
         if let Some(stream) = runtime.expanded_index_multi_lookup_stream(
             index,
             request.index_prefix_specs,
+            value_count,
             request.continuation,
             request.physical_fetch_hint,
             expansion,
