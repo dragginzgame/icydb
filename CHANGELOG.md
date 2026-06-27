@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Makes SQL UPDATE/DELETE policy validated-plan helpers recoverable by using
-  generated-policy rejection and fallible bounded-proof construction instead of
-  `unreachable!` / `.expect(...)` traps, and makes covering aggregate
-  terminal-value selection fail closed for non-terminal kinds.
-
 ## [0.187.x] 📊 - 2026-06-27 - Second Query Engine Audit
 
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)
+
+- `0.187.2` continues recoverable invariant cleanup by making SQL write-policy
+  validated-plan helpers and covering aggregate terminal-value selection fail
+  closed instead of trapping on internal drift.
 
 - `0.187.1` makes finalized static execution-planning metadata recoverable
   with optional/fallible accessors and fail-closed fast-path eligibility
