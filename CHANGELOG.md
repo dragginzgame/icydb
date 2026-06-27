@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
 
+- `0.185.21` closes the branch-tree replacement decision by proving current
+  branch, `IN`, and set-composite access families stay intentionally distinct
+  while shared stream mechanics remain below them.
+
 - `0.185.20` makes sparse child-prefix expansion budget policy explicit and
   closes the 0.185 adaptive route-cost question by keeping generation-bound
   prefix-cardinality metadata at execution time.

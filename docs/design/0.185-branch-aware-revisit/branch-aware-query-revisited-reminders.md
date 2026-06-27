@@ -11,15 +11,18 @@ remaining closeout queue are documented in `0.185-design.md` and `status.md`.
 - Close the 0.185 adaptive route-cost question by keeping generation-bound
   prefix-cardinality metadata at execution time and naming the sparse
   child-prefix expansion budget contract.
+- Rule out broad branch-tree replacement for the current specialized branch
+  families after proving their access-shape boundaries stay distinct.
 
 ## Remaining 0.185 Branch-Aware Queue
 
-- Decide whether shared branch-tree machinery should replace any remaining
-  special-case `IN` flows.
+- Final closeout validation and documentation.
 
 ## Future Work Outside 0.185 Branch-Aware Closeout
 
 - Wider downstream-specific query tuning and performance benchmarking.
 - Broad cost-based route optimization over runtime prefix-cardinality metadata.
+- Generalized branch-tree algebra for future branch semantics beyond the
+  current specialized access families.
 - Per-child cursor anchors for future branch ordering beyond global
   primary-key suffix continuation.

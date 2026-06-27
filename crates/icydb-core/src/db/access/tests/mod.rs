@@ -7,7 +7,10 @@ use std::{collections::BTreeSet, fs, ops::Bound, path::Path};
 
 use crate::{
     db::{
-        access::{AccessPathKind, AccessPlan, SemanticIndexKeyItemsRef, SemanticIndexRangeSpec},
+        access::{
+            AccessPathKind, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemsRef,
+            SemanticIndexRangeSpec,
+        },
         test_support::source_guard::{
             collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
         },
@@ -58,6 +61,98 @@ fn access_shape_facts_preserve_pure_index_range_details() {
     assert!(shape_facts.all_paths_support_reverse_traversal());
     assert!(shape_facts.has_single_path_index_range_access_path());
     assert_eq!(shape_facts.first_index_range_details(), Some(range_details));
+}
+
+#[test]
+fn access_shape_facts_keep_branch_tree_closeout_families_distinct() {
+    let multi_lookup: AccessPlan<Value> = AccessPlan::index_multi_lookup_from_contract(
+        SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX),
+        vec![Value::Nat64(1), Value::Nat64(2)],
+    );
+    let multi_lookup_facts = multi_lookup.shape_facts();
+    let multi_lookup_path = multi_lookup_facts
+        .single_path_facts()
+        .expect("multi-lookup should remain a single access path");
+    let multi_lookup_index = multi_lookup_facts
+        .single_path_index_prefix_details()
+        .expect("multi-lookup should expose leading-prefix index details");
+
+    assert_eq!(multi_lookup_path.kind(), AccessPathKind::IndexMultiLookup);
+    assert_eq!(
+        multi_lookup_path.index_prefix_spec_count(),
+        2,
+        "multi-lookup consumes one exact prefix spec per lookup value",
+    );
+    assert_eq!(
+        multi_lookup_index.slot_arity(),
+        1,
+        "multi-lookup prefixes target the leading index slot only",
+    );
+    assert!(multi_lookup_facts.has_selected_index_access_path());
+
+    let branch_set: AccessPlan<Value> = AccessPlan::index_branch_set_from_contract(
+        SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX),
+        vec![Value::Nat64(7)],
+        vec![
+            Value::Text("draft".to_string()),
+            Value::Text("review".to_string()),
+        ],
+    );
+    let branch_set_facts = branch_set.shape_facts();
+    let branch_set_path = branch_set_facts
+        .single_path_facts()
+        .expect("branch-set should remain a single access path");
+    let branch_set_index = branch_set_facts
+        .single_path_index_prefix_details()
+        .expect("branch-set should expose composite-prefix index details");
+
+    assert_eq!(branch_set_path.kind(), AccessPathKind::IndexBranchSet);
+    assert_eq!(
+        branch_set_path.index_prefix_spec_count(),
+        2,
+        "branch-set consumes one exact prefix spec per branch value",
+    );
+    assert_eq!(
+        branch_set_index.slot_arity(),
+        2,
+        "branch-set prefixes include fixed leading slots plus the branch slot",
+    );
+    assert!(branch_set_facts.has_selected_index_access_path());
+
+    let union: AccessPlan<Value> = AccessPlan::union(vec![
+        AccessPlan::index_prefix_from_contract(
+            SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX),
+            vec![Value::Nat64(1)],
+        ),
+        AccessPlan::index_prefix_from_contract(
+            SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX),
+            vec![Value::Nat64(2)],
+        ),
+    ]);
+    let union_facts = union.shape_facts();
+
+    assert!(union_facts.is_composite());
+    assert!(union_facts.single_path_facts().is_none());
+    assert!(
+        !union_facts.has_selected_index_access_path(),
+        "general set-union access must not masquerade as one selected index path",
+    );
+
+    let intersection: AccessPlan<Value> = AccessPlan::intersection(vec![
+        AccessPlan::index_prefix_from_contract(
+            SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX),
+            vec![Value::Nat64(1)],
+        ),
+        AccessPlan::by_key(Value::Text("primary".to_string())),
+    ]);
+    let intersection_facts = intersection.shape_facts();
+
+    assert!(intersection_facts.is_composite());
+    assert!(intersection_facts.single_path_facts().is_none());
+    assert!(
+        !intersection_facts.has_selected_index_access_path(),
+        "general set-intersection access must not masquerade as one selected index path",
+    );
 }
 
 // Detect raw `AccessPath::` tokens while excluding prefixed identifiers

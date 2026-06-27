@@ -73,9 +73,11 @@ Verbose EXPLAIN reports:
 These diagnostics make it possible to distinguish a plain multi-lookup from a
 sparse child-prefix-expanded multi-lookup before changing thresholds.
 
-## Remaining 0.185 Work
+## 0.185 Closeout Status
 
-- General branch-tree replacement for every special-case `IN` path.
+- No adaptive route work remains in 0.185 beyond final closeout validation.
+- Specialized branch and `IN` access families remain distinct after the
+  branch-tree replacement decision.
 
 ## Future Work Outside 0.185 Branch-Aware Closeout
 
@@ -83,3 +85,5 @@ sparse child-prefix-expanded multi-lookup before changing thresholds.
   plans with generation-bound runtime prefix-cardinality metadata.
 - A better over-cap strategy that can stream dense parent-prefix work without
   materializing more index entries than necessary.
+- Generalized branch-tree algebra for future branch semantics beyond the
+  current specialized access families.

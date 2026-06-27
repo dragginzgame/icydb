@@ -12,18 +12,16 @@ changing cursor format or adding a broad optimizer.
 
 ## Current Slice
 
-- Sparse child-prefix expansion now has an explicit route-owned budget
-  contract for its default floor, bounded page-window growth, and hard ceiling.
-- Compile-time prefix-cardinality scoring is explicitly ruled out for 0.185
-  branch-aware routing because exact prefix metadata is synchronized to runtime
-  store generations while route plans are cacheable across executions.
-- Remaining general branch-tree work stays in the 0.185 branch-aware queue.
+- General branch-tree replacement has been evaluated against the current
+  access-shape and stream-runtime boundaries.
+- 0.185 keeps the specialized branch-aware access families distinct because
+  they carry different planner proofs, diagnostics, cache identity, prefix
+  arity, and cursor semantics.
+- Remaining 0.185 branch-aware work is final closeout validation and docs.
 
 ## Remaining 0.185 Branch-Aware Queue
 
-- General branch-tree replacement for every special-case branch or `IN` flow.
-- Final closeout after branch-tree replacement is either implemented or
-  explicitly ruled out with local proof.
+- Final closeout validation and documentation.
 
 ## Future Work Outside 0.185 Branch-Aware Closeout
 
@@ -32,6 +30,23 @@ changing cursor format or adding a broad optimizer.
   correctness issue requires it.
 - Broad cost-based optimization that threads generation-bound runtime metadata
   into route selection.
+- Generalized branch-tree algebra if a future route needs to merge branch
+  families beyond the current primary-key suffix contract.
+
+## Completed Branch-Tree Replacement Decision Slice
+
+- Access-shape proof now keeps `IndexMultiLookup`, `IndexBranchSet`, and
+  general union/intersection composites distinct.
+- The proof locks the important semantic differences: leading-slot
+  multi-lookup consumes one exact prefix per lookup value, branch-set consumes
+  fixed-prefix-plus-branch-slot prefixes with its ordered suffix proof, and
+  general set composites do not masquerade as one selected index path.
+- Runtime already shares the useful mechanics below that representation:
+  prefix-family stream construction, empty-prefix pruning, fair chunk sizing,
+  primary-key suffix resume anchors, and ordered merge/intersection reducers.
+- 0.185 therefore rules out a broad replacement of every branch or `IN` flow
+  with one generalized branch tree. That would be representational churn unless
+  a future route admits broader branch merging semantics.
 
 ## Completed Adaptive Expansion Budget Decision Slice
 
@@ -64,8 +79,9 @@ changing cursor format or adding a broad optimizer.
 - The validation baseline keeps the 0.185 boundary clear: route convergence,
   sparse child-prefix expansion, covering fallback proof, terminal metadata
   proof, stream-policy cleanup, access-shape cleanup, and docs are complete.
-- Cost-based large-`IN` routing and full branch-tree replacement remain
-  visible 0.185 queue items rather than hidden future work.
+- Cost-based large-`IN` routing and full branch-tree replacement were kept
+  visible as 0.185 queue items at that point; later decision slices closed
+  both questions.
 - Final validation rechecked invariants, feature combinations, full Clippy,
   and workspace/unit test coverage.
 
@@ -451,10 +467,14 @@ changing cursor format or adding a broad optimizer.
 
 ## Carried Forward From 185.0 Baseline
 
-- Shared branch-tree replacement for every special-case branch or `IN` flow.
+- Shared branch-tree replacement for every special-case branch or `IN` flow was
+  evaluated and ruled out for 0.185 after the stream mechanics had already
+  been shared at their narrower runtime owners.
 
 ## Future Tuning Outside 0.185 Branch-Aware Closeout
 
 - Wider downstream-specific query tuning.
 - Broad cost-based route optimization over runtime prefix-cardinality
   metadata.
+- Generalized branch-tree algebra for future non-primary-key branch merge
+  semantics.
