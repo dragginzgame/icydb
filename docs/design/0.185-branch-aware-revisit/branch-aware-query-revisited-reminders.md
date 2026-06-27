@@ -1,7 +1,7 @@
 # 0.185 Branch-Aware Query Revisited Reminders
 
-This started as a parking note. The active 0.185 branch-aware baseline and
-remaining closeout queue are documented in `0.185-design.md` and `status.md`.
+This started as a parking note. The closed 0.185 branch-aware baseline and
+status are documented in `0.185-design.md` and `status.md`.
 
 ## Closed In 0.185
 
@@ -13,10 +13,12 @@ remaining closeout queue are documented in `0.185-design.md` and `status.md`.
   child-prefix expansion budget contract.
 - Rule out broad branch-tree replacement for the current specialized branch
   families after proving their access-shape boundaries stay distinct.
+- Close final validation/docs, map the original work plan to landed evidence,
+  and mark the 0.185 branch-aware line closed.
 
-## Remaining 0.185 Branch-Aware Queue
+## Closed 0.185 Branch-Aware Queue
 
-- Final closeout validation and documentation.
+- No branch-aware work remains queued for 0.185.
 
 ## Future Work Outside 0.185 Branch-Aware Closeout
 

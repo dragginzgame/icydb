@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Starts the 0.186 shared query filter authority line by promoting the tentative
+  design into an active baseline and documenting the current SQL/fluent filter
+  authority map before code migration.
+
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 
 Detailed notes: [docs/changelog/0.185.md](docs/changelog/0.185.md)
+
+- `0.185.22` closes the 0.185 branch-aware revisit with a final design audit,
+  locks the validation boundary, and moves remaining cost, cursor,
+  benchmarking, and generalized branch-tree ideas outside the line.
 
 - `0.185.21` closes the branch-tree replacement decision by proving current
   branch, `IN`, and set-composite access families stay intentionally distinct

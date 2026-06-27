@@ -1,6 +1,7 @@
 # 0.185 Status
 
-Status: active.
+Status: closed after 0.185.22. Keep this line in guard mode unless a concrete
+branch-aware regression appears.
 
 ## Focus
 
@@ -10,18 +11,21 @@ branch-heavy shapes converge on the same explicit route contracts, and has
 cleaned up the executor handoff boundaries that could be tightened without
 changing cursor format or adding a broad optimizer.
 
-## Current Slice
+## Final State
 
 - General branch-tree replacement has been evaluated against the current
   access-shape and stream-runtime boundaries.
 - 0.185 keeps the specialized branch-aware access families distinct because
   they carry different planner proofs, diagnostics, cache identity, prefix
   arity, and cursor semantics.
-- Remaining 0.185 branch-aware work is final closeout validation and docs.
+- The final closeout slice records the validation boundary and closes the
+  0.185 branch-aware queue.
 
-## Remaining 0.185 Branch-Aware Queue
+## Closed 0.185 Branch-Aware Queue
 
-- Final closeout validation and documentation.
+- No branch-aware work remains queued for 0.185.
+- Future ideas stay outside the 0.185 closeout unless a concrete regression
+  requires a targeted guard fix.
 
 ## Future Work Outside 0.185 Branch-Aware Closeout
 
@@ -32,6 +36,17 @@ changing cursor format or adding a broad optimizer.
   into route selection.
 - Generalized branch-tree algebra if a future route needs to merge branch
   families beyond the current primary-key suffix contract.
+
+## Completed Final Closeout Slice
+
+- The 0.185 branch-aware status surface is now closed after the convergence,
+  continuation, adaptive-budget, route-cost, and branch-tree decision slices.
+- A final design sanity audit maps each original work-plan item to landed route,
+  test, or documentation evidence.
+- The design, adaptive-routing, and reminder notes now point future cost,
+  cursor, benchmarking, and generalized branch-tree ideas outside the 0.185
+  line instead of treating them as open closeout scope.
+- No runtime route behavior changed in the closeout slice.
 
 ## Completed Branch-Tree Replacement Decision Slice
 

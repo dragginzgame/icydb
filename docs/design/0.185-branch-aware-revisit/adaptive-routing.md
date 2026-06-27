@@ -75,9 +75,11 @@ sparse child-prefix-expanded multi-lookup before changing thresholds.
 
 ## 0.185 Closeout Status
 
-- No adaptive route work remains in 0.185 beyond final closeout validation.
+- No adaptive route work remains in 0.185.
 - Specialized branch and `IN` access families remain distinct after the
   branch-tree replacement decision.
+- The branch-aware revisit is closed after 0.185.22; future adaptive route
+  work belongs to a new line.
 
 ## Future Work Outside 0.185 Branch-Aware Closeout
 
