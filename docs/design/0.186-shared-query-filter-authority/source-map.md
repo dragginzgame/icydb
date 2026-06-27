@@ -95,3 +95,17 @@ Do not change pre-access filter authority and post-access residual authority in
 the same slice. Each 0.186 code slice should move or name one fact, add parity
 coverage, and prove route, residual, count/cardinality, cache, and EXPLAIN
 behavior stay unchanged.
+
+## 0.186.0 Guard Baseline
+
+- `filter_authority_predicate_subset_derivation_sites_are_explicit` records the
+  only runtime sites that currently derive a predicate subset from a normalized
+  boolean expression: SQL lowering adapters, query intent, EXPLAIN projection,
+  and the canonical predicate compiler implementation.
+- `filter_authority_residual_contract_creation_stays_in_logical_semantics`
+  records logical planning as the only runtime creator of finalized residual
+  filter contracts and pushdown diagnostics.
+- The SQL/fluent parity matrix now covers negated membership, `IS NOT NULL`,
+  and negated boolean composition in addition to the existing numeric,
+  field-to-field, membership, null, casefold-prefix, and boolean-composition
+  convergence checks.

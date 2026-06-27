@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Starts the 0.186 shared query filter authority line by promoting the tentative
-  design into an active baseline and documenting the current SQL/fluent filter
-  authority map before code migration.
+## [0.186.x] 🔧 - 2026-06-27 - Shared Query Filter Authority
+
+Detailed notes: [docs/changelog/0.186.md](docs/changelog/0.186.md)
+
+- `0.186.0` starts the shared query filter authority line by promoting the
+  tentative design into an active baseline, documenting the current SQL/fluent
+  filter authority map, adding source guards for predicate-subset derivation
+  and residual-contract creation, and extending SQL/fluent canonical predicate
+  parity coverage without changing runtime semantics.
 
 ## [0.185.x] 🔧 - 2026-06-25 - Branch-Aware Query Revisited
 

@@ -1023,10 +1023,32 @@ fn compile_sql_command_typed_fluent_filter_matrix_matches_sql_canonical_predicat
             "membership compare",
         ),
         (
+            "SELECT * FROM SqlLowerEntity WHERE age NOT IN (10, 20, 30)",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+                .filter(FilterExpr::not_in("age", [10_u64, 20_u64, 30_u64])),
+            "negated membership compare",
+        ),
+        (
             "SELECT * FROM SqlLowerEntity WHERE age IS NULL",
             Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
                 .filter(FieldRef::new("age").is_null()),
             "null test",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE age IS NOT NULL",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+                .filter(FieldRef::new("age").is_not_null()),
+            "not-null test",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE NOT (age < 18 OR name = 'Bob')",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(FilterExpr::not(
+                FilterExpr::or(vec![
+                    FieldRef::new("age").lt(18_i64),
+                    FieldRef::new("name").eq("Bob"),
+                ]),
+            )),
+            "negated boolean composition",
         ),
         (
             "SELECT * FROM SqlLowerEntity WHERE name ILIKE 'al%'",

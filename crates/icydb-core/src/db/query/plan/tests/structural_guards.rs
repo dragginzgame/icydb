@@ -21,7 +21,7 @@ use crate::{
     traits::EntitySchema,
     value::Value,
 };
-use std::{fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 fn assert_global_distinct_builder_signature(
     builder: fn(
@@ -32,6 +32,44 @@ fn assert_global_distinct_builder_signature(
 ) {
     let _ = builder;
 }
+
+fn runtime_pattern_counts(pattern: &str) -> BTreeMap<String, usize> {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source_root = crate_root.join("src/db");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut counts = BTreeMap::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let relative = relative_rust_source_path(crate_root, source_path.as_path());
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let count = source
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                line.contains(pattern) && !trimmed.starts_with("fn ") && !trimmed.starts_with("pub")
+            })
+            .count();
+        if count != 0 {
+            counts.insert(relative, count);
+        }
+    }
+
+    counts
+}
+
 #[test]
 fn planner_global_distinct_shape_builder_contract_is_semantic_only() {
     assert_global_distinct_builder_signature(global_distinct_group_spec_for_aggregate_identity);
@@ -378,6 +416,39 @@ fn planner_expr_predicate_artifact_requires_canonical_expr() {
     assert!(
         source.contains("derive_canonical_bool_expr_predicate_subset"),
         "predicate subset derivation must expose a CanonicalExpr artifact entrypoint",
+    );
+}
+
+#[test]
+fn filter_authority_predicate_subset_derivation_sites_are_explicit() {
+    let expected = BTreeMap::from([
+        ("src/db/query/explain/predicate.rs".to_string(), 1),
+        ("src/db/query/intent/state.rs".to_string(), 1),
+        ("src/db/sql/lowering/predicate/mod.rs".to_string(), 1),
+        ("src/db/sql/lowering/select/mod.rs".to_string(), 2),
+    ]);
+
+    assert_eq!(
+        runtime_pattern_counts("derive_normalized_bool_expr_predicate_subset("),
+        expected,
+        "pre-access predicate-subset derivation should stay localized to the filter-authority seams recorded for 0.186",
+    );
+}
+
+#[test]
+fn filter_authority_residual_contract_creation_stays_in_logical_semantics() {
+    let logical_semantics_only =
+        BTreeMap::from([("src/db/query/plan/semantics/logical.rs".to_string(), 1)]);
+
+    assert_eq!(
+        runtime_pattern_counts("ResidualFilterContract::new("),
+        logical_semantics_only,
+        "post-access residual filter contracts should be frozen only by logical planning semantics",
+    );
+    assert_eq!(
+        runtime_pattern_counts("PredicatePushdownDiagnostics::from_plan("),
+        logical_semantics_only,
+        "predicate pushdown diagnostics should be projected from the same finalized logical plan",
     );
 }
 

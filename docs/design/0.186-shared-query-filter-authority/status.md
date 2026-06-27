@@ -14,17 +14,29 @@ residual filtering, count/cardinality shortcuts, cache identity, and EXPLAIN.
 
 ## Current Slice
 
-- Promote the tentative 0.186 shared-filter design into the active design
+- Pick one narrow frontend-neutral filter fact to move or name explicitly in
+  the shared contract.
+- Prove cache, EXPLAIN, route, residual, and count/cardinality behavior remain
+  unchanged for that slice.
+
+## Completed Slices
+
+### 0.186.0
+
+- Promotes the tentative 0.186 shared-filter design into the active design
   baseline.
-- Document the current SQL/fluent filter authority chain before changing code.
-- Keep runtime semantics, route choice, cursor format, public SQL/fluent
-  behavior, and persistence unchanged.
+- Documents the current SQL/fluent filter authority chain before changing
+  runtime code.
+- Adds source guards for the current pre-access predicate-subset derivation
+  seams and post-access residual-contract creation seam.
+- Extends SQL/fluent canonical predicate parity coverage for negated
+  membership, `IS NOT NULL`, and negated boolean composition.
+- Keeps runtime semantics, route choice, cursor format, public SQL/fluent
+  behavior, cache identity, EXPLAIN shape, count/cardinality shortcuts, and
+  persistence unchanged.
 
 ## Initial 0.186 Queue
 
-- Add or tighten source-audit tests for the current filter authority seams.
-- Prove representative SQL and fluent filters converge at the query-intent /
-  planner boundary where semantics are equivalent.
 - Pick one narrow frontend-neutral fact to move or name explicitly in the
   shared contract.
 - Verify cache, EXPLAIN, route, residual, and count/cardinality behavior remain
