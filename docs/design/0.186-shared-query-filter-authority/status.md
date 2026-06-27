@@ -14,10 +14,43 @@ residual filtering, count/cardinality shortcuts, cache identity, and EXPLAIN.
 
 ## Current Slice
 
-- Pick one narrow frontend-neutral filter fact to move or name explicitly in
-  the shared contract.
+- Continue tightening source invariants so downstream consumers cannot derive
+  frontend-owned predicate facts outside the shared pre-access contract.
 - Prove cache, EXPLAIN, route, residual, and count/cardinality behavior remain
-  unchanged for that slice.
+  unchanged for each tightening slice.
+
+## Completed Since 0.186.0
+
+- Names predicate-subset coverage as a query-intent pre-access semantic fact.
+- Distinguishes full, partial, and absent predicate coverage over
+  user-visible filter semantics while keeping the existing
+  `predicate_subset_covers_expr` projection for logical planning.
+- Confirms predicate-only fluent filters can carry full semantic coverage
+  without exposing a fake visible expression.
+- Keeps runtime semantics, route choice, cursor format, public SQL/fluent
+  behavior, cache identity, EXPLAIN shape, count/cardinality shortcuts, and
+  persistence unchanged.
+- Removes ordinary SQL SELECT's duplicate predicate derivation before query
+  intent. SELECT filters now carry the schema-bound visible expression into
+  `NormalizedFilter`, which derives the shared pre-access predicate subset.
+- Removes DELETE's broad `Predicate::True` fallback so expression-only DELETE
+  filters stay on the residual expression lane without claiming predicate
+  coverage.
+- Adds source guards for the remaining explicit SQL predicate-admission lanes,
+  keeping UPDATE/global-aggregate exceptions auditable while ordinary
+  SELECT/DELETE filters flow through query intent.
+- Proves direct COUNT cardinality shortcut eligibility consumes the same
+  predicate-coverage fact as page planning by disabling the shortcut when a
+  visible residual filter is not fully covered.
+- Proves expression-plus-predicate handoffs keep shared cache identity owned by
+  the visible filter expression, preserving the existing cache surface while
+  strict SQL predicate mirrors remain planner inputs.
+- Records the existing EXPLAIN proof that residual diagnostics report
+  expression-owned residual filters without deriving predicate facts from
+  rendered filter text.
+- Audits the remaining strict SQL UPDATE/global-aggregate predicate-admission
+  lanes and keeps expression-only WHERE shapes fail-closed because moving them
+  to expression-backed intent would widen accepted SQL.
 
 ## Completed Slices
 
@@ -37,10 +70,10 @@ residual filtering, count/cardinality shortcuts, cache identity, and EXPLAIN.
 
 ## Initial 0.186 Queue
 
-- Pick one narrow frontend-neutral fact to move or name explicitly in the
-  shared contract.
-- Verify cache, EXPLAIN, route, residual, and count/cardinality behavior remain
-  unchanged for that slice.
+- Continue tightening source invariants so downstream consumers cannot derive
+  frontend-owned predicate facts outside the shared pre-access contract.
+- Keep strict SQL UPDATE/global-aggregate predicate paths separate unless a
+  future design explicitly widens their admission policy.
 
 ## Non-Goals
 

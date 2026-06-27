@@ -13,7 +13,7 @@ use crate::{
             intent::{Query, StructuralQuery, StructuralQueryCacheKey, model::QueryModel},
             plan::expr::{
                 BinaryOp, CaseWhenArm, Expr, FieldId, Function,
-                canonicalize_grouped_having_bool_expr,
+                canonicalize_grouped_having_bool_expr, normalize_bool_expr,
             },
         },
     },
@@ -229,6 +229,26 @@ fn structural_query_cache_key_ignores_predicate_fingerprint_when_filter_expr_exi
         model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x11; 32])),
         model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x22; 32])),
         "canonical scalar filter expressions must be the sole structural filter identity owner when present",
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn structural_query_cache_key_uses_filter_expr_for_expression_predicate_handoff() {
+    let filter_expr = normalize_bool_expr(Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("name"))),
+        right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+    });
+    let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .filter_expr_with_normalized_predicate(filter_expr.clone(), Predicate::True);
+    let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .filter_expr_with_normalized_predicate(filter_expr, Predicate::False);
+
+    assert_eq!(
+        left.structural_cache_key(),
+        right.structural_cache_key(),
+        "expression-plus-predicate handoffs must key shared cache identity by the visible semantic filter expression, not the predicate mirror",
     );
 }
 

@@ -3813,6 +3813,29 @@ fn execute_sql_statement_update_requires_where_predicate() {
 }
 
 #[test]
+fn execute_sql_statement_update_rejects_expression_only_where_before_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+    let baseline = persisted_write_rows(&session);
+
+    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity \
+         SET age = 22 \
+         WHERE COALESCE(NULLIF(age, 21), 99) = 99",
+    )
+    .expect_err("UPDATE expression-only WHERE should stay predicate-gated");
+
+    assert_sql_lowering_detail(err, SqlLoweringCode::WhereExpressionShape);
+    assert_eq!(
+        persisted_write_rows(&session),
+        baseline,
+        "unsupported UPDATE WHERE shape should reject before mutation",
+    );
+}
+
+#[test]
 fn execute_sql_statement_update_rejects_unsupported_order_by_shape_before_mutation() {
     reset_session_sql_store();
     let session = sql_session();

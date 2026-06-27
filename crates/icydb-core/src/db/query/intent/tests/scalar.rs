@@ -1,4 +1,9 @@
 use super::support::*;
+#[cfg(feature = "sql")]
+use crate::db::query::{
+    intent::StructuralQuery,
+    plan::expr::{Function, normalize_bool_expr},
+};
 
 // Assert one delete-window intent shape remains fail-closed until an explicit
 // ORDER BY is present.
@@ -154,6 +159,61 @@ fn load_ordered_pagination_is_allowed() {
         .offset(2)
         .plan()
         .expect("ordered pagination should plan");
+}
+
+#[cfg(feature = "sql")]
+fn name_eq_expr(value: &str) -> Expr {
+    normalize_bool_expr(Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("name"))),
+        right: Box::new(Expr::Literal(Value::Text(value.to_string()))),
+    })
+}
+
+#[cfg(feature = "sql")]
+fn name_eq_predicate(value: &str) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::Eq,
+        Value::Text(value.to_string()),
+        CoercionId::Strict,
+    ))
+}
+
+#[cfg(feature = "sql")]
+fn residual_name_filter_expr(value: &str) -> Expr {
+    normalize_bool_expr(Expr::FunctionCall {
+        function: Function::Coalesce,
+        args: vec![name_eq_expr(value), Expr::Literal(Value::Bool(false))],
+    })
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn direct_count_cardinality_candidate_requires_full_visible_filter_coverage() {
+    let predicate_only = StructuralQuery::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+        .filter_normalized_predicate(name_eq_predicate("Ada"));
+    assert!(
+        predicate_only.direct_count_cardinality_prefix_candidate(),
+        "predicate-only exact-prefix filters should remain direct COUNT cardinality candidates",
+    );
+
+    let expression_with_full_predicate =
+        StructuralQuery::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+            .filter_expr_with_normalized_predicate(name_eq_expr("Ada"), name_eq_predicate("Ada"));
+    assert!(
+        expression_with_full_predicate.direct_count_cardinality_prefix_candidate(),
+        "visible filters whose predicate subset fully covers the expression should remain direct COUNT cardinality candidates",
+    );
+
+    let residual_filter_with_predicate =
+        StructuralQuery::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+            .filter_expr(residual_name_filter_expr("Ada"))
+            .filter_normalized_predicate(name_eq_predicate("Ada"));
+    assert!(
+        !residual_filter_with_predicate.direct_count_cardinality_prefix_candidate(),
+        "direct COUNT cardinality candidates must not ignore visible residual filter semantics",
+    );
 }
 
 #[test]

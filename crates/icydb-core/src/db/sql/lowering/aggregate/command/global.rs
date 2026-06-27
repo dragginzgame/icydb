@@ -154,6 +154,10 @@ fn lower_global_aggregate_base_query_shape(
 }
 
 fn lower_global_aggregate_filter(expr: SqlExpr) -> Result<LoweredSqlFilter, SqlLoweringError> {
+    // Keep global aggregate base filters on the strict predicate-admission
+    // lane. Unlike ordinary SELECT/DELETE filters, this path feeds reduced
+    // aggregate execution and direct COUNT shortcut classification, so moving
+    // expression-only filters here would widen the accepted SQL surface.
     LoweredSqlFilter::from_where_expr_requiring_predicate_subset(&expr)
 }
 

@@ -425,13 +425,51 @@ fn filter_authority_predicate_subset_derivation_sites_are_explicit() {
         ("src/db/query/explain/predicate.rs".to_string(), 1),
         ("src/db/query/intent/state.rs".to_string(), 1),
         ("src/db/sql/lowering/predicate/mod.rs".to_string(), 1),
-        ("src/db/sql/lowering/select/mod.rs".to_string(), 2),
     ]);
 
     assert_eq!(
         runtime_pattern_counts("derive_normalized_bool_expr_predicate_subset("),
         expected,
         "pre-access predicate-subset derivation should stay localized to the filter-authority seams recorded for 0.186",
+    );
+}
+
+#[test]
+fn filter_authority_sql_explicit_predicate_lanes_are_explicit() {
+    let expected = BTreeMap::from([
+        ("src/db/sql/lowering/predicate/mod.rs".to_string(), 1),
+        ("src/db/sql/lowering/select/mod.rs".to_string(), 2),
+    ]);
+
+    assert_eq!(
+        runtime_pattern_counts("derive_sql_where_expr_predicate_subset("),
+        expected,
+        "SQL predicate-subset extraction should stay localized to the shared helper and the explicit admission lanes recorded for 0.186",
+    );
+}
+
+#[test]
+fn filter_authority_sql_predicate_handoffs_are_explicit() {
+    assert_eq!(
+        runtime_pattern_counts("filter_expr_with_normalized_predicate("),
+        BTreeMap::from([
+            ("src/db/query/intent/query.rs".to_string(), 1),
+            ("src/db/sql/lowering/select/mod.rs".to_string(), 1),
+        ]),
+        "expression-plus-predicate handoff should remain localized to query intent and the SQL strict-predicate policy boundary",
+    );
+    assert_eq!(
+        runtime_pattern_counts("filter_normalized_predicate("),
+        BTreeMap::from([
+            ("src/db/query/intent/query.rs".to_string(), 1),
+            ("src/db/sql/lowering/select/mod.rs".to_string(), 1),
+        ]),
+        "predicate-only handoff should remain localized to query intent and the SQL strict-predicate policy boundary",
+    );
+    assert_eq!(
+        runtime_pattern_counts("lower_sql_where_expr("),
+        BTreeMap::from([("src/db/sql/lowering/select/mod.rs".to_string(), 1)]),
+        "strict SQL WHERE lowering should remain localized to UPDATE selector admission",
     );
 }
 

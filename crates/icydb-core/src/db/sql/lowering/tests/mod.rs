@@ -1510,6 +1510,38 @@ fn compile_sql_command_delete_lowers_to_delete_query() {
 }
 
 #[test]
+fn compile_sql_command_delete_unextractable_where_keeps_residual_filter_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "DELETE FROM SqlLowerEntity WHERE COALESCE(NULLIF(age, 20), 99) = 99",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("DELETE with expression-only WHERE should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered delete query command");
+    };
+    std::assert_matches!(query.mode(), QueryMode::Delete(_));
+
+    let plan = query
+        .plan()
+        .expect("DELETE with expression-only WHERE should plan")
+        .into_inner();
+
+    assert!(
+        plan.scalar_plan().filter_expr.is_some(),
+        "expression-only DELETE filters should stay visible for residual filtering",
+    );
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "expression-only DELETE filters should not invent a broad predicate fallback",
+    );
+    assert!(
+        !plan.scalar_plan().predicate_covers_filter_expr,
+        "expression-only DELETE filters must not claim predicate coverage",
+    );
+}
+
+#[test]
 fn compile_sql_command_delete_with_offset_lowers_to_delete_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "DELETE FROM SqlLowerEntity WHERE age < 18 ORDER BY age LIMIT 3 OFFSET 1",
@@ -3872,6 +3904,49 @@ fn bind_sql_select_with_schema_derives_predicate_from_bound_filter_expr() {
                     && compare.value() == &Value::Nat64(7)
         ),
         "predicate extraction should derive from the bound visible expression",
+    );
+}
+
+#[test]
+fn bind_sql_select_with_schema_derives_in_predicate_from_bound_filter_expr() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name FROM SqlLowerEntity WHERE name IN (7, 9)",
+        "accepted-schema numeric name IN filter",
+    );
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Nat64);
+
+    let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect("accepted schema should bind numeric name IN filter");
+    assert!(
+        matches!(
+            query.scalar_filter_expr_for_test(),
+            Some(Expr::FunctionCall {
+                function: Function::InList,
+                args,
+            }) if matches!(
+                args.as_slice(),
+                [Expr::Field(field), Expr::Literal(Value::List(values))]
+                    if field.as_str() == "name"
+                        && values.as_slice() == [Value::Nat64(7), Value::Nat64(9)]
+            )
+        ),
+        "visible IN filter expression should bind list literals through the accepted schema",
+    );
+    assert!(
+        matches!(
+            query.scalar_filter_predicate_for_test(),
+            Some(Predicate::Compare(compare))
+                if compare.field() == "name"
+                    && compare.op() == CompareOp::In
+                    && compare.value() == &Value::List(vec![Value::Nat64(7), Value::Nat64(9)])
+                    && compare.coercion().id() == CoercionId::Strict
+        ),
+        "IN predicate extraction should derive strict coercion from the bound visible expression",
     );
 }
 
@@ -6604,6 +6679,19 @@ fn compile_sql_global_aggregate_command_for_model_only_rejects_unsupported_shape
     assert!(
         matches!(err, SqlLoweringError::GlobalAggregateDoesNotSupportGroupBy),
         "grouped SQL shape should fail through the grouped/global aggregate boundary specifically",
+    );
+
+    let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
+        "SELECT COUNT(*) \
+         FROM SqlLowerEntity \
+         WHERE COALESCE(NULLIF(age, 20), 99) = 99",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("expression-only global aggregate base WHERE should stay predicate-gated");
+
+    assert!(
+        matches!(err, SqlLoweringError::UnsupportedWhereExpression),
+        "global aggregate base WHERE should remain fail-closed when no predicate subset can be proved: {err:?}",
     );
 }
 

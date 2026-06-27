@@ -1,7 +1,7 @@
 use crate::{
     db::{
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
-        query::plan::expr::{BinaryOp, CaseWhenArm, Expr},
+        query::plan::expr::{BinaryOp, CaseWhenArm, Expr, Function},
         schema::SchemaInfo,
     },
     value::{Value, canonicalize_value_set},
@@ -69,13 +69,9 @@ pub(super) fn canonicalize_sql_filter_expr_for_schema(schema: &SchemaInfo, expr:
         Expr::Binary { op, left, right } => {
             canonicalize_sql_binary_expr_for_schema(schema, op, *left, *right)
         }
-        Expr::FunctionCall { function, args } => Expr::FunctionCall {
-            function,
-            args: args
-                .into_iter()
-                .map(|arg| canonicalize_sql_filter_expr_for_schema(schema, arg))
-                .collect(),
-        },
+        Expr::FunctionCall { function, args } => {
+            canonicalize_sql_filter_function_for_schema(schema, function, args)
+        }
         Expr::Case {
             when_then_arms,
             else_expr,
@@ -143,6 +139,45 @@ fn canonicalize_sql_compare_for_schema(
         }
         CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => {}
     }
+}
+
+fn canonicalize_sql_filter_function_for_schema(
+    schema: &SchemaInfo,
+    function: Function,
+    args: Vec<Expr>,
+) -> Expr {
+    let args = args
+        .into_iter()
+        .map(|arg| canonicalize_sql_filter_expr_for_schema(schema, arg))
+        .collect::<Vec<_>>();
+
+    match function {
+        Function::InList => canonicalize_sql_in_list_expr_for_schema(schema, args.as_slice())
+            .unwrap_or(Expr::FunctionCall { function, args }),
+        _ => Expr::FunctionCall { function, args },
+    }
+}
+
+fn canonicalize_sql_in_list_expr_for_schema(schema: &SchemaInfo, args: &[Expr]) -> Option<Expr> {
+    let [Expr::Field(field), Expr::Literal(Value::List(items))] = args else {
+        return None;
+    };
+
+    let (items, _) = canonicalize_sql_compare_list_for_schema(
+        schema,
+        field.as_str(),
+        CompareOp::In,
+        items.as_slice(),
+        CoercionId::NumericWiden,
+    )?;
+
+    Some(Expr::FunctionCall {
+        function: Function::InList,
+        args: vec![
+            Expr::Field(field.clone()),
+            Expr::Literal(Value::List(items)),
+        ],
+    })
 }
 
 // Keep SQL filter-expression literal rewriting aligned with the predicate

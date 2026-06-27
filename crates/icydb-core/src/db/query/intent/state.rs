@@ -27,11 +27,70 @@ use crate::db::{
 /// the optional runtime-predicate subset derived once at append boundaries.
 ///
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::query::intent) enum PredicateExtractionFailureReason {
+    UnsupportedFilterSemantics,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::query::intent) enum PredicateCoverageGapReason {
+    UnsupportedFilterSemantics,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::query::intent) enum FilterPredicateCoverage {
+    Full,
+    Partial {
+        reason: PredicateCoverageGapReason,
+    },
+    None {
+        reason: PredicateExtractionFailureReason,
+    },
+}
+
+impl FilterPredicateCoverage {
+    const fn from_extracted_subset(predicate_subset: Option<&Predicate>) -> Self {
+        if predicate_subset.is_some() {
+            Self::Full
+        } else {
+            Self::None {
+                reason: PredicateExtractionFailureReason::UnsupportedFilterSemantics,
+            }
+        }
+    }
+
+    const fn from_predicate_only_authority() -> Self {
+        Self::Full
+    }
+
+    const fn combine_for_and(existing: Self, appended: Self, combined_subset_exists: bool) -> Self {
+        if !combined_subset_exists {
+            return Self::None {
+                reason: PredicateExtractionFailureReason::UnsupportedFilterSemantics,
+            };
+        }
+
+        match (existing, appended) {
+            (Self::Full, Self::Full) => Self::Full,
+            _ => Self::Partial {
+                reason: PredicateCoverageGapReason::UnsupportedFilterSemantics,
+            },
+        }
+    }
+
+    pub(in crate::db::query::intent) const fn covers_user_visible_filter_semantics(self) -> bool {
+        match self {
+            Self::Full => true,
+            Self::Partial { .. } | Self::None { .. } => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct NormalizedFilter {
     expr: Expr,
     predicate_subset: Option<Predicate>,
-    predicate_subset_covers_expr: bool,
+    predicate_coverage: FilterPredicateCoverage,
     filter_expr_visible: bool,
 }
 
@@ -45,12 +104,13 @@ impl NormalizedFilter {
         );
 
         let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr);
-        let predicate_subset_covers_expr = predicate_subset.is_some();
+        let predicate_coverage =
+            FilterPredicateCoverage::from_extracted_subset(predicate_subset.as_ref());
 
         Self {
             expr,
             predicate_subset,
-            predicate_subset_covers_expr,
+            predicate_coverage,
             filter_expr_visible: true,
         }
     }
@@ -72,7 +132,7 @@ impl NormalizedFilter {
         Self {
             expr,
             predicate_subset: Some(predicate_subset),
-            predicate_subset_covers_expr: true,
+            predicate_coverage: FilterPredicateCoverage::Full,
             filter_expr_visible: true,
         }
     }
@@ -86,7 +146,7 @@ impl NormalizedFilter {
         Self {
             expr: Expr::Literal(crate::value::Value::Bool(true)),
             predicate_subset: Some(predicate),
-            predicate_subset_covers_expr: false,
+            predicate_coverage: FilterPredicateCoverage::from_predicate_only_authority(),
             filter_expr_visible: false,
         }
     }
@@ -108,40 +168,40 @@ impl NormalizedFilter {
         self.predicate_subset.as_ref()
     }
 
-    /// Return whether the predicate subset fully represents the expression.
+    /// Return predicate-subset coverage over the user-visible filter semantics.
+    #[must_use]
+    pub(in crate::db::query::intent) const fn predicate_coverage(&self) -> FilterPredicateCoverage {
+        self.predicate_coverage
+    }
+
+    /// Return whether the predicate subset fully represents the visible
+    /// expression view used by existing logical-planning inputs.
     #[must_use]
     pub(in crate::db::query::intent) const fn predicate_subset_covers_expr(&self) -> bool {
-        self.filter_expr_visible && self.predicate_subset_covers_expr
+        self.filter_expr_visible
+            && self
+                .predicate_coverage()
+                .covers_user_visible_filter_semantics()
     }
 
     // Append one filter clause by AND-ing the semantic expression and combining
     // only the predicate subsets that were derived at their original boundary.
     pub(in crate::db::query::intent) fn append(&mut self, filter: Self) {
-        let existing_covers_expr = self.predicate_subset_covers_expr;
-        let filter_covers_expr = filter.predicate_subset_covers_expr;
+        let existing_coverage = self.predicate_coverage;
+        let filter_coverage = filter.predicate_coverage;
 
         match (self.filter_expr_visible, filter.filter_expr_visible) {
-            (true, true) => {
+            (true, true) | (false, false) => {
                 self.expr = normalize_bool_expr(Expr::Binary {
                     op: BinaryOp::And,
                     left: Box::new(self.expr.clone()),
                     right: Box::new(filter.expr),
                 });
-                self.predicate_subset_covers_expr = existing_covers_expr && filter_covers_expr;
             }
             (true, false) => {}
             (false, true) => {
                 self.expr = filter.expr;
                 self.filter_expr_visible = true;
-                self.predicate_subset_covers_expr = filter_covers_expr;
-            }
-            (false, false) => {
-                self.expr = normalize_bool_expr(Expr::Binary {
-                    op: BinaryOp::And,
-                    left: Box::new(self.expr.clone()),
-                    right: Box::new(filter.expr),
-                });
-                self.predicate_subset_covers_expr = false;
             }
         }
 
@@ -152,8 +212,11 @@ impl NormalizedFilter {
 
         self.predicate_subset =
             combine_predicate_subset(self.predicate_subset.take(), filter.predicate_subset);
-        self.predicate_subset_covers_expr =
-            self.predicate_subset_covers_expr && self.predicate_subset.is_some();
+        self.predicate_coverage = FilterPredicateCoverage::combine_for_and(
+            existing_coverage,
+            filter_coverage,
+            self.predicate_subset.is_some(),
+        );
     }
 }
 

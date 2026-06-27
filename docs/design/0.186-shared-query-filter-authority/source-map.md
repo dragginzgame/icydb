@@ -62,8 +62,9 @@ implementation contract.
   `crates/icydb-core/src/db/session/query/cache.rs`.
 - Current job: use planned predicate/access shape plus lowered exact-prefix
   cardinality specs to admit direct COUNT/EXISTS shortcuts.
-- Open 0.186 question: prove these shortcuts consume the same pre-access filter
-  authority as page execution for each equivalent SQL/fluent shape.
+- Current proof: direct COUNT cardinality eligibility consumes
+  `NormalizedFilter` predicate coverage and rejects candidates with an
+  uncovered visible residual filter.
 
 ### Cache / Fingerprint / EXPLAIN
 
@@ -73,8 +74,11 @@ implementation contract.
   `crates/icydb-core/src/db/query/explain/`.
 - Current job: project planner-owned filter/access facts into stable identity
   and diagnostics surfaces.
-- Open 0.186 question: identify which differences are semantic identity and
-  which are diagnostics-only presentation.
+- Current proof: shared cache identity is owned by the visible filter
+  expression when one exists; predicate mirrors remain cache-key fallbacks only
+  for predicate-only filters. EXPLAIN residual diagnostics expose the
+  finalized residual filter expression and do not invent a residual predicate
+  when the shared predicate subset cannot cover the visible expression.
 
 ## Divergence Risks To Audit First
 
@@ -84,10 +88,10 @@ implementation contract.
   intent; fluent generally enters with expression-only or predicate-only facts.
 - Predicate extraction ownership is split across SQL lowering, query intent,
   and residual planning.
-- Count/cardinality shortcuts need proof that they consume the same filter
-  authority as page execution.
-- EXPLAIN and cache identity must stay projections of planner-owned facts, not
-  alternate interpreters of filter semantics.
+- Count/cardinality shortcuts must continue consuming the same filter authority
+  as page execution.
+- EXPLAIN and cache identity must continue projecting planner-owned facts, not
+  alternate interpretations of filter semantics.
 
 ## First Implementation Rule
 
@@ -109,3 +113,62 @@ behavior stay unchanged.
   and negated boolean composition in addition to the existing numeric,
   field-to-field, membership, null, casefold-prefix, and boolean-composition
   convergence checks.
+
+## Coverage Fact Baseline
+
+- `NormalizedFilter` now stores `FilterPredicateCoverage` as the pre-access
+  semantic coverage fact for the user-visible filter.
+- The coverage fact distinguishes `Full`, `Partial`, and `None` with explicit
+  gap/failure reasons, so query intent can represent predicate-only fluent
+  filters and mixed extractable/unextractable filters without overloading a
+  visible-expression boolean.
+- `predicate_subset_covers_expr()` remains as the existing logical-planning
+  projection. It preserves route, residual, count/cardinality, cache, and
+  EXPLAIN behavior while the shared pre-access contract is tightened.
+
+## SQL SELECT Extraction Cleanup
+
+- Ordinary scalar and grouped SQL SELECT filters now hand off only the
+  schema-bound visible expression to query intent.
+- `NormalizedFilter` derives the shared predicate subset for those
+  expression-backed filters after schema binding, matching the fluent
+  expression-backed path.
+- DELETE now follows the same expression-backed handoff; unsupported DELETE
+  filters remain residual expressions rather than carrying a broad
+  `Predicate::True` fallback.
+- Strict SQL paths that require a predicate for admission, including UPDATE
+  selectors and global aggregate base filters, still carry explicit predicate
+  subsets and remain intentionally fail-closed for expression-only WHERE
+  shapes.
+- `filter_authority_sql_explicit_predicate_lanes_are_explicit` and
+  `filter_authority_sql_predicate_handoffs_are_explicit` guard those remaining
+  SQL exceptions so new pre-access predicate derivation or handoff sites must
+  be intentionally reviewed.
+- The strict-path audit keeps UPDATE and global aggregate base filters separate
+  because moving them to expression-backed intent would widen accepted SQL
+  rather than merely relocate predicate extraction.
+
+## Count Cardinality Coverage Proof
+
+- Direct COUNT cardinality shortcut eligibility now has query-intent coverage
+  proving it accepts predicate-only and fully-covered visible-expression
+  filters, but rejects candidates where an uncovered visible residual filter
+  remains.
+- This keeps direct COUNT metadata admission tied to `NormalizedFilter`
+  predicate coverage rather than a separate predicate-only shortcut.
+
+## Cache Identity Proof
+
+- Expression-plus-predicate handoffs now have direct cache-key coverage proving
+  the visible filter expression owns shared cache identity when present.
+- Predicate identity remains hash-significant only for predicate-only filters,
+  keeping cache identity aligned with user-visible filter semantics rather than
+  frontend-specific predicate mirrors.
+
+## EXPLAIN Projection Proof
+
+- Existing SQL EXPLAIN coverage proves expression-owned residual filters expose
+  `filter_expr` / `residual_filter_expr` without claiming a derived
+  `residual_filter_predicate`.
+- Existing logical EXPLAIN coverage proves residual summaries distinguish
+  scalar residual expressions from predicate-only residual work.
