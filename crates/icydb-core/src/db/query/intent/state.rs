@@ -59,10 +59,6 @@ impl FilterPredicateCoverage {
         }
     }
 
-    const fn from_predicate_only_authority() -> Self {
-        Self::Full
-    }
-
     const fn combine_for_and(existing: Self, appended: Self, combined_subset_exists: bool) -> Self {
         if !combined_subset_exists {
             return Self::None {
@@ -146,7 +142,7 @@ impl NormalizedFilter {
         Self {
             expr: Expr::Literal(crate::value::Value::Bool(true)),
             predicate_subset: Some(predicate),
-            predicate_coverage: FilterPredicateCoverage::from_predicate_only_authority(),
+            predicate_coverage: FilterPredicateCoverage::Full,
             filter_expr_visible: false,
         }
     }
