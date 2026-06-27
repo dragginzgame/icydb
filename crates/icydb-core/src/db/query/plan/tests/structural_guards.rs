@@ -438,13 +438,13 @@ fn filter_authority_predicate_subset_derivation_sites_are_explicit() {
 fn filter_authority_sql_explicit_predicate_lanes_are_explicit() {
     let expected = BTreeMap::from([
         ("src/db/sql/lowering/predicate/mod.rs".to_string(), 1),
-        ("src/db/sql/lowering/select/mod.rs".to_string(), 2),
+        ("src/db/sql/lowering/select/mod.rs".to_string(), 3),
     ]);
 
     assert_eq!(
         runtime_pattern_counts("derive_sql_where_expr_predicate_subset("),
         expected,
-        "SQL predicate-subset extraction should stay localized to the shared helper and the explicit admission lanes recorded for 0.186",
+        "SQL predicate-subset extraction should stay localized to the shared helper and the explicit admission/access-mirror lanes recorded for 0.186",
     );
 }
 
@@ -454,9 +454,9 @@ fn filter_authority_sql_predicate_handoffs_are_explicit() {
         runtime_pattern_counts("filter_expr_with_normalized_predicate("),
         BTreeMap::from([
             ("src/db/query/intent/query.rs".to_string(), 1),
-            ("src/db/sql/lowering/select/mod.rs".to_string(), 1),
+            ("src/db/sql/lowering/select/mod.rs".to_string(), 2),
         ]),
-        "expression-plus-predicate handoff should remain localized to query intent and the SQL strict-predicate policy boundary",
+        "expression-plus-predicate handoff should remain localized to query intent and the SQL strict-predicate/access-mirror policy boundaries",
     );
     assert_eq!(
         runtime_pattern_counts("filter_normalized_predicate("),

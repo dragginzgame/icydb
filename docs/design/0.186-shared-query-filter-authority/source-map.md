@@ -128,11 +128,15 @@ behavior stay unchanged.
 
 ## SQL SELECT Extraction Cleanup
 
-- Ordinary scalar and grouped SQL SELECT filters now hand off only the
-  schema-bound visible expression to query intent.
-- `NormalizedFilter` derives the shared predicate subset for those
-  expression-backed filters after schema binding, matching the fluent
-  expression-backed path.
+- Ordinary scalar and grouped SQL SELECT filters now hand off the schema-bound
+  visible expression to query intent as the semantic authority.
+- When that schema-bound SQL expression is extractable, SQL lowering also
+  passes a schema-canonicalized predicate mirror so strict numeric literals
+  remain available to access planning. The visible expression still owns cache
+  identity and runtime semantics.
+- `NormalizedFilter` stores the shared predicate subset for expression-backed
+  filters after the SQL/fluent boundary, matching the fluent expression-backed
+  path where no SQL literal coercion mirror is needed.
 - DELETE now follows the same expression-backed handoff; unsupported DELETE
   filters remain residual expressions rather than carrying a broad
   `Predicate::True` fallback.
@@ -141,9 +145,9 @@ behavior stay unchanged.
   subsets and remain intentionally fail-closed for expression-only WHERE
   shapes.
 - `filter_authority_sql_explicit_predicate_lanes_are_explicit` and
-  `filter_authority_sql_predicate_handoffs_are_explicit` guard those remaining
-  SQL exceptions so new pre-access predicate derivation or handoff sites must
-  be intentionally reviewed.
+  `filter_authority_sql_predicate_handoffs_are_explicit` guard the remaining
+  SQL admission and access-mirror exceptions so new pre-access predicate
+  derivation or handoff sites must be intentionally reviewed.
 - The strict-path audit keeps UPDATE and global aggregate base filters separate
   because moving them to expression-backed intent would widen accepted SQL
   rather than merely relocate predicate extraction.

@@ -61,7 +61,10 @@ pub(in crate::db::sql::lowering) fn lower_order_terms(
 /// SQL-lowered filter wrapper that keeps SQL's visible expression and any
 /// required predicate subset together until the final `StructuralQuery`
 /// handoff. Ordinary SELECT filters keep expression authority and let query
-/// intent derive the shared pre-access predicate subset after schema binding.
+/// intent own the shared pre-access filter contract after schema binding; when
+/// the schema-bound expression is extractable, SQL lowering also passes a
+/// canonicalized predicate mirror so numeric SQL literals retain strict
+/// indexable semantics.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct LoweredSqlFilter {
@@ -154,7 +157,14 @@ impl LoweredSqlFilter {
 
                 query.filter_expr_with_normalized_predicate(filter_expr, predicate)
             }
-            (Some(filter_expr), None) => query.filter_expr(filter_expr),
+            (Some(filter_expr), None) => {
+                if let Some(predicate) = derive_sql_where_expr_predicate_subset(&filter_expr) {
+                    let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
+                    query.filter_expr_with_normalized_predicate(filter_expr, predicate)
+                } else {
+                    query.filter_expr(filter_expr)
+                }
+            }
             (None, Some(predicate)) => {
                 let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
                 query.filter_normalized_predicate(predicate)

@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Names predicate-subset coverage as a pre-access query-intent fact, separating
   full, partial, and absent coverage while preserving the existing planner
   projection and runtime behavior.
-- Removes ordinary SQL SELECT's duplicate pre-access predicate derivation so
-  expression-backed filters derive their shared predicate subset at query
-  intent after schema binding.
+- Moves ordinary SQL SELECT toward expression-owned filter authority while
+  preserving schema-canonicalized predicate mirrors for extractable filters so
+  indexed routes keep strict literal facts.
 - Removes DELETE's broad `Predicate::True` fallback so expression-only DELETE
   filters keep residual-expression ownership instead of claiming predicate
   coverage.
