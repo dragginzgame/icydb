@@ -797,6 +797,28 @@ fn scalar_entrypoints_share_execution_inputs_spine() {
 }
 
 #[test]
+fn static_execution_planning_contract_access_is_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let logical = source_for(crate_root, "src/db/query/plan/semantics/logical.rs");
+
+    assert_source_contains_patterns(
+        &logical,
+        &[
+            "const fn static_execution_planning_contract(&self) -> Option<&StaticExecutionPlanningContract>",
+            "fn require_static_execution_planning_contract(",
+            "Result<&StaticExecutionPlanningContract, InternalError>",
+            ".ok_or_else(InternalError::query_executor_invariant)",
+        ],
+        "static execution planning metadata should expose optional and fallible accessors instead of panicking",
+    );
+    assert_source_excludes_patterns(
+        &logical,
+        &[".expect(\"query semantics invariant\")"],
+        "static execution planning contract access must not trap through expect",
+    );
+}
+
+#[test]
 fn filter_authority_residual_contract_creation_stays_in_logical_semantics() {
     let logical_semantics_only =
         BTreeMap::from([("src/db/query/plan/semantics/logical.rs".to_string(), 1)]);

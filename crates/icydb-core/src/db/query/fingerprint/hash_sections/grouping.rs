@@ -15,7 +15,8 @@ use crate::db::{
         },
         plan::{
             AccessPlannedQuery, GroupAggregateSpec, GroupedPlanAggregateFamily,
-            expr::ProjectionSpec, grouped_plan_strategy,
+            GroupedPlanFallbackReason, GroupedPlanStrategy, expr::ProjectionSpec,
+            grouped_plan_strategy,
         },
     },
 };
@@ -168,7 +169,18 @@ impl<'a> ProjectedGroupingShape<'a> {
         let Some(grouped) = plan.grouped_plan() else {
             return Self::None;
         };
-        let strategy = grouped_plan_strategy(plan).expect("query fingerprint invariant");
+        let strategy = grouped_plan_strategy(plan).unwrap_or_else(|| {
+            debug_assert!(
+                grouped_plan_strategy(plan).is_some(),
+                "grouped fingerprint projection requires planner-owned grouped strategy",
+            );
+            GroupedPlanStrategy::hash_group_with_aggregate_family(
+                GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
+                GroupedPlanAggregateFamily::from_grouped_aggregates(
+                    grouped.group.aggregates.as_slice(),
+                ),
+            )
+        });
 
         Self::Grouped(GroupedFingerprintShape {
             ordered_group: strategy.is_ordered_group(),

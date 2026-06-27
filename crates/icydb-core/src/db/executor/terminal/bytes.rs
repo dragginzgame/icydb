@@ -86,13 +86,17 @@ where
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &str,
     ) -> BytesByProjectionMode {
+        let Ok(primary_key_names) = prepared.logical_plan().primary_key_names() else {
+            return BytesByProjectionMode::Materialized;
+        };
+
         classify_bytes_by_projection_mode(
             &prepared.logical_plan().access,
             prepared.order_spec(),
             prepared.consistency(),
             prepared.has_predicate(),
             target_field,
-            &prepared.logical_plan().primary_key_names(),
+            &primary_key_names,
         )
     }
 
@@ -108,9 +112,10 @@ where
         let direction = match prepared.order_spec() {
             None => Direction::Asc,
             Some(order) => {
-                match order
-                    .primary_key_only_direction_fields(&prepared.logical_plan().primary_key_names())
-                {
+                let Ok(primary_key_names) = prepared.logical_plan().primary_key_names() else {
+                    return None;
+                };
+                match order.primary_key_only_direction_fields(&primary_key_names) {
                     Some(OrderDirection::Asc) => Direction::Asc,
                     Some(OrderDirection::Desc) => Direction::Desc,
                     None => return None,
@@ -268,11 +273,12 @@ where
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<u64>, InternalError> {
+        let primary_key_names = prepared.logical_plan().primary_key_names()?;
         let Some(facts) = covering_index_projection_facts(
             &prepared.logical_plan().access,
             prepared.order_spec(),
             target_field.field(),
-            &prepared.logical_plan().primary_key_names(),
+            &primary_key_names,
         ) else {
             return Ok(None);
         };

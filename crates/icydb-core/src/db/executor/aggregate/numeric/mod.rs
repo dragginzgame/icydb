@@ -221,11 +221,12 @@ where
             // Planner rejects unordered pagination, but fail closed if bypassed.
             return false;
         };
+        let Ok(primary_key_names) = prepared.logical_plan.primary_key_names() else {
+            return false;
+        };
         if prepared
             .order_spec()
-            .and_then(|order| {
-                order.primary_key_only_direction_fields(&prepared.logical_plan.primary_key_names())
-            })
+            .and_then(|order| order.primary_key_only_direction_fields(&primary_key_names))
             .is_none()
         {
             return false;

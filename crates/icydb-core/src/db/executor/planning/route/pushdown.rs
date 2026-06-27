@@ -206,8 +206,11 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
     // is an ASC index-prefix family whose consumed prefix leaves the primary
     // key as the exact remaining index suffix, so each prefix stream can be
     // merged by decoded primary key without a materialized sort.
+    let Ok(primary_key_names) = plan.primary_key_names() else {
+        return false;
+    };
     let primary_key_order_satisfied = order
-        .primary_key_only_direction_fields(&plan.primary_key_names())
+        .primary_key_only_direction_fields(&primary_key_names)
         .is_some_and(|direction| {
             let direction = match direction {
                 OrderDirection::Asc => Direction::Asc,
@@ -266,10 +269,13 @@ fn access_preserves_primary_key_order_for_route_direction_with_access_shape_fact
         return true;
     }
 
+    let Ok(primary_key_names) = plan.primary_key_names() else {
+        return false;
+    };
     let exact_prefix_family_preserves_primary_key_order = matches!(direction, Direction::Asc)
         && index_prefix_family_preserves_primary_key_suffix_order(
             access_shape_facts,
-            plan.primary_key_names().as_slice(),
+            primary_key_names.as_slice(),
         );
     let child_prefix_expansion_preserves_primary_key_order = allow_child_expansion
         && child_prefix_expansion_preserves_primary_key_order_for_direction(
@@ -336,10 +342,12 @@ pub(super) fn child_prefix_expansion_preserves_primary_key_order_for_direction(
 }
 
 fn primary_key_order_direction_for_plan(plan: &AccessPlannedQuery) -> Option<Direction> {
+    let primary_key_names = plan.primary_key_names().ok()?;
+
     plan.scalar_plan()
         .order
         .as_ref()?
-        .primary_key_only_direction_fields(&plan.primary_key_names())
+        .primary_key_only_direction_fields(&primary_key_names)
         .map(|direction| match direction {
             OrderDirection::Asc => Direction::Asc,
             OrderDirection::Desc => Direction::Desc,
@@ -361,10 +369,11 @@ fn ordered_child_prefix_expansion_target_for_primary_key_order(
         return None;
     }
 
+    let primary_key_names = plan.primary_key_names().ok()?;
     index_suffix_matches_primary_key_order_from_prefix(
         &details,
         expanded_prefix_len,
-        plan.primary_key_names().as_slice(),
+        primary_key_names.as_slice(),
     )
     .then_some(expanded_prefix_len)
 }

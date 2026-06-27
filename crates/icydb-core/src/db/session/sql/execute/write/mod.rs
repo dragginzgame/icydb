@@ -193,7 +193,10 @@ where
     }
 
     let key_value = if normalized.len() == 1 {
-        normalized.into_iter().next().expect("sql write invariant")
+        normalized
+            .into_iter()
+            .next()
+            .ok_or_else(QueryError::invariant)?
     } else {
         Value::List(normalized)
     };

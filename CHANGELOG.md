@@ -11,12 +11,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   prepared COUNT/EXISTS prefix-cardinality paths share metadata-count
   authority while SQL write bounds stay on explicit mutation-batch and DELETE
   post-access boundaries, and scalar page/row-sink entrypoints share the same
-  execution-input spine.
+  execution-input spine, with generated SQL canister parity validated.
 
 - Tightens the shared query filter authority guardrail so downstream cache,
   route, EXPLAIN, and count/cardinality consumers cannot derive predicate
   facts directly from SQL or fluent expressions, while keeping strict SQL
   UPDATE/global-aggregate predicate-admission lanes explicit.
+
+- Removes several panic-shaped query-expression, grouped EXPLAIN/fingerprint,
+  and SQL write invariants by converting them to fallible or fail-closed
+  runtime behavior.
+
+- Makes finalized static execution-planning metadata recoverable by replacing
+  the panicking shared accessor with optional/fallible contract access and
+  fail-closed fast-path eligibility decisions.
 
 ## [0.186.x] 🔧 - 2026-06-27 - Shared Query Filter Authority
 

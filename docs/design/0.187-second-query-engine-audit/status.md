@@ -29,7 +29,7 @@ parity test or a source invariant.
 | SQL/fluent perf matrix reports | Needed before optimization claims | Existing focused perf evidence exists from earlier lines, but 0.187 should not make performance claims without a fresh targeted run. |
 | EXPLAIN/diagnostics snapshots | Available as test coverage | No broad snapshot rerun has happened in this slice. |
 | Source-invariant script results | Available as tests | 0.186 added the current filter-authority guards; broader 0.187 guards should be added only after a finding is classified. |
-| Generated canister matrix results | Needed before generated-surface conclusions | Do not claim generated endpoint parity until the live matrix is rerun or a finding is explicitly source-only. |
+| Generated canister matrix results | Passed | SQL canister matrix passed on 2026-06-27: 76 tests, 0 failed. |
 
 ## Completed In Current Audit
 
@@ -60,6 +60,17 @@ parity test or a source invariant.
   fences; no obvious duplicate-authority cleanup was found. Treat stale
   suppression removal as a dedicated hygiene pass validated by Clippy, not a
   0.187.0 blocker.
+- Ran the generated SQL canister matrix and validated the generated endpoint
+  surface against the current 0.187 audit baseline: 76 passed, 0 failed.
+- Removed several remaining panic-shaped runtime invariants from query
+  expression preview/evaluation, predicate bridge conversion, grouped
+  EXPLAIN/fingerprint projection, grouped strategy selection, resolved ORDER
+  handling, and SQL write primary-key normalization.
+- Replaced the finalized static-execution-planning contract `.expect(...)`
+  accessor with optional and fallible accessors. Required projection and
+  primary-key metadata now returns `InternalError`; fast-path eligibility and
+  bytes/projection diagnostics fail closed when the finalized contract is
+  absent. A source guard now locks this accessor shape.
 
 ## Initial Queue
 

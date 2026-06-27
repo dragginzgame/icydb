@@ -161,12 +161,16 @@ where
         target_field: &str,
         op: &PreparedScalarProjectionOp,
     ) -> PreparedScalarProjectionStrategy {
+        let Ok(primary_key_names) = prepared.logical_plan.primary_key_names() else {
+            return PreparedScalarProjectionStrategy::Materialized;
+        };
+
         if !prepared.has_predicate()
             && let Some(facts) = covering_index_projection_facts(
                 &prepared.logical_plan.access,
                 prepared.order_spec(),
                 target_field,
-                &prepared.logical_plan.primary_key_names(),
+                &primary_key_names,
             )
         {
             let (offset, limit) = page_window_state(prepared.page_spec());

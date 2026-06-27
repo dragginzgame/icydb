@@ -132,17 +132,41 @@ runtime contract.
   remaining diagnostics work for repeated expensive derivation, not semantic
   ownership.
 
+## Recoverable Runtime Invariants
+
+- Primary sources:
+  - `crates/icydb-core/src/db/query/plan/expr/`
+  - `crates/icydb-core/src/db/query/plan/semantics/`
+  - `crates/icydb-core/src/db/query/explain/`
+  - `crates/icydb-core/src/db/query/fingerprint/`
+  - `crates/icydb-core/src/db/session/sql/execute/write/`
+- Current classification: cleanup completed for the small trap-shaped
+  invariants found in the 0.187 pass, including finalized static execution
+  metadata access.
+- Evidence: query expression preview/evaluation, predicate bridge conversion,
+  grouped EXPLAIN/fingerprint projection, grouped strategy selection, resolved
+  ORDER handling, SQL write primary-key normalization, and finalized
+  static-execution-planning metadata now use optional, fallible, or fail-closed
+  paths instead of `.expect(...)` / `unreachable!(...)`.
+- Recommendation: keep runtime invariant drift recoverable with typed errors or
+  conservative no-result behavior. Do not add new reference-returning helper
+  surfaces that assume finalized static execution metadata without a typed
+  error path.
+
 ## Generated Canister Endpoints Versus Session Surfaces
 
 - Primary sources:
   - generated canister tests and live SQL canister matrix
   - `crates/icydb-core/src/db/session/`
   - generated endpoint wrappers outside `icydb-core`
-- Current classification: needs fresh audit input.
-- Evidence: the 0.187 reminder requires generated canister matrix results
-  before making endpoint-surface conclusions.
-- Recommendation: do not classify generated/session divergence until the live
-  matrix is rerun or a source-only finding is isolated.
+- Current classification: validated evidence gate.
+- Evidence: the generated SQL canister matrix passed on 2026-06-27: 76 tests,
+  0 failed. The covered surface includes generated query, update, bounded
+  update, DDL, numeric, aggregate, grouped aggregate, diagnostics, and
+  returning/error paths.
+- Recommendation: keep generated endpoint parity in validation mode. Re-run the
+  matrix before release prep or before making generated-surface behavior
+  claims after further runtime changes.
 
 ## Lint Suppressions
 

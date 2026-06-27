@@ -46,7 +46,7 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
     extra_slots: &[usize],
 ) -> Result<Option<RetainedSlotLayout>, InternalError> {
     let projection_validation_enabled =
-        projection_materialization.validate_projection() && !plan.projection_is_model_identity();
+        projection_materialization.validate_projection() && !plan.projection_is_model_identity()?;
     let retain_slot_rows = projection_materialization.retain_slot_rows();
 
     compile_retained_slot_layout(
@@ -79,9 +79,9 @@ fn compile_retained_slot_layout(
     // Retained-slot projection materialization can keep exact
     // `OCTET_LENGTH(text/blob)` expressions as length-only retained values.
     if projection_validation_enabled {
-        required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
+        required_slots.mark_slots(plan.projection_referenced_slots()?.iter().copied());
     } else if retain_slot_rows {
-        mark_projection_retained_slots(row_layout, plan, &mut required_slots);
+        mark_projection_retained_slots(row_layout, plan, &mut required_slots)?;
     }
 
     // Terminal-owned consumers such as scalar aggregate reduction can require
@@ -147,10 +147,10 @@ fn mark_projection_retained_slots(
     row_layout: &RowLayout,
     plan: &AccessPlannedQuery,
     required_slots: &mut RetainedSlotRequirements,
-) {
+) -> Result<(), InternalError> {
     let Some(compiled_projection) = plan.scalar_projection_plan() else {
-        required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
-        return;
+        required_slots.mark_slots(plan.projection_referenced_slots()?.iter().copied());
+        return Ok(());
     };
 
     for expr in compiled_projection {
@@ -165,6 +165,8 @@ fn mark_projection_retained_slots(
             required_slots.mark_slot(slot);
         }
     }
+
+    Ok(())
 }
 
 fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bool {

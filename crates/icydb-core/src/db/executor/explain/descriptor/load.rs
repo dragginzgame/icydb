@@ -110,20 +110,20 @@ impl LoadVerbosePreparation {
     // Build the verbose-only projection bundle from the logical plan and the
     // already derived route plan so diagnostics remain a direct projection
     // of planner and route state.
-    fn from_plan(plan: &AccessPlannedQuery) -> Self {
+    fn from_plan(plan: &AccessPlannedQuery) -> Result<Self, InternalError> {
         let access_choice = plan.access_choice().clone();
         let chosen_access_label = access_plan_label(&plan.access);
         let projected_fields = plan
-            .frozen_projection_spec()
+            .frozen_projection_spec()?
             .fields()
             .map(explain_projection_field_name)
             .collect();
 
-        Self {
+        Ok(Self {
             access_choice,
             chosen_access_label,
             projected_fields,
-        }
+        })
     }
 }
 
@@ -295,7 +295,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
             Value::from(predicate_index_capability_label(capability)),
         );
     }
-    annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan);
+    annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan)?;
     root.node_properties.insert(
         property_keys::COVERING_READ_ROUTE,
         Value::from(if covering_projection_selected {
@@ -404,7 +404,7 @@ fn load_modifier_execution_nodes(
 pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_route_facts(
     plan: &AccessPlannedQuery,
     route_facts: &LoadExecutionRouteFacts,
-) -> Vec<String> {
+) -> Result<Vec<String>, InternalError> {
     let route_plan = &route_facts.route_plan;
     let explain_preparation = &route_facts.explain_preparation;
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
@@ -413,7 +413,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         load_terminal_fast_path.is_some() || hybrid_covering_read_plan.is_some();
 
     // Phase 1: build canonical route/planner inputs for load mode.
-    let verbose_preparation = LoadVerbosePreparation::from_plan(plan);
+    let verbose_preparation = LoadVerbosePreparation::from_plan(plan)?;
     let strict_prefilter_compiled = explain_preparation.strict_prefilter_compiled();
     let residual_filter_shape = plan.residual_filter_shape();
     let predicate_stage_observability =
@@ -528,7 +528,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         ));
     }
 
-    lines
+    Ok(lines)
 }
 
 // Render one human-readable access-choice summary block for verbose explain

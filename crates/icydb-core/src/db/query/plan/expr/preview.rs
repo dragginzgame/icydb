@@ -176,7 +176,7 @@ fn eval_literal_only_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> O
                 BinaryOp::Sub => NumericArithmeticOp::Sub,
                 BinaryOp::Mul => NumericArithmeticOp::Mul,
                 BinaryOp::Div => NumericArithmeticOp::Div,
-                _ => unreachable!("query expression invariant"),
+                _ => return None,
             };
 
             apply_numeric_arithmetic_checked(arithmetic_op, left, right)
@@ -189,7 +189,7 @@ fn eval_literal_only_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> O
 
 // Evaluate one literal-only boolean AND/OR using the shared three-valued
 // truth table used by scalar projection evaluation.
-fn eval_boolean_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> Option<Value> {
+const fn eval_boolean_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> Option<Value> {
     match op {
         BinaryOp::And => match (left, right) {
             (Value::Bool(false), _) | (_, Value::Bool(false)) => Some(Value::Bool(false)),
@@ -207,7 +207,7 @@ fn eval_boolean_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> Option
             }
             _ => None,
         },
-        _ => unreachable!("query expression invariant"),
+        _ => None,
     }
 }
 
@@ -243,7 +243,7 @@ fn eval_compare_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> Option
         BinaryOp::Lte => compare_numeric_or_strict_order(left, right).map(Ordering::is_le)?,
         BinaryOp::Gt => compare_numeric_or_strict_order(left, right).map(Ordering::is_gt)?,
         BinaryOp::Gte => compare_numeric_or_strict_order(left, right).map(Ordering::is_ge)?,
-        _ => unreachable!("query expression invariant"),
+        _ => return None,
     };
 
     Some(Value::Bool(result))
@@ -255,12 +255,7 @@ fn eval_null_test_function_call(function: Function, args: &[Value]) -> Option<Va
         return None;
     };
 
-    Some(
-        function
-            .boolean_null_test_kind()
-            .expect("query expression invariant")
-            .eval_value(value),
-    )
+    Some(function.boolean_null_test_kind()?.eval_value(value))
 }
 
 // Evaluate one text wrapper over a literal-owned text input.
@@ -273,8 +268,7 @@ fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Option<V
         Value::Null => Some(Value::Null),
         Value::Text(text) => Some(
             function
-                .unary_text_function_kind()
-                .expect("query expression invariant")
+                .unary_text_function_kind()?
                 .eval_text(text.as_str()),
         ),
         _ => None,
@@ -293,8 +287,7 @@ fn eval_unary_numeric_function_call(function: Function, args: &[Value]) -> Optio
             let decimal = coerce_numeric_decimal(value)?;
 
             function
-                .unary_numeric_function_kind()
-                .expect("query expression invariant")
+                .unary_numeric_function_kind()?
                 .eval_decimal(decimal)
                 .ok()
         }
@@ -328,8 +321,7 @@ fn eval_binary_numeric_function_call(function: Function, args: &[Value]) -> Opti
             let right = coerce_numeric_decimal(right)?;
 
             function
-                .binary_numeric_function_kind()
-                .expect("query expression invariant")
+                .binary_numeric_function_kind()?
                 .eval_decimal(left, right)
                 .ok()
         }
@@ -371,8 +363,7 @@ fn eval_left_right_text_function_call(function: Function, args: &[Value]) -> Opt
         (Value::Null, _) | (_, NullableIntegerArg::Null) => Some(Value::Null),
         (Value::Text(text), NullableIntegerArg::Integer(length)) => Some(
             function
-                .left_right_text_function_kind()
-                .expect("query expression invariant")
+                .left_right_text_function_kind()?
                 .eval_text(text.as_str(), length),
         ),
         _ => None,
@@ -390,8 +381,7 @@ fn eval_text_predicate_function_call(function: Function, args: &[Value]) -> Opti
         (Value::Null, _) | (_, NullableTextArg::Null) => Some(Value::Null),
         (Value::Text(text), NullableTextArg::Text(needle)) => Some(
             function
-                .boolean_text_predicate_kind()
-                .expect("query expression invariant")
+                .boolean_text_predicate_kind()?
                 .eval_text(text, needle),
         ),
         _ => None,

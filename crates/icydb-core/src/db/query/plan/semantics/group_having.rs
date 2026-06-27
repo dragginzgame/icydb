@@ -88,8 +88,16 @@ pub(in crate::db) fn grouped_having_compare_expr(left: Expr, op: CompareOp, valu
         }
     }
 
+    let Some(op) = truth_condition_compare_binary_op(op) else {
+        debug_assert!(
+            truth_condition_compare_binary_op(op).is_some(),
+            "grouped HAVING compare expression requires a truth-condition compare operator",
+        );
+        return Expr::Literal(Value::Bool(false));
+    };
+
     Expr::Binary {
-        op: truth_condition_compare_binary_op(op).expect("grouped HAVING invariant"),
+        op,
         left: Box::new(left),
         right: Box::new(Expr::Literal(value)),
     }

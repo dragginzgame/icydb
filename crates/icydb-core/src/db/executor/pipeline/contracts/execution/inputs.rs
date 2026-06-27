@@ -71,7 +71,7 @@ impl PreparedExecutionProjection {
         // immediately no-op inside the validator, so skip building projection
         // validation state and projection-driven retained slots for that case.
         let projection_validation_enabled = projection_materialization.validate_projection()
-            && !plan.projection_is_model_identity();
+            && !plan.projection_is_model_identity()?;
 
         // Phase 2: build prepared projection validation only when the shared
         // validation pass will actually consume it. Retained-slot row paths

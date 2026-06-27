@@ -97,10 +97,13 @@ pub(super) fn pk_order_stream_fast_path_shape_supported(plan: &AccessPlannedQuer
     let Some(order) = logical.order.as_ref() else {
         return false;
     };
+    let Ok(primary_key_names) = plan.primary_key_names() else {
+        return false;
+    };
 
     logical.mode.is_load()
         && has_primary_key_stream_window
         && order
-            .primary_key_only_direction_fields(&plan.primary_key_names())
+            .primary_key_only_direction_fields(&primary_key_names)
             .is_some()
 }

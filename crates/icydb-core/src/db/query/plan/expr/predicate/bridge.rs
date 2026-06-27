@@ -12,7 +12,7 @@ use crate::{
         predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
         query::plan::expr::{
             BinaryOp, Expr, FieldId, Function, UnaryOp, is_normalized_bool_expr,
-            normalize_bool_expr, truth_condition_compare_binary_op,
+            normalize_bool_expr,
         },
     },
     value::Value,
@@ -102,15 +102,24 @@ fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
         | CompareOp::Lt
         | CompareOp::Lte
         | CompareOp::Gt
-        | CompareOp::Gte => Expr::Binary {
-            op: truth_condition_compare_binary_op(compare.op())
-                .expect("predicate bridge invariant"),
-            left: Box::new(casefold_field_expr(
-                compare.field(),
-                compare.coercion().id(),
-            )),
-            right: Box::new(Expr::Literal(compare.value().clone())),
-        },
+        | CompareOp::Gte => {
+            let Some(op) = compare_binary_op(compare.op()) else {
+                debug_assert!(
+                    compare_binary_op(compare.op()).is_some(),
+                    "predicate bridge literal comparison requires a truth-condition compare operator",
+                );
+                return Expr::Literal(Value::Bool(false));
+            };
+
+            Expr::Binary {
+                op,
+                left: Box::new(casefold_field_expr(
+                    compare.field(),
+                    compare.coercion().id(),
+                )),
+                right: Box::new(Expr::Literal(compare.value().clone())),
+            }
+        }
         CompareOp::In | CompareOp::NotIn => membership_compare_predicate_to_bool_expr(compare),
         CompareOp::Contains => Expr::FunctionCall {
             function: Function::CollectionContains,
@@ -135,8 +144,16 @@ fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
 // Convert one field-to-field compare predicate into the planner-owned boolean
 // expression shape consumed by shared normalization and recompilation.
 fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Expr {
+    let Some(op) = compare_fields_binary_op(compare.op()) else {
+        debug_assert!(
+            compare_fields_binary_op(compare.op()).is_some(),
+            "predicate bridge field-to-field comparison requires a truth-condition compare operator",
+        );
+        return Expr::Literal(Value::Bool(false));
+    };
+
     Expr::Binary {
-        op: truth_condition_compare_binary_op(compare.op()).expect("predicate bridge invariant"),
+        op,
         left: Box::new(casefold_field_expr(
             compare.left_field.as_str(),
             compare.coercion.id(),
@@ -146,6 +163,26 @@ fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Ex
             compare.coercion.id(),
         )),
     }
+}
+
+const fn compare_binary_op(op: CompareOp) -> Option<BinaryOp> {
+    match op {
+        CompareOp::Eq => Some(BinaryOp::Eq),
+        CompareOp::Ne => Some(BinaryOp::Ne),
+        CompareOp::Lt => Some(BinaryOp::Lt),
+        CompareOp::Lte => Some(BinaryOp::Lte),
+        CompareOp::Gt => Some(BinaryOp::Gt),
+        CompareOp::Gte => Some(BinaryOp::Gte),
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => None,
+    }
+}
+
+const fn compare_fields_binary_op(op: CompareOp) -> Option<BinaryOp> {
+    compare_binary_op(op)
 }
 
 // Convert one runtime membership compare onto the compact planner membership

@@ -574,7 +574,7 @@ pub(in crate::db) fn grouped_executor_handoff(
     let Some(grouped) = plan.grouped_plan() else {
         return Err(InternalError::planner_executor_invariant());
     };
-    let projection_spec = plan.frozen_projection_spec();
+    let projection_spec = plan.frozen_projection_spec()?;
     let (projection_layout, aggregate_specs, projection_is_identity) =
         planned_projection_layout_and_aggregate_specs_from_spec(
             projection_spec,

@@ -637,7 +637,7 @@ fn primary_store_covering_plan(
     };
     let fields = covering_projection_fields_from_projection(
         &mut resolve_field_slot,
-        plan.frozen_projection_spec(),
+        plan.frozen_projection_spec().ok()?,
         source_context,
     )?;
     if fields.is_empty() {
@@ -849,7 +849,7 @@ fn covering_index_projection_plan(
     };
     let fields = covering_projection_fields_from_projection(
         &mut resolve_field_slot,
-        plan.frozen_projection_spec(),
+        plan.frozen_projection_spec().ok()?,
         source_context,
     )?;
     if fields.is_empty() {

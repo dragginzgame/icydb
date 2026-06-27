@@ -136,7 +136,6 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_de
         let direct_slot_projection =
             plan.frozen_direct_projection_slots()
                 .is_some_and(|direct_projection_slots| {
-                    let projection = plan.frozen_projection_spec();
                     projection.len() == direct_projection_slots.len()
                         && projection
                             .fields()

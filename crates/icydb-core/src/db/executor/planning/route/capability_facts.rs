@@ -310,9 +310,14 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
     }
 
     let access_shape_facts = plan.access_shape_facts();
-    let Some(order_contract) = plan.scalar_plan().order.as_ref().and_then(|order| {
-        order.deterministic_secondary_order_contract_fields(&plan.primary_key_names())
-    }) else {
+    let Ok(primary_key_names) = plan.primary_key_names() else {
+        return false;
+    };
+    let Some(order_contract) =
+        plan.scalar_plan().order.as_ref().and_then(|order| {
+            order.deterministic_secondary_order_contract_fields(&primary_key_names)
+        })
+    else {
         return true;
     };
     if child_prefix_expansion_preserves_primary_key_order_for_direction(

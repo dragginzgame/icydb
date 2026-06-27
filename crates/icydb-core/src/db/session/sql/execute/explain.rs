@@ -217,6 +217,7 @@ impl<C: CanisterKind> DbSession<C> {
                 visible_indexes.accepted_semantic_index_contracts(),
                 schema_info,
             );
+            let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
             let diagnostics = structural
                 .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
                     &plan,
@@ -224,9 +225,7 @@ impl<C: CanisterKind> DbSession<C> {
                     Some(query_plan_cache_reuse_event(cache_attribution)),
                     |descriptor| {
                         annotate_sql_projection_debug_on_execution_descriptor(
-                            descriptor,
-                            &plan,
-                            plan.frozen_projection_spec(),
+                            descriptor, &plan, projection,
                         );
                     },
                 )?;
@@ -241,13 +240,14 @@ impl<C: CanisterKind> DbSession<C> {
             |plan| {
                 let route_facts = freeze_load_execution_route_facts_for_authority(&authority, plan)
                     .map_err(QueryError::execute)?;
+                let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
                 let mut descriptor =
                     assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
                         .map_err(QueryError::execute)?;
                 annotate_sql_projection_debug_on_execution_descriptor(
                     &mut descriptor,
                     plan,
-                    plan.frozen_projection_spec(),
+                    projection,
                 );
 
                 Ok(render_sql_execution_explain(

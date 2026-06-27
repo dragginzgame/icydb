@@ -87,13 +87,17 @@ impl SharedPreparedExecutionPlan {
         &self,
         target_field: &str,
     ) -> BytesByProjectionMode {
+        let Ok(primary_key_names) = self.logical_plan().primary_key_names() else {
+            return BytesByProjectionMode::Materialized;
+        };
+
         classify_bytes_by_projection_mode(
             self.access(),
             self.core.order_spec(),
             self.core.consistency(),
             self.core.has_predicate(),
             target_field,
-            &self.logical_plan().primary_key_names(),
+            &primary_key_names,
         )
     }
 

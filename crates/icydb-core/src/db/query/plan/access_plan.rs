@@ -986,7 +986,7 @@ impl AccessPlannedQuery {
             return Some(Direction::Asc);
         };
 
-        let primary_key_names = self.primary_key_names();
+        let primary_key_names = self.primary_key_names().ok()?;
         order
             .primary_key_only_direction_fields(primary_key_names.as_slice())
             .map(|direction| match direction {

@@ -102,7 +102,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
             && grouped_budget.aggregate_states() >= grouped_budget.groups(),
         "grouped budget observability invariants must hold at grouped route entry",
     );
-    let grouped_projection_spec = route.plan().frozen_projection_spec().clone();
+    let grouped_projection_spec = route.plan().frozen_projection_spec()?.clone();
 
     // Phase 2: dispatch grouped fold execution through one route-owned mode
     // selector so DISTINCT, dedicated COUNT(*), and generic grouped reduce

@@ -24,7 +24,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         // Phase 1: project all executor-owned summary fields from the logical plan.
         let plan = self.core.plan();
         let authority = self.authority.clone();
-        let projection_spec = plan.frozen_projection_spec();
+        let projection_spec = plan.frozen_projection_spec()?;
         let projection_selection = if plan.grouped_plan().is_some()
             || projection_spec.len() != authority.row_layout()?.field_count()
         {

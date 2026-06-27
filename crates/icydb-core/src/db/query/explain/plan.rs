@@ -17,9 +17,10 @@ use crate::{
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
                 AccessChoiceResidualBurden, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
-                GroupedPlanFallbackReason, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
-                QueryMode, ScalarPlan, explain_access_strategy_label, expr::Expr,
-                grouped_plan_strategy, render_scalar_filter_expr_plan_label,
+                GroupedPlanAggregateFamily, GroupedPlanFallbackReason, GroupedPlanStrategy,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+                explain_access_strategy_label, expr::Expr, grouped_plan_strategy,
+                render_scalar_filter_expr_plan_label,
             },
         },
     },
@@ -840,9 +841,18 @@ impl AccessPlannedQuery {
         let (logical, grouping) = match &self.logical {
             LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),
             LogicalPlan::Grouped(logical) => {
-                let grouped_strategy = grouped_plan_strategy(self).expect(
-                    "grouped logical explain projection requires planner-owned grouped strategy",
-                );
+                let grouped_strategy = grouped_plan_strategy(self).unwrap_or_else(|| {
+                    debug_assert!(
+                        grouped_plan_strategy(self).is_some(),
+                        "grouped logical explain projection requires planner-owned grouped strategy",
+                    );
+                    GroupedPlanStrategy::hash_group_with_aggregate_family(
+                        GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
+                        GroupedPlanAggregateFamily::from_grouped_aggregates(
+                            logical.group.aggregates.as_slice(),
+                        ),
+                    )
+                });
 
                 (
                     &logical.scalar,

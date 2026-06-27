@@ -104,7 +104,8 @@ impl StructuralQuery {
             assemble_load_execution_node_descriptor_from_route_facts(plan, route_facts)
                 .map_err(QueryError::execute)?;
         let route_diagnostics =
-            assemble_load_execution_verbose_diagnostics_from_route_facts(plan, route_facts);
+            assemble_load_execution_verbose_diagnostics_from_route_facts(plan, route_facts)
+                .map_err(QueryError::execute)?;
         let explain = plan.explain();
 
         // Phase 1: add descriptor-stage summaries for key execution operators.

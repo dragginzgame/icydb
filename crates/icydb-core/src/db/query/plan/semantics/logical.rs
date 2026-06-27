@@ -258,21 +258,19 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-compiled execution-preparation predicate program.
     #[must_use]
-    pub(in crate::db) const fn execution_preparation_compiled_predicate(
+    pub(in crate::db) fn execution_preparation_compiled_predicate(
         &self,
     ) -> Option<&PredicateProgram> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .execution_preparation_compiled_predicate
             .as_ref()
     }
 
     /// Borrow the planner-compiled effective runtime predicate program.
     #[must_use]
-    pub(in crate::db) const fn effective_runtime_compiled_predicate(
-        &self,
-    ) -> Option<&PredicateProgram> {
+    pub(in crate::db) fn effective_runtime_compiled_predicate(&self) -> Option<&PredicateProgram> {
         match self
-            .static_execution_planning_contract()
+            .static_execution_planning_contract()?
             .residual_filter_contract
             .effective_runtime_filter_program()
         {
@@ -284,11 +282,9 @@ impl AccessPlannedQuery {
     /// Borrow the planner-compiled effective runtime scalar filter expression.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn effective_runtime_compiled_filter_expr(
-        &self,
-    ) -> Option<&CompiledExpr> {
+    pub(in crate::db) fn effective_runtime_compiled_filter_expr(&self) -> Option<&CompiledExpr> {
         match self
-            .static_execution_planning_contract()
+            .static_execution_planning_contract()?
             .residual_filter_contract
             .effective_runtime_filter_program()
         {
@@ -299,10 +295,10 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-frozen effective runtime scalar filter program.
     #[must_use]
-    pub(in crate::db) const fn effective_runtime_filter_program(
+    pub(in crate::db) fn effective_runtime_filter_program(
         &self,
     ) -> Option<&EffectiveRuntimeFilterProgram> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .residual_filter_contract
             .effective_runtime_filter_program()
     }
@@ -388,7 +384,7 @@ impl AccessPlannedQuery {
     /// Borrow the planner-frozen compiled scalar projection program.
     #[must_use]
     pub(in crate::db) fn scalar_projection_plan(&self) -> Option<&[CompiledExpr]> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .scalar_projection_plan
             .as_deref()
     }
@@ -400,51 +396,51 @@ impl AccessPlannedQuery {
     }
 
     /// Borrow the planner-frozen ordered primary-key field names.
-    #[must_use]
-    pub(in crate::db) fn primary_key_names(&self) -> Vec<&str> {
-        self.static_execution_planning_contract()
+    pub(in crate::db) fn primary_key_names(&self) -> Result<Vec<&str>, InternalError> {
+        Ok(self
+            .require_static_execution_planning_contract()?
             .primary_key_names
             .iter()
             .map(String::as_str)
-            .collect()
+            .collect())
     }
 
     /// Borrow the planner-frozen projection slot reachability set.
-    #[must_use]
-    pub(in crate::db) const fn projection_referenced_slots(&self) -> &[usize] {
-        self.static_execution_planning_contract()
+    pub(in crate::db) fn projection_referenced_slots(&self) -> Result<&[usize], InternalError> {
+        Ok(self
+            .require_static_execution_planning_contract()?
             .projection_referenced_slots
-            .as_slice()
+            .as_slice())
     }
 
     /// Borrow the planner-frozen mask for direct projected output slots.
-    #[must_use]
     #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
-    pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
-        self.static_execution_planning_contract()
+    pub(in crate::db) fn projected_slot_mask(&self) -> Result<&[bool], InternalError> {
+        Ok(self
+            .require_static_execution_planning_contract()?
             .projected_slot_mask
-            .as_slice()
+            .as_slice())
     }
 
     /// Return whether projection remains the full model-identity field list.
-    #[must_use]
-    pub(in crate::db) const fn projection_is_model_identity(&self) -> bool {
-        self.static_execution_planning_contract()
-            .projection_is_model_identity
+    pub(in crate::db) fn projection_is_model_identity(&self) -> Result<bool, InternalError> {
+        Ok(self
+            .require_static_execution_planning_contract()?
+            .projection_is_model_identity)
     }
 
     /// Borrow the planner-frozen ORDER BY slot reachability set, if any.
     #[must_use]
     pub(in crate::db) fn order_referenced_slots(&self) -> Option<&[usize]> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .order_referenced_slots
             .as_deref()
     }
 
     /// Borrow the planner-frozen resolved ORDER BY program, if one exists.
     #[must_use]
-    pub(in crate::db) const fn resolved_order(&self) -> Option<&ResolvedOrder> {
-        self.static_execution_planning_contract()
+    pub(in crate::db) fn resolved_order(&self) -> Option<&ResolvedOrder> {
+        self.static_execution_planning_contract()?
             .resolved_order
             .as_ref()
     }
@@ -452,7 +448,7 @@ impl AccessPlannedQuery {
     /// Borrow the planner-frozen access slot map used by index predicate compilation.
     #[must_use]
     pub(in crate::db) fn slot_map(&self) -> Option<&[usize]> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .slot_map
             .as_deref()
     }
@@ -462,32 +458,33 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn grouped_aggregate_execution_specs(
         &self,
     ) -> Option<&[GroupedAggregateExecutionSpec]> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .grouped_aggregate_execution_specs
             .as_deref()
     }
 
     /// Borrow the planner-resolved grouped DISTINCT execution strategy when present.
     #[must_use]
-    pub(in crate::db) const fn grouped_distinct_execution_strategy(
+    pub(in crate::db) fn grouped_distinct_execution_strategy(
         &self,
     ) -> Option<&GroupedDistinctExecutionStrategy> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .grouped_distinct_execution_strategy
             .as_ref()
     }
 
     /// Borrow the frozen projection semantic shape without reopening model ownership.
-    #[must_use]
-    pub(in crate::db) const fn frozen_projection_spec(&self) -> &ProjectionSpec {
-        &self.static_execution_planning_contract().projection_spec
+    pub(in crate::db) fn frozen_projection_spec(&self) -> Result<&ProjectionSpec, InternalError> {
+        Ok(&self
+            .require_static_execution_planning_contract()?
+            .projection_spec)
     }
 
     /// Borrow the frozen direct projection slots without reopening model ownership.
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn frozen_direct_projection_slots(&self) -> Option<&[usize]> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .projection_direct_slots
             .as_deref()
     }
@@ -496,7 +493,7 @@ impl AccessPlannedQuery {
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn frozen_data_row_direct_projection_slots(&self) -> Option<&[usize]> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .projection_data_row_direct_slots
             .as_deref()
     }
@@ -504,15 +501,21 @@ impl AccessPlannedQuery {
     /// Borrow the planner-frozen key-item-aware compile targets for the chosen access path.
     #[must_use]
     pub(in crate::db) fn index_compile_targets(&self) -> Option<&[IndexCompileTarget]> {
-        self.static_execution_planning_contract()
+        self.static_execution_planning_contract()?
             .index_compile_targets
             .as_deref()
     }
 
-    const fn static_execution_planning_contract(&self) -> &StaticExecutionPlanningContract {
+    const fn static_execution_planning_contract(&self) -> Option<&StaticExecutionPlanningContract> {
+        self.static_execution_planning_contract.as_ref()
+    }
+
+    fn require_static_execution_planning_contract(
+        &self,
+    ) -> Result<&StaticExecutionPlanningContract, InternalError> {
         self.static_execution_planning_contract
             .as_ref()
-            .expect("query semantics invariant")
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 }
 
@@ -949,7 +952,9 @@ fn resolved_order_value_source_for_term(
         )));
     }
 
-    let field = term.direct_field().expect("query semantics invariant");
+    let Some(field) = term.direct_field() else {
+        return Err(InternalError::query_invalid_logical_plan());
+    };
     let slot = resolve_required_schema_slot(
         schema_info,
         field,

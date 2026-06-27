@@ -178,7 +178,7 @@ impl PreparedLoadPlan {
     ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
         let prepared_projection_contract = if projection_materialization.validate_projection()
-            && !core.plan().projection_is_model_identity()
+            && !core.plan().projection_is_model_identity()?
         {
             core.get_or_init_projection_shape(authority.clone())?
         } else {

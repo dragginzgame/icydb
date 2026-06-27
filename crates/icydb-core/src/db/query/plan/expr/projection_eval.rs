@@ -283,10 +283,11 @@ fn eval_null_test_function_call(
         return Err(QueryError::invariant().into());
     }
 
-    Ok(function
+    let kind = function
         .boolean_null_test_kind()
-        .expect("query expression invariant")
-        .eval_value(value))
+        .ok_or_else(QueryError::invariant)?;
+
+    Ok(kind.eval_value(value))
 }
 
 fn eval_unary_text_function_call(
@@ -297,10 +298,13 @@ fn eval_unary_text_function_call(
 
     match input {
         Value::Null => Ok(Value::Null),
-        Value::Text(text) => Ok(function
-            .unary_text_function_kind()
-            .expect("query expression invariant")
-            .eval_text(text.as_str())),
+        Value::Text(text) => {
+            let kind = function
+                .unary_text_function_kind()
+                .ok_or_else(QueryError::invariant)?;
+
+            Ok(kind.eval_text(text.as_str()))
+        }
         other => Err(text_input_error(function, other).into()),
     }
 }
@@ -320,9 +324,11 @@ fn eval_unary_numeric_function_call(
                 ));
             };
 
-            Ok(function
+            let kind = function
                 .unary_numeric_function_kind()
-                .expect("query expression invariant")
+                .ok_or_else(QueryError::invariant)?;
+
+            Ok(kind
                 .eval_decimal(decimal)
                 .map_err(ProjectionFunctionEvalError::from)?)
         }
@@ -373,9 +379,10 @@ fn eval_binary_numeric_function_call(
                     QueryProjectionCode::NumericInputRequired,
                 ));
             };
-            let value = function
+            let kind = function
                 .binary_numeric_function_kind()
-                .expect("query expression invariant")
+                .ok_or_else(QueryError::invariant)?;
+            let value = kind
                 .eval_decimal(left, right)
                 .map_err(ProjectionFunctionEvalError::from)?;
 
@@ -420,10 +427,13 @@ fn eval_left_right_text_function_call(
 
     match (input, length) {
         (Value::Null, _) | (_, None) => Ok(Value::Null),
-        (Value::Text(text), Some(length)) => Ok(function
-            .left_right_text_function_kind()
-            .expect("query expression invariant")
-            .eval_text(text.as_str(), length)),
+        (Value::Text(text), Some(length)) => {
+            let kind = function
+                .left_right_text_function_kind()
+                .ok_or_else(QueryError::invariant)?;
+
+            Ok(kind.eval_text(text.as_str(), length))
+        }
         (other, _) => Err(text_input_error(function, other).into()),
     }
 }
@@ -437,10 +447,13 @@ fn eval_text_predicate_function_call(
 
     match (input, literal) {
         (Value::Null, _) | (_, None) => Ok(Value::Null),
-        (Value::Text(text), Some(needle)) => Ok(function
-            .boolean_text_predicate_kind()
-            .expect("query expression invariant")
-            .eval_text(text, needle)),
+        (Value::Text(text), Some(needle)) => {
+            let kind = function
+                .boolean_text_predicate_kind()
+                .ok_or_else(QueryError::invariant)?;
+
+            Ok(kind.eval_text(text, needle))
+        }
         (other, _) => Err(text_input_error(function, other).into()),
     }
 }
@@ -604,7 +617,7 @@ fn eval_preview_boolean_binary_expr(
             }
             _ => Err(invalid_binary_operands(op, left, right)),
         },
-        _ => unreachable!("query expression invariant"),
+        _ => Err(QueryError::invariant()),
     }
 }
 
@@ -656,7 +669,7 @@ fn eval_preview_compare_binary_expr(
         BinaryOp::Lte => eval_order_comparison(op, left, right, Ordering::is_le)?,
         BinaryOp::Gt => eval_order_comparison(op, left, right, Ordering::is_gt)?,
         BinaryOp::Gte => eval_order_comparison(op, left, right, Ordering::is_ge)?,
-        _ => unreachable!("query expression invariant"),
+        _ => return Err(QueryError::invariant()),
     };
 
     Ok(Value::Bool(value))

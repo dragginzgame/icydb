@@ -326,7 +326,11 @@ fn initial_retained_slot_projection_runtime_mode(
     prepared: &PreparedScalarRuntimeHandoff,
     suppress_route_scan_hints: bool,
 ) -> ScalarProjectionRuntimeMode {
-    if prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints {
+    if matches!(
+        prepared.plan_core.plan().projection_is_model_identity(),
+        Ok(true)
+    ) && !suppress_route_scan_hints
+    {
         ScalarProjectionRuntimeMode::None
     } else if prepared
         .prepared_projection_contract
@@ -349,7 +353,7 @@ fn initial_retained_slot_layout(
     projection_runtime_mode: ScalarProjectionRuntimeMode,
     suppress_route_scan_hints: bool,
 ) -> Result<Option<RetainedSlotLayout>, InternalError> {
-    if prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints {
+    if prepared.plan_core.plan().projection_is_model_identity()? && !suppress_route_scan_hints {
         Ok(None)
     } else if projection_runtime_mode.validate_projection()
         || projection_runtime_mode.retain_slot_rows()

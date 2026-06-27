@@ -385,31 +385,29 @@ fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
             function,
             args: args.into_iter().map(normalize_bool_expr_impl).collect(),
         },
-        Some(BooleanFunctionShape::TextPredicate) => {
-            let [left, right] = <[Expr; 2]>::try_from(args).expect("query expression invariant");
-
-            Expr::FunctionCall {
+        Some(BooleanFunctionShape::TextPredicate) => match <[Expr; 2]>::try_from(args) {
+            Ok([left, right]) => Expr::FunctionCall {
                 function,
                 args: vec![
                     normalize_bool_compare_operand(left),
                     normalize_bool_compare_operand(right),
                 ],
-            }
-        }
+            },
+            Err(args) => Expr::FunctionCall { function, args },
+        },
         Some(
             BooleanFunctionShape::NullTest
             | BooleanFunctionShape::FieldPredicate
             | BooleanFunctionShape::CollectionContains,
         )
         | None => Expr::FunctionCall { function, args },
-        Some(BooleanFunctionShape::Membership) => {
-            let [target, values] = <[Expr; 2]>::try_from(args).expect("query expression invariant");
-
-            Expr::FunctionCall {
+        Some(BooleanFunctionShape::Membership) => match <[Expr; 2]>::try_from(args) {
+            Ok([target, values]) => Expr::FunctionCall {
                 function,
                 args: vec![normalize_bool_compare_operand(target), values],
-            }
-        }
+            },
+            Err(args) => Expr::FunctionCall { function, args },
+        },
     }
 }
 

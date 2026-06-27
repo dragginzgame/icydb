@@ -166,13 +166,17 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         &self,
         target_field: &str,
     ) -> BytesByProjectionMode {
+        let Ok(primary_key_names) = self.logical_plan().primary_key_names() else {
+            return BytesByProjectionMode::Materialized;
+        };
+
         classify_bytes_by_projection_mode(
             self.access(),
             self.order_spec(),
             self.consistency(),
             self.has_predicate(),
             target_field,
-            &self.logical_plan().primary_key_names(),
+            &primary_key_names,
         )
     }
 

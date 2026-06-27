@@ -250,7 +250,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     plan: &AccessPlannedQuery,
 ) -> Result<PreparedProjectionContract, InternalError> {
     #[cfg(any(test, feature = "sql"))]
-    let projection = plan.frozen_projection_spec().clone();
+    let projection = plan.frozen_projection_spec()?.clone();
     let compiled_projection = plan
         .scalar_projection_plan()
         .ok_or_else(InternalError::query_executor_invariant)?
@@ -271,7 +271,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     );
     #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     let projected_slot_mask =
-        projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask());
+        projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask()?);
     #[cfg(not(any(test, feature = "sql")))]
     let _ = row_layout;
 
@@ -279,7 +279,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
         #[cfg(any(test, feature = "sql"))]
         projection,
         prepared: PreparedProjectionPlan::Scalar(compiled_projection),
-        projection_is_model_identity: plan.projection_is_model_identity(),
+        projection_is_model_identity: plan.projection_is_model_identity()?,
         #[cfg(any(test, feature = "sql"))]
         retained_slot_direct_projection_slots,
         #[cfg(any(test, feature = "sql"))]

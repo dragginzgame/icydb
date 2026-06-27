@@ -214,11 +214,11 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown
     node: &mut ExplainExecutionNodeDescriptor,
     plan: &AccessPlannedQuery,
     covering_scan: bool,
-) {
+) -> Result<(), InternalError> {
     node.node_properties.insert(
         property_keys::PROJECTION_FIELDS,
         value_list(
-            plan.frozen_projection_spec()
+            plan.frozen_projection_spec()?
                 .fields()
                 .map(explain_projection_field_name),
         ),
@@ -227,6 +227,8 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown
         property_keys::PROJECTION_PUSHDOWN,
         Value::from(covering_scan),
     );
+
+    Ok(())
 }
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_properties(
