@@ -21,7 +21,12 @@ residual filtering, count/cardinality shortcuts, cache identity, and EXPLAIN.
 
 ## Completed Since 0.186.2
 
-- No pushed slices yet.
+- Adds a source guard proving downstream cache, route, EXPLAIN, and
+  count/cardinality consumers do not call SQL/fluent
+  expression-to-predicate extraction or predicate compilation paths directly.
+- Locks the remaining strict SQL UPDATE selector and global aggregate
+  base-WHERE predicate-admission call sites so their fail-closed policy lanes
+  stay explicit until a future design intentionally widens SQL admission.
 
 ## Completed Slices
 

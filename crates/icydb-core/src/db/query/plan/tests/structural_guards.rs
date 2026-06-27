@@ -470,6 +470,86 @@ fn filter_authority_sql_predicate_handoffs_are_explicit() {
         BTreeMap::from([("src/db/sql/lowering/select/mod.rs".to_string(), 1)]),
         "strict SQL WHERE lowering should remain localized to UPDATE selector admission",
     );
+    assert_eq!(
+        runtime_pattern_counts("from_update_where_expr("),
+        BTreeMap::from([("src/db/sql/lowering/select/mod.rs".to_string(), 1)]),
+        "UPDATE selector predicate admission should stay localized to the explicit strict UPDATE policy lane",
+    );
+    assert_eq!(
+        runtime_pattern_counts("from_where_expr_requiring_predicate_subset("),
+        BTreeMap::from([(
+            "src/db/sql/lowering/aggregate/command/global.rs".to_string(),
+            1,
+        )]),
+        "global aggregate base-WHERE predicate admission should stay localized to the explicit fail-closed global aggregate lane",
+    );
+}
+
+#[test]
+fn filter_authority_downstream_consumers_do_not_extract_predicate_facts() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source_roots = [
+        "src/db/executor/aggregate/count_terminal.rs",
+        "src/db/executor/explain",
+        "src/db/executor/planning/route",
+        "src/db/query/intent/cache_key.rs",
+        "src/db/query/intent/query.rs",
+        "src/db/query/plan/access_plan.rs",
+        "src/db/query/plan/pipeline.rs",
+        "src/db/query/plan/planner",
+        "src/db/query/plan/semantics/logical.rs",
+        "src/db/session/query/cache.rs",
+    ];
+    let forbidden_patterns = [
+        "derive_normalized_bool_expr_predicate_subset(",
+        "derive_canonical_bool_expr_predicate_subset(",
+        "derive_sql_where_expr_predicate_subset(",
+        "compile_normalized_bool_expr_to_predicate(",
+        "compile_canonical_bool_expr_to_compiled_predicate(",
+        "lower_sql_where_expr(",
+    ];
+    let mut forbidden_hits = Vec::new();
+
+    let mut source_paths = Vec::new();
+    for source_root in source_roots {
+        let path = crate_root.join(source_root);
+        if path.is_dir() {
+            collect_rust_sources(path.as_path(), &mut source_paths);
+        } else {
+            source_paths.push(path);
+        }
+    }
+    source_paths.sort();
+
+    for source_path in source_paths {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let relative = relative_rust_source_path(crate_root, source_path.as_path());
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = runtime_source_without_test_items(source.as_str());
+
+        forbidden_hits.extend(
+            forbidden_patterns
+                .iter()
+                .copied()
+                .filter(|pattern| runtime_source.contains(pattern))
+                .map(|pattern| format!("{relative}: {pattern}")),
+        );
+    }
+
+    assert!(
+        forbidden_hits.is_empty(),
+        "downstream cache, route, EXPLAIN, and count/cardinality consumers must consume query-intent/planner predicate projections instead of deriving predicate facts from SQL/fluent expressions: {forbidden_hits:?}",
+    );
 }
 
 #[test]

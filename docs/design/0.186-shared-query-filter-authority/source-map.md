@@ -155,6 +155,9 @@ behavior stay unchanged.
   selectors and global aggregate base filters, still carry explicit predicate
   subsets and remain intentionally fail-closed for expression-only WHERE
   shapes.
+- The UPDATE strict selector and global aggregate base-WHERE strict admission
+  call sites are source-guarded separately so they cannot drift into ordinary
+  SELECT/DELETE expression-backed filter lowering accidentally.
 - `filter_authority_sql_explicit_predicate_lanes_are_explicit` and
   `filter_authority_sql_predicate_handoffs_are_explicit` guard the remaining
   SQL admission and access-mirror exceptions so new pre-access predicate
@@ -179,6 +182,10 @@ behavior stay unchanged.
 - Predicate identity remains hash-significant only for predicate-only filters,
   keeping cache identity aligned with user-visible filter semantics rather than
   frontend-specific predicate mirrors.
+- Downstream cache, route, EXPLAIN, and count/cardinality consumers now have a
+  source guard forbidding direct expression-to-predicate extraction or
+  predicate compilation calls, so those consumers must read predicate facts
+  through query-intent/planner projections.
 
 ## EXPLAIN Projection Proof
 

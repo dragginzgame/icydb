@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Tightens the shared query filter authority guardrail so downstream cache,
+  route, EXPLAIN, and count/cardinality consumers cannot derive predicate
+  facts directly from SQL or fluent expressions, while keeping strict SQL
+  UPDATE/global-aggregate predicate-admission lanes explicit.
+
 ## [0.186.x] 🔧 - 2026-06-27 - Shared Query Filter Authority
 
 Detailed notes: [docs/changelog/0.186.md](docs/changelog/0.186.md)
