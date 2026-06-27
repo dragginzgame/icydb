@@ -70,6 +70,32 @@ fn runtime_pattern_counts(pattern: &str) -> BTreeMap<String, usize> {
     counts
 }
 
+fn source_for(crate_root: &Path, relative_path: &str) -> String {
+    let source_path = crate_root.join(relative_path);
+    fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()))
+}
+
+fn assert_source_contains_patterns(source: &str, patterns: &[&str], message: &str) {
+    let missing = patterns
+        .iter()
+        .copied()
+        .filter(|pattern| !source.contains(pattern))
+        .collect::<Vec<_>>();
+
+    assert!(missing.is_empty(), "{message}: {missing:?}");
+}
+
+fn assert_source_excludes_patterns(source: &str, patterns: &[&str], message: &str) {
+    let present = patterns
+        .iter()
+        .copied()
+        .filter(|pattern| source.contains(pattern))
+        .collect::<Vec<_>>();
+
+    assert!(present.is_empty(), "{message}: {present:?}");
+}
+
 #[test]
 fn planner_global_distinct_shape_builder_contract_is_semantic_only() {
     assert_global_distinct_builder_signature(global_distinct_group_spec_for_aggregate_identity);
@@ -549,6 +575,224 @@ fn filter_authority_downstream_consumers_do_not_extract_predicate_facts() {
     assert!(
         forbidden_hits.is_empty(),
         "downstream cache, route, EXPLAIN, and count/cardinality consumers must consume query-intent/planner predicate projections instead of deriving predicate facts from SQL/fluent expressions: {forbidden_hits:?}",
+    );
+}
+
+#[test]
+fn prefix_cardinality_count_entrypoints_share_proof_and_terminal_authority() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let session_cache = source_for(crate_root, "src/db/session/query/cache.rs");
+    let count_terminal = source_for(crate_root, "src/db/executor/aggregate/count_terminal.rs");
+    let direct_count = source_for(crate_root, "src/db/session/sql/execute/direct_count.rs");
+
+    assert_source_contains_patterns(
+        &session_cache,
+        &[
+            "pub(in crate::db) fn direct_count_cardinality_prefix_specs_for_accepted_authority(",
+            "query.try_build_count_cardinality_prefix_access_with_schema_info(",
+            "query.build_plan_with_visible_indexes(visible_indexes)?",
+            "Self::direct_count_cardinality_prefix_specs_from_planned_query(authority, &plan)",
+            "fn direct_count_cardinality_prefix_specs_from_planned_query(",
+            "lower_access(authority.entity_tag(), &plan.access)",
+            "exact_count_cardinality_prefixes_for_plan(",
+            "lowered_access.index_prefix_specs()",
+            "lowered_index_prefix_cardinality_specs_from_plan(",
+        ],
+        "direct SQL count prefix-spec admission may keep its accepted-authority shortcut, but its planned fallback must share the planner prefix-cardinality proof",
+    );
+
+    assert_source_contains_patterns(
+        &count_terminal,
+        &[
+            "fn try_prepare_index_prefix_cardinality_preflight(",
+            "let prefixes = exact_count_cardinality_prefixes_for_plan(",
+            "terminal.into_preflight(authority, logical_plan, prefixes)",
+            "execute_measured_index_prefix_cardinality_terminal(",
+            "count_index_prefix_cardinality_specs(store, page, prefixes)",
+            "count_index_prefix_cardinality(store, page, prefixes)",
+            "exists_index_prefix_cardinality(store, page, prefixes)",
+            "index_prefix_cardinality_sum_for_specs(",
+            "index_prefix_cardinality_sum_for_plan(",
+            "fn index_prefix_cardinality_sum<",
+        ],
+        "direct SQL COUNT and prepared COUNT/EXISTS prefix-cardinality terminals must converge on the shared proof, page-window, measurement, and store-cardinality helper path",
+    );
+
+    assert_source_excludes_patterns(
+        &direct_count,
+        &[
+            "exact_prefix_cardinality_sum(",
+            "index_prefix_cardinality_sum(",
+            "count_index_prefix_cardinality_specs(",
+            "count_index_prefix_cardinality(",
+        ],
+        "SQL direct COUNT should carry accepted prefix specs to count_terminal.rs instead of owning store-cardinality execution",
+    );
+}
+
+#[test]
+fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let write_mod = source_for(crate_root, "src/db/session/sql/execute/write/mod.rs");
+    let update = source_for(crate_root, "src/db/session/sql/execute/write/update.rs");
+    let insert = source_for(crate_root, "src/db/session/sql/execute/write/insert.rs");
+    let delete = source_for(crate_root, "src/db/session/sql/execute/write/delete.rs");
+    let delete_api = source_for(crate_root, "src/db/executor/delete/api.rs");
+    let structural_delete = source_for(
+        crate_root,
+        "src/db/executor/delete/structural_projection.rs",
+    );
+
+    assert_source_contains_patterns(
+        &write_mod,
+        &[
+            "struct SqlWriteCandidateBounds",
+            "fn validate(self, candidate_rows: SqlWriteCandidateRows)",
+            "struct SqlWriteMutationExecution<E>",
+            "fn from_bounded_batch(",
+            "let staged_rows = rows.validate_staged_rows(bounds)?;",
+            "fn execute_sql_write_mutation_batch<E>(",
+        ],
+        "SQL UPDATE/INSERT staged-row admission should stay centralized in SqlWriteMutationExecution",
+    );
+
+    assert_source_contains_patterns(
+        &update,
+        &[
+            "collect_sql_write_mutation_batch_from_structural_query(",
+            "SqlWriteMutationExecution::from_bounded_batch(",
+            "sql_update_candidate_bounds(execution_bounds)",
+        ],
+        "SQL UPDATE should feed collected selector rows through the shared mutation batch bound",
+    );
+
+    assert_source_contains_patterns(
+        &insert,
+        &[
+            "let candidate_bounds =",
+            "sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some())",
+            "candidate_bounds.validate(SqlWriteCandidateRows::from_len(values.len()))?",
+            "SqlWriteMutationExecution::from_bounded_batch(",
+        ],
+        "SQL INSERT VALUES and INSERT SELECT should share candidate bounds through the mutation batch handoff",
+    );
+
+    assert_source_contains_patterns(
+        &delete,
+        &[
+            "const fn sql_delete_candidate_bounds(",
+            "const fn sql_delete_projection_bounds(",
+            "DeleteProjectionBounds::max_rows(max_rows)",
+            ".execute_count_with_bounds(plan, bounds)",
+            ".execute_structural_projection_with_bounds(",
+        ],
+        "SQL DELETE should project SQL write bounds into the delete-specific pre-commit projection/count boundary",
+    );
+
+    assert_source_contains_patterns(
+        &delete_api,
+        &[
+            "prepare_structural_delete_projection_core(",
+            "prepare_structural_delete_count_core_with_bounds(",
+            "Self::apply_prepared_delete_commit(db, &prepared, projection.commit.row_ops)?",
+            "Self::apply_prepared_delete_commit(db, &prepared, count.commit.row_ops)?",
+        ],
+        "delete executor wrappers should keep SQL projection/count bounds before the typed commit-window bridge",
+    );
+
+    assert_source_contains_patterns(
+        &structural_delete,
+        &[
+            "validate_structural_delete_projection_bounds(&prepared_projection.output, bounds)?",
+            "validate_precommit(&prepared_projection.output)?",
+            "prepare_structural_delete_count_core_with_optional_bounds(",
+            "validate_structural_delete_row_count_bounds(",
+        ],
+        "structural DELETE count/RETURNING bounds should stay in the delete post-access output boundary, before commit",
+    );
+}
+
+#[test]
+fn scalar_entrypoints_share_execution_inputs_spine() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let execution = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/scalar/execution.rs",
+    );
+    let materialized = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/scalar/materialized.rs",
+    );
+    let streaming = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/scalar/streaming.rs",
+    );
+    let entrypoints = source_for(
+        crate_root,
+        "src/db/executor/pipeline/entrypoints/scalar/entrypoints.rs",
+    );
+
+    assert_source_contains_patterns(
+        &execution,
+        &[
+            "pub(super) fn execute_prepared_scalar_kernel<T>(",
+            "prepare_scalar_route_for_execution(",
+            "let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {",
+            "record_plan_metrics(entity_path, plan);",
+            "with_execution_stats_capture(debug, ||",
+            "pub(super) fn finish_scalar_kernel_observability(",
+        ],
+        "scalar route setup, ExecutionInputs construction, plan metrics, and observability should stay centralized in execute_prepared_scalar_kernel",
+    );
+
+    assert_source_contains_patterns(
+        &materialized,
+        &[
+            "execute_prepared_scalar_kernel(",
+            "ExecutionKernel::materialize_with_optional_residual_retry(",
+            "finish_scalar_kernel_observability(",
+        ],
+        "materialized scalar pages should consume the shared scalar kernel spine and own only page materialization/finalization",
+    );
+
+    assert_source_contains_patterns(
+        &streaming,
+        &[
+            "execute_prepared_scalar_kernel(",
+            "ExecutionKernel::materialize_kernel_rows_with_optional_residual_retry(",
+            "finish_scalar_kernel_observability(",
+        ],
+        "aggregate row sinks should consume the shared scalar kernel spine and own only retained kernel-row sinking",
+    );
+
+    assert_source_contains_patterns(
+        &entrypoints,
+        &[
+            "execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister",
+            "prepare_initial_scalar_retained_slot_page_runtime_from_handoff(",
+            "execute_prepared_scalar_route_runtime(prepared)?",
+            "execute_prepared_scalar_aggregate_kernel_row_sink_for_canister",
+            "execute_prepared_scalar_kernel_row_sink_execution(prepared, row_sink)?",
+        ],
+        "retained-slot page and aggregate row-sink entrypoints should prepare route runtime handoffs, then enter the shared scalar kernel spine",
+    );
+
+    let duplicate_input_builders = [
+        ("materialized.rs", materialized.as_str()),
+        ("streaming.rs", streaming.as_str()),
+        ("entrypoints.rs", entrypoints.as_str()),
+    ]
+    .into_iter()
+    .filter_map(|(file, source)| {
+        source
+            .contains("ExecutionInputs::new_prepared(")
+            .then_some(file)
+    })
+    .collect::<Vec<_>>();
+
+    assert!(
+        duplicate_input_builders.is_empty(),
+        "scalar terminal adapters should not rebuild ExecutionInputs outside execution.rs: {duplicate_input_builders:?}",
     );
 }
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds the first 0.187 query-engine audit guards, proving direct SQL COUNT and
+  prepared COUNT/EXISTS prefix-cardinality paths share metadata-count
+  authority while SQL write bounds stay on explicit mutation-batch and DELETE
+  post-access boundaries, and scalar page/row-sink entrypoints share the same
+  execution-input spine.
+
 - Tightens the shared query filter authority guardrail so downstream cache,
   route, EXPLAIN, and count/cardinality consumers cannot derive predicate
   facts directly from SQL or fluent expressions, while keeping strict SQL
