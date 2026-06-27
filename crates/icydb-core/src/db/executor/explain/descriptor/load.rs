@@ -43,10 +43,10 @@ use crate::db::executor::explain::descriptor::shared::{
     descriptor_route_property_line, distinct_execution_node_descriptor,
     execution_preparation_predicate_index_capability, explain_execution_mode,
     explain_filter_expr_for_plan, explain_predicate_for_plan,
-    explain_residual_filter_expr_for_plan, fallback_explain_predicate_index_capability_for_plan,
-    index_range_limit_pushdown_descriptor, order_by_execution_node_descriptor,
-    predicate_index_capability_label, predicate_stage_descriptors, route_diagnostic_line_bool,
-    route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
+    explain_residual_filter_expr_for_plan, index_range_limit_pushdown_descriptor,
+    order_by_execution_node_descriptor, predicate_index_capability_label,
+    predicate_stage_descriptors, route_diagnostic_line_bool, route_diagnostic_line_debug,
+    route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
     secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
 
@@ -70,14 +70,14 @@ impl LoadExplainPreparation {
     fn from_plan(plan: &AccessPlannedQuery) -> Self {
         let execution_preparation =
             ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
-        let predicate_index_capability =
-            execution_preparation_predicate_index_capability(&execution_preparation)
-                .or_else(|| {
-                    plan.predicate_pushdown_diagnostics()
-                        .access_path_fully_applied()
-                        .then_some(IndexPredicateCapability::FullyIndexable)
-                })
-                .or_else(|| fallback_explain_predicate_index_capability_for_plan(plan));
+        let predicate_index_capability = execution_preparation_predicate_index_capability(
+            &execution_preparation,
+        )
+        .or_else(|| {
+            plan.predicate_pushdown_diagnostics()
+                .access_path_fully_applied()
+                .then_some(IndexPredicateCapability::FullyIndexable)
+        });
         let strict_predicate_compatible =
             covering_strict_predicate_compatible(plan, predicate_index_capability);
 

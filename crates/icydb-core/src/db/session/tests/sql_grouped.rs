@@ -643,11 +643,11 @@ fn grouped_select_lowering_execution_surfaces_residual_filter_expr_for_searched_
     assert_eq!(
         residual_node.filter_expr(),
         Some("CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END"),
-        "grouped execution explain should expose the semantic grouped WHERE expression separately from the derived predicate contract",
+        "grouped execution explain should expose the semantic grouped WHERE expression",
     );
     assert!(
         residual_node.residual_filter_predicate().is_some(),
-        "grouped execution explain should still expose the derived grouped predicate contract",
+        "grouped execution explain should expose the residual predicate contract when planning retained one",
     );
 }
 

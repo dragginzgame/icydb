@@ -7,29 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Names predicate-subset coverage as a pre-access query-intent fact, separating
-  full, partial, and absent coverage while preserving the existing planner
-  projection and runtime behavior.
-- Moves ordinary SQL SELECT toward expression-owned filter authority while
-  preserving schema-canonicalized predicate mirrors for extractable filters so
-  indexed routes keep strict literal facts.
-- Removes DELETE's broad `Predicate::True` fallback so expression-only DELETE
-  filters keep residual-expression ownership instead of claiming predicate
-  coverage.
-- Locks the remaining explicit SQL predicate-admission lanes behind source
-  guards so UPDATE/global-aggregate exceptions stay auditable during the
-  shared filter-authority cleanup.
-- Proves direct COUNT cardinality shortcut eligibility is disabled when a
-  visible residual filter is not fully covered by the shared predicate subset.
-- Adds direct cache-key coverage for expression-plus-predicate handoffs so the
-  shared cache remains keyed by visible filter semantics, not predicate mirrors.
-- Audits the remaining strict SQL predicate-admission lanes and pins
-  UPDATE/global-aggregate expression-only WHERE shapes as intentionally
-  fail-closed.
-
 ## [0.186.x] 🔧 - 2026-06-27 - Shared Query Filter Authority
 
 Detailed notes: [docs/changelog/0.186.md](docs/changelog/0.186.md)
+
+- `0.186.2` makes predicate-only filter authority explicit inside query intent
+  and removes the EXPLAIN-only residual-expression predicate fallback so
+  residual predicate diagnostics are projected only from finalized residual
+  predicate contracts.
+
+- `0.186.1` names predicate-subset coverage as a pre-access query-intent fact,
+  moves ordinary SQL SELECT/DELETE filters toward expression-owned authority,
+  preserves strict SQL predicate mirrors for indexed planning, and proves
+  direct COUNT, cache identity, and strict SQL admission behavior stay aligned
+  with the shared filter contract.
 
 - `0.186.0` starts the shared query filter authority line by promoting the
   tentative design into an active baseline, documenting the current SQL/fluent

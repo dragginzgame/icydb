@@ -83,11 +83,17 @@ impl FilterPredicateCoverage {
 }
 
 #[derive(Clone, Debug)]
+enum FilterSemanticAuthority {
+    ExpressionBacked(Expr),
+    #[cfg_attr(not(any(test, feature = "sql")), allow(dead_code))]
+    PredicateOnly,
+}
+
+#[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct NormalizedFilter {
-    expr: Expr,
+    semantic_authority: FilterSemanticAuthority,
     predicate_subset: Option<Predicate>,
     predicate_coverage: FilterPredicateCoverage,
-    filter_expr_visible: bool,
 }
 
 impl NormalizedFilter {
@@ -104,10 +110,9 @@ impl NormalizedFilter {
             FilterPredicateCoverage::from_extracted_subset(predicate_subset.as_ref());
 
         Self {
-            expr,
+            semantic_authority: FilterSemanticAuthority::ExpressionBacked(expr),
             predicate_subset,
             predicate_coverage,
-            filter_expr_visible: true,
         }
     }
 
@@ -126,10 +131,9 @@ impl NormalizedFilter {
         );
 
         Self {
-            expr,
+            semantic_authority: FilterSemanticAuthority::ExpressionBacked(expr),
             predicate_subset: Some(predicate_subset),
             predicate_coverage: FilterPredicateCoverage::Full,
-            filter_expr_visible: true,
         }
     }
 
@@ -140,10 +144,9 @@ impl NormalizedFilter {
         predicate: Predicate,
     ) -> Self {
         Self {
-            expr: Expr::Literal(crate::value::Value::Bool(true)),
+            semantic_authority: FilterSemanticAuthority::PredicateOnly,
             predicate_subset: Some(predicate),
             predicate_coverage: FilterPredicateCoverage::Full,
-            filter_expr_visible: false,
         }
     }
 
@@ -151,10 +154,9 @@ impl NormalizedFilter {
     /// visible as a planner-owned expression filter.
     #[must_use]
     pub(in crate::db::query::intent) const fn logical_filter_expr(&self) -> Option<&Expr> {
-        if self.filter_expr_visible {
-            Some(&self.expr)
-        } else {
-            None
+        match &self.semantic_authority {
+            FilterSemanticAuthority::ExpressionBacked(expr) => Some(expr),
+            FilterSemanticAuthority::PredicateOnly => None,
         }
     }
 
@@ -174,10 +176,12 @@ impl NormalizedFilter {
     /// expression view used by existing logical-planning inputs.
     #[must_use]
     pub(in crate::db::query::intent) const fn predicate_subset_covers_expr(&self) -> bool {
-        self.filter_expr_visible
-            && self
-                .predicate_coverage()
-                .covers_user_visible_filter_semantics()
+        matches!(
+            self.semantic_authority,
+            FilterSemanticAuthority::ExpressionBacked(_)
+        ) && self
+            .predicate_coverage()
+            .covers_user_visible_filter_semantics()
     }
 
     // Append one filter clause by AND-ing the semantic expression and combining
@@ -186,25 +190,36 @@ impl NormalizedFilter {
         let existing_coverage = self.predicate_coverage;
         let filter_coverage = filter.predicate_coverage;
 
-        match (self.filter_expr_visible, filter.filter_expr_visible) {
-            (true, true) | (false, false) => {
-                self.expr = normalize_bool_expr(Expr::Binary {
+        match (&mut self.semantic_authority, filter.semantic_authority) {
+            (
+                FilterSemanticAuthority::ExpressionBacked(existing),
+                FilterSemanticAuthority::ExpressionBacked(appended),
+            ) => {
+                *existing = normalize_bool_expr(Expr::Binary {
                     op: BinaryOp::And,
-                    left: Box::new(self.expr.clone()),
-                    right: Box::new(filter.expr),
+                    left: Box::new(existing.clone()),
+                    right: Box::new(appended),
                 });
             }
-            (true, false) => {}
-            (false, true) => {
-                self.expr = filter.expr;
-                self.filter_expr_visible = true;
+            (
+                FilterSemanticAuthority::ExpressionBacked(_)
+                | FilterSemanticAuthority::PredicateOnly,
+                FilterSemanticAuthority::PredicateOnly,
+            ) => {}
+            (
+                FilterSemanticAuthority::PredicateOnly,
+                FilterSemanticAuthority::ExpressionBacked(appended),
+            ) => {
+                self.semantic_authority = FilterSemanticAuthority::ExpressionBacked(appended);
             }
         }
 
-        debug_assert!(
-            is_normalized_bool_expr(&self.expr),
-            "combined intent-owned filter expressions must stay normalized",
-        );
+        if let Some(expr) = self.logical_filter_expr() {
+            debug_assert!(
+                is_normalized_bool_expr(expr),
+                "combined intent-owned filter expressions must stay normalized",
+            );
+        }
 
         self.predicate_subset =
             combine_predicate_subset(self.predicate_subset.take(), filter.predicate_subset);

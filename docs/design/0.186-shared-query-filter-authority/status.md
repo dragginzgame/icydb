@@ -19,7 +19,26 @@ residual filtering, count/cardinality shortcuts, cache identity, and EXPLAIN.
 - Prove cache, EXPLAIN, route, residual, and count/cardinality behavior remain
   unchanged for each tightening slice.
 
-## Completed Since 0.186.0
+## Completed Since 0.186.2
+
+- No pushed slices yet.
+
+## Completed Slices
+
+### 0.186.2
+
+- Replaces `NormalizedFilter`'s predicate-only placeholder expression with an
+  explicit predicate-only semantic authority variant, keeping logical-planning
+  expression projection absent for predicate-only filters.
+- Preserves predicate-only access-planning identity, full coverage semantics,
+  and direct COUNT cardinality eligibility without changing cache, route, or
+  residual behavior.
+- Removes the EXPLAIN-only fallback that derived residual predicate DTOs from
+  residual expressions. EXPLAIN residual predicate output now comes from the
+  finalized residual predicate contract, while expression-owned residuals stay
+  on the residual expression surface.
+
+### 0.186.1
 
 - Names predicate-subset coverage as a query-intent pre-access semantic fact.
 - Distinguishes full, partial, and absent predicate coverage over
@@ -30,9 +49,10 @@ residual filtering, count/cardinality shortcuts, cache identity, and EXPLAIN.
 - Keeps runtime semantics, route choice, cursor format, public SQL/fluent
   behavior, cache identity, EXPLAIN shape, count/cardinality shortcuts, and
   persistence unchanged.
-- Removes ordinary SQL SELECT's duplicate predicate derivation before query
-  intent. SELECT filters now carry the schema-bound visible expression into
-  `NormalizedFilter`, which derives the shared pre-access predicate subset.
+- Moves ordinary SQL SELECT toward expression-owned filter authority. SELECT
+  filters now carry the schema-bound visible expression into `NormalizedFilter`
+  as the semantic authority, while extractable SQL filters retain
+  schema-canonicalized predicate mirrors for strict indexed planning.
 - Removes DELETE's broad `Predicate::True` fallback so expression-only DELETE
   filters stay on the residual expression lane without claiming predicate
   coverage.
@@ -51,8 +71,6 @@ residual filtering, count/cardinality shortcuts, cache identity, and EXPLAIN.
 - Audits the remaining strict SQL UPDATE/global-aggregate predicate-admission
   lanes and keeps expression-only WHERE shapes fail-closed because moving them
   to expression-backed intent would widen accepted SQL.
-
-## Completed Slices
 
 ### 0.186.0
 

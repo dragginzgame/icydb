@@ -422,7 +422,6 @@ fn planner_expr_predicate_artifact_requires_canonical_expr() {
 #[test]
 fn filter_authority_predicate_subset_derivation_sites_are_explicit() {
     let expected = BTreeMap::from([
-        ("src/db/query/explain/predicate.rs".to_string(), 1),
         ("src/db/query/intent/state.rs".to_string(), 1),
         ("src/db/sql/lowering/predicate/mod.rs".to_string(), 1),
     ]);
@@ -430,7 +429,7 @@ fn filter_authority_predicate_subset_derivation_sites_are_explicit() {
     assert_eq!(
         runtime_pattern_counts("derive_normalized_bool_expr_predicate_subset("),
         expected,
-        "pre-access predicate-subset derivation should stay localized to the filter-authority seams recorded for 0.186",
+        "pre-access predicate-subset derivation should stay localized to query intent and SQL admission/access-mirror seams recorded for 0.186",
     );
 }
 

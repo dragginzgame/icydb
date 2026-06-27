@@ -760,7 +760,7 @@ fn explain_sql_execution_verbose_keeps_distinct_semantic_identity_on_reuse_miss(
 }
 
 #[test]
-fn explain_sql_execution_verbose_searched_case_where_uses_canonical_residual_predicate_surface() {
+fn explain_sql_execution_verbose_searched_case_where_keeps_expression_residual_surface() {
     reset_session_sql_store();
     let session = sql_session();
     seed_nullable_session_sql_entities(
@@ -791,32 +791,37 @@ fn explain_sql_execution_verbose_searched_case_where_uses_canonical_residual_pre
     )
     .expect("canonical boolean verbose execution explain should succeed");
 
-    for (label, explain) in [
-        ("searched CASE", left.as_str()),
-        ("canonical boolean", right.as_str()),
-    ] {
-        assert_explain_contains_tokens(
-            explain,
-            &[
-                "residual_filter_predicate=Or([",
-                "diag.r.predicate_stage=residual_post_access",
-            ],
-            label,
-        );
-        assert!(
-            !explain.contains("residual_filter_expr="),
-            "{label} verbose execution explain should not keep a separate residual_filter_expr once the residual boolean tree canonicalizes back onto the shared predicate surface: {explain}",
-        );
-    }
-
     assert_explain_contains_tokens(
         left.as_str(),
         &[
-            "diag.r.predicate_index_capability=requires_full_scan",
-            "pred_idx_cap=Text(\"requires_full_scan\")",
+            "residual_filter_expr=",
+            "diag.r.predicate_stage=residual_post_access",
         ],
         "searched CASE",
     );
+    assert!(
+        !left.contains("residual_filter_predicate="),
+        "searched CASE verbose execution explain should not invent a residual predicate for expression-owned residual semantics: {left}",
+    );
+    assert!(
+        !left.contains("diag.r.predicate_index_capability=requires_full_scan")
+            && !left.contains("pred_idx_cap=Text(\"requires_full_scan\")"),
+        "searched CASE verbose execution explain should not project predicate-index capability from an expression-derived explain fallback: {left}",
+    );
+
+    assert_explain_contains_tokens(
+        right.as_str(),
+        &[
+            "residual_filter_predicate=Or([",
+            "diag.r.predicate_stage=residual_post_access",
+        ],
+        "canonical boolean",
+    );
+    assert!(
+        !right.contains("residual_filter_expr="),
+        "canonical boolean verbose execution explain should stay on the residual predicate surface when planning retains a residual predicate: {right}",
+    );
+
     for (label, explain) in [
         ("searched CASE", left.as_str()),
         ("canonical boolean", right.as_str()),

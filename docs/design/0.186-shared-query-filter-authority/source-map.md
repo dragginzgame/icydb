@@ -126,6 +126,17 @@ behavior stay unchanged.
   projection. It preserves route, residual, count/cardinality, cache, and
   EXPLAIN behavior while the shared pre-access contract is tightened.
 
+## Semantic Authority Baseline
+
+- `NormalizedFilter` now stores `FilterSemanticAuthority` so expression-backed
+  and predicate-only filters are explicit pre-access authority modes.
+- Predicate-only filters no longer carry a synthetic `TRUE` expression. They
+  retain predicate access-planning identity and full coverage over
+  user-visible filter semantics while logical-planning expression projection
+  remains absent.
+- Expression-backed filters continue to own the canonical visible expression
+  used by logical planning, cache identity, residual filtering, and EXPLAIN.
+
 ## SQL SELECT Extraction Cleanup
 
 - Ordinary scalar and grouped SQL SELECT filters now hand off the schema-bound
@@ -171,8 +182,11 @@ behavior stay unchanged.
 
 ## EXPLAIN Projection Proof
 
-- Existing SQL EXPLAIN coverage proves expression-owned residual filters expose
-  `filter_expr` / `residual_filter_expr` without claiming a derived
-  `residual_filter_predicate`.
+- SQL EXPLAIN no longer derives residual predicate DTOs from residual
+  expressions. `residual_filter_predicate` is projected from the finalized
+  residual predicate contract only.
+- Expression-owned residual filters expose `filter_expr` / `residual_filter_expr`
+  surfaces, while predicate-backed residual filters expose the residual
+  predicate contract when planning retained one.
 - Existing logical EXPLAIN coverage proves residual summaries distinguish
   scalar residual expressions from predicate-only residual work.

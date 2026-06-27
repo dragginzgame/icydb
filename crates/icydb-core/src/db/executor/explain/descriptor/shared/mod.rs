@@ -39,8 +39,7 @@ pub(in crate::db::executor::explain::descriptor) use self::predicate::{
     PredicateStageObservability, aggregate_covering_projection_for_terminal,
     execution_preparation_predicate_index_capability, explain_filter_expr_for_plan,
     explain_predicate_for_plan, explain_residual_filter_expr_for_plan,
-    fallback_explain_predicate_index_capability_for_plan, predicate_index_capability_label,
-    predicate_stage_descriptors,
+    predicate_index_capability_label, predicate_stage_descriptors,
 };
 
 pub(in crate::db::executor::explain::descriptor) const fn empty_execution_node_descriptor(

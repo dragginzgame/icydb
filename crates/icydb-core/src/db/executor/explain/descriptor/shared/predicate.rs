@@ -6,7 +6,7 @@ use crate::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
-                explain_predicate_from_expr, property_keys, property_values,
+                property_keys, property_values,
             },
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, AggregateKind, ResidualFilterShape,
@@ -135,13 +135,7 @@ pub(in crate::db::executor::explain::descriptor) fn explain_filter_expr_for_plan
 pub(in crate::db::executor::explain::descriptor) fn explain_residual_filter_expr_for_plan(
     plan: &AccessPlannedQuery,
 ) -> Option<String> {
-    // Prefer the canonical residual predicate surface whenever the surviving
-    // semantic filter still lowers onto the shared boolean predicate family.
-    // This keeps searched CASE and its expanded boolean equivalent on the same
-    // residual explain contract while still preserving `filter_expr` as the
-    // semantic query-owned surface.
     plan.residual_filter_expr()
-        .filter(|expr| explain_predicate_from_expr(expr).is_none())
         .map(render_scalar_filter_expr_plan_label)
 }
 
@@ -151,17 +145,6 @@ pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predic
     execution_preparation
         .predicate_capability_profile()
         .map(PredicateCapabilityProfile::index)
-}
-
-// Return a conservative explain-only predicate capability when the planner did
-// not retain an execution-preparation predicate, but explain can still derive a
-// canonical residual predicate from the surviving boolean expression tree.
-pub(in crate::db::executor::explain::descriptor) fn fallback_explain_predicate_index_capability_for_plan(
-    plan: &AccessPlannedQuery,
-) -> Option<IndexPredicateCapability> {
-    explain_predicate_for_plan(plan)
-        .is_some()
-        .then_some(IndexPredicateCapability::RequiresFullScan)
 }
 
 pub(in crate::db::executor::explain::descriptor) const fn predicate_index_capability_label(
@@ -344,10 +327,6 @@ pub(in crate::db::executor::explain::descriptor) fn explain_predicate_for_plan(
     plan.effective_execution_predicate()
         .as_ref()
         .map(ExplainPredicate::from_predicate)
-        .or_else(|| {
-            plan.residual_filter_expr()
-                .and_then(explain_predicate_from_expr)
-        })
 }
 
 // Return whether one scalar aggregate terminal can remain index-only under the

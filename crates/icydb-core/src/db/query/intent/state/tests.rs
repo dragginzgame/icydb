@@ -153,7 +153,7 @@ fn append_predicate_ands_multiple_filters() {
 }
 
 #[test]
-fn append_predicate_keeps_invisible_filter_expression_trivial() {
+fn append_predicate_keeps_predicate_only_authority_without_filter_expr() {
     let mut intent = QueryIntent::<u64>::new();
     intent.append_predicate(Predicate::And(vec![Predicate::True, Predicate::False]));
 
@@ -167,10 +167,12 @@ fn append_predicate_keeps_invisible_filter_expression_trivial() {
         filter.logical_filter_expr().is_none(),
         "predicate-only filters should not expose a logical filter expression",
     );
-    assert_eq!(
-        filter.expr,
-        Expr::Literal(Value::Bool(true)),
-        "invisible predicate-only filters should not rebuild a boolean expression tree",
+    assert!(
+        matches!(
+            filter.semantic_authority,
+            FilterSemanticAuthority::PredicateOnly
+        ),
+        "predicate-only filters should carry explicit predicate-only authority instead of a placeholder expression",
     );
     assert!(
         filter.predicate_subset().is_some(),
