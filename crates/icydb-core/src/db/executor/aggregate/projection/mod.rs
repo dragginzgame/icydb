@@ -930,7 +930,12 @@ fn terminal_value_from_covering_projection_pairs(
             .into_iter()
             .next_back()
             .map(|(_, value)| value),
-        _ => unreachable!(),
+        AggregateKind::Count
+        | AggregateKind::Sum
+        | AggregateKind::Avg
+        | AggregateKind::Exists
+        | AggregateKind::Min
+        | AggregateKind::Max => None,
     }
 }
 

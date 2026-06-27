@@ -139,19 +139,26 @@ runtime contract.
   - `crates/icydb-core/src/db/query/plan/semantics/`
   - `crates/icydb-core/src/db/query/explain/`
   - `crates/icydb-core/src/db/query/fingerprint/`
+  - `crates/icydb-core/src/db/session/sql/{update_policy,delete_policy,write_policy}.rs`
   - `crates/icydb-core/src/db/session/sql/execute/write/`
+  - `crates/icydb-core/src/db/executor/aggregate/projection/mod.rs`
 - Current classification: cleanup completed for the small trap-shaped
   invariants found in the 0.187 pass, including finalized static execution
-  metadata access.
+  metadata access, SQL write-policy validated-plan helpers, and covering
+  aggregate terminal-value selection.
 - Evidence: query expression preview/evaluation, predicate bridge conversion,
   grouped EXPLAIN/fingerprint projection, grouped strategy selection, resolved
   ORDER handling, SQL write primary-key normalization, and finalized
   static-execution-planning metadata now use optional, fallible, or fail-closed
-  paths instead of `.expect(...)` / `unreachable!(...)`.
+  paths instead of `.expect(...)` / `unreachable!(...)`. SQL UPDATE/DELETE
+  generated-policy variants stay on typed rejection paths, and bounded write
+  proof construction is fallible when a limit is absent. Covering aggregate
+  terminal-value selection now returns no selected value when non-FIRST/LAST
+  validation drift reaches the local helper.
 - Recommendation: keep runtime invariant drift recoverable with typed errors or
   conservative no-result behavior. Do not add new reference-returning helper
-  surfaces that assume finalized static execution metadata without a typed
-  error path.
+  surfaces that assume finalized static execution metadata or admitted SQL write
+  proof state without a typed or optional error path.
 
 ## Generated Canister Endpoints Versus Session Surfaces
 

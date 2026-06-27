@@ -71,6 +71,13 @@ parity test or a source invariant.
   primary-key metadata now returns `InternalError`; fast-path eligibility and
   bytes/projection diagnostics fail closed when the finalized contract is
   absent. A source guard now locks this accessor shape.
+- Made SQL UPDATE/DELETE policy validated-plan helpers recoverable. Generated
+  exposure policies now stay on typed rejection paths, bounded write proof
+  construction is fallible when a limit is absent, and a source guard prevents
+  the removed `unreachable!` / `.expect(...)` traps from returning.
+- Made covering aggregate terminal-value selection fail closed for non-FIRST
+  and non-LAST aggregate kinds, with a source guard proving the helper no
+  longer traps when validation drift reaches that boundary.
 
 ## Initial Queue
 

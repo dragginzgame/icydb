@@ -713,6 +713,80 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
 }
 
 #[test]
+fn sql_write_policy_validated_plan_helpers_are_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let write_policy = source_for(crate_root, "src/db/session/sql/write_policy.rs");
+    let update_policy = source_for(crate_root, "src/db/session/sql/update_policy.rs");
+    let delete_policy = source_for(crate_root, "src/db/session/sql/delete_policy.rs");
+
+    assert_source_contains_patterns(
+        &write_policy,
+        &[
+            "fn from_admitted_shape(",
+            ") -> Option<Self> {",
+            "shape.limit?",
+        ],
+        "bounded SQL write proof construction should stay fallible when the admitted-shape limit is absent",
+    );
+    assert_source_excludes_patterns(
+        &write_policy,
+        &[".expect(\"bounded policy admitted a limit\")"],
+        "bounded SQL write proof construction must not trap on a missing limit",
+    );
+
+    for (policy_name, source) in [
+        ("UPDATE", update_policy.as_str()),
+        ("DELETE", delete_policy.as_str()),
+    ] {
+        assert_source_contains_patterns(
+            source,
+            &[
+                "const fn validated_admission_lane(self) -> Option<SqlWriteAdmissionLane>",
+                "fn validated_",
+                "-> Option<SqlValidated",
+                "const fn generated_policy_rejection(",
+            ],
+            &format!(
+                "{policy_name} generated-policy and validated-plan helpers should stay fallible"
+            ),
+        );
+        assert_source_excludes_patterns(
+            source,
+            &[
+                "unreachable!(\"generated policies",
+                "unreachable!(\"generated policies returned before shared checks\")",
+            ],
+            &format!(
+                "{policy_name} generated-policy classification must reject or fail closed instead of trapping"
+            ),
+        );
+    }
+}
+
+#[test]
+fn aggregate_projection_terminal_value_selection_is_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let projection = source_for(crate_root, "src/db/executor/aggregate/projection/mod.rs");
+
+    assert_source_contains_patterns(
+        &projection,
+        &[
+            "fn terminal_value_from_covering_projection_pairs(",
+            "AggregateKind::First =>",
+            "AggregateKind::Last =>",
+            "AggregateKind::Count\n        | AggregateKind::Sum\n        | AggregateKind::Avg\n        | AggregateKind::Exists\n        | AggregateKind::Min\n        | AggregateKind::Max => None,",
+            "None",
+        ],
+        "covering aggregate terminal-value selection should fail closed for non-FIRST/LAST kinds",
+    );
+    assert_source_excludes_patterns(
+        &projection,
+        &["_ => unreachable!(),"],
+        "covering aggregate terminal-value selection must not trap on non-FIRST/LAST kinds",
+    );
+}
+
+#[test]
 fn scalar_entrypoints_share_execution_inputs_spine() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let execution = source_for(

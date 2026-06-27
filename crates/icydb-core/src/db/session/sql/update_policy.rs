@@ -47,15 +47,13 @@ pub enum SqlUpdateExposurePolicy {
 }
 
 impl SqlUpdateExposurePolicy {
-    fn validated_admission_lane(self) -> SqlWriteAdmissionLane {
-        match self {
+    const fn validated_admission_lane(self) -> Option<SqlWriteAdmissionLane> {
+        Some(match self {
             Self::PublicPrimaryKeyOnly => SqlWriteAdmissionLane::PrimaryKeyOnly,
             Self::PublicBoundedDeterministic => SqlWriteAdmissionLane::BoundedDeterministic,
             Self::SessionWriteCurrent | Self::AdminBulk => SqlWriteAdmissionLane::Bulk,
-            Self::GeneratedQuery | Self::GeneratedDdl => {
-                unreachable!("generated policies never produce validated update plans")
-            }
-        }
+            Self::GeneratedQuery | Self::GeneratedDdl => return None,
+        })
     }
 }
 
@@ -385,9 +383,11 @@ pub(in crate::db) fn classify_sql_update_statement_policy(
 
     let classification = classify_update_statement(statement, context);
     let rejection = update_policy_rejection(policy, &classification, context);
-    let plan = rejection
-        .is_none()
-        .then(|| validated_update_plan(statement, policy, &classification, context));
+    let plan = if rejection.is_none() {
+        validated_update_plan(statement, policy, &classification, context)
+    } else {
+        None
+    };
 
     SqlUpdatePolicyReport {
         classification: Some(classification),
@@ -414,7 +414,7 @@ fn classify_update_statement(
     }
 }
 
-fn update_policy_rejection(
+const fn update_policy_rejection(
     policy: SqlUpdateExposurePolicy,
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
@@ -457,7 +457,7 @@ fn update_policy_rejection(
             bounded_policy_rejection(classification, context)
         }
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
-            unreachable!("generated policies returned before shared checks")
+            generated_policy_rejection(policy)
         }
     }
 }
@@ -467,39 +467,37 @@ fn validated_update_plan(
     policy: SqlUpdateExposurePolicy,
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
-) -> SqlValidatedUpdatePlan {
-    let execution_bounds = execution_bounds(policy, classification, context);
+) -> Option<SqlValidatedUpdatePlan> {
+    let execution_bounds = execution_bounds(policy, classification, context)?;
     match policy {
-        SqlUpdateExposurePolicy::SessionWriteCurrent => {
+        SqlUpdateExposurePolicy::SessionWriteCurrent => Some(
             SqlValidatedUpdatePlan::SessionCurrent(SqlSessionCurrentUpdatePlan {
                 core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
-            })
-        }
-        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => {
+            }),
+        ),
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => Some(
             SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyUpdatePlan {
                 core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
                 primary_key_proof: SqlWritePrimaryKeyPlanProof::from_field_names(
                     context.primary_key_fields,
                 ),
-            })
-        }
-        SqlUpdateExposurePolicy::PublicBoundedDeterministic => {
+            }),
+        ),
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic => Some(
             SqlValidatedUpdatePlan::PublicBoundedDeterministic(SqlPublicBoundedUpdatePlan {
                 core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
                 bounded_proof: SqlWriteBoundedPlanProof::from_admitted_shape(
                     &classification.write_shape,
                     context.primary_key_fields,
-                ),
-            })
-        }
+                )?,
+            }),
+        ),
         SqlUpdateExposurePolicy::AdminBulk => {
-            SqlValidatedUpdatePlan::AdminBulk(SqlAdminBulkUpdatePlan {
+            Some(SqlValidatedUpdatePlan::AdminBulk(SqlAdminBulkUpdatePlan {
                 core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
-            })
+            }))
         }
-        SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
-            unreachable!("generated policies never produce validated update plans")
-        }
+        SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => None,
     }
 }
 
@@ -507,13 +505,30 @@ fn execution_bounds(
     policy: SqlUpdateExposurePolicy,
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
-) -> SqlWriteExecutionBounds {
-    classification
-        .write_shape
-        .execution_bounds_for_admission_lane(
-            policy.validated_admission_lane(),
-            context.write_bounds(),
-        )
+) -> Option<SqlWriteExecutionBounds> {
+    let admission_lane = policy.validated_admission_lane()?;
+    Some(
+        classification
+            .write_shape
+            .execution_bounds_for_admission_lane(admission_lane, context.write_bounds()),
+    )
+}
+
+const fn generated_policy_rejection(
+    policy: SqlUpdateExposurePolicy,
+) -> Option<SqlUpdatePolicyRejection> {
+    match policy {
+        SqlUpdateExposurePolicy::GeneratedQuery => {
+            Some(SqlUpdatePolicyRejection::GeneratedQueryRejectsUpdate)
+        }
+        SqlUpdateExposurePolicy::GeneratedDdl => {
+            Some(SqlUpdatePolicyRejection::GeneratedDdlRejectsUpdate)
+        }
+        SqlUpdateExposurePolicy::SessionWriteCurrent
+        | SqlUpdateExposurePolicy::PublicPrimaryKeyOnly
+        | SqlUpdateExposurePolicy::PublicBoundedDeterministic
+        | SqlUpdateExposurePolicy::AdminBulk => None,
+    }
 }
 
 const fn unsafe_assignment_rejection(

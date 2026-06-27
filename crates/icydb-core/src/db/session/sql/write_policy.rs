@@ -293,11 +293,11 @@ impl SqlWriteBoundedPlanProof {
     pub(in crate::db::session::sql) fn from_admitted_shape(
         shape: &SqlWriteStatementShape,
         ordered_primary_key_fields: &[&str],
-    ) -> Self {
-        Self::new(
-            shape.limit.expect("bounded policy admitted a limit"),
+    ) -> Option<Self> {
+        Some(Self::new(
+            shape.limit?,
             owned_write_field_names(ordered_primary_key_fields),
-        )
+        ))
     }
 }
 
