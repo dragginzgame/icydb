@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)
 
+- `0.187.3` continues recoverable SQL execution cleanup by returning typed
+  query execution errors when compiled-command or EXPLAIN rendering dispatch
+  drift reaches fallback arms.
+
 - `0.187.2` continues recoverable invariant cleanup by making SQL write-policy
   validated-plan helpers and covering aggregate terminal-value selection fail
   closed instead of trapping on internal drift.

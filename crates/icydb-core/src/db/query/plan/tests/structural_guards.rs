@@ -787,6 +787,42 @@ fn aggregate_projection_terminal_value_selection_is_recoverable() {
 }
 
 #[test]
+fn sql_execution_routing_fallbacks_are_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let execute = source_for(crate_root, "src/db/session/sql/execute/mod.rs");
+    let explain = source_for(crate_root, "src/db/session/sql/execute/explain.rs");
+
+    assert_source_contains_patterns(
+        &execute,
+        &[
+            "CompiledSqlCommand::ShowMemory => Err(QueryError::execute(",
+            "InternalError::query_executor_invariant()",
+        ],
+        "compiled SQL metadata/write routing drift should return a typed query error",
+    );
+    assert_source_excludes_patterns(
+        &execute,
+        &["unreachable!(\"metadata/write SQL handled above\")"],
+        "compiled SQL metadata/write routing drift must not trap",
+    );
+
+    assert_source_contains_patterns(
+        &explain,
+        &[
+            "SqlExplainMode::Execution => {",
+            "return Err(QueryError::execute(",
+            "InternalError::query_executor_invariant()",
+        ],
+        "SQL EXPLAIN PLAN/JSON routing drift should return a typed query error",
+    );
+    assert_source_excludes_patterns(
+        &explain,
+        &["unreachable!(\"execution explain is handled separately\")"],
+        "SQL EXPLAIN PLAN/JSON routing drift must not trap",
+    );
+}
+
+#[test]
 fn scalar_entrypoints_share_execution_inputs_spine() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let execution = source_for(

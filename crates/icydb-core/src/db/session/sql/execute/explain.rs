@@ -34,6 +34,7 @@ use crate::{
             parser::SqlExplainMode,
         },
     },
+    error::InternalError,
     traits::CanisterKind,
     value::Value,
 };
@@ -171,7 +172,9 @@ impl<C: CanisterKind> DbSession<C> {
                     SqlExplainMode::Plan => explain.render_text_canonical(),
                     SqlExplainMode::Json => explain.render_json_canonical(),
                     SqlExplainMode::Execution => {
-                        unreachable!("execution explain is handled separately")
+                        return Err(QueryError::execute(
+                            InternalError::query_executor_invariant(),
+                        ));
                     }
                 };
 

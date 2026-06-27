@@ -24,7 +24,6 @@ use crate::db::executor::EntityAuthority;
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 #[cfg(feature = "sql-explain")]
 use crate::db::sql::lowering::LoweredSqlCommand;
-#[cfg(feature = "diagnostics")]
 use crate::error::InternalError;
 use crate::{
     db::{
@@ -269,7 +268,9 @@ impl<C: CanisterKind> DbSession<C> {
             | CompiledSqlCommand::ShowColumnsEntity
             | CompiledSqlCommand::ShowEntities { .. }
             | CompiledSqlCommand::ShowStores { .. }
-            | CompiledSqlCommand::ShowMemory => unreachable!("metadata/write SQL handled above"),
+            | CompiledSqlCommand::ShowMemory => Err(QueryError::execute(
+                InternalError::query_executor_invariant(),
+            )),
         }
     }
 

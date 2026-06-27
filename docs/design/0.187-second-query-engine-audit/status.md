@@ -78,6 +78,10 @@ parity test or a source invariant.
 - Made covering aggregate terminal-value selection fail closed for non-FIRST
   and non-LAST aggregate kinds, with a source guard proving the helper no
   longer traps when validation drift reaches that boundary.
+- Made SQL compiled-command and EXPLAIN rendering routing fallbacks
+  recoverable. Metadata/write commands that drift past their dispatch adapters
+  and EXPLAIN EXECUTION that drifts into PLAN/JSON rendering now return typed
+  query execution errors instead of `unreachable!()` traps.
 
 ## Initial Queue
 
