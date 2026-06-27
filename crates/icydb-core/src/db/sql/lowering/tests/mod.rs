@@ -2570,7 +2570,7 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
                                 Expr::Binary {
                                     op: BinaryOp::Gte,
                                     left: Box::new(Expr::Field(FieldId::new("age"))),
-                                    right: Box::new(Expr::Literal(Value::Int64(30))),
+                                    right: Box::new(Expr::Literal(Value::Nat64(30))),
                                 },
                                 Expr::Literal(Value::Bool(false)),
                             ]
@@ -2599,7 +2599,7 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
                                                     Expr::Binary {
                                                         op: BinaryOp::Gte,
                                                         left: Box::new(Expr::Field(FieldId::new("age"))),
-                                                        right: Box::new(Expr::Literal(Value::Int64(30))),
+                                                        right: Box::new(Expr::Literal(Value::Nat64(30))),
                                                     },
                                                     Expr::Literal(Value::Bool(false)),
                                                 ]
@@ -2609,7 +2609,7 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
                                     == &Expr::Binary {
                                         op: BinaryOp::Eq,
                                         left: Box::new(Expr::Field(FieldId::new("age"))),
-                                        right: Box::new(Expr::Literal(Value::Int64(20))),
+                                        right: Box::new(Expr::Literal(Value::Nat64(20))),
                                     }
                     )
         ),
@@ -5391,14 +5391,14 @@ fn compile_sql_command_select_where_searched_case_hash_matches_fluent_canonical_
             Expr::Binary {
                 op: BinaryOp::Gte,
                 left: Box::new(Expr::Field(FieldId::new("age"))),
-                right: Box::new(Expr::Literal(Value::Int64(30))),
+                right: Box::new(Expr::Literal(Value::Nat64(30))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
         else_expr: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int64(20))),
+            right: Box::new(Expr::Literal(Value::Nat64(20))),
         }),
     };
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
