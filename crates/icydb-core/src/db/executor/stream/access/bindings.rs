@@ -21,12 +21,11 @@ use crate::{
 /// Keeps consumption order explicit and exposes one end-of-traversal invariant check.
 ///
 
-#[expect(clippy::struct_field_names)]
 pub(in crate::db::executor) struct AccessSpecCursor<'a> {
-    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-    index_range_specs: &'a [LoweredIndexRangeSpec],
-    index_prefix_offset: usize,
-    index_range_offset: usize,
+    prefixes: &'a [LoweredIndexPrefixSpec],
+    ranges: &'a [LoweredIndexRangeSpec],
+    prefix_offset: usize,
+    range_offset: usize,
 }
 
 impl<'a> AccessSpecCursor<'a> {
@@ -37,10 +36,10 @@ impl<'a> AccessSpecCursor<'a> {
         index_range_specs: &'a [LoweredIndexRangeSpec],
     ) -> Self {
         Self {
-            index_prefix_specs,
-            index_range_specs,
-            index_prefix_offset: 0,
-            index_range_offset: 0,
+            prefixes: index_prefix_specs,
+            ranges: index_range_specs,
+            prefix_offset: 0,
+            range_offset: 0,
         }
     }
 
@@ -49,10 +48,10 @@ impl<'a> AccessSpecCursor<'a> {
         &mut self,
         count: usize,
     ) -> Option<&'a [LoweredIndexPrefixSpec]> {
-        let start = self.index_prefix_offset;
+        let start = self.prefix_offset;
         let end = start.saturating_add(count);
-        let slice = self.index_prefix_specs.get(start..end)?;
-        self.index_prefix_offset = end;
+        let slice = self.prefixes.get(start..end)?;
+        self.prefix_offset = end;
 
         Some(slice)
     }
@@ -72,9 +71,9 @@ impl<'a> AccessSpecCursor<'a> {
     pub(in crate::db::executor) fn next_index_range_spec(
         &mut self,
     ) -> Option<&'a LoweredIndexRangeSpec> {
-        let spec = self.index_range_specs.get(self.index_range_offset);
+        let spec = self.ranges.get(self.range_offset);
         if spec.is_some() {
-            self.index_range_offset = self.index_range_offset.saturating_add(1);
+            self.range_offset = self.range_offset.saturating_add(1);
         }
 
         spec
@@ -90,10 +89,10 @@ impl<'a> AccessSpecCursor<'a> {
 
     /// Enforce that all lowered specs were consumed during access-plan traversal.
     pub(in crate::db::executor) fn validate_consumed(&self) -> Result<(), InternalError> {
-        if self.index_prefix_offset < self.index_prefix_specs.len() {
+        if self.prefix_offset < self.prefixes.len() {
             return Err(InternalError::query_executor_invariant());
         }
-        validate_index_range_specs_consumed(self.index_range_offset, self.index_range_specs.len())?;
+        validate_index_range_specs_consumed(self.range_offset, self.ranges.len())?;
 
         Ok(())
     }

@@ -60,6 +60,11 @@ parity test or a source invariant.
   fences; no obvious duplicate-authority cleanup was found. Treat stale
   suppression removal as a dedicated hygiene pass validated by Clippy, not a
   0.187.0 blocker.
+- Started the Clippy-backed lint-suppression hygiene pass by removing
+  mechanical cast and private-field-name suppressions from query/executor
+  runtime helpers and by completing the query explain debug projection.
+  Remaining production suppressions are still intentional shape/API/diagnostics
+  fences and should stay self-checking.
 - Ran the generated SQL canister matrix and validated the generated endpoint
   surface against the current 0.187 audit baseline: 76 passed, 0 failed.
 - Removed several remaining panic-shaped runtime invariants from query

@@ -92,7 +92,6 @@ impl ProjectionSpec {
 }
 
 /// Hash one projection identity shape using the current structural encoding.
-#[expect(clippy::cast_possible_truncation)]
 pub(in crate::db::query::fingerprint) fn hash_projection_structural_fingerprint(
     hasher: &mut Sha256,
     projection: &ProjectionSpec,
@@ -100,7 +99,10 @@ pub(in crate::db::query::fingerprint) fn hash_projection_structural_fingerprint(
     let shape = ProjectionHashShape::semantic(projection);
 
     write_tag(hasher, PROJECTION_STRUCTURAL_FINGERPRINT_TAG);
-    write_u32(hasher, shape.projection.fields().count() as u32);
+    write_u32(
+        hasher,
+        u32::try_from(shape.projection.fields().count()).unwrap_or(u32::MAX),
+    );
     for field in shape.projection.fields() {
         hash_projection_field(hasher, field);
     }

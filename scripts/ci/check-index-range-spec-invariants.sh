@@ -68,7 +68,7 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/access/path.rs:::pub\\(in crate::db\\) const fn label\\(self\\) -> &'static str:::branch-set ordered suffix label must stay access-owned"
   "crates/icydb-core/src/db/query/intent/cache_key.rs:::ordered_suffix: spec\\.ordered_suffix\\(\\)\\.label\\(\\):::branch-set cache identity must include the ordered suffix proof"
   "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_str\\(self\\.hasher, ordered_suffix\\.label\\(\\)\\):::branch-set fingerprint identity must include the ordered suffix proof"
-  "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::index_prefix_offset < self.index_prefix_specs.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"
+  "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::prefix_offset < self.prefixes.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::validate_index_prefix_spec_alignment:::missing invariant error for misaligned index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs:::index-prefix executable spec must be materialized for index-prefix plans:::missing invariant error for unresolved secondary index prefix specs"

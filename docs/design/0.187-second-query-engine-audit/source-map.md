@@ -244,7 +244,12 @@ runtime contract.
   production no-panic rule. The production query/executor hits are mostly
   intentional Clippy shape/style fences such as `too_many_arguments`,
   `too_many_lines`, cast-conversion documentation, descriptor field names, and
-  capability-fact bool carriers.
-- Recommendation: remove stale suppressions only in a dedicated hygiene pass
-  backed by the normal Clippy matrix. Do not treat this as a 0.187.0
-  duplicate-authority blocker.
+  capability-fact bool carriers. The first Clippy-backed hygiene pass removed
+  mechanical cast, private-field-name, and manual-debug suppressions where
+  explicit saturating conversions, clearer private names, or complete debug
+  projection preserved behavior.
+- Recommendation: keep removing stale/mechanical suppressions only in a
+  dedicated hygiene pass backed by the normal Clippy matrix. Do not treat this
+  as a 0.187.0 duplicate-authority blocker, and do not replace intentional
+  shape/API/diagnostic fences with larger refactors unless they delete real
+  duplicate authority.

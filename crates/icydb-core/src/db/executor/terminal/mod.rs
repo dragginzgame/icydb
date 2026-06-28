@@ -38,7 +38,7 @@ pub(in crate::db::executor) use typed_response::{
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and
 // testable without requiring oversized persisted rows.
-pub(in crate::db::executor::terminal) const fn saturating_add_payload_len(
+pub(in crate::db::executor::terminal) fn saturating_add_payload_len(
     total: u64,
     row_len: usize,
 ) -> u64 {

@@ -58,13 +58,8 @@ pub(in crate::db::executor) fn saturating_u32_len(row_len: usize) -> u32 {
 /// This helper exists to keep numeric-clamp behavior consistent between runtime
 /// terminal folds and executor-owned expected-value helpers in tests.
 #[must_use]
-#[expect(clippy::cast_possible_truncation)]
-pub(in crate::db::executor) const fn saturating_row_len(row_len: usize) -> u64 {
-    if row_len > u64::MAX as usize {
-        u64::MAX
-    } else {
-        row_len as u64
-    }
+pub(in crate::db::executor) fn saturating_row_len(row_len: usize) -> u64 {
+    u64::try_from(row_len).unwrap_or(u64::MAX)
 }
 
 ///
@@ -94,7 +89,10 @@ mod tests {
 
     #[test]
     fn saturating_row_len_saturates_at_u64_max() {
-        assert_eq!(saturating_row_len(usize::MAX), u64::MAX);
+        assert_eq!(
+            saturating_row_len(usize::MAX),
+            u64::try_from(usize::MAX).unwrap_or(u64::MAX)
+        );
     }
 
     #[test]

@@ -74,14 +74,16 @@ impl<E: EntityKind> ResponseCardinalityExt<E> for EntityResponse<E> {
         }
     }
 
-    #[expect(clippy::cast_possible_truncation)]
     fn try_row(self) -> Result<Option<Row<E>>, ResponseError> {
         let mut rows = self.rows();
 
         match rows.len() {
             0 => Ok(None),
             1 => Ok(rows.pop()),
-            n => Err(ResponseError::not_unique(E::PATH, n as u32)),
+            n => Err(ResponseError::not_unique(
+                E::PATH,
+                u32::try_from(n).unwrap_or(u32::MAX),
+            )),
         }
     }
 
