@@ -822,6 +822,7 @@ impl Expr {
 
     /// Visit every planner expression node in this tree through the owner-local
     /// child traversal contract.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
         match self {
             Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {
