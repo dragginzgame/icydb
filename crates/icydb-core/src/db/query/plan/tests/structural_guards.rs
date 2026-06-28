@@ -1113,12 +1113,13 @@ fn sql_frontend_lowering_invariant_drift_paths_are_recoverable() {
 #[test]
 fn scalar_predicate_lexer_and_key_codec_drift_paths_are_recoverable() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert_scalar_predicate_runtime_drift_paths_are_recoverable(crate_root);
+    assert_sql_lexer_drift_paths_are_recoverable(crate_root);
+    assert_key_codec_drift_paths_are_recoverable(crate_root);
+}
+
+fn assert_scalar_predicate_runtime_drift_paths_are_recoverable(crate_root: &Path) {
     let predicate_runtime = source_for(crate_root, "src/db/predicate/runtime/mod.rs");
-    let lexer_scan = source_for(crate_root, "src/db/sql_shared/lexer/scan.rs");
-    let lexer_token_body = source_for(crate_root, "src/db/sql_shared/lexer/token_body.rs");
-    let key_taxonomy = source_for(crate_root, "src/db/key_taxonomy.rs");
-    let index_key_codec = source_for(crate_root, "src/db/index/key/codec/mod.rs");
-    let index_key_tuple = source_for(crate_root, "src/db/index/key/codec/tuple.rs");
 
     assert_source_contains_patterns(
         &predicate_runtime,
@@ -1134,6 +1135,11 @@ fn scalar_predicate_lexer_and_key_codec_drift_paths_are_recoverable() {
         &["field_slot.expect(\"scalar predicate invariant\")"],
         "scalar predicate runtime must not trap on missing slot drift",
     );
+}
+
+fn assert_sql_lexer_drift_paths_are_recoverable(crate_root: &Path) {
+    let lexer_scan = source_for(crate_root, "src/db/sql_shared/lexer/scan.rs");
+    let lexer_token_body = source_for(crate_root, "src/db/sql_shared/lexer/token_body.rs");
 
     assert_source_contains_patterns(
         &lexer_scan,
@@ -1163,6 +1169,12 @@ fn scalar_predicate_lexer_and_key_codec_drift_paths_are_recoverable() {
         &[".expect(\"sql lexer invariant\")"],
         "hex blob decoding must not trap on malformed nibble drift",
     );
+}
+
+fn assert_key_codec_drift_paths_are_recoverable(crate_root: &Path) {
+    let key_taxonomy = source_for(crate_root, "src/db/key_taxonomy.rs");
+    let index_key_codec = source_for(crate_root, "src/db/index/key/codec/mod.rs");
+    let index_key_tuple = source_for(crate_root, "src/db/index/key/codec/tuple.rs");
 
     assert_source_contains_patterns(
         &key_taxonomy,
