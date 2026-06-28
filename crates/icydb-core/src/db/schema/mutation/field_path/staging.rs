@@ -111,7 +111,7 @@ impl SchemaFieldPathIndexStagedRebuild {
             let raw_entry = IndexEntryValue::presence();
 
             entries.push(SchemaFieldPathIndexStagedEntry {
-                key: key.to_raw(),
+                key: key.to_raw()?,
                 entry: raw_entry,
             });
         }

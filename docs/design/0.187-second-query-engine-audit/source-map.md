@@ -141,6 +141,7 @@ runtime contract.
   - `crates/icydb-core/src/db/query/plan/group.rs`
   - `crates/icydb-core/src/db/query/plan/semantics/`
   - `crates/icydb-core/src/db/query/plan/planner/compare.rs`
+  - `crates/icydb-core/src/db/predicate/runtime/mod.rs`
   - `crates/icydb-core/src/db/query/intent/state.rs`
   - `crates/icydb-core/src/db/query/explain/`
   - `crates/icydb-core/src/db/query/fingerprint/`
@@ -151,6 +152,8 @@ runtime contract.
   - `crates/icydb-core/src/db/executor/aggregate/projection/mod.rs`
   - `crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs`
   - `crates/icydb-core/src/db/sql_shared/cursor.rs`
+  - `crates/icydb-core/src/db/sql_shared/lexer/`
+  - `crates/icydb-core/src/db/key_taxonomy.rs`
   - `crates/icydb-core/src/db/sql/lowering/analysis.rs`
   - `crates/icydb-core/src/db/sql/lowering/aggregate/`
 - Current classification: cleanup completed for the small trap-shaped
@@ -191,7 +194,15 @@ runtime contract.
   traversal instead of unwrapping a never-failing traversal result, unsupported
   global aggregate semantic kind drift returns a lowering error, and direct
   `COUNT(*)` lowering builds the known row-count terminal without a fallible
-  helper round trip.
+  helper round trip. SQL lexer comparison operator drift now returns an
+  unexpected-character parse error, hex blob nibble drift returns the existing
+  non-hex blob syntax error, compact composite primary-key decode drift returns
+  a decode error, oversized compact index-store key segment encoding returns a
+  typed encode error, and raw index-key materialization now returns typed key
+  encode errors for segment/count/primary-key drift instead of trapping. Scalar
+  predicate runtime now treats missing field-slot drift for scalar `IS NULL`,
+  emptiness, and text-contains predicates as a fail-closed non-match, matching
+  the generic runtime path instead of trapping.
 - Recommendation: keep runtime invariant drift recoverable with typed errors or
   conservative no-result behavior. Do not add new reference-returning helper
   surfaces that assume finalized static execution metadata or admitted SQL write
@@ -201,8 +212,11 @@ runtime contract.
   private helper always returns a specific shape, or fingerprint hashers that
   assume profile/grouped lookup facts are always present, or SQL cursor and
   aggregate lowering helpers that assume parser/lowering prechecks stayed
-  aligned, without a typed, optional, fail-closed, propagated-error,
-  deterministic sentinel, parse/lowering error, or exhaustive closed-enum path.
+  aligned, or lexer/key codec helpers that assume upstream prechecks already
+  proved token, segment, count, or primary-key shape, or scalar predicate
+  evaluators that assume admission and slot resolution cannot drift, without a
+  typed, optional, fail-closed, propagated-error, deterministic sentinel,
+  parse/lowering/key error, or exhaustive closed-enum path.
 
 ## Generated Canister Endpoints Versus Session Surfaces
 

@@ -725,7 +725,9 @@ mod tests {
             components.as_slice(),
             &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
         )
+        .expect("test index key should build")
         .to_raw()
+        .expect("test index key should encode")
     }
 
     fn malformed_index_entry_value() -> IndexEntryValue {

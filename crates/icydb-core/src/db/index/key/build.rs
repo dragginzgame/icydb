@@ -23,7 +23,7 @@ use crate::{
         index::{
             IndexExpressionSourceClass, derive_index_expression_value,
             key::ordered::encode_canonical_index_component,
-            key::{IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
+            key::{IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind, OrderedValueEncodeError},
         },
         key_taxonomy::PrimaryKeyValue,
         scalar_expr::{
@@ -364,22 +364,21 @@ impl IndexKey {
         }
     }
 
-    #[must_use]
     pub(in crate::db) fn new_from_components_with_primary_key_value<C: AsRef<[u8]>>(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
         components: &[C],
         primary_key: &PrimaryKeyValue,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, IndexKeyEncodeError> {
+        Ok(Self {
             key_kind,
             index_id: *index_id,
             components: components
                 .iter()
                 .map(|component| component.as_ref().to_vec())
                 .collect(),
-            primary_key: Self::compact_primary_key_value_bytes(primary_key),
-        }
+            primary_key: Self::compact_primary_key_value_bytes(primary_key)?,
+        })
     }
 
     /// Build an index key from already-lowered prefix components plus a
@@ -408,7 +407,7 @@ impl IndexKey {
             key_kind: prefix_start.key_kind,
             index_id: prefix_start.index_id,
             components,
-            primary_key: Self::compact_primary_key_value_bytes(primary_key),
+            primary_key: Self::compact_primary_key_value_bytes(primary_key)?,
         })
     }
 
@@ -876,7 +875,7 @@ fn build_field_path_rebuild_target_key(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, target.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
 }
 
@@ -912,7 +911,7 @@ fn build_expression_rebuild_target_key(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, target.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
 }
 
@@ -963,7 +962,7 @@ fn build_accepted_expression_index_key_from_components(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
 }
 
@@ -998,7 +997,7 @@ fn build_accepted_field_path_index_key_from_components(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
 }
 
@@ -1049,7 +1048,7 @@ fn build_generated_model_index_key(
     }
 
     // Phase 3: encode the primary key once and assemble the final user key.
-    let primary_key = IndexKey::compact_primary_key_value_bytes(primary_key);
+    let primary_key = IndexKey::compact_primary_key_value_bytes(primary_key)?;
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
@@ -1157,7 +1156,7 @@ fn build_index_key_from_access_contract<'a>(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, index.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
 }
 

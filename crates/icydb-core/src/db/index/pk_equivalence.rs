@@ -74,7 +74,8 @@ mod tests {
     use std::borrow::Cow;
 
     fn index_key_with_primary_key_value(primary_key: &PrimaryKeyValue) -> IndexKey {
-        let primary_key_bytes = IndexKey::compact_primary_key_value_bytes(primary_key);
+        let primary_key_bytes = IndexKey::compact_primary_key_value_bytes(primary_key)
+            .expect("test primary key should encode");
         let index_id = IndexId::new(crate::types::EntityTag::new(7), 0);
         let mut bytes = Vec::new();
         bytes.push(IndexKeyKind::User as u8);

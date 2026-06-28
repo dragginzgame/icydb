@@ -111,7 +111,9 @@ impl<'a> Lexer<'a> {
             } else {
                 TokenKind::Gt
             }),
-            _ => unreachable!("sql lexer invariant"),
+            other => Err(SqlParseError::invalid_syntax(
+                SqlSyntaxErrorKind::UnexpectedCharacter { byte: other },
+            )),
         }
     }
 

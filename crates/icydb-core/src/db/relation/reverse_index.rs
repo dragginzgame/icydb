@@ -616,7 +616,8 @@ pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
         IndexKeyKind::System,
         1,
         std::slice::from_ref(&encoded_value),
-    );
+    )
+    .map_err(|_| InternalError::query_executor_invariant())?;
 
     Ok(Some((start, end)))
 }
@@ -637,9 +638,9 @@ fn reverse_index_key_for_target_and_source_primary_key_value(
         IndexKeyKind::System,
         std::slice::from_ref(&encoded_value),
         source_key_value,
-    );
+    )?;
 
-    Ok(Some(key.to_raw()))
+    Ok(Some(key.to_raw()?))
 }
 
 // Encode full relation target row identity as the reverse-index target

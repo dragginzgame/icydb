@@ -570,7 +570,7 @@ fn primary_key_suffix_resume_anchor_for_prefix(
                 &[],
                 &primary_key,
             )?
-            .to_raw(),
+            .to_raw()?,
         );
     }
 
@@ -588,7 +588,7 @@ fn primary_key_suffix_resume_anchor_for_prefix(
             suffix_values.as_slice(),
             &primary_key,
         )?
-        .to_raw(),
+        .to_raw()?,
     )
 }
 

@@ -3,17 +3,24 @@
 //! Does not own: index-key semantic ordering policy.
 //! Boundary: internal utility for codec framing.
 
-use crate::db::index::key::codec::{bounds::SEGMENT_LEN_SIZE, error::IndexKeyDecodeError};
+use crate::db::index::key::codec::{
+    bounds::SEGMENT_LEN_SIZE,
+    error::{IndexKeyDecodeError, IndexKeyEncodeError},
+};
 use std::cmp::Ordering;
 
-#[expect(clippy::checked_conversions)]
-pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) {
+pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) -> Result<(), IndexKeyEncodeError> {
+    if segment.is_empty() {
+        return Err(IndexKeyEncodeError::EmptySegment);
+    }
+
     // Segment length is persisted as u16 by codec contract.
-    assert!(segment.len() <= u16::MAX as usize, "index tuple invariant");
-    let len_u16 = u16::try_from(segment.len()).expect("index tuple invariant");
+    let len_u16 = u16::try_from(segment.len()).map_err(|_| IndexKeyEncodeError::SegmentTooLarge)?;
 
     bytes.extend_from_slice(&len_u16.to_be_bytes());
     bytes.extend_from_slice(segment);
+
+    Ok(())
 }
 
 /// Compare one decoded segment under canonical component ordering semantics.

@@ -27,6 +27,7 @@ use std::cmp::Ordering;
 use tuple::{compare_component_segments, compare_segment_bytes, push_segment, read_segment};
 
 pub(crate) use crate::db::key_taxonomy::RawIndexStoreKey;
+pub(in crate::db) use error::IndexKeyEncodeError;
 pub(crate) use scalar::IndexKeyKind;
 
 ///
@@ -63,18 +64,30 @@ impl PartialOrd for IndexKey {
 }
 
 impl IndexKey {
-    fn to_raw_with_primary_key(&self, primary_key: &[u8]) -> RawIndexStoreKey {
+    fn to_raw_with_primary_key(
+        &self,
+        primary_key: &[u8],
+    ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
         // Phase 1: validate in-memory invariants before crossing into the
         // store-key taxonomy wrapper.
         let component_count = self.components.len();
-        debug_assert!(component_count <= MAX_INDEX_FIELDS);
-        debug_assert!(u8::try_from(component_count).is_ok());
-        debug_assert!(!primary_key.is_empty());
-        debug_assert!(primary_key.len() <= Self::MAX_PK_SIZE);
+        if component_count > MAX_INDEX_FIELDS || u8::try_from(component_count).is_err() {
+            return Err(IndexKeyEncodeError::TooManyComponents);
+        }
+        if primary_key.is_empty() {
+            return Err(IndexKeyEncodeError::EmptySegment);
+        }
+        if primary_key.len() > Self::MAX_PK_SIZE {
+            return Err(IndexKeyEncodeError::SegmentTooLarge);
+        }
 
         for component in &self.components {
-            debug_assert!(!component.is_empty());
-            debug_assert!(component.len() <= Self::MAX_COMPONENT_SIZE);
+            if component.is_empty() {
+                return Err(IndexKeyEncodeError::EmptySegment);
+            }
+            if component.len() > Self::MAX_COMPONENT_SIZE {
+                return Err(IndexKeyEncodeError::SegmentTooLarge);
+            }
         }
 
         // Phase 2: write ordinary row keys through the compact taxonomy
@@ -96,12 +109,17 @@ impl IndexKey {
             primary_key,
         )
         .to_raw()
-        .expect("index key invariant");
+        .map_err(IndexKeyEncodeError::from)?;
 
-        RawIndexStoreKey::from_persisted_bytes(raw.as_bytes().to_vec())
+        Ok(RawIndexStoreKey::from_persisted_bytes(
+            raw.as_bytes().to_vec(),
+        ))
     }
 
-    fn to_raw_with_primary_key_segment(&self, primary_key: &[u8]) -> RawIndexStoreKey {
+    fn to_raw_with_primary_key_segment(
+        &self,
+        primary_key: &[u8],
+    ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
         let component_count = self.components.len();
         let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + primary_key.len();
         for component in &self.components {
@@ -112,30 +130,28 @@ impl IndexKey {
         bytes.push(index_key_kind_to_store_key_kind(self.key_kind).tag());
         bytes.extend_from_slice(&self.index_id.to_bytes());
         let component_count_u8 =
-            u8::try_from(component_count).expect("component count should fit in one byte");
+            u8::try_from(component_count).map_err(|_| IndexKeyEncodeError::TooManyComponents)?;
         bytes.push(component_count_u8);
 
         for component in &self.components {
-            push_segment(&mut bytes, component);
+            push_segment(&mut bytes, component)?;
         }
-        push_segment(&mut bytes, primary_key);
+        push_segment(&mut bytes, primary_key)?;
 
-        RawIndexStoreKey::from_persisted_bytes(bytes)
+        Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
     }
 
-    #[must_use]
-    pub(crate) fn to_raw(&self) -> RawIndexStoreKey {
+    pub(crate) fn to_raw(&self) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
         self.to_raw_with_primary_key(&self.primary_key)
     }
 
-    #[must_use]
     pub(in crate::db) fn raw_bounds_for_all_components(
         &self,
-    ) -> (RawIndexStoreKey, RawIndexStoreKey) {
-        (
-            self.to_raw_with_primary_key(&Self::wildcard_low_pk()),
-            self.to_raw_with_primary_key(&Self::wildcard_high_pk()),
-        )
+    ) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexKeyEncodeError> {
+        let lower = self.to_raw_with_primary_key(&Self::wildcard_low_pk())?;
+        let upper = self.to_raw_with_primary_key(&Self::wildcard_high_pk())?;
+
+        Ok((lower, upper))
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, IndexKeyDecodeError> {
@@ -229,11 +245,10 @@ impl IndexKey {
         self.primary_key.as_slice()
     }
 
-    pub(in crate::db) fn compact_primary_key_value_bytes(primary_key: &PrimaryKeyValue) -> Vec<u8> {
-        EncodedPrimaryKey::encode(*primary_key)
-            .expect("primary-key invariant")
-            .as_bytes()
-            .to_vec()
+    pub(in crate::db) fn compact_primary_key_value_bytes(
+        primary_key: &PrimaryKeyValue,
+    ) -> Result<Vec<u8>, IndexKeyEncodeError> {
+        Ok(EncodedPrimaryKey::encode(*primary_key)?.as_bytes().to_vec())
     }
 }
 

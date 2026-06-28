@@ -64,7 +64,7 @@ fn field_path_rebuild_key_materializes_composite_primary_key_suffix() {
     );
     assert_eq!(
         entry
-            .decode_row_witness(&key.to_raw())
+            .decode_row_witness(&key.to_raw().expect("test index key should encode"),)
             .expect("entry should decode key-owned composite primary-key value")
             .primary_key_value(),
         &primary_key,

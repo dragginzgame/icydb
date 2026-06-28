@@ -365,7 +365,9 @@ fn index_key(kind: IndexKeyKind, entity_name: &str, field: &str) -> RawIndexStor
         &components,
         &PrimaryKeyValue::from(PrimaryKeyComponent::Int64(1)),
     )
+    .expect("test index key should build")
     .to_raw()
+    .expect("test index key should encode")
 }
 
 fn insert_index_entry(path: &'static str, key: RawIndexStoreKey, entry: IndexEntryValue) {

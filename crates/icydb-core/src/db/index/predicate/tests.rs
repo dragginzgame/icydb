@@ -105,6 +105,7 @@ fn index_key_for_predicate_row(row: &[Value], primary_key: u64) -> IndexKey {
         &components,
         &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
     )
+    .expect("test index key should build")
 }
 
 fn assert_index_program_matches_runtime(predicate: Predicate, rows: Vec<Vec<Value>>) {

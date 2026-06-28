@@ -73,6 +73,7 @@ fn resolve_last_cursor_row(
         authority
             .index_range_anchor_key_from_slot_ref_reader(&primary_key, spec, &mut read_slot)?
             .map(|key| key.to_raw())
+            .transpose()?
     } else {
         None
     };

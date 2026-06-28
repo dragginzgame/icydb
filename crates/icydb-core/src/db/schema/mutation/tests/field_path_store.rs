@@ -412,7 +412,9 @@ fn field_path_rebuild_isolated_index_store_validation_can_scope_to_target_index(
     let target = accepted_name_field_path_target();
     let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
     let other_index_id = IndexId::new(EntityTag::new(7), target.ordinal() + 1);
-    let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
+    let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User)
+        .to_raw()
+        .expect("test index key should encode");
     let other_entry = IndexEntryValue::presence();
     let mut index_store = initialized_index_store(229);
     let mut writer =
@@ -614,7 +616,9 @@ fn field_path_rebuild_published_store_can_scope_to_target_index() {
     let target = accepted_name_field_path_target();
     let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
     let other_index_id = IndexId::new(EntityTag::new(7), target.ordinal() + 1);
-    let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
+    let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User)
+        .to_raw()
+        .expect("test index key should encode");
     let other_entry = IndexEntryValue::presence();
     let mut index_store = initialized_index_store(227);
     let batch;

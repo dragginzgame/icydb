@@ -598,7 +598,7 @@ where
         }
     }
 
-    build_commit_ops_for_index_delta_pair(commit_ops, index_store, remove_delta, insert_delta);
+    build_commit_ops_for_index_delta_pair(commit_ops, index_store, remove_delta, insert_delta)?;
 
     Ok(())
 }
@@ -609,7 +609,7 @@ fn build_commit_ops_for_index_delta_pair(
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
     remove_delta: Option<IndexMembershipDelta>,
     insert_delta: Option<IndexMembershipDelta>,
-) {
+) -> Result<(), InternalError> {
     // Phase 1: same-key transitions collapse into one entry mutation.
     if remove_delta
         .as_ref()
@@ -620,13 +620,13 @@ fn build_commit_ops_for_index_delta_pair(
             push_commit_op_for_index_entry(
                 commit_ops,
                 store,
-                insert_delta.key.to_raw(),
+                insert_delta.key.to_raw()?,
                 Some(IndexRowIdentity::new(&insert_delta.primary_key)),
                 CommitIndexOp::unchanged,
             );
         }
 
-        return;
+        return Ok(());
     }
 
     // Phase 2: different-key transitions can touch at most two keys. Preserve
@@ -646,7 +646,7 @@ fn build_commit_ops_for_index_delta_pair(
         insert_commit_candidate(
             &mut first,
             &mut second,
-            remove_delta.key.to_raw(),
+            remove_delta.key.to_raw()?,
             None,
             CommitIndexOp::index_remove,
         );
@@ -656,7 +656,7 @@ fn build_commit_ops_for_index_delta_pair(
         insert_commit_candidate(
             &mut first,
             &mut second,
-            insert_delta.key.to_raw(),
+            insert_delta.key.to_raw()?,
             Some(IndexRowIdentity::new(&insert_delta.primary_key)),
             CommitIndexOp::index_insert,
         );
@@ -668,6 +668,8 @@ fn build_commit_ops_for_index_delta_pair(
     if let Some((raw_key, entry, build_commit_op)) = second {
         push_commit_op_for_index_entry(commit_ops, store, raw_key, entry, build_commit_op);
     }
+
+    Ok(())
 }
 
 /// Insert one touched key into the small fixed-size ordered candidate set.

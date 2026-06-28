@@ -198,7 +198,8 @@ fn canonical_raw_key(values: &[Value]) -> RawIndexStoreKey {
         IndexKeyKind::User,
         values.len(),
         encoded.as_slice(),
-    );
+    )
+    .expect("test index range bounds should encode");
 
     key
 }

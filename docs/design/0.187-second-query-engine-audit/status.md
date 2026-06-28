@@ -107,6 +107,17 @@ parity test or a source invariant.
   analysis uses an infallible planner-expression traversal, unsupported global
   aggregate semantic kinds return lowering errors, and direct `COUNT(*)`
   lowering builds the known row-count terminal without a fallible round trip.
+- Made SQL lexer, compact key taxonomy, and raw index-key codec drift
+  recoverable. Comparison operator drift now returns an unexpected-character
+  parse error, hex blob nibble drift returns the existing non-hex blob syntax
+  error, composite primary-key decode drift returns a compact primary-key decode
+  error, oversized compact index-store key segment encoding returns a typed
+  encode error, and raw index-key materialization now returns typed key encode
+  errors for segment/count/primary-key drift.
+- Made scalar predicate runtime drift recoverable for non-compare scalar
+  predicates. If scalar-mode admission and field-slot resolution ever diverge,
+  `IS NULL`, emptiness, and text-contains predicates now fail closed like the
+  generic runtime path instead of trapping on missing slot state.
 
 ## Initial Queue
 

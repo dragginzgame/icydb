@@ -1097,7 +1097,9 @@ fn raw_index_store_key_taxonomy_matches_live_user_and_system_codecs() {
             &[component.as_bytes()],
             &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(77)),
         )
-        .to_raw();
+        .expect("test index key should build")
+        .to_raw()
+        .expect("test index key should encode");
 
         assert_eq!(
             taxonomy_raw.as_bytes(),

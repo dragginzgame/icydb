@@ -592,46 +592,50 @@ fn eval_scalar_executable_predicate(
         }
         ExecutablePredicate::Not(inner) => Ok(!eval_scalar_executable_predicate(inner, slots)?),
         ExecutablePredicate::Compare(cmp) => eval_scalar_executable_compare_predicate(cmp, slots),
-        ExecutablePredicate::IsNull { field_slot } => eval_required_scalar_slot(
-            field_slot.expect("scalar predicate invariant"),
-            slots,
-            |actual| matches!(actual, ScalarSlotValueRef::Null),
-        ),
-        ExecutablePredicate::IsNotNull { field_slot } => eval_required_scalar_slot(
-            field_slot.expect("scalar predicate invariant"),
-            slots,
-            |actual| matches!(actual, ScalarSlotValueRef::Value(_)),
-        ),
+        ExecutablePredicate::IsNull { field_slot } => {
+            eval_optional_scalar_slot(*field_slot, slots, |actual| {
+                matches!(actual, ScalarSlotValueRef::Null)
+            })
+        }
+        ExecutablePredicate::IsNotNull { field_slot } => {
+            eval_optional_scalar_slot(*field_slot, slots, |actual| {
+                matches!(actual, ScalarSlotValueRef::Value(_))
+            })
+        }
         ExecutablePredicate::IsMissing { field_slot } => Ok(field_slot.is_none()),
         ExecutablePredicate::IsEmpty { field_slot } => {
-            eval_scalar_is_empty(field_slot.expect("scalar predicate invariant"), slots)
+            eval_optional_scalar_is_empty(*field_slot, slots)
         }
         ExecutablePredicate::IsNotEmpty { field_slot } => {
-            eval_scalar_is_not_empty(field_slot.expect("scalar predicate invariant"), slots)
+            eval_optional_scalar_is_not_empty(*field_slot, slots)
         }
         ExecutablePredicate::TextContains { field_slot, value } => {
             let Value::Text(needle) = value else {
                 return Ok(false);
             };
-            eval_scalar_text_contains(
-                field_slot.expect("scalar predicate invariant"),
-                needle,
-                TextMode::Cs,
-                slots,
-            )
+            eval_optional_scalar_text_contains(*field_slot, needle, TextMode::Cs, slots)
         }
         ExecutablePredicate::TextContainsCi { field_slot, value } => {
             let Value::Text(needle) = value else {
                 return Ok(false);
             };
-            eval_scalar_text_contains(
-                field_slot.expect("scalar predicate invariant"),
-                needle,
-                TextMode::Ci,
-                slots,
-            )
+            eval_optional_scalar_text_contains(*field_slot, needle, TextMode::Ci, slots)
         }
     }
+}
+
+// Mirror the generic predicate path for unresolved scalar field slots: value
+// predicates do not match, while `IS MISSING` is handled by its caller.
+fn eval_optional_scalar_slot(
+    field_slot: Option<usize>,
+    slots: &dyn CanonicalSlotReader,
+    eval: impl FnOnce(ScalarSlotValueRef<'_>) -> bool,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+
+    eval_required_scalar_slot(field_slot, slots, eval)
 }
 
 // Read one scalar slot once and let the caller classify the already validated
@@ -668,12 +672,34 @@ fn eval_scalar_is_empty(
     })
 }
 
+fn eval_optional_scalar_is_empty(
+    field_slot: Option<usize>,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+
+    eval_scalar_is_empty(field_slot, slots)
+}
+
 // Evaluate one scalar `IS NOT EMPTY` node directly through the scalar slot seam.
 fn eval_scalar_is_not_empty(
     field_slot: usize,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     eval_scalar_is_empty(field_slot, slots).map(|empty| !empty)
+}
+
+fn eval_optional_scalar_is_not_empty(
+    field_slot: Option<usize>,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+
+    eval_scalar_is_not_empty(field_slot, slots)
 }
 
 // Evaluate one scalar text-contains node directly through the scalar slot seam.
@@ -689,6 +715,19 @@ fn eval_scalar_text_contains(
         }
         ScalarSlotValueRef::Null | ScalarSlotValueRef::Value(_) => false,
     })
+}
+
+fn eval_optional_scalar_text_contains(
+    field_slot: Option<usize>,
+    needle: &str,
+    mode: TextMode,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+
+    eval_scalar_text_contains(field_slot, needle, mode, slots)
 }
 
 // Evaluate one executable comparison against one slot reader under the scalar fast path.

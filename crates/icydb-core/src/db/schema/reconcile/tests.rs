@@ -736,7 +736,9 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_ta
 
     RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
         let sentinel_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 1);
-        let sentinel_key = IndexKey::empty_with_kind(&sentinel_id, IndexKeyKind::User).to_raw();
+        let sentinel_key = IndexKey::empty_with_kind(&sentinel_id, IndexKeyKind::User)
+            .to_raw()
+            .expect("test index key should encode");
         let sentinel_entry = IndexEntryValue::presence();
         store.insert(sentinel_key, sentinel_entry);
     });
@@ -802,7 +804,9 @@ fn reconcile_runtime_schemas_accepts_field_path_index_addition_with_unrelated_in
 
     RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
         let unrelated_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 99);
-        let unrelated_key = IndexKey::empty_with_kind(&unrelated_id, IndexKeyKind::User).to_raw();
+        let unrelated_key = IndexKey::empty_with_kind(&unrelated_id, IndexKeyKind::User)
+            .to_raw()
+            .expect("test index key should encode");
         let unrelated_entry = IndexEntryValue::presence();
         store.insert(unrelated_key, unrelated_entry);
     });
@@ -842,12 +846,16 @@ fn field_path_startup_index_store_preflight_classifies_target_and_other_entries(
 
     RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
         let target_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal());
-        let target_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User).to_raw();
+        let target_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User)
+            .to_raw()
+            .expect("test index key should encode");
         let target_entry = IndexEntryValue::presence();
         store.insert(target_key, target_entry);
 
         let other_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal() + 1);
-        let other_key = IndexKey::empty_with_kind(&other_id, IndexKeyKind::User).to_raw();
+        let other_key = IndexKey::empty_with_kind(&other_id, IndexKeyKind::User)
+            .to_raw()
+            .expect("test index key should encode");
         let other_entry = IndexEntryValue::presence();
         store.insert(other_key, other_entry);
     });
@@ -1316,7 +1324,9 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
             IndexedSchemaEntity::ENTITY_TAG,
             supported.target().ordinal(),
         );
-        let extra_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User).to_raw();
+        let extra_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User)
+            .to_raw()
+            .expect("test index key should encode");
         let extra_entry = IndexEntryValue::presence();
         store.insert(extra_key, extra_entry);
     });

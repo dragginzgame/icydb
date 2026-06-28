@@ -857,7 +857,8 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
     let index_key = IndexKey::new(entity, index)
         .expect("index key build should succeed")
         .expect("index key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
 
     with_recovery_store(|store| {
         store.with_index(|index_store| {
@@ -882,7 +883,8 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
     let index_key = IndexKey::new(entity, index)
         .expect("nullable index key build should succeed")
         .expect("nullable index key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
 
     with_recovery_store(|store| {
         store.with_index(|index_store| {
@@ -986,7 +988,8 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
     let index_key = IndexKey::new(entity, index)
         .expect("conditional index key build should succeed")
         .expect("conditional index key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
 
     with_recovery_store(|store| {
         store.with_index(|index_store| {
@@ -3255,12 +3258,14 @@ fn recovery_replay_preserves_index_key_raw_bytes_across_reloads() {
             .expect("first index key build should succeed")
             .expect("first index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
         IndexKey::new(&second, index)
             .expect("second index key build should succeed")
             .expect("second index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
     ];
@@ -3331,7 +3336,8 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
     let stale_key = IndexKey::new(&stale, index)
         .expect("stale key build should succeed")
         .expect("stale key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
     let stale_entry = IndexEntryValue::presence();
 
     with_recovery_store(|store| {
@@ -3366,12 +3372,14 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
             .expect("first index key build should succeed")
             .expect("first index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
         IndexKey::new(&second, index)
             .expect("second index key build should succeed")
             .expect("second index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
     ];
@@ -3428,7 +3436,8 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
     let stale_key = IndexKey::new(&stale, index)
         .expect("stale nullable key build should succeed")
         .expect("stale nullable key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
     let stale_entry = IndexEntryValue::presence();
 
     // Phase 1: seed old two-slot rows and intentionally stale secondary index
@@ -3460,12 +3469,14 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
             .expect("first nullable index key build should succeed")
             .expect("first nullable index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
         IndexKey::new(&second, index)
             .expect("second nullable index key build should succeed")
             .expect("second nullable index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
     ];
@@ -3518,7 +3529,8 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
     let old_index_key = IndexKey::new(&old, index)
         .expect("old nullable index key build should succeed")
         .expect("old nullable index key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
     let old_entry = IndexEntryValue::presence();
 
     // Phase 1: seed an old-layout authoritative row and matching old index
@@ -3595,11 +3607,13 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
     let inactive_index_key = IndexKey::new(&inactive, index)
         .expect("inactive index key build should succeed")
         .expect("inactive index key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
     let stale_index_key = IndexKey::new(&stale, index)
         .expect("stale index key build should succeed")
         .expect("stale index key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
     let inactive_entry = IndexEntryValue::presence();
     let stale_entry = IndexEntryValue::presence();
 
@@ -3638,6 +3652,7 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
             .expect("active conditional index key build should succeed")
             .expect("active conditional index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
     ];
@@ -3694,7 +3709,8 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
     let stale_key = IndexKey::new(&stale, index)
         .expect("stale expression index key build should succeed")
         .expect("stale expression index key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
     let stale_entry = IndexEntryValue::presence();
 
     // Phase 1: seed authoritative rows and intentionally stale expression-index state.
@@ -3732,12 +3748,14 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
             .expect("first expression index key build should succeed")
             .expect("first expression index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
         IndexKey::new(&second, index)
             .expect("second expression index key build should succeed")
             .expect("second expression index key should exist")
             .to_raw()
+            .expect("test index key should encode")
             .as_bytes()
             .to_vec(),
     ];
@@ -3889,7 +3907,8 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
     let sentinel_key = IndexKey::new(&sentinel, index)
         .expect("sentinel key build should succeed")
         .expect("sentinel key should exist")
-        .to_raw();
+        .to_raw()
+        .expect("test index key should encode");
     let sentinel_entry = IndexEntryValue::presence();
 
     with_recovery_store(|store| {

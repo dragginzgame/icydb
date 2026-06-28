@@ -19,7 +19,9 @@ fn raw_key_for(key: PrimaryKeyComponent) -> RawIndexStoreKey {
         std::slice::from_ref(&component),
         &PrimaryKeyValue::from(key),
     )
+    .expect("test index key should build")
     .to_raw()
+    .expect("test index key should encode")
 }
 
 fn raw_key_for_primary_key_value(key: &PrimaryKeyValue) -> RawIndexStoreKey {
@@ -30,7 +32,9 @@ fn raw_key_for_primary_key_value(key: &PrimaryKeyValue) -> RawIndexStoreKey {
         std::slice::from_ref(&component),
         key,
     )
+    .expect("test index key should build")
     .to_raw()
+    .expect("test index key should encode")
 }
 
 #[test]

@@ -1111,6 +1111,123 @@ fn sql_frontend_lowering_invariant_drift_paths_are_recoverable() {
 }
 
 #[test]
+fn scalar_predicate_lexer_and_key_codec_drift_paths_are_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let predicate_runtime = runtime_source_without_test_items(&source_for(
+        crate_root,
+        "src/db/predicate/runtime/mod.rs",
+    ));
+    let lexer_scan = source_for(crate_root, "src/db/sql_shared/lexer/scan.rs");
+    let lexer_token_body = source_for(crate_root, "src/db/sql_shared/lexer/token_body.rs");
+    let key_taxonomy = source_for(crate_root, "src/db/key_taxonomy.rs");
+    let index_key_codec = source_for(crate_root, "src/db/index/key/codec/mod.rs");
+    let index_key_tuple = source_for(crate_root, "src/db/index/key/codec/tuple.rs");
+
+    assert_source_contains_patterns(
+        &predicate_runtime,
+        &[
+            "fn eval_optional_scalar_slot(",
+            "return Ok(false);",
+            "eval_optional_scalar_text_contains(*field_slot, needle, TextMode::Ci, slots)",
+        ],
+        "scalar predicate runtime should fail closed when scalar admission/slot resolution drifts",
+    );
+    assert_source_excludes_patterns(
+        &predicate_runtime,
+        &["field_slot.expect(\"scalar predicate invariant\")"],
+        "scalar predicate runtime must not trap on missing slot drift",
+    );
+
+    assert_source_contains_patterns(
+        &lexer_scan,
+        &[
+            "other => Err(SqlParseError::invalid_syntax(",
+            "SqlSyntaxErrorKind::UnexpectedCharacter { byte: other },",
+        ],
+        "SQL lexer comparison operator drift should return a parse error",
+    );
+    assert_source_excludes_patterns(
+        &lexer_scan,
+        &["unreachable!(\"sql lexer invariant\")"],
+        "SQL lexer comparison operator drift must not trap",
+    );
+
+    assert_source_contains_patterns(
+        &lexer_token_body,
+        &[
+            "let Some(high) = hex_nibble(pair[0]) else {",
+            "let Some(low) = hex_nibble(pair[1]) else {",
+            "SqlSyntaxErrorKind::BlobLiteralNonHexDigit,",
+        ],
+        "hex blob decoding should keep malformed nibbles on parse-error paths",
+    );
+    assert_source_excludes_patterns(
+        &lexer_token_body,
+        &[".expect(\"sql lexer invariant\")"],
+        "hex blob decoding must not trap on malformed nibble drift",
+    );
+
+    assert_source_contains_patterns(
+        &key_taxonomy,
+        &[
+            "PrimaryKeyKind::Composite => return Err(CompactPrimaryKeyDecodeError::NestedComposite),",
+            "return Err(CompactPrimaryKeyDecodeError::InvalidLength { kind });",
+            "map_err(|_| CompactStoreKeyEncodeError::IndexSegmentTooLarge)?;",
+        ],
+        "compact key taxonomy should route malformed decode/encode drift through typed errors",
+    );
+    assert_source_excludes_patterns(
+        &key_taxonomy,
+        &[
+            "unreachable!(\"composite handled above\")",
+            ".expect(\"primary-key invariant\")",
+            ".expect(\"compact key segment fits in u16\")",
+        ],
+        "compact key taxonomy must not trap on malformed primary-key or segment-length drift",
+    );
+
+    assert_source_contains_patterns(
+        &index_key_codec,
+        &[
+            "pub(crate) fn to_raw(&self) -> Result<RawIndexStoreKey, IndexKeyEncodeError>",
+            "return Err(IndexKeyEncodeError::TooManyComponents);",
+            "return Err(IndexKeyEncodeError::EmptySegment);",
+            "return Err(IndexKeyEncodeError::SegmentTooLarge);",
+            ".map_err(IndexKeyEncodeError::from)?;",
+            "push_segment(&mut bytes, component)?;",
+            "push_segment(&mut bytes, primary_key)?;",
+        ],
+        "raw index-key codec should route raw encoding drift through typed errors",
+    );
+    assert_source_contains_patterns(
+        &index_key_tuple,
+        &[
+            "pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) -> Result<(), IndexKeyEncodeError>",
+            "return Err(IndexKeyEncodeError::EmptySegment);",
+            "u16::try_from(segment.len()).map_err(|_| IndexKeyEncodeError::SegmentTooLarge)?;",
+        ],
+        "raw index-key tuple segments should encode fallibly",
+    );
+    assert_source_excludes_patterns(
+        &index_key_codec,
+        &[
+            ".expect(\"index key invariant\")",
+            ".expect(\"component count should fit in one byte\")",
+            ".expect(\"primary-key invariant\")",
+        ],
+        "raw index-key codec must not trap on raw encode drift",
+    );
+    assert_source_excludes_patterns(
+        &index_key_tuple,
+        &[
+            "assert!(segment.len() <= u16::MAX as usize, \"index tuple invariant\")",
+            ".expect(\"index tuple invariant\")",
+        ],
+        "raw index-key tuple codec must not trap on segment length drift",
+    );
+}
+
+#[test]
 fn scalar_entrypoints_share_execution_inputs_spine() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let execution = source_for(

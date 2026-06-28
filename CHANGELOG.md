@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Continues recoverable invariant cleanup by routing scalar predicate runtime,
+  SQL lexer, compact key taxonomy, and raw index-key codec drift through
+  fail-closed, parse, or typed key errors instead of traps.
+
 ## [0.187.x] 📊 - 2026-06-27 - Second Query Engine Audit
 
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)

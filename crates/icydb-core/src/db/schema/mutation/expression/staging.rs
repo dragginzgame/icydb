@@ -114,7 +114,7 @@ impl SchemaExpressionIndexStagedRebuild {
             let raw_entry = IndexEntryValue::presence();
 
             entries.push(SchemaExpressionIndexStagedEntry {
-                key: key.to_raw(),
+                key: key.to_raw()?,
                 entry: raw_entry,
             });
         }

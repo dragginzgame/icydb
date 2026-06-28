@@ -158,7 +158,9 @@ fn validate_unique_constraint_structural_impl(
     if new_index_key.index_id() != &index_id {
         return Err(InternalError::index_unique_validation_corruption().into());
     }
-    let (lower, upper) = new_index_key.raw_bounds_for_all_components();
+    let (lower, upper) = new_index_key
+        .raw_bounds_for_all_components()
+        .map_err(InternalError::from)?;
     let lower = Bound::Included(lower);
     let upper = Bound::Included(upper);
 

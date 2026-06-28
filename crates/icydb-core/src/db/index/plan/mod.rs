@@ -487,7 +487,7 @@ pub(super) fn load_existing_entry_structural(
         return Ok(None);
     };
 
-    let raw_key = key.to_raw();
+    let raw_key = key.to_raw()?;
 
     read_view
         .read_index_entry(index, &raw_key)?

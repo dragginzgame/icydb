@@ -183,7 +183,8 @@ impl LoweredIndexPrefixSpec {
             key_kind,
             index.key_arity(),
             prefix_components.as_slice(),
-        );
+        )
+        .map_err(Self::validated_spec_not_indexable)?;
 
         Ok(Self::new(
             index,

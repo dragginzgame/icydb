@@ -3920,7 +3920,8 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         &crate::db::index::IndexKey::new(last_entity, &PUSHDOWN_PARITY_INDEX_MODELS[0])
             .expect("index key derivation should succeed")
             .expect("last emitted row should be indexable")
-            .to_raw(),
+            .to_raw()
+            .expect("test index key should encode"),
     );
     assert_eq!(index_model.name(), PUSHDOWN_PARITY_INDEX_MODELS[0].name());
     let emitted_anchor = scalar_cursor

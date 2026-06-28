@@ -422,6 +422,8 @@ pub(in crate::db) enum CompactPrimaryKeyDecodeError {
 #[derive(Debug)]
 pub(in crate::db) enum CompactStoreKeyEncodeError {
     TooManyIndexComponents,
+
+    IndexSegmentTooLarge,
 }
 
 #[derive(Debug)]
@@ -909,9 +911,9 @@ impl IndexStoreKey {
         bytes.extend_from_slice(&self.index_id.to_bytes());
         bytes.push(component_count);
         for component in &self.components {
-            push_len_prefixed(component.as_bytes(), &mut bytes);
+            push_len_prefixed(component.as_bytes(), &mut bytes)?;
         }
-        push_len_prefixed(self.primary_key.as_bytes(), &mut bytes);
+        push_len_prefixed(self.primary_key.as_bytes(), &mut bytes)?;
 
         Ok(RawIndexStoreKey { bytes })
     }
@@ -1231,8 +1233,13 @@ fn take_encoded_primary_key_component<'a>(
             }
             TAG_SIZE + TAG_SIZE + len
         }
-        PrimaryKeyKind::Composite => unreachable!("composite handled above"),
-        _ => TAG_SIZE + kind.fixed_payload_len().expect("primary-key invariant"),
+        PrimaryKeyKind::Composite => return Err(CompactPrimaryKeyDecodeError::NestedComposite),
+        _ => {
+            let Some(payload_len) = kind.fixed_payload_len() else {
+                return Err(CompactPrimaryKeyDecodeError::InvalidLength { kind });
+            };
+            TAG_SIZE + payload_len
+        }
     };
     if input.len() < total_len {
         return Err(CompactPrimaryKeyDecodeError::InvalidLength { kind });
@@ -1301,10 +1308,13 @@ const fn decode_ordered_i128(bytes: [u8; INT128_SIZE]) -> i128 {
     (u128::from_be_bytes(bytes) ^ (1u128 << 127)).cast_signed()
 }
 
-fn push_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) {
-    let len = u16::try_from(bytes.len()).expect("compact key segment fits in u16");
+fn push_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), CompactStoreKeyEncodeError> {
+    let len =
+        u16::try_from(bytes.len()).map_err(|_| CompactStoreKeyEncodeError::IndexSegmentTooLarge)?;
     out.extend_from_slice(&len.to_be_bytes());
     out.extend_from_slice(bytes);
+
+    Ok(())
 }
 
 const fn take_exact<'a>(

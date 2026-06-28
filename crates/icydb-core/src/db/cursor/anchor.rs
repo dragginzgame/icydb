@@ -114,7 +114,9 @@ fn decode_canonical_cursor_anchor(
         <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(anchor.last_raw_key()));
     let decoded_key = IndexKey::try_from_raw(&anchor_raw)
         .map_err(CursorPlanError::index_range_anchor_decode_failed)?;
-    let canonical_raw = decoded_key.to_raw();
+    let canonical_raw = decoded_key
+        .to_raw()
+        .map_err(|_| CursorPlanError::index_range_anchor_canonical_encoding_mismatch())?;
     debug_assert_eq!(
         canonical_raw.as_bytes(),
         anchor.last_raw_key(),

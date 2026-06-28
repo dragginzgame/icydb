@@ -12,6 +12,7 @@ mod ordered;
 #[cfg(test)]
 mod tests;
 
+pub(in crate::db) use codec::IndexKeyEncodeError;
 pub(crate) use codec::{IndexKey, IndexKeyKind, RawIndexStoreKey};
 pub(in crate::db) use expression::{IndexExpressionSourceClass, derive_index_expression_value};
 pub(crate) use id::IndexId;

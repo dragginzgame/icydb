@@ -88,6 +88,7 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
     Prefix,
     Lower,
     Upper,
+    RawKey,
 }
 
 impl IndexRangeBoundEncodeError {
@@ -103,6 +104,7 @@ impl IndexRangeBoundEncodeError {
             Self::Prefix => "index-range continuation anchor prefix is not indexable",
             Self::Lower => "index-range cursor lower continuation bound is not indexable",
             Self::Upper => "index-range cursor upper continuation bound is not indexable",
+            Self::RawKey => "index-range raw key encode invariant",
         }
     }
 }
@@ -126,7 +128,7 @@ pub(in crate::db) fn build_index_bounds_for_arity(
             let encoded_prefix = EncodedValue::try_encode_all(values)
                 .map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
             let (lower, upper) =
-                raw_keys_for_encoded_prefix(index_id, index_len, encoded_prefix.as_slice());
+                raw_keys_for_encoded_prefix(index_id, index_len, encoded_prefix.as_slice())?;
 
             Ok((Bound::Included(lower), Bound::Included(upper)))
         }
@@ -210,12 +212,11 @@ fn text_prefix_mode_for_component_bounds<'a>(
 /// Build canonical raw start/end keys for an encoded prefix in the user namespace.
 ///
 
-#[must_use]
 fn raw_keys_for_encoded_prefix(
     index_id: &IndexId,
     index_len: usize,
     prefix: &[EncodedValue],
-) -> (RawIndexStoreKey, RawIndexStoreKey) {
+) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
     raw_keys_for_encoded_prefix_with_kind(index_id, IndexKeyKind::User, index_len, prefix)
 }
 
@@ -225,28 +226,32 @@ fn raw_keys_for_encoded_prefix(
 /// Build canonical raw start/end keys for an encoded prefix in the requested key namespace.
 ///
 
-#[must_use]
 pub(in crate::db) fn raw_keys_for_encoded_prefix_with_kind(
     index_id: &IndexId,
     key_kind: IndexKeyKind,
     index_len: usize,
     prefix: &[EncodedValue],
-) -> (RawIndexStoreKey, RawIndexStoreKey) {
+) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
     raw_keys_for_component_prefix_with_kind(index_id, key_kind, index_len, prefix)
 }
 
 /// Build canonical raw start/end keys for any pre-encoded prefix bytes in the
 /// requested key namespace.
-#[must_use]
 pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
     index_id: &IndexId,
     key_kind: IndexKeyKind,
     index_len: usize,
     prefix: &[C],
-) -> (RawIndexStoreKey, RawIndexStoreKey) {
+) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
     let (start, end) = IndexKey::bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix);
+    let start = start
+        .to_raw()
+        .map_err(|_| IndexRangeBoundEncodeError::RawKey)?;
+    let end = end
+        .to_raw()
+        .map_err(|_| IndexRangeBoundEncodeError::RawKey)?;
 
-    (start.to_raw(), end.to_raw())
+    Ok((start, end))
 }
 
 ///
@@ -261,7 +266,7 @@ fn raw_bounds_for_encoded_index_component_range(
     prefix: &[EncodedValue],
     lower: &Bound<EncodedValue>,
     upper: &Bound<EncodedValue>,
-) -> (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>) {
+) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
     let lower_component = encoded_component_bound(lower);
     let upper_component = encoded_component_bound(upper);
     let (start, end) = IndexKey::bounds_for_prefix_component_range(
@@ -271,11 +276,10 @@ fn raw_bounds_for_encoded_index_component_range(
         &lower_component,
         &upper_component,
     );
+    let start = raw_index_store_key_bound(start)?;
+    let end = raw_index_store_key_bound(end)?;
 
-    (
-        raw_index_store_key_bound(start),
-        raw_index_store_key_bound(end),
-    )
+    Ok((start, end))
 }
 
 ///
@@ -299,13 +303,13 @@ fn raw_bounds_for_semantic_index_component_range(
     let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
 
     // Phase 2: lower encoded bounds to canonical raw index-key bounds.
-    Ok(raw_bounds_for_encoded_index_component_range(
+    raw_bounds_for_encoded_index_component_range(
         index_id,
         index_len,
         encoded_prefix.as_slice(),
         &encoded_lower,
         &encoded_upper,
-    ))
+    )
 }
 
 /// Return the smallest strict lexical successor prefix, or `None` when the
@@ -347,11 +351,19 @@ fn encode_semantic_component_bound(
     }
 }
 
-fn raw_index_store_key_bound(bound: Bound<IndexKey>) -> Bound<RawIndexStoreKey> {
+fn raw_index_store_key_bound(
+    bound: Bound<IndexKey>,
+) -> Result<Bound<RawIndexStoreKey>, IndexRangeBoundEncodeError> {
     match bound {
-        Bound::Unbounded => Bound::Unbounded,
-        Bound::Included(key) => Bound::Included(key.to_raw()),
-        Bound::Excluded(key) => Bound::Excluded(key.to_raw()),
+        Bound::Unbounded => Ok(Bound::Unbounded),
+        Bound::Included(key) => key
+            .to_raw()
+            .map(Bound::Included)
+            .map_err(|_| IndexRangeBoundEncodeError::RawKey),
+        Bound::Excluded(key) => key
+            .to_raw()
+            .map(Bound::Excluded)
+            .map_err(|_| IndexRangeBoundEncodeError::RawKey),
     }
 }
 
@@ -389,6 +401,10 @@ mod tests {
         assert_eq!(
             IndexRangeBoundEncodeError::Upper.cursor_anchor_not_indexable_reason(),
             "index-range cursor upper continuation bound is not indexable",
+        );
+        assert_eq!(
+            IndexRangeBoundEncodeError::RawKey.cursor_anchor_not_indexable_reason(),
+            "index-range raw key encode invariant",
         );
     }
 }
