@@ -29,105 +29,18 @@ use crate::{
 };
 use std::str;
 
-///
-/// KindArrayDecodeState
-///
-/// KindArrayDecodeState carries the recursive list/set decode buffer together
-/// with the declared inner field contract.
-///
-
-type KindArrayDecodeState = (Vec<Value>, FieldKind);
-
-///
-/// KindMapDecodeState
-///
-/// KindMapDecodeState carries the recursive map decode buffer together with
-/// the declared key/value field contracts.
-///
-
-type KindMapDecodeState = (Vec<(Value, Value)>, FieldKind, FieldKind);
-
-// Carry the declared item contract while the validate-only list/set walker
-// checks each recursive element without allocating a `Vec<Value>`.
-type KindArrayValidateState = FieldKind;
-
-// Carry the declared key/value contracts while the validate-only map walker
-// checks each recursive entry without allocating a `Vec<(Value, Value)>`.
-type KindMapValidateState = (FieldKind, FieldKind);
-
-// Push one binary by-kind list item into the decoded runtime value buffer.
-//
-// Safety:
-// `context` must be a valid `KindArrayDecodeState`.
-fn push_kind_binary_array_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<KindArrayDecodeState>() };
-    state.0.push(decode_structural_binary_field_by_kind_bytes(
-        item_bytes, state.1,
-    )?);
-
-    Ok(())
-}
-
-// Push one binary by-kind map entry into the decoded runtime entry buffer.
-//
-// Safety:
-// `context` must be a valid `KindMapDecodeState`.
-fn push_kind_binary_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<KindMapDecodeState>() };
-    state.0.push((
-        decode_structural_binary_field_by_kind_bytes(key_bytes, state.1)?,
-        decode_structural_binary_field_by_kind_bytes(value_bytes, state.2)?,
-    ));
-
-    Ok(())
-}
-
-// Validate one binary by-kind list item recursively without allocating a
-// decode buffer.
-//
-// Safety:
-// `context` must be a valid `KindArrayValidateState`.
-fn validate_kind_binary_array_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let kind = unsafe { *context.cast::<KindArrayValidateState>() };
-
-    validate_structural_binary_field_by_kind_bytes(item_bytes, kind)
-}
-
-// Validate one binary by-kind map entry recursively without allocating
-// decoded runtime keys or values.
-//
-// Safety:
-// `context` must be a valid `KindMapValidateState`.
-fn validate_kind_binary_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let (key_kind, value_kind) = unsafe { *context.cast::<KindMapValidateState>() };
-    validate_structural_binary_field_by_kind_bytes(key_bytes, key_kind)?;
-    validate_structural_binary_field_by_kind_bytes(value_bytes, value_kind)
-}
-
 // Decode one list/set field directly from Structural Binary v1 bytes.
 fn decode_binary_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<Value, FieldDecodeError> {
-    let mut state = (Vec::new(), inner);
-    walk_binary_list_items(
-        raw_bytes,
-        (&raw mut state).cast(),
-        push_kind_binary_array_item,
-    )?;
+    let mut items = Vec::new();
+    walk_binary_list_items(raw_bytes, &mut |item_bytes| {
+        items.push(decode_structural_binary_field_by_kind_bytes(
+            item_bytes, inner,
+        )?);
 
-    Ok(Value::List(state.0))
+        Ok(())
+    })?;
+
+    Ok(Value::List(items))
 }
 
 // Decode one map field directly from Structural Binary v1 bytes.
@@ -136,24 +49,24 @@ fn decode_binary_map_bytes(
     key_kind: FieldKind,
     value_kind: FieldKind,
 ) -> Result<Value, FieldDecodeError> {
-    let mut state = (Vec::new(), key_kind, value_kind);
-    walk_binary_map_entries(
-        raw_bytes,
-        (&raw mut state).cast(),
-        push_kind_binary_map_entry,
-    )?;
+    let mut entries = Vec::new();
+    walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
+        entries.push((
+            decode_structural_binary_field_by_kind_bytes(key_bytes, key_kind)?,
+            decode_structural_binary_field_by_kind_bytes(value_bytes, value_kind)?,
+        ));
 
-    Ok(normalize_map_entries_or_preserve(state.0))
+        Ok(())
+    })?;
+
+    Ok(normalize_map_entries_or_preserve(entries))
 }
 
 // Validate one list/set field directly from Structural Binary v1 bytes.
 fn validate_binary_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<(), FieldDecodeError> {
-    let mut state = inner;
-    walk_binary_list_items(
-        raw_bytes,
-        (&raw mut state).cast(),
-        validate_kind_binary_array_item,
-    )
+    walk_binary_list_items(raw_bytes, &mut |item_bytes| {
+        validate_structural_binary_field_by_kind_bytes(item_bytes, inner)
+    })
 }
 
 // Validate one map field directly from Structural Binary v1 bytes.
@@ -162,12 +75,10 @@ fn validate_binary_map_bytes(
     key_kind: FieldKind,
     value_kind: FieldKind,
 ) -> Result<(), FieldDecodeError> {
-    let mut state = (key_kind, value_kind);
-    walk_binary_map_entries(
-        raw_bytes,
-        (&raw mut state).cast(),
-        validate_kind_binary_map_entry,
-    )
+    walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
+        validate_structural_binary_field_by_kind_bytes(key_bytes, key_kind)?;
+        validate_structural_binary_field_by_kind_bytes(value_bytes, value_kind)
+    })
 }
 
 // Decode one enum field directly from Structural Binary v1 bytes using the

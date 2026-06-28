@@ -12,7 +12,6 @@ use crate::{
             walk_binary_list_items as walk_structural_binary_list_items,
         },
         primary_key_component::{
-            AcceptedRelationKeyDecodeState, RelationKeyDecodeState,
             scalar::{
                 decode_account_primary_key_component_binary_bytes,
                 decode_int_primary_key_component_binary_bytes,
@@ -236,14 +235,18 @@ fn decode_relation_primary_key_component_binary_list_bytes(
         return Err(FieldDecodeError::new());
     }
 
-    let mut state = (Vec::new(), key_kind);
-    walk_structural_binary_list_items(
-        raw_bytes,
-        (&raw mut state).cast(),
-        push_relation_primary_key_component_binary_item,
-    )?;
+    let mut components = Vec::new();
+    walk_structural_binary_list_items(raw_bytes, &mut |item_bytes| {
+        if let Some(value) =
+            decode_optional_relation_primary_key_component_binary_bytes(item_bytes, key_kind)?
+        {
+            components.push(value);
+        }
 
-    Ok(state.0)
+        Ok(())
+    })?;
+
+    Ok(components)
 }
 
 // Decode one accepted list/set relation payload from Structural Binary v1 into
@@ -262,14 +265,18 @@ fn decode_accepted_relation_primary_key_component_binary_list_bytes(
         return Err(FieldDecodeError::new());
     }
 
-    let mut state = (Vec::new(), key_kind);
-    walk_structural_binary_list_items(
-        raw_bytes,
-        (&raw mut state).cast(),
-        push_accepted_relation_primary_key_component_binary_item,
-    )?;
+    let mut components = Vec::new();
+    walk_structural_binary_list_items(raw_bytes, &mut |item_bytes| {
+        if let Some(value) =
+            decode_optional_accepted_primary_key_component_field_binary_bytes(item_bytes, key_kind)?
+        {
+            components.push(value);
+        }
 
-    Ok(state.0)
+        Ok(())
+    })?;
+
+    Ok(components)
 }
 
 // Decode one relation-compatible scalar field payload from Structural Binary
@@ -319,42 +326,4 @@ fn decode_accepted_primary_key_component_field_binary_bytes(
         PersistedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         _ => Err(FieldDecodeError::new()),
     }
-}
-
-// Push one Structural Binary relation-key list item into the decoded
-// target-key buffer.
-//
-// Safety:
-// `context` must be a valid `RelationKeyDecodeState`.
-fn push_relation_primary_key_component_binary_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<RelationKeyDecodeState>() };
-    if let Some(value) =
-        decode_optional_relation_primary_key_component_binary_bytes(item_bytes, state.1)?
-    {
-        state.0.push(value);
-    }
-
-    Ok(())
-}
-
-// Push one accepted Structural Binary relation-key list item into the decoded
-// target-key buffer.
-//
-// Safety:
-// `context` must be a valid `AcceptedRelationKeyDecodeState`.
-fn push_accepted_relation_primary_key_component_binary_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<AcceptedRelationKeyDecodeState<'_>>() };
-    if let Some(value) =
-        decode_optional_accepted_primary_key_component_field_binary_bytes(item_bytes, state.1)?
-    {
-        state.0.push(value);
-    }
-
-    Ok(())
 }

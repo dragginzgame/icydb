@@ -115,6 +115,9 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 # ---------------------
 #  CLIPPY CONFIGURATION
 # ---------------------
+[workspace.lints.rust]
+unsafe_code = "deny"
+
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }

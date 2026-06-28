@@ -3,7 +3,6 @@ use super::{
     TAG_VARIANT_PAYLOAD, TAG_VARIANT_UNIT, parse_binary_head, push_binary_bool, skip_binary_value,
     split_binary_variant_payload, walk_binary_list_items, walk_binary_map_entries,
 };
-use crate::db::data::structural_field::FieldDecodeError;
 
 type ListState = Vec<Vec<u8>>;
 type MapState = Vec<(Vec<u8>, Vec<u8>)>;
@@ -89,36 +88,6 @@ fn encode_variant_payload(label: &str, payload: &[u8]) -> Vec<u8> {
     out
 }
 
-// Match the production walker callback contract even though this fixture
-// callback itself cannot fail.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "test callback keeps the same fallible signature as the production walker"
-)]
-fn push_list_item(item_bytes: &[u8], context: *mut ()) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<ListState>() };
-    state.push(item_bytes.to_vec());
-
-    Ok(())
-}
-
-// Match the production walker callback contract even though this fixture
-// callback itself cannot fail.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "test callback keeps the same fallible signature as the production walker"
-)]
-fn push_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<MapState>() };
-    state.push((key_bytes.to_vec(), value_bytes.to_vec()));
-
-    Ok(())
-}
-
 #[test]
 fn parse_binary_head_reports_tag_len_and_payload_offset() {
     let bytes = encode_text("icy");
@@ -160,8 +129,12 @@ fn walk_binary_list_items_yields_raw_item_slices() {
     let bytes = encode_list(&[left.clone(), right.clone()]);
     let mut state: ListState = Vec::new();
 
-    walk_binary_list_items(&bytes, (&raw mut state).cast(), push_list_item)
-        .expect("list walk should succeed");
+    walk_binary_list_items(&bytes, &mut |item_bytes| {
+        state.push(item_bytes.to_vec());
+
+        Ok(())
+    })
+    .expect("list walk should succeed");
 
     assert_eq!(state, vec![left, right]);
 }
@@ -178,8 +151,12 @@ fn walk_binary_map_entries_yields_raw_entry_slices() {
     ]);
     let mut state: MapState = Vec::new();
 
-    walk_binary_map_entries(&bytes, (&raw mut state).cast(), push_map_entry)
-        .expect("map walk should succeed");
+    walk_binary_map_entries(&bytes, &mut |key_bytes, value_bytes| {
+        state.push((key_bytes.to_vec(), value_bytes.to_vec()));
+
+        Ok(())
+    })
+    .expect("map walk should succeed");
 
     assert_eq!(
         state,

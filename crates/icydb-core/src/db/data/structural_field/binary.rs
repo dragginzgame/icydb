@@ -141,11 +141,8 @@ pub(super) fn push_binary_variant_payload(out: &mut Vec<u8>, label: &str, payloa
     out.extend_from_slice(payload);
 }
 
-// Alias the callback shape for Structural Binary v1 list walkers.
-type ListItemDecodeFn = unsafe fn(&[u8], *mut ()) -> Result<(), FieldDecodeError>;
-
-// Alias the callback shape for Structural Binary v1 map walkers.
-type MapEntryDecodeFn = unsafe fn(&[u8], &[u8], *mut ()) -> Result<(), FieldDecodeError>;
+type ListItemVisitor<'a> = dyn FnMut(&[u8]) -> Result<(), FieldDecodeError> + 'a;
+type MapEntryVisitor<'a> = dyn FnMut(&[u8], &[u8]) -> Result<(), FieldDecodeError> + 'a;
 
 ///
 /// BinaryHead
@@ -244,14 +241,9 @@ fn skip_binary_value_at_depth(
 }
 
 // Walk one Structural Binary v1 list and yield each raw item slice to the caller.
-//
-// Safety:
-// `context` must point at the state type expected by `on_item` for the full
-// duration of this call.
 pub(super) fn walk_binary_list_items(
     raw_bytes: &[u8],
-    context: *mut (),
-    on_item: ListItemDecodeFn,
+    on_item: &mut ListItemVisitor<'_>,
 ) -> Result<(), FieldDecodeError> {
     let Some((tag, len, payload_offset)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new());
@@ -269,9 +261,7 @@ pub(super) fn walk_binary_list_items(
     for _ in 0..head.len {
         let item_start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
-        // Safety: the caller pairs `context` with the matching callback, so the
-        // callback sees the concrete state type it expects.
-        unsafe { on_item(&raw_bytes[item_start..cursor], context)? };
+        on_item(&raw_bytes[item_start..cursor])?;
     }
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new());
@@ -281,14 +271,9 @@ pub(super) fn walk_binary_list_items(
 }
 
 // Walk one Structural Binary v1 map and yield each raw key/value slice pair to the caller.
-//
-// Safety:
-// `context` must point at the state type expected by `on_entry` for the full
-// duration of this call.
 pub(super) fn walk_binary_map_entries(
     raw_bytes: &[u8],
-    context: *mut (),
-    on_entry: MapEntryDecodeFn,
+    on_entry: &mut MapEntryVisitor<'_>,
 ) -> Result<(), FieldDecodeError> {
     let Some((tag, len, payload_offset)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new());
@@ -308,15 +293,10 @@ pub(super) fn walk_binary_map_entries(
         cursor = skip_binary_value(raw_bytes, cursor)?;
         let value_start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
-        // Safety: the caller pairs `context` with the matching callback, so the
-        // callback sees the concrete state type it expects.
-        unsafe {
-            on_entry(
-                &raw_bytes[key_start..value_start],
-                &raw_bytes[value_start..cursor],
-                context,
-            )?;
-        }
+        on_entry(
+            &raw_bytes[key_start..value_start],
+            &raw_bytes[value_start..cursor],
+        )?;
     }
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new());

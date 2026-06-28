@@ -118,37 +118,6 @@ type OwnedByKindListItems = Vec<Vec<u8>>;
 // splits one by-kind map payload into nested key/value slices.
 type OwnedByKindMapEntries = Vec<(Vec<u8>, Vec<u8>)>;
 
-// Push one owned by-kind list or set item payload into the owned slice state.
-//
-// Safety:
-// `context` must point to `OwnedByKindListItems`.
-fn push_owned_by_kind_list_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<OwnedByKindListItems>() };
-    state.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
-    state.push(item_bytes.to_vec());
-
-    Ok(())
-}
-
-// Push one owned by-kind map entry payload into the owned slice state.
-//
-// Safety:
-// `context` must point to `OwnedByKindMapEntries`.
-fn push_owned_by_kind_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<OwnedByKindMapEntries>() };
-    state.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
-    state.push((key_bytes.to_vec(), value_bytes.to_vec()));
-
-    Ok(())
-}
-
 /// Decode one encoded persisted field payload strictly by semantic field kind.
 pub(in crate::db) fn decode_structural_field_by_kind_bytes(
     raw_bytes: &[u8],
@@ -324,17 +293,18 @@ pub(in crate::db) fn encode_list_field_owned_items(
 pub(in crate::db) fn decode_list_field_items(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Vec<Vec<u8>>, FieldDecodeError> {
+) -> Result<OwnedByKindListItems, FieldDecodeError> {
     if !matches!(kind, FieldKind::List(_) | FieldKind::Set(_)) {
         return Err(FieldDecodeError::new());
     }
 
     let mut state = Vec::new();
-    walk_binary_list_items(
-        raw_bytes,
-        (&raw mut state).cast(),
-        push_owned_by_kind_list_item,
-    )?;
+    walk_binary_list_items(raw_bytes, &mut |item_bytes| {
+        state.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
+        state.push(item_bytes.to_vec());
+
+        Ok(())
+    })?;
 
     Ok(state)
 }
@@ -396,11 +366,12 @@ pub(in crate::db) fn decode_map_field_entries(
     }
 
     let mut state = Vec::new();
-    walk_binary_map_entries(
-        raw_bytes,
-        (&raw mut state).cast(),
-        push_owned_by_kind_map_entry,
-    )?;
+    walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
+        state.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
+        state.push((key_bytes.to_vec(), value_bytes.to_vec()));
+
+        Ok(())
+    })?;
 
     Ok(state)
 }

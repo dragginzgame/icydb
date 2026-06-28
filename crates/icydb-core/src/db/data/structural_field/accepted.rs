@@ -290,93 +290,23 @@ fn encode_accepted_binary_field_into(
     }
 }
 
-// Decode-state for accepted-schema list traversal.
-struct AcceptedListDecodeState<'a> {
-    inner: &'a PersistedFieldKind,
-    items: Vec<Value>,
-}
-
-// Validate-state for accepted-schema list traversal.
-struct AcceptedListValidateState<'a> {
-    inner: &'a PersistedFieldKind,
-}
-
-// Decode-state for accepted-schema map traversal.
-struct AcceptedMapDecodeState<'a> {
-    key_kind: &'a PersistedFieldKind,
-    value_kind: &'a PersistedFieldKind,
-    entries: Vec<(Value, Value)>,
-}
-
-// Validate-state for accepted-schema map traversal.
-struct AcceptedMapValidateState<'a> {
-    key_kind: &'a PersistedFieldKind,
-    value_kind: &'a PersistedFieldKind,
-}
-
-// Push one accepted-schema list item into the current decode state.
-unsafe fn push_accepted_list_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<AcceptedListDecodeState<'_>>() };
-    let item = decode_structural_field_by_accepted_kind_bytes(item_bytes, state.inner)?;
-    if matches!(state.inner, PersistedFieldKind::Relation { .. }) && matches!(item, Value::Null) {
-        return Ok(());
-    }
-    state.items.push(item);
-
-    Ok(())
-}
-
-// Validate one accepted-schema list item against the current traversal state.
-unsafe fn validate_accepted_list_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<AcceptedListValidateState<'_>>() };
-
-    validate_structural_field_by_accepted_kind_bytes(item_bytes, state.inner)
-}
-
-// Push one accepted-schema map entry into the current decode state.
-unsafe fn push_accepted_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<AcceptedMapDecodeState<'_>>() };
-    state.entries.push((
-        decode_structural_field_by_accepted_kind_bytes(key_bytes, state.key_kind)?,
-        decode_structural_field_by_accepted_kind_bytes(value_bytes, state.value_kind)?,
-    ));
-
-    Ok(())
-}
-
-// Validate one accepted-schema map entry against the current traversal state.
-unsafe fn validate_accepted_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<AcceptedMapValidateState<'_>>() };
-    validate_structural_field_by_accepted_kind_bytes(key_bytes, state.key_kind)?;
-    validate_structural_field_by_accepted_kind_bytes(value_bytes, state.value_kind)
-}
-
 // Decode one accepted list or set by recursively decoding each item slice.
 fn decode_accepted_list_bytes(
     raw_bytes: &[u8],
     inner: &PersistedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
-    let mut state = AcceptedListDecodeState {
-        inner,
-        items: Vec::new(),
-    };
-    walk_binary_list_items(raw_bytes, (&raw mut state).cast(), push_accepted_list_item)?;
+    let mut items = Vec::new();
+    walk_binary_list_items(raw_bytes, &mut |item_bytes| {
+        let item = decode_structural_field_by_accepted_kind_bytes(item_bytes, inner)?;
+        if matches!(inner, PersistedFieldKind::Relation { .. }) && matches!(item, Value::Null) {
+            return Ok(());
+        }
+        items.push(item);
 
-    Ok(Value::List(state.items))
+        Ok(())
+    })?;
+
+    Ok(Value::List(items))
 }
 
 // Encode one accepted list or set by recursively encoding each item. Accepted
@@ -419,12 +349,9 @@ fn validate_accepted_list_bytes(
     raw_bytes: &[u8],
     inner: &PersistedFieldKind,
 ) -> Result<(), FieldDecodeError> {
-    let mut state = AcceptedListValidateState { inner };
-    walk_binary_list_items(
-        raw_bytes,
-        (&raw mut state).cast(),
-        validate_accepted_list_item,
-    )
+    walk_binary_list_items(raw_bytes, &mut |item_bytes| {
+        validate_structural_field_by_accepted_kind_bytes(item_bytes, inner)
+    })
 }
 
 // Encode one accepted map by recursively encoding each key/value pair.
@@ -456,14 +383,17 @@ fn decode_accepted_map_bytes(
     key_kind: &PersistedFieldKind,
     value_kind: &PersistedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
-    let mut state = AcceptedMapDecodeState {
-        key_kind,
-        value_kind,
-        entries: Vec::new(),
-    };
-    walk_binary_map_entries(raw_bytes, (&raw mut state).cast(), push_accepted_map_entry)?;
+    let mut entries = Vec::new();
+    walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
+        entries.push((
+            decode_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?,
+            decode_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)?,
+        ));
 
-    Ok(Value::Map(state.entries))
+        Ok(())
+    })?;
+
+    Ok(Value::Map(entries))
 }
 
 // Validate one accepted map by recursively validating each key/value slice
@@ -473,15 +403,10 @@ fn validate_accepted_map_bytes(
     key_kind: &PersistedFieldKind,
     value_kind: &PersistedFieldKind,
 ) -> Result<(), FieldDecodeError> {
-    let mut state = AcceptedMapValidateState {
-        key_kind,
-        value_kind,
-    };
-    walk_binary_map_entries(
-        raw_bytes,
-        (&raw mut state).cast(),
-        validate_accepted_map_entry,
-    )
+    walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
+        validate_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?;
+        validate_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)
+    })
 }
 
 // Encode one accepted enum payload using persisted variant metadata rather

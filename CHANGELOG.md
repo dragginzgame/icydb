@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
 
-- `0.188.3` names SQL write candidate accounting and staged-row over-limit
-  source diagnostics while preserving existing public metrics and errors.
+- `0.188.3` names SQL write candidate accounting, staged-row over-limit
+  source diagnostics, and removes the remaining structural binary walker
+  unsafe callback state while adding a workspace unsafe-code lint gate.
 
 - `0.188.2` extends bounded SQL write collection to `INSERT ... SELECT`
   source rows while preserving final mutation-batch validation.

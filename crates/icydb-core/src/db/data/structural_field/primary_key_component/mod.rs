@@ -24,15 +24,6 @@ pub(in crate::db) use crate::db::data::structural_field::primary_key_component::
     encode::encode_primary_key_component_binary_value_bytes,
 };
 
-///
-/// RelationKeyDecodeState
-///
-/// RelationKeyDecodeState carries the output buffer plus the relation key kind
-/// while the Structural Binary v1 list walker visits relation items.
-///
-type RelationKeyDecodeState = (Vec<PrimaryKeyComponent>, FieldKind);
-type AcceptedRelationKeyDecodeState<'a> = (Vec<PrimaryKeyComponent>, &'a PersistedFieldKind);
-
 /// Return whether this field kind is owned by the Structural Binary v1
 /// primary-key-component lane.
 pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: FieldKind) -> bool {
