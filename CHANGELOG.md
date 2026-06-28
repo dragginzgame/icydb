@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Makes query fingerprint hashing drift paths recoverable by hashing
-  deterministic sentinel material for missing entity-path or grouped HAVING
-  lookup facts instead of trapping.
-
 ## [0.187.x] 📊 - 2026-06-27 - Second Query Engine Audit
 
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)
+
+- `0.187.6` continues recoverable invariant cleanup by making query
+  fingerprint profile and grouped HAVING hashing encode deterministic drift
+  sentinels instead of trapping when lookup facts are missing.
 
 - `0.187.5` continues recoverable invariant cleanup by making affine numeric
   compare flipping, scalar COUNT reducer output, and grouped projection
