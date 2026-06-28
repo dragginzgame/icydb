@@ -691,9 +691,11 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
             "let candidate_bounds =",
             "sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some())",
             "candidate_bounds.validate(SqlWriteCandidateRows::from_len(values.len()))?",
+            "execute_sql_insert_select_source_patches::<E>(",
+            "collect_bounded_sql_write_mutation_batch_from_structural_query(",
             "SqlWriteMutationExecution::from_bounded_batch(",
         ],
-        "SQL INSERT VALUES and INSERT SELECT should share candidate bounds through the mutation batch handoff",
+        "SQL INSERT VALUES and INSERT SELECT should share candidate bounds through bounded source collection and the mutation batch handoff",
     );
 
     assert_source_contains_patterns(

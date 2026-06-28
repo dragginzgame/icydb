@@ -1,8 +1,9 @@
 use super::{
-    SqlWriteCandidateRows, SqlWriteMutationBatch, SqlWriteMutationExecution,
-    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    sql_insert_candidate_bounds, sql_write_key_from_component_literals,
-    sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
+    SqlWriteCandidateBounds, SqlWriteCandidateRows, SqlWriteMutationBatch,
+    SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
+    reject_explicit_sql_write_to_managed_field, sql_insert_candidate_bounds,
+    sql_write_key_from_component_literals, sql_write_patch_set_accepted_field,
+    sql_write_value_for_accepted_field,
 };
 use crate::{
     db::{
@@ -263,16 +264,18 @@ impl<C: CanisterKind> DbSession<C> {
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         source_query: &StructuralQuery,
         columns: &[String],
+        candidate_bounds: SqlWriteCandidateBounds,
     ) -> Result<(crate::db::schema::SchemaInfo, SqlWriteMutationBatch<E::Key>), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (authority, save_schema_info) =
             Self::accepted_sql_write_authority_schema_info::<E>(schema)?;
-        let rows = self.collect_sql_write_mutation_batch_from_structural_query(
+        let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
             schema,
             authority,
             source_query,
+            candidate_bounds,
             |row| {
                 if row.len() != columns.len() {
                     return Err(QueryError::sql_write_boundary(
@@ -386,6 +389,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 &descriptor,
                                 source_query,
                                 columns.as_slice(),
+                                candidate_bounds,
                             )?;
                         save_schema_info = Some(schema_info);
                         rows = collected_rows;

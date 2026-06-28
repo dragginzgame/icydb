@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Extends bounded SQL write collection to `INSERT ... SELECT` source rows so
+  public staged-row caps are enforced during mutation-batch construction as
+  well as at the final write handoff.
+
 ## [0.188.x] 🔧 - 2026-06-28 - Mutation Candidate Collector
 
 Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
