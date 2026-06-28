@@ -100,20 +100,73 @@ fn resolve_structural_delete_kernel_rows(
     })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StructuralDeleteCandidateDiagnostics {
+    rows_loaded: usize,
+    selected_candidates: usize,
+}
+
+impl StructuralDeleteCandidateDiagnostics {
+    const fn from_loaded_rows(rows_loaded: usize) -> Self {
+        Self {
+            rows_loaded,
+            selected_candidates: rows_loaded,
+        }
+    }
+}
+
+struct StructuralDeleteCandidateCollection {
+    diagnostics: StructuralDeleteCandidateDiagnostics,
+    rows: Vec<KernelRow>,
+}
+
+impl StructuralDeleteCandidateCollection {
+    const fn from_loaded_rows(rows: Vec<KernelRow>) -> Self {
+        Self {
+            diagnostics: StructuralDeleteCandidateDiagnostics::from_loaded_rows(rows.len()),
+            rows,
+        }
+    }
+
+    fn apply_post_access(
+        &mut self,
+        prepared: &PreparedDeleteExecutionState,
+    ) -> Result<(), InternalError> {
+        apply_delete_post_access_rows(prepared, &mut self.rows)?;
+        self.diagnostics.selected_candidates = self.rows.len();
+
+        Ok(())
+    }
+
+    const fn diagnostics(&self) -> StructuralDeleteCandidateDiagnostics {
+        self.diagnostics
+    }
+
+    fn into_rows(self) -> Vec<KernelRow> {
+        self.rows
+    }
+}
+
 fn prepare_structural_delete_leaf_from_access<T>(
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
     max_selected_rows: Option<u32>,
     package_rows: impl FnOnce(Vec<KernelRow>) -> Result<DeleteLeaf<T>, InternalError>,
 ) -> Result<DeleteLeaf<T>, InternalError> {
-    let mut rows = resolve_structural_delete_kernel_rows(store, prepared)?;
-    apply_delete_post_access_rows(prepared, &mut rows)?;
+    let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
+    let mut collection = StructuralDeleteCandidateCollection::from_loaded_rows(rows);
+    collection.apply_post_access(prepared)?;
+    let diagnostics = collection.diagnostics();
+    debug_assert!(diagnostics.rows_loaded >= diagnostics.selected_candidates);
     #[cfg(feature = "sql")]
-    validate_structural_delete_selected_row_count_bounds(rows.len(), max_selected_rows)?;
+    validate_structural_delete_selected_row_count_bounds(
+        diagnostics.selected_candidates,
+        max_selected_rows,
+    )?;
     #[cfg(not(feature = "sql"))]
     let _ = max_selected_rows;
 
-    package_rows(rows)
+    package_rows(collection.into_rows())
 }
 
 // Resolve, filter, package, and prepare commit row ops for one structural

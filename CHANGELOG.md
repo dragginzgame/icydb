@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
 
+- `0.188.4` introduces internal SQL and structural DELETE candidate
+  collections that keep source/loaded row diagnostics separate from mutation
+  payloads.
+
 - `0.188.3` names SQL write candidate accounting, staged-row over-limit
   source diagnostics, and removes the remaining structural binary walker
   unsafe callback state while adding a workspace unsafe-code lint gate.

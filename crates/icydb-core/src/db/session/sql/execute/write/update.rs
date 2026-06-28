@@ -138,22 +138,24 @@ impl<C: CanisterKind> DbSession<C> {
                 let write_context =
                     SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
                 let candidate_bounds = sql_update_candidate_bounds(execution_bounds);
-                let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
-                    schema,
-                    authority,
-                    &selector,
-                    candidate_bounds,
-                    |row| {
-                        let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
+                let collection = self
+                    .collect_bounded_sql_write_candidate_collection_from_structural_query(
+                        schema,
+                        authority,
+                        &selector,
+                        candidate_bounds,
+                        |row| {
+                            let key =
+                                Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
 
-                        Ok((key, patch.clone()))
-                    },
-                )?;
+                            Ok((key, patch.clone()))
+                        },
+                    )?;
                 self.execute_sql_write_mutation_batch::<E>(
                     schema,
                     &descriptor,
-                    SqlWriteMutationExecution::from_bounded_batch(
-                        rows,
+                    SqlWriteMutationExecution::from_bounded_collection(
+                        collection,
                         candidate_bounds,
                         SqlWriteKind::Update,
                         MutationMode::Update,

@@ -379,6 +379,15 @@ impl SqlWriteCandidateRows {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SqlWriteProjectedSourceRows(usize);
+
+impl SqlWriteProjectedSourceRows {
+    const fn from_len(len: usize) -> Self {
+        Self(len)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SqlWriteCandidateBoundCheck {
     InsertValuesSource,
     MutationBatchHandoff,
@@ -387,6 +396,7 @@ enum SqlWriteCandidateBoundCheck {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SqlWriteCandidateDiagnostics {
+    projected_source_rows: Option<SqlWriteProjectedSourceRows>,
     semantic_candidates: SqlWriteCandidateRows,
     over_limit_at: Option<SqlWriteCandidateBoundCheck>,
 }
@@ -394,6 +404,7 @@ struct SqlWriteCandidateDiagnostics {
 impl SqlWriteCandidateDiagnostics {
     const fn within_limit(semantic_candidates: SqlWriteCandidateRows) -> Self {
         Self {
+            projected_source_rows: None,
             semantic_candidates,
             over_limit_at: None,
         }
@@ -404,6 +415,7 @@ impl SqlWriteCandidateDiagnostics {
         at: SqlWriteCandidateBoundCheck,
     ) -> Self {
         Self {
+            projected_source_rows: None,
             semantic_candidates,
             over_limit_at: Some(at),
         }
@@ -411,6 +423,20 @@ impl SqlWriteCandidateDiagnostics {
 
     const fn over_limit_at(self) -> Option<SqlWriteCandidateBoundCheck> {
         self.over_limit_at
+    }
+
+    const fn projected_source_rows(self) -> Option<SqlWriteProjectedSourceRows> {
+        self.projected_source_rows
+    }
+
+    const fn with_projected_source_rows(
+        self,
+        projected_source_rows: Option<SqlWriteProjectedSourceRows>,
+    ) -> Self {
+        Self {
+            projected_source_rows,
+            ..self
+        }
     }
 }
 
@@ -553,18 +579,67 @@ impl<K> SqlWriteMutationBatch<K> {
         SqlWriteCandidateRows(self.rows.len())
     }
 
+    fn into_rows(self) -> Vec<(K, StructuralPatch)> {
+        self.rows
+    }
+}
+
+struct SqlWriteCandidateCollection<K> {
+    diagnostics: SqlWriteCandidateDiagnostics,
+    rows: SqlWriteMutationBatch<K>,
+}
+
+impl<K> SqlWriteCandidateCollection<K> {
+    const fn new() -> Self {
+        Self {
+            diagnostics: SqlWriteCandidateDiagnostics::within_limit(SqlWriteCandidateRows(0)),
+            rows: SqlWriteMutationBatch::new(),
+        }
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            diagnostics: SqlWriteCandidateDiagnostics::within_limit(SqlWriteCandidateRows(0)),
+            rows: SqlWriteMutationBatch::with_capacity(capacity),
+        }
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        self.rows.reserve(additional);
+    }
+
+    fn push(&mut self, key: K, patch: StructuralPatch) {
+        self.rows.push(key, patch);
+        self.diagnostics.semantic_candidates = self.staged_rows();
+    }
+
+    const fn staged_rows(&self) -> SqlWriteCandidateRows {
+        self.rows.staged_rows()
+    }
+
+    const fn record_projected_source_rows(&mut self, source_rows: SqlWriteProjectedSourceRows) {
+        self.diagnostics.projected_source_rows = Some(source_rows);
+    }
+
+    #[cfg(test)]
+    const fn diagnostics(&self) -> SqlWriteCandidateDiagnostics {
+        self.diagnostics
+    }
+
     fn validate_staged_rows_at(
-        &self,
+        &mut self,
         bounds: SqlWriteCandidateBounds,
         at: SqlWriteCandidateBoundCheck,
     ) -> Result<SqlWriteCandidateRows, QueryError> {
         let staged_rows = self.staged_rows();
-        bounds.validate_at(staged_rows, at)?;
+        self.diagnostics = bounds
+            .validate_at(staged_rows, at)?
+            .with_projected_source_rows(self.diagnostics.projected_source_rows());
 
         Ok(staged_rows)
     }
 
-    fn into_rows(self) -> Vec<(K, StructuralPatch)> {
+    fn into_batch(self) -> SqlWriteMutationBatch<K> {
         self.rows
     }
 }
@@ -631,8 +706,8 @@ impl<E> SqlWriteMutationExecution<E>
 where
     E: PersistedRow + EntityValue,
 {
-    fn from_bounded_batch(
-        rows: SqlWriteMutationBatch<E::Key>,
+    fn from_bounded_collection(
+        mut collection: SqlWriteCandidateCollection<E::Key>,
         bounds: SqlWriteCandidateBounds,
         kind: SqlWriteKind,
         mode: MutationMode,
@@ -640,8 +715,9 @@ where
         returning_bounds: Option<SqlWriteReturningBounds>,
         save_schema_info: Option<SchemaInfo>,
     ) -> Result<Self, QueryError> {
-        let staged_rows = rows
+        let staged_rows = collection
             .validate_staged_rows_at(bounds, SqlWriteCandidateBoundCheck::MutationBatchHandoff)?;
+        let rows = collection.into_batch();
 
         Ok(Self {
             rows,
@@ -691,15 +767,15 @@ impl<C: CanisterKind> DbSession<C> {
         run(&schema, descriptor)
     }
 
-    fn collect_bounded_sql_write_mutation_batch_from_structural_query<K>(
+    fn collect_bounded_sql_write_candidate_collection_from_structural_query<K>(
         &self,
         schema: &AcceptedSchemaSnapshot,
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
         mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
-    ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
-        self.collect_sql_write_mutation_batch_from_structural_query_with_bounds(
+    ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
+        self.collect_sql_write_candidate_collection_from_structural_query_with_bounds(
             schema,
             authority,
             query,
@@ -708,14 +784,14 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn collect_sql_write_mutation_batch_from_structural_query_with_bounds<K>(
+    fn collect_sql_write_candidate_collection_from_structural_query_with_bounds<K>(
         &self,
         schema: &AcceptedSchemaSnapshot,
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
         row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
-    ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
+    ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 query.clone(),
@@ -723,11 +799,14 @@ impl<C: CanisterKind> DbSession<C> {
                 schema,
             )?;
         let (_, _, projected_rows, _) = payload.into_components();
-        let mut rows = SqlWriteMutationBatch::with_capacity(
+        let mut rows = SqlWriteCandidateCollection::with_capacity(
             projected_rows
                 .len()
                 .min(SQL_WRITE_MUTATION_BATCH_INITIAL_RESERVE_ROWS),
         );
+        rows.record_projected_source_rows(SqlWriteProjectedSourceRows::from_len(
+            projected_rows.len(),
+        ));
         for row in projected_rows {
             let (key, patch) = row_to_patch(row.as_slice())?;
             rows.push(key, patch);
@@ -794,7 +873,7 @@ impl<C: CanisterKind> DbSession<C> {
 mod tests {
     use super::{
         SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
-        SqlWriteCandidateRows, SqlWriteMutationBatch,
+        SqlWriteCandidateCollection, SqlWriteCandidateRows, SqlWriteProjectedSourceRows,
     };
     use crate::db::data::StructuralPatch;
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
@@ -855,8 +934,8 @@ mod tests {
     }
 
     #[test]
-    fn sql_write_mutation_batch_validates_staged_rows_from_buffer() {
-        let mut rows = SqlWriteMutationBatch::<u64>::new();
+    fn sql_write_candidate_collection_validates_staged_rows_from_buffer() {
+        let mut rows = SqlWriteCandidateCollection::<u64>::new();
         rows.push(1, StructuralPatch::new());
         rows.push(2, StructuralPatch::new());
 
@@ -876,6 +955,28 @@ mod tests {
             .is_err(),
             "batch staged rows over the bound should reject",
         );
+    }
+
+    #[test]
+    fn sql_write_candidate_collection_tracks_projected_source_rows() {
+        let mut rows = SqlWriteCandidateCollection::<u64>::with_capacity(3);
+        rows.record_projected_source_rows(SqlWriteProjectedSourceRows::from_len(3));
+        rows.push(1, StructuralPatch::new());
+        rows.push(2, StructuralPatch::new());
+
+        rows.validate_staged_rows_at(
+            SqlWriteCandidateBounds::from_max_rows(Some(2)),
+            SqlWriteCandidateBoundCheck::SelectorSourceBatch,
+        )
+        .expect("selector source rows at the semantic candidate bound should be accepted");
+
+        let diagnostics = rows.diagnostics();
+        assert_eq!(diagnostics.semantic_candidates, SqlWriteCandidateRows(2));
+        assert_eq!(
+            diagnostics.projected_source_rows(),
+            Some(SqlWriteProjectedSourceRows::from_len(3)),
+        );
+        assert_eq!(diagnostics.over_limit_at(), None);
     }
 
     #[test]
