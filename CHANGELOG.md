@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Continues recoverable SQL frontend/lowering cleanup by returning parse or
-  lowering errors for cursor, expression-analysis, and aggregate semantic
-  drift instead of trapping.
-
 ## [0.187.x] 📊 - 2026-06-27 - Second Query Engine Audit
 
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)
+
+- `0.187.7` continues recoverable SQL frontend/lowering cleanup by returning
+  parse or lowering errors for cursor, expression-analysis, and aggregate
+  semantic drift instead of trapping.
 
 - `0.187.6` continues recoverable invariant cleanup by making query
   fingerprint profile and grouped HAVING hashing encode deterministic drift
