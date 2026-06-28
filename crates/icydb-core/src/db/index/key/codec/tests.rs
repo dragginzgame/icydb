@@ -458,7 +458,7 @@ fn index_key_ordering_matches_raw_key_semantics() {
     sorted_by_ord.sort();
 
     let mut sorted_by_raw = keys;
-    sorted_by_raw.sort_by_key(IndexKey::to_raw);
+    sorted_by_raw.sort_by_key(|key| key.to_raw().expect("test index key should encode"));
 
     assert_eq!(sorted_by_ord, sorted_by_raw);
 }
@@ -944,7 +944,10 @@ fn index_key_prefix_scan_simulation_matches_expected_and_is_isolated() {
         system_same_prefix,
         user_other_index,
     ];
-    let all_raw = all_keys.iter().map(IndexKey::to_raw).collect::<Vec<_>>();
+    let all_raw = all_keys
+        .iter()
+        .map(|key| key.to_raw().expect("test index key should encode"))
+        .collect::<Vec<_>>();
 
     let (start, end) = IndexKey::bounds_for_prefix(&index_id(), 2, &[first_component]);
     let (start_raw, end_raw) = (

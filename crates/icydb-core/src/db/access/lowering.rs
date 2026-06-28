@@ -184,7 +184,7 @@ impl LoweredIndexPrefixSpec {
             index.key_arity(),
             prefix_components.as_slice(),
         )
-        .map_err(Self::validated_spec_not_indexable)?;
+        .map_err(validated_spec_not_indexable)?;
 
         Ok(Self::new(
             index,
@@ -300,12 +300,12 @@ impl LoweredIndexRangeSpec {
     pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
         self.prefix_components.as_slice()
     }
+}
 
-    // Build the canonical lowering-time invariant for validated range specs
-    // that still fail raw bound encoding.
-    fn validated_spec_not_indexable(_err: IndexRangeBoundEncodeError) -> InternalError {
-        InternalError::query_executor_invariant()
-    }
+// Build the canonical lowering-time invariant for validated index specs that
+// still fail raw bound encoding.
+fn validated_spec_not_indexable(_err: IndexRangeBoundEncodeError) -> InternalError {
+    InternalError::query_executor_invariant()
 }
 
 // Lower one semantic range envelope into byte bounds with stable reason mapping.
@@ -323,7 +323,7 @@ fn lower_index_range_bounds_for_scope(
         index.key_arity(),
         IndexBoundsSpec::component_range(prefix, lower, upper),
     )
-    .map_err(LoweredIndexRangeSpec::validated_spec_not_indexable)
+    .map_err(validated_spec_not_indexable)
 }
 
 fn lower_index_range_prefix_components(prefix: &[Value]) -> Result<Vec<Vec<u8>>, InternalError> {
