@@ -152,8 +152,8 @@ runtime contract.
   - `crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs`
 - Current classification: cleanup completed for the small trap-shaped
   invariants found in the 0.187 pass, including finalized static execution
-  metadata access, SQL write-policy validated-plan helpers, and covering
-  aggregate terminal-value selection.
+  metadata access, SQL write-policy validated-plan helpers, covering aggregate
+  terminal-value selection, and query fingerprint hashing drift paths.
 - Evidence: query expression preview/evaluation, predicate bridge conversion,
   grouped EXPLAIN/fingerprint projection, grouped strategy selection, resolved
   ORDER handling, SQL write primary-key normalization, and finalized
@@ -177,15 +177,21 @@ runtime contract.
   reaches the flip helper, and scalar COUNT reducer output falls back to the
   reducer-local count if aggregate count finalization shape ever drifts.
   Grouped projection aggregate scanning now propagates its existing traversal
-  error instead of trapping through a local invariant expectation.
+  error instead of trapping through a local invariant expectation. Query
+  fingerprint profile hashing now emits deterministic missing-entity-path
+  sentinel material when profile wiring drifts, and grouped HAVING hashing now
+  emits deterministic missing-slot sentinel material for unmatched group-field
+  or aggregate lookup facts instead of trapping.
 - Recommendation: keep runtime invariant drift recoverable with typed errors or
   conservative no-result behavior. Do not add new reference-returning helper
   surfaces that assume finalized static execution metadata or admitted SQL write
   proof state, or dispatch routing that assumes earlier adapters always
   consumed a command, or predicate-compiler internals that assume admission
   stayed aligned with lowering, or reducer/rewriter helpers that assume a
-  private helper always returns a specific shape, without a typed, optional,
-  fail-closed, propagated-error, or exhaustive closed-enum path.
+  private helper always returns a specific shape, or fingerprint hashers that
+  assume profile/grouped lookup facts are always present, without a typed,
+  optional, fail-closed, propagated-error, deterministic sentinel, or exhaustive
+  closed-enum path.
 
 ## Generated Canister Endpoints Versus Session Surfaces
 

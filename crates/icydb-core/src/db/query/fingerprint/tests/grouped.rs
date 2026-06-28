@@ -99,3 +99,53 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
         "grouped continuation signature must distinguish widened HAVING expression trees with different arithmetic leaves",
     );
 }
+
+#[test]
+fn grouped_having_fingerprint_hashes_unmatched_group_field_without_panicking() {
+    let plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having_expr(
+            GroupSpec {
+                group_fields: vec![FieldSlot::from_test_slot(1, "rank")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    input_expr: None,
+                    filter_expr: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+            },
+            Some(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Gt,
+                left: Box::new(Expr::Field(FieldId::new("missing"))),
+                right: Box::new(Expr::Literal(Value::Nat64(5))),
+            }),
+        );
+
+    let _ = plan.fingerprint();
+    let _ = plan.continuation_signature("tests::Entity");
+}
+
+#[test]
+fn grouped_having_fingerprint_hashes_unmatched_aggregate_without_panicking() {
+    let plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having_expr(
+            GroupSpec {
+                group_fields: vec![FieldSlot::from_test_slot(1, "rank")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    input_expr: None,
+                    filter_expr: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+            },
+            Some(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(sum("rank"))),
+                right: Box::new(Expr::Literal(Value::Nat64(5))),
+            }),
+        );
+
+    let _ = plan.fingerprint();
+    let _ = plan.continuation_signature("tests::Entity");
+}

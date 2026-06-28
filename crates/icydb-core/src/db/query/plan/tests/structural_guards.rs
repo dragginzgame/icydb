@@ -988,6 +988,50 @@ fn grouped_projection_aggregate_scan_is_recoverable() {
 }
 
 #[test]
+fn query_fingerprint_hashing_drift_paths_are_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let profile = source_for(
+        crate_root,
+        "src/db/query/fingerprint/hash_sections/profile.rs",
+    );
+    let having = source_for(
+        crate_root,
+        "src/db/query/fingerprint/hash_sections/grouping/having.rs",
+    );
+
+    assert_source_contains_patterns(
+        &profile,
+        &[
+            "const MISSING_ENTITY_PATH_HASH_SENTINEL:",
+            "fn hash_entity_path(",
+            "entity_path.unwrap_or(MISSING_ENTITY_PATH_HASH_SENTINEL)",
+        ],
+        "query fingerprint profile hashing should use deterministic entity-path drift material",
+    );
+    assert_source_excludes_patterns(
+        &profile,
+        &[".expect(\"entity path required by hash profile\")"],
+        "query fingerprint profile hashing must not trap when profile/entity-path wiring drifts",
+    );
+
+    assert_source_contains_patterns(
+        &having,
+        &[
+            "const GROUP_HAVING_MISSING_SLOT_SENTINEL:",
+            "write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);",
+            "hash_missing_group_having_aggregate_expr(hasher, aggregate_expr);",
+            "fn hash_missing_group_having_aggregate_expr(",
+        ],
+        "grouped HAVING fingerprint hashing should emit deterministic missing-slot material",
+    );
+    assert_source_excludes_patterns(
+        &having,
+        &[".expect(\"query fingerprint invariant\")"],
+        "grouped HAVING fingerprint hashing must not trap on missing lookup facts",
+    );
+}
+
+#[test]
 fn scalar_entrypoints_share_execution_inputs_spine() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let execution = source_for(

@@ -19,6 +19,8 @@ use crate::db::query::{
 };
 use sha2::Sha256;
 
+const MISSING_ENTITY_PATH_HASH_SENTINEL: &str = "\0icydb:fingerprint:missing-entity-path";
+
 ///
 /// ExplainHashProfile
 ///
@@ -209,8 +211,7 @@ impl<'a> ExplainHashSource<'a> {
     ) {
         match field {
             ExplainHashField::EntityPath => {
-                let entity_path = entity_path.expect("entity path required by hash profile");
-                write_str(hasher, entity_path);
+                hash_entity_path(hasher, entity_path);
             }
             ExplainHashField::Mode => hash_mode(hasher, plan.mode()),
             ExplainHashField::Access => hash_access(hasher, plan.access()),
@@ -251,8 +252,7 @@ impl<'a> ExplainHashSource<'a> {
 
         match field {
             ExplainHashField::EntityPath => {
-                let entity_path = entity_path.expect("entity path required by hash profile");
-                write_str(hasher, entity_path);
+                hash_entity_path(hasher, entity_path);
             }
             ExplainHashField::Mode => hash_mode(hasher, scalar.mode),
             ExplainHashField::Access => hash_access_plan(hasher, &plan.access),
@@ -281,6 +281,13 @@ impl<'a> ExplainHashSource<'a> {
             }
         }
     }
+}
+
+fn hash_entity_path(hasher: &mut Sha256, entity_path: Option<&str>) {
+    write_str(
+        hasher,
+        entity_path.unwrap_or(MISSING_ENTITY_PATH_HASH_SENTINEL),
+    );
 }
 
 /// Hash a planner-owned query with an explicit semantic projection section.

@@ -1,5 +1,5 @@
 use crate::db::query::{
-    builder::scalar_projection::render_scalar_projection_expr_plan_label,
+    builder::{AggregateExpr, scalar_projection::render_scalar_projection_expr_plan_label},
     explain::{ExplainGroupAggregate, ExplainGroupField},
     fingerprint::hash_sections::{
         GROUP_HAVING_ABSENT_TAG, GROUP_HAVING_AND_TAG, GROUP_HAVING_COMPARE_TAG,
@@ -16,6 +16,8 @@ use crate::db::query::{
     },
 };
 use sha2::Sha256;
+
+const GROUP_HAVING_MISSING_SLOT_SENTINEL: u32 = u32::MAX;
 
 /// Canonical grouped HAVING expression source shared by plan and explain hashing.
 pub(super) enum GroupHavingFingerprintSource<'a> {
@@ -241,13 +243,17 @@ fn hash_group_having_value_expr_plan(
 ) {
     match expr {
         Expr::Field(field_id) => {
-            let field_slot = group_fields
+            write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
+            if let Some(field_slot) = group_fields
                 .iter()
                 .find(|field| field.field() == field_id.as_str())
-                .expect("query fingerprint invariant");
-            write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
-            write_u32(hasher, field_slot.index() as u32);
-            write_str(hasher, field_slot.field());
+            {
+                write_u32(hasher, field_slot.index() as u32);
+                write_str(hasher, field_slot.field());
+            } else {
+                write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);
+                write_str(hasher, field_id.as_str());
+            }
         }
         Expr::FieldPath(path) => {
             write_tag(hasher, GROUP_HAVING_VALUE_FIELD_PATH_TAG);
@@ -261,10 +267,14 @@ fn hash_group_having_value_expr_plan(
             let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
             let index = aggregates
                 .iter()
-                .position(|aggregate| aggregate.semantic_key() == semantic_key)
-                .expect("query fingerprint invariant");
+                .position(|aggregate| aggregate.semantic_key() == semantic_key);
             write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, index as u32);
+            if let Some(index) = index {
+                write_u32(hasher, index as u32);
+            } else {
+                write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);
+                hash_missing_group_having_aggregate_expr(hasher, aggregate_expr);
+            }
         }
         Expr::Literal(value) => {
             write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
@@ -315,13 +325,17 @@ fn hash_group_having_value_expr_explain(
 ) {
     match expr {
         Expr::Field(field_id) => {
-            let field_slot = group_fields
+            write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
+            if let Some(field_slot) = group_fields
                 .iter()
                 .find(|field| field.field() == field_id.as_str())
-                .expect("query fingerprint invariant");
-            write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
-            write_u32(hasher, field_slot.slot_index() as u32);
-            write_str(hasher, field_slot.field());
+            {
+                write_u32(hasher, field_slot.slot_index() as u32);
+                write_str(hasher, field_slot.field());
+            } else {
+                write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);
+                write_str(hasher, field_id.as_str());
+            }
         }
         Expr::FieldPath(path) => {
             write_tag(hasher, GROUP_HAVING_VALUE_FIELD_PATH_TAG);
@@ -340,21 +354,23 @@ fn hash_group_having_value_expr_explain(
             let filter_expr = aggregate_expr
                 .filter_expr()
                 .map(render_scalar_projection_expr_plan_label);
-            let index = aggregates
-                .iter()
-                .position(|aggregate| {
-                    let input_matches = aggregate.input_expr() == input_expr.as_deref();
-                    let filter_matches = aggregate.filter_expr() == filter_expr.as_deref();
+            let index = aggregates.iter().position(|aggregate| {
+                let input_matches = aggregate.input_expr() == input_expr.as_deref();
+                let filter_matches = aggregate.filter_expr() == filter_expr.as_deref();
 
-                    aggregate.kind() == aggregate_expr.kind()
-                        && aggregate.target_field() == aggregate_expr.target_field()
-                        && input_matches
-                        && filter_matches
-                        && aggregate.distinct() == semantic_distinct
-                })
-                .expect("query fingerprint invariant");
+                aggregate.kind() == aggregate_expr.kind()
+                    && aggregate.target_field() == aggregate_expr.target_field()
+                    && input_matches
+                    && filter_matches
+                    && aggregate.distinct() == semantic_distinct
+            });
             write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, index as u32);
+            if let Some(index) = index {
+                write_u32(hasher, index as u32);
+            } else {
+                write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);
+                hash_missing_group_having_aggregate_expr(hasher, aggregate_expr);
+            }
         }
         Expr::Literal(value) => {
             write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
@@ -395,6 +411,35 @@ fn hash_group_having_value_expr_explain(
             hash_group_having_value_expr_explain(hasher, expr, group_fields, aggregates);
         }
     }
+}
+
+fn hash_missing_group_having_aggregate_expr(hasher: &mut Sha256, aggregate_expr: &AggregateExpr) {
+    let identity = AggregateIdentity::from_aggregate_expr(aggregate_expr);
+    let input_expr = aggregate_expr
+        .input_expr()
+        .map(render_scalar_projection_expr_plan_label);
+    let filter_expr = aggregate_expr
+        .filter_expr()
+        .map(render_scalar_projection_expr_plan_label);
+
+    write_tag(hasher, aggregate_expr.kind().fingerprint_tag());
+    write_optional_str(hasher, aggregate_expr.target_field());
+    write_optional_str(hasher, input_expr.as_deref());
+    write_optional_str(hasher, filter_expr.as_deref());
+    write_bool(hasher, identity.distinct());
+}
+
+fn write_optional_str(hasher: &mut Sha256, value: Option<&str>) {
+    if let Some(value) = value {
+        write_tag(hasher, 1);
+        write_str(hasher, value);
+    } else {
+        write_tag(hasher, 0);
+    }
+}
+
+fn write_bool(hasher: &mut Sha256, value: bool) {
+    write_tag(hasher, u8::from(value));
 }
 
 fn hash_group_having_case_arm_plan(

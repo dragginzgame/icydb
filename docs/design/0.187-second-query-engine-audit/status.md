@@ -97,6 +97,10 @@ parity test or a source invariant.
   to the reducer-local count if aggregate count finalization shape ever drifts.
 - Made grouped projection aggregate scanning propagate its existing traversal
   error instead of trapping through a local invariant expectation.
+- Made query fingerprint profile and grouped HAVING hashing recoverable when
+  internal lookup facts drift. Missing entity-path or grouped HAVING field /
+  aggregate lookup facts now hash deterministic sentinel material instead of
+  trapping through local invariant expectations.
 
 ## Initial Queue
 
