@@ -108,7 +108,10 @@ fn prepare_structural_delete_leaf_from_access<T>(
 ) -> Result<DeleteLeaf<T>, InternalError> {
     let mut rows = resolve_structural_delete_kernel_rows(store, prepared)?;
     apply_delete_post_access_rows(prepared, &mut rows)?;
+    #[cfg(feature = "sql")]
     validate_structural_delete_selected_row_count_bounds(rows.len(), max_selected_rows)?;
+    #[cfg(not(feature = "sql"))]
+    let _ = max_selected_rows;
 
     package_rows(rows)
 }
@@ -136,6 +139,7 @@ where
     prepare_delete_output_from_leaf(db, store, prepared, structural)
 }
 
+#[cfg(feature = "sql")]
 fn validate_structural_delete_selected_row_count_bounds(
     row_count: usize,
     max_rows: Option<u32>,
@@ -148,17 +152,9 @@ fn validate_structural_delete_selected_row_count_bounds(
         return Ok(());
     }
 
-    #[cfg(feature = "sql")]
-    return Err(InternalError::query_sql_write_boundary(
+    Err(InternalError::query_sql_write_boundary(
         SqlWriteBoundaryCode::StagedRowsTooMany,
-    ));
-
-    #[cfg(not(feature = "sql"))]
-    {
-        let _ = row_count;
-
-        Ok(())
-    }
+    ))
 }
 
 #[cfg(feature = "sql")]
