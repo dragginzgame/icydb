@@ -4,8 +4,8 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::support::*;
-use crate::metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink};
-use std::cell::RefCell;
+use crate::metrics::sink::{MetricsEvent, MetricsSink, with_shared_metrics_sink};
+use std::{cell::RefCell, rc::Rc};
 
 ///
 /// CaptureSink
@@ -26,6 +26,14 @@ impl MetricsSink for CaptureSink {
     fn record(&self, event: MetricsEvent) {
         self.events.borrow_mut().push(event);
     }
+}
+
+fn capture_metrics(run: impl FnOnce()) -> Vec<MetricsEvent> {
+    let sink = Rc::new(CaptureSink::default());
+    with_shared_metrics_sink(sink.clone(), run);
+    Rc::try_unwrap(sink)
+        .unwrap_or_else(|_| panic!("executor metrics sink should have one owner after capture"))
+        .into_events()
 }
 
 fn count_index_inserts(events: &[MetricsEvent]) -> usize {
@@ -212,8 +220,7 @@ fn save_update_with_unchanged_index_key_emits_no_index_delta() {
     })
     .expect("initial insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         save.update(IndexedMetricsEntity {
             id,
             tag: 7,
@@ -221,7 +228,6 @@ fn save_update_with_unchanged_index_key_emits_no_index_delta() {
         })
         .expect("update should succeed");
     });
-    let events = sink.into_events();
 
     assert_eq!(count_index_removes(&events), 0);
     assert_eq!(count_index_inserts(&events), 0);
@@ -241,8 +247,7 @@ fn save_update_with_changed_index_key_emits_remove_and_insert() {
     })
     .expect("initial insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         save.update(IndexedMetricsEntity {
             id,
             tag: 8,
@@ -250,7 +255,6 @@ fn save_update_with_changed_index_key_emits_remove_and_insert() {
         })
         .expect("update should succeed");
     });
-    let events = sink.into_events();
 
     assert_eq!(count_index_removes(&events), 1);
     assert_eq!(count_index_inserts(&events), 1);
@@ -271,8 +275,7 @@ fn delete_emits_remove_from_prepared_row_deltas() {
     })
     .expect("initial insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(id)
@@ -281,7 +284,6 @@ fn delete_emits_remove_from_prepared_row_deltas() {
             .expect("delete plan should build");
         delete.execute(plan).expect("delete should succeed");
     });
-    let events = sink.into_events();
 
     assert_eq!(count_index_removes(&events), 1);
     assert_eq!(count_index_inserts(&events), 0);
@@ -299,8 +301,7 @@ fn save_relation_insert_emits_reverse_index_delta() {
         .insert(RelationTargetEntity { id: target_id })
         .expect("target insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         SaveExecutor::<RelationSourceEntity>::new(REL_DB, false)
             .insert(RelationSourceEntity {
                 id: source_id,
@@ -308,7 +309,6 @@ fn save_relation_insert_emits_reverse_index_delta() {
             })
             .expect("source insert should succeed");
     });
-    let events = sink.into_events();
 
     assert_eq!(
         count_reverse_index_inserts(&events, RelationSourceEntity::PATH),
@@ -338,8 +338,7 @@ fn delete_relation_emits_reverse_index_remove_delta() {
         })
         .expect("source insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         let plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(source_id)
@@ -350,7 +349,6 @@ fn delete_relation_emits_reverse_index_remove_delta() {
             .execute(plan)
             .expect("source delete should succeed");
     });
-    let events = sink.into_events();
 
     assert_eq!(
         count_reverse_index_removes(&events, RelationSourceEntity::PATH),
@@ -376,8 +374,7 @@ fn blocked_target_delete_emits_relation_validation_metrics() {
         })
         .expect("source insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         let plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(target_id)
@@ -388,7 +385,6 @@ fn blocked_target_delete_emits_relation_validation_metrics() {
             .execute(plan)
             .expect_err("target delete should be blocked");
     });
-    let events = sink.into_events();
 
     let (lookups, blocks) = relation_validation_totals(&events, RelationSourceEntity::PATH);
     assert!(
@@ -418,8 +414,7 @@ fn allowed_target_delete_emits_relation_lookup_without_block() {
         .insert(RelationTargetEntity { id: target_id })
         .expect("target insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         let plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(target_id)
@@ -430,7 +425,6 @@ fn allowed_target_delete_emits_relation_lookup_without_block() {
             .execute(plan)
             .expect("target delete should succeed");
     });
-    let events = sink.into_events();
 
     let (lookups, blocks) = relation_validation_totals(&events, RelationSourceEntity::PATH);
     assert!(
@@ -448,8 +442,7 @@ fn save_missing_strong_relation_emits_no_reverse_index_delta() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         SaveExecutor::<RelationSourceEntity>::new(REL_DB, false)
             .insert(RelationSourceEntity {
                 id: Ulid::generate(),
@@ -457,7 +450,6 @@ fn save_missing_strong_relation_emits_no_reverse_index_delta() {
             })
             .expect_err("source save should fail when strong target is missing");
     });
-    let events = sink.into_events();
 
     assert_eq!(
         count_reverse_index_inserts(&events, RelationSourceEntity::PATH),
@@ -493,8 +485,7 @@ fn save_relation_retarget_update_emits_reverse_index_remove_and_insert() {
         })
         .expect("source insert should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         SaveExecutor::<RelationSourceEntity>::new(REL_DB, false)
             .replace(RelationSourceEntity {
                 id: source_id,
@@ -502,7 +493,6 @@ fn save_relation_retarget_update_emits_reverse_index_remove_and_insert() {
             })
             .expect("source retarget update should succeed");
     });
-    let events = sink.into_events();
 
     assert_eq!(
         count_reverse_index_removes(&events, RelationSourceEntity::PATH),
@@ -535,8 +525,7 @@ fn scalar_load_emits_rows_filtered_and_rows_emitted_metrics() {
     })
     .expect("seed insert C should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         DbSession::new(DB)
             .load::<SimpleEntity>()
             .order_term(crate::db::asc("id"))
@@ -545,7 +534,6 @@ fn scalar_load_emits_rows_filtered_and_rows_emitted_metrics() {
             .execute()
             .expect("scalar load should succeed");
     });
-    let events = sink.into_events();
 
     assert!(
         count_rows_filtered(&events, SimpleEntity::PATH) >= 1,
@@ -599,8 +587,7 @@ fn grouped_load_emits_rows_aggregated_metrics() {
     })
     .expect("seed grouped row C should succeed");
 
-    let sink = CaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_metrics(|| {
         DbSession::new(DB)
             .load::<PushdownParityEntity>()
             .group_by("group")
@@ -611,7 +598,6 @@ fn grouped_load_emits_rows_aggregated_metrics() {
             .and_then(crate::db::LoadQueryResult::into_grouped)
             .expect("grouped execution should succeed");
     });
-    let events = sink.into_events();
 
     assert!(
         count_rows_aggregated(&events, PushdownParityEntity::PATH) >= 1,

@@ -98,7 +98,7 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
-    metrics::sink::{MetricsEvent, MetricsSink, PlanKind, with_metrics_sink},
+    metrics::sink::{MetricsEvent, MetricsSink, PlanKind, with_shared_metrics_sink},
     model::{
         field::{FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
@@ -116,7 +116,7 @@ use icydb_diagnostic_code::{
     DiagnosticCode, DiagnosticDetail, SqlFeatureCode, SqlLoweringCode, SqlWriteBoundaryCode,
 };
 use serde::Deserialize;
-use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, sync::LazyLock};
+use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, rc::Rc, sync::LazyLock};
 
 crate::test_canister! {
     ident = SessionSqlCanister,
@@ -2770,9 +2770,7 @@ fn mixed_journaled_relation_sql_session() -> DbSession<SessionSqlCanister> {
 #[test]
 fn session_select_one_returns_constant_without_execution_metrics() {
     let session = sql_session();
-    let sink = SessionMetricsCaptureSink::default();
-    let value = with_metrics_sink(&sink, || session.select_one());
-    let events = sink.into_events();
+    let (value, events) = capture_session_metrics(|| session.select_one());
 
     assert_eq!(
         value,
@@ -3980,6 +3978,15 @@ impl MetricsSink for SessionMetricsCaptureSink {
     }
 }
 
+fn capture_session_metrics<R>(run: impl FnOnce() -> R) -> (R, Vec<MetricsEvent>) {
+    let sink = Rc::new(SessionMetricsCaptureSink::default());
+    let output = with_shared_metrics_sink(sink.clone(), run);
+    let sink = Rc::try_unwrap(sink)
+        .unwrap_or_else(|_| panic!("session metrics sink should have one owner after capture"));
+
+    (output, sink.into_events())
+}
+
 fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
     events.iter().fold(0usize, |acc, event| {
         let scanned = match event {
@@ -3998,9 +4005,8 @@ fn capture_rows_scanned_for_entity<R>(
     entity_path: &'static str,
     run: impl FnOnce() -> R,
 ) -> (R, usize) {
-    let sink = SessionMetricsCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
+    let (output, events) = capture_session_metrics(run);
+    let rows_scanned = rows_scanned_for_entity(&events, entity_path);
 
     (output, rows_scanned)
 }

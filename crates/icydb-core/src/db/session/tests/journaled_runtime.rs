@@ -21,9 +21,8 @@ fn capture_mutation_commit_classes<R>(
     entity_path: &'static str,
     run: impl FnOnce() -> R,
 ) -> (R, Vec<MutationCommitClass>) {
-    let sink = SessionMetricsCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let classes = mutation_commit_classes_for_entity(&sink.into_events(), entity_path);
+    let (output, events) = capture_session_metrics(run);
+    let classes = mutation_commit_classes_for_entity(&events, entity_path);
 
     (output, classes)
 }

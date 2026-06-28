@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
 
+- `0.188.1` removes the metrics sink scoped-override unsafe pointer path in
+  favor of a safe thread-local sink stack while preserving metrics behavior.
+
 - `0.188.0` starts the mutation-candidate collector line by proving bounded
   DELETE/UPDATE parity, moving bounded DELETE checks to the post-access
   candidate boundary, and bounding UPDATE mutation-batch collection before

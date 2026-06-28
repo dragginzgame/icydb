@@ -10,6 +10,8 @@ mod events;
 
 use crate::{error::InternalError, metrics::state as metrics, traits::EntityKind};
 use counters::*;
+#[cfg(test)]
+use std::rc::Rc;
 use std::{cell::RefCell, marker::PhantomData};
 
 pub use events::{
@@ -20,7 +22,7 @@ pub use events::{
 };
 
 thread_local! {
-    static SINK_OVERRIDE: RefCell<Option<*const dyn MetricsSink>> = RefCell::new(None);
+    static SINK_OVERRIDE: RefCell<Vec<MetricsSinkOverride>> = const { RefCell::new(Vec::new()) };
 }
 
 ///
@@ -29,6 +31,23 @@ thread_local! {
 
 pub trait MetricsSink {
     fn record(&self, event: MetricsEvent);
+}
+
+#[derive(Clone)]
+enum MetricsSinkOverride {
+    Static(&'static dyn MetricsSink),
+    #[cfg(test)]
+    Shared(Rc<dyn MetricsSink>),
+}
+
+impl MetricsSinkOverride {
+    fn record(&self, event: MetricsEvent) {
+        match self {
+            Self::Static(sink) => sink.record(event),
+            #[cfg(test)]
+            Self::Shared(sink) => sink.record(event),
+        }
+    }
 }
 
 /// GlobalMetricsSink
@@ -553,26 +572,11 @@ impl MetricsSink for GlobalMetricsSink {
 pub(crate) const GLOBAL_METRICS_SINK: GlobalMetricsSink = GlobalMetricsSink;
 
 pub(crate) fn record(event: MetricsEvent) {
-    let override_ptr = SINK_OVERRIDE.with(|cell| *cell.borrow());
-    if let Some(ptr) = override_ptr {
-        // SAFETY:
-        // Preconditions:
-        // - `ptr` was produced from a valid `&dyn MetricsSink` in `with_metrics_sink`.
-        // - `with_metrics_sink` always restores the previous pointer before returning,
-        //   including unwind paths via `Guard::drop`.
-        // - `record` is synchronous and never stores `ptr` beyond this call.
-        //
-        // Aliasing:
-        // - We materialize only a shared reference (`&dyn MetricsSink`), matching the
-        //   original shared borrow used to install the override.
-        // - No mutable alias to the same sink is created here.
-        //
-        // What would break this:
-        // - If `with_metrics_sink` failed to restore on all exits (normal + panic),
-        //   `ptr` could outlive the borrowed sink and become dangling.
-        // - If `record` were changed to store or dispatch asynchronously using `ptr`,
-        //   lifetime assumptions would no longer hold.
-        unsafe { (&*ptr).record(event) };
+    // Clone the scoped override before dispatch so sink implementations can
+    // record nested metrics without re-entering this RefCell borrow.
+    let override_sink = SINK_OVERRIDE.with(|stack| stack.borrow().last().cloned());
+    if let Some(sink) = override_sink {
+        sink.record(event);
     } else {
         GLOBAL_METRICS_SINK.record(event);
     }
@@ -602,36 +606,39 @@ pub fn metrics_reset_all() {
 }
 
 /// Run a closure with a temporary metrics sink override.
-pub(crate) fn with_metrics_sink<T>(sink: &dyn MetricsSink, f: impl FnOnce() -> T) -> T {
-    struct Guard(Option<*const dyn MetricsSink>);
+pub(crate) fn with_metrics_sink<T>(sink: &'static dyn MetricsSink, f: impl FnOnce() -> T) -> T {
+    with_metrics_sink_override(MetricsSinkOverride::Static(sink), f)
+}
+
+#[cfg(test)]
+pub(crate) fn with_shared_metrics_sink<T>(sink: Rc<dyn MetricsSink>, f: impl FnOnce() -> T) -> T {
+    with_metrics_sink_override(MetricsSinkOverride::Shared(sink), f)
+}
+
+fn with_metrics_sink_override<T>(sink: MetricsSinkOverride, f: impl FnOnce() -> T) -> T {
+    struct Guard {
+        depth_before_push: usize,
+    }
 
     impl Drop for Guard {
         fn drop(&mut self) {
-            SINK_OVERRIDE.with(|cell| {
-                *cell.borrow_mut() = self.0;
+            SINK_OVERRIDE.with(|stack| {
+                let mut stack = stack.borrow_mut();
+                debug_assert_eq!(stack.len(), self.depth_before_push + 1);
+                if stack.len() > self.depth_before_push {
+                    stack.truncate(self.depth_before_push);
+                }
             });
         }
     }
 
-    // SAFETY:
-    // Preconditions:
-    // - `sink_ptr` is installed only for this dynamic scope.
-    // - `Guard` always restores the previous slot on all exits, including panic.
-    // - `record` only dereferences synchronously and never persists `sink_ptr`.
-    //
-    // Aliasing:
-    // - We erase lifetime to a raw pointer, but still only expose shared access.
-    // - No mutable alias to the same sink is introduced by this conversion.
-    //
-    // What would break this:
-    // - Any async/deferred use of `sink_ptr` beyond this scope.
-    // - Any path that bypasses Guard restoration.
-    let sink_ptr = unsafe { std::mem::transmute::<&dyn MetricsSink, *const dyn MetricsSink>(sink) };
-    let prev = SINK_OVERRIDE.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        slot.replace(sink_ptr)
+    let depth_before_push = SINK_OVERRIDE.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        let depth = stack.len();
+        stack.push(sink);
+        depth
     });
-    let _guard = Guard(prev);
+    let _guard = Guard { depth_before_push };
 
     f()
 }

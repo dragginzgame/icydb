@@ -318,10 +318,9 @@ fn captured_sql_write_events(
 }
 
 fn capture_sql_write_events(run: impl FnOnce()) -> Vec<(&'static str, SqlWriteKind, [u64; 4])> {
-    let sink = SessionMetricsCaptureSink::default();
-    with_metrics_sink(&sink, run);
+    let ((), events) = capture_session_metrics(run);
 
-    captured_sql_write_events(&sink.into_events())
+    captured_sql_write_events(&events)
 }
 
 const BROAD_SQL_WRITE_ROWS: [(u64, &str, u64); 6] = [
@@ -2995,8 +2994,7 @@ fn execute_sql_statement_write_error_metrics_capture_command_shape_and_class() {
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21)]);
 
-    let sink = SessionMetricsCaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let ((), events) = capture_session_metrics(|| {
         execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
             &session,
             "UPDATE SessionSqlWriteEntity SET age = 'old' WHERE id = 1",
@@ -3005,7 +3003,7 @@ fn execute_sql_statement_write_error_metrics_capture_command_shape_and_class() {
     });
 
     assert_eq!(
-        captured_sql_write_error_events(&sink.into_events()),
+        captured_sql_write_error_events(&events),
         vec![(
             SessionSqlWriteEntity::PATH,
             SqlWriteKind::Update,

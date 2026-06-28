@@ -1502,13 +1502,11 @@ fn session_branch_set_sql_plan_metrics_identify_branch_route() {
     let session = indexed_sql_session();
     seed_branch_set_fixture(&session);
     let sql = branch_target_sql("id", BRANCH_LIMIT);
-    let sink = SessionMetricsCaptureSink::default();
 
-    with_metrics_sink(&sink, || {
+    let (result, events) = capture_session_metrics(|| {
         execute_scalar_select_for_tests::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
-    })
-    .unwrap_or_else(|err| panic!("branch-set load should execute with metrics: {err:?}"));
-    let events = sink.into_events();
+    });
+    result.unwrap_or_else(|err| panic!("branch-set load should execute with metrics: {err:?}"));
 
     assert!(
         events.iter().any(|event| {

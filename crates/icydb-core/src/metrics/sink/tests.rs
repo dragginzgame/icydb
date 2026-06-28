@@ -1,13 +1,14 @@
 use super::*;
 use crate::error::ErrorClass;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-struct CountingSink<'a> {
-    calls: &'a AtomicUsize,
+struct CountingSink {
+    calls: Rc<AtomicUsize>,
 }
 
-impl MetricsSink for CountingSink<'_> {
+impl MetricsSink for CountingSink {
     fn record(&self, _: MetricsEvent) {
         self.calls.fetch_add(1, Ordering::SeqCst);
     }
@@ -15,18 +16,18 @@ impl MetricsSink for CountingSink<'_> {
 
 #[test]
 fn with_metrics_sink_routes_and_restores_nested_overrides() {
-    SINK_OVERRIDE.with(|cell| {
-        *cell.borrow_mut() = None;
+    SINK_OVERRIDE.with(|stack| {
+        stack.borrow_mut().clear();
     });
 
-    let outer_calls = AtomicUsize::new(0);
-    let inner_calls = AtomicUsize::new(0);
-    let outer = CountingSink {
-        calls: &outer_calls,
-    };
-    let inner = CountingSink {
-        calls: &inner_calls,
-    };
+    let outer_calls = Rc::new(AtomicUsize::new(0));
+    let inner_calls = Rc::new(AtomicUsize::new(0));
+    let outer = Rc::new(CountingSink {
+        calls: Rc::clone(&outer_calls),
+    });
+    let inner = Rc::new(CountingSink {
+        calls: Rc::clone(&inner_calls),
+    });
 
     // No override installed yet.
     record(MetricsEvent::Plan {
@@ -37,7 +38,7 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
     assert_eq!(outer_calls.load(Ordering::SeqCst), 0);
     assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
 
-    with_metrics_sink(&outer, || {
+    with_shared_metrics_sink(outer, || {
         record(MetricsEvent::Plan {
             entity_path: "metrics::tests::Entity",
             kind: PlanKind::IndexPrefix,
@@ -46,7 +47,7 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
         assert_eq!(outer_calls.load(Ordering::SeqCst), 1);
         assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
 
-        with_metrics_sink(&inner, || {
+        with_shared_metrics_sink(inner, || {
             record(MetricsEvent::Plan {
                 entity_path: "metrics::tests::Entity",
                 kind: PlanKind::KeyRange,
@@ -66,8 +67,8 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
     assert_eq!(inner_calls.load(Ordering::SeqCst), 1);
 
     // Outer override was restored to previous (none).
-    SINK_OVERRIDE.with(|cell| {
-        assert!(cell.borrow().is_none());
+    SINK_OVERRIDE.with(|stack| {
+        assert!(stack.borrow().is_empty());
     });
 
     record(MetricsEvent::Plan {
@@ -81,15 +82,17 @@ fn with_metrics_sink_routes_and_restores_nested_overrides() {
 
 #[test]
 fn with_metrics_sink_restores_override_on_panic() {
-    SINK_OVERRIDE.with(|cell| {
-        *cell.borrow_mut() = None;
+    SINK_OVERRIDE.with(|stack| {
+        stack.borrow_mut().clear();
     });
 
-    let calls = AtomicUsize::new(0);
-    let sink = CountingSink { calls: &calls };
+    let calls = Rc::new(AtomicUsize::new(0));
+    let sink = Rc::new(CountingSink {
+        calls: Rc::clone(&calls),
+    });
 
     let panicked = catch_unwind(AssertUnwindSafe(|| {
-        with_metrics_sink(&sink, || {
+        with_shared_metrics_sink(sink, || {
             record(MetricsEvent::Plan {
                 entity_path: "metrics::tests::Entity",
                 kind: PlanKind::IndexPrefix,
@@ -103,8 +106,8 @@ fn with_metrics_sink_restores_override_on_panic() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     // Guard restored TLS slot after unwind.
-    SINK_OVERRIDE.with(|cell| {
-        assert!(cell.borrow().is_none());
+    SINK_OVERRIDE.with(|stack| {
+        assert!(stack.borrow().is_empty());
     });
 
     record(MetricsEvent::Plan {
@@ -113,6 +116,47 @@ fn with_metrics_sink_restores_override_on_panic() {
         grouped_execution_mode: None,
     });
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+struct ReentrantSink {
+    calls: Rc<AtomicUsize>,
+}
+
+impl MetricsSink for ReentrantSink {
+    fn record(&self, _: MetricsEvent) {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            record(MetricsEvent::Plan {
+                entity_path: "metrics::tests::Entity",
+                kind: PlanKind::FullScan,
+                grouped_execution_mode: None,
+            });
+        }
+    }
+}
+
+#[test]
+fn with_metrics_sink_allows_reentrant_recording() {
+    SINK_OVERRIDE.with(|stack| {
+        stack.borrow_mut().clear();
+    });
+
+    let calls = Rc::new(AtomicUsize::new(0));
+    let sink = Rc::new(ReentrantSink {
+        calls: Rc::clone(&calls),
+    });
+
+    with_shared_metrics_sink(sink, || {
+        record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
+            kind: PlanKind::IndexPrefix,
+            grouped_execution_mode: None,
+        });
+    });
+
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    SINK_OVERRIDE.with(|stack| {
+        assert!(stack.borrow().is_empty());
+    });
 }
 
 #[test]

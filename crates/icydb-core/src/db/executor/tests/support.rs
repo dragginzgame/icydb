@@ -27,7 +27,7 @@ pub(in crate::db::executor::tests) use crate::{
         schema::SchemaStore,
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
+    metrics::sink::{MetricsEvent, MetricsSink, with_shared_metrics_sink},
     model::{
         field::{FieldKind, RelationStrength},
         index::IndexModel,
@@ -38,7 +38,7 @@ pub(in crate::db::executor::tests) use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
-use std::cell::RefCell;
+use std::{cell::RefCell, rc::Rc};
 
 ///
 /// ScanBudgetCaptureSink
@@ -88,8 +88,10 @@ pub(in crate::db::executor::tests) fn capture_rows_scanned_for_entity<R>(
     entity_path: &'static str,
     run: impl FnOnce() -> R,
 ) -> (R, usize) {
-    let sink = ScanBudgetCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
+    let sink = Rc::new(ScanBudgetCaptureSink::default());
+    let output = with_shared_metrics_sink(sink.clone(), run);
+    let sink = Rc::try_unwrap(sink)
+        .unwrap_or_else(|_| panic!("scan budget metrics sink should have one owner after capture"));
     let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
 
     (output, rows_scanned)
