@@ -203,22 +203,18 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
         first_unknown_field: None,
     };
 
-    expr.try_for_each_tree_expr(&mut |node| match node {
+    expr.for_each_tree_expr(&mut |node| match node {
         Expr::Field(field) => {
             analysis.visit_field(field.as_str(), model);
-            Ok::<(), ()>(())
         }
         Expr::FieldPath(path) => {
             analysis.visit_field_path(path, model);
-            Ok::<(), ()>(())
         }
         Expr::Aggregate(aggregate) => {
             analysis.visit_aggregate(aggregate);
-            Ok::<(), ()>(())
         }
-        _ => Ok(()),
-    })
-    .expect("sql lowering invariant");
+        _ => {}
+    });
 
     analysis
 }

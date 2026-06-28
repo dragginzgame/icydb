@@ -109,10 +109,13 @@ impl PreparedSqlScalarAggregateStrategy {
             None => None,
         };
 
-        Ok(Self::from_semantics(
-            PreparedAggregateSemantics::from_kind_target_and_distinct(kind, target, distinct_input),
-            filter_expr,
-        ))
+        let semantics = PreparedAggregateSemantics::try_from_kind_target_and_distinct(
+            kind,
+            target,
+            distinct_input,
+        )?;
+
+        Ok(Self::from_semantics(semantics, filter_expr))
     }
 
     fn validate_global_aggregate_filter_expr(

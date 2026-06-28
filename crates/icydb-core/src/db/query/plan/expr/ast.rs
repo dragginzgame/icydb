@@ -820,6 +820,47 @@ impl Expr {
         }
     }
 
+    /// Visit every planner expression node in this tree through the owner-local
+    /// child traversal contract.
+    pub(in crate::db) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
+        match self {
+            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {
+                visit(self);
+            }
+            Self::FunctionCall { args, .. } => {
+                visit(self);
+                for arg in args {
+                    arg.for_each_tree_expr(visit);
+                }
+            }
+            Self::Unary { expr, .. } => {
+                visit(self);
+                expr.for_each_tree_expr(visit);
+            }
+            Self::Binary { left, right, .. } => {
+                visit(self);
+                left.for_each_tree_expr(visit);
+                right.for_each_tree_expr(visit);
+            }
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                visit(self);
+                for arm in when_then_arms {
+                    arm.condition().for_each_tree_expr(visit);
+                    arm.result().for_each_tree_expr(visit);
+                }
+                else_expr.for_each_tree_expr(visit);
+            }
+            #[cfg(test)]
+            Self::Alias { expr, .. } => {
+                visit(self);
+                expr.for_each_tree_expr(visit);
+            }
+        }
+    }
+
     /// Visit every aggregate leaf owned by this planner expression tree through
     /// the canonical traversal contract.
     pub(in crate::db) fn try_for_each_tree_aggregate<E>(

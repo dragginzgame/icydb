@@ -150,10 +150,14 @@ runtime contract.
   - `crates/icydb-core/src/db/executor/aggregate/contracts/state/reducer.rs`
   - `crates/icydb-core/src/db/executor/aggregate/projection/mod.rs`
   - `crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs`
+  - `crates/icydb-core/src/db/sql_shared/cursor.rs`
+  - `crates/icydb-core/src/db/sql/lowering/analysis.rs`
+  - `crates/icydb-core/src/db/sql/lowering/aggregate/`
 - Current classification: cleanup completed for the small trap-shaped
   invariants found in the 0.187 pass, including finalized static execution
   metadata access, SQL write-policy validated-plan helpers, covering aggregate
-  terminal-value selection, and query fingerprint hashing drift paths.
+  terminal-value selection, query fingerprint hashing drift paths, and SQL
+  frontend/lowering drift paths.
 - Evidence: query expression preview/evaluation, predicate bridge conversion,
   grouped EXPLAIN/fingerprint projection, grouped strategy selection, resolved
   ORDER handling, SQL write primary-key normalization, and finalized
@@ -181,7 +185,13 @@ runtime contract.
   fingerprint profile hashing now emits deterministic missing-entity-path
   sentinel material when profile wiring drifts, and grouped HAVING hashing now
   emits deterministic missing-slot sentinel material for unmatched group-field
-  or aggregate lookup facts instead of trapping.
+  or aggregate lookup facts instead of trapping. SQL cursor token movers now
+  restore mismatched tokens and return parse errors instead of trapping, SQL
+  lowered-expression analysis now uses an infallible planner-expression
+  traversal instead of unwrapping a never-failing traversal result, unsupported
+  global aggregate semantic kind drift returns a lowering error, and direct
+  `COUNT(*)` lowering builds the known row-count terminal without a fallible
+  helper round trip.
 - Recommendation: keep runtime invariant drift recoverable with typed errors or
   conservative no-result behavior. Do not add new reference-returning helper
   surfaces that assume finalized static execution metadata or admitted SQL write
@@ -189,9 +199,10 @@ runtime contract.
   consumed a command, or predicate-compiler internals that assume admission
   stayed aligned with lowering, or reducer/rewriter helpers that assume a
   private helper always returns a specific shape, or fingerprint hashers that
-  assume profile/grouped lookup facts are always present, without a typed,
-  optional, fail-closed, propagated-error, deterministic sentinel, or exhaustive
-  closed-enum path.
+  assume profile/grouped lookup facts are always present, or SQL cursor and
+  aggregate lowering helpers that assume parser/lowering prechecks stayed
+  aligned, without a typed, optional, fail-closed, propagated-error,
+  deterministic sentinel, parse/lowering error, or exhaustive closed-enum path.
 
 ## Generated Canister Endpoints Versus Session Surfaces
 

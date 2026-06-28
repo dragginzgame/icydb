@@ -101,6 +101,12 @@ parity test or a source invariant.
   internal lookup facts drift. Missing entity-path or grouped HAVING field /
   aggregate lookup facts now hash deterministic sentinel material instead of
   trapping through local invariant expectations.
+- Made SQL frontend/lowering invariant drift recoverable in the cursor,
+  lowered-expression analysis, and aggregate semantic preparation paths. Cursor
+  token movers now return parse errors on token-kind drift, SQL expression
+  analysis uses an infallible planner-expression traversal, unsupported global
+  aggregate semantic kinds return lowering errors, and direct `COUNT(*)`
+  lowering builds the known row-count terminal without a fallible round trip.
 
 ## Initial Queue
 

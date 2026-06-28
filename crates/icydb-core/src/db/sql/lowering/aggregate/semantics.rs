@@ -2,6 +2,7 @@ use crate::db::query::{
     builder::AggregateExpr,
     plan::{AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, expr::Expr},
 };
+use crate::db::sql::lowering::SqlLoweringError;
 
 ///
 /// AggregateTerminalSemanticKey
@@ -118,21 +119,23 @@ pub(in crate::db::sql::lowering::aggregate) enum PreparedAggregateSemantics {
 impl PreparedAggregateSemantics {
     // Combine normalized aggregate kind/DISTINCT semantics with a model-bound
     // target. MIN/MAX deliberately discard the supplied DISTINCT bit.
-    pub(in crate::db::sql::lowering::aggregate) fn from_kind_target_and_distinct(
+    pub(in crate::db::sql::lowering::aggregate) fn try_from_kind_target_and_distinct(
         kind: AggregateKind,
         target: PreparedAggregateTarget,
         distinct: bool,
-    ) -> Self {
-        match kind {
+    ) -> Result<Self, SqlLoweringError> {
+        let semantics = match kind {
             AggregateKind::Count => Self::Count { target, distinct },
             AggregateKind::Sum => Self::Sum { target, distinct },
             AggregateKind::Avg => Self::Avg { target, distinct },
             AggregateKind::Min => Self::Min { target },
             AggregateKind::Max => Self::Max { target },
             AggregateKind::Exists | AggregateKind::First | AggregateKind::Last => {
-                unreachable!("sql aggregate invariant")
+                return Err(SqlLoweringError::unsupported_global_aggregate_projection());
             }
-        }
+        };
+
+        Ok(semantics)
     }
 
     // Return the aggregate kind represented by this prepared semantic terminal.

@@ -1032,6 +1032,85 @@ fn query_fingerprint_hashing_drift_paths_are_recoverable() {
 }
 
 #[test]
+fn sql_frontend_lowering_invariant_drift_paths_are_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cursor = source_for(crate_root, "src/db/sql_shared/cursor.rs");
+    let analysis = source_for(crate_root, "src/db/sql/lowering/analysis.rs");
+    let ast = source_for(crate_root, "src/db/query/plan/expr/ast.rs");
+    let aggregate_semantics = source_for(crate_root, "src/db/sql/lowering/aggregate/semantics.rs");
+    let aggregate_strategy = source_for(crate_root, "src/db/sql/lowering/aggregate/strategy.rs");
+    let aggregate_terminal = source_for(crate_root, "src/db/sql/lowering/aggregate/terminal.rs");
+
+    assert_source_contains_patterns(
+        &cursor,
+        &[
+            "let found = self.peek_kind().cloned();",
+            "token.kind = token_kind;",
+            "return Err(SqlParseError::expected(",
+        ],
+        "SQL cursor token movers should restore mismatched tokens and return parse errors",
+    );
+    assert_source_excludes_patterns(
+        &cursor,
+        &["unreachable!(\"sql cursor invariant\")"],
+        "SQL cursor token movers must not trap on token-kind drift",
+    );
+
+    assert_source_contains_patterns(
+        &ast,
+        &["pub(in crate::db) fn for_each_tree_expr(&self,"],
+        "planner expressions should expose an infallible traversal for infallible consumers",
+    );
+    assert_source_contains_patterns(
+        &analysis,
+        &["expr.for_each_tree_expr(&mut |node| match node {"],
+        "SQL lowering analysis should consume the infallible planner-expression traversal",
+    );
+    assert_source_excludes_patterns(
+        &analysis,
+        &[".expect(\"sql lowering invariant\")"],
+        "SQL lowering analysis must not trap after an infallible traversal",
+    );
+
+    assert_source_contains_patterns(
+        &aggregate_semantics,
+        &[
+            "fn try_from_kind_target_and_distinct(",
+            ") -> Result<Self, SqlLoweringError>",
+            "return Err(SqlLoweringError::unsupported_global_aggregate_projection());",
+        ],
+        "SQL aggregate semantic preparation should return a lowering error for unsupported kind drift",
+    );
+    assert_source_contains_patterns(
+        &aggregate_strategy,
+        &[
+            "PreparedAggregateSemantics::try_from_kind_target_and_distinct(",
+            ")?;",
+        ],
+        "SQL aggregate strategy should propagate aggregate semantic preparation drift",
+    );
+    assert_source_contains_patterns(
+        &aggregate_terminal,
+        &[
+            "pub(in crate::db::sql::lowering::aggregate) fn count_rows() -> Self {",
+            "input: LoweredAggregateInput::Rows,",
+            "filter_expr: None,",
+        ],
+        "direct COUNT(*) lowering should build the known row-count terminal without a fallible round trip",
+    );
+    assert_source_excludes_patterns(
+        &aggregate_semantics,
+        &["unreachable!(\"sql aggregate invariant\")"],
+        "SQL aggregate semantic preparation must not trap on unsupported kind drift",
+    );
+    assert_source_excludes_patterns(
+        &aggregate_terminal,
+        &[".expect(\"COUNT(*) is a supported global aggregate terminal\")"],
+        "direct COUNT(*) lowering must not trap through a helper round trip",
+    );
+}
+
+#[test]
 fn scalar_entrypoints_share_execution_inputs_spine() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let execution = source_for(

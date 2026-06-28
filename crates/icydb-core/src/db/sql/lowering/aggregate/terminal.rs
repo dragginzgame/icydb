@@ -39,22 +39,18 @@ pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerm
 impl LoweredSqlGlobalAggregateTerminal {
     pub(in crate::db::sql::lowering::aggregate) fn count_rows() -> Self {
         let aggregate_expr = crate::db::query::builder::aggregate::count();
+        let semantic_key = AggregateTerminalSemanticKey::from_aggregate_expr(&aggregate_expr);
 
-        Self::from_aggregate_expr(&aggregate_expr)
-            .expect("COUNT(*) is a supported global aggregate terminal")
+        Self {
+            semantic_key,
+            input: LoweredAggregateInput::Rows,
+            filter_expr: None,
+        }
     }
 
     // Build one terminal from the planner aggregate expression. Normalization
     // stays limited to executor-equivalent COUNT row inputs and is mirrored by
     // aggregate identity so projection lookup and runtime terminals agree.
-    pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
-        aggregate_expr: &AggregateExpr,
-    ) -> Result<Self, SqlLoweringError> {
-        let semantic_key = AggregateTerminalSemanticKey::from_aggregate_expr(aggregate_expr);
-
-        Self::from_aggregate_expr_with_semantic_key(aggregate_expr, semantic_key)
-    }
-
     pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr_with_semantic_key(
         aggregate_expr: &AggregateExpr,
         semantic_key: AggregateTerminalSemanticKey,

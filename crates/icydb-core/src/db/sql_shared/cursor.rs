@@ -67,15 +67,17 @@ impl SqlTokenCursor {
     // literals. Large `IN ('...')` lists otherwise clone every string once
     // between tokenization and parser AST construction.
     fn take_string_literal(&mut self) -> Result<Value, SqlParseError> {
+        let found = self.peek_kind().cloned();
         let Some(token) = self.tokens.get_mut(self.pos) else {
+            return Err(SqlParseError::expected(SqlExpectedToken::Literal, None));
+        };
+        let token_kind = std::mem::replace(&mut token.kind, TokenKind::Comma);
+        let TokenKind::StringLiteral(value) = token_kind else {
+            token.kind = token_kind;
             return Err(SqlParseError::expected(
                 SqlExpectedToken::Literal,
-                self.peek_kind(),
+                found.as_ref(),
             ));
-        };
-        let TokenKind::StringLiteral(value) = std::mem::replace(&mut token.kind, TokenKind::Comma)
-        else {
-            unreachable!("sql cursor invariant");
         };
         self.pos += 1;
 
@@ -86,15 +88,17 @@ impl SqlTokenCursor {
     // cloning bytes at the parser boundary. Consumed tokens are never revisited,
     // so replacing the slot with punctuation preserves cursor invariants.
     fn take_blob_literal(&mut self) -> Result<Value, SqlParseError> {
+        let found = self.peek_kind().cloned();
         let Some(token) = self.tokens.get_mut(self.pos) else {
+            return Err(SqlParseError::expected(SqlExpectedToken::Literal, None));
+        };
+        let token_kind = std::mem::replace(&mut token.kind, TokenKind::Comma);
+        let TokenKind::BlobLiteral(bytes) = token_kind else {
+            token.kind = token_kind;
             return Err(SqlParseError::expected(
                 SqlExpectedToken::Literal,
-                self.peek_kind(),
+                found.as_ref(),
             ));
-        };
-        let TokenKind::BlobLiteral(bytes) = std::mem::replace(&mut token.kind, TokenKind::Comma)
-        else {
-            unreachable!("sql cursor invariant");
         };
         self.pos += 1;
 
@@ -209,24 +213,17 @@ impl SqlTokenCursor {
     // Move one consumed identifier token out of the cursor buffer so parser
     // hot paths do not clone field and entity names on every successful read.
     fn take_identifier_segment(&mut self) -> Result<String, SqlParseError> {
+        let found = self.peek_kind().cloned();
         let Some(token) = self.tokens.get_mut(self.pos) else {
-            return Err(SqlParseError::expected(
-                SqlExpectedToken::Identifier,
-                self.peek_kind(),
-            ));
+            return Err(SqlParseError::expected(SqlExpectedToken::Identifier, None));
         };
-        if !matches!(token.kind, TokenKind::Identifier(_)) {
+        let token_kind = std::mem::replace(&mut token.kind, TokenKind::Comma);
+        let TokenKind::Identifier(name) = token_kind else {
+            token.kind = token_kind;
             return Err(SqlParseError::expected(
                 SqlExpectedToken::Identifier,
-                self.peek_kind(),
+                found.as_ref(),
             ));
-        }
-
-        // The parser never revisits consumed tokens, so a cheap punctuation
-        // placeholder is enough to move the owned identifier out safely.
-        let TokenKind::Identifier(name) = std::mem::replace(&mut token.kind, TokenKind::Comma)
-        else {
-            unreachable!("sql cursor invariant");
         };
         self.pos += 1;
 
