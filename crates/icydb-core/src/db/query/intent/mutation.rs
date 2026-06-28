@@ -234,6 +234,6 @@ impl<K> QueryIntent<K> {
             return None;
         }
 
-        Some(self.ensure_grouped_mut())
+        self.ensure_grouped_mut()
     }
 }

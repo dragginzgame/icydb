@@ -69,31 +69,25 @@ pub(super) fn derive_route_execution_stage(
     let aggregate_force_materialized_due_to_predicate_uncertainty =
         aggregate_force_materialized_due_to_predicate_uncertainty(intent_stage);
 
-    if route_shape_kind == RouteShapeKind::LoadScalar {
-        build_execution_stage_for_load(feasibility_stage)
-    } else if route_shape_kind == RouteShapeKind::MutationDelete {
-        RouteExecutionStage {
+    match route_shape_kind {
+        RouteShapeKind::LoadScalar => build_execution_stage_for_load(feasibility_stage),
+        RouteShapeKind::MutationDelete => RouteExecutionStage {
             route_shape_kind,
             execution_mode: RouteExecutionMode::Materialized,
             aggregate_fold_mode: crate::db::executor::aggregate::AggregateFoldMode::ExistingRows,
             index_range_limit_spec: None,
-        }
-    } else if route_shape_kind == RouteShapeKind::AggregateCount {
-        build_execution_stage_for_aggregate_count(
+        },
+        RouteShapeKind::AggregateCount => build_execution_stage_for_aggregate_count(
             feasibility_stage,
             aggregate_force_materialized_due_to_predicate_uncertainty,
-        )
-    } else if route_shape_kind == RouteShapeKind::AggregateNonCount {
-        build_execution_stage_for_aggregate_non_count(
+        ),
+        RouteShapeKind::AggregateNonCount => build_execution_stage_for_aggregate_non_count(
             intent_stage,
             feasibility_stage,
             aggregate_force_materialized_due_to_predicate_uncertainty,
-        )
-    } else if route_shape_kind == RouteShapeKind::AggregateGrouped {
-        build_execution_stage_for_aggregate_grouped(intent_stage)
-    } else {
-        unreachable!(
-            "route invariant: staged execution derivation only admits load and aggregate route shapes"
-        )
+        ),
+        RouteShapeKind::AggregateGrouped => {
+            build_execution_stage_for_aggregate_grouped(intent_stage)
+        }
     }
 }

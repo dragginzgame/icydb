@@ -514,9 +514,11 @@ impl<K> QueryIntent<K> {
         }
     }
 
-    pub(in crate::db::query::intent) fn ensure_grouped_mut(&mut self) -> &mut GroupedIntent<K> {
+    pub(in crate::db::query::intent) fn ensure_grouped_mut(
+        &mut self,
+    ) -> Option<&mut GroupedIntent<K>> {
         let Self::Load(load) = self else {
-            panic!("query intent invariant");
+            return None;
         };
 
         if matches!(load.shape, QueryShape::Scalar(_)) {
@@ -524,14 +526,17 @@ impl<K> QueryIntent<K> {
             let scalar =
                 match std::mem::replace(&mut load.shape, QueryShape::Scalar(ScalarIntent::new())) {
                     QueryShape::Scalar(scalar) => scalar,
-                    QueryShape::Grouped(_) => unreachable!("shape checked above"),
+                    QueryShape::Grouped(grouped) => {
+                        load.shape = QueryShape::Grouped(grouped);
+                        return None;
+                    }
                 };
             load.shape = QueryShape::Grouped(GroupedIntent::from_scalar(scalar));
         }
 
         match &mut load.shape {
-            QueryShape::Grouped(grouped) => grouped,
-            QueryShape::Scalar(_) => unreachable!("scalar shape lifted to grouped"),
+            QueryShape::Grouped(grouped) => Some(grouped),
+            QueryShape::Scalar(_) => None,
         }
     }
 

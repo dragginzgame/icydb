@@ -49,7 +49,9 @@ fn delete_mode_tracks_offset_in_mode_spec() {
 #[test]
 fn grouped_load_to_delete_preserves_grouping_policy_without_group_shape() {
     let mut intent = QueryIntent::<u64>::new();
-    let _ = intent.ensure_grouped_mut();
+    let _ = intent
+        .ensure_grouped_mut()
+        .expect("load intent should materialize grouped shape");
     assert!(
         intent.grouped().is_some(),
         "load mode grouped intent should expose grouped shape"
@@ -72,7 +74,9 @@ fn grouped_load_to_delete_preserves_grouping_policy_without_group_shape() {
 fn grouped_scalar_flags_survive_mode_transition() {
     let mut intent = QueryIntent::<u64>::new();
     intent.scalar_mut().key_access_conflict = true;
-    let _ = intent.ensure_grouped_mut();
+    let _ = intent
+        .ensure_grouped_mut()
+        .expect("load intent should materialize grouped shape");
 
     let intent = intent.set_delete_mode();
 

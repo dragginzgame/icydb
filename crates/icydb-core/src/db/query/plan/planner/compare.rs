@@ -332,7 +332,13 @@ fn plan_ordered_compare(
             CompareOp::Gte => (Bound::Included(bound_value), Bound::Unbounded),
             CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(bound_value)),
             CompareOp::Lte => (Bound::Unbounded, Bound::Included(bound_value)),
-            _ => unreachable!("query planner invariant"),
+            CompareOp::Eq
+            | CompareOp::Ne
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => return None,
         };
         let score = access_candidate_score_from_index_contract(
             schema,

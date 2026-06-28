@@ -136,13 +136,17 @@ runtime contract.
 
 - Primary sources:
   - `crates/icydb-core/src/db/query/plan/expr/`
+  - `crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs`
   - `crates/icydb-core/src/db/query/plan/semantics/`
+  - `crates/icydb-core/src/db/query/plan/planner/compare.rs`
+  - `crates/icydb-core/src/db/query/intent/state.rs`
   - `crates/icydb-core/src/db/query/explain/`
   - `crates/icydb-core/src/db/query/fingerprint/`
   - `crates/icydb-core/src/db/session/sql/{update_policy,delete_policy,write_policy}.rs`
   - `crates/icydb-core/src/db/session/sql/execute/write/`
   - `crates/icydb-core/src/db/session/sql/execute/{mod,explain}.rs`
   - `crates/icydb-core/src/db/executor/aggregate/projection/mod.rs`
+  - `crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs`
 - Current classification: cleanup completed for the small trap-shaped
   invariants found in the 0.187 pass, including finalized static execution
   metadata access, SQL write-policy validated-plan helpers, and covering
@@ -157,12 +161,22 @@ runtime contract.
   terminal-value selection now returns no selected value when non-FIRST/LAST
   validation drift reaches the local helper. SQL compiled-command and EXPLAIN
   rendering routing drift now returns typed query execution errors instead of
-  reaching `unreachable!()` fallback arms.
+  reaching `unreachable!()` fallback arms. Query-intent grouped-shape lifting
+  now returns no grouped target when non-load mode or impossible shape drift
+  reaches the helper, and route execution-stage dispatch is exhaustive over the
+  closed route-shape enum instead of carrying a panicking catch-all. Ordered
+  range planning now returns no indexed range candidate when non-range compare
+  operator drift reaches the range helper. Runtime predicate compilation now
+  uses a fallible internal compiler for production predicate-subset derivation,
+  so admission/lowering drift returns no predicate subset instead of reaching
+  panicking compare/function/membership invariants.
 - Recommendation: keep runtime invariant drift recoverable with typed errors or
   conservative no-result behavior. Do not add new reference-returning helper
   surfaces that assume finalized static execution metadata or admitted SQL write
   proof state, or dispatch routing that assumes earlier adapters always
-  consumed a command, without a typed or optional error path.
+  consumed a command, or predicate-compiler internals that assume admission
+  stayed aligned with lowering, without a typed, optional, fail-closed, or
+  exhaustive closed-enum path.
 
 ## Generated Canister Endpoints Versus Session Surfaces
 

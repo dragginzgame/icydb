@@ -422,6 +422,22 @@ fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
         forbidden_hits.is_empty(),
         "predicate compilation must consume already-typed canonical boolean shape instead of re-running type inference or recreating canonicalization helpers: {forbidden_hits:?}",
     );
+    assert_source_contains_patterns(
+        &source,
+        &[
+            "fn try_compile_canonical_bool_expr_to_compiled_predicate(",
+            ") -> Option<PredicateCompilation>",
+            "fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Option<Predicate>",
+            "compile_bool_truth_sets(expr)?",
+            "return None;",
+        ],
+        "predicate compilation should fail closed when runtime predicate admission and lowering drift",
+    );
+    assert_source_excludes_patterns(
+        &runtime_source,
+        &["unreachable!(", "predicate compiler invariant", ".expect("],
+        "runtime predicate compilation must not trap on admitted-shape drift",
+    );
 }
 
 #[test]
@@ -819,6 +835,82 @@ fn sql_execution_routing_fallbacks_are_recoverable() {
         &explain,
         &["unreachable!(\"execution explain is handled separately\")"],
         "SQL EXPLAIN PLAN/JSON routing drift must not trap",
+    );
+}
+
+#[test]
+fn query_intent_grouped_shape_lift_is_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let state = source_for(crate_root, "src/db/query/intent/state.rs");
+
+    assert_source_contains_patterns(
+        &state,
+        &[
+            "fn ensure_grouped_mut(",
+            ") -> Option<&mut GroupedIntent<K>>",
+            "return None;",
+            "QueryShape::Scalar(_) => None,",
+        ],
+        "query intent grouped-shape lifting should stay recoverable when called from non-load state",
+    );
+    assert_source_excludes_patterns(
+        &state,
+        &[
+            "panic!(\"query intent invariant\")",
+            "unreachable!(\"shape checked above\")",
+            "unreachable!(\"scalar shape lifted to grouped\")",
+        ],
+        "query intent grouped-shape lifting must not trap on mode or shape drift",
+    );
+}
+
+#[test]
+fn route_execution_stage_dispatch_is_exhaustive() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let execution = source_for(
+        crate_root,
+        "src/db/executor/planning/route/planner/execution/mod.rs",
+    );
+
+    assert_source_contains_patterns(
+        &execution,
+        &[
+            "match route_shape_kind {",
+            "RouteShapeKind::LoadScalar =>",
+            "RouteShapeKind::MutationDelete =>",
+            "RouteShapeKind::AggregateCount =>",
+            "RouteShapeKind::AggregateNonCount =>",
+            "RouteShapeKind::AggregateGrouped =>",
+        ],
+        "route execution-stage dispatch should stay exhaustive over route shape kinds",
+    );
+    assert_source_excludes_patterns(
+        &execution,
+        &["staged execution derivation only admits load and aggregate route shapes"],
+        "route execution-stage dispatch must not trap on route-shape drift",
+    );
+}
+
+#[test]
+fn ordered_compare_range_planning_is_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let compare = source_for(crate_root, "src/db/query/plan/planner/compare.rs");
+
+    assert_source_contains_patterns(
+        &compare,
+        &[
+            "CompareOp::Gt =>",
+            "CompareOp::Gte =>",
+            "CompareOp::Lt =>",
+            "CompareOp::Lte =>",
+            "CompareOp::Eq\n            | CompareOp::Ne\n            | CompareOp::In\n            | CompareOp::NotIn\n            | CompareOp::Contains\n            | CompareOp::StartsWith\n            | CompareOp::EndsWith => return None,",
+        ],
+        "ordered compare range planning should fail closed for non-range operators",
+    );
+    assert_source_excludes_patterns(
+        &compare,
+        &["unreachable!(\"query planner invariant\")"],
+        "ordered compare range planning must not trap on operator drift",
     );
 }
 

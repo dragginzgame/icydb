@@ -82,6 +82,16 @@ parity test or a source invariant.
   recoverable. Metadata/write commands that drift past their dispatch adapters
   and EXPLAIN EXECUTION that drifts into PLAN/JSON rendering now return typed
   query execution errors instead of `unreachable!()` traps.
+- Made query-intent grouped-shape lifting fail closed when non-load mode or
+  shape drift reaches the helper, and made route execution-stage dispatch
+  exhaustive over the closed `RouteShapeKind` enum instead of relying on a
+  panicking fallback.
+- Made ordered range-planning fail closed when non-range compare operators reach
+  the range helper, returning no indexed range candidate instead of trapping.
+- Made runtime predicate compilation fail closed when admission/lowering drift
+  reaches the compiler internals. Predicate-subset derivation now returns no
+  subset instead of panicking on impossible compare/function/membership shapes;
+  direct panic-on-invalid compiler wrappers remain test-only.
 
 ## Initial Queue
 

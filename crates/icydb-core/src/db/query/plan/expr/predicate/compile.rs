@@ -53,12 +53,18 @@ impl PredicateCompilation {
 /// Compile one canonical planner-owned boolean expression artifact into an
 /// explicit predicate stage artifact.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn compile_canonical_bool_expr_to_compiled_predicate(
     expr: &CanonicalExpr,
 ) -> PredicateCompilation {
-    PredicateCompilation::new(compile_normalized_bool_expr_to_predicate_impl(
-        expr.as_expr(),
-    ))
+    try_compile_canonical_bool_expr_to_compiled_predicate(expr)
+        .expect("predicate compilation requires runtime-admissible canonical boolean expression")
+}
+
+fn try_compile_canonical_bool_expr_to_compiled_predicate(
+    expr: &CanonicalExpr,
+) -> Option<PredicateCompilation> {
+    compile_normalized_bool_expr_to_predicate_impl(expr.as_expr()).map(PredicateCompilation::new)
 }
 
 /// Compile one normalized planner-owned boolean expression into the canonical
@@ -73,17 +79,18 @@ pub(in crate::db) fn compile_normalized_bool_expr_to_predicate(expr: &Expr) -> P
     compile_canonical_bool_expr_to_compiled_predicate(&canonical).into_predicate()
 }
 
-fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Predicate {
-    debug_assert!(
-        runtime_predicate_admissible_expr(expr),
-        "normalized boolean expression"
-    );
-
-    if let Some(predicate) = collapse_membership_bool_expr(expr) {
-        return crate::db::predicate::normalize(&predicate);
+fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Option<Predicate> {
+    if !runtime_predicate_admissible_expr(expr) {
+        return None;
     }
 
-    crate::db::predicate::normalize(&compile_bool_truth_sets(expr).0)
+    if let Some(predicate) = collapse_membership_bool_expr(expr) {
+        return Some(crate::db::predicate::normalize(&predicate));
+    }
+
+    let (when_true, _) = compile_bool_truth_sets(expr)?;
+
+    Some(crate::db::predicate::normalize(&when_true))
 }
 
 /// Derive the strongest predicate subset supported by the runtime predicate
@@ -92,8 +99,8 @@ fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Predicate {
 pub(in crate::db) fn derive_canonical_bool_expr_predicate_subset(
     expr: &CanonicalExpr,
 ) -> Option<Predicate> {
-    runtime_predicate_admissible_expr(expr.as_expr())
-        .then(|| compile_canonical_bool_expr_to_compiled_predicate(expr).into_predicate())
+    try_compile_canonical_bool_expr_to_compiled_predicate(expr)
+        .map(PredicateCompilation::into_predicate)
 }
 
 /// Derive the strongest predicate subset supported by the runtime predicate
@@ -193,15 +200,13 @@ fn membership_compare_leaf(expr: &Expr, compare_op: BinaryOp) -> Option<(&str, V
     if *op != compare_op {
         return None;
     }
+    let compare_op = truth_condition_binary_compare_op(*op)?;
 
     match (left.as_ref(), right.as_ref()) {
         (Expr::Field(field), Expr::Literal(value)) if membership_value_is_in_safe(value) => Some((
             field.as_str(),
             value.clone(),
-            compare_literal_coercion(
-                truth_condition_binary_compare_op(*op).expect("predicate compiler invariant"),
-                value,
-            ),
+            compare_literal_coercion(compare_op, value),
         )),
         (
             Expr::FunctionCall {
@@ -230,25 +235,22 @@ const fn membership_value_is_in_safe(value: &Value) -> bool {
 // contract. SQL UNKNOWN is represented by neither set; the exported compiled
 // predicate uses only the TRUE set, so runtime row filtering admits exactly the
 // same rows as evaluating the expression and applying TRUE-only admission.
-fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
-    debug_assert!(runtime_predicate_admissible_expr(expr));
-
+fn compile_bool_truth_sets(expr: &Expr) -> Option<(Predicate, Predicate)> {
     if let Some(predicate) = collapse_membership_bool_expr(expr) {
         return compile_membership_truth_sets(predicate);
     }
 
-    match expr {
+    Some(match expr {
         Expr::Field(field) => compile_bool_field_truth_sets(field.as_str()),
         Expr::Literal(Value::Bool(true)) => (Predicate::True, Predicate::False),
         Expr::Literal(Value::Bool(false)) => (Predicate::False, Predicate::True),
         Expr::Literal(Value::Null) => (Predicate::False, Predicate::False),
-        Expr::Literal(_) => unreachable!("predicate compiler invariant"),
-        Expr::FieldPath(_) => unreachable!("predicate compiler invariant"),
+        Expr::Literal(_) | Expr::FieldPath(_) => return None,
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
         } => {
-            let (when_true, when_false) = compile_bool_truth_sets(expr.as_ref());
+            let (when_true, when_false) = compile_bool_truth_sets(expr.as_ref())?;
             (when_false, when_true)
         }
         Expr::Binary {
@@ -256,8 +258,8 @@ fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
             left,
             right,
         } => {
-            let (left_true, left_false) = compile_bool_truth_sets(left.as_ref());
-            let (right_true, right_false) = compile_bool_truth_sets(right.as_ref());
+            let (left_true, left_false) = compile_bool_truth_sets(left.as_ref())?;
+            let (right_true, right_false) = compile_bool_truth_sets(right.as_ref())?;
 
             (
                 Predicate::And(vec![left_true, right_true]),
@@ -269,8 +271,8 @@ fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
             left,
             right,
         } => {
-            let (left_true, left_false) = compile_bool_truth_sets(left.as_ref());
-            let (right_true, right_false) = compile_bool_truth_sets(right.as_ref());
+            let (left_true, left_false) = compile_bool_truth_sets(left.as_ref())?;
+            let (right_true, right_false) = compile_bool_truth_sets(right.as_ref())?;
 
             (
                 Predicate::Or(vec![left_true, right_true]),
@@ -278,30 +280,32 @@ fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
             )
         }
         Expr::Binary { op, left, right } => {
-            compile_bool_compare_truth_sets(*op, left.as_ref(), right.as_ref())
+            return compile_bool_compare_truth_sets(*op, left.as_ref(), right.as_ref());
         }
-        Expr::FunctionCall { function, args } => compile_bool_function_truth_sets(*function, args),
+        Expr::FunctionCall { function, args } => {
+            return compile_bool_function_truth_sets(*function, args);
+        }
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => compile_bool_case_truth_sets(when_then_arms.as_slice(), else_expr.as_ref()),
-        Expr::Aggregate(_) => unreachable!("predicate compiler invariant"),
+        } => return compile_bool_case_truth_sets(when_then_arms.as_slice(), else_expr.as_ref()),
+        Expr::Aggregate(_) => return None,
         #[cfg(test)]
-        Expr::Alias { .. } => unreachable!("predicate compiler invariant"),
-    }
+        Expr::Alias { .. } => return None,
+    })
 }
 
 // Compile a recovered compact membership expression without routing it through
 // recursive predicate normalization, which can partially collapse wide OR
 // chains before the full same-field set is visible.
-fn compile_membership_truth_sets(predicate: Predicate) -> (Predicate, Predicate) {
+fn compile_membership_truth_sets(predicate: Predicate) -> Option<(Predicate, Predicate)> {
     let Predicate::Compare(compare) = predicate else {
-        unreachable!("membership collapse returns one compare predicate");
+        return None;
     };
     let inverse_op = match compare.op() {
         CompareOp::In => CompareOp::NotIn,
         CompareOp::NotIn => CompareOp::In,
-        _ => unreachable!("membership collapse returns IN-family compare predicates"),
+        _ => return None,
     };
     let inverse = Predicate::Compare(ComparePredicate::with_coercion(
         compare.field().to_string(),
@@ -310,17 +314,20 @@ fn compile_membership_truth_sets(predicate: Predicate) -> (Predicate, Predicate)
         compare.coercion().id(),
     ));
 
-    (Predicate::Compare(compare), inverse)
+    Some((Predicate::Compare(compare), inverse))
 }
 
 // Compile one normalized searched-CASE tree by recursively composing the
 // truth-set pairs of every branch condition and result arm.
-fn compile_bool_case_truth_sets(arms: &[CaseWhenArm], else_expr: &Expr) -> (Predicate, Predicate) {
-    let (mut residual_true, mut residual_false) = compile_bool_truth_sets(else_expr);
+fn compile_bool_case_truth_sets(
+    arms: &[CaseWhenArm],
+    else_expr: &Expr,
+) -> Option<(Predicate, Predicate)> {
+    let (mut residual_true, mut residual_false) = compile_bool_truth_sets(else_expr)?;
 
     for arm in arms.iter().rev() {
-        let (condition_true, _) = compile_bool_truth_sets(arm.condition());
-        let (result_true, result_false) = compile_bool_truth_sets(arm.result());
+        let (condition_true, _) = compile_bool_truth_sets(arm.condition())?;
+        let (result_true, result_false) = compile_bool_truth_sets(arm.result())?;
         let skipped = Predicate::Not(Box::new(condition_true.clone()));
 
         residual_true = Predicate::Or(vec![
@@ -333,7 +340,7 @@ fn compile_bool_case_truth_sets(arms: &[CaseWhenArm], else_expr: &Expr) -> (Pred
         ]);
     }
 
-    (residual_true, residual_false)
+    Some((residual_true, residual_false))
 }
 
 // Compile one bare boolean field onto the runtime `field = TRUE/FALSE` pair
@@ -362,46 +369,46 @@ fn compile_bool_compare_truth_sets(
     op: BinaryOp,
     left: &Expr,
     right: &Expr,
-) -> (Predicate, Predicate) {
+) -> Option<(Predicate, Predicate)> {
     if matches!(left, Expr::Literal(Value::Null)) || matches!(right, Expr::Literal(Value::Null)) {
-        return (Predicate::False, Predicate::False);
+        return Some((Predicate::False, Predicate::False));
     }
 
-    let when_true = compile_bool_compare_expr(op, left, right);
+    let when_true = compile_bool_compare_expr(op, left, right)?;
 
-    (when_true.clone(), Predicate::Not(Box::new(when_true)))
+    Some((when_true.clone(), Predicate::Not(Box::new(when_true))))
 }
 
 // Compile one compare-ready boolean expression leaf onto the corresponding
 // runtime compare predicate.
-fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Predicate {
-    let op = truth_condition_binary_compare_op(op).expect("predicate compiler invariant");
+fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Option<Predicate> {
+    let op = truth_condition_binary_compare_op(op)?;
 
     match (left, right) {
         (Expr::Field(field), Expr::Literal(value)) => {
-            Predicate::Compare(ComparePredicate::with_coercion(
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
                 field.as_str().to_string(),
                 op,
                 value.clone(),
                 compare_literal_coercion(op, value),
-            ))
+            )))
         }
         (Expr::Literal(value), Expr::Field(field)) => {
-            Predicate::Compare(ComparePredicate::with_coercion(
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
                 field.as_str().to_string(),
                 op.flipped(),
                 value.clone(),
                 compare_literal_coercion(op.flipped(), value),
-            ))
+            )))
         }
-        (Expr::Field(left_field), Expr::Field(right_field)) => {
-            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+        (Expr::Field(left_field), Expr::Field(right_field)) => Some(Predicate::CompareFields(
+            CompareFieldsPredicate::with_coercion(
                 left_field.as_str().to_string(),
                 op,
                 right_field.as_str().to_string(),
-                compare_field_coercion(op),
-            ))
-        }
+                compare_field_coercion(op)?,
+            ),
+        )),
         (
             Expr::FunctionCall {
                 function: Function::Lower,
@@ -409,30 +416,30 @@ fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Predica
             },
             Expr::Literal(Value::Text(value)),
         ) => match args.as_slice() {
-            [Expr::Field(field)] => Predicate::Compare(ComparePredicate::with_coercion(
+            [Expr::Field(field)] => Some(Predicate::Compare(ComparePredicate::with_coercion(
                 field.as_str().to_string(),
                 op,
                 Value::Text(value.clone()),
                 CoercionId::TextCasefold,
-            )),
-            _ => unreachable!("predicate compiler invariant"),
+            ))),
+            _ => None,
         },
-        _ => unreachable!("predicate compiler invariant"),
+        _ => None,
     }
 }
 
 // Compile one admitted boolean function onto the runtime true/false predicate
 // pair that preserves the same planner-owned boolean shape.
-fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predicate, Predicate) {
+fn compile_bool_function_truth_sets(
+    function: Function,
+    args: &[Expr],
+) -> Option<(Predicate, Predicate)> {
     match function.boolean_function_shape() {
-        Some(BooleanFunctionShape::NullTest) => compile_bool_null_test_function_truth_sets(
-            function
-                .boolean_null_test_kind()
-                .expect("predicate compiler invariant"),
-            args,
-        ),
+        Some(BooleanFunctionShape::NullTest) => {
+            compile_bool_null_test_function_truth_sets(function.boolean_null_test_kind()?, args)
+        }
         Some(BooleanFunctionShape::TextPredicate) => {
-            let kind = boolean_text_predicate_kind(function);
+            let kind = boolean_text_predicate_kind(function)?;
 
             match kind {
                 TextPredicateFunctionKind::StartsWith | TextPredicateFunctionKind::EndsWith => {
@@ -443,42 +450,37 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
                 }
             }
         }
-        Some(BooleanFunctionShape::FieldPredicate) => match function
-            .boolean_field_predicate_kind()
-            .expect("predicate compiler invariant")
-        {
-            FieldPredicateFunctionKind::Missing => {
-                compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsMissing {
-                    field: field.to_string(),
-                })
+        Some(BooleanFunctionShape::FieldPredicate) => {
+            match function.boolean_field_predicate_kind()? {
+                FieldPredicateFunctionKind::Missing => {
+                    compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsMissing {
+                        field: field.to_string(),
+                    })
+                }
+                FieldPredicateFunctionKind::Empty => {
+                    compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsEmpty {
+                        field: field.to_string(),
+                    })
+                }
+                FieldPredicateFunctionKind::NotEmpty => {
+                    compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsNotEmpty {
+                        field: field.to_string(),
+                    })
+                }
             }
-            FieldPredicateFunctionKind::Empty => {
-                compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsEmpty {
-                    field: field.to_string(),
-                })
-            }
-            FieldPredicateFunctionKind::NotEmpty => {
-                compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsNotEmpty {
-                    field: field.to_string(),
-                })
-            }
-        },
+        }
         Some(BooleanFunctionShape::CollectionContains) => {
             compile_bool_collection_contains_truth_sets(args)
         }
         Some(BooleanFunctionShape::Membership) => compile_bool_membership_truth_sets(args),
-        Some(BooleanFunctionShape::TruthCoalesce) | None => {
-            unreachable!("predicate compiler invariant")
-        }
+        Some(BooleanFunctionShape::TruthCoalesce) | None => None,
     }
 }
 
 // Resolve the finer text-predicate kind after the caller has already matched
 // the broad boolean text-predicate function shape.
-const fn boolean_text_predicate_kind(function: Function) -> TextPredicateFunctionKind {
-    function
-        .boolean_text_predicate_kind()
-        .expect("predicate compiler invariant")
+const fn boolean_text_predicate_kind(function: Function) -> Option<TextPredicateFunctionKind> {
+    function.boolean_text_predicate_kind()
 }
 
 // Compile one null-test function onto the corresponding runtime null predicate
@@ -486,12 +488,12 @@ const fn boolean_text_predicate_kind(function: Function) -> TextPredicateFunctio
 fn compile_bool_null_test_function_truth_sets(
     kind: NullTestFunctionKind,
     args: &[Expr],
-) -> (Predicate, Predicate) {
+) -> Option<(Predicate, Predicate)> {
     let [arg] = args else {
-        unreachable!("predicate compiler invariant")
+        return None;
     };
 
-    match arg {
+    Some(match arg {
         Expr::Field(field) => {
             let is_null = Predicate::IsNull {
                 field: field.as_str().to_string(),
@@ -515,8 +517,8 @@ fn compile_bool_null_test_function_truth_sets(
                 (Predicate::False, Predicate::True)
             }
         }
-        _ => unreachable!("predicate compiler invariant"),
-    }
+        _ => return None,
+    })
 }
 
 // Compile one STARTS_WITH / ENDS_WITH boolean function onto the runtime prefix
@@ -524,17 +526,15 @@ fn compile_bool_null_test_function_truth_sets(
 fn compile_bool_prefix_text_function_truth_sets(
     kind: TextPredicateFunctionKind,
     args: &[Expr],
-) -> (Predicate, Predicate) {
+) -> Option<(Predicate, Predicate)> {
     let [left, Expr::Literal(Value::Text(value))] = args else {
-        unreachable!("predicate compiler invariant")
+        return None;
     };
-    let (field, coercion) = compile_bool_text_target(left);
+    let (field, coercion) = compile_bool_text_target(left)?;
     let op = match kind {
         TextPredicateFunctionKind::StartsWith => CompareOp::StartsWith,
         TextPredicateFunctionKind::EndsWith => CompareOp::EndsWith,
-        TextPredicateFunctionKind::Contains => {
-            unreachable!("predicate compiler invariant")
-        }
+        TextPredicateFunctionKind::Contains => return None,
     };
     let when_true = Predicate::Compare(ComparePredicate::with_coercion(
         field,
@@ -543,16 +543,16 @@ fn compile_bool_prefix_text_function_truth_sets(
         coercion,
     ));
 
-    (when_true.clone(), Predicate::Not(Box::new(when_true)))
+    Some((when_true.clone(), Predicate::Not(Box::new(when_true))))
 }
 
 // Compile one CONTAINS text predicate onto the runtime text predicate shell
 // while preserving strict versus casefold coercion.
-fn compile_bool_contains_function_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
+fn compile_bool_contains_function_truth_sets(args: &[Expr]) -> Option<(Predicate, Predicate)> {
     let [left, Expr::Literal(Value::Text(value))] = args else {
-        unreachable!("predicate compiler invariant")
+        return None;
     };
-    let (field, coercion) = compile_bool_text_target(left);
+    let (field, coercion) = compile_bool_text_target(left)?;
 
     let when_true = match coercion {
         CoercionId::Strict => Predicate::TextContains {
@@ -564,31 +564,31 @@ fn compile_bool_contains_function_truth_sets(args: &[Expr]) -> (Predicate, Predi
             value: Value::Text(value.clone()),
         },
         CoercionId::NumericWiden | CoercionId::CollectionElement => {
-            unreachable!("predicate compiler invariant");
+            return None;
         }
     };
 
-    (when_true.clone(), Predicate::Not(Box::new(when_true)))
+    Some((when_true.clone(), Predicate::Not(Box::new(when_true))))
 }
 
 // Compile one single-field boolean function onto its runtime predicate pair.
 fn compile_bool_field_predicate_truth_sets(
     args: &[Expr],
     build: impl FnOnce(&str) -> Predicate,
-) -> (Predicate, Predicate) {
+) -> Option<(Predicate, Predicate)> {
     let [Expr::Field(field)] = args else {
-        unreachable!("predicate compiler invariant")
+        return None;
     };
     let when_true = build(field.as_str());
 
-    (when_true.clone(), Predicate::Not(Box::new(when_true)))
+    Some((when_true.clone(), Predicate::Not(Box::new(when_true))))
 }
 
 // Compile one collection-membership boolean function onto the runtime compare
 // predicate shell.
-fn compile_bool_collection_contains_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
+fn compile_bool_collection_contains_truth_sets(args: &[Expr]) -> Option<(Predicate, Predicate)> {
     let [Expr::Field(field), Expr::Literal(value)] = args else {
-        unreachable!("predicate compiler invariant")
+        return None;
     };
     let when_true = Predicate::Compare(ComparePredicate::with_coercion(
         field.as_str().to_string(),
@@ -597,17 +597,17 @@ fn compile_bool_collection_contains_truth_sets(args: &[Expr]) -> (Predicate, Pre
         CoercionId::Strict,
     ));
 
-    (when_true.clone(), Predicate::Not(Box::new(when_true)))
+    Some((when_true.clone(), Predicate::Not(Box::new(when_true))))
 }
 
 // Compile compact SQL membership without expanding it back into a large
 // OR/AND tree. The TRUE/FALSE sets mirror SQL three-valued membership:
 // NULL list entries can contribute UNKNOWN, but never TRUE.
-fn compile_bool_membership_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
+fn compile_bool_membership_truth_sets(args: &[Expr]) -> Option<(Predicate, Predicate)> {
     let [target, Expr::Literal(Value::List(values))] = args else {
-        unreachable!("predicate compiler invariant")
+        return None;
     };
-    let (field, target_coercion) = compile_bool_membership_target(target);
+    let (field, target_coercion) = compile_bool_membership_target(target)?;
     let (non_null_values, has_null) = partition_membership_values(values.as_slice());
     if let Some(truth_sets) = compile_bool_compact_membership_truth_sets(
         field.as_str(),
@@ -615,7 +615,7 @@ fn compile_bool_membership_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
         non_null_values.as_slice(),
         has_null,
     ) {
-        return truth_sets;
+        return Some(truth_sets);
     }
 
     let true_set = compile_bool_membership_leaf_set(
@@ -635,7 +635,7 @@ fn compile_bool_membership_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
         )
     };
 
-    (true_set, false_set)
+    Some((true_set, false_set))
 }
 
 fn partition_membership_values(values: &[Value]) -> (Vec<Value>, bool) {
@@ -756,33 +756,35 @@ fn membership_leaf_predicates<'a>(
     })
 }
 
-fn compile_bool_membership_target(expr: &Expr) -> (String, Option<CoercionId>) {
+fn compile_bool_membership_target(expr: &Expr) -> Option<(String, Option<CoercionId>)> {
     match expr {
-        Expr::Field(field) => (field.as_str().to_string(), None),
+        Expr::Field(field) => Some((field.as_str().to_string(), None)),
         Expr::FunctionCall {
             function: Function::Lower,
             args,
         } => match args.as_slice() {
-            [Expr::Field(field)] => (field.as_str().to_string(), Some(CoercionId::TextCasefold)),
-            _ => unreachable!("predicate compiler invariant"),
+            [Expr::Field(field)] => {
+                Some((field.as_str().to_string(), Some(CoercionId::TextCasefold)))
+            }
+            _ => None,
         },
-        _ => unreachable!("predicate compiler invariant"),
+        _ => None,
     }
 }
 
 // Project one canonical text target wrapper onto the runtime field/coercion
 // pair consumed by text predicate shells.
-fn compile_bool_text_target(expr: &Expr) -> (String, CoercionId) {
+fn compile_bool_text_target(expr: &Expr) -> Option<(String, CoercionId)> {
     match expr {
-        Expr::Field(field) => (field.as_str().to_string(), CoercionId::Strict),
+        Expr::Field(field) => Some((field.as_str().to_string(), CoercionId::Strict)),
         Expr::FunctionCall {
             function: Function::Lower,
             args,
         } => match args.as_slice() {
-            [Expr::Field(field)] => (field.as_str().to_string(), CoercionId::TextCasefold),
-            _ => unreachable!("predicate compiler invariant"),
+            [Expr::Field(field)] => Some((field.as_str().to_string(), CoercionId::TextCasefold)),
+            _ => None,
         },
-        _ => unreachable!("predicate compiler invariant"),
+        _ => None,
     }
 }
 
@@ -952,14 +954,14 @@ const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
     }
 }
 
-fn compare_field_coercion(op: CompareOp) -> CoercionId {
+const fn compare_field_coercion(op: CompareOp) -> Option<CoercionId> {
     if !op.supports_field_compare() {
-        unreachable!("predicate compiler invariant");
+        return None;
     }
 
-    if op.is_ordering_family() {
+    Some(if op.is_ordering_family() {
         CoercionId::NumericWiden
     } else {
         CoercionId::Strict
-    }
+    })
 }
