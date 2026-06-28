@@ -732,14 +732,17 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
         &structural_delete,
         &[
             "struct StructuralDeleteCandidateDiagnostics",
+            "enum StructuralDeleteCandidateBoundCheck",
+            "struct StructuralDeleteCandidateBounds",
             "struct StructuralDeleteCandidateCollection",
             "apply_delete_post_access_rows(prepared, &mut self.rows)?",
+            "StructuralDeleteCandidateBoundCheck::PostAccessSelection",
             "diagnostics.selected_candidates",
             "package_rows(collection.into_rows())",
             "validate_structural_delete_projection_bounds(&prepared_projection.output, bounds)?",
             "validate_precommit(&prepared_projection.output)?",
             "prepare_structural_delete_count_core_with_optional_bounds(",
-            "validate_structural_delete_row_count_bounds(",
+            "StructuralDeleteCandidateBoundCheck::FinalProjection",
         ],
         "structural DELETE count/RETURNING bounds should stay at the post-access candidate boundary, before packaging and commit",
     );

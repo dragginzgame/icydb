@@ -115,6 +115,88 @@ impl StructuralDeleteCandidateDiagnostics {
     }
 }
 
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StructuralDeleteCandidateBoundCheck {
+    FinalProjection,
+    PostAccessSelection,
+}
+
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StructuralDeleteBoundDiagnostics {
+    selected_candidates: usize,
+    over_limit_at: Option<StructuralDeleteCandidateBoundCheck>,
+}
+
+#[cfg(feature = "sql")]
+impl StructuralDeleteBoundDiagnostics {
+    const fn within_limit(selected_candidates: usize) -> Self {
+        Self {
+            selected_candidates,
+            over_limit_at: None,
+        }
+    }
+
+    const fn over_limit(
+        selected_candidates: usize,
+        at: StructuralDeleteCandidateBoundCheck,
+    ) -> Self {
+        Self {
+            selected_candidates,
+            over_limit_at: Some(at),
+        }
+    }
+
+    const fn over_limit_at(self) -> Option<StructuralDeleteCandidateBoundCheck> {
+        self.over_limit_at
+    }
+}
+
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StructuralDeleteCandidateBounds {
+    max_selected_rows: Option<u32>,
+}
+
+#[cfg(feature = "sql")]
+impl StructuralDeleteCandidateBounds {
+    const fn from_max_selected_rows(max_selected_rows: Option<u32>) -> Self {
+        Self { max_selected_rows }
+    }
+
+    fn diagnostics_at(
+        self,
+        selected_candidates: usize,
+        at: StructuralDeleteCandidateBoundCheck,
+    ) -> StructuralDeleteBoundDiagnostics {
+        let Some(max_selected_rows) = self.max_selected_rows else {
+            return StructuralDeleteBoundDiagnostics::within_limit(selected_candidates);
+        };
+        let max_selected_rows = usize::try_from(max_selected_rows).unwrap_or(usize::MAX);
+        if selected_candidates <= max_selected_rows {
+            return StructuralDeleteBoundDiagnostics::within_limit(selected_candidates);
+        }
+
+        StructuralDeleteBoundDiagnostics::over_limit(selected_candidates, at)
+    }
+
+    fn validate_at(
+        self,
+        selected_candidates: usize,
+        at: StructuralDeleteCandidateBoundCheck,
+    ) -> Result<StructuralDeleteBoundDiagnostics, InternalError> {
+        let diagnostics = self.diagnostics_at(selected_candidates, at);
+        if diagnostics.over_limit_at().is_none() {
+            return Ok(diagnostics);
+        }
+
+        Err(InternalError::query_sql_write_boundary(
+            SqlWriteBoundaryCode::StagedRowsTooMany,
+        ))
+    }
+}
+
 struct StructuralDeleteCandidateCollection {
     diagnostics: StructuralDeleteCandidateDiagnostics,
     rows: Vec<KernelRow>,
@@ -159,9 +241,10 @@ fn prepare_structural_delete_leaf_from_access<T>(
     let diagnostics = collection.diagnostics();
     debug_assert!(diagnostics.rows_loaded >= diagnostics.selected_candidates);
     #[cfg(feature = "sql")]
-    validate_structural_delete_selected_row_count_bounds(
+    validate_structural_delete_candidate_bounds_at(
         diagnostics.selected_candidates,
         max_selected_rows,
+        StructuralDeleteCandidateBoundCheck::PostAccessSelection,
     )?;
     #[cfg(not(feature = "sql"))]
     let _ = max_selected_rows;
@@ -193,21 +276,15 @@ where
 }
 
 #[cfg(feature = "sql")]
-fn validate_structural_delete_selected_row_count_bounds(
-    row_count: usize,
+fn validate_structural_delete_candidate_bounds_at(
+    selected_candidates: usize,
     max_rows: Option<u32>,
+    at: StructuralDeleteCandidateBoundCheck,
 ) -> Result<(), InternalError> {
-    let Some(max_rows) = max_rows else {
-        return Ok(());
-    };
-    let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
-    if row_count <= max_rows {
-        return Ok(());
-    }
+    StructuralDeleteCandidateBounds::from_max_selected_rows(max_rows)
+        .validate_at(selected_candidates, at)?;
 
-    Err(InternalError::query_sql_write_boundary(
-        SqlWriteBoundaryCode::StagedRowsTooMany,
-    ))
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
@@ -226,7 +303,11 @@ fn validate_structural_delete_row_count_bounds(
     let Some(max_rows) = bounds.row_limit() else {
         return Ok(());
     };
-    validate_structural_delete_selected_row_count_bounds(row_count as usize, Some(max_rows))
+    validate_structural_delete_candidate_bounds_at(
+        row_count as usize,
+        Some(max_rows),
+        StructuralDeleteCandidateBoundCheck::FinalProjection,
+    )
 }
 
 // Prepare one structural delete projection through the shared delete core while
@@ -328,4 +409,40 @@ where
         prepared,
         bounds.row_limit(),
     )
+}
+
+#[cfg(all(test, feature = "sql"))]
+mod tests {
+    use super::{
+        StructuralDeleteCandidateBoundCheck, StructuralDeleteCandidateBounds,
+        StructuralDeleteCandidateDiagnostics,
+    };
+
+    #[test]
+    fn structural_delete_candidate_bounds_report_over_limit_stage() {
+        let loaded = StructuralDeleteCandidateDiagnostics::from_loaded_rows(3);
+        assert_eq!(loaded.rows_loaded, 3);
+        assert_eq!(loaded.selected_candidates, 3);
+
+        let diagnostics = StructuralDeleteCandidateBounds::from_max_selected_rows(Some(2))
+            .diagnostics_at(
+                loaded.selected_candidates,
+                StructuralDeleteCandidateBoundCheck::PostAccessSelection,
+            );
+
+        assert_eq!(diagnostics.selected_candidates, 3);
+        assert_eq!(
+            diagnostics.over_limit_at(),
+            Some(StructuralDeleteCandidateBoundCheck::PostAccessSelection),
+        );
+
+        let within_limit = StructuralDeleteCandidateBounds::from_max_selected_rows(Some(3))
+            .diagnostics_at(
+                loaded.selected_candidates,
+                StructuralDeleteCandidateBoundCheck::FinalProjection,
+            );
+
+        assert_eq!(within_limit.selected_candidates, 3);
+        assert_eq!(within_limit.over_limit_at(), None);
+    }
 }

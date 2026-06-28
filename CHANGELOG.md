@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Routes structural DELETE selected-row bounds through internal candidate
+  bound diagnostics while preserving the public staged-row error.
+
 ## [0.188.x] 🔧 - 2026-06-28 - Mutation Candidate Collector
 
 Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
