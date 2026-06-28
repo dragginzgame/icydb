@@ -110,18 +110,18 @@ pub struct LoweredSqlCommand(pub(in crate::db::sql::lowering) LoweredSqlCommandI
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     #[cfg(test)]
-    Query(LoweredSqlQuery),
+    Query(Box<LoweredSqlQuery>),
     #[cfg(feature = "sql-explain")]
     Explain {
         mode: SqlExplainMode,
         verbose: bool,
-        query: LoweredSqlQuery,
+        query: Box<LoweredSqlQuery>,
     },
     #[cfg(feature = "sql-explain")]
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
         verbose: bool,
-        command: LoweredSqlGlobalAggregateCommand,
+        command: Box<LoweredSqlGlobalAggregateCommand>,
     },
     #[cfg(test)]
     DescribeEntity,
@@ -182,9 +182,9 @@ impl LoweredSqlCommand {
 
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn query(&self) -> Option<&LoweredSqlQuery> {
+    pub(in crate::db) fn query(&self) -> Option<&LoweredSqlQuery> {
         match &self.0 {
-            LoweredSqlCommandInner::Query(query) => Some(query),
+            LoweredSqlCommandInner::Query(query) => Some(query.as_ref()),
             #[cfg(feature = "sql-explain")]
             LoweredSqlCommandInner::Explain { .. } => None,
             #[cfg(feature = "sql-explain")]
@@ -202,7 +202,7 @@ impl LoweredSqlCommand {
     #[must_use]
     pub(in crate::db) fn into_query(self) -> Option<LoweredSqlQuery> {
         match self.0 {
-            LoweredSqlCommandInner::Query(query) => Some(query),
+            LoweredSqlCommandInner::Query(query) => Some(*query),
             #[cfg(feature = "sql-explain")]
             LoweredSqlCommandInner::Explain { .. } => None,
             #[cfg(feature = "sql-explain")]
@@ -218,15 +218,13 @@ impl LoweredSqlCommand {
 
     #[cfg(feature = "sql-explain")]
     #[must_use]
-    pub(in crate::db) const fn explain_query(
-        &self,
-    ) -> Option<(SqlExplainMode, bool, &LoweredSqlQuery)> {
+    pub(in crate::db) fn explain_query(&self) -> Option<(SqlExplainMode, bool, &LoweredSqlQuery)> {
         match &self.0 {
             LoweredSqlCommandInner::Explain {
                 mode,
                 verbose,
                 query,
-            } => Some((*mode, *verbose, query)),
+            } => Some((*mode, *verbose, query.as_ref())),
             #[cfg(test)]
             LoweredSqlCommandInner::Query(_) => None,
             #[cfg(test)]
@@ -541,7 +539,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
     // point instead of preserving a private forwarding chain.
     match lowered.0 {
         LoweredSqlCommandInner::Query(query) => Ok(SqlCommand::Query(
-            bind_lowered_sql_query_for_model_only::<E>(query, consistency)?,
+            bind_lowered_sql_query_for_model_only::<E>(*query, consistency)?,
         )),
         #[cfg(feature = "sql-explain")]
         LoweredSqlCommandInner::ExplainGlobalAggregate {
@@ -552,7 +550,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
             mode,
             verbose,
             command: aggregate::bind_lowered_sql_global_aggregate_command_for_model_only::<E>(
-                command,
+                *command,
                 consistency,
             )?,
         }),
@@ -564,7 +562,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
         } => Ok(SqlCommand::Explain {
             mode,
             verbose,
-            query: bind_lowered_sql_query_for_model_only::<E>(query, consistency)?,
+            query: bind_lowered_sql_query_for_model_only::<E>(*query, consistency)?,
         }),
         LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),
         LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),

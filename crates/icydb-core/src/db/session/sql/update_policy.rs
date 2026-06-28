@@ -260,6 +260,14 @@ impl SqlPublicBoundedUpdatePlan {
         self.core.execution_bounds()
     }
 
+    #[cfg(test)]
+    pub(in crate::db) const fn set_execution_bounds_for_tests(
+        &mut self,
+        execution_bounds: SqlWriteExecutionBounds,
+    ) {
+        self.core.set_execution_bounds_for_tests(execution_bounds);
+    }
+
     /// Return the explicit limit admitted by the bounded deterministic policy.
     #[must_use]
     pub const fn limit(&self) -> u32 {

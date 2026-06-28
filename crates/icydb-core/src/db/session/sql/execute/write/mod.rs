@@ -636,6 +636,40 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
     ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
+        self.collect_sql_write_mutation_batch_from_structural_query_with_bounds(
+            schema,
+            authority,
+            query,
+            None,
+            &mut row_to_patch,
+        )
+    }
+
+    fn collect_bounded_sql_write_mutation_batch_from_structural_query<K>(
+        &self,
+        schema: &AcceptedSchemaSnapshot,
+        authority: EntityAuthority,
+        query: &StructuralQuery,
+        bounds: SqlWriteCandidateBounds,
+        mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
+    ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
+        self.collect_sql_write_mutation_batch_from_structural_query_with_bounds(
+            schema,
+            authority,
+            query,
+            Some(bounds),
+            &mut row_to_patch,
+        )
+    }
+
+    fn collect_sql_write_mutation_batch_from_structural_query_with_bounds<K>(
+        &self,
+        schema: &AcceptedSchemaSnapshot,
+        authority: EntityAuthority,
+        query: &StructuralQuery,
+        bounds: Option<SqlWriteCandidateBounds>,
+        row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
+    ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 query.clone(),
@@ -651,6 +685,9 @@ impl<C: CanisterKind> DbSession<C> {
         for row in projected_rows {
             let (key, patch) = row_to_patch(row.as_slice())?;
             rows.push(key, patch);
+            if let Some(bounds) = bounds {
+                rows.validate_staged_rows(bounds)?;
+            }
         }
 
         Ok(rows)

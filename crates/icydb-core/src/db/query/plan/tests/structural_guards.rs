@@ -667,6 +667,8 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
             "struct SqlWriteMutationExecution<E>",
             "fn from_bounded_batch(",
             "let staged_rows = rows.validate_staged_rows(bounds)?;",
+            "fn collect_bounded_sql_write_mutation_batch_from_structural_query",
+            "rows.validate_staged_rows(bounds)?;",
             "fn execute_sql_write_mutation_batch<E>(",
         ],
         "SQL UPDATE/INSERT staged-row admission should stay centralized in SqlWriteMutationExecution",
@@ -675,11 +677,12 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
     assert_source_contains_patterns(
         &update,
         &[
-            "collect_sql_write_mutation_batch_from_structural_query(",
+            "let candidate_bounds = sql_update_candidate_bounds(execution_bounds);",
+            "collect_bounded_sql_write_mutation_batch_from_structural_query(",
+            "candidate_bounds,",
             "SqlWriteMutationExecution::from_bounded_batch(",
-            "sql_update_candidate_bounds(execution_bounds)",
         ],
-        "SQL UPDATE should feed collected selector rows through the shared mutation batch bound",
+        "SQL UPDATE should feed selector rows through bounded collection and the shared mutation batch bound",
     );
 
     assert_source_contains_patterns(
@@ -719,12 +722,15 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
     assert_source_contains_patterns(
         &structural_delete,
         &[
+            "apply_delete_post_access_rows(prepared, &mut rows)?",
+            "validate_structural_delete_selected_row_count_bounds(rows.len(), max_selected_rows)?",
+            "package_rows(rows)",
             "validate_structural_delete_projection_bounds(&prepared_projection.output, bounds)?",
             "validate_precommit(&prepared_projection.output)?",
             "prepare_structural_delete_count_core_with_optional_bounds(",
             "validate_structural_delete_row_count_bounds(",
         ],
-        "structural DELETE count/RETURNING bounds should stay in the delete post-access output boundary, before commit",
+        "structural DELETE count/RETURNING bounds should stay at the post-access candidate boundary, before packaging and commit",
     );
 }
 

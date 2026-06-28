@@ -38,7 +38,7 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_with_schema(
         *verbose,
         bind_lowered_sql_global_aggregate_command_with_schema(
             model,
-            command.clone(),
+            command.as_ref().clone(),
             consistency,
             schema,
         )?,

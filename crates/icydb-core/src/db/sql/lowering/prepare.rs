@@ -440,11 +440,13 @@ fn lower_prepared_statement_for_model_only(
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     match statement {
-        SqlStatement::Select(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Select(lower_select_shape_for_model_only(statement, model)?),
-        ))),
+        SqlStatement::Select(statement) => {
+            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(Box::new(
+                LoweredSqlQuery::Select(lower_select_shape_for_model_only(statement, model)?),
+            ))))
+        }
         SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Delete(lower_delete_shape(statement)?),
+            Box::new(LoweredSqlQuery::Delete(lower_delete_shape(statement)?)),
         ))),
         SqlStatement::Insert(_) | SqlStatement::Update(_) => {
             Err(SqlLoweringError::unexpected_query_lane_statement())
@@ -483,7 +485,9 @@ fn lower_explain_prepared_for_model_only(
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
                 mode,
                 verbose,
-                query: LoweredSqlQuery::Delete(lower_delete_shape(delete_statement)?),
+                query: Box::new(LoweredSqlQuery::Delete(lower_delete_shape(
+                    delete_statement,
+                )?)),
             }))
         }
     }
@@ -510,7 +514,9 @@ fn lower_explain_prepared_with_schema(
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
                 mode,
                 verbose,
-                query: LoweredSqlQuery::Delete(lower_delete_shape(delete_statement)?),
+                query: Box::new(LoweredSqlQuery::Delete(lower_delete_shape(
+                    delete_statement,
+                )?)),
             }))
         }
     }
@@ -530,7 +536,7 @@ fn lower_explain_select_prepared_for_model_only(
             LoweredSqlCommandInner::ExplainGlobalAggregate {
                 mode,
                 verbose,
-                command,
+                command: Box::new(command),
             },
         ));
     }
@@ -539,7 +545,7 @@ fn lower_explain_select_prepared_for_model_only(
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
             verbose,
-            query: LoweredSqlQuery::Select(query),
+            query: Box::new(LoweredSqlQuery::Select(query)),
         })),
         Err(SqlLoweringError::UnsupportedSelectProjection) => {
             let command = lower_global_aggregate_select_shape(statement)?;
@@ -548,7 +554,7 @@ fn lower_explain_select_prepared_for_model_only(
                 LoweredSqlCommandInner::ExplainGlobalAggregate {
                     mode,
                     verbose,
-                    command,
+                    command: Box::new(command),
                 },
             ))
         }
@@ -571,7 +577,7 @@ fn lower_explain_select_prepared_with_schema(
             LoweredSqlCommandInner::ExplainGlobalAggregate {
                 mode,
                 verbose,
-                command,
+                command: Box::new(command),
             },
         ));
     }
@@ -580,7 +586,7 @@ fn lower_explain_select_prepared_with_schema(
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
             verbose,
-            query: LoweredSqlQuery::Select(query),
+            query: Box::new(LoweredSqlQuery::Select(query)),
         })),
         Err(SqlLoweringError::UnsupportedSelectProjection) => {
             let command = lower_global_aggregate_select_shape(statement)?;
@@ -589,7 +595,7 @@ fn lower_explain_select_prepared_with_schema(
                 LoweredSqlCommandInner::ExplainGlobalAggregate {
                     mode,
                     verbose,
-                    command,
+                    command: Box::new(command),
                 },
             ))
         }

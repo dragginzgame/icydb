@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.188.x] 🔧 - 2026-06-28 - Mutation Candidate Collector
+
+Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
+
+- `0.188.0` starts the mutation-candidate collector line by proving bounded
+  DELETE/UPDATE parity, moving bounded DELETE checks to the post-access
+  candidate boundary, and bounding UPDATE mutation-batch collection before
+  final write validation.
+
 ## [0.187.x] 📊 - 2026-06-27 - Second Query Engine Audit
 
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)

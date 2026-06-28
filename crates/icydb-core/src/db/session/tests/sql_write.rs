@@ -236,6 +236,19 @@ fn public_bounded_update_plan_with_returning_caps(
     plan
 }
 
+fn public_bounded_update_plan_with_caps(
+    sql: &str,
+    max_staged_rows: Option<u32>,
+    max_returning_rows: Option<u32>,
+) -> SqlPublicBoundedUpdatePlan {
+    let mut plan = public_bounded_update_plan_with_returning_caps(sql, max_returning_rows, None);
+    let mut execution_bounds = plan.execution_bounds();
+    execution_bounds.max_staged_rows = max_staged_rows;
+    plan.set_execution_bounds_for_tests(execution_bounds);
+
+    plan
+}
+
 fn rejected_public_primary_key_update_has_no_plan(sql: &str) {
     let report = classify_sql_update_policy(
         sql,
@@ -371,6 +384,18 @@ fn persisted_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Valu
         "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
     )
     .expect("post-write SQL projection should succeed")
+}
+
+fn write_rows(rows: &[(u64, &str, u64)]) -> Vec<Vec<Value>> {
+    rows.iter()
+        .map(|(id, name, age)| {
+            vec![
+                Value::Nat64(*id),
+                Value::Text((*name).to_string()),
+                Value::Nat64(*age),
+            ]
+        })
+        .collect()
 }
 
 fn persisted_write_ages(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
@@ -2221,6 +2246,140 @@ fn execute_validated_sql_public_bounded_update_plan_mutates_limited_rows() {
                 Value::Nat64(21),
             ],
         ],
+    );
+}
+
+#[test]
+fn public_bounded_update_characterizes_exact_staged_bounds() {
+    let cases = [
+        (
+            "empty UPDATE at zero staged bound",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age > 99 ORDER BY id ASC LIMIT 1",
+            0,
+            0,
+            vec![(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)],
+        ),
+        (
+            "single selected row at exact staged bound",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 1",
+            1,
+            1,
+            vec![(1, "Ada", 22), (2, "Bea", 21), (3, "Cid", 21)],
+        ),
+        (
+            "limit-windowed rows at exact staged bound",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2",
+            2,
+            2,
+            vec![(1, "Ada", 22), (2, "Bea", 22), (3, "Cid", 21)],
+        ),
+    ];
+
+    for (context, sql, max_staged_rows, expected_row_count, expected_rows) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+        let plan = public_bounded_update_plan_with_caps(sql, Some(max_staged_rows), None);
+        let result = session
+            .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+        let SqlStatementResult::Count { row_count } = result else {
+            panic!("{context} should return count payload");
+        };
+
+        assert_eq!(row_count, expected_row_count, "{context}");
+        assert_eq!(persisted_write_rows(&session), write_rows(&expected_rows));
+    }
+}
+
+#[test]
+fn public_bounded_update_characterizes_over_bound_atomicity() {
+    let cases = [
+        (
+            "one selected row over zero staged bound",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 1",
+            0,
+        ),
+        (
+            "two selected rows over one-row staged bound",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2",
+            1,
+        ),
+    ];
+
+    for (context, sql, max_staged_rows) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+        let plan = public_bounded_update_plan_with_caps(sql, Some(max_staged_rows), None);
+        let err = session
+            .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+            .expect_err(context);
+
+        assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
+        assert_eq!(
+            persisted_write_rows(&session),
+            write_rows(&[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]),
+            "{context} should reject before mutation",
+        );
+    }
+}
+
+#[test]
+fn public_bounded_update_returning_characterizes_order_and_limit_precedence() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+    let plan = public_bounded_update_plan_with_caps(
+        "UPDATE SessionSqlWriteEntity SET age = 22 \
+         WHERE age = 21 ORDER BY id ASC LIMIT 2 RETURNING id",
+        Some(2),
+        Some(2),
+    );
+
+    let result = session
+        .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+        .expect("exactly bounded UPDATE RETURNING should execute");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("UPDATE RETURNING should return projection payload");
+    };
+
+    assert_eq!(columns, ["id"]);
+    assert_eq!(
+        rows,
+        vec![vec![output(Value::Nat64(1))], vec![output(Value::Nat64(2))],],
+        "UPDATE RETURNING should preserve ordered candidate output",
+    );
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        persisted_write_rows(&session),
+        write_rows(&[(1, "Ada", 22), (2, "Bea", 22), (3, "Cid", 21)]),
+    );
+
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+    let plan = public_bounded_update_plan_with_caps(
+        "UPDATE SessionSqlWriteEntity SET age = 22 \
+         WHERE age = 21 ORDER BY id ASC LIMIT 2 RETURNING id",
+        Some(1),
+        Some(1),
+    );
+    let err = session
+        .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+        .expect_err("combined staged and RETURNING row cap should reject before mutation");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
+    assert_eq!(
+        persisted_write_rows(&session),
+        write_rows(&[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]),
+        "combined staged and RETURNING row cap should preserve staged-row precedence",
     );
 }
 

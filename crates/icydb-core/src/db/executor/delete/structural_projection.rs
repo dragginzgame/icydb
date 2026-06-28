@@ -17,7 +17,7 @@ use crate::{
         Db,
         executor::{
             delete::{
-                prepare_delete_leaf_rows, prepare_delete_output_from_leaf,
+                apply_delete_post_access_rows, prepare_delete_output_from_leaf,
                 resolve_delete_candidate_rows_recorded_as,
                 types::{DeleteLeaf, PreparedDeleteExecutionState, PreparedDeleteOutput},
             },
@@ -103,11 +103,14 @@ fn resolve_structural_delete_kernel_rows(
 fn prepare_structural_delete_leaf_from_access<T>(
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
+    max_selected_rows: Option<u32>,
     package_rows: impl FnOnce(Vec<KernelRow>) -> Result<DeleteLeaf<T>, InternalError>,
 ) -> Result<DeleteLeaf<T>, InternalError> {
-    let rows = resolve_structural_delete_kernel_rows(store, prepared)?;
+    let mut rows = resolve_structural_delete_kernel_rows(store, prepared)?;
+    apply_delete_post_access_rows(prepared, &mut rows)?;
+    validate_structural_delete_selected_row_count_bounds(rows.len(), max_selected_rows)?;
 
-    prepare_delete_leaf_rows(prepared, rows, package_rows)
+    package_rows(rows)
 }
 
 // Resolve, filter, package, and prepare commit row ops for one structural
@@ -117,14 +120,45 @@ fn prepare_structural_delete_output<C, T>(
     db: &Db<C>,
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
+    max_selected_rows: Option<u32>,
     package_rows: impl FnOnce(Vec<KernelRow>) -> Result<DeleteLeaf<T>, InternalError>,
 ) -> Result<Option<PreparedDeleteOutput<T>>, InternalError>
 where
     C: CanisterKind,
 {
-    let structural = prepare_structural_delete_leaf_from_access(store, prepared, package_rows)?;
+    let structural = prepare_structural_delete_leaf_from_access(
+        store,
+        prepared,
+        max_selected_rows,
+        package_rows,
+    )?;
 
     prepare_delete_output_from_leaf(db, store, prepared, structural)
+}
+
+fn validate_structural_delete_selected_row_count_bounds(
+    row_count: usize,
+    max_rows: Option<u32>,
+) -> Result<(), InternalError> {
+    let Some(max_rows) = max_rows else {
+        return Ok(());
+    };
+    let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
+    if row_count <= max_rows {
+        return Ok(());
+    }
+
+    #[cfg(feature = "sql")]
+    return Err(InternalError::query_sql_write_boundary(
+        SqlWriteBoundaryCode::StagedRowsTooMany,
+    ));
+
+    #[cfg(not(feature = "sql"))]
+    {
+        let _ = row_count;
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "sql")]
@@ -143,13 +177,7 @@ fn validate_structural_delete_row_count_bounds(
     let Some(max_rows) = bounds.row_limit() else {
         return Ok(());
     };
-    if row_count <= max_rows {
-        return Ok(());
-    }
-
-    Err(InternalError::query_sql_write_boundary(
-        SqlWriteBoundaryCode::StagedRowsTooMany,
-    ))
+    validate_structural_delete_selected_row_count_bounds(row_count as usize, Some(max_rows))
 }
 
 // Prepare one structural delete projection through the shared delete core while
@@ -166,8 +194,13 @@ where
     C: CanisterKind,
 {
     // Phase 1: run the shared structural delete output core.
-    let Some(prepared_projection) =
-        prepare_structural_delete_output(db, store, prepared, package_structural_delete_rows)?
+    let Some(prepared_projection) = prepare_structural_delete_output(
+        db,
+        store,
+        prepared,
+        bounds.row_limit(),
+        package_structural_delete_rows,
+    )?
     else {
         let projection = DeleteProjection::new(MaterializedProjectionRows::empty());
         validate_structural_delete_projection_bounds(&projection, bounds)?;
@@ -204,8 +237,13 @@ where
     C: CanisterKind,
 {
     // Phase 1: run the shared structural delete-count core.
-    let Some(prepared_count) =
-        prepare_structural_delete_output(db, store, prepared, package_structural_delete_count)?
+    let Some(prepared_count) = prepare_structural_delete_output(
+        db,
+        store,
+        prepared,
+        max_rows,
+        package_structural_delete_count,
+    )?
     else {
         return Ok(None);
     };

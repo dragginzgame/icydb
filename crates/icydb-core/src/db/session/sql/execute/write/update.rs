@@ -137,10 +137,12 @@ impl<C: CanisterKind> DbSession<C> {
                 let patch = Self::sql_structural_patch(&descriptor, statement)?;
                 let write_context =
                     SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
-                let rows = self.collect_sql_write_mutation_batch_from_structural_query(
+                let candidate_bounds = sql_update_candidate_bounds(execution_bounds);
+                let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
                     schema,
                     authority,
                     &selector,
+                    candidate_bounds,
                     |row| {
                         let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row)?;
 
@@ -152,7 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
                     &descriptor,
                     SqlWriteMutationExecution::from_bounded_batch(
                         rows,
-                        sql_update_candidate_bounds(execution_bounds),
+                        candidate_bounds,
                         SqlWriteKind::Update,
                         MutationMode::Update,
                         write_context,

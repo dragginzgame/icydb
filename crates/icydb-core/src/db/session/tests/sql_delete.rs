@@ -141,6 +141,82 @@ fn public_bounded_delete_plan_with_row_cap(
     plan
 }
 
+fn public_bounded_delete_plan_with_caps(
+    sql: &str,
+    max_staged_rows: Option<u32>,
+    max_returning_rows: Option<u32>,
+) -> SqlPublicBoundedDeletePlan {
+    let mut plan = public_bounded_delete_plan_with_row_cap(sql, max_returning_rows);
+    let mut execution_bounds = plan.execution_bounds();
+    execution_bounds.max_staged_rows = max_staged_rows;
+    plan.set_execution_bounds_for_tests(execution_bounds);
+
+    plan
+}
+
+fn execute_public_bounded_delete_count(
+    session: &DbSession<SessionSqlCanister>,
+    plan: &SqlPublicBoundedDeletePlan,
+    context: &str,
+) -> u32 {
+    let payload = session
+        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(plan)
+        .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+    let SqlStatementResult::Count { row_count } = payload else {
+        panic!("{context} should return a count payload");
+    };
+
+    row_count
+}
+
+fn assert_public_bounded_delete_count_succeeds(
+    context: &str,
+    sql: &str,
+    max_staged_rows: u32,
+    expected_row_count: u32,
+    remaining_ids: &[u64],
+) {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+    let plan = public_bounded_delete_plan_with_caps(sql, Some(max_staged_rows), None);
+
+    assert_eq!(
+        execute_public_bounded_delete_count(&session, &plan, context),
+        expected_row_count,
+        "{context} should preserve affected-row count",
+    );
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(remaining_ids),
+        "{context} should preserve persisted rows",
+    );
+}
+
+fn assert_public_bounded_delete_rejects_without_mutation(
+    context: &str,
+    sql: &str,
+    max_staged_rows: Option<u32>,
+    max_returning_rows: Option<u32>,
+    expected_boundary: SqlWriteBoundaryCode,
+) {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+    let plan = public_bounded_delete_plan_with_caps(sql, max_staged_rows, max_returning_rows);
+
+    let err = session
+        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .expect_err(context);
+
+    assert_sql_write_boundary_detail(err, expected_boundary);
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(&[1, 2, 3, 4]),
+        "{context} should reject before mutating rows",
+    );
+}
+
 // Run one SQL DELETE statement through unified statement and return only the
 // affected-row count from the traditional mutation result surface.
 fn execute_sql_statement_delete_count(session: &DbSession<SessionSqlCanister>, sql: &str) -> u32 {
@@ -173,6 +249,108 @@ fn execute_validated_sql_public_primary_key_delete_plan_deletes_one_row() {
     assert_eq!(
         public_delete_write_rows(&session),
         public_delete_fixture_rows(&[2, 3, 4]),
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_delete_characterizes_exact_staged_bounds() {
+    assert_public_bounded_delete_count_succeeds(
+        "empty DELETE at zero staged bound",
+        "DELETE FROM SessionSqlWriteEntity WHERE age > 99 ORDER BY id LIMIT 1",
+        0,
+        0,
+        &[1, 2, 3, 4],
+    );
+    assert_public_bounded_delete_count_succeeds(
+        "single selected row at exact staged bound",
+        "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 1",
+        1,
+        1,
+        &[2, 3, 4],
+    );
+    assert_public_bounded_delete_count_succeeds(
+        "limit-windowed rows at exact staged bound",
+        "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 2",
+        2,
+        2,
+        &[3, 4],
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_delete_characterizes_over_bound_atomicity() {
+    assert_public_bounded_delete_rejects_without_mutation(
+        "one selected row over zero staged bound",
+        "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 1",
+        Some(0),
+        None,
+        SqlWriteBoundaryCode::StagedRowsTooMany,
+    );
+    assert_public_bounded_delete_rejects_without_mutation(
+        "two selected rows over one-row staged bound",
+        "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 ORDER BY id LIMIT 2",
+        Some(1),
+        None,
+        SqlWriteBoundaryCode::StagedRowsTooMany,
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_delete_returning_characterizes_order_and_caps() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_public_delete_write_entities(&session);
+    let plan = public_bounded_delete_plan_with_caps(
+        "DELETE FROM SessionSqlWriteEntity \
+         WHERE age >= 21 ORDER BY id ASC LIMIT 2 RETURNING id",
+        Some(2),
+        Some(2),
+    );
+
+    let payload = session
+        .execute_validated_sql_public_bounded_delete::<SessionSqlWriteEntity>(&plan)
+        .expect("exactly bounded DELETE RETURNING should execute");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = payload
+    else {
+        panic!("DELETE RETURNING should return projection payload");
+    };
+
+    assert_eq!(columns, ["id"]);
+    assert_eq!(
+        rows,
+        vec![vec![output(Value::Nat64(1))], vec![output(Value::Nat64(2))],],
+        "DELETE RETURNING should preserve ordered candidate output",
+    );
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        public_delete_write_rows(&session),
+        public_delete_fixture_rows(&[3, 4]),
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_delete_returning_characterizes_limit_precedence() {
+    let sql = "DELETE FROM SessionSqlWriteEntity \
+               WHERE age >= 21 ORDER BY id LIMIT 2 RETURNING id";
+
+    assert_public_bounded_delete_rejects_without_mutation(
+        "RETURNING row cap alone uses current DELETE staged-row boundary",
+        sql,
+        Some(10),
+        Some(1),
+        SqlWriteBoundaryCode::StagedRowsTooMany,
+    );
+    assert_public_bounded_delete_rejects_without_mutation(
+        "combined staged and RETURNING row cap uses staged-row boundary",
+        sql,
+        Some(1),
+        Some(1),
+        SqlWriteBoundaryCode::StagedRowsTooMany,
     );
 }
 

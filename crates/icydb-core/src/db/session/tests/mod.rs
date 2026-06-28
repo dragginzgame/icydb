@@ -3264,6 +3264,8 @@ fn statement_explain_sql<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
+    let _ = core::marker::PhantomData::<E>;
+
     Err(QueryError::unsupported_query())
 }
 
