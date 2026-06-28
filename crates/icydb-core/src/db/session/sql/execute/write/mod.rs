@@ -353,19 +353,15 @@ fn usize_to_u64_saturating(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
-const fn sql_returning_rows(returning: Option<&SqlReturningProjection>, mutated_rows: u64) -> u64 {
-    if returning.is_some() { mutated_rows } else { 0 }
+#[derive(Clone, Copy)]
+struct SqlWriteCandidateAccounting {
+    semantic_candidates: SqlWriteCandidateRows,
+    matched_candidates: SqlWriteCandidateRows,
+    mutated_rows: usize,
+    returning_rows: usize,
 }
 
-#[derive(Clone, Copy)]
-struct SqlWriteRowAttribution {
-    staged: u64,
-    matched: u64,
-    mutated: u64,
-    returning: u64,
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SqlWriteCandidateRows(usize);
 
 impl SqlWriteCandidateRows {
@@ -383,6 +379,42 @@ impl SqlWriteCandidateRows {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SqlWriteCandidateBoundCheck {
+    InsertValuesSource,
+    MutationBatchHandoff,
+    SelectorSourceBatch,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SqlWriteCandidateDiagnostics {
+    semantic_candidates: SqlWriteCandidateRows,
+    over_limit_at: Option<SqlWriteCandidateBoundCheck>,
+}
+
+impl SqlWriteCandidateDiagnostics {
+    const fn within_limit(semantic_candidates: SqlWriteCandidateRows) -> Self {
+        Self {
+            semantic_candidates,
+            over_limit_at: None,
+        }
+    }
+
+    const fn over_limit(
+        semantic_candidates: SqlWriteCandidateRows,
+        at: SqlWriteCandidateBoundCheck,
+    ) -> Self {
+        Self {
+            semantic_candidates,
+            over_limit_at: Some(at),
+        }
+    }
+
+    const fn over_limit_at(self) -> Option<SqlWriteCandidateBoundCheck> {
+        self.over_limit_at
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SqlWriteCandidateBounds {
     max_rows: Option<u32>,
 }
@@ -396,13 +428,30 @@ impl SqlWriteCandidateBounds {
         self.max_rows
     }
 
-    fn validate(self, candidate_rows: SqlWriteCandidateRows) -> Result<(), QueryError> {
+    fn diagnostics_at(
+        self,
+        candidate_rows: SqlWriteCandidateRows,
+        at: SqlWriteCandidateBoundCheck,
+    ) -> SqlWriteCandidateDiagnostics {
         let Some(max_rows) = self.max_rows else {
-            return Ok(());
+            return SqlWriteCandidateDiagnostics::within_limit(candidate_rows);
         };
         let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
         if candidate_rows.len() <= max_rows {
-            return Ok(());
+            return SqlWriteCandidateDiagnostics::within_limit(candidate_rows);
+        }
+
+        SqlWriteCandidateDiagnostics::over_limit(candidate_rows, at)
+    }
+
+    fn validate_at(
+        self,
+        candidate_rows: SqlWriteCandidateRows,
+        at: SqlWriteCandidateBoundCheck,
+    ) -> Result<SqlWriteCandidateDiagnostics, QueryError> {
+        let diagnostics = self.diagnostics_at(candidate_rows, at);
+        if diagnostics.over_limit_at().is_none() {
+            return Ok(diagnostics);
         }
 
         Err(QueryError::sql_write_boundary(
@@ -437,32 +486,43 @@ const fn sql_insert_candidate_bounds(
     ))
 }
 
-impl SqlWriteRowAttribution {
-    fn mutation_batch(
+impl SqlWriteCandidateAccounting {
+    const fn mutation_batch(
         staged_rows: SqlWriteCandidateRows,
         mutated_rows: usize,
         returning: Option<&SqlReturningProjection>,
     ) -> Self {
-        let matched_rows = usize_to_u64_saturating(staged_rows.0);
-        let mutated_rows = usize_to_u64_saturating(mutated_rows);
-
         Self {
-            staged: matched_rows,
-            matched: matched_rows,
-            mutated: mutated_rows,
-            returning: sql_returning_rows(returning, mutated_rows),
+            semantic_candidates: staged_rows,
+            matched_candidates: staged_rows,
+            mutated_rows,
+            returning_rows: if returning.is_some() { mutated_rows } else { 0 },
         }
     }
 
-    fn delete_count(candidate_rows: SqlWriteCandidateRows, returning: bool) -> Self {
-        let rows = usize_to_u64_saturating(candidate_rows.0);
-
+    const fn delete_count(candidate_rows: SqlWriteCandidateRows, returning: bool) -> Self {
         Self {
-            staged: rows,
-            matched: rows,
-            mutated: rows,
-            returning: if returning { rows } else { 0 },
+            semantic_candidates: candidate_rows,
+            matched_candidates: candidate_rows,
+            mutated_rows: candidate_rows.len(),
+            returning_rows: if returning { candidate_rows.len() } else { 0 },
         }
+    }
+
+    fn staged_metric(self) -> u64 {
+        usize_to_u64_saturating(self.semantic_candidates.len())
+    }
+
+    fn matched_metric(self) -> u64 {
+        usize_to_u64_saturating(self.matched_candidates.len())
+    }
+
+    fn mutated_metric(self) -> u64 {
+        usize_to_u64_saturating(self.mutated_rows)
+    }
+
+    fn returning_metric(self) -> u64 {
+        usize_to_u64_saturating(self.returning_rows)
     }
 }
 
@@ -493,12 +553,13 @@ impl<K> SqlWriteMutationBatch<K> {
         SqlWriteCandidateRows(self.rows.len())
     }
 
-    fn validate_staged_rows(
+    fn validate_staged_rows_at(
         &self,
         bounds: SqlWriteCandidateBounds,
+        at: SqlWriteCandidateBoundCheck,
     ) -> Result<SqlWriteCandidateRows, QueryError> {
         let staged_rows = self.staged_rows();
-        bounds.validate(staged_rows)?;
+        bounds.validate_at(staged_rows, at)?;
 
         Ok(staged_rows)
     }
@@ -511,15 +572,15 @@ impl<K> SqlWriteMutationBatch<K> {
 fn record_sql_write_metrics(
     entity_path: &'static str,
     kind: SqlWriteKind,
-    rows: SqlWriteRowAttribution,
+    accounting: SqlWriteCandidateAccounting,
 ) {
     record(MetricsEvent::SqlWrite {
         entity_path,
         kind,
-        staged_rows: rows.staged,
-        matched_rows: rows.matched,
-        mutated_rows: rows.mutated,
-        returning_rows: rows.returning,
+        staged_rows: accounting.staged_metric(),
+        matched_rows: accounting.matched_metric(),
+        mutated_rows: accounting.mutated_metric(),
+        returning_rows: accounting.returning_metric(),
     });
 }
 
@@ -533,7 +594,7 @@ fn record_sql_write_mutation_metrics(
     record_sql_write_metrics(
         entity_path,
         kind,
-        SqlWriteRowAttribution::mutation_batch(staged_rows, mutated_rows, returning),
+        SqlWriteCandidateAccounting::mutation_batch(staged_rows, mutated_rows, returning),
     );
 }
 
@@ -579,7 +640,8 @@ where
         returning_bounds: Option<SqlWriteReturningBounds>,
         save_schema_info: Option<SchemaInfo>,
     ) -> Result<Self, QueryError> {
-        let staged_rows = rows.validate_staged_rows(bounds)?;
+        let staged_rows = rows
+            .validate_staged_rows_at(bounds, SqlWriteCandidateBoundCheck::MutationBatchHandoff)?;
 
         Ok(Self {
             rows,
@@ -669,7 +731,7 @@ impl<C: CanisterKind> DbSession<C> {
         for row in projected_rows {
             let (key, patch) = row_to_patch(row.as_slice())?;
             rows.push(key, patch);
-            rows.validate_staged_rows(bounds)?;
+            rows.validate_staged_rows_at(bounds, SqlWriteCandidateBoundCheck::SelectorSourceBatch)?;
         }
 
         Ok(rows)
@@ -731,8 +793,8 @@ impl<C: CanisterKind> DbSession<C> {
 #[cfg(test)]
 mod tests {
     use super::{
-        SqlWriteCandidateBounds, SqlWriteCandidateRows, SqlWriteMutationBatch,
-        SqlWriteRowAttribution,
+        SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
+        SqlWriteCandidateRows, SqlWriteMutationBatch,
     };
     use crate::db::data::StructuralPatch;
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
@@ -740,17 +802,26 @@ mod tests {
     #[test]
     fn sql_write_candidate_row_bound_accepts_unbounded_and_within_limit() {
         SqlWriteCandidateBounds::from_max_rows(None)
-            .validate(SqlWriteCandidateRows(2))
+            .validate_at(
+                SqlWriteCandidateRows(2),
+                SqlWriteCandidateBoundCheck::MutationBatchHandoff,
+            )
             .expect("unbounded candidate rows should be accepted");
         SqlWriteCandidateBounds::from_max_rows(Some(2))
-            .validate(SqlWriteCandidateRows(2))
+            .validate_at(
+                SqlWriteCandidateRows(2),
+                SqlWriteCandidateBoundCheck::MutationBatchHandoff,
+            )
             .expect("candidate rows equal to the bound should be accepted");
     }
 
     #[test]
     fn sql_write_candidate_row_bound_rejects_over_limit() {
         let err = SqlWriteCandidateBounds::from_max_rows(Some(1))
-            .validate(SqlWriteCandidateRows(2))
+            .validate_at(
+                SqlWriteCandidateRows(2),
+                SqlWriteCandidateBoundCheck::MutationBatchHandoff,
+            )
             .expect_err("candidate rows over the bound should reject");
 
         assert_eq!(
@@ -762,35 +833,63 @@ mod tests {
     }
 
     #[test]
+    fn sql_write_candidate_bounds_report_over_limit_stage() {
+        let diagnostics = SqlWriteCandidateBounds::from_max_rows(Some(1)).diagnostics_at(
+            SqlWriteCandidateRows(2),
+            SqlWriteCandidateBoundCheck::SelectorSourceBatch,
+        );
+
+        assert_eq!(diagnostics.semantic_candidates, SqlWriteCandidateRows(2));
+        assert_eq!(
+            diagnostics.over_limit_at(),
+            Some(SqlWriteCandidateBoundCheck::SelectorSourceBatch),
+        );
+
+        let within_limit = SqlWriteCandidateBounds::from_max_rows(Some(2)).diagnostics_at(
+            SqlWriteCandidateRows(2),
+            SqlWriteCandidateBoundCheck::InsertValuesSource,
+        );
+
+        assert_eq!(within_limit.semantic_candidates, SqlWriteCandidateRows(2));
+        assert_eq!(within_limit.over_limit_at(), None);
+    }
+
+    #[test]
     fn sql_write_mutation_batch_validates_staged_rows_from_buffer() {
         let mut rows = SqlWriteMutationBatch::<u64>::new();
         rows.push(1, StructuralPatch::new());
         rows.push(2, StructuralPatch::new());
 
         let staged_rows = rows
-            .validate_staged_rows(SqlWriteCandidateBounds::from_max_rows(Some(2)))
+            .validate_staged_rows_at(
+                SqlWriteCandidateBounds::from_max_rows(Some(2)),
+                SqlWriteCandidateBoundCheck::MutationBatchHandoff,
+            )
             .expect("batch staged rows at the bound should be accepted");
 
         assert_eq!(staged_rows.len(), 2);
         assert!(
-            rows.validate_staged_rows(SqlWriteCandidateBounds::from_max_rows(Some(1)))
-                .is_err(),
+            rows.validate_staged_rows_at(
+                SqlWriteCandidateBounds::from_max_rows(Some(1)),
+                SqlWriteCandidateBoundCheck::MutationBatchHandoff,
+            )
+            .is_err(),
             "batch staged rows over the bound should reject",
         );
     }
 
     #[test]
-    fn sql_write_row_attribution_counts_delete_rows_and_returning() {
-        let count = SqlWriteRowAttribution::delete_count(SqlWriteCandidateRows(3), false);
-        assert_eq!(count.staged, 3);
-        assert_eq!(count.matched, 3);
-        assert_eq!(count.mutated, 3);
-        assert_eq!(count.returning, 0);
+    fn sql_write_candidate_accounting_counts_delete_rows_and_returning() {
+        let count = SqlWriteCandidateAccounting::delete_count(SqlWriteCandidateRows(3), false);
+        assert_eq!(count.staged_metric(), 3);
+        assert_eq!(count.matched_metric(), 3);
+        assert_eq!(count.mutated_metric(), 3);
+        assert_eq!(count.returning_metric(), 0);
 
-        let returning = SqlWriteRowAttribution::delete_count(SqlWriteCandidateRows(3), true);
-        assert_eq!(returning.staged, 3);
-        assert_eq!(returning.matched, 3);
-        assert_eq!(returning.mutated, 3);
-        assert_eq!(returning.returning, 3);
+        let returning = SqlWriteCandidateAccounting::delete_count(SqlWriteCandidateRows(3), true);
+        assert_eq!(returning.staged_metric(), 3);
+        assert_eq!(returning.matched_metric(), 3);
+        assert_eq!(returning.mutated_metric(), 3);
+        assert_eq!(returning.returning_metric(), 3);
     }
 }

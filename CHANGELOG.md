@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Extends bounded SQL write collection to `INSERT ... SELECT` source rows so
-  public staged-row caps are enforced during mutation-batch construction as
-  well as at the final write handoff.
-
 ## [0.188.x] 🔧 - 2026-06-28 - Mutation Candidate Collector
 
 Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
+
+- `0.188.3` names SQL write candidate accounting and staged-row over-limit
+  source diagnostics while preserving existing public metrics and errors.
+
+- `0.188.2` extends bounded SQL write collection to `INSERT ... SELECT`
+  source rows while preserving final mutation-batch validation.
 
 - `0.188.1` removes the metrics sink scoped-override unsafe pointer path in
   favor of a safe thread-local sink stack while preserving metrics behavior.

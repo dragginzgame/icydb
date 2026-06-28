@@ -1,6 +1,6 @@
 use super::{
-    SqlWriteCandidateBounds, SqlWriteCandidateRows, SqlWriteMutationBatch,
-    SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
+    SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateRows,
+    SqlWriteMutationBatch, SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, sql_insert_candidate_bounds,
     sql_write_key_from_component_literals, sql_write_patch_set_accepted_field,
     sql_write_value_for_accepted_field,
@@ -362,7 +362,10 @@ impl<C: CanisterKind> DbSession<C> {
 
                 match &statement.source {
                     SqlInsertSource::Values(values) => {
-                        candidate_bounds.validate(SqlWriteCandidateRows::from_len(values.len()))?;
+                        candidate_bounds.validate_at(
+                            SqlWriteCandidateRows::from_len(values.len()),
+                            SqlWriteCandidateBoundCheck::InsertValuesSource,
+                        )?;
                         rows.reserve(values.len().min(SQL_INSERT_VALUES_INITIAL_RESERVE_ROWS));
                         for tuple in values {
                             if tuple.len() != columns.len() {

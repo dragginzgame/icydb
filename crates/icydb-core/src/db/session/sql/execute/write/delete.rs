@@ -1,5 +1,5 @@
 use super::{
-    SqlWriteCandidateBounds, SqlWriteCandidateRows, SqlWriteRowAttribution,
+    SqlWriteCandidateAccounting, SqlWriteCandidateBounds, SqlWriteCandidateRows,
     record_sql_write_metrics, require_sql_write_policy_plan,
 };
 use crate::{
@@ -31,7 +31,7 @@ fn record_sql_write_delete_metrics(entity_path: &'static str, row_count: u32, re
     record_sql_write_metrics(
         entity_path,
         SqlWriteKind::Delete,
-        SqlWriteRowAttribution::delete_count(
+        SqlWriteCandidateAccounting::delete_count(
             SqlWriteCandidateRows::from_delete_count(row_count),
             returning,
         ),
