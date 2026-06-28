@@ -62,9 +62,8 @@ parity test or a source invariant.
   0.187.0 blocker.
 - Started the Clippy-backed lint-suppression hygiene pass by removing
   mechanical cast and private-field-name suppressions from query/executor
-  runtime helpers and by completing the query explain debug projection.
-  Remaining production suppressions are still intentional shape/API/diagnostics
-  fences and should stay self-checking.
+  runtime helpers. Remaining production suppressions are still intentional
+  shape/API/diagnostics fences and should stay self-checking.
 - Ran the generated SQL canister matrix and validated the generated endpoint
   surface against the current 0.187 audit baseline: 76 passed, 0 failed.
 - Removed several remaining panic-shaped runtime invariants from query

@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)
 
 - `0.187.9` continues the 0.187 hygiene follow-up by removing mechanical lint
-  suppressions around explicit conversions, access-spec cursor fields, and
-  query explain debug projection while keeping intentional shape fences.
+  suppressions around explicit conversions and access-spec cursor fields while
+  keeping intentional shape fences.
 
 - `0.187.8` continues recoverable invariant cleanup by routing scalar predicate
   runtime, SQL lexer, compact key taxonomy, and raw index-key codec drift

@@ -53,12 +53,12 @@ pub struct ExplainPlan {
     pub(in crate::db) consistency: MissingRowPolicy,
 }
 
+#[expect(clippy::missing_fields_in_debug)]
 impl fmt::Debug for ExplainPlan {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExplainPlan")
             .field("mode", &self.mode)
             .field("access", &self.access)
-            .field("access_decision", &self.access_decision)
             .field("filter_expr", &self.filter_expr)
             .field("filter_expr_model", &self.filter_expr_model)
             .field("predicate", &self.predicate)

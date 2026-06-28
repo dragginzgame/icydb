@@ -245,9 +245,8 @@ runtime contract.
   intentional Clippy shape/style fences such as `too_many_arguments`,
   `too_many_lines`, cast-conversion documentation, descriptor field names, and
   capability-fact bool carriers. The first Clippy-backed hygiene pass removed
-  mechanical cast, private-field-name, and manual-debug suppressions where
-  explicit saturating conversions, clearer private names, or complete debug
-  projection preserved behavior.
+  mechanical cast and private-field-name suppressions where explicit
+  saturating conversions or clearer private names preserved behavior.
 - Recommendation: keep removing stale/mechanical suppressions only in a
   dedicated hygiene pass backed by the normal Clippy matrix. Do not treat this
   as a 0.187.0 duplicate-authority blocker, and do not replace intentional
