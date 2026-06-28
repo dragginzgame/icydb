@@ -915,6 +915,79 @@ fn ordered_compare_range_planning_is_recoverable() {
 }
 
 #[test]
+fn affine_numeric_compare_flip_is_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let affine = source_for(
+        crate_root,
+        "src/db/query/plan/expr/rewrite/affine_numeric.rs",
+    );
+
+    assert_source_contains_patterns(
+        &affine,
+        &[
+            "const fn flip_compare_binary_op(op: BinaryOp) -> Option<BinaryOp>",
+            "BinaryOp::Eq => Some(BinaryOp::Eq),",
+            "BinaryOp::Gt => Some(BinaryOp::Lt),",
+            "| BinaryOp::Div => None,",
+            "&& let Some(flipped_op) = flip_compare_binary_op(compare_op)",
+        ],
+        "affine numeric compare flipping should fail closed for non-compare operator drift",
+    );
+    assert_source_excludes_patterns(
+        &affine,
+        &["unreachable!(\"only compare operators can be flipped\")"],
+        "affine numeric compare flipping must not trap on non-compare operator drift",
+    );
+}
+
+#[test]
+fn scalar_count_reducer_output_is_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let reducer = source_for(
+        crate_root,
+        "src/db/executor/aggregate/contracts/state/reducer.rs",
+    );
+
+    assert_source_contains_patterns(
+        &reducer,
+        &[
+            "Self::Count(value) => match finalize_count(u64::from(value)) {",
+            "Value::Nat64(count) =>",
+            "_ => ScalarAggregateOutput::Count(value),",
+        ],
+        "scalar COUNT reducer output should fall back to reducer-local count on finalization drift",
+    );
+    assert_source_excludes_patterns(
+        &reducer,
+        &["unreachable!(\"COUNT finalization must produce Nat\")"],
+        "scalar COUNT reducer output must not trap on finalization-shape drift",
+    );
+}
+
+#[test]
+fn grouped_projection_aggregate_scan_is_recoverable() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let group = source_for(crate_root, "src/db/query/plan/group.rs");
+
+    assert_source_contains_patterns(
+        &group,
+        &[
+            "fn planned_projection_layout_and_aggregate_specs_core(",
+            ") -> Result<",
+            "collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_specs)?",
+            ") -> Result<GroupedAggregateExpressionScan, InternalError>",
+            "extend_unique_grouped_aggregate_specs_from_expr(aggregate_specs, expr)",
+        ],
+        "grouped projection aggregate scanning should propagate traversal errors",
+    );
+    assert_source_excludes_patterns(
+        &group,
+        &[".expect(\"query group invariant\")"],
+        "grouped projection aggregate scanning must not trap on traversal drift",
+    );
+}
+
+#[test]
 fn scalar_entrypoints_share_execution_inputs_spine() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let execution = source_for(

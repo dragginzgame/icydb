@@ -77,9 +77,11 @@ fn rewrite_affine_compare_binary(op: BinaryOp, left: Expr, right: Expr) -> Expr 
         };
     }
 
-    if let Some((field, value)) = rewrite_affine_field_compare(&right, &left) {
+    if let Some((field, value)) = rewrite_affine_field_compare(&right, &left)
+        && let Some(flipped_op) = flip_compare_binary_op(compare_op)
+    {
         return Expr::Binary {
-            op: flip_compare_binary_op(compare_op),
+            op: flipped_op,
             left: Box::new(field),
             right: Box::new(Expr::Literal(value)),
         };
@@ -166,21 +168,19 @@ const fn affine_compare_op(op: BinaryOp) -> Option<BinaryOp> {
     }
 }
 
-fn flip_compare_binary_op(op: BinaryOp) -> BinaryOp {
+const fn flip_compare_binary_op(op: BinaryOp) -> Option<BinaryOp> {
     match op {
-        BinaryOp::Eq => BinaryOp::Eq,
-        BinaryOp::Ne => BinaryOp::Ne,
-        BinaryOp::Lt => BinaryOp::Gt,
-        BinaryOp::Lte => BinaryOp::Gte,
-        BinaryOp::Gt => BinaryOp::Lt,
-        BinaryOp::Gte => BinaryOp::Lte,
+        BinaryOp::Eq => Some(BinaryOp::Eq),
+        BinaryOp::Ne => Some(BinaryOp::Ne),
+        BinaryOp::Lt => Some(BinaryOp::Gt),
+        BinaryOp::Lte => Some(BinaryOp::Gte),
+        BinaryOp::Gt => Some(BinaryOp::Lt),
+        BinaryOp::Gte => Some(BinaryOp::Lte),
         BinaryOp::Or
         | BinaryOp::And
         | BinaryOp::Add
         | BinaryOp::Sub
         | BinaryOp::Mul
-        | BinaryOp::Div => {
-            unreachable!("only compare operators can be flipped")
-        }
+        | BinaryOp::Div => None,
     }
 }

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.187.md](docs/changelog/0.187.md)
 
+- `0.187.5` continues recoverable invariant cleanup by making affine numeric
+  compare flipping, scalar COUNT reducer output, and grouped projection
+  aggregate scanning avoid panic paths on internal drift.
+
 - `0.187.4` continues recoverable query-planning cleanup by making predicate
   compilation, grouped intent lifting, route-shape dispatch, and ordered range
   planning fail closed instead of trapping on internal drift.

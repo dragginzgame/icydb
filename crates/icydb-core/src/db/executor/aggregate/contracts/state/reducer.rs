@@ -157,13 +157,12 @@ impl ScalarAggregateReducerState {
         self,
     ) -> ScalarAggregateOutput {
         match self {
-            Self::Count(value) => {
-                let Value::Nat64(count) = finalize_count(u64::from(value)) else {
-                    unreachable!("COUNT finalization must produce Nat")
-                };
-
-                ScalarAggregateOutput::Count(u32::try_from(count).unwrap_or(u32::MAX))
-            }
+            Self::Count(value) => match finalize_count(u64::from(value)) {
+                Value::Nat64(count) => {
+                    ScalarAggregateOutput::Count(u32::try_from(count).unwrap_or(u32::MAX))
+                }
+                _ => ScalarAggregateOutput::Count(value),
+            },
             Self::Exists(value) => ScalarAggregateOutput::Exists(value),
             Self::Min(value) => ScalarAggregateOutput::Min(value),
             Self::Max(value) => ScalarAggregateOutput::Max(value),

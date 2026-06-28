@@ -829,11 +829,14 @@ fn planned_projection_layout_and_aggregate_specs_core(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
-) -> (
-    PlannedProjectionLayout,
-    Vec<GroupedAggregateExecutionSpec>,
-    bool,
-) {
+) -> Result<
+    (
+        PlannedProjectionLayout,
+        Vec<GroupedAggregateExecutionSpec>,
+        bool,
+    ),
+    InternalError,
+> {
     let grouped_field_names = group_fields
         .iter()
         .map(FieldSlot::field)
@@ -849,7 +852,7 @@ fn planned_projection_layout_and_aggregate_specs_core(
     for (index, field) in projection_spec.fields().enumerate() {
         let root_expr = expression_without_alias(field.expr());
         let aggregate_scan =
-            collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_specs);
+            collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_specs)?;
 
         match root_expr {
             Expr::Field(field_id) => {
@@ -899,23 +902,16 @@ fn planned_projection_layout_and_aggregate_specs_core(
     projection_is_identity &=
         next_group_field_index == group_fields.len() && next_aggregate_index == aggregates.len();
 
-    (
+    Ok((
         PlannedProjectionLayout {
             group_field_positions,
             aggregate_positions,
         },
         aggregate_specs,
         projection_is_identity,
-    )
+    ))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        clippy::unnecessary_wraps,
-        reason = "test builds keep one extra grouped projection strictness pass while non-test builds stay on the planner core path"
-    )
-)]
 fn planned_projection_layout_and_aggregate_specs_from_spec(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
@@ -945,11 +941,7 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
         }
     }
 
-    Ok(planned_projection_layout_and_aggregate_specs_core(
-        projection_spec,
-        group_fields,
-        aggregates,
-    ))
+    planned_projection_layout_and_aggregate_specs_core(projection_spec, group_fields, aggregates)
 }
 
 // Keep grouped layout identity checks local to the planner-owned layout core
@@ -974,9 +966,8 @@ fn grouped_projection_expression_preserves_identity(
 fn collect_grouped_projection_aggregate_scan(
     expr: &Expr,
     aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
-) -> GroupedAggregateExpressionScan {
+) -> Result<GroupedAggregateExpressionScan, InternalError> {
     extend_unique_grouped_aggregate_specs_from_expr(aggregate_specs, expr)
-        .expect("query group invariant")
 }
 
 pub(in crate::db::query::plan) fn extend_unique_grouped_aggregate_specs_from_expr(

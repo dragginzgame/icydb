@@ -92,6 +92,11 @@ parity test or a source invariant.
   reaches the compiler internals. Predicate-subset derivation now returns no
   subset instead of panicking on impossible compare/function/membership shapes;
   direct panic-on-invalid compiler wrappers remain test-only.
+- Made affine numeric compare flipping fail closed when non-compare operator
+  drift reaches the flip helper, and made scalar COUNT reducer output fall back
+  to the reducer-local count if aggregate count finalization shape ever drifts.
+- Made grouped projection aggregate scanning propagate its existing traversal
+  error instead of trapping through a local invariant expectation.
 
 ## Initial Queue
 

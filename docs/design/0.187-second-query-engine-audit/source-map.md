@@ -137,6 +137,8 @@ runtime contract.
 - Primary sources:
   - `crates/icydb-core/src/db/query/plan/expr/`
   - `crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs`
+  - `crates/icydb-core/src/db/query/plan/expr/rewrite/affine_numeric.rs`
+  - `crates/icydb-core/src/db/query/plan/group.rs`
   - `crates/icydb-core/src/db/query/plan/semantics/`
   - `crates/icydb-core/src/db/query/plan/planner/compare.rs`
   - `crates/icydb-core/src/db/query/intent/state.rs`
@@ -145,6 +147,7 @@ runtime contract.
   - `crates/icydb-core/src/db/session/sql/{update_policy,delete_policy,write_policy}.rs`
   - `crates/icydb-core/src/db/session/sql/execute/write/`
   - `crates/icydb-core/src/db/session/sql/execute/{mod,explain}.rs`
+  - `crates/icydb-core/src/db/executor/aggregate/contracts/state/reducer.rs`
   - `crates/icydb-core/src/db/executor/aggregate/projection/mod.rs`
   - `crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs`
 - Current classification: cleanup completed for the small trap-shaped
@@ -169,14 +172,20 @@ runtime contract.
   operator drift reaches the range helper. Runtime predicate compilation now
   uses a fallible internal compiler for production predicate-subset derivation,
   so admission/lowering drift returns no predicate subset instead of reaching
-  panicking compare/function/membership invariants.
+  panicking compare/function/membership invariants. Affine numeric compare
+  flipping now keeps the original expression when non-compare operator drift
+  reaches the flip helper, and scalar COUNT reducer output falls back to the
+  reducer-local count if aggregate count finalization shape ever drifts.
+  Grouped projection aggregate scanning now propagates its existing traversal
+  error instead of trapping through a local invariant expectation.
 - Recommendation: keep runtime invariant drift recoverable with typed errors or
   conservative no-result behavior. Do not add new reference-returning helper
   surfaces that assume finalized static execution metadata or admitted SQL write
   proof state, or dispatch routing that assumes earlier adapters always
   consumed a command, or predicate-compiler internals that assume admission
-  stayed aligned with lowering, without a typed, optional, fail-closed, or
-  exhaustive closed-enum path.
+  stayed aligned with lowering, or reducer/rewriter helpers that assume a
+  private helper always returns a specific shape, without a typed, optional,
+  fail-closed, propagated-error, or exhaustive closed-enum path.
 
 ## Generated Canister Endpoints Versus Session Surfaces
 
