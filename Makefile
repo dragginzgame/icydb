@@ -2,7 +2,7 @@
         release-patch release-minor release-major release \
         test test-bump test-sql-canister-matrix build check clippy fmt fmt-check clean install install-dev update-dev \
         fetch test-watch all ensure-clean security-check check-versioning \
-        ensure-hooks install-hooks \
+        ensure-hooks install-hooks test-no-default-smoke \
         wasm-size-report wasm-audit-report \
         lint-workflows check-invariants check-feature-matrix \
         print-cargo-home print-cargo-target-dir
@@ -179,9 +179,13 @@ test: clippy test-unit
 test-bump: clippy test-unit
 
 test-unit:
+	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql_bounded --lib
+
+test-no-default-smoke:
+	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
 
 test-sql-canister-matrix:
 	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister --features icydb/sql-explain -- --nocapture
@@ -253,10 +257,13 @@ check-invariants:
 	bash scripts/ci/check-memory-id-invariants.sh
 
 check-feature-matrix:
+	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features
+	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features
 	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features sql
 	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features sql
 	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features diagnostics
 	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features diagnostics
+	$(CARGO_WORK_ENV) cargo check --workspace --no-default-features
 
 lint-workflows:
 	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \

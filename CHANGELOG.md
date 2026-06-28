@@ -7,12 +7,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Routes structural DELETE selected-row bounds through internal candidate
-  bound diagnostics while preserving the public staged-row error.
+- Starts the 0.189 reliability-audit line by making the no-default compile
+  matrix explicit for public crates and the workspace, adding a no-default
+  facade smoke test, and fixing the SQL perf-audit canister no-default cfg
+  leak.
+- Hardens 0.189 API-footgun documentation by making volatile heap-store and
+  non-atomic batch semantics explicit in public docs and examples.
+- Adds an IC-native commit failpoint harness for marker writes, marker-bound
+  journal publication, and marker clear recovery, with oracle checks for both
+  returned errors and unwind-style interruptions.
+- Hardens journal-tail storage by replacing whole-batch stable values with
+  bounded chunks, preserving tiny-append memory behavior while rejecting
+  corrupt, truncated, and oversized journal batch bytes.
+- Completes the 0.189 deterministic persisted-format corruption corpus for
+  commit markers and journal batches, including truncated envelopes,
+  incompatible versions, oversized values, and unknown tags/flags.
 
 ## [0.188.x] 🔧 - 2026-06-28 - Mutation Candidate Collector
 
 Detailed notes: [docs/changelog/0.188.md](docs/changelog/0.188.md)
+
+- `0.188.5` closes the mutation-candidate collector line by routing structural
+  DELETE selected-row bounds through internal candidate bound diagnostics and
+  documenting the remaining deferred write-pipeline work.
 
 - `0.188.4` introduces internal SQL and structural DELETE candidate
   collections that keep source/loaded row diagnostics separate from mutation

@@ -49,6 +49,9 @@ use crate::{
 };
 use std::{cell::RefCell, sync::OnceLock};
 
+#[cfg(test)]
+use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
+
 static RECOVERED: OnceLock<()> = OnceLock::new();
 
 thread_local! {
@@ -173,7 +176,15 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
         let journal_store = handle
             .journal_tail_store()
             .ok_or_else(InternalError::store_corruption)?;
-        journal_store.with_borrow_mut(|store| store.append_batch(batch))?;
+        journal_store.with_borrow_mut(|store| {
+            #[cfg(test)]
+            hit_commit_failpoint(CommitFailpoint::BeforeMarkerBoundJournalAppend)?;
+            store.append_batch(batch)?;
+            #[cfg(test)]
+            hit_commit_failpoint(CommitFailpoint::AfterMarkerBoundJournalAppend)?;
+
+            Ok::<(), InternalError>(())
+        })?;
     }
 
     Ok(())

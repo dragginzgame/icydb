@@ -33,6 +33,8 @@ use std::{
 };
 
 #[cfg(test)]
+use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
+#[cfg(test)]
 use crate::db::commit::store::control_slot::encode_commit_control_slot;
 #[cfg(test)]
 use crate::db::commit::store::marker_envelope::encode_commit_marker_bytes;
@@ -186,16 +188,24 @@ impl CommitStore {
         if self.cell.get().as_bytes().is_empty() {
             let encoded = encode_commit_control_slot_from_marker(marker)?;
 
+            #[cfg(test)]
+            hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
             self.cell.set(RawCommitMarker(encoded));
             mark_commit_marker_may_be_present();
+            #[cfg(test)]
+            hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
             return Ok(());
         }
 
         self.require_empty_marker_slot()?;
         let encoded = encode_commit_control_slot_from_marker(marker)?;
 
+        #[cfg(test)]
+        hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
         self.cell.set(RawCommitMarker(encoded));
         mark_commit_marker_may_be_present();
+        #[cfg(test)]
+        hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
         Ok(())
     }
 
@@ -210,16 +220,24 @@ impl CommitStore {
         if self.cell.get().as_bytes().is_empty() {
             let encoded = encode_single_row_commit_control_slot(marker_id, row_op)?;
 
+            #[cfg(test)]
+            hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
             self.cell.set(RawCommitMarker(encoded));
             mark_commit_marker_may_be_present();
+            #[cfg(test)]
+            hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
             return Ok(());
         }
 
         self.require_empty_marker_slot()?;
         let encoded = encode_single_row_commit_control_slot(marker_id, row_op)?;
 
+        #[cfg(test)]
+        hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
         self.cell.set(RawCommitMarker(encoded));
         mark_commit_marker_may_be_present();
+        #[cfg(test)]
+        hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
         Ok(())
     }
 
@@ -228,8 +246,12 @@ impl CommitStore {
         // Phase 1: validate the control-slot envelope before clearing so
         // malformed persisted bytes cannot be silently discarded.
         inspect_commit_control_slot(self.cell.get().as_bytes())?;
+        #[cfg(test)]
+        hit_commit_failpoint(CommitFailpoint::BeforeMarkerClear)?;
         self.cell.set(RawCommitMarker::empty());
         mark_commit_marker_verified_absent();
+        #[cfg(test)]
+        hit_commit_failpoint(CommitFailpoint::AfterMarkerClear)?;
 
         Ok(())
     }

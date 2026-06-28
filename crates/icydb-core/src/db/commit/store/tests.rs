@@ -41,6 +41,32 @@ fn encode_test_single_row_payload_from_fields(
     after: Option<&[u8]>,
     schema_fingerprint: [u8; 16],
 ) -> Vec<u8> {
+    let mut flags = 0u8;
+    if before.is_some() {
+        flags |= 0b0000_0001;
+    }
+    if after.is_some() {
+        flags |= 0b0000_0010;
+    }
+
+    encode_test_single_row_payload_with_flags(
+        entity_path,
+        key_bytes,
+        flags,
+        before,
+        after,
+        schema_fingerprint,
+    )
+}
+
+fn encode_test_single_row_payload_with_flags(
+    entity_path: &str,
+    key_bytes: &[u8],
+    flags: u8,
+    before: Option<&[u8]>,
+    after: Option<&[u8]>,
+    schema_fingerprint: [u8; 16],
+) -> Vec<u8> {
     let mut payload = Vec::new();
     payload.extend_from_slice(&[0u8; 16]);
     payload.extend_from_slice(&1u32.to_le_bytes());
@@ -49,13 +75,6 @@ fn encode_test_single_row_payload_from_fields(
     payload.extend_from_slice(&(u32::try_from(key_bytes.len()).expect("len fits")).to_le_bytes());
     payload.extend_from_slice(key_bytes);
 
-    let mut flags = 0u8;
-    if before.is_some() {
-        flags |= 0b0000_0001;
-    }
-    if after.is_some() {
-        flags |= 0b0000_0010;
-    }
     payload.push(flags);
 
     if let Some(before) = before {
@@ -72,6 +91,48 @@ fn encode_test_single_row_payload_from_fields(
 
     encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &payload)
         .expect("test marker envelope encode should succeed")
+}
+
+#[test]
+fn commit_control_slot_rejects_corrupt_magic() {
+    let mut store = super::CommitStore::init(test_memory(233));
+    let mut malformed = Vec::new();
+    malformed.extend_from_slice(b"XMCS");
+    malformed.push(1);
+    malformed.extend_from_slice(&0u32.to_le_bytes());
+    store.set_raw_marker_bytes_for_tests(malformed);
+
+    let err = store
+        .marker_is_empty()
+        .expect_err("corrupt control-slot magic should fail closed");
+
+    assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(err.origin, ErrorOrigin::Serialize);
+}
+
+#[test]
+fn commit_marker_rejects_truncated_envelope_header() {
+    let err = RawCommitMarker(vec![COMMIT_MARKER_FORMAT_VERSION_CURRENT])
+        .try_decode()
+        .expect_err("truncated marker envelope header should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn commit_marker_rejects_truncated_envelope_payload() {
+    let mut bytes = Vec::new();
+    bytes.push(COMMIT_MARKER_FORMAT_VERSION_CURRENT);
+    bytes.extend_from_slice(&4u32.to_le_bytes());
+    bytes.push(0xAA);
+
+    let err = RawCommitMarker(bytes)
+        .try_decode()
+        .expect_err("truncated marker envelope payload should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
 #[test]
@@ -258,6 +319,24 @@ fn direct_multi_row_control_slot_rejects_oversized_payload_before_persist() {
 
     let err = super::CommitStore::encode_raw_direct_control_slot_for_tests(&marker)
         .expect_err("direct control-slot encoder must reject oversized marker payload");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn commit_marker_rejects_unknown_row_op_flags() {
+    let bytes = encode_test_single_row_payload_with_flags(
+        "test::Entity",
+        raw_data_store_key(9).as_bytes(),
+        0b1000_0000,
+        None,
+        None,
+        [0u8; 16],
+    );
+    let err = RawCommitMarker(bytes)
+        .try_decode()
+        .expect_err("unknown row-op flags should fail closed");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);

@@ -233,22 +233,6 @@ impl RawJournalBatch {
     }
 }
 
-impl Storable for RawJournalBatch {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.as_bytes())
-    }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    const BOUND: Bound = Bound::Unbounded;
-}
-
 pub(in crate::db) fn encode_journal_batch(batch: &JournalBatch) -> Result<Vec<u8>, InternalError> {
     validate_journal_batch_shape(batch)?;
 

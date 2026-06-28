@@ -27,9 +27,14 @@ pub struct Store {
 /// Store storage has two public modes: volatile heap storage and journaled
 /// cached-stable durable storage. Direct stable-map stores were hard-cut after
 /// the journaled mode became the durable path.
+///
+/// Use `Journaled` for user data that must survive upgrade/reinitialization.
+/// `Heap` is live-only process state: it has no stable-memory allocation
+/// identity, no commit-marker or journal-tail participation, and no recovery
+/// path.
 #[derive(Clone, Debug, Serialize)]
 pub enum StoreStorage {
-    /// Volatile heap store with no stable allocation identity.
+    /// Volatile heap store with no stable allocation identity or recovery path.
     Heap(StoreHeapConfig),
     /// Journaled cached-stable store using canonical stable data/index/schema
     /// memories plus a durable journal-tail memory.

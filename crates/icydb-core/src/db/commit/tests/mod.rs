@@ -11,8 +11,9 @@ use crate::{
             serialize_row_payload_with_version,
         },
         commit::{
-            CommitMarker, CommitRowOp, begin_commit, commit_marker_present, ensure_recovered,
-            finish_commit, init_commit_store_for_tests,
+            CommitFailpoint, CommitFailpointMode, CommitMarker, CommitRowOp,
+            arm_commit_failpoint_for_tests, begin_commit, clear_commit_failpoint_for_tests,
+            commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
             marker::{
                 COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload,
                 encode_single_row_commit_marker_payload,
@@ -50,9 +51,15 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
-use std::{cell::RefCell, collections::BTreeSet, sync::LazyLock};
+use std::{
+    cell::RefCell,
+    collections::BTreeSet,
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::LazyLock,
+};
 
 type RecoveryStoreSnapshot = (Vec<(Vec<u8>, Vec<u8>)>, Vec<(Vec<u8>, Vec<u8>)>);
+type RecoveryFailpointCase = (CommitMarker, RecoveryStoreSnapshot, RecoveryStoreSnapshot);
 
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
@@ -749,6 +756,7 @@ fn with_heap_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
 
 // Reset marker + data store to isolate recovery tests.
 fn reset_recovery_state() {
+    clear_commit_failpoint_for_tests();
     init_commit_store_for_tests().expect("commit store init should succeed");
     store::with_commit_store(|store| {
         store.clear_raw_for_tests();
@@ -1060,6 +1068,70 @@ fn apply_row_ops_forward(row_ops: &[CommitRowOp]) -> Result<(), InternalError> {
     }
 
     Ok(())
+}
+
+fn mixed_recovery_marker_failpoint_case() -> RecoveryFailpointCase {
+    let seed_ops = mixed_recovery_seed_ops();
+    let marker_ops = mixed_recovery_marker_ops();
+
+    reset_recovery_state();
+    apply_row_ops_forward(seed_ops.as_slice()).expect("seed state should apply for oracle");
+    let pre_snapshot = recovery_store_snapshot();
+    apply_row_ops_forward(marker_ops.as_slice()).expect("marker ops should apply for oracle");
+    let post_snapshot = recovery_store_snapshot();
+
+    reset_recovery_state();
+    apply_row_ops_forward(seed_ops.as_slice()).expect("seed state should apply before failpoint");
+    assert_eq!(
+        recovery_store_snapshot(),
+        pre_snapshot,
+        "failpoint case must begin from the oracle pre-state",
+    );
+    let marker = CommitMarker::new(marker_ops).expect("mixed marker should build");
+
+    (marker, pre_snapshot, post_snapshot)
+}
+
+fn recovery_journal_tail_batch_count() -> u64 {
+    with_recovery_store(|store| {
+        store
+            .journal_tail_store()
+            .expect("recovery store should expose a journal tail")
+            .with_borrow(JournalTailStore::len)
+    })
+}
+
+fn assert_begin_commit_failpoint(marker: &CommitMarker, mode: CommitFailpointMode) {
+    match mode {
+        CommitFailpointMode::ReturnError => {
+            assert!(
+                begin_commit(marker.clone()).is_err(),
+                "begin_commit failpoint should return error",
+            );
+        }
+        CommitFailpointMode::PanicUnwind => {
+            let result = catch_unwind(AssertUnwindSafe(|| begin_commit(marker.clone())));
+            assert!(
+                result.is_err(),
+                "begin_commit failpoint should unwind at the armed site",
+            );
+        }
+    }
+}
+
+fn assert_recovery_failpoint(mode: CommitFailpointMode) {
+    match mode {
+        CommitFailpointMode::ReturnError => {
+            ensure_recovered(&DB).expect_err("recovery failpoint should return error");
+        }
+        CommitFailpointMode::PanicUnwind => {
+            let result = catch_unwind(AssertUnwindSafe(|| ensure_recovered(&DB)));
+            assert!(
+                result.is_err(),
+                "recovery failpoint should unwind at the armed site",
+            );
+        }
+    }
 }
 
 fn indexed_data_key(id: Ulid) -> RawDataStoreKey {
@@ -1476,6 +1548,147 @@ fn commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_mark
         !commit_marker_present().expect("commit marker presence check should succeed"),
         "successful replay must clear the persisted marker"
     );
+}
+
+#[test]
+fn failpoint_before_marker_write_preserves_pre_state_for_error_and_unwind() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        let (marker, pre_snapshot, _) = mixed_recovery_marker_failpoint_case();
+
+        arm_commit_failpoint_for_tests(CommitFailpoint::BeforeMarkerWrite, mode);
+        assert_begin_commit_failpoint(&marker, mode);
+
+        assert!(
+            !commit_marker_present().expect("commit marker check should succeed"),
+            "pre-write failure must not persist marker authority",
+        );
+        assert_eq!(
+            recovery_store_snapshot(),
+            pre_snapshot,
+            "pre-write failure must leave the store at the seeded pre-state",
+        );
+
+        assert_eq!(
+            recovery_journal_tail_batch_count(),
+            0,
+            "pre-write failure must not publish marker-bound journal batches",
+        );
+    }
+}
+
+#[test]
+fn failpoint_after_marker_write_recovers_marker_authorized_state_for_error_and_unwind() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        let (marker, pre_snapshot, post_snapshot) = mixed_recovery_marker_failpoint_case();
+
+        arm_commit_failpoint_for_tests(CommitFailpoint::AfterMarkerWrite, mode);
+        assert_begin_commit_failpoint(&marker, mode);
+
+        assert!(
+            commit_marker_present().expect("commit marker check should succeed"),
+            "post-write failure must leave marker authority persisted",
+        );
+        assert_eq!(
+            recovery_store_snapshot(),
+            pre_snapshot,
+            "post-write failure must not apply marker row effects before recovery",
+        );
+
+        ensure_recovered(&DB).expect("recovery should replay the persisted marker");
+        assert_eq!(recovery_store_snapshot(), post_snapshot);
+        assert!(
+            !commit_marker_present().expect("commit marker check should succeed"),
+            "successful recovery must clear the marker",
+        );
+    }
+}
+
+#[test]
+fn failpoint_marker_bound_journal_append_is_retryable_for_error_and_unwind() {
+    for site in [
+        CommitFailpoint::BeforeMarkerBoundJournalAppend,
+        CommitFailpoint::AfterMarkerBoundJournalAppend,
+    ] {
+        for mode in [
+            CommitFailpointMode::ReturnError,
+            CommitFailpointMode::PanicUnwind,
+        ] {
+            let (marker, pre_snapshot, post_snapshot) = mixed_recovery_marker_failpoint_case();
+            begin_commit(marker).expect("marker should persist before recovery failpoint");
+
+            arm_commit_failpoint_for_tests(site, mode);
+            assert_recovery_failpoint(mode);
+
+            assert!(
+                commit_marker_present().expect("commit marker check should succeed"),
+                "journal append failure must keep marker authority for retry",
+            );
+            assert_eq!(
+                recovery_store_snapshot(),
+                pre_snapshot,
+                "journal append failure occurs before row effects are folded",
+            );
+            let expected_batches =
+                u64::from(site == CommitFailpoint::AfterMarkerBoundJournalAppend);
+            assert_eq!(
+                recovery_journal_tail_batch_count(),
+                expected_batches,
+                "journal append failpoint should expose whether the batch was persisted",
+            );
+
+            ensure_recovered(&DB).expect("journal append retry should recover");
+            assert_eq!(recovery_store_snapshot(), post_snapshot);
+            assert_eq!(recovery_journal_tail_batch_count(), 0);
+            assert!(
+                !commit_marker_present().expect("commit marker check should succeed"),
+                "successful retry must clear the marker",
+            );
+        }
+    }
+}
+
+#[test]
+fn failpoint_marker_clear_preserves_recovered_state_for_error_and_unwind() {
+    for site in [
+        CommitFailpoint::BeforeMarkerClear,
+        CommitFailpoint::AfterMarkerClear,
+    ] {
+        for mode in [
+            CommitFailpointMode::ReturnError,
+            CommitFailpointMode::PanicUnwind,
+        ] {
+            let (marker, _, post_snapshot) = mixed_recovery_marker_failpoint_case();
+            begin_commit(marker).expect("marker should persist before recovery failpoint");
+
+            arm_commit_failpoint_for_tests(site, mode);
+            assert_recovery_failpoint(mode);
+
+            assert_eq!(
+                recovery_store_snapshot(),
+                post_snapshot,
+                "marker-clear failure occurs after durable row recovery",
+            );
+            assert_eq!(
+                commit_marker_present().expect("commit marker check should succeed"),
+                site == CommitFailpoint::BeforeMarkerClear,
+                "marker presence after clear failure must match the failing side",
+            );
+
+            ensure_recovered(&DB).expect("marker-clear retry should finish recovery");
+            assert_eq!(recovery_store_snapshot(), post_snapshot);
+            assert_eq!(recovery_journal_tail_batch_count(), 0);
+            assert!(
+                !commit_marker_present().expect("commit marker check should succeed"),
+                "successful retry must leave no marker",
+            );
+        }
+    }
 }
 
 #[test]

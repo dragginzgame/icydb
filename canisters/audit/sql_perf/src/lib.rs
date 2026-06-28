@@ -7,7 +7,7 @@ use candid::CandidType;
 #[cfg(feature = "sql")]
 use ic_cdk::query;
 use ic_cdk::update;
-use icydb::types::{Timestamp, Ulid};
+use icydb::types::{Blob, Timestamp, Ulid};
 #[cfg(feature = "sql")]
 use icydb::{
     ErrorCode, ErrorOrigin,
@@ -20,9 +20,11 @@ use icydb::{
     prelude::*,
     traits::EntityFor,
 };
+#[cfg(feature = "sql")]
+use icydb_testing_audit_sql_perf_fixtures::sql_perf::PerfAuditCanister;
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
-    PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditHeapUser, PerfAuditJournaledUser,
-    PerfAuditToken, PerfAuditUser,
+    PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser, PerfAuditToken,
+    PerfAuditUser,
 };
 
 icydb::start!();
@@ -33,12 +35,14 @@ icydb::start!();
 // attaching one compile/execute instruction sample for the measured query call
 // or one average sample across a same-call loop.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
     attribution: SqlQueryExecutionAttribution,
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
     instructions: u64,
@@ -55,6 +59,7 @@ struct FluentTotalOnlyPerfResult {
 // Dedicated fluent audit summary keeps the canister response stable and small:
 // only the response family and row count are needed for perf-baseline checks.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct FluentQueryPerfOutcome {
     result_kind: String,
     entity: String,
@@ -66,6 +71,7 @@ struct FluentQueryPerfOutcome {
 // Dedicated fluent perf envelope mirrors the SQL audit shape but carries one
 // reduced fluent response summary instead of the full query payload.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct FluentQueryPerfResult {
     outcome: FluentQueryPerfOutcome,
     attribution: QueryExecutionAttribution,

@@ -16,6 +16,8 @@
 //! Recovery replays row ops as recorded, not planner logic.
 
 mod apply;
+#[cfg(test)]
+mod failpoint;
 mod guard;
 mod marker;
 mod memory;
@@ -37,6 +39,11 @@ use crate::testing::test_commit_memory_id;
 #[cfg(test)]
 const TEST_COMMIT_STABLE_KEY: &str = "icydb.test.commit.v1";
 
+#[cfg(test)]
+pub(in crate::db) use failpoint::{
+    CommitFailpoint, CommitFailpointMode, arm_commit_failpoint_for_tests,
+    clear_commit_failpoint_for_tests,
+};
 ///
 /// Re-exports
 ///

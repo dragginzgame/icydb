@@ -2,9 +2,10 @@ use super::{
     FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
     JournalTailVisit,
     codec::{
-        JOURNAL_BATCH_FORMAT_VERSION_CURRENT, RawJournalBatch, decode_journal_batch,
-        encode_journal_batch,
+        JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_JOURNAL_BATCH_BYTES, RawJournalBatch,
+        decode_journal_batch, encode_journal_batch,
     },
+    store::{JOURNAL_TAIL_CHUNK_BYTES, RawJournalChunk},
 };
 use crate::{
     db::data::{DecodedDataStoreKey, RawDataStoreKey},
@@ -63,6 +64,24 @@ fn batch(sequence: u64) -> JournalBatch {
     .expect("journal batch should build")
 }
 
+fn multi_chunk_batch(sequence: u64) -> JournalBatch {
+    let record = JournalRecord::row_put(
+        "test::Entity",
+        raw_data_store_key(sequence),
+        vec![0xAB; JOURNAL_TAIL_CHUNK_BYTES as usize + 32],
+        [0x44; 16],
+    )
+    .expect("multi-chunk row put record should build");
+
+    JournalBatch::new(
+        [0x44; 16],
+        [0xAA; 16],
+        JournalSequence::new(sequence),
+        vec![record],
+    )
+    .expect("multi-chunk journal batch should build")
+}
+
 #[test]
 fn journal_batch_codec_round_trips_logical_row_and_schema_records() {
     let batch = batch(1);
@@ -86,11 +105,57 @@ fn journal_batch_decode_rejects_future_version() {
 }
 
 #[test]
+fn journal_batch_decode_rejects_corrupt_magic() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded[0] = b'X';
+
+    let err = decode_journal_batch(&encoded).expect_err("corrupt magic should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_batch_decode_rejects_truncated_payload() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded.truncate(encoded.len().saturating_sub(1));
+
+    let err = decode_journal_batch(&encoded).expect_err("truncated payload should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
 fn journal_batch_decode_rejects_trailing_bytes() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded.push(0xFF);
 
     let err = decode_journal_batch(&encoded).expect_err("trailing journal batch bytes should fail");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_batch_decode_rejects_unknown_record_tag() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    let first_record_tag_offset = 9 + 16 + 16 + 8 + 4;
+    encoded[first_record_tag_offset] = 0xFF;
+
+    let err = decode_journal_batch(&encoded).expect_err("unknown record tag should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn raw_journal_batch_decode_rejects_oversized_value_before_payload_parsing() {
+    let raw = RawJournalBatch::from_control_bytes(vec![0u8; MAX_JOURNAL_BATCH_BYTES as usize + 1]);
+
+    let err = raw
+        .decode()
+        .expect_err("oversized raw journal value should fail before payload parsing");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -226,6 +291,41 @@ fn journal_tail_store_treats_identical_duplicate_append_as_idempotent() {
 }
 
 #[test]
+fn journal_tail_store_republishes_missing_chunks_after_prefix_append() {
+    let mut store = JournalTailStore::init(test_memory(221));
+    let batch = multi_chunk_batch(1);
+    let encoded = encode_journal_batch(&batch).expect("multi-chunk batch should encode");
+    assert!(
+        encoded.len() > JOURNAL_TAIL_CHUNK_BYTES as usize,
+        "fixture must span multiple journal-tail chunks",
+    );
+
+    store
+        .insert_raw_batch_for_tests(
+            JournalSequence::new(1),
+            encoded[..JOURNAL_TAIL_CHUNK_BYTES as usize].to_vec(),
+        )
+        .expect("prefix raw journal bytes should insert as an interrupted fixture");
+    store
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .expect_err("prefix-only journal batch should fail before republish");
+
+    store
+        .append_batch(&batch)
+        .expect("republishing the full batch should fill missing chunks");
+
+    let mut visited = Vec::new();
+    store
+        .visit_batches_after(JournalSequence::new(0), |batch| {
+            visited.push(batch.journal_sequence().get());
+            Ok(JournalTailVisit::Continue)
+        })
+        .expect("repaired journal batch should visit cleanly");
+    assert_eq!(visited, vec![1]);
+    assert_eq!(store.len(), 1);
+}
+
+#[test]
 fn journal_tail_store_rejects_batch_at_fold_watermark_control_sequence() {
     let mut store = JournalTailStore::init(test_memory(218));
     let control_sequence_batch = JournalBatch::new(
@@ -252,6 +352,40 @@ fn journal_tail_store_rejects_sequence_gap_above_watermark() {
     let err = store
         .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
         .expect_err("sequence gap should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_tail_store_rejects_corrupt_raw_batch_bytes_during_visit() {
+    let mut store = JournalTailStore::init(test_memory(219));
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded[0] = b'X';
+    store
+        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .expect("corrupt raw journal bytes should insert as a raw persisted fixture");
+
+    let err = store
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .expect_err("corrupt raw journal tail bytes should fail during ordered visit");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_tail_store_rejects_truncated_raw_batch_bytes_during_visit() {
+    let mut store = JournalTailStore::init(test_memory(220));
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded.truncate(encoded.len().saturating_sub(1));
+    store
+        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .expect("truncated raw journal bytes should insert as a raw persisted fixture");
+
+    let err = store
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .expect_err("truncated raw journal tail bytes should fail during ordered visit");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -308,9 +442,12 @@ fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
 }
 
 #[test]
-fn journal_batch_storable_bound_does_not_amplify_stable_btree_nodes() {
+fn journal_tail_chunk_storable_bound_caps_raw_tail_value_bytes() {
     assert_eq!(
-        RawJournalBatch::BOUND,
-        ic_memory::stable_structures::storable::Bound::Unbounded
+        RawJournalChunk::BOUND,
+        ic_memory::stable_structures::storable::Bound::Bounded {
+            max_size: JOURNAL_TAIL_CHUNK_BYTES,
+            is_fixed_size: false,
+        }
     );
 }

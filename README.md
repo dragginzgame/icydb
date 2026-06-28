@@ -118,13 +118,15 @@ Stores choose one explicit storage contract:
   recovery folds committed journal records into canonical stable data, index,
   and schema BTrees.
 - `storage(heap())`: volatile Rust `BTreeMap` storage. It is useful for live
-  in-process state and tests, but rows and indexes are not recovered across
-  upgrade/reinitialization.
+  in-process state, tests, and deliberate perf comparisons, but rows and
+  indexes are not recovered across upgrade/reinitialization and do not
+  participate in the journaled durable commit path.
 
 Journaled stores use four memory IDs: `data_memory_id`, `index_memory_id`,
 `schema_memory_id`, and `journal_memory_id`. The first three are the canonical
 stable source-of-truth roles; the fourth is the durable journal tail. `heap()`
-storage is never durable.
+storage is never durable. Durable examples should use `storage(journaled(...))`
+unless volatility is the point of the example.
 
 ## Query From Rust
 
@@ -151,6 +153,18 @@ pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
     db!().mutate_structural::<User>(id, patch, icydb::db::MutationMode::Update)
 }
 ```
+
+Use atomic batch helpers when a same-entity batch must be all-or-nothing:
+
+```rust
+pub fn import_users(users: Vec<User>) -> Result<Vec<User>, icydb::Error> {
+    db!().insert_many_atomic(users)
+}
+```
+
+The `*_many_non_atomic` helpers are explicit prefix-commit APIs. They stop at
+the first error and may leave earlier rows committed, so they are appropriate
+only when partial progress is intended and safe for the caller to observe.
 
 With the `sql` feature enabled, the same entity can be queried or mutated
 through session/library reduced single-entity SQL:
@@ -191,10 +205,12 @@ IcyDB supports a focused, canister-friendly SQL subset:
 
 IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
 single-entity IcyDB operations, and returning `Err` from a canister update
-method does not roll back earlier state changes made by that method. On the
-Internet Computer, update calls for one canister execute one at a time; two
-concurrent client requests observe serialized canister state rather than a
-shared database transaction.
+method does not roll back earlier state changes made by that method. Use the
+typed `*_many_atomic` helpers when one same-entity batch must be all-or-nothing;
+the `*_many_non_atomic` helpers are explicitly fail-fast and may leave a
+committed prefix before returning an error. On the Internet Computer, update
+calls for one canister execute one at a time; two concurrent client requests
+observe serialized canister state rather than a shared database transaction.
 
 Generated canister SQL endpoints are deliberately narrower than the
 session/library SQL APIs. `__icydb_query` is read-only, `__icydb_ddl` is for

@@ -137,6 +137,8 @@ impl<C: CanisterKind> DbSession<C> {
     /// Insert a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
+    /// Prefer this helper when the caller needs all-or-nothing behavior for a
+    /// same-entity batch.
     ///
     /// This API is not a multi-entity transaction surface.
     pub fn insert_many_atomic<E>(
@@ -151,7 +153,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Insert a batch with explicitly non-atomic semantics.
     ///
-    /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
+    /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an
+    /// error, and returning that error from the surrounding canister update does
+    /// not roll back the committed prefix. Use [`Self::insert_many_atomic`] when
+    /// partial batch persistence is not acceptable.
     pub fn insert_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
@@ -262,6 +267,8 @@ impl<C: CanisterKind> DbSession<C> {
     /// Replace a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
+    /// Prefer this helper when the caller needs all-or-nothing behavior for a
+    /// same-entity batch.
     ///
     /// This API is not a multi-entity transaction surface.
     pub fn replace_many_atomic<E>(
@@ -276,7 +283,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Replace a batch with explicitly non-atomic semantics.
     ///
-    /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an error.
+    /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an
+    /// error, and returning that error from the surrounding canister update does
+    /// not roll back the committed prefix. Use [`Self::replace_many_atomic`] when
+    /// partial batch persistence is not acceptable.
     pub fn replace_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
@@ -332,6 +342,8 @@ impl<C: CanisterKind> DbSession<C> {
     /// Update a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
+    /// Prefer this helper when the caller needs all-or-nothing behavior for a
+    /// same-entity batch.
     ///
     /// This API is not a multi-entity transaction surface.
     pub fn update_many_atomic<E>(
@@ -346,7 +358,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Update a batch with explicitly non-atomic semantics.
     ///
-    /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an error.
+    /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an
+    /// error, and returning that error from the surrounding canister update does
+    /// not roll back the committed prefix. Use [`Self::update_many_atomic`] when
+    /// partial batch persistence is not acceptable.
     pub fn update_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
