@@ -62,6 +62,8 @@ pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
+#[cfg(test)]
+pub(in crate::db) use recovery::clear_recovery_runtime_state_for_tests;
 pub(in crate::db) use recovery::ensure_recovered;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 

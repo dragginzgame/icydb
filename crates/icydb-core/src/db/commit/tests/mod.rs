@@ -14,8 +14,8 @@ use crate::{
             CommitFailpoint, CommitFailpointFailureClass, CommitFailpointMode,
             CommitFailpointRecoveryAuthority, CommitFailpointSnapshotOracle, CommitMarker,
             CommitRowOp, arm_commit_failpoint_for_tests, begin_commit,
-            clear_commit_failpoint_for_tests, commit_marker_present, ensure_recovered,
-            finish_commit, init_commit_store_for_tests,
+            clear_commit_failpoint_for_tests, clear_recovery_runtime_state_for_tests,
+            commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
             marker::{
                 COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload,
                 encode_single_row_commit_marker_payload,
@@ -2364,6 +2364,40 @@ fn recovery_repeated_interruption_after_marker_clear_converges() {
 }
 
 #[test]
+fn recovery_upgrade_reentry_after_marker_clear_restores_readiness() {
+    let case = model_recovery_failpoint_case(5);
+    begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::AfterMarkerClear,
+        CommitFailpointMode::PanicUnwind,
+    );
+    assert_recovery_failpoint(CommitFailpointMode::PanicUnwind);
+    assert_failpoint_interruption_oracle(CommitFailpoint::AfterMarkerClear, &case);
+    assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+    assert_eq!(recovery_journal_tail_batch_count(), 0);
+    assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+    assert_eq!(recovery_index_state(), IndexState::Building);
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "marker-clear interruption should leave no marker for upgrade reentry",
+    );
+
+    clear_recovery_runtime_state_for_tests(&DB)
+        .expect("test should clear volatile recovery runtime state");
+
+    ensure_recovered(&DB).expect("upgrade-style markerless recovery should restore readiness");
+    assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+    assert_eq!(recovery_journal_tail_batch_count(), 0);
+    assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+    assert_eq!(recovery_index_state(), IndexState::Ready);
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "upgrade-style markerless recovery should leave no marker",
+    );
+}
+
+#[test]
 fn commit_failpoint_modes_have_explicit_failure_classification() {
     assert_eq!(
         CommitFailpointMode::ReturnError.failure_class(),
@@ -4591,6 +4625,89 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         indexed_ids_for(&second).expect("second index entry should exist"),
         std::iter::once(second.id).collect::<BTreeSet<_>>()
     );
+}
+
+#[test]
+fn recovery_startup_rebuilds_secondary_index_characterization_window() {
+    const CHARACTERIZATION_ROWS: u32 = 256;
+
+    reset_recovery_state();
+
+    let index = RecoveryIndexedEntity::MODEL.indexes()[0];
+    let mut expected_index_keys = Vec::new();
+    let mut sample_entities = Vec::new();
+
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            for row in 0..CHARACTERIZATION_ROWS {
+                let entity = RecoveryIndexedEntity {
+                    id: Ulid::from_u128(10_000 + u128::from(row)),
+                    group: row,
+                };
+                let data_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(entity.id)
+                    .expect("characterization data key should build")
+                    .to_raw()
+                    .expect("characterization data key should encode");
+                let raw_row = RawRow::try_new(indexed_row_bytes(&entity))
+                    .expect("characterization raw row should construct");
+                seed_canonical_data_row_for_recovery(data_store, data_key, raw_row);
+
+                expected_index_keys.push(
+                    IndexKey::new(&entity, index)
+                        .expect("characterization index key should build")
+                        .expect("characterization index key should exist")
+                        .to_raw()
+                        .expect("characterization index key should encode")
+                        .as_bytes()
+                        .to_vec(),
+                );
+                if row == 0 || row == CHARACTERIZATION_ROWS / 2 || row + 1 == CHARACTERIZATION_ROWS
+                {
+                    sample_entities.push(entity);
+                }
+            }
+        });
+        store.with_index_mut(|index_store| {
+            let stale = RecoveryIndexedEntity {
+                id: Ulid::from_u128(19_999),
+                group: CHARACTERIZATION_ROWS.saturating_add(1),
+            };
+            let stale_key = IndexKey::new(&stale, index)
+                .expect("stale characterization index key should build")
+                .expect("stale characterization index key should exist")
+                .to_raw()
+                .expect("stale characterization index key should encode");
+            index_store.insert(stale_key, IndexEntryValue::presence());
+        });
+    });
+    expected_index_keys.sort();
+
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&DB).expect("recovery should rebuild characterization index window from rows");
+
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after characterization rebuild",
+    );
+    assert_eq!(
+        index_key_bytes_snapshot(),
+        expected_index_keys,
+        "startup rebuild should recreate exactly the characterized row-derived index set",
+    );
+    let expected_count = usize::try_from(CHARACTERIZATION_ROWS)
+        .expect("characterization row count should fit usize");
+    let (data_rows, index_rows) = recovery_store_snapshot();
+    assert_eq!(data_rows.len(), expected_count);
+    assert_eq!(index_rows.len(), expected_count);
+
+    for entity in sample_entities {
+        assert_eq!(
+            indexed_ids_for(&entity).expect("sample index entry should exist"),
+            std::iter::once(entity.id).collect::<BTreeSet<_>>(),
+            "sample index entry should decode back to its row id",
+        );
+    }
 }
 
 #[test]

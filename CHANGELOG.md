@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.190.md](docs/changelog/0.190.md)
 
+- `0.190.2` extends the 0.190 reliability proof with upgrade-style recovery
+  reentry, a persisted-format malformed corpus, a large-index recovery
+  characterization floor, and 0.191 productization evidence notes.
+
 - `0.190.1` continues the recovery proof by showing guarded recovery can be
   interrupted, re-entered, interrupted again, and still converge across
   fold-watermark, journaled-index fold, and marker-cleared readiness windows.

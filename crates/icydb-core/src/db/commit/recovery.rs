@@ -135,6 +135,26 @@ pub(in crate::db::commit) fn clear_recovery_in_progress_for_tests() {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow_mut().clear());
 }
 
+#[cfg(test)]
+pub(in crate::db) fn clear_recovery_runtime_state_for_tests<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), InternalError> {
+    let recovery_key = recovery_domain_key(db)?;
+    let mut recovered = recovered_keys()
+        .lock()
+        .map_err(|_| InternalError::store_invariant())?;
+    recovered.retain(|existing| *existing != recovery_key);
+    drop(recovered);
+
+    clear_recovery_domain_in_progress(recovery_key);
+    let schema_key = schema_reconciliation_key(db);
+    SCHEMA_RECONCILED_KEYS.with(|keys| {
+        keys.borrow_mut().retain(|existing| *existing != schema_key);
+    });
+
+    Ok(())
+}
+
 fn recover_domain<C: CanisterKind>(
     db: &Db<C>,
     recovery_key: RecoveryDomainKey,
