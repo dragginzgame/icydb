@@ -23,5 +23,5 @@ pub(in crate::db::executor) use crate::db::query::plan::{
     global_distinct_group_spec_for_aggregate_identity,
 };
 
-#[cfg(test)]
-pub(in crate::db::executor) use crate::db::query::plan::{AggregateIdentity, expr::BinaryOp};
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db::executor) use crate::db::query::plan::expr::BinaryOp;

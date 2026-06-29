@@ -3,9 +3,9 @@
 //! Does not own: row loops, structural page dispatch, or DISTINCT execution.
 //! Boundary: stores planner-derived projection contract for executor-owned consumers.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 use crate::db::executor::projection::materialize::contracts::ProjectionSpec;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 use crate::model::field::{LeafCodec, ScalarCodec};
 use crate::{
     db::{
@@ -35,20 +35,20 @@ pub(in crate::db) enum PreparedProjectionPlan {
 }
 
 #[derive(Debug)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) struct PreparedDirectProjectionSlots {
     projections: Vec<PreparedDirectProjectionSlot>,
     has_repeated_source: bool,
 }
 
 #[derive(Debug)]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) struct PreparedDirectProjectionSlot {
     source_slot: usize,
     previous_projection_index: Option<usize>,
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 impl PreparedDirectProjectionSlots {
     #[must_use]
     fn from_slots(slots: Vec<usize>) -> Self {
@@ -88,7 +88,7 @@ impl PreparedDirectProjectionSlots {
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 impl PreparedDirectProjectionSlot {
     #[must_use]
     pub(in crate::db) const fn source_slot(&self) -> usize {
@@ -111,23 +111,23 @@ impl PreparedDirectProjectionSlot {
 ///
 #[derive(Debug)]
 pub(in crate::db) struct PreparedProjectionContract {
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     projection: ProjectionSpec,
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     retained_slot_direct_projection_slots: Option<PreparedDirectProjectionSlots>,
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     retained_slot_direct_octet_length_projection_slots: Vec<Option<usize>>,
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     data_row_direct_projection_slots: Option<PreparedDirectProjectionSlots>,
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     projected_slot_mask: Vec<bool>,
 }
 
 impl PreparedProjectionContract {
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
         &self.projection
     }
@@ -138,7 +138,7 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn scalar_projection_exprs(&self) -> &[CompiledExpr] {
         let PreparedProjectionPlan::Scalar(compiled_fields) = self.prepared();
 
@@ -159,7 +159,7 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn retained_slot_direct_projection_slots(
         &self,
     ) -> Option<&PreparedDirectProjectionSlots> {
@@ -167,7 +167,7 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn retained_slot_direct_octet_length_projection_slots(
         &self,
     ) -> &[Option<usize>] {
@@ -176,21 +176,21 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn data_row_direct_projection_slots(
         &self,
     ) -> Option<&PreparedDirectProjectionSlots> {
         self.data_row_direct_projection_slots.as_ref()
     }
 
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     #[must_use]
     pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
         self.projected_slot_mask.as_slice()
     }
 
     /// Build one projection contract directly from test-owned prepared inputs.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn from_test_inputs(
         projection: ProjectionSpec,
@@ -249,44 +249,44 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     row_layout: &RowLayout,
     plan: &AccessPlannedQuery,
 ) -> Result<PreparedProjectionContract, InternalError> {
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     let projection = plan.frozen_projection_spec()?.clone();
     let compiled_projection = plan
         .scalar_projection_plan()
         .ok_or_else(InternalError::query_executor_invariant)?
         .to_vec();
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     let retained_slot_direct_projection_slots =
         direct_projection_slots_from_projection(&projection, plan.frozen_direct_projection_slots());
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     let retained_slot_direct_octet_length_projection_slots =
         retained_slot_direct_octet_length_projection_slots_from_compiled(
             row_layout,
             &compiled_projection,
         );
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     let data_row_direct_projection_slots = direct_projection_slots_from_projection(
         &projection,
         plan.frozen_data_row_direct_projection_slots(),
     );
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let projected_slot_mask =
         projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask()?);
-    #[cfg(not(any(test, feature = "sql")))]
+    #[cfg(not(feature = "sql"))]
     let _ = row_layout;
 
     Ok(PreparedProjectionContract {
-        #[cfg(any(test, feature = "sql"))]
+        #[cfg(feature = "sql")]
         projection,
         prepared: PreparedProjectionPlan::Scalar(compiled_projection),
         projection_is_model_identity: plan.projection_is_model_identity()?,
-        #[cfg(any(test, feature = "sql"))]
+        #[cfg(feature = "sql")]
         retained_slot_direct_projection_slots,
-        #[cfg(any(test, feature = "sql"))]
+        #[cfg(feature = "sql")]
         retained_slot_direct_octet_length_projection_slots,
-        #[cfg(any(test, feature = "sql"))]
+        #[cfg(feature = "sql")]
         data_row_direct_projection_slots,
-        #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         projected_slot_mask,
     })
 }
@@ -314,7 +314,7 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
 // Validate slot availability for FieldPath-bearing expressions without
 // evaluating the expression itself. Nested path evaluation requires raw
 // persisted bytes and remains owned by the canonical projection executor.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 fn direct_projection_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
@@ -333,7 +333,7 @@ fn direct_projection_slots_from_projection(
     Some(PreparedDirectProjectionSlots::from_slots(slots))
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 fn retained_slot_direct_octet_length_projection_slots_from_compiled(
     row_layout: &RowLayout,
     compiled_projection: &[CompiledExpr],
@@ -356,7 +356,7 @@ fn retained_slot_direct_octet_length_projection_slots_from_compiled(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bool {
     row_layout
         .contract()
@@ -369,7 +369,7 @@ fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bo
         })
 }
 
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn projected_slot_mask_from_slots(field_count: usize, projected_slots: &[bool]) -> Vec<bool> {
     let mut mask = vec![false; field_count];
 

@@ -21,7 +21,7 @@ mod writer;
 mod tests;
 
 pub(in crate::db) use contract::decode_runtime_value_from_accepted_field_contract;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use contract::encode_runtime_value_for_accepted_field_contract;
 #[doc(hidden)]
 pub use contract::{decode_slot_into_runtime_value, encode_runtime_value_into_slot};

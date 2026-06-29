@@ -55,7 +55,7 @@ pub(in crate::db::query) use access_planner::{
 pub(in crate::db) use continuation::{
     PlannedContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use covering::CoveringReadField;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use covering::covering_hybrid_projection_execution_plan_with_schema_info;

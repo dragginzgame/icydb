@@ -9,33 +9,41 @@ pub(in crate::db::query::intent::tests) use crate::db::query::plan::{
     AggregateKind,
     expr::{BinaryOp, Expr, FieldId, ProjectionField},
 };
+#[cfg(feature = "sql")]
+pub(in crate::db::query::intent::tests) use crate::testing::entity_model_from_static;
 pub(in crate::db::query::intent::tests) use crate::{
     db::{
         IntentError, Query, QueryError,
         access::{AccessPath, AccessPlan},
-        cursor::GroupedContinuationToken,
-        direction::Direction,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
-            builder::{FieldRef, count, count_by, exists, first, last, max, max_by, min, sum},
-            explain::{
-                ExplainAccessDecisionKind, ExplainAccessPath, ExplainExecutionNodeDescriptor,
-                ExplainExecutionNodeType, ExplainPlan,
-            },
+            builder::FieldRef,
+            explain::{ExplainExecutionNodeDescriptor, ExplainExecutionNodeType},
             intent::model::QueryModel,
-            intent::{AccessRequirementViolation, RequiredAccessPath},
             plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
         },
     },
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel},
-        index::{IndexExpression, IndexKeyItem, IndexModel},
-    },
-    testing::entity_model_from_static,
+    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::{EntitySchema, FieldProjection, Path, RuntimeValueEncode},
     types::{Date, Duration, Timestamp, Ulid, Unit},
-    value::{Value, ValueEnum},
+    value::Value,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db::query::intent::tests) use crate::{
+    db::{
+        cursor::GroupedContinuationToken,
+        direction::Direction,
+        query::{
+            builder::{count, count_by, exists, first, last, max, max_by, min, sum},
+            explain::{ExplainAccessDecisionKind, ExplainAccessPath, ExplainPlan},
+            intent::{AccessRequirementViolation, RequiredAccessPath},
+        },
+    },
+    model::{
+        field::FieldModel,
+        index::{IndexExpression, IndexKeyItem},
+    },
+    value::ValueEnum,
 };
 use icydb_derive::FieldProjection;
 use serde::Deserialize;
@@ -82,6 +90,7 @@ pub(in crate::db::query::intent::tests) fn explain_execution_contains_node_type(
         .any(|child| explain_execution_contains_node_type(child, node_type))
 }
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) fn assert_expression_access_choice_selected(
     diagnostics: &BTreeMap<String, String>,
     expected_choice: &str,
@@ -98,14 +107,17 @@ pub(in crate::db::query::intent::tests) fn assert_expression_access_choice_selec
     );
 }
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) fn assert_plan(plan: &ExplainPlan) -> PlanAssertion<'_> {
     PlanAssertion { plan }
 }
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) struct PlanAssertion<'a> {
     plan: &'a ExplainPlan,
 }
 
+#[cfg(feature = "sql")]
 impl PlanAssertion<'_> {
     pub(in crate::db::query::intent::tests) fn uses_index(self, expected: &str) -> Self {
         assert_eq!(
@@ -185,6 +197,7 @@ impl PlanAssertion<'_> {
     }
 }
 
+#[cfg(feature = "sql")]
 fn required_access_path_matches(
     expected: RequiredAccessPath,
     actual: ExplainAccessDecisionKind,
@@ -228,6 +241,7 @@ fn required_access_path_matches(
     )
 }
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) fn query_error_is_group_plan_error(
     err: &QueryError,
     predicate: impl FnOnce(&crate::db::query::plan::validate::GroupPlanError) -> bool,
@@ -285,6 +299,7 @@ pub(in crate::db::query::intent::tests) fn query_error_is_order_plan_error(
     }
 }
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) fn query_error_is_predicate_validation_error(
     err: &QueryError,
     predicate: impl FnOnce(&crate::db::schema::ValidateError) -> bool,
@@ -312,6 +327,7 @@ pub(in crate::db::query::intent::tests) struct PlanEntity {
     pub(in crate::db::query::intent::tests) name: String,
 }
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static MAP_PLAN_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated(
@@ -322,7 +338,9 @@ pub(in crate::db::query::intent::tests) static MAP_PLAN_FIELDS: [FieldModel; 2] 
         },
     ),
 ];
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static MAP_PLAN_INDEXES: [&IndexModel; 0] = [];
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static MAP_PLAN_MODEL: EntityModel =
     entity_model_from_static(
         "intent_tests::MapPlanEntity",
@@ -333,6 +351,7 @@ pub(in crate::db::query::intent::tests) static MAP_PLAN_MODEL: EntityModel =
         &MAP_PLAN_INDEXES,
     );
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static ENUM_PLAN_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated(
@@ -343,7 +362,9 @@ pub(in crate::db::query::intent::tests) static ENUM_PLAN_FIELDS: [FieldModel; 2]
         },
     ),
 ];
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static ENUM_PLAN_INDEXES: [&IndexModel; 0] = [];
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static ENUM_PLAN_MODEL: EntityModel =
     entity_model_from_static(
         "intent_tests::EnumPlanEntity",
@@ -378,6 +399,7 @@ pub(in crate::db::query::intent::tests) struct PlanPushdownEntity {
     pub(in crate::db::query::intent::tests) label: String,
 }
 
+#[cfg(feature = "sql")]
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanBranchSetEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
@@ -406,6 +428,7 @@ pub(in crate::db::query::intent::tests) struct PlanPhaseEntity {
     pub(in crate::db::query::intent::tests) label: String,
 }
 
+#[cfg(feature = "sql")]
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanExpressionCasefoldEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
@@ -534,8 +557,10 @@ pub(in crate::db::query::intent::tests) static PLAN_PUSHDOWN_INDEX_MODELS: [Inde
         false,
     )];
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static PLAN_BRANCH_SET_INDEX_FIELDS: [&str; 3] =
     ["collection_id", "stage", "id"];
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static PLAN_BRANCH_SET_INDEX_MODELS: [IndexModel; 1] =
     [IndexModel::generated(
         "collection_stage_id",
@@ -562,10 +587,13 @@ pub(in crate::db::query::intent::tests) static PLAN_TEXT_PREFIX_INDEX_MODELS: [I
         false,
     )];
 
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static PLAN_EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] =
     ["email"];
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static PLAN_EXPRESSION_CASEFOLD_KEY_ITEMS: [IndexKeyItem;
     1] = [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
+#[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) static PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS: [IndexModel;
     1] = [IndexModel::generated_with_key_items(
     "email_expr",
@@ -651,6 +679,7 @@ crate::test_entity! {
     indexes = [&PLAN_PUSHDOWN_INDEX_MODELS[0]],
 }
 
+#[cfg(feature = "sql")]
 crate::test_entity! {
     ident = PlanBranchSetEntity,
     entity_name = "PlanBranchSetEntity",
@@ -715,6 +744,7 @@ crate::test_entity! {
     indexes = [],
 }
 
+#[cfg(feature = "sql")]
 crate::test_entity! {
     ident = PlanExpressionCasefoldEntity,
     entity_name = "PlanExpressionCasefoldEntity",

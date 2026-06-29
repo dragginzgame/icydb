@@ -24,7 +24,7 @@ use crate::{
             aggregate::contracts::{
                 error::GroupError,
                 grouped::ExecutionContext,
-                plan::{AggregateIdentity, FieldSlot},
+                plan::FieldSlot,
                 spec::AggregateKind,
                 state::{GroupedDistinctExecutionMode, GroupedTerminalAggregateState},
             },
@@ -32,6 +32,7 @@ use crate::{
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
+        query::plan::AggregateIdentity,
     },
     value::Value,
 };

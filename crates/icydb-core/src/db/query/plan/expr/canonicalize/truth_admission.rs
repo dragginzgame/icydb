@@ -227,7 +227,7 @@ pub(in crate::db) const fn truth_condition_binary_compare_op(op: BinaryOp) -> Op
 
 /// Report whether one planner expression belongs to the admitted scalar-WHERE
 /// truth-condition family.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bool {
     TruthAdmission::is_scalar_condition(expr)
 }

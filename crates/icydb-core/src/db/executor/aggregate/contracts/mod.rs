@@ -14,7 +14,7 @@ pub(in crate::db::executor) use error::{GroupBudgetResourceCode, GroupError};
 pub(in crate::db::executor) use grouped::{
     ExecutionConfig, ExecutionContext, ScalarAggregateEngine, execute_scalar_aggregate,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db::executor) use plan::BinaryOp;
 pub(in crate::db::executor) use plan::{
     AccessPlannedQuery, AggregateKind, CompiledExpr, CoveringProjectionFacts,

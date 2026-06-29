@@ -3,7 +3,7 @@
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 use crate::types::{IntBig, NatBig, Ulid};
 use crate::{
     db::schema::{

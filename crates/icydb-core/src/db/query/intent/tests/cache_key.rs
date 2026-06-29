@@ -6,6 +6,8 @@
 //! Boundary: exercises query-intent cache identity from the owner `tests/`
 //! boundary rather than from the leaf implementation file.
 
+#[cfg(feature = "sql")]
+use crate::db::query::plan::expr::normalize_bool_expr;
 use crate::{
     db::{
         CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
@@ -13,7 +15,7 @@ use crate::{
             intent::{Query, StructuralQuery, StructuralQueryCacheKey, model::QueryModel},
             plan::expr::{
                 BinaryOp, CaseWhenArm, Expr, FieldId, Function,
-                canonicalize_grouped_having_bool_expr, normalize_bool_expr,
+                canonicalize_grouped_having_bool_expr,
             },
         },
     },

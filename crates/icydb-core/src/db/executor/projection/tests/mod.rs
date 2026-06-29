@@ -4,6 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 mod grouped;
+#[cfg(feature = "sql")]
 mod materialize;
 mod scalar;
 
@@ -21,14 +22,7 @@ use crate::{
         },
     },
     db::{
-        data::{
-            CanonicalRow, CanonicalSlotReader, DataRow, DecodedDataStoreKey, SlotReader,
-            StructuralSlotReader,
-        },
-        executor::{
-            ProjectionMaterializationMetricsRecorder, StructuralCursorPage,
-            terminal::{RetainedSlotRow, RowLayout},
-        },
+        data::{CanonicalRow, CanonicalSlotReader, SlotReader, StructuralSlotReader},
         schema::SchemaInfo,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -41,21 +35,32 @@ use crate::{
         RuntimeValueEncode,
     },
     types::Ulid,
-    value::{OutputValue, Value},
+    value::Value,
+};
+#[cfg(feature = "sql")]
+use crate::{
+    db::{
+        data::{DataRow, DecodedDataStoreKey},
+        executor::{
+            ProjectionMaterializationMetricsRecorder, StructuralCursorPage,
+            terminal::{RetainedSlotRow, RowLayout},
+        },
+    },
+    value::OutputValue,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
 use super::{
-    GroupedRowView, PreparedProjectionContract, PreparedProjectionPlan, ProjectionEvalError,
-    compile_grouped_projection_expr, compile_grouped_projection_plan,
-    evaluate_grouped_projection_values,
+    GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr,
+    compile_grouped_projection_plan, evaluate_grouped_projection_values,
 };
 #[cfg(feature = "sql")]
 use super::{
-    count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
-    count_borrowed_slot_row_views_for_test, project, project_rows_from_projection,
+    PreparedProjectionContract, PreparedProjectionPlan, count_borrowed_data_row_views_for_test,
+    count_borrowed_identity_data_row_views_for_test, count_borrowed_slot_row_views_for_test,
+    project, project_rows_from_projection,
 };
 use crate::db::{
     executor::projection::eval::{
@@ -73,6 +78,7 @@ const EMPTY_INDEX: IndexModel = IndexModel::generated(
     false,
 );
 
+#[cfg(feature = "sql")]
 fn output(value: Value) -> OutputValue {
     OutputValue::from(value)
 }

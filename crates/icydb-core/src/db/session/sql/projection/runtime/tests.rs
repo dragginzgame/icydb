@@ -6,9 +6,11 @@ use super::{
 use crate::{
     db::{
         executor::{
-            PreparedProjectionPlan, StructuralCursorPage, project,
-            projection::PreparedProjectionContract, projection_eval_data_row_for_materialize_tests,
-            projection_eval_row_layout_for_materialize_tests, terminal::RetainedSlotRow,
+            PreparedProjectionPlan, StructuralCursorPage,
+            projection::{PreparedProjectionContract, project},
+            projection_eval_data_row_for_materialize_tests,
+            projection_eval_row_layout_for_materialize_tests,
+            terminal::RetainedSlotRow,
         },
         query::plan::expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
     },

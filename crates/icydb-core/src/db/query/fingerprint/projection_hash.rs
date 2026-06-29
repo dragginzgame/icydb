@@ -3,7 +3,7 @@
 //! Does not own: planner projection lowering or continuation profile ordering.
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 use crate::db::codec::new_hash_sha256;
 #[cfg(test)]
 use crate::db::numeric::coerce_numeric_decimal;

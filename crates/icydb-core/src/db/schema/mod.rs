@@ -151,7 +151,7 @@ pub(in crate::db) use reconcile::{
     execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
     execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract,

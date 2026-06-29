@@ -57,7 +57,7 @@ pub(in crate::db) use aggregate::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
 };
 pub use authority::EntityAuthority;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;
 pub(in crate::db::executor) use covering::{
     CoveringComponentValues, CoveringProjectionComponentRows, CoveringProjectionComponentWindow,
@@ -100,7 +100,7 @@ pub(in crate::db::executor) use order::{
     compare_orderable_row_with_boundary,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
 pub(in crate::db::executor) use pipeline::contracts::{
@@ -135,12 +135,10 @@ pub(in crate::db::executor) use profiling::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use projection::PreparedProjectionPlan;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
-#[cfg(test)]
-pub(in crate::db) use projection::project;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
 #[cfg(all(test, feature = "sql"))]

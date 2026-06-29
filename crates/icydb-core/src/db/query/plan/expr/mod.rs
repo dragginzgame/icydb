@@ -73,10 +73,11 @@ mod compiled_expr;
 mod function_semantics;
 mod path;
 mod predicate;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 mod preview;
 mod projection;
 mod projection_eval;
+#[cfg(feature = "sql")]
 mod rewrite;
 mod scalar;
 mod truth_value;
@@ -95,16 +96,17 @@ pub(in crate::db) use ast::{
 pub(in crate::db) use ast::{
     render_supported_order_expr, supported_order_expr_field, supported_order_expr_is_plain_field,
 };
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use canonicalize::canonicalize_scalar_where_bool_expr;
 #[cfg(test)]
 pub(in crate::db) use canonicalize::normalize_bool_expr_artifact;
 pub(in crate::db) use canonicalize::{
     CanonicalExpr, canonicalize_grouped_having_bool_expr, is_normalized_bool_expr,
     normalize_bool_expr, truth_condition_binary_compare_op, truth_condition_compare_binary_op,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use canonicalize::{
-    canonicalize_scalar_where_bool_expr, scalar_where_truth_condition_is_admitted,
-    simplify_bool_expr_constants,
+    scalar_where_truth_condition_is_admitted, simplify_bool_expr_constants,
 };
 pub(in crate::db) use compiled_expr::{
     CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, ProjectionEvalError,
@@ -127,7 +129,7 @@ pub(in crate::db) use predicate::{
 pub(in crate::db) use predicate::{
     compile_canonical_bool_expr_to_compiled_predicate, compile_normalized_bool_expr_to_predicate,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use preview::eval_literal_only_expr_value;
 #[cfg(test)]
 pub(in crate::db) use projection::GroupedOrderExprClass;
@@ -141,11 +143,11 @@ pub(in crate::db) use projection_eval::{
     ProjectionFunctionEvalError, eval_builder_expr_for_value_preview,
     eval_projection_function_call_checked,
 };
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use rewrite::rewrite_affine_numeric_compare_expr;
 #[cfg(test)]
 pub(in crate::db) use scalar::compile_scalar_projection_expr_for_model_only;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use scalar::compile_scalar_projection_expr_from_schema;
 pub(in crate::db) use scalar::{
     ScalarProjectionCaseArm, ScalarProjectionExpr, compile_scalar_projection_expr_with_schema,

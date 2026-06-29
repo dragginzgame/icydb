@@ -21,6 +21,10 @@ pub(in crate::db) use execution::{
     ExplainPropertyMap, FinalizedQueryDiagnostics,
     annotate_aggregate_execution_identity_properties, property_keys, property_values,
 };
+#[cfg(test)]
+pub(in crate::db) use plan::ExplainGroupHaving;
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use plan::ExplainOrder;
 pub use plan::{
     ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
     ExplainEligibleAlternativeV1, ExplainPlan, ExplainRejectedIndexV1, ExplainResidualSummaryV1,
@@ -31,8 +35,6 @@ pub(in crate::db) use plan::{
     ExplainGrouping, ExplainOrderBy, ExplainOrderPushdown, ExplainPagination, ExplainPredicate,
     SecondaryOrderPushdownRejection,
 };
-#[cfg(test)]
-pub(in crate::db) use plan::{ExplainGroupHaving, ExplainOrder};
 pub(in crate::db) use projection::explain_projection_field_name;
 
 ///

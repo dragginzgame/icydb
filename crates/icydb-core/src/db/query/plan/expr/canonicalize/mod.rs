@@ -27,9 +27,9 @@ use crate::db::query::plan::expr::canonicalize::{
 };
 
 pub(in crate::db) use normalize::is_normalized_bool_expr;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use normalize::simplify_bool_expr_constants;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use truth_admission::scalar_where_truth_condition_is_admitted;
 pub(in crate::db) use truth_admission::{
     truth_condition_binary_compare_op, truth_condition_compare_binary_op,
