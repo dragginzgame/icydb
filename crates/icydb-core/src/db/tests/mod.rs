@@ -3,6 +3,7 @@
 //! Does not own: runtime value conversion or storage encoding.
 //! Boundary: keeps cross-subsystem source-shape invariants at the db root.
 
+mod ic_update_model;
 mod persisted_format_corpus;
 
 use crate::db::test_support::source_guard::{

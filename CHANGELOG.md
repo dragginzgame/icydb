@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds source-audit guards and a closeout matrix for the 0.190 IC reliability
+  proof, keeping commit, recovery, and write mutation paths synchronous under
+  the IC update-message model while freezing commit failpoint hooks as
+  test-only machinery and guarding `_for_tests` helper leakage.
+
 ## [0.190.x] 🧪 - 2026-06-29 - IC Reliability Proof Expansion
 
 Detailed notes: [docs/changelog/0.190.md](docs/changelog/0.190.md)
