@@ -7,6 +7,10 @@ use icydb_testing_demo_rpg_fixtures::fixtures;
 icydb::start!();
 
 /// Load one deterministic baseline fixture dataset.
+#[allow(
+    dead_code,
+    reason = "fixture load hook is invoked by generated canister endpoint glue"
+)]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db().insert_many_atomic(fixtures::characters())?;
     db().insert_many_atomic(fixtures::grid())?;

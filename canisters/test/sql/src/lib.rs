@@ -12,6 +12,10 @@ icydb::start!();
 const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
+#[allow(
+    dead_code,
+    reason = "fixture load hook is invoked by generated canister endpoint glue"
+)]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db().insert_many_atomic(sql_users())?;
     db().insert_many_atomic(sql_numeric_type_rows())?;
@@ -20,6 +24,10 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic baseline SQL user fixture batch.
+#[allow(
+    dead_code,
+    reason = "fixture rows are consumed through the generated fixture load hook"
+)]
 fn sql_users() -> Vec<SqlTestUser> {
     vec![
         SqlTestUser {
@@ -69,6 +77,10 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic mixed numeric fixture batch for SQL type coverage.
+#[allow(
+    dead_code,
+    reason = "fixture rows are consumed through the generated fixture load hook"
+)]
 fn sql_numeric_type_rows() -> Vec<SqlTestNumericTypes> {
     vec![
         SqlTestNumericTypes {

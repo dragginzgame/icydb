@@ -3,6 +3,7 @@
 //! access-shape coverage.
 //!
 
+#[cfg(feature = "sql")]
 use candid::CandidType;
 #[cfg(feature = "sql")]
 use ic_cdk::query;
@@ -49,6 +50,7 @@ struct SqlTotalOnlyPerfResult {
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct FluentTotalOnlyPerfResult {
     row_count: u32,
     instructions: u64,
@@ -78,6 +80,7 @@ struct FluentQueryPerfResult {
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct StorageWritePerfResult {
     first_insert_local_instructions: u64,
     steady_insert_avg_local_instructions: u64,
@@ -88,12 +91,15 @@ struct StorageWritePerfResult {
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct SqlWriteMaterializationPerfResult {
     local_instructions: [u64; 4],
     rows: [u32; 4],
 }
 
+#[cfg(feature = "sql")]
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
+#[cfg(feature = "sql")]
 const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
 const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
