@@ -76,7 +76,7 @@ pub(in crate::db::schema) use integrity::{
 pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::SchemaMutation;
@@ -119,7 +119,7 @@ pub(in crate::db) use mutation::{
     resolve_sql_ddl_secondary_index_addition_candidate,
     resolve_sql_ddl_secondary_index_drop_candidate, validate_schema_ddl_version_contract_preflight,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::{
     SchemaDdlMutationAdmission, admit_sql_ddl_expression_index_candidate,
     admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,

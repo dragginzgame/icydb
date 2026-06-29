@@ -5,7 +5,7 @@
 
 #[cfg(feature = "sql")]
 use crate::db::schema::{SqlCapabilities, sql_capabilities};
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 use crate::{
     db::schema::canonicalize_strict_sql_literal_for_persisted_kind,
     model::canonicalize_strict_sql_literal_for_kind, value::Value,
@@ -374,7 +374,7 @@ pub(in crate::db) struct SchemaIndexFieldPathInfo {
     ty: FieldType,
     #[cfg(test)]
     persisted_kind: Option<PersistedFieldKind>,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     nullable: bool,
 }
 
@@ -425,7 +425,7 @@ impl SchemaIndexFieldPathInfo {
 
     /// Return whether this key item permits explicit persisted `NULL`.
     #[must_use]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
@@ -714,7 +714,7 @@ impl SchemaInfo {
     /// Generated schema views retain the old generated-kind fallback for
     /// direct lowering tests and compile-time-only callers.
     ///
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) fn canonicalize_strict_sql_literal(
         &self,
@@ -900,7 +900,7 @@ fn schema_index_info_from_generated_index(
                 ty: field.ty.clone(),
                 #[cfg(test)]
                 persisted_kind: None,
-                #[cfg(test)]
+                #[cfg(all(test, feature = "sql"))]
                 nullable: field.nullable,
             })
         })
@@ -1026,7 +1026,7 @@ fn schema_index_field_path_info_from_accepted(
         ty: field_type_from_persisted_kind(path.kind()),
         #[cfg(test)]
         persisted_kind: Some(path.kind().clone()),
-        #[cfg(test)]
+        #[cfg(all(test, feature = "sql"))]
         nullable: path.nullable(),
     }
 }

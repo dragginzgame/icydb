@@ -316,6 +316,7 @@ fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
     ));
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
@@ -332,6 +333,7 @@ fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind(
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn accepted_snapshot_schema_info_uses_persisted_sql_capabilities() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
@@ -401,6 +403,7 @@ fn accepted_snapshot_schema_info_uses_persisted_index_membership() {
     assert!(accepted_unindexed.field_path_indexes().is_empty());
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn accepted_snapshot_schema_info_exposes_persisted_field_path_indexes() {
     let snapshot = accepted_schema_with_name_index();

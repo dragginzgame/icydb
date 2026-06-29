@@ -16,7 +16,7 @@ use crate::db::{
 use crate::error::InternalError;
 use crate::types::EntityTag;
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 mod field;
 #[cfg(feature = "sql")]
 pub(in crate::db) use field::{
@@ -30,14 +30,14 @@ pub(in crate::db) use field::{
     resolve_sql_ddl_field_drop_default_candidate, resolve_sql_ddl_field_nullability_candidate,
     resolve_sql_ddl_field_rename_candidate, resolve_sql_ddl_field_set_default_candidate,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use field::{
     admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
     admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
     admit_sql_ddl_field_rename_candidate,
 };
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 mod field_allocation;
 #[cfg(feature = "sql")]
 pub(in crate::db) use field_allocation::{
@@ -45,23 +45,23 @@ pub(in crate::db) use field_allocation::{
     resolve_sql_ddl_field_addition_name_candidate,
 };
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 mod field_default_encoding;
 #[cfg(feature = "sql")]
 pub(in crate::db) use field_default_encoding::{
     encode_sql_ddl_add_column_default, encode_sql_ddl_alter_column_default,
 };
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 mod field_type;
 #[cfg(feature = "sql")]
 pub(in crate::db) use field_type::{
     SchemaDdlFieldTypeContract, resolve_sql_ddl_field_type_contract,
 };
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 mod ddl_admission;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 #[cfg_attr(
     not(test),
     expect(
@@ -88,7 +88,7 @@ pub(in crate::db::schema) use delta::{
     SchemaMutationDelta, classify_schema_mutation_delta, schema_mutation_request_for_snapshots,
 };
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 mod index_candidate;
 #[cfg(feature = "sql")]
 pub(in crate::db) use index_candidate::{
@@ -110,7 +110,7 @@ pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use index::{
     admit_sql_ddl_expression_index_candidate, admit_sql_ddl_field_path_index_candidate,
     admit_sql_ddl_secondary_index_drop_candidate,

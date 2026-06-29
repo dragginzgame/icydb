@@ -351,6 +351,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_coverable_pro
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_key_projection() {
     let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -378,6 +379,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_key_pro
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_keys_projection() {
     let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)

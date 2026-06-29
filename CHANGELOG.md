@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Adds source-audit guards and a closeout matrix for the 0.190 IC reliability
-  proof, keeping commit, recovery, and write mutation paths synchronous under
-  the IC update-message model while freezing commit failpoint hooks as
-  test-only machinery and guarding `_for_tests` helper leakage.
-
 ## [0.190.x] 🧪 - 2026-06-29 - IC Reliability Proof Expansion
 
 Detailed notes: [docs/changelog/0.190.md](docs/changelog/0.190.md)
+
+- `0.190.4` tightens the supported `icydb-core` no-default matrix by keeping
+  SQL-only lowering, projection, and schema-mutation helpers out of the
+  no-default unit and trybuild test surface.
+
+- `0.190.3` closes the 0.190 source-audit pass with guards and a validation
+  matrix for IC update-message synchrony, recovery, write mutation boundaries,
+  and test-only helper containment.
 
 - `0.190.2` extends the 0.190 reliability proof with upgrade-style recovery
   reentry, a persisted-format malformed corpus, a large-index recovery

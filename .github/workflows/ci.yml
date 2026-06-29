@@ -79,6 +79,7 @@ jobs:
       - run: cargo check --locked -p icydb-core --no-default-features
       - run: cargo check --locked --workspace --no-default-features
       - run: cargo test --locked -p icydb --no-default-features
+      - run: cargo test --locked -p icydb-core --no-default-features
       - run: cargo check --locked -p icydb --no-default-features --features sql
       - run: cargo check --locked -p icydb-core --no-default-features --features sql
       - run: cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings

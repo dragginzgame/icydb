@@ -133,18 +133,18 @@ pub(in crate::db::executor) use profiling::{
     record_key_stream_micros, record_key_stream_yield, record_ordering, record_projection,
     record_rows_after_predicate, with_execution_stats_capture,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
 #[cfg(test)]
 pub(in crate::db) use projection::PreparedProjectionPlan;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 #[cfg(test)]
 pub(in crate::db) use projection::project;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db) use projection::{
-    CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
     StructuralProjectionRequest, execute_structural_projection_result,

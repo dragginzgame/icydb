@@ -802,7 +802,7 @@ impl<E: EntityKind> Query<E> {
     // Keep the internal fluent parity hook available for tests that need one
     // exact expression-owned scalar filter shape instead of the public typed
     // `FilterExpr` lowering path.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
         self.inner = self.inner.filter_expr(expr);

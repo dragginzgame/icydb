@@ -306,6 +306,7 @@ fn write_policy_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
     ))
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
     let accepted = accepted_schema_fixture();
@@ -483,6 +484,7 @@ fn accepted_row_layout_runtime_contract_projects_generated_compatibility_proof()
     assert_eq!(proof.first_primary_key_slot_index(), 0);
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn accepted_row_layout_runtime_contract_builds_descriptor_and_row_compatibility_proof() {
     let accepted = generated_compatible_accepted_schema_fixture();

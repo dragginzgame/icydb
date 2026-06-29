@@ -26,7 +26,6 @@ pub(in crate::db::executor) enum KeyCanonicalError {
     HashingFailed {
         value: KeyCanonicalValueCode,
     },
-    #[cfg(feature = "sql")]
     ProjectedRowHashingFailed {
         value_index: usize,
         value: KeyCanonicalValueCode,
@@ -93,7 +92,6 @@ impl KeyCanonicalValueCode {
 }
 
 impl KeyCanonicalError {
-    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn projected_row_hashing_failed(
         value_index: usize,
         value: &Value,
@@ -117,7 +115,6 @@ impl KeyCanonicalError {
                 let _ = value;
                 InternalError::executor_internal()
             }
-            #[cfg(feature = "sql")]
             Self::ProjectedRowHashingFailed { value_index, value } => {
                 let _ = (value_index, value);
                 InternalError::executor_internal()

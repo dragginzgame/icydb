@@ -577,5 +577,5 @@ fn validate_existing_schema_snapshot(
 /// TESTS
 ///
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 mod tests;

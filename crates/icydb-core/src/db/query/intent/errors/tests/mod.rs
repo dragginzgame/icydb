@@ -398,6 +398,7 @@ fn sql_ddl_publication_race_maps_to_query_admission_detail() {
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn unknown_aggregate_target_field_preserves_query_unsupported_execution_boundary() {
     let query_err = QueryError::unknown_aggregate_target_field("missing");

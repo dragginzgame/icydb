@@ -199,6 +199,25 @@ When a typed entity already exists in the test:
 
 ---
 
+## Supported Feature-Matrix Checks
+
+No-default support means the public facade and core compile without default
+features, and their no-default smoke/unit suites run. The supported no-default
+test matrix is:
+
+* `cargo check -p icydb --no-default-features`
+* `cargo check -p icydb-core --no-default-features`
+* `cargo check --workspace --no-default-features`
+* `cargo test -p icydb --no-default-features`
+* `cargo test -p icydb-core --no-default-features`
+
+Strict Clippy is enforced on the primary feature-rich workspace surface and on
+explicit no-default `sql` / `diagnostics` feature combinations. No-default
+all-targets Clippy is not a supported release gate because disabling SQL leaves
+many SQL/test helper surfaces intentionally unused.
+
+---
+
 ## 4. End-to-End (E2E) Tests
 
 ### Purpose

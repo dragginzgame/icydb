@@ -296,7 +296,7 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
 }
 
 /// Canonicalize one strict SQL literal against accepted persisted field metadata.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 #[must_use]
 pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
     kind: &PersistedFieldKind,
@@ -628,7 +628,7 @@ impl fmt::Display for FieldType {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 mod tests {
     use super::*;
 

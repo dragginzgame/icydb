@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::write_hash_bool;
 use super::{AcceptedSchemaMutationError, SchemaMutationRequest};
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 use super::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
     SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaDdlMutationTarget,
@@ -9,7 +9,7 @@ use super::{
 };
 #[cfg(test)]
 use crate::db::codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32};
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 use crate::db::schema::{AcceptedSchemaSnapshot, PersistedSchemaSnapshot};
 use crate::db::schema::{
     FieldId, PersistedFieldKind, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
@@ -394,7 +394,7 @@ impl SchemaMutationRequest<'_> {
 
 /// Admit one SQL DDL field-path index candidate through the schema-owned
 /// mutation request and supported-runner path.
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
@@ -412,7 +412,7 @@ pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
 
 /// Admit one SQL DDL expression index candidate through the schema-owned
 /// mutation request boundary.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn admit_sql_ddl_expression_index_candidate(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
@@ -429,7 +429,7 @@ pub(in crate::db) fn admit_sql_ddl_expression_index_candidate(
 
 /// Admit one SQL DDL secondary-index drop candidate through the schema-owned
 /// mutation request boundary.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
@@ -445,7 +445,7 @@ pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
 
 /// Resolve one accepted SQL DDL index-drop candidate and reject generated
 /// accepted indexes before the frontend can derive a catalog mutation.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     accepted_before: &AcceptedSchemaSnapshot,
     index_name: &str,
@@ -507,7 +507,7 @@ fn ddl_drop_index_key_item_text(item: &PersistedIndexKeyItemSnapshot) -> String 
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
 /// field-path index candidate.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     index: PersistedIndexSnapshot,
@@ -545,7 +545,7 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
 /// expression index candidate.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     index: PersistedIndexSnapshot,
@@ -574,7 +574,7 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
 /// secondary-index drop candidate.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     index: &PersistedIndexSnapshot,

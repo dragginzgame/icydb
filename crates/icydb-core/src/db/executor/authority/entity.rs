@@ -8,7 +8,7 @@ use crate::db::schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot
 use crate::model::field::FieldModel;
 #[cfg(any(test, feature = "sql"))]
 use crate::traits::EntityKind;
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 use crate::traits::Path;
 use crate::{
     db::{

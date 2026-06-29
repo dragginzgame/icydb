@@ -180,12 +180,14 @@ test-bump: clippy test-unit
 
 test-unit:
 	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
+	$(CARGO_WORK_ENV) cargo test -p icydb-core --no-default-features
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql_bounded --lib
 
 test-no-default-smoke:
 	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
+	$(CARGO_WORK_ENV) cargo test -p icydb-core --no-default-features
 
 test-sql-canister-matrix:
 	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister --features icydb/sql-explain -- --nocapture
