@@ -366,7 +366,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
 }
 
 #[inline(never)]
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 pub(in crate::db) fn apply_lowered_select_shape_for_model_only(
     query: StructuralQuery,
     lowered: LoweredSelectShape,

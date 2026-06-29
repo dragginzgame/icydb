@@ -35,7 +35,7 @@ pub enum RequiredAccessPath {
 }
 
 impl RequiredAccessPath {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::ByKey => "ByKey",

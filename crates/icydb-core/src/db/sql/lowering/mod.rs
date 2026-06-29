@@ -81,7 +81,7 @@ pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
 #[cfg(test)]
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_for_model_only;
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_with_schema;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 pub(in crate::db) use select::apply_lowered_select_shape_for_model_only;
 #[cfg(test)]
 pub(in crate::db) use select::bind_lowered_sql_query_for_model_only;

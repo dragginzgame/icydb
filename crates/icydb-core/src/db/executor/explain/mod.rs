@@ -29,7 +29,7 @@ use crate::{
     value::Value,
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 pub(in crate::db) use descriptor::assemble_load_execution_node_descriptor;
 use descriptor::assemble_load_execution_verbose_diagnostics_from_route_facts;
 #[cfg(feature = "sql-explain")]

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.190.md](docs/changelog/0.190.md)
 
+- `0.190.6` tightens SQL and SQL EXPLAIN test-helper feature gates so focused
+  `icydb-core` feature builds compile the intended helper surfaces without
+  pulling them into no-default test configurations.
+
+- `0.190.5` continues the no-default cleanup by keeping projection
+  materialization, expression helper, and query-intent fixture surfaces behind
+  the SQL feature where those helpers are only valid for SQL-enabled tests.
+
 - `0.190.4` tightens the supported `icydb-core` no-default matrix by keeping
   SQL-only lowering, projection, and schema-mutation helpers out of the
   no-default unit and trybuild test surface.

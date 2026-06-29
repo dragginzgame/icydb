@@ -213,7 +213,7 @@ struct GroupedRouteObservabilityProjection {
 // Assemble one canonical scalar load execution descriptor tree through the
 // standalone model-only explain boundary.
 #[inline(never)]
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 pub(in crate::db) fn assemble_load_execution_node_descriptor(
     fields: &'static [FieldModel],
     primary_key_name: &'static str,

@@ -7,11 +7,13 @@
 mod aggregate_explain;
 mod aggregate_identity;
 mod aggregate_terminals;
+#[cfg(feature = "sql-explain")]
 mod authority_labels;
 mod branch_set;
 mod composite_covering;
 mod cursor;
 mod direct_starts_with;
+#[cfg(feature = "sql")]
 mod execution_convergence;
 mod execution_hot_path_bench;
 mod execution_spine_guard;
@@ -46,6 +48,13 @@ mod temporal;
 mod verbose_route_choice;
 
 use super::*;
+#[cfg(feature = "sql-explain")]
+use crate::db::executor::assemble_load_execution_node_descriptor;
+#[cfg(feature = "sql-explain")]
+use crate::db::{
+    query::intent::StructuralQuery,
+    sql::lowering::{LoweredSqlQuery, apply_lowered_select_shape_for_model_only},
+};
 use crate::{
     db::{
         Db, EntityCatalogDescription, EntityRuntimeHooks, MemoryCatalogDescription,
@@ -61,7 +70,7 @@ use crate::{
             encode_structural_value_storage_bytes,
         },
         direction::Direction,
-        executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
+        executor::ExecutorPlanError,
         index::{IndexKey, IndexStore, IndexStoreVisit, key_within_envelope},
         journal::{JournalBatch, JournalSequence, JournalTailStore, JournalTailVisit},
         key_taxonomy::PrimaryKeyComponent,
@@ -75,7 +84,7 @@ use crate::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },
             expr::FilterExpr,
-            intent::{Query, StructuralQuery},
+            intent::Query,
             plan::{
                 AggregateKind, FieldSlot,
                 expr::{Expr, ProjectionField},
@@ -90,7 +99,6 @@ use crate::{
         },
         sql::{
             lowering::{
-                LoweredSqlQuery, apply_lowered_select_shape_for_model_only,
                 bind_lowered_sql_query_for_model_only,
                 lower_sql_command_from_prepared_statement_for_model_only, prepare_sql_statement,
             },
@@ -3925,6 +3933,7 @@ fn explain_execution_find_first_node(
 // Build one store-backed execution descriptor for reduced SQL so tests can
 // assert the structured execution surface without snapshot-locking the JSON
 // renderer.
+#[cfg(feature = "sql-explain")]
 fn store_backed_execution_descriptor_for_sql<E>(
     _session: &DbSession<SessionSqlCanister>,
     sql: &str,

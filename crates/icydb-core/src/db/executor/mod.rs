@@ -76,7 +76,7 @@ pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use delete::DeleteProjectionBounds;
 pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql-explain"))]
 pub(in crate::db) use explain::assemble_load_execution_node_descriptor;
 #[cfg(feature = "sql-explain")]
 pub(in crate::db) use explain::{

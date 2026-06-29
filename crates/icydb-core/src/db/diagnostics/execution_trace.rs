@@ -78,28 +78,28 @@ impl ExecutionStats {
     }
 
     /// Return rows encountered before post-access predicate filtering.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn rows_scanned_pre_filter(&self) -> u64 {
         self.rows_scanned_pre_filter
     }
 
     /// Return rows retained after predicate filtering.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn rows_after_predicate(&self) -> u64 {
         self.rows_after_predicate
     }
 
     /// Return rows retained after final projection/materialization.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn rows_after_projection(&self) -> u64 {
         self.rows_after_projection
     }
 
     /// Return number of physical keys yielded by ordered key streams.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn keys_streamed(&self) -> u64 {
         self.keys_streamed
@@ -301,7 +301,7 @@ impl ExecutionTrace {
     }
 
     /// Return optional operator-level execution stats for this trace.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn execution_stats(&self) -> Option<ExecutionStats> {
         self.execution_stats

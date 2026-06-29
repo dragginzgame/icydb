@@ -1,3 +1,5 @@
+#[cfg(feature = "sql")]
+use crate::db::schema::runtime::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeField};
 use crate::{
     db::{
         data::{
@@ -7,10 +9,7 @@ use crate::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
             PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
             SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
-            runtime::{
-                AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract,
-                AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
-            },
+            runtime::{AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract},
         },
     },
     error::{ErrorClass, ErrorOrigin},

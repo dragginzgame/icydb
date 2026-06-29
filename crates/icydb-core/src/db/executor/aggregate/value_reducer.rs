@@ -207,7 +207,7 @@ impl ValueReducerState {
     }
 
     #[cfg_attr(
-        all(not(test), not(feature = "sql")),
+        not(feature = "sql"),
         expect(
             clippy::unnecessary_wraps,
             reason = "SQL scalar reducer variants can reject state mismatches; no-default min/max-only builds keep the shared reducer signature stable"
@@ -259,7 +259,7 @@ impl ValueReducerState {
     }
 
     #[cfg_attr(
-        all(not(test), not(feature = "sql")),
+        not(feature = "sql"),
         expect(
             clippy::unnecessary_wraps,
             reason = "SQL scalar reducer variants can fail; no-default min/max-only builds keep the shared reducer signature stable"
@@ -283,7 +283,7 @@ impl ValueReducerState {
 
     /// Finalize this reducer into the canonical structural aggregate value.
     #[cfg_attr(
-        all(not(test), not(feature = "sql")),
+        not(feature = "sql"),
         expect(
             clippy::unnecessary_wraps,
             reason = "SQL scalar reducer variants can fail during AVG finalization; no-default min/max-only builds keep the shared reducer signature stable"
