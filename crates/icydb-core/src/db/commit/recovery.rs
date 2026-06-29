@@ -59,9 +59,14 @@ use std::{
 use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
 
 static RECOVERED_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
+#[cfg(not(test))]
+static RECOVERY_IN_PROGRESS_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
 
 thread_local! {
     static SCHEMA_RECONCILED_KEYS: RefCell<Vec<SchemaReconciliationKey>> =
+        const { RefCell::new(Vec::new()) };
+    #[cfg(test)]
+    static RECOVERY_IN_PROGRESS_KEYS: RefCell<Vec<RecoveryDomainKey>> =
         const { RefCell::new(Vec::new()) };
 }
 
@@ -100,48 +105,47 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
     if !recovery_domain_recovered(recovery_key)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?
     {
-        // Schema compatibility must be checked before row replay/rebuild can
-        // decode stored rows with the generated runtime layout.
-        ensure_schema_reconciled(db)?;
-        perform_recovery(db)?;
-        mark_recovery_domain_recovered(recovery_key)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-        mark_schema_reconciliation_dirty(db);
-
-        return ensure_schema_reconciled(db);
+        return recover_domain(db, recovery_key);
     }
 
-    if !commit_marker_may_be_present() && !db.has_registered_index_store_building() {
+    let recovery_in_progress = recovery_domain_in_progress(recovery_key)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+
+    if !commit_marker_may_be_present() && !recovery_in_progress {
         return ensure_schema_reconciled(db);
     }
 
     if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
-        // A marker-triggered recovery may rebuild indexes from existing rows,
-        // so fail schema drift before any row decode path runs.
-        ensure_schema_reconciled(db)?;
-        perform_recovery(db)?;
-        mark_recovery_domain_recovered(recovery_key)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-        mark_schema_reconciliation_dirty(db);
-
-        return ensure_schema_reconciled(db);
+        return recover_domain(db, recovery_key);
     }
 
-    if db.has_registered_index_store_building() {
+    if recovery_in_progress {
         // A previous recovery can be interrupted after marker clear but before
-        // volatile index readiness is restored. Marker absence alone is not
-        // enough to prove recovery complete while any registered index remains
-        // in its rebuild state.
-        ensure_schema_reconciled(db)?;
-        perform_recovery(db)?;
-        mark_recovery_domain_recovered(recovery_key)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-        mark_schema_reconciliation_dirty(db);
-
-        return ensure_schema_reconciled(db);
+        // volatile readiness is restored. Marker absence alone is not enough
+        // to prove this recovery domain completed.
+        return recover_domain(db, recovery_key);
     }
 
     mark_commit_marker_verified_absent();
+
+    ensure_schema_reconciled(db)
+}
+
+fn recover_domain<C: CanisterKind>(
+    db: &Db<C>,
+    recovery_key: RecoveryDomainKey,
+) -> Result<(), InternalError> {
+    mark_recovery_domain_in_progress(recovery_key)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    // Schema compatibility must be checked before row replay/rebuild can
+    // decode stored rows with the generated runtime layout.
+    ensure_schema_reconciled(db)?;
+    perform_recovery(db)?;
+    mark_recovery_domain_recovered(recovery_key)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    clear_recovery_domain_in_progress(recovery_key)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    mark_schema_reconciliation_dirty(db);
 
     ensure_schema_reconciled(db)
 }
@@ -836,11 +840,29 @@ fn recovered_keys() -> &'static Mutex<Vec<RecoveryDomainKey>> {
     RECOVERED_KEYS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+#[cfg(not(test))]
+fn recovery_in_progress_keys() -> &'static Mutex<Vec<RecoveryDomainKey>> {
+    RECOVERY_IN_PROGRESS_KEYS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
 fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalError> {
     recovered_keys()
         .lock()
         .map(|keys| keys.contains(&key))
         .map_err(|_| InternalError::store_invariant())
+}
+
+#[cfg(not(test))]
+fn recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<bool, InternalError> {
+    recovery_in_progress_keys()
+        .lock()
+        .map(|keys| keys.contains(&key))
+        .map_err(|_| InternalError::store_invariant())
+}
+
+#[cfg(test)]
+fn recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<bool, InternalError> {
+    Ok(RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow().contains(&key)))
 }
 
 fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
@@ -850,6 +872,49 @@ fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), Internal
     if !keys.contains(&key) {
         keys.push(key);
     }
+
+    Ok(())
+}
+
+#[cfg(not(test))]
+fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
+    let mut keys = recovery_in_progress_keys()
+        .lock()
+        .map_err(|_| InternalError::store_invariant())?;
+    if !keys.contains(&key) {
+        keys.push(key);
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
+    RECOVERY_IN_PROGRESS_KEYS.with(|keys| {
+        let mut keys = keys.borrow_mut();
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    });
+
+    Ok(())
+}
+
+#[cfg(not(test))]
+fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
+    let mut keys = recovery_in_progress_keys()
+        .lock()
+        .map_err(|_| InternalError::store_invariant())?;
+    keys.retain(|existing| *existing != key);
+
+    Ok(())
+}
+
+#[cfg(test)]
+fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
+    RECOVERY_IN_PROGRESS_KEYS.with(|keys| {
+        keys.borrow_mut().retain(|existing| *existing != key);
+    });
 
     Ok(())
 }

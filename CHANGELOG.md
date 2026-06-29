@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   plus secondary-index rebuild and journaled-index fold interruption coverage,
   with marker-clear readiness assertions, guarded retry checks for structured
   errors and host unwind interruptions, and a marker-absent recovery fast-path
-  guard for indexes that remain in `Building`.
+  guard for interrupted recovery domains.
 
 ## [0.189.x] 🧪 - 2026-06-28 - Reliability Audit Cleanup
 

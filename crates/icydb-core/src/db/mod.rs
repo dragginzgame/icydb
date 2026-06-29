@@ -400,17 +400,6 @@ impl<C: CanisterKind> Db<C> {
         });
     }
 
-    /// Return whether any registered index store still needs recovery rebuild
-    /// or readiness restoration before it can be planner-visible.
-    #[must_use]
-    pub(in crate::db) fn has_registered_index_store_building(&self) -> bool {
-        self.with_store_registry(|registry| {
-            registry
-                .iter()
-                .any(|(_, handle)| handle.index_state() == index::IndexState::Building)
-        })
-    }
-
     /// Build one storage diagnostics report for registered stores/entities.
     pub(crate) fn storage_report(
         &self,
