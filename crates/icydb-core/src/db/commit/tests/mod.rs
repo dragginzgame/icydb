@@ -1514,6 +1514,33 @@ fn assert_journaled_index_fold_interruption_oracle(case: &RecoveryFailpointCase)
     );
 }
 
+fn assert_markerless_journaled_index_fold_reentry_oracle(case: &RecoveryFailpointCase) {
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "marker-cleared reentry should keep marker authority absent",
+    );
+    assert_eq!(
+        recovery_journal_tail_batch_count(),
+        0,
+        "marker-cleared reentry should not resurrect journal tail batches",
+    );
+    assert_eq!(
+        recovery_journal_fold_watermark(),
+        case.post_watermark,
+        "marker-cleared reentry should keep the post-recovery fold watermark",
+    );
+    assert_eq!(
+        recovery_store_snapshot(),
+        case.post_snapshot,
+        "marker-cleared reentry should keep marker-authorized row/index bytes",
+    );
+    assert_eq!(
+        recovery_index_state(),
+        IndexState::Building,
+        "marker-cleared reentry should not mark indexes ready before recovery closes",
+    );
+}
+
 fn indexed_data_key(id: Ulid) -> RawDataStoreKey {
     DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(id)
         .expect("indexed key should build")
@@ -2257,6 +2284,82 @@ fn recovery_journaled_index_fold_failpoint_is_retryable_for_error_and_unwind() {
         ensure_recovered(&DB).expect("second guarded recovery should be a no-op");
         assert_eq!(recovery_store_snapshot(), case.post_snapshot);
         assert_eq!(recovery_index_state(), IndexState::Ready);
+    }
+}
+
+#[test]
+fn recovery_repeated_interruption_across_fold_and_index_phases_converges() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        let case = model_recovery_failpoint_case(5);
+        begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+
+        arm_commit_failpoint_for_tests(CommitFailpoint::AfterJournalTailFoldWatermarkPersist, mode);
+        assert_recovery_failpoint(mode);
+        assert_journal_tail_fold_interruption_oracle(
+            CommitFailpoint::AfterJournalTailFoldWatermarkPersist,
+            &case,
+        );
+
+        arm_commit_failpoint_for_tests(
+            CommitFailpoint::AfterJournaledIndexMaterializedViewFold,
+            mode,
+        );
+        assert_recovery_failpoint(mode);
+        assert_journaled_index_fold_interruption_oracle(&case);
+
+        ensure_recovered(&DB).expect("repeated interrupted recovery should converge");
+        assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+        assert_eq!(recovery_journal_tail_batch_count(), 0);
+        assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+        assert_eq!(recovery_index_state(), IndexState::Ready);
+        assert!(
+            !commit_marker_present().expect("commit marker check should succeed"),
+            "repeated interrupted recovery should clear marker authority",
+        );
+
+        ensure_recovered(&DB).expect("post-convergence guarded recovery should be a no-op");
+        assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+        assert_eq!(recovery_index_state(), IndexState::Ready);
+    }
+}
+
+#[test]
+fn recovery_repeated_interruption_after_marker_clear_converges() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        let case = model_recovery_failpoint_case(5);
+        begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+
+        arm_commit_failpoint_for_tests(CommitFailpoint::AfterMarkerClear, mode);
+        assert_recovery_failpoint(mode);
+        assert_failpoint_interruption_oracle(CommitFailpoint::AfterMarkerClear, &case);
+        assert_eq!(
+            recovery_index_state(),
+            IndexState::Building,
+            "marker-clear interruption should leave indexes non-ready until guarded retry",
+        );
+
+        arm_commit_failpoint_for_tests(
+            CommitFailpoint::AfterJournaledIndexMaterializedViewFold,
+            mode,
+        );
+        assert_recovery_failpoint(mode);
+        assert_markerless_journaled_index_fold_reentry_oracle(&case);
+
+        ensure_recovered(&DB).expect("marker-cleared repeated recovery should converge");
+        assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+        assert_eq!(recovery_journal_tail_batch_count(), 0);
+        assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+        assert_eq!(recovery_index_state(), IndexState::Ready);
+        assert!(
+            !commit_marker_present().expect("commit marker check should succeed"),
+            "marker-cleared repeated recovery should leave no marker",
+        );
     }
 }
 
