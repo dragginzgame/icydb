@@ -28,7 +28,7 @@ use crate::{
             encode_runtime_value_into_slot,
         },
         executor::SaveExecutor,
-        index::{IndexEntryValue, IndexKey, IndexStore, IndexStoreVisit},
+        index::{IndexEntryValue, IndexKey, IndexState, IndexStore, IndexStoreVisit},
         journal::{FoldWatermark, JournalTailStore},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
@@ -78,6 +78,9 @@ impl RecoveryFailpointCase {
             CommitFailpointSnapshotOracle::PreCommit => (&self.pre_snapshot, self.pre_watermark),
             CommitFailpointSnapshotOracle::MarkerAuthorizedPostCommit => {
                 (&self.post_snapshot, self.post_watermark)
+            }
+            CommitFailpointSnapshotOracle::RecoveryIntermediate => {
+                panic!("intermediate recovery state must be asserted by failpoint-specific tests")
             }
         }
     }
@@ -1292,6 +1295,10 @@ fn recovery_journal_fold_watermark() -> FoldWatermark {
     })
 }
 
+fn recovery_index_state() -> IndexState {
+    with_recovery_store(|store| store.index_state())
+}
+
 fn recovery_post_watermark(marker: &CommitMarker, pre_watermark: FoldWatermark) -> FoldWatermark {
     marker
         .journal_batches()
@@ -1363,6 +1370,147 @@ fn assert_failpoint_interruption_oracle(site: CommitFailpoint, case: &RecoveryFa
         recovery_journal_fold_watermark(),
         expected_watermark,
         "failpoint site should expose the classified fold-watermark oracle",
+    );
+}
+
+fn assert_journal_tail_fold_interruption_oracle(
+    site: CommitFailpoint,
+    case: &RecoveryFailpointCase,
+) {
+    let oracle = site.recovery_oracle();
+    assert_eq!(
+        oracle.snapshot(),
+        CommitFailpointSnapshotOracle::RecoveryIntermediate,
+        "journal-tail fold failpoint should declare an intermediate recovery snapshot",
+    );
+    assert!(
+        oracle.marker_present(),
+        "journal-tail fold interruption should leave marker authority present",
+    );
+    assert_eq!(
+        recovery_journal_tail_batch_count(),
+        oracle.journal_tail_batches(),
+        "journal-tail fold interruption should keep the tail visible until cleanup",
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "journal-tail fold interruption should leave the marker visible",
+    );
+
+    let (data_rows, index_rows) = recovery_store_snapshot();
+    assert_eq!(
+        data_rows, case.post_snapshot.0,
+        "journal-tail fold should make canonical rows reflect the marker-authorized state",
+    );
+    assert_eq!(
+        index_rows, case.pre_snapshot.1,
+        "journal-tail fold should not mark derived index state rebuilt",
+    );
+
+    assert_eq!(
+        recovery_journal_fold_watermark(),
+        case.post_watermark,
+        "journal-tail fold interruption should expose the classified fold watermark",
+    );
+}
+
+fn assert_secondary_index_rebuild_clear_interruption_oracle(
+    case: &RecoveryFailpointCase,
+    mode: CommitFailpointMode,
+) {
+    let oracle = CommitFailpoint::AfterSecondaryIndexRebuildClear.recovery_oracle();
+    assert_eq!(
+        oracle.snapshot(),
+        CommitFailpointSnapshotOracle::RecoveryIntermediate,
+        "secondary-index rebuild clear should declare an intermediate recovery snapshot",
+    );
+    assert!(
+        oracle.marker_present(),
+        "secondary-index rebuild interruption should leave marker authority present",
+    );
+    assert_eq!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        oracle.marker_present(),
+        "secondary-index rebuild interruption should leave marker authority visible",
+    );
+    assert_eq!(
+        recovery_journal_tail_batch_count(),
+        oracle.journal_tail_batches(),
+        "secondary-index rebuild interruption should occur after folded tail cleanup",
+    );
+    assert_eq!(
+        recovery_journal_fold_watermark(),
+        case.post_watermark,
+        "secondary-index rebuild interruption should keep the folded watermark",
+    );
+
+    let (data_rows, index_rows) = recovery_store_snapshot();
+    assert_eq!(
+        data_rows, case.post_snapshot.0,
+        "secondary-index rebuild should run after canonical rows reach post-state",
+    );
+
+    match mode.failure_class() {
+        CommitFailpointFailureClass::StructuredReturnedError => {
+            assert_eq!(
+                index_rows, case.pre_snapshot.1,
+                "returned rebuild errors should restore the pre-rebuild index snapshot",
+            );
+            assert_eq!(
+                recovery_index_state(),
+                IndexState::Ready,
+                "returned rebuild errors should restore the pre-rebuild index state",
+            );
+        }
+        CommitFailpointFailureClass::HostUnwindInterruption => {
+            assert!(
+                index_rows.is_empty(),
+                "host unwind should leave the cleared derived index state for guarded retry",
+            );
+            assert_eq!(
+                recovery_index_state(),
+                IndexState::Building,
+                "host unwind should leave indexes non-ready until guarded retry",
+            );
+        }
+    }
+}
+
+fn assert_journaled_index_fold_interruption_oracle(case: &RecoveryFailpointCase) {
+    let oracle = CommitFailpoint::AfterJournaledIndexMaterializedViewFold.recovery_oracle();
+    assert_eq!(
+        oracle.snapshot(),
+        CommitFailpointSnapshotOracle::RecoveryIntermediate,
+        "journaled index fold should declare an intermediate recovery snapshot",
+    );
+    assert!(
+        oracle.marker_present(),
+        "journaled index fold interruption should leave marker authority present",
+    );
+    assert_eq!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        oracle.marker_present(),
+        "journaled index fold interruption should leave marker authority visible",
+    );
+    assert_eq!(
+        recovery_journal_tail_batch_count(),
+        oracle.journal_tail_batches(),
+        "journaled index fold interruption should occur after folded tail cleanup",
+    );
+    assert_eq!(
+        recovery_journal_fold_watermark(),
+        case.post_watermark,
+        "journaled index fold interruption should keep the folded watermark",
+    );
+    assert_eq!(
+        recovery_store_snapshot(),
+        case.post_snapshot,
+        "journaled index fold should expose marker-authorized row/index bytes",
+    );
+    assert_eq!(
+        recovery_index_state(),
+        IndexState::Building,
+        "journaled index fold should not mark indexes ready before recovery closes",
     );
 }
 
@@ -1965,6 +2113,12 @@ fn recovery_model_batch_failpoints_follow_classified_interruption_oracles() {
                     arm_commit_failpoint_for_tests(site, mode);
                     assert_recovery_failpoint(mode);
                 }
+                CommitFailpoint::BeforeJournalTailFoldBatch
+                | CommitFailpoint::AfterJournalTailFoldWatermarkPersist
+                | CommitFailpoint::AfterSecondaryIndexRebuildClear
+                | CommitFailpoint::AfterJournaledIndexMaterializedViewFold => {
+                    panic!("expanded recovery failpoints are covered by dedicated tests")
+                }
             }
 
             assert_failpoint_interruption_oracle(site, &case);
@@ -1986,6 +2140,123 @@ fn recovery_model_batch_failpoints_follow_classified_interruption_oracles() {
                 "model failpoint retry should leave no marker",
             );
         }
+    }
+}
+
+#[test]
+fn recovery_journal_tail_fold_failpoints_are_retryable_for_error_and_unwind() {
+    for site in [
+        CommitFailpoint::BeforeJournalTailFoldBatch,
+        CommitFailpoint::AfterJournalTailFoldWatermarkPersist,
+    ] {
+        for mode in [
+            CommitFailpointMode::ReturnError,
+            CommitFailpointMode::PanicUnwind,
+        ] {
+            let case = model_recovery_failpoint_case(5);
+            begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+
+            arm_commit_failpoint_for_tests(site, mode);
+            assert_recovery_failpoint(mode);
+            match site {
+                CommitFailpoint::BeforeJournalTailFoldBatch => {
+                    assert_failpoint_interruption_oracle(site, &case);
+                }
+                CommitFailpoint::AfterJournalTailFoldWatermarkPersist => {
+                    assert_journal_tail_fold_interruption_oracle(site, &case);
+                }
+                _ => panic!("unexpected journal-tail fold failpoint"),
+            }
+
+            if site == CommitFailpoint::BeforeJournalTailFoldBatch {
+                arm_commit_failpoint_for_tests(site, mode);
+                assert_recovery_failpoint(mode);
+                assert_failpoint_interruption_oracle(site, &case);
+            }
+
+            ensure_recovered(&DB).expect("journal-tail fold retry should converge");
+            assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+            assert_eq!(recovery_journal_tail_batch_count(), 0);
+            assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+            assert!(
+                !commit_marker_present().expect("commit marker check should succeed"),
+                "successful fold retry should clear marker authority",
+            );
+
+            ensure_recovered(&DB).expect("second guarded recovery should be a no-op");
+            assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+            assert_eq!(recovery_journal_tail_batch_count(), 0);
+            assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+        }
+    }
+}
+
+#[test]
+fn recovery_secondary_index_rebuild_clear_failpoint_is_retryable_for_error_and_unwind() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        let case = model_recovery_failpoint_case(5);
+        assert!(
+            !case.pre_snapshot.1.is_empty(),
+            "secondary-index rebuild fixture should begin with non-empty pre-state indexes",
+        );
+        assert!(
+            !case.post_snapshot.1.is_empty(),
+            "secondary-index rebuild fixture should expect non-empty rebuilt indexes",
+        );
+        begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+
+        arm_commit_failpoint_for_tests(CommitFailpoint::AfterSecondaryIndexRebuildClear, mode);
+        assert_recovery_failpoint(mode);
+        assert_secondary_index_rebuild_clear_interruption_oracle(&case, mode);
+
+        ensure_recovered(&DB).expect("secondary-index rebuild retry should converge");
+        assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+        assert_eq!(recovery_journal_tail_batch_count(), 0);
+        assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+        assert_eq!(recovery_index_state(), IndexState::Ready);
+        assert!(
+            !commit_marker_present().expect("commit marker check should succeed"),
+            "successful rebuild retry should clear marker authority",
+        );
+
+        ensure_recovered(&DB).expect("second guarded recovery should be a no-op");
+        assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+        assert_eq!(recovery_index_state(), IndexState::Ready);
+    }
+}
+
+#[test]
+fn recovery_journaled_index_fold_failpoint_is_retryable_for_error_and_unwind() {
+    for mode in [
+        CommitFailpointMode::ReturnError,
+        CommitFailpointMode::PanicUnwind,
+    ] {
+        let case = model_recovery_failpoint_case(5);
+        begin_commit(case.marker.clone()).expect("model marker should persist before recovery");
+
+        arm_commit_failpoint_for_tests(
+            CommitFailpoint::AfterJournaledIndexMaterializedViewFold,
+            mode,
+        );
+        assert_recovery_failpoint(mode);
+        assert_journaled_index_fold_interruption_oracle(&case);
+
+        ensure_recovered(&DB).expect("journaled index fold retry should converge");
+        assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+        assert_eq!(recovery_journal_tail_batch_count(), 0);
+        assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+        assert_eq!(recovery_index_state(), IndexState::Ready);
+        assert!(
+            !commit_marker_present().expect("commit marker check should succeed"),
+            "successful journaled index fold retry should clear marker authority",
+        );
+
+        ensure_recovered(&DB).expect("second guarded recovery should be a no-op");
+        assert_eq!(recovery_store_snapshot(), case.post_snapshot);
+        assert_eq!(recovery_index_state(), IndexState::Ready);
     }
 }
 
@@ -2018,6 +2289,22 @@ fn commit_failpoint_sites_have_explicit_recovery_authority() {
     assert_eq!(
         CommitFailpoint::AfterMarkerBoundJournalAppend.recovery_authority(),
         CommitFailpointRecoveryAuthority::MarkerPayloadAndJournalPrefix,
+    );
+    assert_eq!(
+        CommitFailpoint::BeforeJournalTailFoldBatch.recovery_authority(),
+        CommitFailpointRecoveryAuthority::JournalTailFoldReady,
+    );
+    assert_eq!(
+        CommitFailpoint::AfterJournalTailFoldWatermarkPersist.recovery_authority(),
+        CommitFailpointRecoveryAuthority::FoldWatermarkPersisted,
+    );
+    assert_eq!(
+        CommitFailpoint::AfterSecondaryIndexRebuildClear.recovery_authority(),
+        CommitFailpointRecoveryAuthority::SecondaryIndexRebuildCleared,
+    );
+    assert_eq!(
+        CommitFailpoint::AfterJournaledIndexMaterializedViewFold.recovery_authority(),
+        CommitFailpointRecoveryAuthority::JournaledIndexMaterializedViewFolded,
     );
     assert_eq!(
         CommitFailpoint::BeforeMarkerClear.recovery_authority(),
@@ -2055,6 +2342,30 @@ fn commit_failpoint_sites_have_explicit_recovery_oracles() {
             CommitFailpointSnapshotOracle::PreCommit,
             true,
             1,
+        ),
+        (
+            CommitFailpoint::BeforeJournalTailFoldBatch,
+            CommitFailpointSnapshotOracle::PreCommit,
+            true,
+            1,
+        ),
+        (
+            CommitFailpoint::AfterJournalTailFoldWatermarkPersist,
+            CommitFailpointSnapshotOracle::RecoveryIntermediate,
+            true,
+            1,
+        ),
+        (
+            CommitFailpoint::AfterSecondaryIndexRebuildClear,
+            CommitFailpointSnapshotOracle::RecoveryIntermediate,
+            true,
+            0,
+        ),
+        (
+            CommitFailpoint::AfterJournaledIndexMaterializedViewFold,
+            CommitFailpointSnapshotOracle::RecoveryIntermediate,
+            true,
+            0,
         ),
         (
             CommitFailpoint::BeforeMarkerClear,
@@ -2238,11 +2549,17 @@ fn failpoint_marker_clear_preserves_recovered_state_for_error_and_unwind() {
             arm_commit_failpoint_for_tests(site, mode);
             assert_recovery_failpoint(mode);
             assert_failpoint_interruption_oracle(site, &case);
+            assert_eq!(
+                recovery_index_state(),
+                IndexState::Building,
+                "marker-clear interruption should leave indexes non-ready until guarded retry",
+            );
 
             ensure_recovered(&DB).expect("marker-clear retry should finish recovery");
             assert_eq!(recovery_store_snapshot(), case.post_snapshot);
             assert_eq!(recovery_journal_tail_batch_count(), 0);
             assert_eq!(recovery_journal_fold_watermark(), case.post_watermark);
+            assert_eq!(recovery_index_state(), IndexState::Ready);
             assert!(
                 !commit_marker_present().expect("commit marker check should succeed"),
                 "successful retry must leave no marker",

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Starts the 0.190 IC reliability proof expansion by adding test-only
+  journal-tail fold failpoints before fold and after fold-watermark persistence,
+  plus secondary-index rebuild and journaled-index fold interruption coverage,
+  with marker-clear readiness assertions, guarded retry checks for structured
+  errors and host unwind interruptions, and a marker-absent recovery fast-path
+  guard for indexes that remain in `Building`.
+
 ## [0.189.x] 🧪 - 2026-06-28 - Reliability Audit Cleanup
 
 Detailed notes: [docs/changelog/0.189.md](docs/changelog/0.189.md)

@@ -15,6 +15,10 @@ pub(in crate::db) enum CommitFailpoint {
     AfterMarkerWrite,
     BeforeMarkerBoundJournalAppend,
     AfterMarkerBoundJournalAppend,
+    BeforeJournalTailFoldBatch,
+    AfterJournalTailFoldWatermarkPersist,
+    AfterSecondaryIndexRebuildClear,
+    AfterJournaledIndexMaterializedViewFold,
     BeforeMarkerClear,
     AfterMarkerClear,
 }
@@ -24,6 +28,10 @@ pub(in crate::db) enum CommitFailpointRecoveryAuthority {
     NoCommitAuthority,
     MarkerPayload,
     MarkerPayloadAndJournalPrefix,
+    JournalTailFoldReady,
+    FoldWatermarkPersisted,
+    SecondaryIndexRebuildCleared,
+    JournaledIndexMaterializedViewFolded,
     RecoveredStateWithMarker,
     RecoveredStateWithoutMarker,
 }
@@ -32,6 +40,7 @@ pub(in crate::db) enum CommitFailpointRecoveryAuthority {
 pub(in crate::db) enum CommitFailpointSnapshotOracle {
     PreCommit,
     MarkerAuthorizedPostCommit,
+    RecoveryIntermediate,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,6 +74,18 @@ impl CommitFailpoint {
             Self::AfterMarkerBoundJournalAppend => {
                 CommitFailpointRecoveryAuthority::MarkerPayloadAndJournalPrefix
             }
+            Self::BeforeJournalTailFoldBatch => {
+                CommitFailpointRecoveryAuthority::JournalTailFoldReady
+            }
+            Self::AfterJournalTailFoldWatermarkPersist => {
+                CommitFailpointRecoveryAuthority::FoldWatermarkPersisted
+            }
+            Self::AfterSecondaryIndexRebuildClear => {
+                CommitFailpointRecoveryAuthority::SecondaryIndexRebuildCleared
+            }
+            Self::AfterJournaledIndexMaterializedViewFold => {
+                CommitFailpointRecoveryAuthority::JournaledIndexMaterializedViewFolded
+            }
             Self::BeforeMarkerClear => CommitFailpointRecoveryAuthority::RecoveredStateWithMarker,
             Self::AfterMarkerClear => CommitFailpointRecoveryAuthority::RecoveredStateWithoutMarker,
         }
@@ -82,11 +103,27 @@ impl CommitFailpoint {
                 marker_present: true,
                 journal_tail_batches: 0,
             },
-            CommitFailpointRecoveryAuthority::MarkerPayloadAndJournalPrefix => {
+            CommitFailpointRecoveryAuthority::MarkerPayloadAndJournalPrefix
+            | CommitFailpointRecoveryAuthority::JournalTailFoldReady => {
                 CommitFailpointRecoveryOracle {
                     snapshot: CommitFailpointSnapshotOracle::PreCommit,
                     marker_present: true,
                     journal_tail_batches: 1,
+                }
+            }
+            CommitFailpointRecoveryAuthority::FoldWatermarkPersisted => {
+                CommitFailpointRecoveryOracle {
+                    snapshot: CommitFailpointSnapshotOracle::RecoveryIntermediate,
+                    marker_present: true,
+                    journal_tail_batches: 1,
+                }
+            }
+            CommitFailpointRecoveryAuthority::SecondaryIndexRebuildCleared
+            | CommitFailpointRecoveryAuthority::JournaledIndexMaterializedViewFolded => {
+                CommitFailpointRecoveryOracle {
+                    snapshot: CommitFailpointSnapshotOracle::RecoveryIntermediate,
+                    marker_present: true,
+                    journal_tail_batches: 0,
                 }
             }
             CommitFailpointRecoveryAuthority::RecoveredStateWithMarker => {

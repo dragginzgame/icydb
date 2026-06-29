@@ -111,7 +111,7 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         return ensure_schema_reconciled(db);
     }
 
-    if !commit_marker_may_be_present() {
+    if !commit_marker_may_be_present() && !db.has_registered_index_store_building() {
         return ensure_schema_reconciled(db);
     }
 
@@ -126,6 +126,21 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
 
         return ensure_schema_reconciled(db);
     }
+
+    if db.has_registered_index_store_building() {
+        // A previous recovery can be interrupted after marker clear but before
+        // volatile index readiness is restored. Marker absence alone is not
+        // enough to prove recovery complete while any registered index remains
+        // in its rebuild state.
+        ensure_schema_reconciled(db)?;
+        perform_recovery(db)?;
+        mark_recovery_domain_recovered(recovery_key)
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        mark_schema_reconciliation_dirty(db);
+
+        return ensure_schema_reconciled(db);
+    }
+
     mark_commit_marker_verified_absent();
 
     ensure_schema_reconciled(db)
@@ -241,6 +256,8 @@ fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError
 
         journal_store.with_borrow(|store| {
             store.visit_batches_after(watermark.highest_folded_journal_sequence(), |batch| {
+                #[cfg(test)]
+                hit_commit_failpoint(CommitFailpoint::BeforeJournalTailFoldBatch)?;
                 fold_journal_batch(db, store_path, handle, batch)?;
                 highest_folded = batch.journal_sequence();
                 Ok(JournalTailVisit::Continue)
@@ -255,6 +272,8 @@ fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError
             let next_watermark = FoldWatermark::new(highest_folded, next_epoch);
             journal_store.with_borrow_mut(|store| {
                 store.persist_fold_watermark(next_watermark)?;
+                #[cfg(test)]
+                hit_commit_failpoint(CommitFailpoint::AfterJournalTailFoldWatermarkPersist)?;
                 store.clear_batches_through(highest_folded);
 
                 Ok::<(), InternalError>(())
@@ -276,6 +295,8 @@ fn fold_journaled_index_materialized_views<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     for (_, handle) in sorted_journaled_store_handles(db) {
         handle.with_index_mut(IndexStore::fold_journaled_materialized_view)?;
+        #[cfg(test)]
+        hit_commit_failpoint(CommitFailpoint::AfterJournaledIndexMaterializedViewFold)?;
     }
 
     Ok(())

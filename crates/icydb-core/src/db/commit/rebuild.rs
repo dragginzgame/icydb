@@ -3,6 +3,8 @@
 //! Does not own: commit-marker replay, commit-marker persistence, or query planning.
 //! Boundary: commit::recovery -> commit::rebuild -> commit::{prepare,apply} (one-way).
 
+#[cfg(test)]
+use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
 use crate::{
     db::{
         Db,
@@ -132,6 +134,8 @@ fn rebuild_secondary_indexes_in_place(
     for (_, handle) in stores {
         handle.with_index_mut(IndexStore::clear);
     }
+    #[cfg(test)]
+    hit_commit_failpoint(CommitFailpoint::AfterSecondaryIndexRebuildClear)?;
 
     // Phase 3: rebuild index entries from authoritative row stores.
     for (_, handle) in stores {
