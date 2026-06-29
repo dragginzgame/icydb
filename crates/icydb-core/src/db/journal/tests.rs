@@ -116,6 +116,14 @@ fn journal_batch_decode_rejects_corrupt_magic() {
 }
 
 #[test]
+fn journal_batch_decode_rejects_empty_bytes() {
+    let err = decode_journal_batch(&[]).expect_err("empty journal batch bytes should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
 fn journal_batch_decode_rejects_truncated_payload() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded.truncate(encoded.len().saturating_sub(1));

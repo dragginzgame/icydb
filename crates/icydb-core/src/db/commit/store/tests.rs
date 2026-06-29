@@ -111,6 +111,18 @@ fn commit_control_slot_rejects_corrupt_magic() {
 }
 
 #[test]
+fn commit_marker_empty_bytes_decode_as_absent_marker() {
+    let decoded = RawCommitMarker(Vec::new())
+        .try_decode()
+        .expect("empty marker bytes should decode as marker absence");
+
+    assert!(
+        decoded.is_none(),
+        "empty marker bytes are the explicit no-marker durable state",
+    );
+}
+
+#[test]
 fn commit_marker_rejects_truncated_envelope_header() {
     let err = RawCommitMarker(vec![COMMIT_MARKER_FORMAT_VERSION_CURRENT])
         .try_decode()

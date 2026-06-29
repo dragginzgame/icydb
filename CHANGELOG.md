@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.189.md](docs/changelog/0.189.md)
 
+- `0.189.2` expands the reliability proof with deterministic model-based
+  guarded recovery and fold-watermark/empty-byte oracle polish across the
+  classified commit failpoint harness.
+
 - `0.189.1` continues the reliability harness by naming commit failpoint
   failure classes, durable recovery-authority classes, and explicit
   marker/journal/snapshot interruption oracles.
