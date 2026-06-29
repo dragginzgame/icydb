@@ -108,8 +108,7 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         return recover_domain(db, recovery_key);
     }
 
-    let recovery_in_progress = recovery_domain_in_progress(recovery_key)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    let recovery_in_progress = recovery_domain_in_progress(recovery_key);
 
     if !commit_marker_may_be_present() && !recovery_in_progress {
         return ensure_schema_reconciled(db);
@@ -131,20 +130,23 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
     ensure_schema_reconciled(db)
 }
 
+#[cfg(test)]
+pub(in crate::db::commit) fn clear_recovery_in_progress_for_tests() {
+    RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow_mut().clear());
+}
+
 fn recover_domain<C: CanisterKind>(
     db: &Db<C>,
     recovery_key: RecoveryDomainKey,
 ) -> Result<(), InternalError> {
-    mark_recovery_domain_in_progress(recovery_key)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    mark_recovery_domain_in_progress(recovery_key);
     // Schema compatibility must be checked before row replay/rebuild can
     // decode stored rows with the generated runtime layout.
     ensure_schema_reconciled(db)?;
     perform_recovery(db)?;
     mark_recovery_domain_recovered(recovery_key)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-    clear_recovery_domain_in_progress(recovery_key)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    clear_recovery_domain_in_progress(recovery_key);
     mark_schema_reconciliation_dirty(db);
 
     ensure_schema_reconciled(db)
@@ -853,16 +855,15 @@ fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalErr
 }
 
 #[cfg(not(test))]
-fn recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<bool, InternalError> {
+fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
     recovery_in_progress_keys()
         .lock()
-        .map(|keys| keys.contains(&key))
-        .map_err(|_| InternalError::store_invariant())
+        .map_or(true, |keys| keys.contains(&key))
 }
 
 #[cfg(test)]
-fn recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<bool, InternalError> {
-    Ok(RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow().contains(&key)))
+fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
+    RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow().contains(&key))
 }
 
 fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
@@ -877,46 +878,36 @@ fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), Internal
 }
 
 #[cfg(not(test))]
-fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
-    let mut keys = recovery_in_progress_keys()
-        .lock()
-        .map_err(|_| InternalError::store_invariant())?;
-    if !keys.contains(&key) {
+fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) {
+    if let Ok(mut keys) = recovery_in_progress_keys().lock()
+        && !keys.contains(&key)
+    {
         keys.push(key);
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
-fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
+fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| {
         let mut keys = keys.borrow_mut();
         if !keys.contains(&key) {
             keys.push(key);
         }
     });
-
-    Ok(())
 }
 
 #[cfg(not(test))]
-fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
-    let mut keys = recovery_in_progress_keys()
-        .lock()
-        .map_err(|_| InternalError::store_invariant())?;
-    keys.retain(|existing| *existing != key);
-
-    Ok(())
+fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) {
+    if let Ok(mut keys) = recovery_in_progress_keys().lock() {
+        keys.retain(|existing| *existing != key);
+    }
 }
 
 #[cfg(test)]
-fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) -> Result<(), InternalError> {
+fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| {
         keys.borrow_mut().retain(|existing| *existing != key);
     });
-
-    Ok(())
 }
 
 fn schema_reconciliation_clean(key: SchemaReconciliationKey) -> bool {

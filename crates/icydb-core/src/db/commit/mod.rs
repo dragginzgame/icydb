@@ -77,7 +77,10 @@ pub(in crate::db) fn clear_commit_marker_for_tests() -> Result<(), InternalError
     store::with_commit_store(|store| {
         store.clear_raw_for_tests();
         Ok(())
-    })
+    })?;
+    recovery::clear_recovery_in_progress_for_tests();
+
+    Ok(())
 }
 
 /// Persist a raw commit marker in tests without running the normal begin-commit gate.
