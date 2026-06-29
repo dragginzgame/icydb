@@ -11,9 +11,11 @@ use crate::{
             serialize_row_payload_with_version,
         },
         commit::{
-            CommitFailpoint, CommitFailpointMode, CommitMarker, CommitRowOp,
-            arm_commit_failpoint_for_tests, begin_commit, clear_commit_failpoint_for_tests,
-            commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
+            CommitFailpoint, CommitFailpointFailureClass, CommitFailpointMode,
+            CommitFailpointRecoveryAuthority, CommitFailpointSnapshotOracle, CommitMarker,
+            CommitRowOp, arm_commit_failpoint_for_tests, begin_commit,
+            clear_commit_failpoint_for_tests, commit_marker_present, ensure_recovered,
+            finish_commit, init_commit_store_for_tests,
             marker::{
                 COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload,
                 encode_single_row_commit_marker_payload,
@@ -43,8 +45,8 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntityKind, EntitySchema, FieldTypeMeta, Path, PersistedFieldSlotCodec, RuntimeValueDecode,
-        RuntimeValueEncode,
+        CanisterKind, EntityKind, EntitySchema, FieldTypeMeta, Path, PersistedFieldSlotCodec,
+        RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{EntityTag, Ulid},
     value::{Value, ValueEnum},
@@ -81,6 +83,17 @@ crate::test_canister! {
     commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
+struct RecoveryPeerCanister;
+
+impl Path for RecoveryPeerCanister {
+    const PATH: &'static str = concat!(module_path!(), "::", stringify!(RecoveryPeerCanister));
+}
+
+impl CanisterKind for RecoveryPeerCanister {
+    const COMMIT_MEMORY_ID: u8 = 30;
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.peer.commit.v1";
+}
+
 //
 // RecoveryTestDataStore
 //
@@ -93,6 +106,11 @@ crate::test_store! {
 crate::test_store! {
     ident = HeapRecoveryTestDataStore,
     canister = RecoveryTestCanister,
+}
+
+crate::test_store! {
+    ident = RecoveryPeerDataStore,
+    canister = RecoveryPeerCanister,
 }
 
 ///
@@ -135,6 +153,27 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct RecoveryPeerEntity {
+    id: Ulid,
+    group: u32,
+}
+
+crate::test_entity! {
+    ident = RecoveryPeerEntity,
+    entity_name = "RecoveryPeerEntity",
+    tag = EntityTag::new(0x1713),
+    store = RecoveryPeerDataStore,
+    canister = RecoveryPeerCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { group: u32 => FieldKind::Nat64 },
     ],
     indexes = [],
 }
@@ -639,6 +678,16 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
 ];
 
+static PEER_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryPeerCanister>] =
+    &[EntityRuntimeHooks::new(
+        RecoveryPeerEntity::ENTITY_TAG,
+        <RecoveryPeerEntity as EntitySchema>::MODEL,
+        RecoveryPeerEntity::PATH,
+        RecoveryPeerDataStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<RecoveryPeerEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryPeerEntity>,
+    )];
+
 thread_local! {
     static RECOVERY_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(19)));
     static RECOVERY_INDEX_STORE: RefCell<IndexStore> =
@@ -653,6 +702,14 @@ thread_local! {
         const { RefCell::new(IndexStore::init_heap()) };
     static HEAP_RECOVERY_SCHEMA_STORE: RefCell<SchemaStore> =
         const { RefCell::new(SchemaStore::init_heap()) };
+    static PEER_RECOVERY_DATA_STORE: RefCell<DataStore> =
+        RefCell::new(DataStore::init_journaled(test_memory(23)));
+    static PEER_RECOVERY_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init_journaled(test_memory(24)));
+    static PEER_RECOVERY_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init_journaled(test_memory(25)));
+    static PEER_RECOVERY_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(26)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_journaled_store(
@@ -681,9 +738,30 @@ thread_local! {
             .expect("heap recovery test store registration should succeed");
         reg
     };
+    static PEER_STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_journaled_store(
+            RecoveryPeerDataStore::PATH,
+            &PEER_RECOVERY_DATA_STORE,
+            &PEER_RECOVERY_INDEX_STORE,
+            &PEER_RECOVERY_SCHEMA_STORE,
+            &PEER_RECOVERY_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
+                crate::db::StoreAllocationIdentity::new(23, "icydb.test.peer-recovery.data.v1"),
+                crate::db::StoreAllocationIdentity::new(24, "icydb.test.peer-recovery.index.v1"),
+                crate::db::StoreAllocationIdentity::new(25, "icydb.test.peer-recovery.schema.v1"),
+                crate::db::StoreAllocationIdentity::new(26, "icydb.test.peer-recovery.journal.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
+        )
+        .expect("peer recovery test store registration should succeed");
+        reg
+    };
 }
 
 static DB: Db<RecoveryTestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
+static PEER_DB: Db<RecoveryPeerCanister> =
+    Db::new_with_hooks(&PEER_STORE_REGISTRY, PEER_ENTITY_RUNTIME_HOOKS);
 
 // Intentionally miswired runtime hooks used only to verify dispatch invariants.
 static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] =
@@ -749,9 +827,23 @@ fn with_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
         .expect("recovery test store access should succeed")
 }
 
+fn with_peer_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
+    PEER_DB
+        .with_store_registry(|reg| reg.try_get_store(RecoveryPeerDataStore::PATH).map(f))
+        .expect("peer recovery test store access should succeed")
+}
+
 fn with_heap_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
     DB.with_store_registry(|reg| reg.try_get_store(HeapRecoveryTestDataStore::PATH).map(f))
         .expect("heap recovery test store access should succeed")
+}
+
+fn init_peer_commit_store_for_tests() -> Result<(), InternalError> {
+    super::memory::configure_commit_memory_id(
+        RecoveryPeerCanister::COMMIT_MEMORY_ID,
+        RecoveryPeerCanister::COMMIT_STABLE_KEY,
+    )?;
+    store::with_commit_store(|_| Ok(()))
 }
 
 // Reset marker + data store to isolate recovery tests.
@@ -777,6 +869,24 @@ fn reset_recovery_state() {
         store.with_data_mut(DataStore::clear);
         store.with_index_mut(IndexStore::clear);
         store.with_schema_mut(SchemaStore::clear);
+    });
+}
+
+fn reset_peer_recovery_state() {
+    init_peer_commit_store_for_tests().expect("peer commit store init should succeed");
+    store::with_commit_store(|store| {
+        store.clear_raw_for_tests();
+        Ok(())
+    })
+    .expect("peer commit marker reset should succeed");
+
+    with_peer_recovery_store(|store| {
+        store.with_data_mut(DataStore::clear);
+        store.with_index_mut(IndexStore::clear);
+        store.with_schema_mut(SchemaStore::clear);
+        if let Some(journal_store) = store.journal_tail_store() {
+            journal_store.with_borrow_mut(JournalTailStore::clear);
+        }
     });
 }
 
@@ -1061,6 +1171,33 @@ fn recovery_store_snapshot() -> RecoveryStoreSnapshot {
     })
 }
 
+fn peer_recovery_store_snapshot() -> RecoveryStoreSnapshot {
+    with_peer_recovery_store(|store| {
+        let mut data_rows = store.with_data(|data_store| {
+            let mut rows = Vec::new();
+            let _: Result<(), crate::error::InternalError> =
+                data_store.visit_entries(|raw_key, raw_row| {
+                    rows.push((raw_key.as_bytes().to_vec(), raw_row.as_bytes().to_vec()));
+                    Ok(StoreVisit::Continue)
+                });
+            rows
+        });
+        let mut index_rows = store.with_index(|index_store| {
+            let mut rows = Vec::new();
+            let _: Result<(), std::convert::Infallible> =
+                index_store.visit_entries(|raw_key, raw_entry| {
+                    rows.push((raw_key.as_bytes().to_vec(), raw_entry.as_bytes().to_vec()));
+                    Ok(IndexStoreVisit::Continue)
+                });
+            rows
+        });
+        data_rows.sort();
+        index_rows.sort();
+
+        (data_rows, index_rows)
+    })
+}
+
 // Apply prepared row operations through the forward (non-recovery) apply path.
 fn apply_row_ops_forward(row_ops: &[CommitRowOp]) -> Result<(), InternalError> {
     for row_op in row_ops {
@@ -1102,14 +1239,14 @@ fn recovery_journal_tail_batch_count() -> u64 {
 }
 
 fn assert_begin_commit_failpoint(marker: &CommitMarker, mode: CommitFailpointMode) {
-    match mode {
-        CommitFailpointMode::ReturnError => {
+    match mode.failure_class() {
+        CommitFailpointFailureClass::StructuredReturnedError => {
             assert!(
                 begin_commit(marker.clone()).is_err(),
                 "begin_commit failpoint should return error",
             );
         }
-        CommitFailpointMode::PanicUnwind => {
+        CommitFailpointFailureClass::HostUnwindInterruption => {
             let result = catch_unwind(AssertUnwindSafe(|| begin_commit(marker.clone())));
             assert!(
                 result.is_err(),
@@ -1120,11 +1257,11 @@ fn assert_begin_commit_failpoint(marker: &CommitMarker, mode: CommitFailpointMod
 }
 
 fn assert_recovery_failpoint(mode: CommitFailpointMode) {
-    match mode {
-        CommitFailpointMode::ReturnError => {
+    match mode.failure_class() {
+        CommitFailpointFailureClass::StructuredReturnedError => {
             ensure_recovered(&DB).expect_err("recovery failpoint should return error");
         }
-        CommitFailpointMode::PanicUnwind => {
+        CommitFailpointFailureClass::HostUnwindInterruption => {
             let result = catch_unwind(AssertUnwindSafe(|| ensure_recovered(&DB)));
             assert!(
                 result.is_err(),
@@ -1134,11 +1271,46 @@ fn assert_recovery_failpoint(mode: CommitFailpointMode) {
     }
 }
 
+fn assert_failpoint_interruption_oracle(
+    site: CommitFailpoint,
+    pre_snapshot: &RecoveryStoreSnapshot,
+    post_snapshot: &RecoveryStoreSnapshot,
+) {
+    let oracle = site.recovery_oracle();
+    let expected_snapshot = match oracle.snapshot() {
+        CommitFailpointSnapshotOracle::PreCommit => pre_snapshot,
+        CommitFailpointSnapshotOracle::MarkerAuthorizedPostCommit => post_snapshot,
+    };
+
+    assert_eq!(
+        &recovery_store_snapshot(),
+        expected_snapshot,
+        "failpoint site should expose the classified recovery snapshot oracle",
+    );
+    assert_eq!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        oracle.marker_present(),
+        "failpoint site should expose the classified marker-presence oracle",
+    );
+    assert_eq!(
+        recovery_journal_tail_batch_count(),
+        oracle.journal_tail_batches(),
+        "failpoint site should expose the classified journal-tail oracle",
+    );
+}
+
 fn indexed_data_key(id: Ulid) -> RawDataStoreKey {
     DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(id)
         .expect("indexed key should build")
         .to_raw()
         .expect("indexed key should encode")
+}
+
+fn peer_data_key(id: Ulid) -> RawDataStoreKey {
+    DecodedDataStoreKey::try_new::<RecoveryPeerEntity>(id)
+        .expect("peer key should build")
+        .to_raw()
+        .expect("peer key should encode")
 }
 
 fn unique_data_key(id: Ulid) -> RawDataStoreKey {
@@ -1180,6 +1352,10 @@ fn indexed_row_bytes(entity: &RecoveryIndexedEntity) -> Vec<u8> {
     canonical_row_bytes(entity)
 }
 
+fn peer_row_bytes(entity: &RecoveryPeerEntity) -> Vec<u8> {
+    canonical_row_bytes(entity)
+}
+
 fn unique_row_bytes(entity: &RecoveryUniqueEntity) -> Vec<u8> {
     canonical_row_bytes(entity)
 }
@@ -1218,6 +1394,20 @@ fn canonical_row_payload_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8
     decode_row_payload_bytes(row.as_bytes())
         .expect("canonical row payload should decode")
         .into_owned()
+}
+
+fn peer_insert_marker(entity: &RecoveryPeerEntity) -> CommitMarker {
+    let schema_fingerprint =
+        initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryPeerEntity>();
+    let row_op = row_op_for_path_with_schema(
+        RecoveryPeerEntity::PATH,
+        peer_data_key(entity.id).as_bytes().to_vec(),
+        None,
+        Some(peer_row_bytes(entity)),
+        schema_fingerprint,
+    );
+
+    CommitMarker::new(vec![row_op]).expect("peer recovery marker should build")
 }
 
 const RECOVERY_STATUS_ENUM_PATH: &str = "db::commit::tests::RecoveryConditionalStatus";
@@ -1551,30 +1741,185 @@ fn commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_mark
 }
 
 #[test]
+fn commit_failpoint_modes_have_explicit_failure_classification() {
+    assert_eq!(
+        CommitFailpointMode::ReturnError.failure_class(),
+        CommitFailpointFailureClass::StructuredReturnedError,
+    );
+    assert_eq!(
+        CommitFailpointMode::PanicUnwind.failure_class(),
+        CommitFailpointFailureClass::HostUnwindInterruption,
+    );
+}
+
+#[test]
+fn commit_failpoint_sites_have_explicit_recovery_authority() {
+    assert_eq!(
+        CommitFailpoint::BeforeMarkerWrite.recovery_authority(),
+        CommitFailpointRecoveryAuthority::NoCommitAuthority,
+    );
+    assert_eq!(
+        CommitFailpoint::AfterMarkerWrite.recovery_authority(),
+        CommitFailpointRecoveryAuthority::MarkerPayload,
+    );
+    assert_eq!(
+        CommitFailpoint::BeforeMarkerBoundJournalAppend.recovery_authority(),
+        CommitFailpointRecoveryAuthority::MarkerPayload,
+    );
+    assert_eq!(
+        CommitFailpoint::AfterMarkerBoundJournalAppend.recovery_authority(),
+        CommitFailpointRecoveryAuthority::MarkerPayloadAndJournalPrefix,
+    );
+    assert_eq!(
+        CommitFailpoint::BeforeMarkerClear.recovery_authority(),
+        CommitFailpointRecoveryAuthority::RecoveredStateWithMarker,
+    );
+    assert_eq!(
+        CommitFailpoint::AfterMarkerClear.recovery_authority(),
+        CommitFailpointRecoveryAuthority::RecoveredStateWithoutMarker,
+    );
+}
+
+#[test]
+fn commit_failpoint_sites_have_explicit_recovery_oracles() {
+    let cases = [
+        (
+            CommitFailpoint::BeforeMarkerWrite,
+            CommitFailpointSnapshotOracle::PreCommit,
+            false,
+            0,
+        ),
+        (
+            CommitFailpoint::AfterMarkerWrite,
+            CommitFailpointSnapshotOracle::PreCommit,
+            true,
+            0,
+        ),
+        (
+            CommitFailpoint::BeforeMarkerBoundJournalAppend,
+            CommitFailpointSnapshotOracle::PreCommit,
+            true,
+            0,
+        ),
+        (
+            CommitFailpoint::AfterMarkerBoundJournalAppend,
+            CommitFailpointSnapshotOracle::PreCommit,
+            true,
+            1,
+        ),
+        (
+            CommitFailpoint::BeforeMarkerClear,
+            CommitFailpointSnapshotOracle::MarkerAuthorizedPostCommit,
+            true,
+            0,
+        ),
+        (
+            CommitFailpoint::AfterMarkerClear,
+            CommitFailpointSnapshotOracle::MarkerAuthorizedPostCommit,
+            false,
+            0,
+        ),
+    ];
+
+    for (site, snapshot, marker_present, journal_tail_batches) in cases {
+        let oracle = site.recovery_oracle();
+        assert_eq!(oracle.snapshot(), snapshot);
+        assert_eq!(oracle.marker_present(), marker_present);
+        assert_eq!(oracle.journal_tail_batches(), journal_tail_batches);
+    }
+}
+
+#[test]
+fn recovery_domain_key_allows_peer_marker_after_primary_noop_recovery() {
+    reset_recovery_state();
+    reset_peer_recovery_state();
+
+    ensure_recovered(&DB).expect("primary no-op recovery should succeed");
+
+    let peer = RecoveryPeerEntity {
+        id: Ulid::from_u128(17_130),
+        group: 41,
+    };
+    let expected_row = (
+        peer_data_key(peer.id).as_bytes().to_vec(),
+        peer_row_bytes(&peer),
+    );
+
+    init_peer_commit_store_for_tests().expect("peer commit store should configure");
+    begin_commit(peer_insert_marker(&peer)).expect("peer marker should persist");
+    ensure_recovered(&DB).expect("primary follow-up recovery should not consume peer marker");
+    assert!(
+        !peer_recovery_store_snapshot().0.contains(&expected_row),
+        "peer row must not be applied by the primary recovery domain",
+    );
+
+    ensure_recovered(&PEER_DB).expect("peer marker should recover after primary domain recovered");
+    assert!(
+        peer_recovery_store_snapshot().0.contains(&expected_row),
+        "peer marker replay must apply the peer row",
+    );
+    assert!(
+        !commit_marker_present().expect("peer marker presence check should succeed"),
+        "peer recovery must clear the peer commit marker",
+    );
+}
+
+#[test]
+fn recovery_domain_key_keeps_primary_marker_after_peer_noop_recovery() {
+    reset_recovery_state();
+    reset_peer_recovery_state();
+
+    let primary = RecoveryIndexedEntity {
+        id: Ulid::from_u128(17_131),
+        group: 42,
+    };
+    let expected_row = (
+        indexed_data_key(primary.id).as_bytes().to_vec(),
+        indexed_row_bytes(&primary),
+    );
+    let marker = CommitMarker::new(vec![row_op_for_path(
+        RecoveryIndexedEntity::PATH,
+        indexed_data_key(primary.id).as_bytes().to_vec(),
+        None,
+        Some(indexed_row_bytes(&primary)),
+    )])
+    .expect("primary marker should build");
+
+    init_commit_store_for_tests().expect("primary commit store should configure");
+    begin_commit(marker).expect("primary marker should persist");
+    ensure_recovered(&PEER_DB).expect("peer no-op recovery should not consume primary marker");
+
+    init_commit_store_for_tests().expect("primary commit store should reconfigure");
+    assert!(
+        commit_marker_present().expect("primary marker presence check should succeed"),
+        "primary marker must remain present after peer recovery",
+    );
+
+    ensure_recovered(&DB).expect("primary marker should recover after peer domain recovered");
+    assert!(
+        recovery_store_snapshot().0.contains(&expected_row),
+        "primary marker replay must apply the primary row",
+    );
+    assert!(
+        !commit_marker_present().expect("primary marker presence check should succeed"),
+        "primary recovery must clear the primary commit marker",
+    );
+}
+
+#[test]
 fn failpoint_before_marker_write_preserves_pre_state_for_error_and_unwind() {
     for mode in [
         CommitFailpointMode::ReturnError,
         CommitFailpointMode::PanicUnwind,
     ] {
-        let (marker, pre_snapshot, _) = mixed_recovery_marker_failpoint_case();
+        let (marker, pre_snapshot, post_snapshot) = mixed_recovery_marker_failpoint_case();
 
         arm_commit_failpoint_for_tests(CommitFailpoint::BeforeMarkerWrite, mode);
         assert_begin_commit_failpoint(&marker, mode);
-
-        assert!(
-            !commit_marker_present().expect("commit marker check should succeed"),
-            "pre-write failure must not persist marker authority",
-        );
-        assert_eq!(
-            recovery_store_snapshot(),
-            pre_snapshot,
-            "pre-write failure must leave the store at the seeded pre-state",
-        );
-
-        assert_eq!(
-            recovery_journal_tail_batch_count(),
-            0,
-            "pre-write failure must not publish marker-bound journal batches",
+        assert_failpoint_interruption_oracle(
+            CommitFailpoint::BeforeMarkerWrite,
+            &pre_snapshot,
+            &post_snapshot,
         );
     }
 }
@@ -1589,15 +1934,10 @@ fn failpoint_after_marker_write_recovers_marker_authorized_state_for_error_and_u
 
         arm_commit_failpoint_for_tests(CommitFailpoint::AfterMarkerWrite, mode);
         assert_begin_commit_failpoint(&marker, mode);
-
-        assert!(
-            commit_marker_present().expect("commit marker check should succeed"),
-            "post-write failure must leave marker authority persisted",
-        );
-        assert_eq!(
-            recovery_store_snapshot(),
-            pre_snapshot,
-            "post-write failure must not apply marker row effects before recovery",
+        assert_failpoint_interruption_oracle(
+            CommitFailpoint::AfterMarkerWrite,
+            &pre_snapshot,
+            &post_snapshot,
         );
 
         ensure_recovered(&DB).expect("recovery should replay the persisted marker");
@@ -1624,23 +1964,7 @@ fn failpoint_marker_bound_journal_append_is_retryable_for_error_and_unwind() {
 
             arm_commit_failpoint_for_tests(site, mode);
             assert_recovery_failpoint(mode);
-
-            assert!(
-                commit_marker_present().expect("commit marker check should succeed"),
-                "journal append failure must keep marker authority for retry",
-            );
-            assert_eq!(
-                recovery_store_snapshot(),
-                pre_snapshot,
-                "journal append failure occurs before row effects are folded",
-            );
-            let expected_batches =
-                u64::from(site == CommitFailpoint::AfterMarkerBoundJournalAppend);
-            assert_eq!(
-                recovery_journal_tail_batch_count(),
-                expected_batches,
-                "journal append failpoint should expose whether the batch was persisted",
-            );
+            assert_failpoint_interruption_oracle(site, &pre_snapshot, &post_snapshot);
 
             ensure_recovered(&DB).expect("journal append retry should recover");
             assert_eq!(recovery_store_snapshot(), post_snapshot);
@@ -1663,22 +1987,12 @@ fn failpoint_marker_clear_preserves_recovered_state_for_error_and_unwind() {
             CommitFailpointMode::ReturnError,
             CommitFailpointMode::PanicUnwind,
         ] {
-            let (marker, _, post_snapshot) = mixed_recovery_marker_failpoint_case();
+            let (marker, pre_snapshot, post_snapshot) = mixed_recovery_marker_failpoint_case();
             begin_commit(marker).expect("marker should persist before recovery failpoint");
 
             arm_commit_failpoint_for_tests(site, mode);
             assert_recovery_failpoint(mode);
-
-            assert_eq!(
-                recovery_store_snapshot(),
-                post_snapshot,
-                "marker-clear failure occurs after durable row recovery",
-            );
-            assert_eq!(
-                commit_marker_present().expect("commit marker check should succeed"),
-                site == CommitFailpoint::BeforeMarkerClear,
-                "marker presence after clear failure must match the failing side",
-            );
+            assert_failpoint_interruption_oracle(site, &pre_snapshot, &post_snapshot);
 
             ensure_recovered(&DB).expect("marker-clear retry should finish recovery");
             assert_eq!(recovery_store_snapshot(), post_snapshot);

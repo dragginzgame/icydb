@@ -41,8 +41,9 @@ const TEST_COMMIT_STABLE_KEY: &str = "icydb.test.commit.v1";
 
 #[cfg(test)]
 pub(in crate::db) use failpoint::{
-    CommitFailpoint, CommitFailpointMode, arm_commit_failpoint_for_tests,
-    clear_commit_failpoint_for_tests,
+    CommitFailpoint, CommitFailpointFailureClass, CommitFailpointMode,
+    CommitFailpointRecoveryAuthority, CommitFailpointSnapshotOracle,
+    arm_commit_failpoint_for_tests, clear_commit_failpoint_for_tests,
 };
 ///
 /// Re-exports

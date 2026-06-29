@@ -7,25 +7,33 @@ use crate::error::InternalError;
 #[cfg(not(test))]
 use ic_memory::runtime;
 use ic_memory::stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
-use std::sync::OnceLock;
+use std::{
+    cell::Cell,
+    sync::{Mutex, OnceLock},
+};
 
-static COMMIT_STORE_ALLOCATION: OnceLock<CommitMemoryAllocation> = OnceLock::new();
+static COMMIT_STORE_ALLOCATIONS: OnceLock<Mutex<Vec<CommitMemoryAllocation>>> = OnceLock::new();
+
+thread_local! {
+    static CURRENT_COMMIT_STORE_ALLOCATION: Cell<Option<CommitMemoryAllocation>> =
+        const { Cell::new(None) };
+}
 
 /// Runtime allocation identity for the commit-marker control slot.
 ///
 /// This is process-global commit storage wiring, not marker payload metadata.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct CommitMemoryAllocation {
-    memory_id: u8,
-    stable_key: &'static str,
+pub(super) struct CommitMemoryAllocation {
+    pub(super) memory_id: u8,
+    pub(super) stable_key: &'static str,
 }
 
-fn commit_memory_allocation() -> Result<CommitMemoryAllocation, InternalError> {
-    COMMIT_STORE_ALLOCATION
-        .get()
-        .copied()
-        .ok_or_else(InternalError::commit_memory_id_unconfigured)
+pub(super) fn current_commit_memory_allocation() -> Result<CommitMemoryAllocation, InternalError> {
+    CURRENT_COMMIT_STORE_ALLOCATION.with(|cell| {
+        cell.get()
+            .ok_or_else(InternalError::commit_memory_id_unconfigured)
+    })
 }
 
 /// Configure and register the commit marker memory id.
@@ -33,79 +41,74 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
     memory_id: u8,
     stable_key: &'static str,
 ) -> Result<u8, InternalError> {
-    // Phase 1: enforce one immutable runtime slot id per process.
-    if let Some(cached_id) = validate_cached_commit_memory_allocation(memory_id, stable_key)? {
-        return Ok(cached_id);
-    }
+    let allocation = CommitMemoryAllocation {
+        memory_id,
+        stable_key,
+    };
 
-    #[cfg(test)]
-    {
-        let _ = COMMIT_STORE_ALLOCATION.set(CommitMemoryAllocation {
-            memory_id,
-            stable_key,
-        });
-        Ok(memory_id)
-    }
+    register_commit_memory_allocation(allocation)?;
+    CURRENT_COMMIT_STORE_ALLOCATION.with(|cell| cell.set(Some(allocation)));
 
-    #[cfg(not(test))]
-    {
-        let _ = COMMIT_STORE_ALLOCATION.set(CommitMemoryAllocation {
-            memory_id,
-            stable_key,
-        });
-        Ok(memory_id)
-    }
+    Ok(memory_id)
 }
 
 /// Open the configured commit-marker memory slot through the shared memory API.
-pub(super) fn commit_memory_handle() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
-    let allocation = commit_memory_allocation()?;
-
-    #[cfg(test)]
-    {
-        Ok(crate::testing::test_memory(allocation.memory_id))
-    }
-
-    #[cfg(not(test))]
-    {
-        runtime::open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
-            .map_err(InternalError::commit_memory_id_registration_failed)
-    }
+#[cfg(test)]
+pub(super) fn commit_memory_handle(
+    allocation: CommitMemoryAllocation,
+) -> VirtualMemory<DefaultMemoryImpl> {
+    crate::testing::test_memory(allocation.memory_id)
 }
 
-fn validate_cached_commit_memory_allocation(
-    memory_id: u8,
-    stable_key: &'static str,
-) -> Result<Option<u8>, InternalError> {
-    validate_commit_memory_allocation_compat(
-        COMMIT_STORE_ALLOCATION.get().copied(),
-        memory_id,
-        stable_key,
-    )
+/// Open the configured commit-marker memory slot through the shared memory API.
+#[cfg(not(test))]
+pub(super) fn commit_memory_handle(
+    allocation: CommitMemoryAllocation,
+) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+    runtime::open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
+        .map_err(InternalError::commit_memory_id_registration_failed)
+}
+
+fn commit_memory_allocations() -> &'static Mutex<Vec<CommitMemoryAllocation>> {
+    COMMIT_STORE_ALLOCATIONS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn register_commit_memory_allocation(
+    allocation: CommitMemoryAllocation,
+) -> Result<(), InternalError> {
+    let mut allocations = commit_memory_allocations()
+        .lock()
+        .map_err(|_| InternalError::store_invariant())?;
+    if validate_commit_memory_allocation_compat(&allocations, allocation)?.is_none() {
+        allocations.push(allocation);
+    }
+
+    Ok(())
 }
 
 fn validate_commit_memory_allocation_compat(
-    cached: Option<CommitMemoryAllocation>,
-    memory_id: u8,
-    stable_key: &'static str,
-) -> Result<Option<u8>, InternalError> {
-    let Some(cached) = cached else {
-        return Ok(None);
-    };
-    if cached.memory_id != memory_id {
-        return Err(InternalError::commit_memory_id_mismatch(
-            cached.memory_id,
-            memory_id,
-        ));
-    }
-    if cached.stable_key != stable_key {
-        return Err(InternalError::commit_memory_stable_key_mismatch(
-            cached.stable_key,
-            stable_key,
-        ));
+    cached: &[CommitMemoryAllocation],
+    allocation: CommitMemoryAllocation,
+) -> Result<Option<CommitMemoryAllocation>, InternalError> {
+    for cached in cached {
+        if *cached == allocation {
+            return Ok(Some(*cached));
+        }
+        if cached.memory_id == allocation.memory_id {
+            return Err(InternalError::commit_memory_stable_key_mismatch(
+                cached.stable_key,
+                allocation.stable_key,
+            ));
+        }
+        if cached.stable_key == allocation.stable_key {
+            return Err(InternalError::commit_memory_id_mismatch(
+                cached.memory_id,
+                allocation.memory_id,
+            ));
+        }
     }
 
-    Ok(Some(cached.memory_id))
+    Ok(None)
 }
 
 ///
@@ -123,15 +126,15 @@ mod tests {
             memory_id: 12,
             stable_key: "icydb.test.commit.control.v1",
         };
+        let allocation = CommitMemoryAllocation {
+            memory_id: 12,
+            stable_key: "icydb.test.commit.control.v1",
+        };
 
         assert_eq!(
-            validate_commit_memory_allocation_compat(
-                Some(cached),
-                12,
-                "icydb.test.commit.control.v1"
-            )
-            .expect("matching cache should pass"),
-            Some(12),
+            validate_commit_memory_allocation_compat(&[cached], allocation)
+                .expect("matching cache should pass"),
+            Some(cached),
         );
     }
 
@@ -141,14 +144,32 @@ mod tests {
             memory_id: 12,
             stable_key: "icydb.test.commit.control.v1",
         };
+        let allocation = CommitMemoryAllocation {
+            memory_id: 30,
+            stable_key: "icydb.test.commit.control.v1",
+        };
 
-        let err = validate_commit_memory_allocation_compat(
-            Some(cached),
-            30,
-            "icydb.test.commit.control.v1",
-        )
-        .expect_err("mismatched cache should fail");
+        let err = validate_commit_memory_allocation_compat(&[cached], allocation)
+            .expect_err("mismatched cache should fail");
         assert_eq!(err.class, ErrorClass::Internal);
         assert_eq!(err.origin, ErrorOrigin::Store);
+    }
+
+    #[test]
+    fn cached_commit_memory_allocation_accepts_independent_slot() {
+        let cached = CommitMemoryAllocation {
+            memory_id: 12,
+            stable_key: "icydb.test.commit.control.v1",
+        };
+        let allocation = CommitMemoryAllocation {
+            memory_id: 30,
+            stable_key: "icydb.test.commit.peer-control.v1",
+        };
+
+        assert_eq!(
+            validate_commit_memory_allocation_compat(&[cached], allocation)
+                .expect("independent cache should pass"),
+            None,
+        );
     }
 }

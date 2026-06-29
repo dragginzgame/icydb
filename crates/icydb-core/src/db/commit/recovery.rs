@@ -21,7 +21,10 @@ use crate::{
         Db, EntityRuntimeHooks,
         commit::{
             CommitMarker, CommitRowOp,
-            memory::configure_commit_memory_id,
+            memory::{
+                CommitMemoryAllocation, configure_commit_memory_id,
+                current_commit_memory_allocation,
+            },
             rebuild::rebuild_secondary_indexes_from_rows,
             replay::replay_commit_marker_row_ops,
             store::{
@@ -47,12 +50,15 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, sync::OnceLock};
+use std::{
+    cell::RefCell,
+    sync::{Mutex, OnceLock},
+};
 
 #[cfg(test)]
 use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
 
-static RECOVERED: OnceLock<()> = OnceLock::new();
+static RECOVERED_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
 
 thread_local! {
     static SCHEMA_RECONCILED_KEYS: RefCell<Vec<SchemaReconciliationKey>> =
@@ -63,6 +69,12 @@ thread_local! {
 struct SchemaReconciliationKey {
     store_registry: usize,
     runtime_hooks: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RecoveryDomainKey {
+    commit_allocation: CommitMemoryAllocation,
+    schema: SchemaReconciliationKey,
 }
 
 /// Ensure global database invariants are restored before proceeding.
@@ -82,12 +94,18 @@ struct SchemaReconciliationKey {
 pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    let recovery_key =
+        recovery_domain_key(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    if RECOVERED.get().is_none() {
+    if !recovery_domain_recovered(recovery_key)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?
+    {
         // Schema compatibility must be checked before row replay/rebuild can
         // decode stored rows with the generated runtime layout.
         ensure_schema_reconciled(db)?;
         perform_recovery(db)?;
+        mark_recovery_domain_recovered(recovery_key)
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
         mark_schema_reconciliation_dirty(db);
 
         return ensure_schema_reconciled(db);
@@ -102,6 +120,8 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         // so fail schema drift before any row decode path runs.
         ensure_schema_reconciled(db)?;
         perform_recovery(db)?;
+        mark_recovery_domain_recovered(recovery_key)
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
         mark_schema_reconciliation_dirty(db);
 
         return ensure_schema_reconciled(db);
@@ -161,8 +181,6 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     // query-visible again.
     db.mark_all_registered_index_stores_ready();
     mark_commit_marker_verified_absent();
-
-    let _ = RECOVERED.set(());
 
     Ok(())
 }
@@ -784,6 +802,35 @@ fn schema_reconciliation_key<C: CanisterKind>(db: &Db<C>) -> SchemaReconciliatio
         store_registry: std::ptr::from_ref(db.store).cast::<()>() as usize,
         runtime_hooks: db.entity_runtime_hooks.as_ptr().cast::<()>() as usize,
     }
+}
+
+fn recovery_domain_key<C: CanisterKind>(db: &Db<C>) -> Result<RecoveryDomainKey, InternalError> {
+    Ok(RecoveryDomainKey {
+        commit_allocation: current_commit_memory_allocation()?,
+        schema: schema_reconciliation_key(db),
+    })
+}
+
+fn recovered_keys() -> &'static Mutex<Vec<RecoveryDomainKey>> {
+    RECOVERED_KEYS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalError> {
+    recovered_keys()
+        .lock()
+        .map(|keys| keys.contains(&key))
+        .map_err(|_| InternalError::store_invariant())
+}
+
+fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
+    let mut keys = recovered_keys()
+        .lock()
+        .map_err(|_| InternalError::store_invariant())?;
+    if !keys.contains(&key) {
+        keys.push(key);
+    }
+
+    Ok(())
 }
 
 fn schema_reconciliation_clean(key: SchemaReconciliationKey) -> bool {

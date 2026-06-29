@@ -7,21 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Starts the 0.189 reliability-audit line by making the no-default compile
-  matrix explicit for public crates and the workspace, adding a no-default
-  facade smoke test, and fixing the SQL perf-audit canister no-default cfg
-  leak.
-- Hardens 0.189 API-footgun documentation by making volatile heap-store and
-  non-atomic batch semantics explicit in public docs and examples.
-- Adds an IC-native commit failpoint harness for marker writes, marker-bound
-  journal publication, and marker clear recovery, with oracle checks for both
-  returned errors and unwind-style interruptions.
-- Hardens journal-tail storage by replacing whole-batch stable values with
-  bounded chunks, preserving tiny-append memory behavior while rejecting
-  corrupt, truncated, and oversized journal batch bytes.
-- Completes the 0.189 deterministic persisted-format corruption corpus for
-  commit markers and journal batches, including truncated envelopes,
-  incompatible versions, oversized values, and unknown tags/flags.
+## [0.189.x] 🧪 - 2026-06-28 - Reliability Audit Cleanup
+
+Detailed notes: [docs/changelog/0.189.md](docs/changelog/0.189.md)
+
+- `0.189.1` continues the reliability harness by naming commit failpoint
+  failure classes, durable recovery-authority classes, and explicit
+  marker/journal/snapshot interruption oracles.
+
+- `0.189.0` starts the reliability-audit cleanup line by making the supported
+  no-default matrix explicit, documenting heap/non-atomic footguns, adding an
+  IC-native commit recovery failpoint harness, hardening journal-tail storage,
+  expanding deterministic marker/journal corruption coverage, and scoping
+  recovery state by commit-memory domain.
 
 ## [0.188.x] 🔧 - 2026-06-28 - Mutation Candidate Collector
 

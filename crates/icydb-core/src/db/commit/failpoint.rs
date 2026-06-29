@@ -20,9 +20,112 @@ pub(in crate::db) enum CommitFailpoint {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum CommitFailpointRecoveryAuthority {
+    NoCommitAuthority,
+    MarkerPayload,
+    MarkerPayloadAndJournalPrefix,
+    RecoveredStateWithMarker,
+    RecoveredStateWithoutMarker,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum CommitFailpointSnapshotOracle {
+    PreCommit,
+    MarkerAuthorizedPostCommit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct CommitFailpointRecoveryOracle {
+    snapshot: CommitFailpointSnapshotOracle,
+    marker_present: bool,
+    journal_tail_batches: u64,
+}
+
+impl CommitFailpointRecoveryOracle {
+    pub(in crate::db) const fn snapshot(self) -> CommitFailpointSnapshotOracle {
+        self.snapshot
+    }
+
+    pub(in crate::db) const fn marker_present(self) -> bool {
+        self.marker_present
+    }
+
+    pub(in crate::db) const fn journal_tail_batches(self) -> u64 {
+        self.journal_tail_batches
+    }
+}
+
+impl CommitFailpoint {
+    pub(in crate::db) const fn recovery_authority(self) -> CommitFailpointRecoveryAuthority {
+        match self {
+            Self::BeforeMarkerWrite => CommitFailpointRecoveryAuthority::NoCommitAuthority,
+            Self::AfterMarkerWrite | Self::BeforeMarkerBoundJournalAppend => {
+                CommitFailpointRecoveryAuthority::MarkerPayload
+            }
+            Self::AfterMarkerBoundJournalAppend => {
+                CommitFailpointRecoveryAuthority::MarkerPayloadAndJournalPrefix
+            }
+            Self::BeforeMarkerClear => CommitFailpointRecoveryAuthority::RecoveredStateWithMarker,
+            Self::AfterMarkerClear => CommitFailpointRecoveryAuthority::RecoveredStateWithoutMarker,
+        }
+    }
+
+    pub(in crate::db) const fn recovery_oracle(self) -> CommitFailpointRecoveryOracle {
+        match self.recovery_authority() {
+            CommitFailpointRecoveryAuthority::NoCommitAuthority => CommitFailpointRecoveryOracle {
+                snapshot: CommitFailpointSnapshotOracle::PreCommit,
+                marker_present: false,
+                journal_tail_batches: 0,
+            },
+            CommitFailpointRecoveryAuthority::MarkerPayload => CommitFailpointRecoveryOracle {
+                snapshot: CommitFailpointSnapshotOracle::PreCommit,
+                marker_present: true,
+                journal_tail_batches: 0,
+            },
+            CommitFailpointRecoveryAuthority::MarkerPayloadAndJournalPrefix => {
+                CommitFailpointRecoveryOracle {
+                    snapshot: CommitFailpointSnapshotOracle::PreCommit,
+                    marker_present: true,
+                    journal_tail_batches: 1,
+                }
+            }
+            CommitFailpointRecoveryAuthority::RecoveredStateWithMarker => {
+                CommitFailpointRecoveryOracle {
+                    snapshot: CommitFailpointSnapshotOracle::MarkerAuthorizedPostCommit,
+                    marker_present: true,
+                    journal_tail_batches: 0,
+                }
+            }
+            CommitFailpointRecoveryAuthority::RecoveredStateWithoutMarker => {
+                CommitFailpointRecoveryOracle {
+                    snapshot: CommitFailpointSnapshotOracle::MarkerAuthorizedPostCommit,
+                    marker_present: false,
+                    journal_tail_batches: 0,
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum CommitFailpointMode {
     ReturnError,
     PanicUnwind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum CommitFailpointFailureClass {
+    StructuredReturnedError,
+    HostUnwindInterruption,
+}
+
+impl CommitFailpointMode {
+    pub(in crate::db) const fn failure_class(self) -> CommitFailpointFailureClass {
+        match self {
+            Self::ReturnError => CommitFailpointFailureClass::StructuredReturnedError,
+            Self::PanicUnwind => CommitFailpointFailureClass::HostUnwindInterruption,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

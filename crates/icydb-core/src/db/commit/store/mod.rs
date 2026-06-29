@@ -12,7 +12,7 @@ mod tests;
 use crate::{
     db::commit::{
         marker::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES, validate_commit_marker_shape},
-        memory::commit_memory_handle,
+        memory::{CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation},
         store::{
             control_slot::{
                 decode_commit_control_slot, encode_commit_control_slot_from_marker,
@@ -26,11 +26,9 @@ use crate::{
 use ic_memory::stable_structures::{
     Cell as StableCell, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory, storable::Bound,
 };
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    sync::atomic::{AtomicBool, Ordering},
-};
+#[cfg(not(test))]
+use std::sync::{Mutex, OnceLock};
+use std::{borrow::Cow, cell::RefCell};
 
 #[cfg(test)]
 use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
@@ -39,13 +37,16 @@ use crate::db::commit::store::control_slot::encode_commit_control_slot;
 #[cfg(test)]
 use crate::db::commit::store::marker_envelope::encode_commit_marker_bytes;
 
-// Process-local marker presence hint for the recovered common path.
-//
-// After startup recovery succeeds, commit markers can only appear through this
-// module's begin-commit writers. Tracking that fact in memory lets read-only
-// query paths avoid re-reading the stable marker slot when no commit window has
-// been opened in the current process.
-static COMMIT_MARKER_MAY_BE_PRESENT: AtomicBool = AtomicBool::new(false);
+#[cfg(not(test))]
+static COMMIT_MARKER_PRESENCE_HINTS: OnceLock<Mutex<Vec<CommitMarkerPresenceHint>>> =
+    OnceLock::new();
+
+#[cfg(not(test))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CommitMarkerPresenceHint {
+    allocation: CommitMemoryAllocation,
+    may_be_present: bool,
+}
 
 ///
 /// RawCommitMarker
@@ -287,8 +288,13 @@ impl CommitStore {
     }
 }
 
+struct CommitStoreEntry {
+    allocation: CommitMemoryAllocation,
+    store: CommitStore,
+}
+
 thread_local! {
-    static COMMIT_STORE: RefCell<Option<CommitStore>> = const { RefCell::new(None) };
+    static COMMIT_STORES: RefCell<Vec<CommitStoreEntry>> = const { RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]
@@ -300,18 +306,25 @@ pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
 pub(super) fn with_commit_store<R>(
     f: impl FnOnce(&mut CommitStore) -> Result<R, InternalError>,
 ) -> Result<R, InternalError> {
-    COMMIT_STORE.with(|cell| {
-        // Phase 1: lazily initialize storage if this thread has not touched it.
-        if cell.borrow().is_none() {
-            // StableCell::init performs a benign stable write for the empty marker.
-            let store = CommitStore::init(commit_memory_handle()?);
-            *cell.borrow_mut() = Some(store);
+    let allocation = current_commit_memory_allocation()?;
+
+    COMMIT_STORES.with(|cell| {
+        let mut stores = cell.borrow_mut();
+        if let Some(index) = stores
+            .iter()
+            .position(|entry| entry.allocation == allocation)
+        {
+            return f(&mut stores[index].store);
         }
 
-        // Phase 2: execute the caller closure against initialized store state.
-        let mut guard = cell.borrow_mut();
-        let store = guard.as_mut().expect("commit store missing after init");
-        f(store)
+        // StableCell::init performs a benign stable write for the empty marker.
+        #[cfg(test)]
+        let store = CommitStore::init(commit_memory_handle(allocation));
+        #[cfg(not(test))]
+        let store = CommitStore::init(commit_memory_handle(allocation)?);
+        stores.push(CommitStoreEntry { allocation, store });
+        let index = stores.len().saturating_sub(1);
+        f(&mut stores[index].store)
     })
 }
 
@@ -323,7 +336,17 @@ pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
 /// Return whether a process-local commit-window event requires a stable marker check.
 #[cfg(not(test))]
 pub(super) fn commit_marker_may_be_present() -> bool {
-    COMMIT_MARKER_MAY_BE_PRESENT.load(Ordering::Acquire)
+    let Ok(allocation) = current_commit_memory_allocation() else {
+        return true;
+    };
+    let Ok(hints) = commit_marker_presence_hints().lock() else {
+        return true;
+    };
+
+    hints
+        .iter()
+        .find(|hint| hint.allocation == allocation)
+        .is_none_or(|hint| hint.may_be_present)
 }
 
 /// Return whether a process-local commit-window event requires a stable marker check.
@@ -337,13 +360,48 @@ pub(super) const fn commit_marker_may_be_present() -> bool {
 }
 
 /// Mark the process-local marker hint clean after a verified empty-marker observation.
+#[cfg(not(test))]
 pub(super) fn mark_commit_marker_verified_absent() {
-    COMMIT_MARKER_MAY_BE_PRESENT.store(false, Ordering::Release);
+    set_commit_marker_presence_hint(false);
+}
+
+/// Mark the process-local marker hint clean after a verified empty-marker observation.
+#[cfg(test)]
+pub(super) const fn mark_commit_marker_verified_absent() {}
+
+// Mark the process-local marker hint dirty after this process persists marker bytes.
+#[cfg(not(test))]
+fn mark_commit_marker_may_be_present() {
+    set_commit_marker_presence_hint(true);
 }
 
 // Mark the process-local marker hint dirty after this process persists marker bytes.
-fn mark_commit_marker_may_be_present() {
-    COMMIT_MARKER_MAY_BE_PRESENT.store(true, Ordering::Release);
+#[cfg(test)]
+const fn mark_commit_marker_may_be_present() {}
+
+#[cfg(not(test))]
+fn commit_marker_presence_hints() -> &'static Mutex<Vec<CommitMarkerPresenceHint>> {
+    COMMIT_MARKER_PRESENCE_HINTS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(not(test))]
+fn set_commit_marker_presence_hint(may_be_present: bool) {
+    let Ok(allocation) = current_commit_memory_allocation() else {
+        return;
+    };
+    let Ok(mut hints) = commit_marker_presence_hints().lock() else {
+        return;
+    };
+
+    if let Some(hint) = hints.iter_mut().find(|hint| hint.allocation == allocation) {
+        hint.may_be_present = may_be_present;
+        return;
+    }
+
+    hints.push(CommitMarkerPresenceHint {
+        allocation,
+        may_be_present,
+    });
 }
 
 /// Access the commit store without fallible initialization.
@@ -351,9 +409,16 @@ fn mark_commit_marker_may_be_present() {
 /// Invariant: caller must ensure `with_commit_store(...)` was called first
 /// on the current thread.
 pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -> R) -> R {
-    COMMIT_STORE.with(|cell| {
-        let mut guard = cell.borrow_mut();
-        let store = guard.as_mut().expect("commit store not initialized");
+    let allocation =
+        current_commit_memory_allocation().expect("commit memory allocation not configured");
+
+    COMMIT_STORES.with(|cell| {
+        let mut stores = cell.borrow_mut();
+        let store = stores
+            .iter_mut()
+            .find(|entry| entry.allocation == allocation)
+            .map(|entry| &mut entry.store)
+            .expect("commit store not initialized");
         f(store)
     })
 }
