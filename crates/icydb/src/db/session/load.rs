@@ -6,7 +6,8 @@
 
 use crate::{
     db::{
-        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, Row,
+        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, QueryAdmissionPolicy,
+        QueryAdmissionSummary, Row,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
             QueryTracePlan, ValueProjectionExpr,
@@ -157,6 +158,28 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, Error> {
         Ok(self.inner.trace()?)
+    }
+
+    /// Evaluate the current query plan against a read-admission policy without executing rows.
+    ///
+    /// Public endpoints must still enforce response-byte budgets on the final
+    /// typed response they return.
+    pub fn read_admission(
+        &self,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<QueryAdmissionSummary, Error> {
+        Ok(self.inner.read_admission(policy)?)
+    }
+
+    /// Require the current query plan to be admitted without executing rows.
+    ///
+    /// On rejection this returns the same read-admission error family used by
+    /// policy-bound SQL reads.
+    pub fn ensure_read_admission(
+        &self,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<QueryAdmissionSummary, Error> {
+        Ok(self.inner.ensure_read_admission(policy)?)
     }
 
     /// Build the validated logical plan without compiling execution details.

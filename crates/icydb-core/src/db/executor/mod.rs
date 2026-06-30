@@ -214,7 +214,6 @@ pub(in crate::db::executor) use window::page_window_state;
 pub(in crate::db::executor) type ExecutionPlan = planning::route::ExecutionRoutePlan;
 
 /// Return whether initial scalar load execution would need post-access ORDER BY materialization.
-#[cfg(feature = "sql")]
 pub(in crate::db) fn initial_read_plan_requires_materialized_sort(
     prepared_plan: &SharedPreparedExecutionPlan,
 ) -> Result<bool, InternalError> {

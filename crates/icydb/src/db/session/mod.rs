@@ -15,7 +15,8 @@ use crate::{
     ErrorCode,
     db::{
         EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
-        MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
+        MemoryCatalogDescription, QueryAdmissionPolicy, QueryAdmissionSummary, StorageReport,
+        StoreCatalogDescription,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{ProjectionRows, QueryResponse, RowProjectionOutput},
     },
@@ -710,6 +711,34 @@ impl<C: CanisterKind> DbSession<C> {
         E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.trace_query(query)?)
+    }
+
+    /// Evaluate one typed/fluent query plan against a read-admission policy without executing rows.
+    pub fn evaluate_query_read_admission_policy<E>(
+        &self,
+        query: &Query<E>,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<QueryAdmissionSummary, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(self
+            .inner
+            .evaluate_query_read_admission_policy(query, policy)?)
+    }
+
+    /// Require one typed/fluent query plan to be admitted without executing rows.
+    pub fn ensure_query_read_admission_policy<E>(
+        &self,
+        query: &Query<E>,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<QueryAdmissionSummary, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(self
+            .inner
+            .ensure_query_read_admission_policy(query, policy)?)
     }
 
     // ------------------------------------------------------------------

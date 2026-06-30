@@ -31,6 +31,8 @@ Estimates may be reported by diagnostics, but estimates do not authorize
 | --- | --- | --- | --- |
 | `DbSession::execute_sql_query::<E>` | `AdminAdHoc` by caller contract | caller-owned | Trusted single-entity SQL query helper. It is not public-safe by itself. |
 | `DbSession::execute_sql_query_with_read_admission_policy::<E>` | supplied by `QueryAdmissionPolicy` | caller-owned | Explicit policy-bound SQL read seam for custom public endpoints. |
+| `DbSession::evaluate_query_read_admission_policy::<E>` / `FluentLoadQuery::read_admission` | supplied by `QueryAdmissionPolicy` | caller-owned | Non-executing typed/fluent plan-admission seam for custom endpoints. It returns an admitted/rejected summary, does not return rows, and does not prove final response-byte size. |
+| `DbSession::ensure_query_read_admission_policy::<E>` / `FluentLoadQuery::ensure_read_admission` | supplied by `QueryAdmissionPolicy` | caller-owned | Non-executing typed/fluent fail-closed seam. It returns the admitted summary or the shared read-admission `QueryError` diagnostic family. |
 | generated `icydb_query` | `AdminAdHoc` | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
 | generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission and schema authority. |
 | generated `icydb_update` | not a read-admission lane | controller-gated | SQL write endpoint, governed by explicit write policy. |
@@ -62,7 +64,13 @@ Required properties:
 ## Public Endpoint Guidance
 
 Public endpoints should prefer typed or fluent APIs where the query shape is
-known to the canister author.
+known to the canister author. For typed/fluent endpoints, call
+`evaluate_query_read_admission_policy` or `FluentLoadQuery::read_admission`
+before execution when the shape is caller-influenced. Prefer
+`ensure_query_read_admission_policy` or `FluentLoadQuery::ensure_read_admission`
+when the endpoint should fail closed with the shared read-admission diagnostic.
+Then enforce the endpoint's final response-byte budget after shaping the typed
+response.
 
 If a public endpoint accepts caller-provided SQL, it must:
 

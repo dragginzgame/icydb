@@ -7,7 +7,12 @@ use crate::{
     db::{
         DbSession, Query, QueryError, QueryTracePlan, TraceExecutionFamily,
         access::summarize_executable_access_plan,
-        executor::{EntityAuthority, ExecutionFamily},
+        executor::{
+            EntityAuthority, ExecutionFamily, initial_read_plan_requires_materialized_sort,
+        },
+        query::admission::{
+            QueryAdmissionPolicy, QueryAdmissionSummary, QueryMaterializationSummary,
+        },
         query::builder::{AggregateExplain, ProjectionExplain},
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
@@ -91,6 +96,58 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
         Ok(prepared_plan.plan_hash_hex())
+    }
+
+    /// Evaluate one typed/fluent query plan against a read-admission policy.
+    ///
+    /// This does not execute rows or prove a final response-byte size. Public
+    /// endpoints that return typed data must still enforce their outward
+    /// response budget after shaping the response.
+    pub fn evaluate_query_read_admission_policy<E>(
+        &self,
+        query: &Query<E>,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<QueryAdmissionSummary, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
+        let mut summary =
+            QueryAdmissionSummary::from_plan(policy.lane(), prepared_plan.logical_plan());
+
+        if initial_read_plan_requires_materialized_sort(&prepared_plan)
+            .map_err(QueryError::execute)?
+        {
+            let returned_row_bound = summary.returned_row_bound();
+            let returned_row_bound_kind = summary.returned_row_bound_kind();
+            summary = summary.with_materialization(QueryMaterializationSummary::sort(
+                returned_row_bound,
+                returned_row_bound_kind,
+            ));
+        }
+
+        Ok(policy.evaluate(summary))
+    }
+
+    /// Require one typed/fluent query plan to be admitted by a read-admission policy.
+    ///
+    /// This returns the admitted plan summary on success, or the same compact
+    /// read-admission `QueryError` family used by policy-bound SQL reads.
+    pub fn ensure_query_read_admission_policy<E>(
+        &self,
+        query: &Query<E>,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<QueryAdmissionSummary, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let admission = self.evaluate_query_read_admission_policy(query, policy)?;
+
+        if let Some(rejection) = admission.rejection() {
+            Err(QueryError::from(rejection.code()))
+        } else {
+            Ok(admission)
+        }
     }
 
     // Explain one load execution shape using only planner-visible

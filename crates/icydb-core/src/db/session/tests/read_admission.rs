@@ -8,7 +8,10 @@ use super::{
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, sql_session,
 };
-use crate::db::{GroupedAdmissionPolicy, QueryAdmissionPolicy, QueryError, SqlStatementResult};
+use crate::db::{
+    GroupedAdmissionPolicy, QueryAdmissionDecision, QueryAdmissionPolicy, QueryAdmissionRejection,
+    QueryAdmissionSummary, QueryBoundKind, QueryError, SqlStatementResult,
+};
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryReadAdmissionCode};
 
 #[test]
@@ -93,6 +96,95 @@ fn public_read_sql_admits_indexed_bounded_scalar_select() {
 
     assert_eq!(row_count, 2);
     assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn public_read_fluent_admission_rejects_missing_limit_before_execution() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let summary = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .read_admission(&public_read_policy(10))
+        .expect("fluent public read admission should produce a summary");
+
+    assert_admission_summary_rejection(
+        &summary,
+        QueryAdmissionRejection::PublicQueryRequiresLimit,
+        "fluent missing LIMIT",
+    );
+}
+
+#[test]
+fn public_read_fluent_ensure_admission_returns_shared_query_error_on_rejection() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .ensure_read_admission(&public_read_policy(10))
+        .expect_err("fluent ensure admission should fail closed for missing LIMIT");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::PublicQueryRequiresLimit,
+        "fluent ensure missing LIMIT",
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_admits_indexed_bounded_scalar_query() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let summary = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .read_admission(&public_read_policy(10))
+        .expect("fluent indexed bounded admission should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert!(
+        summary.selected_access().is_secondary_index(),
+        "bounded typed/fluent public reads should prove an index-backed route",
+    );
+    assert_eq!(summary.returned_row_bound(), Some(2));
+    assert_eq!(summary.response_byte_bound(), None);
+    assert_eq!(
+        summary.response_byte_bound_kind(),
+        QueryBoundKind::Unavailable,
+        "non-executing fluent admission should not claim response-byte proof",
+    );
+}
+
+#[test]
+fn public_read_session_ensure_admission_returns_admitted_summary() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let load = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(2);
+    let summary = session
+        .ensure_query_read_admission_policy(load.query(), &public_read_policy(10))
+        .expect("session ensure admission should return the admitted summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.returned_row_bound(), Some(2));
 }
 
 #[test]
@@ -183,6 +275,36 @@ fn public_read_sql_rejects_unresolved_order_materialized_sort() {
         err,
         QueryReadAdmissionCode::SortRequiresMaterialization,
         "materialized sort",
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_rejects_unresolved_order_materialized_sort() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "Sam", true, "gold", "sam", 30),
+            (2, "Sasha", true, "gold", "sasha", 24),
+            (3, "Mira", true, "silver", "mira", 40),
+        ],
+    );
+
+    let summary = session
+        .load::<FilteredIndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("active").eq(true))
+        .filter(crate::db::FieldRef::new("tier").eq("gold"))
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .read_admission(&public_read_policy(10))
+        .expect("fluent materialized-sort admission should produce a summary");
+
+    assert_admission_summary_rejection(
+        &summary,
+        QueryAdmissionRejection::SortRequiresMaterialization,
+        "fluent materialized sort",
     );
 }
 
@@ -332,5 +454,22 @@ fn assert_read_admission_rejection(err: QueryError, reason: QueryReadAdmissionCo
         diagnostic.detail(),
         Some(&DiagnosticDetail::QueryReadAdmission { reason }),
         "{context}: diagnostic detail drifted",
+    );
+}
+
+fn assert_admission_summary_rejection(
+    summary: &QueryAdmissionSummary,
+    reason: QueryAdmissionRejection,
+    context: &str,
+) {
+    assert_eq!(
+        summary.decision(),
+        QueryAdmissionDecision::Rejected,
+        "{context}: admission decision drifted",
+    );
+    assert_eq!(
+        summary.rejection(),
+        Some(reason),
+        "{context}: admission rejection drifted",
     );
 }
