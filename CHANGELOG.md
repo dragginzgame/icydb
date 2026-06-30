@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Added a read-surface inventory and invariant guard that keeps generated SQL
-  endpoints controller-gated/admin while documenting the policy-bound seam for
-  hand-written public SQL endpoints.
-
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
+
+- `0.192.6` documents the read-admission surface inventory and adds invariant
+  guards that keep generated SQL endpoints controller-gated while public SQL
+  remains application-owned.
 
 - `0.192.5` extends policy-bound SQL read admission to grouped and global
   aggregate queries with explicit group, distinct-state, response-byte, and
