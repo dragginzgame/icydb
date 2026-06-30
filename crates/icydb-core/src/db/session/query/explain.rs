@@ -137,6 +137,31 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    // Render one finalized load execution JSON payload using only
+    // planner-visible indexes from the recovered store state.
+    pub(in crate::db) fn explain_query_execution_json_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            let (plan, authority, cache_attribution) =
+                self.cached_finalized_explain_plan::<E>(query, visible_indexes)?;
+
+            query
+                .structural()
+                .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
+                    &plan,
+                    &authority,
+                    Some(query_plan_cache_reuse_event(cache_attribution)),
+                    |_| {},
+                )
+                .map(|diagnostics| diagnostics.render_json_canonical())
+        })
+    }
+
     // Explain one prepared fluent aggregate terminal from the same cached
     // prepared plan used by execution.
     pub(in crate::db) fn explain_query_prepared_aggregate_terminal_with_visible_indexes<E, S>(

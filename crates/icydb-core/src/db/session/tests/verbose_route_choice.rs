@@ -81,10 +81,16 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
         json.contains("\"node_type\":\"ByKeyLookup\""),
         "fluent execution json surface should include canonical root node type",
     );
-    assert_eq!(
-        json,
-        descriptor.render_json_canonical(),
-        "fluent execution json surface should be canonical descriptor json rendering",
+    assert!(
+        json.contains("\"admission\":{\"lane\":\"diagnostic_explain\",\"decision\":\"rejected\""),
+        "fluent execution json surface should include finalized admission facts: {json}",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"execution\":{}",
+            descriptor.render_json_canonical()
+        )),
+        "fluent execution json surface should keep the canonical descriptor under the execution object: {json}",
     );
 
     let verbose = query

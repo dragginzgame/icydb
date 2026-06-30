@@ -3,14 +3,21 @@
 //! Does not own: execution decision derivation or text-tree rendering.
 //! Boundary: deterministic JSON field ordering for execution explain output.
 
-use crate::db::query::explain::{
-    ExplainExecutionNodeDescriptor,
-    access_projection::write_access_json,
-    execution::{execution_mode_label, ordering_source_label},
-    nodes::{
-        execution_mode_detail_label, fast_path_reason, fast_path_selected, predicate_pushdown_mode,
+use crate::db::{
+    TraceReuseArtifactClass,
+    query::{
+        admission::QueryAdmissionSummary,
+        explain::{
+            ExplainExecutionNodeDescriptor, FinalizedQueryDiagnostics,
+            access_projection::write_access_json,
+            execution::{execution_mode_label, ordering_source_label},
+            nodes::{
+                execution_mode_detail_label, fast_path_reason, fast_path_selected,
+                predicate_pushdown_mode,
+            },
+            writer::JsonWriter,
+        },
     },
-    writer::JsonWriter,
 };
 
 impl ExplainExecutionNodeDescriptor {
@@ -21,6 +28,126 @@ impl ExplainExecutionNodeDescriptor {
         let mut node_id_counter = 0_u64;
         write_execution_node_json(self, &mut node_id_counter, &mut out);
         out
+    }
+}
+
+impl FinalizedQueryDiagnostics {
+    /// Render this finalized execution diagnostics artifact as canonical JSON.
+    #[must_use]
+    pub(in crate::db) fn render_json_canonical(&self) -> String {
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_with("admission", |out| match self.admission() {
+            Some(admission) => write_admission_json(admission, out),
+            None => out.push_str("null"),
+        });
+        object.field_with("execution", |out| {
+            let mut node_id_counter = 0_u64;
+            write_execution_node_json(self.execution(), &mut node_id_counter, out);
+        });
+        object.field_str_slice("route_diagnostics", &self.route_diagnostics);
+        object.field_str_slice("logical_diagnostics", &self.logical_diagnostics);
+        object.field_with("reuse", |out| {
+            let Some(reuse) = self.reuse else {
+                out.push_str("null");
+                return;
+            };
+            let mut reuse_object = JsonWriter::begin_object(out);
+            reuse_object.field_str(
+                "artifact",
+                match reuse.artifact_class() {
+                    TraceReuseArtifactClass::SharedPreparedQueryPlan => {
+                        "shared_prepared_query_plan"
+                    }
+                },
+            );
+            reuse_object.field_str("outcome", if reuse.is_hit() { "hit" } else { "miss" });
+            reuse_object.finish();
+        });
+        object.finish();
+
+        out
+    }
+}
+
+fn write_admission_json(admission: &QueryAdmissionSummary, out: &mut String) {
+    let mut object = JsonWriter::begin_object(out);
+    object.field_str("lane", admission.lane().as_str());
+    object.field_str("decision", admission.decision().as_str());
+    match admission.rejection() {
+        Some(rejection) => object.field_str("reason", rejection.as_str()),
+        None => object.field_null("reason"),
+    }
+    object.field_str("plan_shape", admission.plan_shape().as_str());
+    object.field_str("selected_access", admission.selected_access().as_str());
+    match admission.selected_index() {
+        Some(selected_index) => object.field_str("selected_index", selected_index),
+        None => object.field_null("selected_index"),
+    }
+    write_optional_u32(&mut object, "limit", admission.limit());
+    write_optional_u32(&mut object, "offset", admission.offset());
+    write_optional_u64(&mut object, "scan_bound", admission.scan_bound());
+    object.field_str("scan_bound_kind", admission.scan_bound_kind().as_str());
+    write_optional_u32(
+        &mut object,
+        "returned_row_bound",
+        admission.returned_row_bound(),
+    );
+    object.field_str(
+        "returned_row_bound_kind",
+        admission.returned_row_bound_kind().as_str(),
+    );
+    write_optional_u32(
+        &mut object,
+        "response_byte_bound",
+        admission.response_byte_bound(),
+    );
+    object.field_str(
+        "response_byte_bound_kind",
+        admission.response_byte_bound_kind().as_str(),
+    );
+    object.field_str("residual_filter", admission.residual_filter().as_str());
+    object.field_str("ordering", admission.ordering().as_str());
+    object.field_with("materialization", |out| {
+        let materialization = admission.materialization();
+        let mut materialization_object = JsonWriter::begin_object(out);
+        materialization_object.field_bool("materialized_sort", materialization.materialized_sort());
+        write_optional_u32(
+            &mut materialization_object,
+            "materialized_rows",
+            materialization.materialized_rows(),
+        );
+        materialization_object
+            .field_str("row_bound_kind", materialization.row_bound_kind().as_str());
+        materialization_object.finish();
+    });
+    object.field_with("grouped", |out| {
+        let Some(grouped) = admission.grouped() else {
+            out.push_str("null");
+            return;
+        };
+        let mut grouped_object = JsonWriter::begin_object(out);
+        grouped_object.field_u64("group_field_count", u64::from(grouped.group_field_count()));
+        grouped_object.field_u64("aggregate_count", u64::from(grouped.aggregate_count()));
+        grouped_object.field_u64("max_groups", grouped.max_groups());
+        grouped_object.field_u64("max_group_bytes", grouped.max_group_bytes());
+        grouped_object.field_bool("having_filter", grouped.has_having_filter());
+        grouped_object.finish();
+    });
+    object.finish();
+}
+
+fn write_optional_u32(object: &mut JsonWriter<'_>, key: &str, value: Option<u32>) {
+    match value {
+        Some(value) => object.field_u64(key, u64::from(value)),
+        None => object.field_null(key),
+    }
+}
+
+fn write_optional_u64(object: &mut JsonWriter<'_>, key: &str, value: Option<u64>) {
+    match value {
+        Some(value) => object.field_u64(key, value),
+        None => object.field_null(key),
     }
 }
 

@@ -206,6 +206,56 @@ fn execute_sql_query_explain_execution_matrix_returns_public_explain_payload() {
 }
 
 #[test]
+fn execute_sql_query_explain_execution_json_returns_finalized_admission_payload() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = public_query_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    );
+
+    assert!(
+        explain.starts_with(
+            "{\"admission\":{\"lane\":\"diagnostic_explain\",\"decision\":\"rejected\""
+        ),
+        "EXPLAIN EXECUTION JSON should start with finalized admission facts: {explain}",
+    );
+    assert!(
+        explain.contains("\"reason\":\"diagnostic_lane_does_not_execute\""),
+        "EXPLAIN EXECUTION JSON should report the diagnostic-lane rejection reason: {explain}",
+    );
+    assert!(
+        explain.contains("\"execution\":{\"node_id\":0"),
+        "EXPLAIN EXECUTION JSON should carry the canonical execution tree: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_query_explain_execution_json_global_aggregate_returns_terminal_array() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = public_query_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION JSON SELECT COUNT(*) FROM SessionSqlEntity",
+    );
+
+    assert!(
+        explain.starts_with("{\"terminals\":[{\"admission\":"),
+        "global aggregate EXPLAIN EXECUTION JSON should render terminal diagnostics array: {explain}",
+    );
+    assert!(
+        explain.contains("\"node_type\":\"AggregateCount\""),
+        "global aggregate EXPLAIN EXECUTION JSON should retain terminal node type: {explain}",
+    );
+    assert!(
+        explain.contains("\"reason\":\"diagnostic_lane_does_not_execute\""),
+        "global aggregate EXPLAIN EXECUTION JSON should include admission facts: {explain}",
+    );
+}
+
+#[test]
 fn execute_sql_query_explain_json_matrix_returns_public_explain_payload() {
     reset_session_sql_store();
     let session = sql_session();

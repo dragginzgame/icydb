@@ -410,7 +410,7 @@ where
     where
         E: EntityValue,
     {
-        self.render_execution_descriptor(|descriptor| descriptor.render_json_canonical())
+        self.with_non_paged(DbSession::explain_query_execution_json_with_visible_indexes)
     }
 
     /// Explain scalar load execution shape as verbose text with diagnostics.

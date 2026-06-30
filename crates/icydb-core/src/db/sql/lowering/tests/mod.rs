@@ -1987,6 +1987,29 @@ fn compile_sql_command_explain_execution_verbose_wraps_lowered_query() {
 
 #[test]
 #[cfg(feature = "sql-explain")]
+fn compile_sql_command_explain_execution_json_wraps_lowered_query() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "EXPLAIN EXECUTION JSON SELECT * FROM SqlLowerEntity LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("EXPLAIN EXECUTION JSON should lower");
+
+    let SqlCommand::Explain {
+        mode,
+        verbose,
+        query,
+    } = command
+    else {
+        panic!("expected lowered explain command");
+    };
+
+    assert_eq!(mode, SqlExplainMode::ExecutionJson);
+    assert!(!verbose);
+    std::assert_matches!(query.mode(), QueryMode::Load(_));
+}
+
+#[test]
+#[cfg(feature = "sql-explain")]
 fn compile_sql_command_explain_select_distinct_star_lowers_to_distinct_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN SELECT DISTINCT * FROM SqlLowerEntity",

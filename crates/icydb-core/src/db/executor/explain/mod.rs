@@ -246,6 +246,16 @@ impl StructuralQuery {
             .map(|diagnostics| diagnostics.render_text_verbose())
     }
 
+    // Render one standalone model-only execution explain JSON payload from the
+    // same finalized diagnostics artifact used by verbose text explain.
+    fn explain_execution_json_from_plan(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> Result<String, QueryError> {
+        self.finalized_execution_diagnostics_from_model_only_plan(plan, None)
+            .map(|diagnostics| diagnostics.render_json_canonical())
+    }
+
     // Freeze one explain-only access-choice snapshot from accepted
     // planner-visible indexes before building descriptor diagnostics.
     fn finalize_explain_access_choice_for_visible_indexes(
@@ -328,6 +338,14 @@ impl StructuralQuery {
         self.explain_execution_verbose_from_plan(&plan)
     }
 
+    // Render one explicit model-only execution JSON payload for standalone
+    // query surfaces that are not bound to a recovered store/accepted schema.
+    fn render_execution_json_for_model_only(&self) -> Result<String, QueryError> {
+        let plan = self.finalized_model_only_explain_plan()?;
+
+        self.explain_execution_json_from_plan(&plan)
+    }
+
     // Render one verbose execution payload using the caller-resolved accepted
     // visible indexes for runtime/session explain.
     fn explain_execution_verbose_for_visible_indexes(
@@ -337,6 +355,17 @@ impl StructuralQuery {
         let plan = self.finalized_visible_indexes_explain_plan(visible_indexes)?;
 
         self.explain_execution_verbose_from_plan(&plan)
+    }
+
+    // Render one finalized execution JSON payload using the caller-resolved
+    // accepted visible indexes for runtime/session explain.
+    fn explain_execution_json_for_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+    ) -> Result<String, QueryError> {
+        let plan = self.finalized_visible_indexes_explain_plan(visible_indexes)?;
+
+        self.explain_execution_json_from_plan(&plan)
     }
 
     /// Explain one model-only load execution shape through the structural query core.
@@ -365,6 +394,14 @@ impl StructuralQuery {
         self.render_execution_verbose_for_model_only()
     }
 
+    /// Render the model-only execution explain artifact as finalized JSON.
+    #[inline(never)]
+    pub(in crate::db) fn explain_execution_json_for_model_only(
+        &self,
+    ) -> Result<String, QueryError> {
+        self.render_execution_json_for_model_only()
+    }
+
     /// Render one verbose scalar load execution payload using visible indexes.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
@@ -372,6 +409,15 @@ impl StructuralQuery {
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
         self.explain_execution_verbose_for_visible_indexes(visible_indexes)
+    }
+
+    /// Render the visible-index execution explain artifact as finalized JSON.
+    #[inline(never)]
+    pub(in crate::db) fn explain_execution_json_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+    ) -> Result<String, QueryError> {
+        self.explain_execution_json_for_visible_indexes(visible_indexes)
     }
 
     /// Explain one aggregate terminal execution route without running it.
@@ -533,6 +579,20 @@ where
         }
     }
 
+    // Render finalized execution JSON after choosing the explicit model-only
+    // lane or the accepted visible-index lane once.
+    fn explain_execution_json_for_model_only_or_visible_indexes(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<String, QueryError> {
+        match visible_indexes {
+            Some(visible_indexes) => self
+                .structural()
+                .explain_execution_json_with_visible_indexes(visible_indexes),
+            None => self.structural().explain_execution_json_for_model_only(),
+        }
+    }
+
     /// Explain executor-selected load execution shape without running it.
     pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
         self.explain_execution_descriptor_for_model_only_or_visible_indexes(None)
@@ -556,9 +616,7 @@ where
 
     /// Explain executor-selected load execution shape as canonical JSON.
     pub fn explain_execution_json(&self) -> Result<String, QueryError> {
-        self.render_execution_descriptor_for_visibility(None, |descriptor| {
-            descriptor.render_json_canonical()
-        })
+        self.explain_execution_json_for_model_only_or_visible_indexes(None)
     }
 
     /// Explain executor-selected load execution shape with route diagnostics.

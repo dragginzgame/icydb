@@ -149,10 +149,14 @@ impl Parser {
     #[cfg(feature = "sql-explain")]
     fn parse_explain_statement(&mut self) -> Result<SqlExplainStatement, SqlParseError> {
         let (mode, verbose) = if self.eat_keyword(Keyword::Execution) {
-            (
-                SqlExplainMode::Execution,
-                self.eat_keyword(Keyword::Verbose),
-            )
+            if self.eat_keyword(Keyword::Json) {
+                (SqlExplainMode::ExecutionJson, false)
+            } else {
+                (
+                    SqlExplainMode::Execution,
+                    self.eat_keyword(Keyword::Verbose),
+                )
+            }
         } else if self.eat_keyword(Keyword::Json) {
             (SqlExplainMode::Json, false)
         } else {

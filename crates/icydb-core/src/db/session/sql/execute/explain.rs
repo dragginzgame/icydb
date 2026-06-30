@@ -59,6 +59,23 @@ fn render_sql_execution_explain(diagnostics: &FinalizedQueryDiagnostics) -> Stri
     lines.join("\n")
 }
 
+fn render_sql_execution_explain_json(diagnostics: &FinalizedQueryDiagnostics) -> String {
+    diagnostics.render_json_canonical()
+}
+
+fn render_sql_execution_explain_json_array(diagnostics: &[String]) -> String {
+    let mut out = String::from("{\"terminals\":[");
+    for (index, diagnostic) in diagnostics.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(diagnostic);
+    }
+    out.push_str("]}");
+
+    out
+}
+
 fn diagnostic_explain_admission_for_plan(plan: &AccessPlannedQuery) -> QueryAdmissionSummary {
     QueryAdmissionPolicy::diagnostic_explain().evaluate(QueryAdmissionSummary::from_plan(
         QueryAdmissionLane::DiagnosticExplain,
@@ -159,7 +176,10 @@ impl<C: CanisterKind> DbSession<C> {
         let Some((mode, _, query)) = lowered.explain_query() else {
             return Ok(None);
         };
-        if matches!(mode, SqlExplainMode::Execution) {
+        if matches!(
+            mode,
+            SqlExplainMode::Execution | SqlExplainMode::ExecutionJson
+        ) {
             return Ok(None);
         }
 
@@ -179,7 +199,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let rendered = match mode {
                     SqlExplainMode::Plan => explain.render_text_canonical(),
                     SqlExplainMode::Json => explain.render_json_canonical(),
-                    SqlExplainMode::Execution => {
+                    SqlExplainMode::Execution | SqlExplainMode::ExecutionJson => {
                         return Err(QueryError::execute(
                             InternalError::query_executor_invariant(),
                         ));
@@ -203,7 +223,12 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema: &AcceptedSchemaSnapshot,
         schema_info: &SchemaInfo,
     ) -> Result<Option<String>, QueryError> {
-        let Some((SqlExplainMode::Execution, verbose, query)) = lowered.explain_query() else {
+        let Some((
+            mode @ (SqlExplainMode::Execution | SqlExplainMode::ExecutionJson),
+            verbose,
+            query,
+        )) = lowered.explain_query()
+        else {
             return Ok(None);
         };
 
@@ -261,10 +286,20 @@ impl<C: CanisterKind> DbSession<C> {
                     projection,
                 );
 
-                Ok(render_sql_execution_explain(
-                    &FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None)
-                        .with_admission(diagnostic_explain_admission_for_plan(plan)),
-                ))
+                let diagnostics =
+                    FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None)
+                        .with_admission(diagnostic_explain_admission_for_plan(plan));
+                Ok(match mode {
+                    SqlExplainMode::Execution => render_sql_execution_explain(&diagnostics),
+                    SqlExplainMode::ExecutionJson => {
+                        render_sql_execution_explain_json(&diagnostics)
+                    }
+                    SqlExplainMode::Plan | SqlExplainMode::Json => {
+                        return Err(QueryError::execute(
+                            InternalError::query_executor_invariant(),
+                        ));
+                    }
+                })
             },
         )?;
 
@@ -331,6 +366,24 @@ impl<C: CanisterKind> DbSession<C> {
                     },
                 )
             }
+            SqlExplainMode::ExecutionJson => {
+                let _ = verbose;
+
+                self.try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
+                    authority.clone(),
+                    accepted_schema,
+                    &command,
+                    |plan| {
+                        self.render_global_aggregate_execution_explain_json(
+                            &command,
+                            strategies,
+                            plan,
+                            &authority,
+                            schema_info,
+                        )
+                    },
+                )
+            }
             SqlExplainMode::Json => self
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
@@ -366,6 +419,31 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(rendered.join("\n\n"))
     }
 
+    fn render_global_aggregate_execution_explain_json(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        strategies: &[PreparedSqlScalarAggregateStrategy],
+        plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
+        schema_info: &SchemaInfo,
+    ) -> Result<String, QueryError> {
+        let query_explain = plan.explain();
+        let mut rendered = Vec::with_capacity(strategies.len());
+
+        for strategy in strategies {
+            rendered.push(self.render_global_aggregate_terminal_explain_json(
+                command,
+                strategy,
+                &query_explain,
+                plan,
+                authority,
+                schema_info,
+            )?);
+        }
+
+        Ok(render_sql_execution_explain_json_array(&rendered))
+    }
+
     fn render_global_aggregate_terminal_explain(
         &self,
         command: &SqlGlobalAggregateCommand,
@@ -397,6 +475,38 @@ impl<C: CanisterKind> DbSession<C> {
             )
             .with_admission(diagnostic_explain_admission_for_plan(plan)),
         ))
+    }
+
+    fn render_global_aggregate_terminal_explain_json(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        strategy: &PreparedSqlScalarAggregateStrategy,
+        query_explain: &ExplainPlan,
+        plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
+        schema_info: &SchemaInfo,
+    ) -> Result<String, QueryError> {
+        let execution = self.global_aggregate_terminal_execution_descriptor(
+            command,
+            strategy,
+            plan,
+            authority,
+            schema_info,
+        )?;
+        let terminal_plan = ExplainAggregateTerminalPlan::new(
+            query_explain.clone(),
+            strategy.aggregate_kind(),
+            execution,
+        );
+        let diagnostics = FinalizedQueryDiagnostics::new(
+            terminal_plan.execution_node_descriptor(),
+            Vec::new(),
+            Vec::new(),
+            None,
+        )
+        .with_admission(diagnostic_explain_admission_for_plan(plan));
+
+        Ok(render_sql_execution_explain_json(&diagnostics))
     }
 
     fn global_aggregate_terminal_execution_descriptor(

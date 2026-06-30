@@ -1708,6 +1708,34 @@ fn parse_explain_json_wrapped_select() {
 }
 
 #[test]
+#[cfg(feature = "sql-explain")]
+fn parse_explain_execution_json_wrapped_select() {
+    let statement = parse_sql("EXPLAIN EXECUTION JSON SELECT * FROM users LIMIT 1")
+        .expect("execution-json explain statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Explain(SqlExplainStatement {
+            mode: SqlExplainMode::ExecutionJson,
+            verbose: false,
+            statement: SqlExplainTarget::Select(SqlSelectStatement {
+                entity: "users".to_string(),
+                table_alias: None,
+                projection: SqlProjection::All,
+                projection_aliases: Vec::default(),
+                predicate: None,
+                distinct: false,
+                group_by: vec![],
+                having: vec![],
+                order_by: vec![],
+                limit: Some(1),
+                offset: None,
+            }),
+        }),
+    );
+}
+
+#[test]
 #[cfg(not(feature = "sql-explain"))]
 fn parse_explain_requires_sql_explain_feature() {
     let err = parse_sql("EXPLAIN SELECT * FROM users").expect_err("EXPLAIN should be gated");

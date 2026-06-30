@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Added finalized execution EXPLAIN JSON admission objects so JSON diagnostics
+  expose read-admission lane, decision, reason, selected access, and bounds
+  alongside the canonical execution tree.
+
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)

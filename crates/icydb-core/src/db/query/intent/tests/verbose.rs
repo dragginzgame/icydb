@@ -80,6 +80,30 @@ fn explain_execution_verbose_includes_read_admission_block() {
 }
 
 #[test]
+fn explain_execution_json_includes_read_admission_object() {
+    let json = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .order_term(crate::db::desc("id"))
+        .limit(3)
+        .explain_execution_json()
+        .expect("execution json explain should include admission summary");
+
+    assert!(
+        json.starts_with(
+            "{\"admission\":{\"lane\":\"diagnostic_explain\",\"decision\":\"rejected\""
+        ),
+        "execution JSON should start with the finalized admission object: {json}",
+    );
+    assert!(
+        json.contains("\"reason\":\"diagnostic_lane_does_not_execute\""),
+        "execution JSON should explain why the diagnostic lane does not execute rows: {json}",
+    );
+    assert!(
+        json.contains("\"execution\":{\"node_id\":0"),
+        "execution JSON should retain the canonical execution tree under the execution key: {json}",
+    );
+}
+
+#[test]
 fn explain_execution_verbose_reports_secondary_order_pushdown_rejection_reason() {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(

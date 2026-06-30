@@ -1190,6 +1190,7 @@ pub(crate) struct SqlUpdateStatement {
 pub(crate) enum SqlExplainMode {
     Plan,
     Execution,
+    ExecutionJson,
     Json,
 }
 

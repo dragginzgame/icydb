@@ -558,10 +558,16 @@ fn explain_execution_text_and_json_surfaces_are_stable() {
         json.contains("\"node_type\":\"ByKeyLookup\""),
         "execution json surface should expose canonical root node type"
     );
-    assert_eq!(
-        json,
-        descriptor.render_json_canonical(),
-        "execution json surface should be canonical descriptor json rendering",
+    assert!(
+        json.contains("\"admission\":{\"lane\":\"diagnostic_explain\",\"decision\":\"rejected\""),
+        "execution json surface should expose finalized read-admission facts: {json}",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"execution\":{}",
+            descriptor.render_json_canonical()
+        )),
+        "execution json surface should keep the canonical descriptor under the execution object: {json}",
     );
 }
 
