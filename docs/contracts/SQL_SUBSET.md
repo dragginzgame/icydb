@@ -37,10 +37,18 @@ Typed and fluent APIs are the canonical public surfaces.
 The remaining public SQL surfaces are:
 
 - `execute_sql_query::<E>(...)`
+- `execute_sql_query_with_read_admission_policy::<E>(...)`
 - `execute_sql_update::<E>(...)`
 - `execute_sql_ddl::<E>(...)`
 
 Both stay hard-bound to one concrete entity type and return SQL-shaped output.
+
+Read-admission lanes, generated endpoint lane ownership, and the current
+read-surface inventory are documented in `docs/contracts/READ_ADMISSION.md`.
+In particular, generated `icydb_query` is controller-gated admin SQL, not a
+generated `PublicRead` endpoint. IcyDB does not generate non-controller public
+SQL read endpoints; caller-facing SQL must be application-owned and must call
+the policy-bound read-admission seam explicitly.
 
 ## Cursor Pagination
 

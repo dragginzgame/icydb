@@ -489,6 +489,10 @@ mod tests {
             !surface.contains("name=\"icydb_update\""),
             "generated SQL glue must not grow a row-mutation endpoint without an explicit policy gate",
         );
+        assert!(
+            !surface.contains("name=\"icydb_public_query\""),
+            "generated SQL glue must not expose non-controller public read endpoints",
+        );
     }
 
     #[test]
@@ -535,6 +539,54 @@ mod tests {
         assert!(!surface.contains("execute_sql_count"));
         assert!(!surface.contains("execute_fluent_count"));
         assert!(!surface.contains("execute_count"));
+    }
+
+    #[test]
+    fn generated_sql_query_endpoint_is_controller_gated_admin_lane() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+
+        surface_tokens.push_entity(&entity_ty);
+
+        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
+            all_sql_surface_flags(),
+            None,
+            true,
+        ));
+        let surface = compact_tokens(quote!(#surface_tokens));
+
+        assert!(endpoint.contains("name=\"icydb_query\""));
+        assert!(endpoint.contains("icydb_sql_surface_require_controller(\"query\")"));
+        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
+        assert!(
+            !surface.contains("execute_sql_query_with_read_admission_policy"),
+            "generated icydb_query is the controller-gated admin lane; public SQL must use a hand-written endpoint",
+        );
+        assert!(
+            !endpoint.contains("QueryAdmissionPolicy"),
+            "generated icydb_query must not hide an implicit read-admission policy",
+        );
+    }
+
+    #[test]
+    fn generated_sql_query_endpoint_does_not_emit_public_read_lane() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+
+        surface_tokens.push_entity(&entity_ty);
+
+        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
+            all_sql_surface_flags(),
+            None,
+            true,
+        ));
+        let surface = compact_tokens(quote!(#surface_tokens));
+
+        assert!(!endpoint.contains("icydb_public_query"));
+        assert!(!surface.contains("__icydb_public_query_dispatch"));
+        assert!(!surface.contains("QueryAdmissionPolicy::public_read"));
+        assert!(!surface.contains("GroupedAdmissionPolicy::bounded"));
+        assert!(!surface.contains("execute_sql_query_with_read_admission_policy"));
     }
 
     #[test]

@@ -295,6 +295,21 @@ fn explicit_false_disables_sql_update_policy() {
 }
 
 #[test]
+fn generated_sql_public_read_config_is_unsupported() {
+    let err = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.sql.public_read]
+            max_rows = 50
+            max_response_bytes = 1048576
+        ",
+        &["demo_rpg"],
+    )
+    .expect_err("generated public SQL read endpoints are not supported");
+
+    std::assert_matches!(err, ConfigError::Parse { .. });
+}
+
+#[test]
 fn unknown_metrics_mode_fails_parse() {
     let err = parse_icydb_toml(
         r#"

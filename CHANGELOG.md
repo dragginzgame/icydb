@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Added grouped and global-aggregate coverage to policy-bound SQL read
-  admission so public lanes require grouped budgets, reject unbounded grouped
-  DISTINCT state, cap grouped response bytes, and classify `COUNT(*)` full
-  scans through the read-admission diagnostic family.
+- Added a read-surface inventory and invariant guard that keeps generated SQL
+  endpoints controller-gated/admin while documenting the policy-bound seam for
+  hand-written public SQL endpoints.
 
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
+
+- `0.192.5` extends policy-bound SQL read admission to grouped and global
+  aggregate queries with explicit group, distinct-state, response-byte, and
+  full-scan controls.
 
 - `0.192.4` enforces response-byte caps and route-proven materialized sort
   rejection on policy-bound SQL SELECT execution.
