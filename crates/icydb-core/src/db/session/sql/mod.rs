@@ -29,7 +29,7 @@ use crate::db::sql::parser::SqlExplainTarget;
 use crate::db::sql::parser::parse_sql;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, PersistedRow, QueryAdmissionPolicy, QueryError,
         schema::AcceptedSchemaSnapshot,
         schema::{
             execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
@@ -394,6 +394,24 @@ impl<C: CanisterKind> DbSession<C> {
         let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
 
         self.execute_compiled_sql_context_owned::<E>(compiled)
+    }
+
+    /// Execute one reduced SQL query only if the selected plan satisfies the
+    /// supplied read-admission policy.
+    ///
+    /// This is the explicit bounded-read seam for caller-facing endpoints. The
+    /// normal `execute_sql_query` method remains the trusted/admin SQL lane.
+    pub fn execute_sql_query_with_read_admission_policy<E>(
+        &self,
+        sql: &str,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
+
+        self.execute_compiled_sql_context_with_read_admission_policy::<E>(&compiled, policy)
     }
 
     /// Execute one reduced SQL query while reporting the compile/execute split

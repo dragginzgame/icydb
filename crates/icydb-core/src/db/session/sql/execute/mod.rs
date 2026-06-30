@@ -27,7 +27,7 @@ use crate::db::sql::lowering::LoweredSqlCommand;
 use crate::error::InternalError;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, PersistedRow, QueryAdmissionPolicy, QueryAdmissionRejection, QueryError,
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
@@ -43,6 +43,10 @@ use diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
 #[cfg(test)]
 use icydb_diagnostic_code::SqlLoweringCode;
 use write::execute_compiled_sql_write_with_default_cache;
+
+fn query_read_admission_error(rejection: QueryAdmissionRejection) -> QueryError {
+    QueryError::from(rejection.code())
+}
 
 impl<C: CanisterKind> DbSession<C> {
     /// Execute one compiled reduced SQL statement into one unified SQL payload.
@@ -337,6 +341,44 @@ impl<C: CanisterKind> DbSession<C> {
             self.execute_compiled_sql_context_with_cache_attribution::<E>(&context)?;
 
         Ok(result)
+    }
+
+    pub(in crate::db::session::sql) fn execute_compiled_sql_context_with_read_admission_policy<E>(
+        &self,
+        context: &SqlCompiledCommandExecutionContext,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match context.command() {
+            CompiledSqlCommand::Select { query, .. } => {
+                let (result, _) = self
+                    .execute_select_compiled_sql_with_context_and_read_admission_policy::<E>(
+                        query, context, policy,
+                    )?;
+
+                Ok(result)
+            }
+            CompiledSqlCommand::DescribeEntity
+            | CompiledSqlCommand::ShowIndexesEntity
+            | CompiledSqlCommand::ShowColumnsEntity
+            | CompiledSqlCommand::ShowEntities { .. }
+            | CompiledSqlCommand::ShowStores { .. }
+            | CompiledSqlCommand::ShowMemory => Err(query_read_admission_error(
+                QueryAdmissionRejection::IntrospectionDisabledForLane,
+            )),
+            CompiledSqlCommand::GlobalAggregate { .. }
+            | CompiledSqlCommand::Delete { .. }
+            | CompiledSqlCommand::Insert(..)
+            | CompiledSqlCommand::Update(..) => Err(query_read_admission_error(
+                QueryAdmissionRejection::UnsupportedStatementForQueryLane,
+            )),
+            #[cfg(feature = "sql-explain")]
+            CompiledSqlCommand::Explain(_) => Err(query_read_admission_error(
+                QueryAdmissionRejection::UnsupportedStatementForQueryLane,
+            )),
+        }
     }
 
     /// Compile and then execute one parsed reduced SQL statement into one

@@ -289,6 +289,23 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    /// Execute one reduced SQL query only if the selected plan satisfies the
+    /// supplied read-admission policy.
+    #[cfg(feature = "sql")]
+    pub fn execute_sql_query_with_read_admission_policy<E>(
+        &self,
+        sql: &str,
+        policy: &crate::db::QueryAdmissionPolicy,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(Self::sql_query_result_from_statement::<E>(
+            self.inner
+                .execute_sql_query_with_read_admission_policy::<E>(sql, policy)?,
+        ))
+    }
+
     /// Execute one SQL query and return the shell perf envelope shape.
     #[cfg(all(feature = "sql", not(feature = "diagnostics")))]
     #[doc(hidden)]

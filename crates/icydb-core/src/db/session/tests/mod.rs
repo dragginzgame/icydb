@@ -33,6 +33,7 @@ mod predicate_convergence;
 mod prefix_offsets;
 mod query_lowering;
 mod range_choice_offsets;
+mod read_admission;
 mod sql_aggregate;
 mod sql_blob;
 mod sql_delete;

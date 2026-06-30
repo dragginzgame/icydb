@@ -15,7 +15,10 @@ use crate::{
         executor::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
         },
-        query::intent::StructuralQuery,
+        query::{
+            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
+            intent::StructuralQuery,
+        },
         schema::AcceptedSchemaSnapshot,
         session::{
             finalize_structural_grouped_projection_result,
@@ -335,6 +338,28 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    pub(super) fn execute_select_compiled_sql_with_context_and_read_admission_policy<E>(
+        &self,
+        query: &StructuralQuery,
+        context: &SqlCompiledCommandExecutionContext,
+        policy: &QueryAdmissionPolicy,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let resolved = self.resolve_select_prepared_plan_for_context::<E>(query, context)?;
+        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
+
+        enforce_read_admission_policy(policy, &prepared_plan)?;
+
+        self.execute_select_compiled_sql_from_prepared_plan::<E>(
+            query,
+            prepared_plan,
+            projection,
+            cache_attribution,
+        )
+    }
+
     #[cfg(feature = "diagnostics")]
     pub(super) fn execute_select_compiled_sql_with_context_phase_attribution<E>(
         &self,
@@ -390,5 +415,19 @@ impl<C: CanisterKind> DbSession<C> {
             projection,
             cache_attribution,
         )
+    }
+}
+
+fn enforce_read_admission_policy(
+    policy: &QueryAdmissionPolicy,
+    prepared_plan: &SharedPreparedExecutionPlan,
+) -> Result<(), QueryError> {
+    let summary = QueryAdmissionSummary::from_plan(policy.lane(), prepared_plan.logical_plan());
+    let admission = policy.evaluate(summary);
+
+    if let Some(rejection) = admission.rejection() {
+        Err(QueryError::from(rejection.code()))
+    } else {
+        Ok(())
     }
 }
