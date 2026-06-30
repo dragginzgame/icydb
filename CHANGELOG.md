@@ -7,13 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Added non-executing typed/fluent read-admission evaluation and fail-closed
-  ensure seams for application-owned public endpoints that need policy
-  decisions before row execution.
-
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
+
+- `0.192.7` adds non-executing typed/fluent read-admission evaluation and
+  fail-closed ensure seams for application-owned public endpoints.
 
 - `0.192.6` documents the read-admission surface inventory and adds invariant
   guards that keep generated SQL endpoints controller-gated while public SQL
