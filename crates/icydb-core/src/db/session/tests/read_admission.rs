@@ -330,6 +330,51 @@ fn public_read_sql_rejects_grouped_query_without_group_budgets() {
 }
 
 #[test]
+fn public_read_fluent_admission_rejects_grouped_query_without_policy_group_budgets() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let summary = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count())
+        .grouped_limits(10, 8192)
+        .read_admission(&public_read_policy(10))
+        .expect("fluent grouped admission should produce a summary");
+
+    assert_admission_summary_rejection(
+        &summary,
+        QueryAdmissionRejection::GroupedQueryRequiresLimits,
+        "fluent grouped missing policy budgets",
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_rejects_grouped_query_without_query_hard_limits() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count())
+        .ensure_read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .expect_err("fluent grouped admission should require query hard limits");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+        "fluent grouped missing query hard limits",
+    );
+}
+
+#[test]
 fn public_read_sql_admits_grouped_query_with_group_budgets_without_limit() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -354,6 +399,63 @@ fn public_read_sql_admits_grouped_query_with_group_budgets_without_limit() {
 }
 
 #[test]
+fn public_read_fluent_admission_admits_grouped_query_with_group_budgets_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let summary = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count())
+        .grouped_limits(10, 8192)
+        .read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .expect("fluent grouped admission should produce a summary");
+    let grouped = summary
+        .grouped()
+        .expect("grouped fluent admission should carry grouped facts");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.returned_row_bound(), Some(10));
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound,
+    );
+    assert_eq!(grouped.group_field_count(), 1);
+    assert_eq!(grouped.aggregate_count(), 1);
+    assert_eq!(grouped.distinct_aggregate_count(), 0);
+    assert_eq!(grouped.max_groups(), 10);
+    assert_eq!(grouped.max_group_bytes(), 8192);
+}
+
+#[test]
+fn public_read_fluent_admission_rejects_grouped_query_above_policy_budgets() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let summary = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count())
+        .grouped_limits(11, 8193)
+        .read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .expect("fluent grouped admission should produce a summary");
+
+    assert_admission_summary_rejection(
+        &summary,
+        QueryAdmissionRejection::GroupedQueryExceedsBudget,
+        "fluent grouped budget above policy",
+    );
+}
+
+#[test]
 fn public_read_sql_rejects_distinct_grouped_query_without_distinct_budget() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -372,6 +474,63 @@ fn public_read_sql_rejects_distinct_grouped_query_without_distinct_budget() {
         QueryReadAdmissionCode::GroupedQueryRequiresLimits,
         "missing grouped distinct budget",
     );
+}
+
+#[test]
+fn public_read_fluent_admission_rejects_distinct_grouped_query_without_distinct_budget() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sam", 31), ("Sasha", 24)]);
+
+    let summary = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count_by("age").distinct())
+        .grouped_limits(10, 8192)
+        .read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .expect("fluent grouped distinct admission should produce a summary");
+    let grouped = summary
+        .grouped()
+        .expect("grouped distinct admission should carry grouped facts");
+
+    assert_eq!(grouped.distinct_aggregate_count(), 1);
+    assert_admission_summary_rejection(
+        &summary,
+        QueryAdmissionRejection::GroupedQueryRequiresLimits,
+        "fluent grouped missing distinct budget",
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_admits_distinct_grouped_query_with_distinct_budget() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sam", 31), ("Sasha", 24)]);
+
+    let summary = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count_by("age").distinct())
+        .grouped_limits(10, 8192)
+        .read_admission(&public_grouped_read_policy(
+            10,
+            10,
+            8192,
+            NonZeroU32::new(64),
+            32_768,
+        ))
+        .expect("fluent grouped distinct admission should produce a summary");
+    let grouped = summary
+        .grouped()
+        .expect("grouped distinct admission should carry grouped facts");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(grouped.distinct_aggregate_count(), 1);
 }
 
 #[test]

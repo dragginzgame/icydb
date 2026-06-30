@@ -72,6 +72,14 @@ when the endpoint should fail closed with the shared read-admission diagnostic.
 Then enforce the endpoint's final response-byte budget after shaping the typed
 response.
 
+Typed/fluent grouped reads need two explicit budgets before they are suitable
+for `PublicRead` admission:
+
+- the query shape must carry grouped execution hard limits through
+  `grouped_limits(max_groups, max_group_bytes)`;
+- the policy must carry a matching `GroupedAdmissionPolicy`, including a
+  distinct-entry budget when the grouped aggregate uses `DISTINCT`.
+
 If a public endpoint accepts caller-provided SQL, it must:
 
 - reject anonymous callers and perform any application authorization before

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
 
+- `0.192.8` documents and test-covers typed/fluent grouped read-admission
+  budget contracts, including grouped hard limits and DISTINCT budgets.
+
 - `0.192.7` adds non-executing typed/fluent read-admission evaluation and
   fail-closed ensure seams for application-owned public endpoints.
 
