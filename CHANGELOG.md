@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.191.md](docs/changelog/0.191.md)
 
+- `0.191.2` adds a persisted-format inventory contract and extends the
+  durability documentation guard so durable surfaces, owner modules, and
+  format-change review rules stay explicit.
+
 - `0.191.1` adds a durability documentation invariant guard so the new
   durability, persisted-format, operator, evidence, and streaming follow-up
   contracts keep their required decision language in local and release checks.

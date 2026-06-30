@@ -33,6 +33,7 @@ require_pattern() {
 
 require_file "docs/contracts/DURABILITY.md"
 require_file "docs/contracts/PERSISTED_FORMAT_POLICY.md"
+require_file "docs/contracts/PERSISTED_FORMAT_INVENTORY.md"
 require_file "docs/operations/DURABILITY_GUIDE.md"
 require_file "docs/design/0.191-durability-productization-format-policy/0.191-evidence.md"
 require_file "docs/design/0.191-durability-productization-format-policy/streaming-recovery-followup.md"
@@ -70,6 +71,10 @@ require_pattern \
 
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_POLICY.md" \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "persisted-format policy must link to the active surface inventory"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_POLICY.md" \
   "^### Test-only harness change$" \
   "persisted-format policy must retain the test-only classification"
 require_pattern \
@@ -92,6 +97,47 @@ require_pattern \
   "docs/contracts/PERSISTED_FORMAT_POLICY.md" \
   "Persisted decoders must be bounded and fallible" \
   "persisted-format policy must keep the bounded-decoder rule"
+
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "^## Active Durable Surfaces$" \
+  "persisted-format inventory must retain the active durable surface table"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Commit control slot" \
+  "persisted-format inventory must cover commit control-slot bytes"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Commit marker payload" \
+  "persisted-format inventory must cover commit marker payloads"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Journal tail batches and sequences" \
+  "persisted-format inventory must cover journal-tail batches"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Raw row envelopes" \
+  "persisted-format inventory must cover row envelopes"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Accepted schema snapshots" \
+  "persisted-format inventory must cover accepted schema snapshots"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Secondary-index keys" \
+  "persisted-format inventory must cover secondary-index keys"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Cursor tokens" \
+  "persisted-format inventory must cover cursor tokens"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "Does this change alter durable bytes" \
+  "persisted-format inventory must retain the review rule"
+require_pattern \
+  "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
+  "no persisted-format change" \
+  "persisted-format inventory must retain the no-change documentation rule"
 
 require_pattern \
   "docs/operations/DURABILITY_GUIDE.md" \

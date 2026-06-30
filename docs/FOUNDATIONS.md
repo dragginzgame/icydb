@@ -15,6 +15,7 @@ Normative specifications live in:
 - `docs/contracts/DURABILITY.md`
 - `docs/contracts/ATOMICITY.md`
 - `docs/contracts/PERSISTED_FORMAT_POLICY.md`
+- `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`
 - `docs/contracts/REF_INTEGRITY.md`
 - `docs/contracts/QUERY_CONTRACT.md`
 - `docs/contracts/IDENTITY_CONTRACT.md`

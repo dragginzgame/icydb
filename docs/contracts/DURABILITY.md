@@ -194,6 +194,7 @@ filesystem crash-order guarantees are not part of this contract.
 ## Format Policy
 
 Persisted-format compatibility rules are defined in
-`docs/contracts/PERSISTED_FORMAT_POLICY.md`.
+`docs/contracts/PERSISTED_FORMAT_POLICY.md`. The active persisted-surface
+checklist is maintained in `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`.
 
 No persisted-format change is introduced by this document.

@@ -6,6 +6,9 @@ in Internet Computer stable memory.
 It is normative for the current line and complements
 `docs/contracts/DURABILITY.md`.
 
+The active persisted-surface checklist lives in
+`docs/contracts/PERSISTED_FORMAT_INVENTORY.md`.
+
 ## Scope
 
 Persisted format includes any byte layout or durable identity that can be read

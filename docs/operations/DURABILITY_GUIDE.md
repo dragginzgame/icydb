@@ -9,6 +9,7 @@ Normative contracts:
 - `docs/contracts/ATOMICITY.md`
 - `docs/contracts/TRANSACTION_SEMANTICS.md`
 - `docs/contracts/PERSISTED_FORMAT_POLICY.md`
+- `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`
 
 ## Storage Choice
 

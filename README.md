@@ -271,6 +271,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - [docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md)
 - [docs/contracts/ATOMICITY.md](docs/contracts/ATOMICITY.md)
 - [docs/contracts/PERSISTED_FORMAT_POLICY.md](docs/contracts/PERSISTED_FORMAT_POLICY.md)
+- [docs/contracts/PERSISTED_FORMAT_INVENTORY.md](docs/contracts/PERSISTED_FORMAT_INVENTORY.md)
 - [docs/contracts/REF_INTEGRITY.md](docs/contracts/REF_INTEGRITY.md)
 - [docs/contracts/RESOURCE_MODEL.md](docs/contracts/RESOURCE_MODEL.md)
 - [docs/contracts/TRANSACTION_SEMANTICS.md](docs/contracts/TRANSACTION_SEMANTICS.md)
