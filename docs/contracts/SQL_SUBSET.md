@@ -46,8 +46,8 @@ Read-admission lanes, generated endpoint lane ownership, and the current
 read-surface inventory are documented in `docs/contracts/READ_ADMISSION.md`.
 In particular, generated `icydb_query` is controller-gated admin SQL, not a
 generated `PublicRead` endpoint. IcyDB does not generate non-controller public
-SQL read endpoints; caller-facing SQL must be application-owned and must call
-the policy-bound read-admission seam explicitly.
+SQL read endpoints; caller-facing reads should use typed/fluent APIs so the
+default bounded read-admission gate applies.
 
 ## Cursor Pagination
 

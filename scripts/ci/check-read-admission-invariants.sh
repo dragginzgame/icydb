@@ -28,7 +28,10 @@ else
     "controller-gated" \
     "does not generate non-controller public SQL read endpoints" \
     "no \`sql.public_read\` key" \
-    "execute_sql_query_with_read_admission_policy" \
+    "\`DbSession::execute_query\`" \
+    "\`DbSession::execute_query_trusted::<E>\`" \
+    "\`trusted_read_unchecked()\`" \
+    "must not expose caller-controlled SQL through \`execute_sql_query\`" \
     "execute_sql_query_with_perf_attribution"
   do
     if ! rg -F --quiet "$required_phrase" "$DOC"; then
@@ -90,7 +93,7 @@ else
   if printf '%s\n' "$production_generated_sql" \
     | rg -F --quiet "execute_sql_query_with_read_admission_policy"
   then
-    echo "[ERROR] Generated SQL glue must not use the public read-admission seam; application-owned endpoints may use it directly." >&2
+    echo "[ERROR] Generated SQL glue must not use removed custom read-policy helpers." >&2
     status=1
   fi
 fi
