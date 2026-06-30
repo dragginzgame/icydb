@@ -262,6 +262,7 @@ impl QueryAdmissionOrdering {
 pub struct QueryAdmissionGroupedSummary {
     group_field_count: u32,
     aggregate_count: u32,
+    distinct_aggregate_count: u32,
     max_groups: u64,
     max_group_bytes: u64,
     having_filter: bool,
@@ -273,6 +274,7 @@ impl QueryAdmissionGroupedSummary {
     pub const fn new(
         group_field_count: u32,
         aggregate_count: u32,
+        distinct_aggregate_count: u32,
         max_groups: u64,
         max_group_bytes: u64,
         having_filter: bool,
@@ -280,6 +282,7 @@ impl QueryAdmissionGroupedSummary {
         Self {
             group_field_count,
             aggregate_count,
+            distinct_aggregate_count,
             max_groups,
             max_group_bytes,
             having_filter,
@@ -296,6 +299,12 @@ impl QueryAdmissionGroupedSummary {
     #[must_use]
     pub const fn aggregate_count(self) -> u32 {
         self.aggregate_count
+    }
+
+    /// Return the number of aggregate expressions with DISTINCT state.
+    #[must_use]
+    pub const fn distinct_aggregate_count(self) -> u32 {
+        self.distinct_aggregate_count
     }
 
     /// Return the grouped execution maximum group count.
@@ -373,6 +382,23 @@ impl GroupedAdmissionPolicy {
     pub const fn has_hard_limits(&self) -> bool {
         self.groups.is_some() && self.group_bytes.is_some()
     }
+
+    /// Project this admission policy into grouped execution caps.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const fn execution_config(
+        &self,
+    ) -> Option<crate::db::query::plan::GroupedExecutionConfig> {
+        match (self.groups, self.group_bytes) {
+            (Some(groups), Some(group_bytes)) => Some(
+                crate::db::query::plan::GroupedExecutionConfig::with_hard_limits(
+                    groups.get() as u64,
+                    group_bytes.get() as u64,
+                ),
+            ),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -443,6 +469,16 @@ impl QueryAdmissionPolicy {
             max_projection_columns: None,
             grouped: GroupedAdmissionPolicy::disabled(),
         }
+    }
+
+    /// Return this policy with explicit grouped execution budgets attached.
+    ///
+    /// Public read policies still reject grouped queries unless the selected
+    /// plan is executed with matching group-count and per-group byte caps.
+    #[must_use]
+    pub const fn with_grouped_policy(mut self, grouped: GroupedAdmissionPolicy) -> Self {
+        self.grouped = grouped;
+        self
     }
 
     /// Build a trusted ad-hoc policy with explicit execution budgets.
@@ -608,23 +644,7 @@ impl QueryAdmissionPolicy {
             return Some(QueryAdmissionRejection::UnsupportedStatementForQueryLane);
         }
 
-        if matches!(
-            summary.plan_shape(),
-            QueryAdmissionPlanShape::GroupedAggregate
-        ) && !self.grouped.has_hard_limits()
-        {
-            return Some(QueryAdmissionRejection::GroupedQueryRequiresLimits);
-        }
-
-        if self.require_limit() && summary.limit().is_none() {
-            return Some(QueryAdmissionRejection::PublicQueryRequiresLimit);
-        }
-
-        if self.reject_non_zero_offset() && summary.offset().unwrap_or_default() != 0 {
-            return Some(QueryAdmissionRejection::PublicQueryOffsetRejected);
-        }
-
-        if let Some(rejection) = self.returned_row_bound_rejection(summary) {
+        if let Some(rejection) = self.grouped_rejection(summary) {
             return Some(rejection);
         }
 
@@ -638,11 +658,52 @@ impl QueryAdmissionPolicy {
             return Some(QueryAdmissionRejection::PublicQueryRequiresIndex);
         }
 
+        if self.require_limit() && summary.limit().is_none() && summary.grouped().is_none() {
+            return Some(QueryAdmissionRejection::PublicQueryRequiresLimit);
+        }
+
+        if self.reject_non_zero_offset() && summary.offset().unwrap_or_default() != 0 {
+            return Some(QueryAdmissionRejection::PublicQueryOffsetRejected);
+        }
+
+        if let Some(rejection) = self.returned_row_bound_rejection(summary) {
+            return Some(rejection);
+        }
+
         if let Some(rejection) = self.scan_bound_rejection(summary) {
             return Some(rejection);
         }
 
         self.materialization_rejection(summary)
+    }
+
+    fn grouped_rejection(
+        &self,
+        summary: &QueryAdmissionSummary,
+    ) -> Option<QueryAdmissionRejection> {
+        let grouped = summary.grouped()?;
+        let Some(max_groups) = self.grouped.max_groups() else {
+            return Some(QueryAdmissionRejection::GroupedQueryRequiresLimits);
+        };
+        let Some(max_group_bytes) = self.grouped.max_group_bytes() else {
+            return Some(QueryAdmissionRejection::GroupedQueryRequiresLimits);
+        };
+
+        if grouped.max_groups() == u64::MAX || grouped.max_group_bytes() == u64::MAX {
+            return Some(QueryAdmissionRejection::GroupedQueryRequiresLimits);
+        }
+
+        if grouped.max_groups() > u64::from(max_groups.get())
+            || grouped.max_group_bytes() > u64::from(max_group_bytes.get())
+        {
+            return Some(QueryAdmissionRejection::GroupedQueryExceedsBudget);
+        }
+
+        if grouped.distinct_aggregate_count() > 0 && self.grouped.max_distinct_entries().is_none() {
+            return Some(QueryAdmissionRejection::GroupedQueryRequiresLimits);
+        }
+
+        None
     }
 
     fn returned_row_bound_rejection(
@@ -1190,6 +1251,11 @@ impl QueryAdmissionSummary {
                 "aggregate_count",
                 u64::from(grouped.aggregate_count()),
             );
+            push_text_u64(
+                &mut out,
+                "distinct_aggregate_count",
+                u64::from(grouped.distinct_aggregate_count()),
+            );
             push_text_u64(&mut out, "max_groups", grouped.max_groups());
             push_text_u64(&mut out, "max_group_bytes", grouped.max_group_bytes());
             push_text_bool(&mut out, "having_filter", grouped.has_having_filter());
@@ -1383,6 +1449,14 @@ fn summarize_grouped_plan(plan: &GroupPlan) -> QueryAdmissionGroupedSummary {
     QueryAdmissionGroupedSummary::new(
         u32::try_from(plan.group.group_fields.len()).unwrap_or(u32::MAX),
         u32::try_from(plan.group.aggregates.len()).unwrap_or(u32::MAX),
+        u32::try_from(
+            plan.group
+                .aggregates
+                .iter()
+                .filter(|aggregate| aggregate.distinct)
+                .count(),
+        )
+        .unwrap_or(u32::MAX),
         plan.group.execution.max_groups(),
         plan.group.execution.max_group_bytes(),
         plan.having_expr.is_some(),
@@ -1755,6 +1829,7 @@ mod tests {
         );
         assert_eq!(grouped.group_field_count(), 1);
         assert_eq!(grouped.aggregate_count(), 1);
+        assert_eq!(grouped.distinct_aggregate_count(), 0);
         assert_eq!(grouped.max_groups(), 12);
         assert_eq!(grouped.max_group_bytes(), 4096);
         assert!(grouped.has_having_filter());
@@ -1887,6 +1962,61 @@ mod tests {
     }
 
     #[test]
+    fn public_read_evaluation_rejects_grouped_query_without_group_budgets() {
+        let policy = public_read_policy();
+        let summary = grouped_summary_for_index_prefix(12, 4096, false);
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
+        assert_eq!(
+            evaluated.rejection(),
+            Some(QueryAdmissionRejection::GroupedQueryRequiresLimits)
+        );
+    }
+
+    #[test]
+    fn public_read_evaluation_admits_grouped_query_with_group_budgets_without_limit() {
+        let policy = public_grouped_read_policy(None);
+        let summary = grouped_summary_for_index_prefix(12, 4096, false);
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Admitted);
+        assert_eq!(evaluated.limit(), None);
+        assert_eq!(evaluated.returned_row_bound(), Some(12));
+        assert_eq!(evaluated.rejection(), None);
+    }
+
+    #[test]
+    fn public_read_evaluation_rejects_grouped_query_above_policy_budget() {
+        let policy = public_grouped_read_policy(None);
+        let summary = grouped_summary_for_index_prefix(51, 4096, false);
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
+        assert_eq!(
+            evaluated.rejection(),
+            Some(QueryAdmissionRejection::GroupedQueryExceedsBudget)
+        );
+    }
+
+    #[test]
+    fn public_read_evaluation_rejects_distinct_grouped_query_without_distinct_budget() {
+        let policy = public_grouped_read_policy(None);
+        let summary = grouped_summary_for_index_prefix(12, 4096, true);
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
+        assert_eq!(
+            evaluated.rejection(),
+            Some(QueryAdmissionRejection::GroupedQueryRequiresLimits)
+        );
+    }
+
+    #[test]
     fn diagnostic_explain_policy_rejects_row_execution() {
         let policy = QueryAdmissionPolicy::diagnostic_explain();
         let summary = summary_for_index_prefix(Some(5), 0);
@@ -1905,6 +2035,14 @@ mod tests {
             NonZeroU32::new(50).expect("test public row cap is non-zero"),
             NonZeroU32::new(32_768).expect("test public byte cap is non-zero"),
         )
+    }
+
+    fn public_grouped_read_policy(distinct_entries: Option<NonZeroU32>) -> QueryAdmissionPolicy {
+        public_read_policy().with_grouped_policy(GroupedAdmissionPolicy::bounded(
+            NonZeroU32::new(50).expect("test public group cap is non-zero"),
+            NonZeroU32::new(8192).expect("test public group byte cap is non-zero"),
+            distinct_entries,
+        ))
     }
 
     fn summary_for_index_prefix(limit: Option<u32>, offset: u32) -> QueryAdmissionSummary {
@@ -1929,5 +2067,32 @@ mod tests {
         plan.scalar_plan_mut().page = Some(PageSpec { limit, offset });
 
         QueryAdmissionSummary::from_plan(QueryAdmissionLane::PublicRead, &plan)
+    }
+
+    fn grouped_summary_for_index_prefix(
+        max_groups: u64,
+        max_group_bytes: u64,
+        distinct: bool,
+    ) -> QueryAdmissionSummary {
+        let grouped = AccessPlannedQuery::new(index_prefix_path(), MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: vec![FieldSlot::from_test_slot(0, "tag")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    input_expr: Some(Box::new(Expr::Field(FieldId::new("tag")))),
+                    filter_expr: None,
+                    distinct,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(max_groups, max_group_bytes),
+            });
+
+        QueryAdmissionSummary::from_plan(QueryAdmissionLane::PublicRead, &grouped)
+    }
+
+    fn index_prefix_path() -> AccessPath<Value> {
+        AccessPath::IndexPrefix {
+            index: SemanticIndexAccessContract::model_only_from_generated_index(ADMISSION_INDEX),
+            values: vec![Value::Text("alpha".to_string())],
+        }
     }
 }

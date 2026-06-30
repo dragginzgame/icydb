@@ -876,6 +876,21 @@ impl AccessPlannedQuery {
         )
     }
 
+    /// Return a copy with grouped execution caps replaced when the plan is grouped.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn with_grouped_execution_config(
+        mut self,
+        execution: crate::db::query::plan::GroupedExecutionConfig,
+    ) -> Self {
+        if let LogicalPlan::Grouped(grouped) = &mut self.logical {
+            grouped.group.execution = execution;
+            self.static_execution_planning_contract = None;
+        }
+
+        self
+    }
+
     /// Project route-facing access-shape facts directly from the chosen access plan.
     #[must_use]
     pub(in crate::db) fn access_shape_facts(&self) -> AccessShapeFacts {

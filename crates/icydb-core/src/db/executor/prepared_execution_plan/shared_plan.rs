@@ -7,6 +7,11 @@ use crate::db::executor::{
     SharedPreparedProjectionRuntimeHandoff,
     pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
 };
+#[cfg(feature = "sql")]
+use crate::db::{
+    executor::prepared_execution_plan::build_prepared_execution_plan_core_with_lowered_access,
+    query::plan::GroupedExecutionConfig,
+};
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
@@ -74,6 +79,34 @@ impl SharedPreparedExecutionPlan {
     #[must_use]
     pub(in crate::db) fn logical_plan(&self) -> &AccessPlannedQuery {
         self.core.plan()
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn with_grouped_execution_config(
+        &self,
+        execution: GroupedExecutionConfig,
+    ) -> Result<Self, InternalError> {
+        let residents = self.core.clone().into_residents();
+        let mut plan = residents
+            .plan
+            .as_ref()
+            .clone()
+            .with_grouped_execution_config(execution);
+        self.authority
+            .finalize_static_execution_planning_contract(&mut plan)?;
+
+        Ok(Self {
+            authority: self.authority.clone(),
+            core: build_prepared_execution_plan_core_with_lowered_access(
+                self.authority.clone(),
+                plan,
+                residents.schema_fingerprint,
+                residents.index_prefix_specs,
+                residents.index_prefix_spec_invalid,
+                residents.index_range_specs,
+                residents.index_range_spec_invalid,
+            ),
+        })
     }
 
     #[must_use]

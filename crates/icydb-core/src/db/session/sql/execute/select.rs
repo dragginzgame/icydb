@@ -11,7 +11,7 @@ use crate::db::session::{
 };
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, GroupedRow, PersistedRow, QueryError,
         executor::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
             initial_read_plan_requires_materialized_sort,
@@ -19,6 +19,7 @@ use crate::{
         query::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary, QueryMaterializationSummary},
             intent::StructuralQuery,
+            plan::GroupedExecutionConfig,
         },
         schema::AcceptedSchemaSnapshot,
         session::{
@@ -46,6 +47,7 @@ use crate::db::session::sql::projection::execute_sql_projection_rows_for_caniste
 #[derive(CandidType)]
 enum SqlReadResponseSizeProbe {
     Projection(SqlReadProjectionSizeProbe),
+    Grouped(SqlReadGroupedSizeProbe),
 }
 
 #[derive(CandidType)]
@@ -54,6 +56,21 @@ struct SqlReadProjectionSizeProbe {
     fixed_scales: Vec<Option<u32>>,
     rows: Vec<Vec<OutputValue>>,
     row_count: u32,
+}
+
+#[derive(CandidType)]
+struct SqlReadGroupedSizeProbe {
+    columns: Vec<String>,
+    fixed_scales: Vec<Option<u32>>,
+    rows: Vec<SqlReadGroupedRowSizeProbe>,
+    row_count: u32,
+    next_cursor: Option<String>,
+}
+
+#[derive(CandidType)]
+struct SqlReadGroupedRowSizeProbe {
+    group_key: Vec<OutputValue>,
+    aggregate_values: Vec<OutputValue>,
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -366,6 +383,8 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let resolved = self.resolve_select_prepared_plan_for_context::<E>(query, context)?;
         let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
+        let prepared_plan =
+            prepared_read_admission_plan_with_execution_caps(policy, prepared_plan)?;
 
         enforce_read_admission_policy(policy, &prepared_plan)?;
 
@@ -438,7 +457,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 }
 
-fn enforce_read_admission_policy(
+pub(super) fn enforce_read_admission_policy(
     policy: &QueryAdmissionPolicy,
     prepared_plan: &SharedPreparedExecutionPlan,
 ) -> Result<(), QueryError> {
@@ -460,7 +479,39 @@ fn enforce_read_admission_policy(
     }
 }
 
-fn enforce_sql_read_response_byte_policy(
+fn prepared_read_admission_plan_with_execution_caps(
+    policy: &QueryAdmissionPolicy,
+    prepared_plan: SharedPreparedExecutionPlan,
+) -> Result<SharedPreparedExecutionPlan, QueryError> {
+    let Some(execution) = grouped_execution_config_for_read_admission(policy, &prepared_plan)
+    else {
+        return Ok(prepared_plan);
+    };
+
+    prepared_plan
+        .with_grouped_execution_config(execution)
+        .map_err(QueryError::execute)
+}
+
+fn grouped_execution_config_for_read_admission(
+    policy: &QueryAdmissionPolicy,
+    prepared_plan: &SharedPreparedExecutionPlan,
+) -> Option<GroupedExecutionConfig> {
+    let policy_execution = policy.grouped().execution_config()?;
+    let grouped_plan = prepared_plan.logical_plan().grouped_plan()?;
+    let plan_execution = grouped_plan.group.execution;
+
+    Some(GroupedExecutionConfig::with_hard_limits(
+        plan_execution
+            .max_groups()
+            .min(policy_execution.max_groups()),
+        plan_execution
+            .max_group_bytes()
+            .min(policy_execution.max_group_bytes()),
+    ))
+}
+
+pub(super) fn enforce_sql_read_response_byte_policy(
     policy: &QueryAdmissionPolicy,
     result: &SqlStatementResult,
 ) -> Result<(), QueryError> {
@@ -482,23 +533,39 @@ fn sql_read_projection_response_len_exceeds_max(
     result: &SqlStatementResult,
     max_response_bytes: usize,
 ) -> Result<bool, QueryError> {
-    let SqlStatementResult::Projection {
-        columns,
-        fixed_scales,
-        rows,
-        row_count,
-    } = result
-    else {
-        return Ok(false);
-    };
-
-    let base_len = encoded_sql_read_projection_response_len(
-        columns.clone(),
-        fixed_scales.clone(),
-        Vec::new(),
-        *row_count,
-    )?;
-    encoded_sql_read_projection_rows_len_exceeds_max(base_len, max_response_bytes, rows)
+    match result {
+        SqlStatementResult::Projection {
+            columns,
+            fixed_scales,
+            rows,
+            row_count,
+        } => {
+            let base_len = encoded_sql_read_projection_response_len(
+                columns.clone(),
+                fixed_scales.clone(),
+                Vec::new(),
+                *row_count,
+            )?;
+            encoded_sql_read_projection_rows_len_exceeds_max(base_len, max_response_bytes, rows)
+        }
+        SqlStatementResult::Grouped {
+            columns,
+            fixed_scales,
+            rows,
+            row_count,
+            next_cursor,
+        } => {
+            let base_len = encoded_sql_read_grouped_response_len(
+                columns.clone(),
+                fixed_scales.clone(),
+                Vec::new(),
+                *row_count,
+                next_cursor.clone(),
+            )?;
+            encoded_sql_read_grouped_rows_len_exceeds_max(base_len, max_response_bytes, rows)
+        }
+        _ => Ok(false),
+    }
 }
 
 fn encoded_sql_read_projection_rows_len_exceeds_max(
@@ -523,6 +590,35 @@ fn encoded_sql_read_projection_rows_len_exceeds_max(
     Ok(false)
 }
 
+fn encoded_sql_read_grouped_rows_len_exceeds_max(
+    mut estimated_payload_len: usize,
+    max_response_bytes: usize,
+    rows: &[GroupedRow],
+) -> Result<bool, QueryError> {
+    if estimated_payload_len > max_response_bytes {
+        return Ok(true);
+    }
+
+    for row in rows {
+        let row_len = Encode!(&grouped_row_size_probe(row))
+            .map_err(|_| QueryError::execute(InternalError::query_executor_invariant()))?
+            .len();
+        estimated_payload_len = estimated_payload_len.saturating_add(row_len);
+        if estimated_payload_len > max_response_bytes {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn grouped_row_size_probe(row: &GroupedRow) -> SqlReadGroupedRowSizeProbe {
+    SqlReadGroupedRowSizeProbe {
+        group_key: row.group_key().to_vec(),
+        aggregate_values: row.aggregate_values().to_vec(),
+    }
+}
+
 fn encoded_sql_read_projection_response_len(
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,
@@ -534,6 +630,26 @@ fn encoded_sql_read_projection_response_len(
         fixed_scales,
         rows,
         row_count,
+    });
+    let encoded = Encode!(&payload)
+        .map_err(|_| QueryError::execute(InternalError::query_executor_invariant()))?;
+
+    Ok(encoded.len())
+}
+
+fn encoded_sql_read_grouped_response_len(
+    columns: Vec<String>,
+    fixed_scales: Vec<Option<u32>>,
+    rows: Vec<SqlReadGroupedRowSizeProbe>,
+    row_count: u32,
+    next_cursor: Option<String>,
+) -> Result<usize, QueryError> {
+    let payload = SqlReadResponseSizeProbe::Grouped(SqlReadGroupedSizeProbe {
+        columns,
+        fixed_scales,
+        rows,
+        row_count,
+        next_cursor,
     });
     let encoded = Encode!(&payload)
         .map_err(|_| QueryError::execute(InternalError::query_executor_invariant()))?;

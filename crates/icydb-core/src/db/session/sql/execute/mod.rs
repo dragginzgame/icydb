@@ -368,8 +368,13 @@ impl<C: CanisterKind> DbSession<C> {
             | CompiledSqlCommand::ShowMemory => Err(query_read_admission_error(
                 QueryAdmissionRejection::IntrospectionDisabledForLane,
             )),
-            CompiledSqlCommand::GlobalAggregate { .. }
-            | CompiledSqlCommand::Delete { .. }
+            CompiledSqlCommand::GlobalAggregate { command, .. } => self
+                .execute_global_aggregate_compiled_statement_ref_with_read_admission_policy::<E>(
+                    context.command(),
+                    command,
+                    policy,
+                ),
+            CompiledSqlCommand::Delete { .. }
             | CompiledSqlCommand::Insert(..)
             | CompiledSqlCommand::Update(..) => Err(query_read_admission_error(
                 QueryAdmissionRejection::UnsupportedStatementForQueryLane,

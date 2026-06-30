@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Added response-byte and materialized-sort enforcement to policy-bound SQL
-  read admission so public SELECT lanes reject oversized projection payloads
-  and unresolved ORDER BY materialization.
+- Added grouped and global-aggregate coverage to policy-bound SQL read
+  admission so public lanes require grouped budgets, reject unbounded grouped
+  DISTINCT state, cap grouped response bytes, and classify `COUNT(*)` full
+  scans through the read-admission diagnostic family.
 
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
+
+- `0.192.4` enforces response-byte caps and route-proven materialized sort
+  rejection on policy-bound SQL SELECT execution.
 
 - `0.192.3` adds explicit SQL read-admission enforcement for policy-bound
   scalar SELECT execution while preserving the existing trusted SQL lane.

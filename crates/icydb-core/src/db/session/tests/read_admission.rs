@@ -8,7 +8,7 @@ use super::{
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, sql_session,
 };
-use crate::db::{QueryAdmissionPolicy, QueryError, SqlStatementResult};
+use crate::db::{GroupedAdmissionPolicy, QueryAdmissionPolicy, QueryError, SqlStatementResult};
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryReadAdmissionCode};
 
 #[test]
@@ -48,6 +48,26 @@ fn public_read_sql_rejects_full_scan_even_with_limit() {
         err,
         QueryReadAdmissionCode::UnboundedFullScanRejected,
         "full scan",
+    );
+}
+
+#[test]
+fn public_read_sql_rejects_global_count_full_scan() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
+            "SELECT COUNT(*) FROM SessionSqlEntity",
+            &public_read_policy(10),
+        )
+        .expect_err("public read SQL should reject global COUNT over full scan");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::UnboundedFullScanRejected,
+        "global count full scan",
     );
 }
 
@@ -167,6 +187,93 @@ fn public_read_sql_rejects_unresolved_order_materialized_sort() {
 }
 
 #[test]
+fn public_read_sql_rejects_grouped_query_without_group_budgets() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) FROM IndexedSessionSqlEntity \
+             WHERE name LIKE 'S%' GROUP BY name",
+            &public_read_policy(10),
+        )
+        .expect_err("public read SQL should reject grouped query without group budgets");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+        "missing grouped budgets",
+    );
+}
+
+#[test]
+fn public_read_sql_admits_grouped_query_with_group_budgets_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) FROM IndexedSessionSqlEntity \
+             WHERE name LIKE 'S%' GROUP BY name",
+            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+        )
+        .expect("public read SQL should admit grouped query with explicit group budgets");
+    let SqlStatementResult::Grouped {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("grouped public SELECT should return grouped rows");
+    };
+
+    assert_eq!(row_count, 2);
+    assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn public_read_sql_rejects_distinct_grouped_query_without_distinct_budget() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sam", 31), ("Sasha", 24)]);
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(DISTINCT age) FROM IndexedSessionSqlEntity \
+             WHERE name LIKE 'S%' GROUP BY name",
+            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+        )
+        .expect_err("public read SQL should reject distinct grouped query without distinct budget");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+        "missing grouped distinct budget",
+    );
+}
+
+#[test]
+fn public_read_sql_rejects_grouped_response_bytes_above_policy() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) FROM IndexedSessionSqlEntity \
+             WHERE name LIKE 'S%' GROUP BY name",
+            &public_grouped_read_policy(10, 10, 8192, None, 1),
+        )
+        .expect_err("public read SQL should reject grouped responses above byte policy");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit,
+        "grouped response-byte cap",
+    );
+}
+
+#[test]
 fn trusted_sql_query_path_keeps_existing_unbounded_admin_behavior() {
     reset_session_sql_store();
     let session = sql_session();
@@ -194,6 +301,24 @@ const fn public_read_policy_with_response_bytes(
         NonZeroU32::new(max_rows).expect("test max rows should be non-zero"),
         NonZeroU32::new(max_response_bytes).expect("test byte cap should be non-zero"),
     )
+}
+
+const fn public_grouped_read_policy(
+    max_rows: u32,
+    max_groups: u32,
+    max_group_bytes: u32,
+    max_distinct_entries: Option<NonZeroU32>,
+    max_response_bytes: u32,
+) -> QueryAdmissionPolicy {
+    QueryAdmissionPolicy::public_read(
+        NonZeroU32::new(max_rows).expect("test max rows should be non-zero"),
+        NonZeroU32::new(max_response_bytes).expect("test byte cap should be non-zero"),
+    )
+    .with_grouped_policy(GroupedAdmissionPolicy::bounded(
+        NonZeroU32::new(max_groups).expect("test group cap should be non-zero"),
+        NonZeroU32::new(max_group_bytes).expect("test group byte cap should be non-zero"),
+        max_distinct_entries,
+    ))
 }
 
 fn assert_read_admission_rejection(err: QueryError, reason: QueryReadAdmissionCode, context: &str) {

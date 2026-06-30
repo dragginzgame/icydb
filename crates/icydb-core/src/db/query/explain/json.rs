@@ -129,6 +129,10 @@ fn write_admission_json(admission: &QueryAdmissionSummary, out: &mut String) {
         let mut grouped_object = JsonWriter::begin_object(out);
         grouped_object.field_u64("group_field_count", u64::from(grouped.group_field_count()));
         grouped_object.field_u64("aggregate_count", u64::from(grouped.aggregate_count()));
+        grouped_object.field_u64(
+            "distinct_aggregate_count",
+            u64::from(grouped.distinct_aggregate_count()),
+        );
         grouped_object.field_u64("max_groups", grouped.max_groups());
         grouped_object.field_u64("max_group_bytes", grouped.max_group_bytes());
         grouped_object.field_bool("having_filter", grouped.has_having_filter());
