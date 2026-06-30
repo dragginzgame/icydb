@@ -1475,6 +1475,7 @@ const fn diagnostic_label(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryUnknownAggregateTargetField => "QueryUnknownAggregateTargetField",
         DiagnosticCode::QueryUnsupportedProjection => "QueryUnsupportedProjection",
         DiagnosticCode::QueryResultShapeMismatch => "QueryResultShapeMismatch",
+        DiagnosticCode::QueryReadAdmission => "QueryReadAdmission",
         DiagnosticCode::QueryUnsupportedSqlFeature => "QueryUnsupportedSqlFeature",
         DiagnosticCode::QuerySqlSurfaceMismatch => "QuerySqlSurfaceMismatch",
         DiagnosticCode::QuerySqlWriteBoundary => "QuerySqlWriteBoundary",
