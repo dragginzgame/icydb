@@ -23,13 +23,15 @@ use crate::db::executor::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
+#[cfg(test)]
+use crate::db::query::admission::QueryAdmissionPolicy;
 #[cfg(feature = "sql-explain")]
 use crate::db::sql::parser::SqlExplainTarget;
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryAdmissionPolicy, QueryError,
+        DbSession, PersistedRow, QueryError,
         schema::AcceptedSchemaSnapshot,
         schema::{
             execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
@@ -401,7 +403,8 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This is the explicit bounded-read seam for caller-facing endpoints. The
     /// normal `execute_sql_query` method remains the trusted/admin SQL lane.
-    pub fn execute_sql_query_with_read_admission_policy<E>(
+    #[cfg(test)]
+    pub(in crate::db) fn execute_sql_query_with_read_admission_policy<E>(
         &self,
         sql: &str,
         policy: &QueryAdmissionPolicy,

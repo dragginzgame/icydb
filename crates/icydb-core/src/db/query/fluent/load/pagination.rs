@@ -55,6 +55,18 @@ where
     {
         self.page()?.execute()
     }
+
+    /// Execute cursor pagination without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute_paged`.
+    pub fn execute_paged_trusted(self) -> Result<PagedLoadExecution<E>, QueryError>
+    where
+        E: PersistedRow + EntityValue,
+    {
+        self.page()?.execute_trusted()
+    }
 }
 
 impl<E> PagedLoadQuery<'_, E>
@@ -98,12 +110,39 @@ where
             .map(PagedLoadExecutionWithTrace::into_execution)
     }
 
+    /// Execute in cursor-pagination mode without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute`.
+    pub fn execute_trusted(self) -> Result<PagedLoadExecution<E>, QueryError>
+    where
+        E: PersistedRow + EntityValue,
+    {
+        self.execute_with_trace_trusted()
+            .map(PagedLoadExecutionWithTrace::into_execution)
+    }
+
     /// Execute in cursor-pagination mode and return items, next cursor,
     /// and optional execution trace details when session debug mode is enabled.
     ///
     /// Trace collection is opt-in via `DbSession::debug()` and does not
     /// change query planning or result semantics.
     pub fn execute_with_trace(self) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
+    where
+        E: PersistedRow + EntityValue,
+    {
+        self.inner.ensure_default_read_admission()?;
+        self.execute_with_trace_trusted()
+    }
+
+    /// Execute in cursor-pagination mode with trace details and without the
+    /// default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute_with_trace`.
+    pub fn execute_with_trace_trusted(self) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
         E: PersistedRow + EntityValue,
     {

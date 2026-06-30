@@ -276,6 +276,7 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
         .expect("scalar convergence SQL should execute");
     let fluent_rows = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
@@ -298,6 +299,7 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
         .into_execution();
     let fluent_first = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
@@ -327,6 +329,7 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
         .into_execution();
     let fluent_second = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
@@ -474,6 +477,7 @@ fn delete_targets_match_chunked_scalar_key_stream() {
     );
     let scalar_keys = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("age").lt(130_u64))
         .order_term(crate::db::asc("id"))
         .limit(100)
@@ -546,6 +550,7 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
         .expect("grouped convergence first SQL page should execute");
     let fluent_query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .group_by("age")
         .expect("grouped convergence fluent group_by should resolve")
         .aggregate(crate::db::count())
@@ -616,6 +621,7 @@ fn fluent_rows_only_execution_rejects_grouped_plan_without_blocking_grouped_surf
 
     let grouped_query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .group_by("age")
         .expect("rows-only grouped fixture should resolve group_by")
         .aggregate(crate::db::count())
@@ -774,6 +780,7 @@ fn delete_target_keys_match_scalar_execution_keys_for_same_predicate() {
     seed_fixed_session_sql_entities(&session, &rows);
     let scalar_keys = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("age").lt(30_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))

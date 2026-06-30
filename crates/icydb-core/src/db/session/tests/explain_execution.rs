@@ -152,6 +152,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 
     let strict_prefilter = session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
@@ -185,6 +186,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 
     let residual = session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FilterExpr::and(vec![
             FieldRef::new("name").eq("Sasha"),
             FieldRef::new("age").eq(24_u64),
@@ -221,6 +223,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 
     let limit_zero = session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
@@ -280,6 +283,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let by_key = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("id").eq(Ulid::from_u128(9_701)))
         .order_term(crate::db::asc("id"))
         .explain_execution()
@@ -297,6 +301,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let mixed_primary_key_range = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FilterExpr::and(vec![
             FieldRef::new("id").gte(Ulid::from_u128(9_701)),
             FieldRef::new("id").lt(Ulid::from_u128(9_703)),
@@ -339,6 +344,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let by_key_with_secondary_range = indexed_session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(FilterExpr::and(vec![
             FieldRef::new("id").eq(Ulid::from_u128(9_751)),
             FieldRef::new("tier").eq("gold"),
@@ -364,6 +370,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let empty_child_with_secondary_range = indexed_session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(FilterExpr::and(vec![
             FieldRef::new("tier").eq("gold"),
             FieldRef::new("score").gt(10_u64),
@@ -387,6 +394,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let primary_key_range_with_secondary_prefix = indexed_session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(FilterExpr::and(vec![
             FieldRef::new("id").gte(Ulid::from_u128(9_750)),
             FieldRef::new("id").lt(Ulid::from_u128(9_760)),
@@ -419,6 +427,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let prefix = indexed_session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
@@ -432,6 +441,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let multi = indexed_session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("name").in_list(["Sam", "Sasha"]))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
@@ -452,6 +462,7 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
 
     let entity_descriptor = session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("name").eq("Sam"))
         .explain_execution()
         .expect("unordered strict index-prefix entity explain_execution should succeed");
@@ -655,12 +666,14 @@ fn session_count_full_scan_ignores_other_entities_in_shared_store() {
 
     let expected = session
         .load::<SessionExplainEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("shared-store execute should succeed")
         .count();
     let actual = session
         .load::<SessionExplainEntity>()
+        .trusted_read_unchecked()
         .count()
         .expect("shared-store count should succeed");
 
@@ -685,6 +698,7 @@ fn session_explain_execution_projects_descriptor_tree_for_ordered_limited_index_
 
     let descriptor = session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
@@ -746,6 +760,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         .limit(1);
     let execution_query = session
         .load::<IndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
@@ -832,6 +847,7 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
 
     let min_terminal_plan = session
         .load::<SessionExplainEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("group").eq(7_u64))
         .order_term(crate::db::asc("rank"))
         .order_term(crate::db::asc("id"))
@@ -873,6 +889,7 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
 
     let max_terminal_plan = session
         .load::<SessionExplainEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("group").eq(7_u64))
         .order_term(crate::db::desc("rank"))
         .order_term(crate::db::desc("id"))
@@ -928,6 +945,7 @@ fn session_explain_execution_text_and_json_surface_for_strict_index_prefix_shape
     );
     let query = session
         .load::<SessionExplainEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("group").eq(7_u64))
         .order_term(crate::db::asc("rank"))
         .order_term(crate::db::asc("id"))

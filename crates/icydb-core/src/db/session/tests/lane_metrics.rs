@@ -66,6 +66,7 @@ fn fluent_lane_metrics_mark_filtered_order_age_loads_direct_filtered_data_rows()
     let (rows, metrics) = crate::db::with_scalar_materialization_lane_metrics(|| {
         session
             .load::<FilteredIndexedSessionSqlEntity>()
+            .trusted_read_unchecked()
             .filter(crate::db::FieldRef::new("active").eq(true))
             .order_term(crate::db::asc("age"))
             .order_term(crate::db::asc("id"))
@@ -121,6 +122,7 @@ fn fluent_lane_metrics_mark_field_bound_between_loads_direct_filtered_data_rows(
     let (rows, metrics) = crate::db::with_scalar_materialization_lane_metrics(|| {
         session
             .load::<SessionSqlFieldBoundRangeEntity>()
+            .trusted_read_unchecked()
             .filter(crate::db::FieldRef::new("score").between_fields("min_score", "max_score"))
             .order_term(crate::db::asc("id"))
             .limit(3)
@@ -179,6 +181,7 @@ fn fluent_lane_metrics_mark_filtered_handle_route_loads_direct_data_rows() {
     let (rows, metrics) = crate::db::with_scalar_materialization_lane_metrics(|| {
         session
             .load::<FilteredIndexedSessionSqlEntity>()
+            .trusted_read_unchecked()
             .filter(crate::db::FieldRef::new("active").eq(true))
             .filter(crate::db::FieldRef::new("tier").eq("gold"))
             .order_term(crate::db::asc("handle"))
@@ -238,6 +241,7 @@ fn fluent_route_ordered_direct_data_row_loads_cap_rows_scanned_to_offset_plus_li
         capture_rows_scanned_for_entity(FilteredIndexedSessionSqlEntity::PATH, || {
             session
                 .load::<FilteredIndexedSessionSqlEntity>()
+                .trusted_read_unchecked()
                 .filter(crate::db::FieldRef::new("active").eq(true))
                 .filter(crate::db::FieldRef::new("tier").eq("gold"))
                 .order_term(crate::db::asc("handle"))

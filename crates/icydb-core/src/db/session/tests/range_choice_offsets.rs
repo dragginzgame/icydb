@@ -30,6 +30,7 @@ fn deterministic_range_choice_descriptor(
 ) -> ExplainExecutionNodeDescriptor {
     let mut load = session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(deterministic_range_choice_filter());
     load = if descending {
         load.order_term(crate::db::desc("score"))
@@ -58,7 +59,9 @@ fn order_only_fallback_descriptor(
     offset: Option<u32>,
 ) -> ExplainExecutionNodeDescriptor {
     if composite {
-        let mut load = session.load::<SessionDeterministicChoiceEntity>();
+        let mut load = session
+            .load::<SessionDeterministicChoiceEntity>()
+            .trusted_read_unchecked();
         load = if descending {
             load.order_term(crate::db::desc("tier"))
                 .order_term(crate::db::desc("handle"))
@@ -78,7 +81,9 @@ fn order_only_fallback_descriptor(
             .expect("session deterministic composite order-only explain_execution should build");
     }
 
-    let mut load = session.load::<SessionOrderOnlyChoiceEntity>();
+    let mut load = session
+        .load::<SessionOrderOnlyChoiceEntity>()
+        .trusted_read_unchecked();
     load = if descending {
         load.order_term(crate::db::desc("alpha"))
             .order_term(crate::db::desc("id"))
@@ -250,6 +255,7 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
 
     let asc = session
         .load::<SessionOrderOnlyChoiceEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("alpha"))
         .order_term(crate::db::asc("id"))
         .offset(1)
@@ -263,6 +269,7 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
         .collect::<Vec<_>>();
     let asc_paged = session
         .load::<SessionOrderOnlyChoiceEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("alpha"))
         .order_term(crate::db::asc("id"))
         .offset(1)
@@ -276,6 +283,7 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
 
     let desc = session
         .load::<SessionOrderOnlyChoiceEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::desc("alpha"))
         .order_term(crate::db::desc("id"))
         .offset(1)
@@ -408,6 +416,7 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
     // the runtime check isolates window application, not planning.
     let planned = session
         .load::<SessionDeterministicChoiceEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("tier"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
@@ -428,6 +437,7 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
     // window directly.
     let response = session
         .load::<SessionDeterministicChoiceEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("tier"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
@@ -442,6 +452,7 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
         .collect::<Vec<_>>();
     let paged = session
         .load::<SessionDeterministicChoiceEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("tier"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))

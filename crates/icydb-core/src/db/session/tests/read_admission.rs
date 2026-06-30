@@ -9,8 +9,9 @@ use super::{
     seed_session_sql_entities, sql_session,
 };
 use crate::db::{
-    GroupedAdmissionPolicy, QueryAdmissionDecision, QueryAdmissionPolicy, QueryAdmissionRejection,
-    QueryAdmissionSummary, QueryBoundKind, QueryError, SqlStatementResult,
+    QueryAdmissionDecision, QueryAdmissionRejection, QueryAdmissionSummary, QueryBoundKind,
+    QueryError, SqlStatementResult,
+    query::admission::{GroupedAdmissionPolicy, QueryAdmissionPolicy},
 };
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryReadAdmissionCode};
 
@@ -104,10 +105,11 @@ fn public_read_fluent_admission_rejects_missing_limit_before_execution() {
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let summary = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .read_admission(&public_read_policy(10))
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
         .expect("fluent public read admission should produce a summary");
 
     assert_admission_summary_rejection(
@@ -123,10 +125,11 @@ fn public_read_fluent_ensure_admission_returns_shared_query_error_on_rejection()
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let err = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .ensure_read_admission(&public_read_policy(10))
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"));
+    let err = session
+        .ensure_query_read_admission_policy(query.query(), &public_read_policy(10))
         .expect_err("fluent ensure admission should fail closed for missing LIMIT");
 
     assert_read_admission_rejection(
@@ -142,13 +145,14 @@ fn public_read_fluent_admission_admits_indexed_bounded_scalar_query() {
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let summary = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
-        .read_admission(&public_read_policy(10))
+        .limit(2);
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
         .expect("fluent indexed bounded admission should produce a summary");
 
     assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
@@ -185,6 +189,78 @@ fn public_read_session_ensure_admission_returns_admitted_summary() {
     assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
     assert_eq!(summary.rejection(), None);
     assert_eq!(summary.returned_row_bound(), Some(2));
+}
+
+#[test]
+fn default_fluent_execute_rejects_unindexed_full_scan() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
+
+    let err = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .limit(1)
+        .execute()
+        .expect_err("default fluent execute should reject unindexed full scans");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::UnboundedFullScanRejected,
+        "default fluent execute full scan",
+    );
+}
+
+#[test]
+fn default_fluent_terminal_rejects_unindexed_full_scan() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
+
+    let err = session
+        .load::<SessionSqlEntity>()
+        .count()
+        .expect_err("default fluent terminal should reject unindexed full scans");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::UnboundedFullScanRejected,
+        "default fluent terminal full scan",
+    );
+}
+
+#[test]
+fn default_fluent_execute_admits_indexed_bounded_query() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let response = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .execute()
+        .expect("default fluent execute should admit indexed bounded reads");
+
+    assert_eq!(response.count(), 2);
+}
+
+#[test]
+fn trusted_fluent_execute_keeps_existing_unbounded_behavior() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
+
+    let response = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .limit(1)
+        .execute_trusted()
+        .expect("trusted fluent execute should keep existing behavior");
+
+    assert_eq!(response.count(), 1);
 }
 
 #[test]
@@ -291,14 +367,15 @@ fn public_read_fluent_admission_rejects_unresolved_order_materialized_sort() {
         ],
     );
 
-    let summary = session
+    let query = session
         .load::<FilteredIndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("active").eq(true))
         .filter(crate::db::FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
-        .read_admission(&public_read_policy(10))
+        .limit(2);
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
         .expect("fluent materialized-sort admission should produce a summary");
 
     assert_admission_summary_rejection(
@@ -335,14 +412,15 @@ fn public_read_fluent_admission_rejects_grouped_query_without_policy_group_budge
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let summary = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .group_by("name")
         .expect("group_by(name) should resolve")
         .aggregate(crate::db::count())
-        .grouped_limits(10, 8192)
-        .read_admission(&public_read_policy(10))
+        .grouped_limits(10, 8192);
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
         .expect("fluent grouped admission should produce a summary");
 
     assert_admission_summary_rejection(
@@ -358,13 +436,17 @@ fn public_read_fluent_admission_rejects_grouped_query_without_query_hard_limits(
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let err = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .group_by("name")
         .expect("group_by(name) should resolve")
-        .aggregate(crate::db::count())
-        .ensure_read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .aggregate(crate::db::count());
+    let err = session
+        .ensure_query_read_admission_policy(
+            query.query(),
+            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+        )
         .expect_err("fluent grouped admission should require query hard limits");
 
     assert_read_admission_rejection(
@@ -404,14 +486,18 @@ fn public_read_fluent_admission_admits_grouped_query_with_group_budgets_without_
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let summary = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .group_by("name")
         .expect("group_by(name) should resolve")
         .aggregate(crate::db::count())
-        .grouped_limits(10, 8192)
-        .read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .grouped_limits(10, 8192);
+    let summary = session
+        .evaluate_query_read_admission_policy(
+            query.query(),
+            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+        )
         .expect("fluent grouped admission should produce a summary");
     let grouped = summary
         .grouped()
@@ -438,14 +524,18 @@ fn public_read_fluent_admission_rejects_grouped_query_above_policy_budgets() {
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let summary = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .group_by("name")
         .expect("group_by(name) should resolve")
         .aggregate(crate::db::count())
-        .grouped_limits(11, 8193)
-        .read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .grouped_limits(11, 8193);
+    let summary = session
+        .evaluate_query_read_admission_policy(
+            query.query(),
+            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+        )
         .expect("fluent grouped admission should produce a summary");
 
     assert_admission_summary_rejection(
@@ -482,14 +572,18 @@ fn public_read_fluent_admission_rejects_distinct_grouped_query_without_distinct_
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sam", 31), ("Sasha", 24)]);
 
-    let summary = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .group_by("name")
         .expect("group_by(name) should resolve")
         .aggregate(crate::db::count_by("age").distinct())
-        .grouped_limits(10, 8192)
-        .read_admission(&public_grouped_read_policy(10, 10, 8192, None, 32_768))
+        .grouped_limits(10, 8192);
+    let summary = session
+        .evaluate_query_read_admission_policy(
+            query.query(),
+            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+        )
         .expect("fluent grouped distinct admission should produce a summary");
     let grouped = summary
         .grouped()
@@ -509,20 +603,18 @@ fn public_read_fluent_admission_admits_distinct_grouped_query_with_distinct_budg
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sam", 31), ("Sasha", 24)]);
 
-    let summary = session
+    let query = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .group_by("name")
         .expect("group_by(name) should resolve")
         .aggregate(crate::db::count_by("age").distinct())
-        .grouped_limits(10, 8192)
-        .read_admission(&public_grouped_read_policy(
-            10,
-            10,
-            8192,
-            NonZeroU32::new(64),
-            32_768,
-        ))
+        .grouped_limits(10, 8192);
+    let summary = session
+        .evaluate_query_read_admission_policy(
+            query.query(),
+            &public_grouped_read_policy(10, 10, 8192, NonZeroU32::new(64), 32_768),
+        )
         .expect("fluent grouped distinct admission should produce a summary");
     let grouped = summary
         .grouped()

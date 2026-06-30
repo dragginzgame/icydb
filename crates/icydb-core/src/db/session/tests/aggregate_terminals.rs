@@ -18,6 +18,7 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(1)
@@ -118,6 +119,7 @@ fn session_aggregate_values_by_unknown_field_fails_before_scan_budget_consumptio
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)
@@ -165,6 +167,7 @@ fn session_aggregate_take_matches_execute_prefix() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(1)
@@ -221,6 +224,7 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
     let ordering_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)
@@ -331,6 +335,7 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
         let load_window = || {
             session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
                 .offset(0)
@@ -384,6 +389,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
     let asc_top_ids = SessionAggregateResult::Ids(session_aggregate_ids(
         &session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .top_k_by("rank", 3)
@@ -392,6 +398,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
     let asc_bottom_ids = SessionAggregateResult::Ids(session_aggregate_ids(
         &session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .bottom_k_by("rank", 3)
@@ -400,6 +407,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
     let asc_top_values = SessionAggregateResult::Values(
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .top_k_by_values("rank", 3)
@@ -408,6 +416,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
     let asc_bottom_values = SessionAggregateResult::Values(
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .bottom_k_by_values("rank", 3)
@@ -416,6 +425,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
     let asc_top_values_with_ids = SessionAggregateResult::ValuesWithIds(
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .top_k_by_with_ids("rank", 3)
@@ -427,6 +437,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
     let asc_bottom_values_with_ids = SessionAggregateResult::ValuesWithIds(
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .bottom_k_by_with_ids("rank", 3)
@@ -442,6 +453,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         SessionAggregateResult::Ids(session_aggregate_ids(
             &session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
                 .top_k_by("rank", 3)
@@ -454,6 +466,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         SessionAggregateResult::Ids(session_aggregate_ids(
             &session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
                 .bottom_k_by("rank", 3)
@@ -466,6 +479,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         SessionAggregateResult::Values(
             session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
                 .top_k_by_values("rank", 3)
@@ -478,6 +492,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         SessionAggregateResult::Values(
             session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
                 .bottom_k_by_values("rank", 3)
@@ -490,6 +505,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         SessionAggregateResult::ValuesWithIds(
             session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
                 .top_k_by_with_ids("rank", 3)
@@ -505,6 +521,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         SessionAggregateResult::ValuesWithIds(
             session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
                 .bottom_k_by_with_ids("rank", 3)

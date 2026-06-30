@@ -935,6 +935,7 @@ fn fluent_exact_key_paths_support_composite_primary_keys() {
 
     let first = session
         .load::<SessionSqlCompositeWriteEntity>()
+        .trusted_read_unchecked()
         .by_id(Id::from_key(first_key))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -945,6 +946,7 @@ fn fluent_exact_key_paths_support_composite_primary_keys() {
 
     let both = session
         .load::<SessionSqlCompositeWriteEntity>()
+        .trusted_read_unchecked()
         .by_ids([Id::from_key(second_key), Id::from_key(first_key)])
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -979,6 +981,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .min()
             .expect("composite min id terminal should succeed"),
         Some(Id::from_key(first_key)),
@@ -986,6 +989,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .max()
             .expect("composite max id terminal should succeed"),
         Some(Id::from_key(second_key)),
@@ -993,6 +997,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .min_by("age")
             .expect("composite min_by id terminal should succeed"),
         Some(Id::from_key(first_key)),
@@ -1000,6 +1005,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .max_by("age")
             .expect("composite max_by id terminal should succeed"),
         Some(Id::from_key(second_key)),
@@ -1007,6 +1013,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .nth_by("age", 1)
             .expect("composite nth_by id terminal should succeed"),
         Some(Id::from_key(second_key)),
@@ -1014,6 +1021,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .median_by("age")
             .expect("composite median_by id terminal should succeed"),
         Some(Id::from_key(first_key)),
@@ -1021,6 +1029,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .min_max_by("age")
             .expect("composite min_max_by id terminal should succeed"),
         Some((Id::from_key(first_key), Id::from_key(second_key))),
@@ -1028,6 +1037,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .order_term(crate::db::asc("local_id"))
             .values_by_with_ids("age")
             .expect("composite values_by_with_ids terminal should succeed"),
@@ -1039,6 +1049,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .top_k_by_with_ids("age", 1)
             .expect("composite top_k_by_with_ids terminal should succeed"),
         outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![(
@@ -1049,6 +1060,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
     assert_eq!(
         session
             .load::<SessionSqlCompositeWriteEntity>()
+            .trusted_read_unchecked()
             .bottom_k_by_with_ids("age", 1)
             .expect("composite bottom_k_by_with_ids terminal should succeed"),
         outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![(
@@ -1075,6 +1087,7 @@ fn fluent_paged_load_resumes_composite_primary_key_rows_without_duplicates() {
 
     let first_page = session
         .load::<SessionSqlCompositeWriteEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
         .limit(2)
         .execute_paged()
@@ -1092,6 +1105,7 @@ fn fluent_paged_load_resumes_composite_primary_key_rows_without_duplicates() {
 
     let second_page = session
         .load::<SessionSqlCompositeWriteEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
         .limit(2)
         .cursor(cursor)

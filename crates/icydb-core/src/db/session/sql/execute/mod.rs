@@ -24,10 +24,12 @@ use crate::db::executor::EntityAuthority;
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 #[cfg(feature = "sql-explain")]
 use crate::db::sql::lowering::LoweredSqlCommand;
+#[cfg(test)]
+use crate::db::{QueryAdmissionRejection, query::admission::QueryAdmissionPolicy};
 use crate::error::InternalError;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryAdmissionPolicy, QueryAdmissionRejection, QueryError,
+        DbSession, PersistedRow, QueryError,
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
@@ -44,6 +46,7 @@ use diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
 use icydb_diagnostic_code::SqlLoweringCode;
 use write::execute_compiled_sql_write_with_default_cache;
 
+#[cfg(test)]
 fn query_read_admission_error(rejection: QueryAdmissionRejection) -> QueryError {
     QueryError::from(rejection.code())
 }
@@ -343,6 +346,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(result)
     }
 
+    #[cfg(test)]
     pub(in crate::db::session::sql) fn execute_compiled_sql_context_with_read_admission_policy<E>(
         &self,
         context: &SqlCompiledCommandExecutionContext,

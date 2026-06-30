@@ -3,9 +3,11 @@
 //! Does not own: SQL aggregate semantic lowering, HAVING evaluation, projection evaluation, or reducers.
 //! Boundary: adapts lowered SQL aggregate intent onto executor-owned structural aggregate execution.
 
+#[cfg(test)]
+use crate::db::query::admission::QueryAdmissionPolicy;
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryAdmissionPolicy, QueryError,
+        DbSession, PersistedRow, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         session::{
             AcceptedSchemaCatalogContext,
@@ -30,6 +32,7 @@ use super::direct_count::MeasuredDirectCountCardinalityOutcome;
 use super::direct_count::{
     DirectCountCardinalityOutcome, DirectCountCardinalityTarget, direct_count_rows_statement_result,
 };
+#[cfg(test)]
 use super::select::{enforce_read_admission_policy, enforce_sql_read_response_byte_policy};
 #[cfg(feature = "diagnostics")]
 use crate::db::session::{
@@ -262,6 +265,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    #[cfg(test)]
     pub(in crate::db::session::sql::execute) fn execute_global_aggregate_compiled_statement_ref_with_read_admission_policy<
         E,
     >(

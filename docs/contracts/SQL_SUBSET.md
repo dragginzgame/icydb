@@ -37,7 +37,6 @@ Typed and fluent APIs are the canonical public surfaces.
 The remaining public SQL surfaces are:
 
 - `execute_sql_query::<E>(...)`
-- `execute_sql_query_with_read_admission_policy::<E>(...)`
 - `execute_sql_update::<E>(...)`
 - `execute_sql_ddl::<E>(...)`
 

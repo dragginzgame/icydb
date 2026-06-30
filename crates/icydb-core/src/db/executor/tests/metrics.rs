@@ -528,6 +528,7 @@ fn scalar_load_emits_rows_filtered_and_rows_emitted_metrics() {
     let events = capture_metrics(|| {
         DbSession::new(DB)
             .load::<SimpleEntity>()
+            .trusted_read_unchecked()
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(1)
@@ -590,6 +591,7 @@ fn grouped_load_emits_rows_aggregated_metrics() {
     let events = capture_metrics(|| {
         DbSession::new(DB)
             .load::<PushdownParityEntity>()
+            .trusted_read_unchecked()
             .group_by("group")
             .expect("grouped query should build")
             .aggregate(crate::db::count())

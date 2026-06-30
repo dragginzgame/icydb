@@ -6,8 +6,7 @@
 
 use crate::{
     db::{
-        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, QueryAdmissionPolicy,
-        QueryAdmissionSummary, Row,
+        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, Row,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
             QueryTracePlan, ValueProjectionExpr,
@@ -72,6 +71,17 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     #[must_use]
     pub fn cursor(mut self, token: impl Into<String>) -> Self {
         self.inner = self.inner.cursor(token);
+        self
+    }
+
+    /// Mark this fluent read as trusted and bypass the default bounded read gate.
+    ///
+    /// Use this only for controller/admin maintenance code that has its own
+    /// authorization and resource policy. Application-facing reads should stay
+    /// on the normal bounded execution path.
+    #[must_use]
+    pub fn trusted_read_unchecked(mut self) -> Self {
+        self.inner = self.inner.trusted_read_unchecked();
         self
     }
 
@@ -142,12 +152,36 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         self.page()?.execute()
     }
 
+    /// Execute as cursor pagination without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute_paged`.
+    pub fn execute_paged_trusted(self) -> Result<PagedResponse<E>, Error>
+    where
+        E: Entity,
+    {
+        self.page()?.execute_trusted()
+    }
+
     /// Execute as a scalar row load.
     pub fn execute_rows(&self) -> Result<Response<E>, Error>
     where
         E: Entity,
     {
         Ok(Response::from_core(self.inner.execute_rows()?))
+    }
+
+    /// Execute as a scalar row load without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute_rows`.
+    pub fn execute_rows_trusted(&self) -> Result<Response<E>, Error>
+    where
+        E: Entity,
+    {
+        Ok(Response::from_core(self.inner.execute_rows_trusted()?))
     }
 
     /// Return the stable plan hash for this query.
@@ -158,28 +192,6 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, Error> {
         Ok(self.inner.trace()?)
-    }
-
-    /// Evaluate the current query plan against a read-admission policy without executing rows.
-    ///
-    /// Public endpoints must still enforce response-byte budgets on the final
-    /// typed response they return.
-    pub fn read_admission(
-        &self,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<QueryAdmissionSummary, Error> {
-        Ok(self.inner.read_admission(policy)?)
-    }
-
-    /// Require the current query plan to be admitted without executing rows.
-    ///
-    /// On rejection this returns the same read-admission error family used by
-    /// policy-bound SQL reads.
-    pub fn ensure_read_admission(
-        &self,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<QueryAdmissionSummary, Error> {
-        Ok(self.inner.ensure_read_admission(policy)?)
     }
 
     /// Build the validated logical plan without compiling execution details.
@@ -805,6 +817,22 @@ impl<E: Entity> PagedLoadQuery<'_, E> {
         E: Entity,
     {
         let execution = self.inner.execute()?;
+        let (response, continuation_cursor) = execution.into_response_and_cursor();
+        let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
+
+        Ok(PagedResponse::new(response.entities(), next_cursor))
+    }
+
+    /// Execute in cursor-pagination mode without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute`.
+    pub fn execute_trusted(self) -> Result<PagedResponse<E>, Error>
+    where
+        E: Entity,
+    {
+        let execution = self.inner.execute_trusted()?;
         let (response, continuation_cursor) = execution.into_response_and_cursor();
         let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
 

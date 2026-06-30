@@ -942,6 +942,7 @@ fn execute_fluent_sparse_collection_page(
 ) -> crate::db::PagedLoadExecution<BranchIndexedSessionSqlEntity> {
     let query = session
         .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(sparse_collection_filter_expr())
         .order_term(crate::db::asc("id"))
         .limit(u32::try_from(limit).expect("sparse collection test limit should fit into u32"));
@@ -2040,6 +2041,7 @@ fn session_branch_set_fluent_sparse_in_count_uses_prefix_cardinality() {
 
     let (count, attribution) = session
         .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(sparse_collection_filter_expr())
         .count_with_attribution()
         .unwrap_or_else(|err| panic!("sparse collection fluent COUNT should execute: {err:?}"));
@@ -2060,6 +2062,7 @@ fn session_branch_set_fluent_missing_sparse_in_count_uses_empty_prefix_cardinali
 
     let (count, attribution) = session
         .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(missing_sparse_collection_filter_expr())
         .count_with_attribution()
         .unwrap_or_else(|err| {
@@ -2085,6 +2088,7 @@ fn session_branch_set_fluent_sparse_in_exists_uses_prefix_cardinality() {
 
     let (exists, attribution) = session
         .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(sparse_collection_filter_expr())
         .exists_with_attribution()
         .unwrap_or_else(|err| panic!("sparse collection fluent EXISTS should execute: {err:?}"));
@@ -2105,6 +2109,7 @@ fn session_branch_set_fluent_missing_sparse_in_exists_uses_empty_prefix_cardinal
 
     let (exists, attribution) = session
         .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(missing_sparse_collection_filter_expr())
         .exists_with_attribution()
         .unwrap_or_else(|err| {
@@ -2891,6 +2896,7 @@ fn session_branch_set_fluent_count_covered_predicate_reports_prefix_cardinality(
 
     let (count, attribution) = session
         .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
         .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
         .count_with_attribution()
@@ -2940,6 +2946,7 @@ fn session_branch_set_fluent_exists_reports_existing_rows_terminal_attribution()
 
     let (exists, attribution) = session
         .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
         .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
         .order_term(crate::db::asc("id"))

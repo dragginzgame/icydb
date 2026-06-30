@@ -412,16 +412,19 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
         Value::Nat64(u64::from(
             session
                 .load::<SessionSqlEntity>()
+                .trusted_read_unchecked()
                 .count()
                 .expect("fluent count should succeed"),
         )),
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .sum_by("age")
             .expect("fluent sum_by(age) should succeed")
             .map_or(Value::Null, Value::Decimal),
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .avg_by("age")
             .expect("fluent avg_by(age) should succeed")
             .map_or(Value::Null, Value::Decimal),
@@ -3880,6 +3883,7 @@ fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
 
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .group_by("age")
         .expect("group_by(age) should resolve")
         .aggregate(crate::db::count())

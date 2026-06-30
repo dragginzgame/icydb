@@ -109,7 +109,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one scalar load/delete query and return materialized response rows.
-    pub fn execute_query<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
+    pub(in crate::db) fn execute_query<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<EntityResponse<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {

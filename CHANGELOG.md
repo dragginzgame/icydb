@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
 
+- `0.192.9` hard-cuts ordinary typed/fluent reads onto the default bounded
+  read-admission path and removes custom public policy helpers, leaving explicit
+  trusted bypasses for controller/admin code.
+
 - `0.192.8` documents and test-covers typed/fluent grouped read-admission
   budget contracts, including grouped hard limits and DISTINCT budgets.
 

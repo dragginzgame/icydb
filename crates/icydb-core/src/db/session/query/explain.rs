@@ -98,12 +98,27 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(prepared_plan.plan_hash_hex())
     }
 
+    /// Require one typed/fluent query plan to satisfy the default bounded read policy.
+    #[doc(hidden)]
+    pub fn ensure_default_query_read_admission<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<QueryAdmissionSummary, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.ensure_query_read_admission_policy(
+            query,
+            &QueryAdmissionPolicy::default_bounded_read(),
+        )
+    }
+
     /// Evaluate one typed/fluent query plan against a read-admission policy.
     ///
     /// This does not execute rows or prove a final response-byte size. Public
     /// endpoints that return typed data must still enforce their outward
     /// response budget after shaping the response.
-    pub fn evaluate_query_read_admission_policy<E>(
+    pub(in crate::db) fn evaluate_query_read_admission_policy<E>(
         &self,
         query: &Query<E>,
         policy: &QueryAdmissionPolicy,
@@ -133,7 +148,7 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This returns the admitted plan summary on success, or the same compact
     /// read-admission `QueryError` family used by policy-bound SQL reads.
-    pub fn ensure_query_read_admission_policy<E>(
+    pub(in crate::db) fn ensure_query_read_admission_policy<E>(
         &self,
         query: &Query<E>,
         policy: &QueryAdmissionPolicy,

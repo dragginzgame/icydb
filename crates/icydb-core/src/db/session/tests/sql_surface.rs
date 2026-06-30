@@ -1886,6 +1886,7 @@ fn fluent_take_reads_old_rows_after_nullable_additive_schema_transition() {
 
     let rows = session
         .load::<SessionNullableSqlEntity>()
+        .trusted_read_unchecked()
         .take(1)
         .expect("fluent take should accept old row after nullable append-only schema transition")
         .rows();
@@ -1916,6 +1917,7 @@ fn fluent_paged_load_reads_old_rows_after_nullable_additive_schema_transition() 
 
     let (response, continuation_cursor) = session
         .load::<SessionNullableSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(asc("id"))
         .limit(1)
         .execute_paged()
@@ -1952,6 +1954,7 @@ fn fluent_top_k_reads_old_rows_after_nullable_additive_schema_transition() {
 
     let rows = session
         .load::<SessionNullableSqlEntity>()
+        .trusted_read_unchecked()
         .top_k_by("name", 1)
         .expect("fluent top-k should accept old row after nullable append-only schema transition")
         .rows();
@@ -8661,6 +8664,7 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
 
     let fluent = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
         .limit(1);
@@ -8680,6 +8684,7 @@ fn filterless_shared_query_plan_cache_hit_uses_identity_without_schema_projectio
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
         .limit(1);
@@ -8778,6 +8783,7 @@ fn filtered_shared_query_plan_cache_path_remains_schema_aware() {
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("age").gt(20u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
@@ -9231,6 +9237,7 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_filter_order() {
     // identical but arrive through different mutation order.
     let left = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .filter(crate::db::FieldRef::new("age").lt(40_u64))
         .order_term(crate::db::asc("age"))
@@ -9238,6 +9245,7 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_filter_order() {
         .limit(2);
     let right = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("age").lt(40_u64))
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
@@ -9301,6 +9309,7 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
     // semantically identical but arrive through different builder order.
     let left = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .group_by("age")
         .expect("left grouped fluent query should resolve group field")
         .aggregate(crate::db::count())
@@ -9318,6 +9327,7 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
         .expect("left grouped fluent query should accept aggregate HAVING");
     let right = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .group_by("age")
         .expect("right grouped fluent query should resolve group field")
         .aggregate(crate::db::count())
@@ -9544,6 +9554,7 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
         .limit(1);
@@ -9584,6 +9595,7 @@ fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
         .limit(1);
@@ -9630,6 +9642,7 @@ fn shared_query_plan_cache_schema_version_mismatch_fails_closed() {
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
         .limit(1);

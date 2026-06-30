@@ -134,6 +134,7 @@ fn heap_backed_session_write_read_and_index_query_round_trip_while_live() {
 
     let loaded = session
         .load::<HeapSessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -201,6 +202,7 @@ fn heap_backed_session_reinit_loses_rows_and_indexes_but_reconciles_live_schema(
 
     let loaded = session
         .load::<HeapSessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -259,6 +261,7 @@ fn durable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
 
     let persisted = session
         .load::<DurableSessionSqlSourceToHeapTargetEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("post-rejection durable-source load should succeed")
@@ -293,6 +296,7 @@ fn durable_source_weak_relation_to_heap_target_remains_non_enforcing() {
 
     let persisted = session
         .load::<DurableSessionSqlWeakSourceToHeapTargetEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("weak durable-source relation load should succeed")
@@ -329,6 +333,7 @@ fn heap_source_strong_relation_to_heap_target_keeps_live_validation_semantics() 
 
     let persisted = session
         .load::<HeapSessionSqlSourceToHeapTargetEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("heap-source relation load should succeed")
@@ -413,6 +418,7 @@ fn failed_heap_source_to_durable_target_write_leaves_no_heap_side_effects() {
 
     let persisted = session
         .load::<HeapSessionSqlSourceToDurableTargetEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("heap source load after failed write should succeed")
@@ -465,6 +471,7 @@ fn mixed_heap_source_reinit_recovery_purges_durable_reverse_index_state() {
 
     let heap_sources = session
         .load::<HeapSessionSqlSourceToDurableTargetEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("heap source load after reinit should succeed")

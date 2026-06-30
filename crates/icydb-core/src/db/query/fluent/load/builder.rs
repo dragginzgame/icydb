@@ -8,7 +8,7 @@ use crate::{
         DbSession,
         predicate::CompareOp,
         query::{
-            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
+            admission::QueryAdmissionPolicy,
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, OrderTerm},
@@ -36,6 +36,7 @@ where
     pub(super) session: &'a DbSession<E::Canister>,
     pub(super) query: Query<E>,
     pub(super) cursor_token: Option<String>,
+    trusted_read_unchecked: bool,
 }
 
 impl<'a, E> FluentLoadQuery<'a, E>
@@ -47,6 +48,7 @@ where
             session,
             query,
             cursor_token: None,
+            trusted_read_unchecked: false,
         }
     }
 
@@ -211,6 +213,30 @@ where
         self
     }
 
+    /// Mark this fluent read as trusted and bypass the default bounded read gate.
+    ///
+    /// Use this only for controller/admin maintenance code or internal test
+    /// harnesses that have their own authorization and resource bounds.
+    #[must_use]
+    pub const fn trusted_read_unchecked(mut self) -> Self {
+        self.trusted_read_unchecked = true;
+        self
+    }
+
+    pub(super) fn ensure_default_read_admission(&self) -> Result<(), QueryError> {
+        if self.trusted_read_unchecked {
+            return Ok(());
+        }
+
+        self.map_session_query_output(|session, query| {
+            session.ensure_query_read_admission_policy(
+                query,
+                &QueryAdmissionPolicy::default_bounded_read(),
+            )
+        })?;
+        Ok(())
+    }
+
     // ------------------------------------------------------------------
     // Planning / diagnostics
     // ------------------------------------------------------------------
@@ -228,33 +254,6 @@ where
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
         self.map_session_query_output(DbSession::trace_query)
-    }
-
-    /// Evaluate the current query plan against a read-admission policy without executing rows.
-    ///
-    /// The returned summary captures plan-level admission facts. It is not a
-    /// substitute for enforcing response-byte budgets on the final typed
-    /// response payload.
-    pub fn read_admission(
-        &self,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<QueryAdmissionSummary, QueryError> {
-        self.map_session_query_output(|session, query| {
-            session.evaluate_query_read_admission_policy(query, policy)
-        })
-    }
-
-    /// Require the current query plan to be admitted without executing rows.
-    ///
-    /// On rejection this returns the same read-admission `QueryError`
-    /// diagnostic family used by policy-bound SQL reads.
-    pub fn ensure_read_admission(
-        &self,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<QueryAdmissionSummary, QueryError> {
-        self.map_session_query_output(|session, query| {
-            session.ensure_query_read_admission_policy(query, policy)
-        })
     }
 
     /// Build the validated logical plan without compiling execution details.

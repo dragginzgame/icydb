@@ -94,6 +94,7 @@ fn predicate_sql_and_fluent_filters_converge_on_scalar_rows() {
         let fluent_rows = session_names(
             session
                 .load::<SessionSqlEntity>()
+                .trusted_read_unchecked()
                 .filter(filter)
                 .order_term(crate::db::asc("age"))
                 .execute()
@@ -120,6 +121,7 @@ fn predicate_optional_null_converges_but_sql_eq_null_stays_unknown_false() {
     let fluent_null_rows = nullable_names(
         session
             .load::<SessionNullableSqlEntity>()
+            .trusted_read_unchecked()
             .filter(FieldRef::new("nickname").is_null())
             .execute()
             .and_then(crate::db::LoadQueryResult::into_rows)

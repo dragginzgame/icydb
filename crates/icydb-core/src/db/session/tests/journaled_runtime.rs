@@ -94,6 +94,7 @@ fn journaled_session_write_read_and_index_query_round_trip_while_live() {
 
     let loaded = session
         .load::<JournaledSessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -191,6 +192,7 @@ fn journaled_session_recovery_folds_committed_tail_into_canonical_btrees() {
 
     let loaded = recovered_session
         .load::<JournaledSessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -279,6 +281,7 @@ fn journaled_session_recovery_repairs_missing_marker_bound_journal_tail_batch() 
     let recovered_session = journaled_sql_session();
     let loaded = recovered_session
         .load::<JournaledSessionSqlEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("journaled recovery should replay repaired journal batch")
@@ -339,6 +342,7 @@ fn journaled_session_recovery_reuses_matching_marker_bound_journal_tail_batch() 
     let recovered_session = journaled_sql_session();
     let loaded = recovered_session
         .load::<JournaledSessionSqlEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("journaled recovery should replay the idempotent journal batch once")
@@ -459,6 +463,7 @@ fn durable_source_strong_relation_to_journaled_target_uses_durable_capabilities(
 
     let persisted = session
         .load::<DurableSessionSqlSourceToJournaledTargetEntity>()
+        .trusted_read_unchecked()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("durable-source journaled-target relation load should succeed")

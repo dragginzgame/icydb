@@ -39,6 +39,7 @@ fn equality_prefix_suffix_order_descriptor(
 ) -> ExplainExecutionNodeDescriptor {
     let mut load = session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(equality_prefix_suffix_order_filter());
     load = if descending {
         load.order_term(crate::db::desc("label"))
@@ -64,6 +65,7 @@ fn unique_prefix_offset_descriptor(
 ) -> ExplainExecutionNodeDescriptor {
     let mut load = session
         .load::<SessionUniquePrefixOffsetEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("tier").eq("gold"));
     load = if descending {
         load.order_term(crate::db::desc("handle"))
@@ -256,6 +258,7 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
     // same equality-prefix suffix-order shape.
     let asc = session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(equality_prefix_suffix_order_filter())
         .order_term(crate::db::asc("label"))
         .order_term(crate::db::asc("id"))
@@ -266,6 +269,7 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
         .expect("ascending equality-prefix suffix-order offset window should execute");
     let desc = session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(equality_prefix_suffix_order_filter())
         .order_term(crate::db::desc("label"))
         .order_term(crate::db::desc("id"))
@@ -313,6 +317,7 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
 
     let asc = session
         .load::<SessionUniquePrefixOffsetEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
@@ -328,6 +333,7 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
 
     let desc = session
         .load::<SessionUniquePrefixOffsetEntity>()
+        .trusted_read_unchecked()
         .filter(FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::desc("handle"))
         .order_term(crate::db::desc("id"))

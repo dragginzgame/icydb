@@ -28,6 +28,7 @@ fn session_temporal_projection_matrix_preserves_semantic_types() {
     let load_window = || {
         session
             .load::<SessionTemporalEntity>()
+            .trusted_read_unchecked()
             .order_term(crate::db::asc("id"))
     };
 
@@ -155,49 +156,46 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         ],
     );
 
-    // Phase 1: group by Date and lock semantic key typing in grouped output.
-    let by_day = session
-        .load::<SessionTemporalEntity>()
-        .group_by("occurred_on")
-        .expect("group_by(occurred_on) should resolve")
-        .aggregate(crate::db::count())
-        .execute()
-        .and_then(crate::db::LoadQueryResult::into_grouped)
-        .expect("grouped by occurred_on should execute");
+    let grouped_outputs = |field: &str| {
+        let grouped = session
+            .load::<SessionTemporalEntity>()
+            .trusted_read_unchecked()
+            .group_by(field)
+            .expect("temporal group_by field should resolve")
+            .aggregate(crate::db::count())
+            .execute()
+            .and_then(crate::db::LoadQueryResult::into_grouped)
+            .expect("temporal grouped query should execute");
+
+        (
+            grouped
+                .rows()
+                .iter()
+                .map(|row| runtime_outputs(row.group_key()))
+                .collect::<Vec<_>>(),
+            grouped
+                .rows()
+                .iter()
+                .map(|row| runtime_outputs(row.aggregate_values()))
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    let (day_keys, day_counts) = grouped_outputs("occurred_on");
     assert_eq!(
-        by_day
-            .rows()
-            .iter()
-            .map(|row| runtime_outputs(row.group_key()))
-            .collect::<Vec<_>>(),
+        day_keys,
         vec![vec![Value::Date(day_one)], vec![Value::Date(day_two)]],
         "grouped Date keys should stay semantic Date values",
     );
     assert_eq!(
-        by_day
-            .rows()
-            .iter()
-            .map(|row| runtime_outputs(row.aggregate_values()))
-            .collect::<Vec<_>>(),
+        day_counts,
         vec![vec![Value::Nat64(2)], vec![Value::Nat64(1)]],
         "grouped Date counts should match fixture cardinality",
     );
 
-    // Phase 2: group by Timestamp and lock semantic key typing in grouped output.
-    let by_timestamp = session
-        .load::<SessionTemporalEntity>()
-        .group_by("occurred_at")
-        .expect("group_by(occurred_at) should resolve")
-        .aggregate(crate::db::count())
-        .execute()
-        .and_then(crate::db::LoadQueryResult::into_grouped)
-        .expect("grouped by occurred_at should execute");
+    let (timestamp_keys, timestamp_counts) = grouped_outputs("occurred_at");
     assert_eq!(
-        by_timestamp
-            .rows()
-            .iter()
-            .map(|row| runtime_outputs(row.group_key()))
-            .collect::<Vec<_>>(),
+        timestamp_keys,
         vec![
             vec![Value::Timestamp(at_one)],
             vec![Value::Timestamp(at_two)]
@@ -205,30 +203,14 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         "grouped Timestamp keys should stay semantic Timestamp values",
     );
     assert_eq!(
-        by_timestamp
-            .rows()
-            .iter()
-            .map(|row| runtime_outputs(row.aggregate_values()))
-            .collect::<Vec<_>>(),
+        timestamp_counts,
         vec![vec![Value::Nat64(1)], vec![Value::Nat64(2)]],
         "grouped Timestamp counts should match fixture cardinality",
     );
 
-    // Phase 3: group by Duration and lock semantic key typing in grouped output.
-    let by_duration = session
-        .load::<SessionTemporalEntity>()
-        .group_by("elapsed")
-        .expect("group_by(elapsed) should resolve")
-        .aggregate(crate::db::count())
-        .execute()
-        .and_then(crate::db::LoadQueryResult::into_grouped)
-        .expect("grouped by elapsed should execute");
+    let (duration_keys, duration_counts) = grouped_outputs("elapsed");
     assert_eq!(
-        by_duration
-            .rows()
-            .iter()
-            .map(|row| runtime_outputs(row.group_key()))
-            .collect::<Vec<_>>(),
+        duration_keys,
         vec![
             vec![Value::Duration(elapsed_one)],
             vec![Value::Duration(elapsed_two)]
@@ -236,11 +218,7 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         "grouped Duration keys should stay semantic Duration values",
     );
     assert_eq!(
-        by_duration
-            .rows()
-            .iter()
-            .map(|row| runtime_outputs(row.aggregate_values()))
-            .collect::<Vec<_>>(),
+        duration_counts,
         vec![vec![Value::Nat64(2)], vec![Value::Nat64(1)]],
         "grouped Duration counts should match fixture cardinality",
     );
@@ -269,16 +247,19 @@ fn session_temporal_distinct_projection_values_preserve_semantic_types() {
     // first-observed value ordering under one deterministic window.
     let distinct_days = session
         .load::<SessionTemporalEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("id"))
         .distinct_values_by("occurred_on")
         .expect("distinct_values_by(occurred_on) should succeed");
     let distinct_timestamps = session
         .load::<SessionTemporalEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("id"))
         .distinct_values_by("occurred_at")
         .expect("distinct_values_by(occurred_at) should succeed");
     let distinct_durations = session
         .load::<SessionTemporalEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("id"))
         .distinct_values_by("elapsed")
         .expect("distinct_values_by(elapsed) should succeed");
@@ -330,7 +311,11 @@ fn session_temporal_ranked_projection_values_preserve_semantic_types() {
             (8_955, day_three, at_three, elapsed_three),
         ],
     );
-    let load_window = || session.load::<SessionTemporalEntity>();
+    let load_window = || {
+        session
+            .load::<SessionTemporalEntity>()
+            .trusted_read_unchecked()
+    };
 
     // Phase 1: lock temporal value typing for ranked value projections.
     let top_days = load_window()

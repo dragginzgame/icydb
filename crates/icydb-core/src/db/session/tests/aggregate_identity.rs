@@ -84,12 +84,14 @@ fn session_aggregate_ranked_rows_are_invariant_to_insertion_order() {
         seed_session_aggregate_entities(&session, rows);
         let top_ids = session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .top_k_by("rank", 3)
             .expect("session aggregate top_k_by(rank, 3) insertion-order test should succeed");
         let bottom_ids = session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .bottom_k_by("rank", 3)
@@ -131,6 +133,7 @@ fn session_aggregate_identity_terminals_match_execute() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .offset(1)
@@ -246,6 +249,7 @@ fn session_aggregate_exists_not_exists_and_is_empty_share_early_stop_scan_budget
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .order_term(crate::db::asc("id"))
             .offset(2)
     };
@@ -304,6 +308,7 @@ fn session_aggregate_primary_key_is_null_optimizations_preserve_empty_access_and
     let null_pk_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(crate::db::FieldRef::new("id").is_null())
     };
     let (actual_count, count_rows_scanned) =
@@ -343,12 +348,14 @@ fn session_aggregate_primary_key_is_null_optimizations_preserve_empty_access_and
     let strict_eq_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(eq_id_filter.clone())
             .order_term(crate::db::asc("id"))
     };
     let null_or_eq_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(or_filter.clone())
             .order_term(crate::db::asc("id"))
     };
@@ -400,6 +407,7 @@ fn session_aggregate_min_by_unknown_field_fails_before_scan_budget_consumption()
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)
@@ -443,6 +451,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     let new_field_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(1)
@@ -478,6 +487,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     // the ordered execute projection contract.
     let numeric_expected = session
         .load::<SessionAggregateEntity>()
+        .trusted_read_unchecked()
         .filter(session_aggregate_group_filter(7))
         .order_term(crate::db::asc("rank"))
         .execute()
@@ -507,6 +517,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     assert_eq!(
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .sum_by("rank")
@@ -516,6 +527,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     assert_eq!(
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .avg_by("rank")
@@ -540,6 +552,7 @@ fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection(
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
     };
@@ -619,6 +632,7 @@ fn session_aggregate_nth_by_rank_uses_deterministic_rank_and_id_ordering() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .limit(4)

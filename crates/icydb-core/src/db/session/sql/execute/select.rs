@@ -11,16 +11,11 @@ use crate::db::session::{
 };
 use crate::{
     db::{
-        DbSession, GroupedRow, PersistedRow, QueryError,
+        DbSession, PersistedRow, QueryError,
         executor::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
-            initial_read_plan_requires_materialized_sort,
         },
-        query::{
-            admission::{QueryAdmissionPolicy, QueryAdmissionSummary, QueryMaterializationSummary},
-            intent::StructuralQuery,
-            plan::GroupedExecutionConfig,
-        },
+        query::intent::StructuralQuery,
         schema::AcceptedSchemaSnapshot,
         session::{
             finalize_structural_grouped_projection_result,
@@ -30,10 +25,22 @@ use crate::{
             sql_grouped_cursor_from_bytes,
         },
     },
-    error::InternalError,
     traits::{CanisterKind, EntityValue},
+};
+#[cfg(test)]
+use crate::{
+    db::{
+        GroupedRow,
+        executor::initial_read_plan_requires_materialized_sort,
+        query::{
+            admission::{QueryAdmissionPolicy, QueryAdmissionSummary, QueryMaterializationSummary},
+            plan::GroupedExecutionConfig,
+        },
+    },
+    error::InternalError,
     value::OutputValue,
 };
+#[cfg(test)]
 use candid::{CandidType, Encode};
 
 use super::diagnostics::GroupedSqlDiagnosticsCollector;
@@ -45,12 +52,14 @@ use super::select_plan::ResolvedSelectPreparedPlan;
 use crate::db::session::sql::projection::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;
 
 #[derive(CandidType)]
+#[cfg(test)]
 enum SqlReadResponseSizeProbe {
     Projection(SqlReadProjectionSizeProbe),
     Grouped(SqlReadGroupedSizeProbe),
 }
 
 #[derive(CandidType)]
+#[cfg(test)]
 struct SqlReadProjectionSizeProbe {
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,
@@ -59,6 +68,7 @@ struct SqlReadProjectionSizeProbe {
 }
 
 #[derive(CandidType)]
+#[cfg(test)]
 struct SqlReadGroupedSizeProbe {
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,
@@ -68,6 +78,7 @@ struct SqlReadGroupedSizeProbe {
 }
 
 #[derive(CandidType)]
+#[cfg(test)]
 struct SqlReadGroupedRowSizeProbe {
     group_key: Vec<OutputValue>,
     aggregate_values: Vec<OutputValue>,
@@ -372,6 +383,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn execute_select_compiled_sql_with_context_and_read_admission_policy<E>(
         &self,
         query: &StructuralQuery,
@@ -457,6 +469,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn enforce_read_admission_policy(
     policy: &QueryAdmissionPolicy,
     prepared_plan: &SharedPreparedExecutionPlan,
@@ -479,6 +492,7 @@ pub(super) fn enforce_read_admission_policy(
     }
 }
 
+#[cfg(test)]
 fn prepared_read_admission_plan_with_execution_caps(
     policy: &QueryAdmissionPolicy,
     prepared_plan: SharedPreparedExecutionPlan,
@@ -493,6 +507,7 @@ fn prepared_read_admission_plan_with_execution_caps(
         .map_err(QueryError::execute)
 }
 
+#[cfg(test)]
 fn grouped_execution_config_for_read_admission(
     policy: &QueryAdmissionPolicy,
     prepared_plan: &SharedPreparedExecutionPlan,
@@ -511,6 +526,7 @@ fn grouped_execution_config_for_read_admission(
     ))
 }
 
+#[cfg(test)]
 pub(super) fn enforce_sql_read_response_byte_policy(
     policy: &QueryAdmissionPolicy,
     result: &SqlStatementResult,
@@ -529,6 +545,7 @@ pub(super) fn enforce_sql_read_response_byte_policy(
     }
 }
 
+#[cfg(test)]
 fn sql_read_projection_response_len_exceeds_max(
     result: &SqlStatementResult,
     max_response_bytes: usize,
@@ -568,6 +585,7 @@ fn sql_read_projection_response_len_exceeds_max(
     }
 }
 
+#[cfg(test)]
 fn encoded_sql_read_projection_rows_len_exceeds_max(
     mut estimated_payload_len: usize,
     max_response_bytes: usize,
@@ -590,6 +608,7 @@ fn encoded_sql_read_projection_rows_len_exceeds_max(
     Ok(false)
 }
 
+#[cfg(test)]
 fn encoded_sql_read_grouped_rows_len_exceeds_max(
     mut estimated_payload_len: usize,
     max_response_bytes: usize,
@@ -612,6 +631,7 @@ fn encoded_sql_read_grouped_rows_len_exceeds_max(
     Ok(false)
 }
 
+#[cfg(test)]
 fn grouped_row_size_probe(row: &GroupedRow) -> SqlReadGroupedRowSizeProbe {
     SqlReadGroupedRowSizeProbe {
         group_key: row.group_key().to_vec(),
@@ -619,6 +639,7 @@ fn grouped_row_size_probe(row: &GroupedRow) -> SqlReadGroupedRowSizeProbe {
     }
 }
 
+#[cfg(test)]
 fn encoded_sql_read_projection_response_len(
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,
@@ -637,6 +658,7 @@ fn encoded_sql_read_projection_response_len(
     Ok(encoded.len())
 }
 
+#[cfg(test)]
 fn encoded_sql_read_grouped_response_len(
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,

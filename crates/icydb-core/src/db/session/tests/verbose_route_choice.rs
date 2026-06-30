@@ -55,6 +55,7 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("id").eq(Ulid::from_u128(9_201)))
         .order_term(crate::db::asc("id"));
     let descriptor = query
@@ -108,6 +109,7 @@ fn session_fluent_verbose_prefix_choice_prefers_order_compatible_index_when_rank
     let session = indexed_sql_session();
     let verbose = session
         .load::<SessionDeterministicChoiceEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
@@ -129,13 +131,13 @@ fn session_fluent_verbose_range_choice_matrix_prefers_order_compatible_index_whe
     ] {
         reset_indexed_session_sql_store();
         let session = indexed_sql_session();
-        let mut query =
-            session
-                .load::<SessionDeterministicRangeEntity>()
-                .filter(crate::db::FilterExpr::and(vec![
-                    crate::db::FieldRef::new("tier").eq("gold"),
-                    crate::db::FieldRef::new("score").gt(10_u64),
-                ]));
+        let mut query = session
+            .load::<SessionDeterministicRangeEntity>()
+            .trusted_read_unchecked()
+            .filter(crate::db::FilterExpr::and(vec![
+                crate::db::FieldRef::new("tier").eq("gold"),
+                crate::db::FieldRef::new("score").gt(10_u64),
+            ]));
         query = if descending {
             query
                 .order_term(crate::db::desc("score"))
@@ -161,6 +163,7 @@ fn session_fluent_verbose_range_choice_prefers_stronger_bounds_before_lexicograp
     let session = indexed_sql_session();
     let verbose = session
         .load::<SessionRangeStrengthEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FilterExpr::and(vec![
             crate::db::FieldRef::new("tier").eq("gold"),
             crate::db::FieldRef::new("score").gt(10_u64),
@@ -184,6 +187,7 @@ fn session_fluent_verbose_choice_prefers_lower_residual_burden_before_order_comp
     let session = indexed_sql_session();
     let verbose = session
         .load::<SessionResidualRankingEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FilterExpr::and(vec![
             crate::db::FieldRef::new("active").eq(true),
             crate::db::FieldRef::new("archived").eq(false),
@@ -214,6 +218,7 @@ fn session_fluent_verbose_explain_reports_shared_query_plan_reuse_after_first_bu
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
@@ -256,6 +261,7 @@ fn session_fluent_verbose_explain_keeps_distinct_semantic_identity_on_reuse_miss
     let session = sql_session();
     let left = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
@@ -264,6 +270,7 @@ fn session_fluent_verbose_explain_keeps_distinct_semantic_identity_on_reuse_miss
         .expect("left fluent verbose explain should build");
     let right = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::desc("age"))
         .order_term(crate::db::desc("id"))
@@ -305,13 +312,13 @@ fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_comp
     ] {
         reset_indexed_session_sql_store();
         let session = indexed_sql_session();
-        let mut query =
-            session
-                .load::<SessionDeterministicRangeEntity>()
-                .filter(crate::db::FilterExpr::and(vec![
-                    crate::db::FieldRef::new("tier").eq("gold"),
-                    crate::db::FieldRef::new("score").eq(20_u64),
-                ]));
+        let mut query = session
+            .load::<SessionDeterministicRangeEntity>()
+            .trusted_read_unchecked()
+            .filter(crate::db::FilterExpr::and(vec![
+                crate::db::FieldRef::new("tier").eq("gold"),
+                crate::db::FieldRef::new("score").eq(20_u64),
+            ]));
         query = if descending {
             query
                 .order_term(crate::db::desc("label"))
@@ -350,6 +357,7 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
     let session = indexed_sql_session();
     let verbose = session
         .load::<SessionOrderOnlyChoiceEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::asc("alpha"))
         .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
@@ -387,7 +395,9 @@ fn session_fluent_verbose_composite_order_only_choice_matrix_prefers_order_compa
     ] {
         reset_indexed_session_sql_store();
         let session = indexed_sql_session();
-        let mut query = session.load::<SessionDeterministicChoiceEntity>();
+        let mut query = session
+            .load::<SessionDeterministicChoiceEntity>()
+            .trusted_read_unchecked();
         query = if descending {
             query
                 .order_term(crate::db::desc("tier"))

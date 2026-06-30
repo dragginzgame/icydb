@@ -849,6 +849,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         Value::Nat64(u64::from(
             session
                 .load::<SessionSqlEntity>()
+                .trusted_read_unchecked()
                 .count()
                 .expect("fluent count should succeed"),
         )),
@@ -859,6 +860,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT SUM(age) FROM SessionSqlEntity",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .sum_by("age")
             .expect("fluent sum_by(age) should succeed")
             .map_or(Value::Null, Value::Decimal),
@@ -869,6 +871,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT AVG(age) FROM SessionSqlEntity",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .avg_by("age")
             .expect("fluent avg_by(age) should succeed")
             .map_or(Value::Null, Value::Decimal),
@@ -880,6 +883,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         Value::Nat64(u64::from(
             session
                 .load::<SessionSqlEntity>()
+                .trusted_read_unchecked()
                 .count_distinct_by("age")
                 .expect("fluent count_distinct_by(age) should succeed"),
         )),
@@ -890,6 +894,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT SUM(DISTINCT age) FROM SessionSqlEntity",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .sum_distinct_by("age")
             .expect("fluent sum_distinct_by(age) should succeed")
             .map_or(Value::Null, Value::Decimal),
@@ -900,6 +905,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT AVG(DISTINCT age) FROM SessionSqlEntity",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .avg_distinct_by("age")
             .expect("fluent avg_distinct_by(age) should succeed")
             .map_or(Value::Null, Value::Decimal),
@@ -914,6 +920,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         Value::Nat64(u64::from(
             session
                 .load::<SessionSqlEntity>()
+                .trusted_read_unchecked()
                 .order_term(crate::db::desc("age"))
                 .limit(2)
                 .offset(1)
@@ -927,6 +934,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .order_term(crate::db::desc("age"))
             .limit(2)
             .offset(1)
@@ -940,6 +948,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .order_term(crate::db::asc("age"))
             .limit(2)
             .offset(1)
@@ -983,6 +992,7 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
 
     let fluent_count = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::desc("age"))
         .limit(2)
         .offset(1)
@@ -1112,6 +1122,7 @@ fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with
 
     let fluent_count = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::desc("age"))
         .limit(2)
         .offset(1)
@@ -1149,6 +1160,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
     assert_eq!(
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .exists()
             .expect("fluent exists() should succeed"),
         matches!(existing_count, Value::Nat64(count) if count > 0),
@@ -1163,6 +1175,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
     assert_eq!(
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .filter(crate::db::FieldRef::new("name").eq("missing-helper"))
             .not_exists()
             .expect("fluent not_exists() should succeed"),
@@ -1177,6 +1190,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
         "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .min()
             .expect("fluent min() should succeed")
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
@@ -1187,6 +1201,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
         "SELECT id FROM SessionSqlEntity ORDER BY id DESC LIMIT 1",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .max()
             .expect("fluent max() should succeed")
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
@@ -1197,6 +1212,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
         "SELECT id FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .min_by("age")
             .expect("fluent min_by(age) should succeed")
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
@@ -1207,6 +1223,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
         "SELECT id FROM SessionSqlEntity ORDER BY age DESC, id ASC LIMIT 1",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .max_by("age")
             .expect("fluent max_by(age) should succeed")
             .map_or(Value::Null, |id| Value::Ulid(id.key())),
@@ -1217,6 +1234,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
         "SELECT id FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1 OFFSET 1",
         session
             .load::<SessionSqlEntity>()
+            .trusted_read_unchecked()
             .nth_by("age", 1)
             .expect("fluent nth_by(age, 1) should succeed")
             .map_or(Value::Null, |id| Value::Ulid(id.key())),

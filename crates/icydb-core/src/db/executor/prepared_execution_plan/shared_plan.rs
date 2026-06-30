@@ -7,7 +7,7 @@ use crate::db::executor::{
     SharedPreparedProjectionRuntimeHandoff,
     pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
 };
-#[cfg(feature = "sql")]
+#[cfg(all(test, feature = "sql"))]
 use crate::db::{
     executor::prepared_execution_plan::build_prepared_execution_plan_core_with_lowered_access,
     query::plan::GroupedExecutionConfig,
@@ -81,7 +81,7 @@ impl SharedPreparedExecutionPlan {
         self.core.plan()
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(all(test, feature = "sql"))]
     pub(in crate::db) fn with_grouped_execution_config(
         &self,
         execution: GroupedExecutionConfig,

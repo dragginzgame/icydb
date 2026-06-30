@@ -451,6 +451,18 @@ macro_rules! impl_session_materialization_methods {
             Ok(QueryResponse::from_core(self.inner.execute()?))
         }
 
+        /// Execute without the default bounded read-admission gate.
+        ///
+        /// This is for trusted maintenance/admin code that has its own caller
+        /// authorization and resource policy. Application-facing reads should
+        /// use `execute`.
+        pub fn execute_trusted(&self) -> Result<QueryResponse<E>, Error>
+        where
+            E: crate::traits::Entity,
+        {
+            Ok(QueryResponse::from_core(self.inner.execute_trusted()?))
+        }
+
         /// Return true when the result set has no rows.
         pub fn is_empty(&self) -> Result<bool, Error>
         where

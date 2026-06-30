@@ -1172,6 +1172,7 @@ fn execute_sql_scalar_field_to_field_matches_fluent_runtime_result() {
 
     let fluent_labels = session
         .load::<SessionDeterministicRangeEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("handle").gt_field("label"))
         .order_term(crate::db::asc("score"))
         .order_term(crate::db::asc("id"))
@@ -1223,6 +1224,7 @@ fn execute_sql_scalar_not_between_matches_fluent_runtime_result() {
 
     let fluent_rows = session
         .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("age").not_between(20_u64, 30_u64))
         .order_term(crate::db::asc("age"))
         .execute()
@@ -1357,6 +1359,7 @@ fn execute_sql_scalar_field_bound_between_and_not_between_match_fluent_results()
     .expect("field-bound NOT BETWEEN query should execute");
     let fluent_between_rows = session
         .load::<SessionSqlFieldBoundRangeEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("score").between_fields("min_score", "max_score"))
         .order_term(crate::db::asc("label"))
         .execute()
@@ -1367,6 +1370,7 @@ fn execute_sql_scalar_field_bound_between_and_not_between_match_fluent_results()
         .collect::<Vec<_>>();
     let fluent_not_between_rows = session
         .load::<SessionSqlFieldBoundRangeEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FieldRef::new("score").not_between_fields("min_score", "max_score"))
         .order_term(crate::db::asc("label"))
         .execute()

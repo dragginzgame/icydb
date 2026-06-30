@@ -107,6 +107,7 @@ fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .offset(1)
@@ -152,6 +153,7 @@ fn session_aggregate_bytes_empty_window_matrix_returns_zero() {
         (
             session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(999))
                 .order_term(crate::db::asc("rank"))
                 .bytes()
@@ -161,6 +163,7 @@ fn session_aggregate_bytes_empty_window_matrix_returns_zero() {
         (
             session
                 .load::<SessionAggregateEntity>()
+                .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(999))
                 .order_term(crate::db::asc("rank"))
                 .bytes_by("rank")
@@ -191,6 +194,7 @@ fn session_aggregate_bytes_by_unknown_field_fails_before_scan_budget_consumption
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)
@@ -236,6 +240,7 @@ fn session_aggregate_explain_bytes_by_metadata_matrix_projects_materialized_mode
 
     let filtered_descriptor = session
         .load::<SessionAggregateEntity>()
+        .trusted_read_unchecked()
         .filter(crate::db::FilterExpr::and(vec![
             session_aggregate_group_filter(7),
             crate::db::FieldRef::new("rank").eq(20_u64),
@@ -277,6 +282,7 @@ fn session_aggregate_terminal_explain_uses_shared_prepared_plan_cache() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
     };
@@ -315,6 +321,7 @@ fn session_bytes_by_explain_uses_shared_prepared_plan_cache() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
     };
@@ -348,6 +355,7 @@ fn session_prepared_projection_terminal_explain_uses_shared_prepared_plan_cache(
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
     };
@@ -380,6 +388,7 @@ fn session_aggregate_explain_bytes_by_unknown_field_fails_before_planning() {
 
     let result = session
         .load::<SessionAggregateEntity>()
+        .trusted_read_unchecked()
         .filter(session_aggregate_group_filter(7))
         .explain_bytes_by("missing_field");
 
@@ -413,6 +422,7 @@ fn session_aggregate_terminal_explain_exists_matrix_preserves_alias_and_route_co
     let query = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))
@@ -490,6 +500,7 @@ fn session_aggregate_exists_explain_hides_non_ready_secondary_indexes_from_plann
     let load_window = || {
         session
             .load::<SessionExplainEntity>()
+            .trusted_read_unchecked()
             .filter(crate::db::FieldRef::new("group").eq(7_u64))
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))
@@ -552,6 +563,7 @@ fn session_aggregate_terminal_explain_first_last_preserve_order_shape_parity() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))

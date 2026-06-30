@@ -393,6 +393,7 @@ fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows
             .collect::<Vec<_>>();
             let remaining_names = session
                 .load::<IndexedSessionSqlEntity>()
+                .trusted_read_unchecked()
                 .order_term(crate::db::asc("name"))
                 .execute()
                 .and_then(crate::db::LoadQueryResult::into_rows)

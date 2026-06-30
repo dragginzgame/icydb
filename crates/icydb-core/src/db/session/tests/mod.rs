@@ -4188,6 +4188,7 @@ fn run_session_aggregate_projection_terminal(
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(1)
@@ -4221,6 +4222,7 @@ fn run_session_aggregate_rank_terminal(
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
+            .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)

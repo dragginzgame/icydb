@@ -258,6 +258,18 @@ where
     where
         E: EntityValue,
     {
+        self.with_admitted_non_paged(DbSession::execute_query_result)
+    }
+
+    /// Execute this query without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute`.
+    pub fn execute_trusted(&self) -> Result<LoadQueryResult<E>, QueryError>
+    where
+        E: EntityValue,
+    {
         self.with_non_paged(DbSession::execute_query_result)
     }
 
@@ -266,7 +278,31 @@ where
     where
         E: EntityValue,
     {
+        self.with_admitted_non_paged(DbSession::execute_scalar_query_rows)
+    }
+
+    /// Execute scalar rows without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute_rows`.
+    pub fn execute_rows_trusted(&self) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: EntityValue,
+    {
         self.with_non_paged(DbSession::execute_scalar_query_rows)
+    }
+
+    fn with_admitted_non_paged<T>(
+        &self,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+        self.ensure_default_read_admission()?;
+        map(self.session, self.query())
     }
 
     // Run one terminal operation through the canonical non-paged fluent policy
@@ -312,7 +348,7 @@ where
         E: EntityValue,
         S: TerminalStrategyDriver<E>,
     {
-        self.with_non_paged(|session, query| strategy.execute(session, query))
+        self.with_admitted_non_paged(|session, query| strategy.execute(session, query))
     }
 
     // Explain one prepared terminal strategy through the same non-paged fluent
@@ -363,7 +399,7 @@ where
     where
         E: EntityValue,
     {
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_exists_rows_terminal_with_attribution(
                 query,
                 ExistsRowsTerminal::new(),
@@ -438,7 +474,7 @@ where
     where
         E: EntityValue,
     {
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_count_rows_terminal_with_attribution(
                 query,
                 CountRowsTerminal::new(),
@@ -452,7 +488,7 @@ where
     where
         E: EntityValue,
     {
-        self.with_non_paged(DbSession::execute_fluent_bytes)
+        self.with_admitted_non_paged(DbSession::execute_fluent_bytes)
     }
 
     /// Execute and return the total serialized bytes for `field` over the
@@ -463,7 +499,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_bytes_by_slot(query, target_slot)
         })
     }
@@ -711,7 +747,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_project_values_by_slot(
                 query,
                 target_slot,
@@ -753,7 +789,9 @@ where
     where
         E: EntityValue,
     {
-        self.with_non_paged(|session, query| session.execute_fluent_take(query, take_count))
+        self.with_admitted_non_paged(|session, query| {
+            session.execute_fluent_take(query, take_count)
+        })
     }
 
     /// Execute and return the top `k` rows by `field` under deterministic
@@ -773,7 +811,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_top_k_rows_by_slot(query, target_slot, take_count)
         })
     }
@@ -795,7 +833,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_bottom_k_rows_by_slot(query, target_slot, take_count)
         })
     }
@@ -817,7 +855,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session
                 .execute_fluent_top_k_values_by_slot(query, target_slot, take_count)
                 .map(output_values)
@@ -841,7 +879,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session
                 .execute_fluent_bottom_k_values_by_slot(query, target_slot, take_count)
                 .map(output_values)
@@ -865,7 +903,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session
                 .execute_fluent_top_k_values_with_ids_by_slot(query, target_slot, take_count)
                 .map(output_values_with_ids)
@@ -889,7 +927,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session
                 .execute_fluent_bottom_k_values_with_ids_by_slot(query, target_slot, take_count)
                 .map(output_values_with_ids)
@@ -948,7 +986,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_project_values_with_ids_by_slot(
                 query,
                 target_slot,
@@ -992,7 +1030,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_project_terminal_value_by_slot(
                 query,
                 target_slot,
@@ -1037,7 +1075,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
 
-        self.with_non_paged(|session, query| {
+        self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_project_terminal_value_by_slot(
                 query,
                 target_slot,

@@ -15,8 +15,7 @@ use crate::{
     ErrorCode,
     db::{
         EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
-        MemoryCatalogDescription, QueryAdmissionPolicy, QueryAdmissionSummary, StorageReport,
-        StoreCatalogDescription,
+        MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{ProjectionRows, QueryResponse, RowProjectionOutput},
     },
@@ -287,23 +286,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_query::<E>(sql)?,
-        ))
-    }
-
-    /// Execute one reduced SQL query only if the selected plan satisfies the
-    /// supplied read-admission policy.
-    #[cfg(feature = "sql")]
-    pub fn execute_sql_query_with_read_admission_policy<E>(
-        &self,
-        sql: &str,
-        policy: &crate::db::QueryAdmissionPolicy,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner
-                .execute_sql_query_with_read_admission_policy::<E>(sql, policy)?,
         ))
     }
 
@@ -700,6 +682,22 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
+        self.inner.ensure_default_query_read_admission(query)?;
+
+        Ok(Self::query_response_from_core(
+            self.inner.execute_query_result(query)?,
+        ))
+    }
+
+    /// Execute one typed/fluent query without the default bounded read-admission gate.
+    ///
+    /// This is for trusted maintenance/admin code that has its own caller
+    /// authorization and resource policy. Application-facing reads should use
+    /// `execute_query`.
+    pub fn execute_query_trusted<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
         Ok(Self::query_response_from_core(
             self.inner.execute_query_result(query)?,
         ))
@@ -711,34 +709,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.trace_query(query)?)
-    }
-
-    /// Evaluate one typed/fluent query plan against a read-admission policy without executing rows.
-    pub fn evaluate_query_read_admission_policy<E>(
-        &self,
-        query: &Query<E>,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<QueryAdmissionSummary, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self
-            .inner
-            .evaluate_query_read_admission_policy(query, policy)?)
-    }
-
-    /// Require one typed/fluent query plan to be admitted without executing rows.
-    pub fn ensure_query_read_admission_policy<E>(
-        &self,
-        query: &Query<E>,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<QueryAdmissionSummary, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self
-            .inner
-            .ensure_query_read_admission_policy(query, policy)?)
     }
 
     // ------------------------------------------------------------------

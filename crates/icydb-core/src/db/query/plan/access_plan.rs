@@ -878,7 +878,7 @@ impl AccessPlannedQuery {
 
     /// Return a copy with grouped execution caps replaced when the plan is grouped.
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(all(test, feature = "sql"))]
     pub(in crate::db) fn with_grouped_execution_config(
         mut self,
         execution: crate::db::query::plan::GroupedExecutionConfig,

@@ -1929,6 +1929,7 @@ fn aggregate_execution_grouped_having_supported_operator_executes_through_planne
 
     let grouped = session
         .load::<PushdownParityEntity>()
+        .trusted_read_unchecked()
         .group_by("group")
         .expect("group_by(group) should resolve")
         .aggregate(crate::db::count())

@@ -2194,6 +2194,7 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
     let session = DbSession::new(DB);
     let expected_desc_ids = session
         .load::<SimpleEntity>()
+        .trusted_read_unchecked()
         .order_term(crate::db::desc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -2205,6 +2206,7 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
         let mut paged_query = session
             .load::<SimpleEntity>()
+            .trusted_read_unchecked()
             .order_term(crate::db::desc("id"))
             .limit(3);
         if let Some(token) = cursor_token {
@@ -2242,6 +2244,7 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
     let group_seven = FieldRef::new("group").eq(7_u64);
     let expected_desc_ids = session
         .load::<PushdownParityEntity>()
+        .trusted_read_unchecked()
         .filter(group_seven.clone())
         .order_term(crate::db::desc("rank"))
         .order_term(crate::db::desc("id"))
@@ -2255,6 +2258,7 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
         let mut paged_query = session
             .load::<PushdownParityEntity>()
+            .trusted_read_unchecked()
             .filter(group_seven.clone())
             .order_term(crate::db::desc("rank"))
             .order_term(crate::db::desc("id"))
@@ -2296,6 +2300,7 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
     ]);
     let expected_desc_ids = session
         .load::<UniqueIndexRangeEntity>()
+        .trusted_read_unchecked()
         .filter(range_predicate.clone())
         .order_term(crate::db::desc("code"))
         .order_term(crate::db::desc("id"))
@@ -2309,6 +2314,7 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
         let mut paged_query = session
             .load::<UniqueIndexRangeEntity>()
+            .trusted_read_unchecked()
             .filter(range_predicate.clone())
             .order_term(crate::db::desc("code"))
             .order_term(crate::db::desc("id"))
