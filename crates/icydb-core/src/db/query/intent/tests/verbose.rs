@@ -58,6 +58,28 @@ fn explain_execution_verbose_top_n_seek_shape_snapshot_is_stable() {
 }
 
 #[test]
+fn explain_execution_verbose_includes_read_admission_block() {
+    let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .order_term(crate::db::desc("id"))
+        .limit(3)
+        .explain_execution_verbose()
+        .expect("verbose execution explain should include admission summary");
+
+    assert!(
+        verbose.contains("admission:\n  lane=diagnostic_explain\n  decision=rejected"),
+        "verbose explain should include the diagnostic-lane admission summary: {verbose}",
+    );
+    assert!(
+        verbose.contains("\n  reason=diagnostic_lane_does_not_execute"),
+        "verbose explain should explain why the diagnostic lane does not execute rows: {verbose}",
+    );
+    assert!(
+        verbose.contains("\n  selected_access=full_scan"),
+        "verbose explain should carry selected access facts in the admission block: {verbose}",
+    );
+}
+
+#[test]
 fn explain_execution_verbose_reports_secondary_order_pushdown_rejection_reason() {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(

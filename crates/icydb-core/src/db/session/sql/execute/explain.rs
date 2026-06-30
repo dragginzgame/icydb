@@ -12,6 +12,7 @@ use crate::{
             freeze_load_execution_route_facts_for_authority,
         },
         query::{
+            admission::{QueryAdmissionLane, QueryAdmissionPolicy, QueryAdmissionSummary},
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             explain::{
                 ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainPlan,
@@ -56,6 +57,13 @@ fn render_sql_execution_explain(diagnostics: &FinalizedQueryDiagnostics) -> Stri
     lines.push(diagnostics.render_text_verbose_with_tree_indent("  "));
 
     lines.join("\n")
+}
+
+fn diagnostic_explain_admission_for_plan(plan: &AccessPlannedQuery) -> QueryAdmissionSummary {
+    QueryAdmissionPolicy::diagnostic_explain().evaluate(QueryAdmissionSummary::from_plan(
+        QueryAdmissionLane::DiagnosticExplain,
+        plan,
+    ))
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -254,7 +262,8 @@ impl<C: CanisterKind> DbSession<C> {
                 );
 
                 Ok(render_sql_execution_explain(
-                    &FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None),
+                    &FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None)
+                        .with_admission(diagnostic_explain_admission_for_plan(plan)),
                 ))
             },
         )?;
@@ -385,7 +394,8 @@ impl<C: CanisterKind> DbSession<C> {
                 Vec::new(),
                 Vec::new(),
                 None,
-            ),
+            )
+            .with_admission(diagnostic_explain_admission_for_plan(plan)),
         ))
     }
 

@@ -3,6 +3,7 @@
 //! Does not own: physical planning, executor runtime, or SQL/fluent lowering.
 //! Boundary: describes policy, proven bounds, and stable rejection diagnostics.
 
+use std::fmt::Write as _;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::Bound;
 
@@ -68,6 +69,18 @@ pub enum QueryBoundKind {
 }
 
 impl QueryBoundKind {
+    /// Return a stable lowercase diagnostic label for this bound quality.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::ConservativeUpperBound => "conservative_upper_bound",
+            Self::EnforcedRuntimeCap => "enforced_runtime_cap",
+            Self::EstimateOnly => "estimate_only",
+            Self::Unavailable => "unavailable",
+        }
+    }
+
     /// Return whether this bound kind is acceptable proof for public reads.
     #[must_use]
     pub const fn admits_public_read(self) -> bool {
@@ -88,6 +101,15 @@ pub enum QueryAdmissionDecision {
 }
 
 impl QueryAdmissionDecision {
+    /// Return a stable lowercase diagnostic label for this decision.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Admitted => "admitted",
+            Self::Rejected => "rejected",
+        }
+    }
+
     /// Return whether the selected plan may execute.
     #[must_use]
     pub const fn is_admitted(self) -> bool {
@@ -781,6 +803,29 @@ pub enum QueryAdmissionRejection {
 }
 
 impl QueryAdmissionRejection {
+    /// Return a stable lowercase diagnostic label for this rejection.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PublicQueryRequiresLimit => "public_query_requires_limit",
+            Self::PublicQueryRequiresIndex => "public_query_requires_index",
+            Self::UnboundedFullScanRejected => "unbounded_full_scan_rejected",
+            Self::ScanBoundUnavailable => "scan_bound_unavailable",
+            Self::ScanBoundExceedsPolicy => "scan_bound_exceeds_policy",
+            Self::EstimatedOnlyBoundRejected => "estimated_only_bound_rejected",
+            Self::SortRequiresMaterialization => "sort_requires_materialization",
+            Self::MaterializationExceedsBudget => "materialization_exceeds_budget",
+            Self::ProjectionResponseMayExceedLimit => "projection_response_may_exceed_limit",
+            Self::GroupedQueryRequiresLimits => "grouped_query_requires_limits",
+            Self::GroupedQueryExceedsBudget => "grouped_query_exceeds_budget",
+            Self::DiagnosticLaneDoesNotExecute => "diagnostic_lane_does_not_execute",
+            Self::IntrospectionDisabledForLane => "introspection_disabled_for_lane",
+            Self::UnsupportedStatementForQueryLane => "unsupported_statement_for_query_lane",
+            Self::PublicQueryOffsetRejected => "public_query_offset_rejected",
+            Self::ReturnedRowBoundExceedsPolicy => "returned_row_bound_exceeds_policy",
+        }
+    }
+
     /// Return the compact diagnostic detail code for this rejection.
     #[must_use]
     pub const fn code(self) -> QueryReadAdmissionCode {
@@ -1068,6 +1113,115 @@ impl QueryAdmissionSummary {
     #[must_use]
     pub const fn rejection(&self) -> Option<QueryAdmissionRejection> {
         self.rejection
+    }
+
+    /// Render this summary as a stable top-level verbose EXPLAIN block.
+    #[must_use]
+    pub(in crate::db) fn render_text_block(&self) -> String {
+        let mut out = String::from("admission:");
+        push_text_field(&mut out, "lane", self.lane().as_str());
+        push_text_field(&mut out, "decision", self.decision().as_str());
+        push_text_field(
+            &mut out,
+            "reason",
+            self.rejection()
+                .map_or("none", QueryAdmissionRejection::as_str),
+        );
+        push_text_field(&mut out, "plan_shape", self.plan_shape().as_str());
+        push_text_field(&mut out, "selected_access", self.selected_access().as_str());
+        push_text_field(
+            &mut out,
+            "selected_index",
+            self.selected_index().unwrap_or("none"),
+        );
+        push_text_option_u32(&mut out, "limit", self.limit());
+        push_text_option_u32(&mut out, "offset", self.offset());
+        push_text_option_u64(&mut out, "scan_bound", self.scan_bound());
+        push_text_field(&mut out, "scan_bound_kind", self.scan_bound_kind().as_str());
+        push_text_option_u32(&mut out, "returned_row_bound", self.returned_row_bound());
+        push_text_field(
+            &mut out,
+            "returned_row_bound_kind",
+            self.returned_row_bound_kind().as_str(),
+        );
+        push_text_option_u32(&mut out, "response_byte_bound", self.response_byte_bound());
+        push_text_field(
+            &mut out,
+            "response_byte_bound_kind",
+            self.response_byte_bound_kind().as_str(),
+        );
+        push_text_field(&mut out, "residual_filter", self.residual_filter().as_str());
+        push_text_field(&mut out, "ordering", self.ordering().as_str());
+        push_text_bool(
+            &mut out,
+            "materialized_sort",
+            self.materialization().materialized_sort(),
+        );
+        push_text_option_u32(
+            &mut out,
+            "materialized_rows",
+            self.materialization().materialized_rows(),
+        );
+        push_text_field(
+            &mut out,
+            "materialized_row_bound_kind",
+            self.materialization().row_bound_kind().as_str(),
+        );
+
+        if let Some(grouped) = self.grouped() {
+            push_text_bool(&mut out, "grouped", true);
+            push_text_u64(
+                &mut out,
+                "group_field_count",
+                u64::from(grouped.group_field_count()),
+            );
+            push_text_u64(
+                &mut out,
+                "aggregate_count",
+                u64::from(grouped.aggregate_count()),
+            );
+            push_text_u64(&mut out, "max_groups", grouped.max_groups());
+            push_text_u64(&mut out, "max_group_bytes", grouped.max_group_bytes());
+            push_text_bool(&mut out, "having_filter", grouped.has_having_filter());
+        } else {
+            push_text_bool(&mut out, "grouped", false);
+        }
+
+        out
+    }
+}
+
+fn push_text_field(out: &mut String, key: &str, value: &str) {
+    out.push('\n');
+    out.push_str("  ");
+    out.push_str(key);
+    out.push('=');
+    out.push_str(value);
+}
+
+fn push_text_bool(out: &mut String, key: &str, value: bool) {
+    push_text_field(out, key, if value { "true" } else { "false" });
+}
+
+fn push_text_u64(out: &mut String, key: &str, value: u64) {
+    out.push('\n');
+    out.push_str("  ");
+    out.push_str(key);
+    out.push('=');
+    let _ = write!(out, "{value}");
+}
+
+fn push_text_option_u32(out: &mut String, key: &str, value: Option<u32>) {
+    match value {
+        Some(value) => push_text_u64(out, key, u64::from(value)),
+        None => push_text_field(out, key, "none"),
+    }
+}
+
+fn push_text_option_u64(out: &mut String, key: &str, value: Option<u64>) {
+    match value {
+        Some(value) => push_text_u64(out, key, value),
+        None => push_text_field(out, key, "none"),
     }
 }
 
@@ -1429,6 +1583,34 @@ mod tests {
         assert_eq!(
             rejected.rejection(),
             Some(QueryAdmissionRejection::UnboundedFullScanRejected)
+        );
+    }
+
+    #[test]
+    fn admission_summary_renders_stable_verbose_explain_block() {
+        let summary = QueryAdmissionSummary::rejected(
+            QueryAdmissionLane::PublicRead,
+            QueryAdmissionAccessKind::FullScan,
+            QueryAdmissionRejection::UnboundedFullScanRejected,
+        );
+
+        let rendered = summary.render_text_block();
+
+        assert!(
+            rendered.starts_with("admission:\n  lane=public_read\n  decision=rejected"),
+            "admission block should start with stable lane and decision fields: {rendered}",
+        );
+        assert!(
+            rendered.contains("\n  reason=unbounded_full_scan_rejected"),
+            "admission block should include a stable rejection reason: {rendered}",
+        );
+        assert!(
+            rendered.contains("\n  selected_access=full_scan"),
+            "admission block should include the selected access class: {rendered}",
+        );
+        assert!(
+            rendered.contains("\n  grouped=false"),
+            "admission block should include grouped classification: {rendered}",
         );
     }
 

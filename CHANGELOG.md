@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
 
+- `0.192.1` adds finalized verbose EXPLAIN admission blocks so diagnostic
+  output reports read-admission lane, decision, rejection reason, selected
+  access, and bounds separately from route diagnostics.
+
 - `0.192.0` starts the query-admission line with shared read-admission lanes,
   policies, plan summaries, scalar policy evaluation, stable diagnostics, and
   CLI SQL EXPLAIN feature alignment without changing generated public read

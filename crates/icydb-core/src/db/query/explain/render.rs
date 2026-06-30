@@ -265,10 +265,14 @@ impl FinalizedQueryDiagnostics {
     /// indent prefix applied to the execution tree only.
     #[must_use]
     pub(in crate::db) fn render_text_verbose_with_tree_indent(&self, tree_indent: &str) -> String {
-        let mut lines = vec![
+        let mut lines = Vec::new();
+        if let Some(admission) = self.admission() {
+            lines.push(admission.render_text_block());
+        }
+        lines.push(
             self.execution()
                 .render_text_tree_verbose_with_indent(tree_indent),
-        ];
+        );
         lines.extend(self.route_diagnostics.iter().cloned());
         lines.extend(self.logical_diagnostics.iter().cloned());
         if let Some(reuse) = self.reuse {

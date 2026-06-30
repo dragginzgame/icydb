@@ -14,6 +14,7 @@ use crate::{
         Query, TraceReuseEvent,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::{
+            admission::{QueryAdmissionLane, QueryAdmissionPolicy, QueryAdmissionSummary},
             builder::{AggregateExplain, ProjectionExplain},
             explain::{
                 ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
@@ -150,12 +151,17 @@ impl StructuralQuery {
         logical_diagnostics.push(format!("diag.p.page={:?}", explain.page()));
         logical_diagnostics.push(format!("diag.p.consistency={:?}", explain.consistency()));
 
+        let admission = QueryAdmissionPolicy::diagnostic_explain().evaluate(
+            QueryAdmissionSummary::from_plan(QueryAdmissionLane::DiagnosticExplain, plan),
+        );
+
         Ok(FinalizedQueryDiagnostics::new(
             descriptor,
             route_diagnostics,
             logical_diagnostics,
             reuse,
-        ))
+        )
+        .with_admission(admission))
     }
 
     // Assemble one model-only execution descriptor from a previously built

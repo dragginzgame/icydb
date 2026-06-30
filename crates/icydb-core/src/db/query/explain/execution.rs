@@ -5,6 +5,7 @@
 
 use crate::{
     db::query::{
+        admission::QueryAdmissionSummary,
         explain::{ExplainAccessPath, ExplainPlan, ExplainPredicate},
         plan::{AggregateKind, ResidualFilterShape},
         trace::TraceReuseEvent,
@@ -286,6 +287,7 @@ pub struct ExplainExecutionNodeDescriptor {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct FinalizedQueryDiagnostics {
     pub(in crate::db) execution: ExplainExecutionNodeDescriptor,
+    pub(in crate::db) admission: Option<QueryAdmissionSummary>,
     pub(in crate::db) route_diagnostics: Vec<String>,
     pub(in crate::db) logical_diagnostics: Vec<String>,
     pub(in crate::db) reuse: Option<TraceReuseEvent>,
@@ -385,6 +387,7 @@ impl FinalizedQueryDiagnostics {
     ) -> Self {
         Self {
             execution,
+            admission: None,
             route_diagnostics,
             logical_diagnostics,
             reuse,
@@ -395,6 +398,19 @@ impl FinalizedQueryDiagnostics {
     #[must_use]
     pub(in crate::db) const fn execution(&self) -> &ExplainExecutionNodeDescriptor {
         &self.execution
+    }
+
+    /// Attach an admission summary to this diagnostics artifact.
+    #[must_use]
+    pub(in crate::db) fn with_admission(mut self, admission: QueryAdmissionSummary) -> Self {
+        self.admission = Some(admission);
+        self
+    }
+
+    /// Borrow the admission summary carried by this artifact, if present.
+    #[must_use]
+    pub(in crate::db) const fn admission(&self) -> Option<&QueryAdmissionSummary> {
+        self.admission.as_ref()
     }
 }
 
