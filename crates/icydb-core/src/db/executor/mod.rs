@@ -213,6 +213,42 @@ pub(in crate::db::executor) use window::page_window_state;
 
 pub(in crate::db::executor) type ExecutionPlan = planning::route::ExecutionRoutePlan;
 
+/// Return whether initial scalar load execution would need post-access ORDER BY materialization.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn initial_read_plan_requires_materialized_sort(
+    prepared_plan: &SharedPreparedExecutionPlan,
+) -> Result<bool, InternalError> {
+    if prepared_plan.logical_plan().grouped_plan().is_some() || !prepared_plan.mode().is_load() {
+        return Ok(false);
+    }
+
+    let has_order = prepared_plan
+        .logical_plan()
+        .scalar_plan()
+        .order
+        .as_ref()
+        .is_some_and(|order| !order.fields.is_empty());
+    if !has_order {
+        return Ok(false);
+    }
+
+    let continuation = ScalarContinuationContext::initial();
+    let route_plan = planning::route::build_execution_route_plan(
+        prepared_plan.logical_plan(),
+        planning::route::RoutePlanRequest::Load {
+            continuation: &continuation,
+            probe_fetch_hint: None,
+            authority: Some(prepared_plan.authority()),
+            load_terminal_fast_path: None,
+        },
+    )?;
+
+    Ok(matches!(
+        route_plan.load_order_route_reason(),
+        planning::route::LoadOrderRouteReason::RequiresMaterializedSort
+    ))
+}
+
 /// Validate plans at executor boundaries using structural entity authority.
 pub(in crate::db::executor) fn validate_executor_plan_for_authority(
     authority: &EntityAuthority,

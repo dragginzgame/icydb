@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Added response-byte and materialized-sort enforcement to policy-bound SQL
+  read admission so public SELECT lanes reject oversized projection payloads
+  and unresolved ORDER BY materialization.
+
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)

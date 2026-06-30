@@ -3,8 +3,9 @@
 use std::num::NonZeroU32;
 
 use super::{
-    IndexedSessionSqlEntity, SessionSqlEntity, indexed_sql_session,
-    reset_indexed_session_sql_store, reset_session_sql_store, seed_indexed_session_sql_entities,
+    FilteredIndexedSessionSqlEntity, IndexedSessionSqlEntity, SessionSqlEntity,
+    indexed_sql_session, reset_indexed_session_sql_store, reset_session_sql_store,
+    seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, sql_session,
 };
 use crate::db::{QueryAdmissionPolicy, QueryError, SqlStatementResult};
@@ -117,6 +118,55 @@ fn public_read_sql_rejects_returned_row_bound_above_policy() {
 }
 
 #[test]
+fn public_read_sql_rejects_response_bytes_above_policy() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' \
+             ORDER BY name ASC, id ASC LIMIT 1",
+            &public_read_policy_with_response_bytes(10, 1),
+        )
+        .expect_err("public read SQL should reject responses above byte policy");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit,
+        "response-byte cap",
+    );
+}
+
+#[test]
+fn public_read_sql_rejects_unresolved_order_materialized_sort() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "Sam", true, "gold", "sam", 30),
+            (2, "Sasha", true, "gold", "sasha", 24),
+            (3, "Mira", true, "silver", "mira", 40),
+        ],
+    );
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<FilteredIndexedSessionSqlEntity>(
+            "SELECT name FROM FilteredIndexedSessionSqlEntity \
+             WHERE active = true AND tier = 'gold' ORDER BY age ASC, id ASC LIMIT 2",
+            &public_read_policy(10),
+        )
+        .expect_err("public read SQL should reject materialized sort");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::SortRequiresMaterialization,
+        "materialized sort",
+    );
+}
+
+#[test]
 fn trusted_sql_query_path_keeps_existing_unbounded_admin_behavior() {
     reset_session_sql_store();
     let session = sql_session();
@@ -133,9 +183,16 @@ fn trusted_sql_query_path_keeps_existing_unbounded_admin_behavior() {
 }
 
 const fn public_read_policy(max_rows: u32) -> QueryAdmissionPolicy {
+    public_read_policy_with_response_bytes(max_rows, 32_768)
+}
+
+const fn public_read_policy_with_response_bytes(
+    max_rows: u32,
+    max_response_bytes: u32,
+) -> QueryAdmissionPolicy {
     QueryAdmissionPolicy::public_read(
         NonZeroU32::new(max_rows).expect("test max rows should be non-zero"),
-        NonZeroU32::new(32_768).expect("test byte cap should be non-zero"),
+        NonZeroU32::new(max_response_bytes).expect("test byte cap should be non-zero"),
     )
 }
 

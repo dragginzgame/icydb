@@ -972,7 +972,6 @@ impl QueryAdmissionSummary {
         let (returned_row_bound, returned_row_bound_kind) =
             returned_row_bound_from_plan(limit, grouped);
         let scan_bound_kind = access.scan_bound_kind();
-
         Self {
             lane,
             decision: QueryAdmissionDecision::Admitted,
@@ -1107,6 +1106,17 @@ impl QueryAdmissionSummary {
     #[must_use]
     pub const fn materialization(&self) -> QueryMaterializationSummary {
         self.materialization
+    }
+
+    /// Return a copy of this summary with route-derived materialization facts attached.
+    #[must_use]
+    #[cfg_attr(not(feature = "sql"), allow(dead_code))]
+    pub(in crate::db) const fn with_materialization(
+        mut self,
+        materialization: QueryMaterializationSummary,
+    ) -> Self {
+        self.materialization = materialization;
+        self
     }
 
     /// Return the rejection reason, when the decision is rejected.
@@ -1470,7 +1480,7 @@ mod tests {
         GroupedAdmissionPolicy, QueryAdmissionAccessKind, QueryAdmissionDecision,
         QueryAdmissionLane, QueryAdmissionOrdering, QueryAdmissionPlanShape, QueryAdmissionPolicy,
         QueryAdmissionRejection, QueryAdmissionResidualFilter, QueryAdmissionSummary,
-        QueryBoundKind,
+        QueryBoundKind, QueryMaterializationSummary,
     };
 
     const ADMISSION_INDEX_FIELDS: [&str; 1] = ["tag"];
@@ -1707,6 +1717,12 @@ mod tests {
             QueryAdmissionResidualFilter::Predicate
         );
         assert_eq!(summary.ordering(), QueryAdmissionOrdering::Requested);
+        assert!(!summary.materialization().materialized_sort());
+        assert_eq!(summary.materialization().materialized_rows(), None);
+        assert_eq!(
+            summary.materialization().row_bound_kind(),
+            QueryBoundKind::Unavailable
+        );
     }
 
     #[test]
@@ -1847,6 +1863,26 @@ mod tests {
         assert_eq!(
             evaluated.rejection(),
             Some(QueryAdmissionRejection::ReturnedRowBoundExceedsPolicy)
+        );
+    }
+
+    #[test]
+    fn public_read_evaluation_rejects_unresolved_order_materialized_sort() {
+        let policy = public_read_policy();
+        let summary = summary_for_index_prefix(Some(5), 0);
+        let returned_row_bound = summary.returned_row_bound();
+        let returned_row_bound_kind = summary.returned_row_bound_kind();
+        let summary = summary.with_materialization(QueryMaterializationSummary::sort(
+            returned_row_bound,
+            returned_row_bound_kind,
+        ));
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
+        assert_eq!(
+            evaluated.rejection(),
+            Some(QueryAdmissionRejection::SortRequiresMaterialization)
         );
     }
 
