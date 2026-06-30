@@ -63,6 +63,7 @@ fn sql_users() -> Vec<SqlTestUser> {
 fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
     let alpha = db()
         .load::<SqlTestNumericTypes>()
+        .trusted_read_unchecked()
         .filter_eq("label", "alpha")
         .entity()?;
     let group_name = "x".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
