@@ -6,8 +6,8 @@
 
 use crate::{
     Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
-    QueryErrorKind, QueryProjectionCode, QueryResultShapeCode, RuntimeBoundaryCode,
-    RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
+    QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
+    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
     SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
@@ -515,4 +515,38 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlIntrospectionDisabled });
     SQL_WRITE_STAGED_ROWS_TOO_MANY = 186 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::StagedRowsTooMany });
+
+    QUERY_READ_ADMISSION = 187 => QueryReadAdmission;
+    QUERY_READ_PUBLIC_REQUIRES_LIMIT = 188 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PublicQueryRequiresLimit });
+    QUERY_READ_PUBLIC_REQUIRES_INDEX = 189 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PublicQueryRequiresIndex });
+    QUERY_READ_UNBOUNDED_FULL_SCAN_REJECTED = 190 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::UnboundedFullScanRejected });
+    QUERY_READ_SCAN_BOUND_UNAVAILABLE = 191 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ScanBoundUnavailable });
+    QUERY_READ_SCAN_BOUND_EXCEEDS_POLICY = 192 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ScanBoundExceedsPolicy });
+    QUERY_READ_ESTIMATED_ONLY_BOUND_REJECTED = 193 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::EstimatedOnlyBoundRejected });
+    QUERY_READ_SORT_REQUIRES_MATERIALIZATION = 194 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::SortRequiresMaterialization });
+    QUERY_READ_MATERIALIZATION_EXCEEDS_BUDGET = 195 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::MaterializationExceedsBudget });
+    QUERY_READ_PROJECTION_RESPONSE_MAY_EXCEED_LIMIT = 196 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ProjectionResponseMayExceedLimit });
+    QUERY_READ_GROUPED_QUERY_REQUIRES_LIMITS = 197 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::GroupedQueryRequiresLimits });
+    QUERY_READ_GROUPED_QUERY_EXCEEDS_BUDGET = 198 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::GroupedQueryExceedsBudget });
+    QUERY_READ_DIAGNOSTIC_LANE_DOES_NOT_EXECUTE = 199 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute });
+    QUERY_READ_INTROSPECTION_DISABLED_FOR_LANE = 200 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::IntrospectionDisabledForLane });
+    QUERY_READ_UNSUPPORTED_STATEMENT_FOR_QUERY_LANE = 201 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::UnsupportedStatementForQueryLane });
+    QUERY_READ_PUBLIC_OFFSET_REJECTED = 202 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PublicQueryOffsetRejected });
+    QUERY_READ_RETURNED_ROW_BOUND_EXCEEDS_POLICY = 203 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy });
 }

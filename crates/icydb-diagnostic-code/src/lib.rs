@@ -28,6 +28,7 @@ pub enum DiagnosticCode {
     QueryNumericNotRepresentable,
     QueryNumericOverflow,
     QueryPlan,
+    QueryReadAdmission,
     QueryResultShapeMismatch,
     QuerySqlSurfaceMismatch,
     QuerySqlWriteBoundary,
@@ -74,6 +75,7 @@ impl DiagnosticCode {
             Self::QueryValidate
             | Self::QueryIntent
             | Self::QueryPlan
+            | Self::QueryReadAdmission
             | Self::QueryAccessRequirement
             | Self::QueryUnorderedPagination
             | Self::QueryInvalidContinuationCursor
@@ -101,6 +103,7 @@ impl DiagnosticCode {
             Self::QueryValidate
             | Self::QueryIntent
             | Self::QueryPlan
+            | Self::QueryReadAdmission
             | Self::QueryAccessRequirement
             | Self::QueryUnorderedPagination
             | Self::QueryInvalidContinuationCursor
@@ -125,6 +128,7 @@ impl DiagnosticCode {
             Self::QueryValidate => ErrorCode::QUERY_VALIDATE,
             Self::QueryIntent => ErrorCode::QUERY_INTENT,
             Self::QueryPlan => ErrorCode::QUERY_PLAN,
+            Self::QueryReadAdmission => ErrorCode::QUERY_READ_ADMISSION,
             Self::QueryAccessRequirement => ErrorCode::QUERY_ACCESS_REQUIREMENT,
             Self::QueryUnorderedPagination => ErrorCode::QUERY_UNORDERED_PAGINATION,
             Self::QueryInvalidContinuationCursor => ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
@@ -388,6 +392,40 @@ pub enum QueryProjectionCode {
 }
 
 impl fmt::Debug for QueryProjectionCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+///
+/// QueryReadAdmissionCode
+///
+/// Compact read-admission rejection identifier.
+/// Variant order is wire-order significant for public error-code offsets.
+///
+
+#[repr(u16)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub enum QueryReadAdmissionCode {
+    PublicQueryRequiresLimit,
+    PublicQueryRequiresIndex,
+    UnboundedFullScanRejected,
+    ScanBoundUnavailable,
+    ScanBoundExceedsPolicy,
+    EstimatedOnlyBoundRejected,
+    SortRequiresMaterialization,
+    MaterializationExceedsBudget,
+    ProjectionResponseMayExceedLimit,
+    GroupedQueryRequiresLimits,
+    GroupedQueryExceedsBudget,
+    DiagnosticLaneDoesNotExecute,
+    IntrospectionDisabledForLane,
+    UnsupportedStatementForQueryLane,
+    PublicQueryOffsetRejected,
+    ReturnedRowBoundExceedsPolicy,
+}
+
+impl fmt::Debug for QueryReadAdmissionCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_compact_code(f, *self as u16)
     }
@@ -703,6 +741,7 @@ impl fmt::Debug for SchemaDdlAdmissionCode {
 pub enum DiagnosticDetail {
     QueryKind { kind: QueryErrorKind },
     QueryProjection { reason: QueryProjectionCode },
+    QueryReadAdmission { reason: QueryReadAdmissionCode },
     QueryResultShape { reason: QueryResultShapeCode },
     RuntimeBoundary { boundary: RuntimeBoundaryCode },
     RuntimeKind { kind: RuntimeErrorKind },
@@ -801,7 +840,8 @@ fn fmt_compact_code(f: &mut fmt::Formatter<'_>, raw: u16) -> fmt::Result {
 mod tests {
     use super::{
         Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
-        QueryProjectionCode, SqlFeatureCode, SqlLoweringCode, SqlWriteBoundaryCode,
+        QueryProjectionCode, QueryReadAdmissionCode, SqlFeatureCode, SqlLoweringCode,
+        SqlWriteBoundaryCode,
         registry::{DETAIL_ERROR_CODES, ORDERED_ERROR_CODES},
     };
 
@@ -893,7 +933,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 186);
+        assert_eq!(last, 203);
     }
 
     #[test]
@@ -925,7 +965,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 187, u16::MAX] {
+        for raw in [0, 204, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);
@@ -1000,6 +1040,12 @@ mod tests {
             ErrorCode::QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED.diagnostic_detail(),
             Some(DiagnosticDetail::QueryProjection {
                 reason: QueryProjectionCode::NumericLiteralRequired,
+            })
+        );
+        assert_eq!(
+            ErrorCode::QUERY_READ_PUBLIC_REQUIRES_LIMIT.diagnostic_detail(),
+            Some(DiagnosticDetail::QueryReadAdmission {
+                reason: QueryReadAdmissionCode::PublicQueryRequiresLimit,
             })
         );
         assert_eq!(

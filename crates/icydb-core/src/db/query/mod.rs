@@ -2,6 +2,7 @@
 //! Owns the semantic query boundary: intent construction, planning, explain,
 //! fluent APIs, and stable query-facing helpers.
 
+pub(in crate::db) mod admission;
 pub(in crate::db) mod api;
 pub(in crate::db) mod builder;
 pub(in crate::db) mod explain;

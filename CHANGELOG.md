@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### ➕ Added
+
+- Starts the 0.192 read-admission groundwork with shared lane, policy, bound,
+  summary, plan-shape extraction, scalar policy evaluation, and rejection DTOs
+  plus stable query-read-admission diagnostics for future public read
+  enforcement and EXPLAIN output.
+
+### 🔧 Changed
+
+- Enables SQL EXPLAIN support in the CLI facade dependency so shell EXPLAIN
+  support matches the core SQL feature graph.
+
 ## [0.191.x] 📚 - 2026-06-30 - Durability Productization And Format Policy
 
 Detailed notes: [docs/changelog/0.191.md](docs/changelog/0.191.md)

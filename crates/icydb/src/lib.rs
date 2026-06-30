@@ -136,9 +136,9 @@ pub mod diagnostic {
 
     pub use icydb_diagnostic_code::{
         Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
-        QueryErrorKind, QueryProjectionCode, QueryResultShapeCode, RuntimeBoundaryCode,
-        RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
-        SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+        QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
+        RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode,
+        SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
     };
 }
 mod error;

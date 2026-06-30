@@ -325,6 +325,12 @@ impl From<QueryExecutionError> for QueryError {
     }
 }
 
+impl From<diagnostic_code::QueryReadAdmissionCode> for QueryError {
+    fn from(reason: diagnostic_code::QueryReadAdmissionCode) -> Self {
+        Self::execute(InternalError::from(reason))
+    }
+}
+
 impl From<AccessRequirementError> for QueryError {
     fn from(err: AccessRequirementError) -> Self {
         Self::AccessRequirement(Box::new(err))

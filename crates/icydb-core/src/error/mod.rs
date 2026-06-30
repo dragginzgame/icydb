@@ -1342,6 +1342,18 @@ impl InternalError {
     }
 }
 
+impl From<diagnostic_code::QueryReadAdmissionCode> for InternalError {
+    fn from(reason: diagnostic_code::QueryReadAdmissionCode) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::QueryReadAdmission {
+                reason,
+            })),
+        }
+    }
+}
+
 impl fmt::Debug for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_compact_diagnostic(
@@ -1424,6 +1436,10 @@ pub enum QueryErrorDetail {
 
     ResultShapeMismatch {
         reason: diagnostic_code::QueryResultShapeCode,
+    },
+
+    QueryReadAdmission {
+        reason: diagnostic_code::QueryReadAdmissionCode,
     },
 
     SqlSurfaceMismatch {
@@ -1625,6 +1641,7 @@ impl QueryErrorDetail {
             Self::ResultShapeMismatch { .. } => {
                 diagnostic_code::DiagnosticCode::QueryResultShapeMismatch
             }
+            Self::QueryReadAdmission { .. } => diagnostic_code::DiagnosticCode::QueryReadAdmission,
             Self::SqlSurfaceMismatch { .. } => {
                 diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch
             }
@@ -1648,6 +1665,9 @@ impl QueryErrorDetail {
             }
             Self::ResultShapeMismatch { reason } => {
                 Some(diagnostic_code::DiagnosticDetail::QueryResultShape { reason: *reason })
+            }
+            Self::QueryReadAdmission { reason } => {
+                Some(diagnostic_code::DiagnosticDetail::QueryReadAdmission { reason: *reason })
             }
             Self::SqlSurfaceMismatch { mismatch } => {
                 Some(diagnostic_code::DiagnosticDetail::SqlSurfaceMismatch {

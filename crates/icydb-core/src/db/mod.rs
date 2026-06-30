@@ -130,6 +130,13 @@ pub use query::builder::numeric_projection::{
 };
 pub use query::plan::validate::PlanError;
 pub use query::{
+    admission::{
+        GroupedAdmissionPolicy, QueryAdmissionAccessKind, QueryAdmissionDecision,
+        QueryAdmissionGroupedSummary, QueryAdmissionLane, QueryAdmissionOrdering,
+        QueryAdmissionPlanShape, QueryAdmissionPolicy, QueryAdmissionRejection,
+        QueryAdmissionResidualFilter, QueryAdmissionSummary, QueryBoundKind,
+        QueryMaterializationSummary,
+    },
     api::ResponseCardinalityExt,
     builder::{
         AggregateExpr, FieldRef, TextProjectionExpr, ValueProjectionExpr, avg, contains, count,

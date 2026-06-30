@@ -120,6 +120,30 @@ fn query_response_error_exposes_response_origin_compact_diagnostic() {
 }
 
 #[test]
+fn query_read_admission_error_exposes_compact_diagnostic_detail() {
+    let query_err =
+        QueryError::from(icydb_diagnostic_code::QueryReadAdmissionCode::PublicQueryOffsetRejected);
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::QueryReadAdmission {
+                reason: icydb_diagnostic_code::QueryReadAdmissionCode::PublicQueryOffsetRejected,
+            }
+        ),
+    );
+    std::assert_matches!(
+        query_err,
+        QueryError::Execute(QueryExecutionError::Unsupported(_))
+    );
+}
+
+#[test]
 fn planner_internal_mapping_preserves_boundary_origins_for_telemetry_matrix() {
     let cases = [
         (ErrorClass::Internal, ErrorOrigin::Planner),

@@ -31,9 +31,12 @@ pub use icydb_core::db::{
     EntityRelationStrength, EntitySchemaCheckDescription, EntitySchemaDescription,
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-    IndexStoreSnapshot, MemoryCatalogDescription, QueryTracePlan, Row, SchemaStoreSnapshot,
-    StorageReport, StoreCatalogDescription, TraceExecutionFamily, TraceReuseArtifactClass,
-    TraceReuseEvent,
+    GroupedAdmissionPolicy, IndexStoreSnapshot, MemoryCatalogDescription, QueryAdmissionAccessKind,
+    QueryAdmissionDecision, QueryAdmissionGroupedSummary, QueryAdmissionLane,
+    QueryAdmissionOrdering, QueryAdmissionPlanShape, QueryAdmissionPolicy, QueryAdmissionRejection,
+    QueryAdmissionResidualFilter, QueryAdmissionSummary, QueryBoundKind,
+    QueryMaterializationSummary, QueryTracePlan, Row, SchemaStoreSnapshot, StorageReport,
+    StoreCatalogDescription, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

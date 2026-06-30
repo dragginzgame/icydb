@@ -4,9 +4,9 @@
 //! Boundary: keeps rich diagnostic prose out of production canister crates.
 
 use icydb::diagnostic::{
-    DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryProjectionCode, QueryResultShapeCode,
-    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
-    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+    DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode,
+    QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
+    SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
 /// Render one compact public IcyDB error for CLI output.
@@ -46,6 +46,12 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
                 query_projection_text(reason)
             )
         }
+        DiagnosticDetail::QueryReadAdmission { reason } => {
+            format!(
+                "query read admission rejected: {}",
+                query_read_admission_text(reason)
+            )
+        }
         DiagnosticDetail::QueryResultShape { reason } => {
             query_result_shape_text(reason).to_string()
         }
@@ -60,6 +66,7 @@ const fn code_label(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryValidate => "E_QUERY_VALIDATE",
         DiagnosticCode::QueryIntent => "E_QUERY_INTENT",
         DiagnosticCode::QueryPlan => "E_QUERY_PLAN",
+        DiagnosticCode::QueryReadAdmission => "E_QUERY_READ_ADMISSION",
         DiagnosticCode::QueryAccessRequirement => "E_QUERY_ACCESS_REQUIREMENT",
         DiagnosticCode::QueryUnorderedPagination => "E_QUERY_UNORDERED_PAGINATION",
         DiagnosticCode::QueryInvalidContinuationCursor => "E_QUERY_INVALID_CONTINUATION_CURSOR",
@@ -96,6 +103,7 @@ const fn code_text(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryValidate => "query validation failed",
         DiagnosticCode::QueryIntent => "query intent is invalid",
         DiagnosticCode::QueryPlan => "query planning failed",
+        DiagnosticCode::QueryReadAdmission => "query read admission rejected",
         DiagnosticCode::QueryAccessRequirement => "query access requirement was not met",
         DiagnosticCode::QueryUnorderedPagination => "pagination requires deterministic ordering",
         DiagnosticCode::QueryInvalidContinuationCursor => "continuation cursor is invalid",
@@ -170,6 +178,59 @@ const fn query_projection_text(reason: QueryProjectionCode) -> &'static str {
         }
         QueryProjectionCode::BinaryOperandsIncompatible => {
             "projection binary operator operands are incompatible"
+        }
+    }
+}
+
+const fn query_read_admission_text(reason: QueryReadAdmissionCode) -> &'static str {
+    match reason {
+        QueryReadAdmissionCode::PublicQueryRequiresLimit => {
+            "public read queries require an explicit LIMIT"
+        }
+        QueryReadAdmissionCode::PublicQueryRequiresIndex => {
+            "public read queries require an index-backed access path"
+        }
+        QueryReadAdmissionCode::UnboundedFullScanRejected => {
+            "public read queries cannot execute an unbounded full scan"
+        }
+        QueryReadAdmissionCode::ScanBoundUnavailable => {
+            "the planner could not prove a scan bound for this read"
+        }
+        QueryReadAdmissionCode::ScanBoundExceedsPolicy => {
+            "the proven scan bound exceeds this endpoint's read budget"
+        }
+        QueryReadAdmissionCode::EstimatedOnlyBoundRejected => {
+            "estimated-only scan bounds are not sufficient for this read lane"
+        }
+        QueryReadAdmissionCode::SortRequiresMaterialization => {
+            "this read requires materializing rows for ORDER BY"
+        }
+        QueryReadAdmissionCode::MaterializationExceedsBudget => {
+            "materialized rows exceed this endpoint's read budget"
+        }
+        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit => {
+            "projected response size may exceed this endpoint's byte budget"
+        }
+        QueryReadAdmissionCode::GroupedQueryRequiresLimits => {
+            "grouped reads require explicit group and memory budgets"
+        }
+        QueryReadAdmissionCode::GroupedQueryExceedsBudget => {
+            "grouped read planning exceeds this endpoint's group budget"
+        }
+        QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute => {
+            "diagnostic EXPLAIN lanes cannot execute rows"
+        }
+        QueryReadAdmissionCode::IntrospectionDisabledForLane => {
+            "introspection is disabled for this read lane"
+        }
+        QueryReadAdmissionCode::UnsupportedStatementForQueryLane => {
+            "this SQL statement is not supported by the selected read lane"
+        }
+        QueryReadAdmissionCode::PublicQueryOffsetRejected => {
+            "public read queries cannot use a non-zero OFFSET"
+        }
+        QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy => {
+            "the returned-row bound exceeds this endpoint's read budget"
         }
     }
 }
@@ -668,6 +729,22 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_QUERY_UNSUPPORTED_PROJECTION: query projection rejected: scale-taking numeric projections require a non-negative integer scale",
+        );
+    }
+
+    #[test]
+    fn renders_query_read_admission_detail() {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+            icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
+            icydb::diagnostic::ErrorOrigin::Query,
+            Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission {
+                reason: icydb::diagnostic::QueryReadAdmissionCode::PublicQueryRequiresLimit,
+            }),
+        ));
+
+        assert_eq!(
+            render_error(&err),
+            "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries require an explicit LIMIT",
         );
     }
 
