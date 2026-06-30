@@ -6,6 +6,8 @@ the current line.
 It is intentionally narrow: it covers what the current APIs guarantee today.
 The atomic batch surface is strictly single-entity-type; it is not multi-entity
 transaction support.
+The broader operator-facing durability boundary is defined in
+`docs/contracts/DURABILITY.md`.
 
 This document does not define database-session transactions. IcyDB does not
 provide Postgres-style transaction blocks, isolation levels, or automatic

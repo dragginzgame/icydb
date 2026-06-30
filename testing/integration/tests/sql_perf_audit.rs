@@ -10,7 +10,9 @@ use icydb::{
     Error,
     db::{QueryExecutionAttribution, SqlQueryExecutionAttribution, sql::SqlQueryResult},
 };
-use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
+use icydb_testing_integration::{
+    install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
+};
 use serde::{Deserialize, Serialize};
 
 // Mirror the dedicated perf-audit query envelope so the testkit can decode the
@@ -245,6 +247,14 @@ fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
     // Clear retained state from an earlier scenario batch and reload the
     // deterministic perf fixture window before sampling.
     reset_icydb_fixtures(fixture);
+}
+
+fn load_journaled_reentry_probe_fixture(fixture: &StandaloneCanisterFixture) {
+    let result: Result<(), Error> = fixture
+        .update_call("load_journaled_reentry_probe_fixture", ())
+        .expect("journaled reentry probe fixture load should decode");
+
+    result.expect("journaled reentry probe fixture load should succeed");
 }
 
 fn query_surface_with_perf(
@@ -2303,6 +2313,7 @@ const HEAP_PRIMARY_LIMIT_ONE_SQL: &str =
     "SELECT id, name FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1";
 const JOURNALED_PRIMARY_LIMIT_ONE_SQL: &str =
     "SELECT id, name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1";
+const JOURNALED_UPGRADE_REENTRY_BUDGET: u64 = 5_000_000_000;
 
 fn query_sql_limit_one_with_perf(
     fixture: &StandaloneCanisterFixture,
@@ -2680,6 +2691,16 @@ fn query_journaled_fluent_total_only_limit_one_perf(
     result.expect("journaled fluent total-only LIMIT 1 perf query should succeed")
 }
 
+fn measure_journaled_guarded_reentry_total_only_perf(
+    fixture: &StandaloneCanisterFixture,
+) -> FluentTotalOnlyPerfResult {
+    let result: Result<FluentTotalOnlyPerfResult, Error> = fixture
+        .update_call("measure_journaled_reentry_perf", ())
+        .expect("journaled guarded reentry perf update should decode");
+
+    result.expect("journaled guarded reentry perf update should succeed")
+}
+
 fn query_heap_fluent_total_only_limit_one_perf(
     fixture: &StandaloneCanisterFixture,
 ) -> FluentTotalOnlyPerfResult {
@@ -3004,6 +3025,26 @@ fn assert_storage_total_and_fluent_limit_one_reports(fixture: &StandaloneCaniste
     assert_journaled_fluent_limit_one_reports(fixture);
 }
 
+fn assert_journaled_guarded_reentry_perf_stays_bounded(
+    label: &str,
+    perf: &FluentTotalOnlyPerfResult,
+) {
+    assert_eq!(
+        perf.row_count, 1,
+        "{label} guarded reentry probe should return one journaled row",
+    );
+    assert!(
+        perf.instructions > 0,
+        "{label} guarded reentry probe should report positive instructions",
+    );
+    assert!(
+        perf.instructions < JOURNALED_UPGRADE_REENTRY_BUDGET,
+        "{label} guarded reentry probe should stay below the regression budget, got {} >= {}",
+        perf.instructions,
+        JOURNALED_UPGRADE_REENTRY_BUDGET,
+    );
+}
+
 #[test]
 #[ignore = "manual PocketIC perf report; correctness/cache contracts stay in focused tests"]
 fn sql_perf_audit_harness_reports_instruction_samples() {
@@ -3131,6 +3172,25 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     assert_storage_total_and_fluent_limit_one_reports(&fixture);
     assert_storage_write_matrix_reports(&fixture);
     assert_sql_write_materialization_matrix_reports(&fixture);
+}
+
+#[test]
+fn sql_perf_journaled_upgrade_guarded_reentry_stays_bounded() {
+    let fixture = install_sql_perf_canister_fixture();
+    load_journaled_reentry_probe_fixture(&fixture);
+
+    upgrade_fixture_canister(&fixture, "sql_perf");
+
+    let first = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    let second = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+
+    println!(
+        "journaled guarded reentry after upgrade: first_total={} second_total={} first_rows={} second_rows={}",
+        first.instructions, second.instructions, first.row_count, second.row_count,
+    );
+
+    assert_journaled_guarded_reentry_perf_stays_bounded("first", &first);
+    assert_journaled_guarded_reentry_perf_stays_bounded("second", &second);
 }
 
 #[test]

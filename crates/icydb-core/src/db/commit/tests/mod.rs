@@ -28,7 +28,9 @@ use crate::{
             encode_runtime_value_into_slot,
         },
         executor::SaveExecutor,
-        index::{IndexEntryValue, IndexKey, IndexState, IndexStore, IndexStoreVisit},
+        index::{
+            IndexEntryValue, IndexKey, IndexState, IndexStore, IndexStoreVisit, RawIndexStoreKey,
+        },
         journal::{FoldWatermark, JournalTailStore},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
@@ -1164,6 +1166,117 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
             })
         })
     })
+}
+
+fn upper_expression_indexed_ids_for(
+    entity: &RecoveryUpperExpressionEntity,
+) -> Option<BTreeSet<Ulid>> {
+    let index = RecoveryUpperExpressionEntity::MODEL.indexes()[0];
+    let index_key = IndexKey::new(entity, index)
+        .expect("expression index key build should succeed")
+        .expect("expression index key should exist")
+        .to_raw()
+        .expect("test index key should encode");
+
+    with_recovery_store(|store| {
+        store.with_index(|index_store| {
+            index_store.get(&index_key).map(|entry| {
+                let primary_key_component = entry
+                    .decode_row_identity(&index_key)
+                    .expect("expression index entry decode should succeed")
+                    .primary_key_value()
+                    .scalar_component()
+                    .expect("decoded expression index row identity should be scalar");
+                let Value::Ulid(value) = primary_key_component.as_runtime_value() else {
+                    panic!("decoded expression index key should be a Ulid");
+                };
+                BTreeSet::from([value])
+            })
+        })
+    })
+}
+
+fn encoded_index_key_bytes<E>(entity: &E, index: &IndexModel) -> Vec<u8>
+where
+    E: crate::traits::EntityKind + crate::traits::EntityValue,
+{
+    encoded_index_key(entity, index).as_bytes().to_vec()
+}
+
+fn encoded_index_key<E>(entity: &E, index: &IndexModel) -> RawIndexStoreKey
+where
+    E: crate::traits::EntityKind + crate::traits::EntityValue,
+{
+    IndexKey::new(entity, index)
+        .expect("characterization index key should build")
+        .expect("characterization index key should exist")
+        .to_raw()
+        .expect("characterization index key should encode")
+}
+
+fn seed_indexed_recovery_entity(data_store: &mut DataStore, entity: &RecoveryIndexedEntity) {
+    let data_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(entity.id)
+        .expect("indexed characterization data key should build")
+        .to_raw()
+        .expect("indexed characterization data key should encode");
+    let raw_row =
+        RawRow::try_new(indexed_row_bytes(entity)).expect("indexed raw row should construct");
+
+    seed_canonical_data_row_for_recovery(data_store, data_key, raw_row);
+}
+
+fn seed_conditional_recovery_entity(
+    data_store: &mut DataStore,
+    entity: &RecoveryConditionalEntity,
+) {
+    let data_key = DecodedDataStoreKey::try_new::<RecoveryConditionalEntity>(entity.id)
+        .expect("conditional characterization data key should build")
+        .to_raw()
+        .expect("conditional characterization data key should encode");
+    let raw_row = RawRow::try_new(conditional_row_bytes(entity))
+        .expect("conditional raw row should construct");
+
+    seed_canonical_data_row_for_recovery(data_store, data_key, raw_row);
+}
+
+fn seed_upper_expression_recovery_entity(
+    data_store: &mut DataStore,
+    entity: &RecoveryUpperExpressionEntity,
+) {
+    let data_key = DecodedDataStoreKey::try_new::<RecoveryUpperExpressionEntity>(entity.id)
+        .expect("expression characterization data key should build")
+        .to_raw()
+        .expect("expression characterization data key should encode");
+    let raw_row =
+        RawRow::try_new(canonical_row_bytes(entity)).expect("expression raw row should construct");
+
+    seed_canonical_data_row_for_recovery(data_store, data_key, raw_row);
+}
+
+fn mixed_index_shape_stale_keys(
+    indexed: &IndexModel,
+    conditional: &IndexModel,
+    expression: &IndexModel,
+) -> [RawIndexStoreKey; 3] {
+    let stale_indexed = RecoveryIndexedEntity {
+        id: Ulid::from_u128(29_999),
+        group: 999,
+    };
+    let stale_conditional = RecoveryConditionalEntity {
+        id: Ulid::from_u128(39_999),
+        group: 999,
+        active: false,
+    };
+    let stale_expression = RecoveryUpperExpressionEntity {
+        id: Ulid::from_u128(49_999),
+        email: "stale@example.com".to_string(),
+    };
+
+    [
+        encoded_index_key(&stale_indexed, indexed),
+        encoded_index_key(&stale_conditional, conditional),
+        encoded_index_key(&stale_expression, expression),
+    ]
 }
 
 fn index_key_bytes_snapshot() -> Vec<Vec<u8>> {
@@ -4629,8 +4742,109 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
 
 #[test]
 fn recovery_startup_rebuilds_secondary_index_characterization_window() {
-    const CHARACTERIZATION_ROWS: u32 = 256;
+    run_recovery_startup_rebuilds_secondary_index_characterization_window(256);
+}
 
+#[test]
+fn recovery_startup_rebuilds_secondary_index_large_host_floor() {
+    run_recovery_startup_rebuilds_secondary_index_characterization_window(1_024);
+}
+
+#[test]
+fn recovery_startup_rebuilds_mixed_index_shapes_host_floor() {
+    const ROWS_PER_SHAPE: u32 = 128;
+
+    reset_recovery_state();
+
+    let indexed = RecoveryIndexedEntity::MODEL.indexes()[0];
+    let conditional = RecoveryConditionalEntity::MODEL.indexes()[0];
+    let expression = RecoveryUpperExpressionEntity::MODEL.indexes()[0];
+    let mut expected_index_keys = Vec::new();
+    let mut active_sample = None;
+    let mut inactive_sample = None;
+    let mut expression_sample = None;
+
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            for row in 0..ROWS_PER_SHAPE {
+                let plain = RecoveryIndexedEntity {
+                    id: Ulid::from_u128(20_000 + u128::from(row)),
+                    group: row,
+                };
+                seed_indexed_recovery_entity(data_store, &plain);
+                expected_index_keys.push(encoded_index_key_bytes(&plain, indexed));
+
+                let active = row % 2 == 0;
+                let conditional_row = RecoveryConditionalEntity {
+                    id: Ulid::from_u128(30_000 + u128::from(row)),
+                    group: row,
+                    active,
+                };
+                seed_conditional_recovery_entity(data_store, &conditional_row);
+                if active {
+                    expected_index_keys
+                        .push(encoded_index_key_bytes(&conditional_row, conditional));
+                    active_sample.get_or_insert(conditional_row);
+                } else {
+                    inactive_sample.get_or_insert(conditional_row);
+                }
+
+                let expression_row = RecoveryUpperExpressionEntity {
+                    id: Ulid::from_u128(40_000 + u128::from(row)),
+                    email: format!("User{row}@Example.Com"),
+                };
+                seed_upper_expression_recovery_entity(data_store, &expression_row);
+                expected_index_keys.push(encoded_index_key_bytes(&expression_row, expression));
+                if row == ROWS_PER_SHAPE / 2 {
+                    expression_sample = Some(expression_row);
+                }
+            }
+        });
+        store.with_index_mut(|index_store| {
+            for stale_key in mixed_index_shape_stale_keys(indexed, conditional, expression) {
+                index_store.insert(stale_key, IndexEntryValue::presence());
+            }
+        });
+    });
+    expected_index_keys.sort();
+
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&DB).expect("recovery should rebuild mixed index shapes from rows");
+
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after mixed-shape characterization rebuild",
+    );
+    assert_eq!(
+        index_key_bytes_snapshot(),
+        expected_index_keys,
+        "startup rebuild should recreate exactly the mixed-shape row-derived index set",
+    );
+
+    let (data_rows, index_rows) = recovery_store_snapshot();
+    let expected_data_rows =
+        usize::try_from(ROWS_PER_SHAPE.saturating_mul(3)).expect("row count should fit usize");
+    assert_eq!(data_rows.len(), expected_data_rows);
+    assert_eq!(index_rows.len(), expected_index_keys.len());
+
+    let active = active_sample.expect("active sample should exist");
+    let inactive = inactive_sample.expect("inactive sample should exist");
+    let expression = expression_sample.expect("expression sample should exist");
+    assert_eq!(
+        conditional_indexed_ids_for(&active).expect("active conditional index entry should exist"),
+        std::iter::once(active.id).collect::<BTreeSet<_>>(),
+    );
+    assert!(conditional_indexed_ids_for(&inactive).is_none());
+    assert_eq!(
+        upper_expression_indexed_ids_for(&expression).expect("expression index entry should exist"),
+        std::iter::once(expression.id).collect::<BTreeSet<_>>(),
+    );
+}
+
+fn run_recovery_startup_rebuilds_secondary_index_characterization_window(
+    characterization_rows: u32,
+) {
     reset_recovery_state();
 
     let index = RecoveryIndexedEntity::MODEL.indexes()[0];
@@ -4639,7 +4853,7 @@ fn recovery_startup_rebuilds_secondary_index_characterization_window() {
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            for row in 0..CHARACTERIZATION_ROWS {
+            for row in 0..characterization_rows {
                 let entity = RecoveryIndexedEntity {
                     id: Ulid::from_u128(10_000 + u128::from(row)),
                     group: row,
@@ -4661,7 +4875,7 @@ fn recovery_startup_rebuilds_secondary_index_characterization_window() {
                         .as_bytes()
                         .to_vec(),
                 );
-                if row == 0 || row == CHARACTERIZATION_ROWS / 2 || row + 1 == CHARACTERIZATION_ROWS
+                if row == 0 || row == characterization_rows / 2 || row + 1 == characterization_rows
                 {
                     sample_entities.push(entity);
                 }
@@ -4670,7 +4884,7 @@ fn recovery_startup_rebuilds_secondary_index_characterization_window() {
         store.with_index_mut(|index_store| {
             let stale = RecoveryIndexedEntity {
                 id: Ulid::from_u128(19_999),
-                group: CHARACTERIZATION_ROWS.saturating_add(1),
+                group: characterization_rows.saturating_add(1),
             };
             let stale_key = IndexKey::new(&stale, index)
                 .expect("stale characterization index key should build")
@@ -4695,7 +4909,7 @@ fn recovery_startup_rebuilds_secondary_index_characterization_window() {
         expected_index_keys,
         "startup rebuild should recreate exactly the characterized row-derived index set",
     );
-    let expected_count = usize::try_from(CHARACTERIZATION_ROWS)
+    let expected_count = usize::try_from(characterization_rows)
         .expect("characterization row count should fit usize");
     let (data_rows, index_rows) = recovery_store_snapshot();
     assert_eq!(data_rows.len(), expected_count);

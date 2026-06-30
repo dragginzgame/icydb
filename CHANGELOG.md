@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Starts the 0.191 durability productization line by adding an operator-facing
+  durability contract for journaled versus heap storage, guarded recovery,
+  backup/import scope, checksum posture, recovery-size limits, and
+  persisted-format change classification, plus an operator durability guide and
+  decision ledger, while raising the host secondary-index recovery
+  characterization floor, adding mixed ordinary/conditional/expression index
+  recovery evidence, adding a PocketIC same-WASM upgrade/reentry instruction
+  probe over a 32-row journaled `sql_perf` fixture, and tracking streaming
+  recovery follow-up without changing persisted formats.
+
 ## [0.190.x] 🧪 - 2026-06-29 - IC Reliability Proof Expansion
 
 Detailed notes: [docs/changelog/0.190.md](docs/changelog/0.190.md)

@@ -151,7 +151,8 @@ the durable cached-stable store: live reads use Rust BTree projections,
 committed journal records are folded into canonical stable data/index/schema
 BTrees, and `SHOW MEMORY` reports the fourth journal-tail memory role
 separately from the three canonical stable roles. Direct `stable` storage is
-not a supported current storage mode.
+not a supported current storage mode. The full operator-facing storage
+durability boundary is documented in `docs/contracts/DURABILITY.md`.
 
 `SHOW INDEXES` includes index lifecycle and origin annotations. Generated
 entity-model indexes report `origin=generated`; indexes added through SQL DDL

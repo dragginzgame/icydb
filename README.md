@@ -126,7 +126,9 @@ Journaled stores use four memory IDs: `data_memory_id`, `index_memory_id`,
 `schema_memory_id`, and `journal_memory_id`. The first three are the canonical
 stable source-of-truth roles; the fourth is the durable journal tail. `heap()`
 storage is never durable. Durable examples should use `storage(journaled(...))`
-unless volatility is the point of the example.
+unless volatility is the point of the example. The full operator-facing
+durability boundary is documented in
+[docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md).
 
 ## Query From Rust
 
@@ -254,6 +256,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - `canisters/*` - demo, audit, and integration canisters.
 - `testing/*` - macro, wasm, and IC testkit support.
 - `docs/contracts/*` - behavior contracts.
+- `docs/operations/*` - operator-facing deployment and durability guides.
 - `docs/changelog/*` - detailed release notes.
 
 ## More Docs
@@ -261,10 +264,13 @@ usage, IC test prerequisites, and wasm report commands live in
 - [INSTALLING.md](INSTALLING.md)
 - [SECURITY.md](SECURITY.md)
 - [CHANGELOG.md](CHANGELOG.md)
+- [docs/operations/DURABILITY_GUIDE.md](docs/operations/DURABILITY_GUIDE.md)
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
 - [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
+- [docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md)
 - [docs/contracts/ATOMICITY.md](docs/contracts/ATOMICITY.md)
+- [docs/contracts/PERSISTED_FORMAT_POLICY.md](docs/contracts/PERSISTED_FORMAT_POLICY.md)
 - [docs/contracts/REF_INTEGRITY.md](docs/contracts/REF_INTEGRITY.md)
 - [docs/contracts/RESOURCE_MODEL.md](docs/contracts/RESOURCE_MODEL.md)
 - [docs/contracts/TRANSACTION_SEMANTICS.md](docs/contracts/TRANSACTION_SEMANTICS.md)

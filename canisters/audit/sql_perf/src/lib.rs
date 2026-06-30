@@ -101,6 +101,7 @@ struct SqlWriteMaterializationPerfResult {
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 #[cfg(feature = "sql")]
 const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
+const JOURNALED_REENTRY_PROBE_ROWS: i32 = 32;
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
 const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 
@@ -1202,6 +1203,17 @@ fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 
+/// Load a small journaled-only fixture for same-WASM upgrade/reentry
+/// instruction probes. The full SQL perf corpus intentionally remains larger
+/// than this audit budget.
+#[update]
+fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
+    __icydb_fixtures_reset()?;
+    db().insert_many_atomic(perf_audit_journaled_reentry_probe_users())?;
+
+    Ok(())
+}
+
 /// Execute one PerfAuditUser-only SQL query.
 #[cfg(feature = "sql")]
 #[query]
@@ -1720,6 +1732,27 @@ fn query_journaled_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfRe
     })
 }
 
+/// Execute the journaled LIMIT 1 shape through an update call. After a
+/// same-WASM upgrade this gives the integration harness one normal guarded
+/// reentry probe that includes any required recovery/rebuild work.
+#[cfg(feature = "sql")]
+#[update]
+fn measure_journaled_reentry_perf() -> Result<FluentTotalOnlyPerfResult, icydb::Error> {
+    let start = ic_cdk::api::performance_counter(1);
+    let response = db()
+        .load::<PerfAuditJournaledUser>()
+        .order_asc("id")
+        .limit(1)
+        .execute()?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let outcome = summarize_fluent_outcome(&response);
+
+    Ok(FluentTotalOnlyPerfResult {
+        row_count: outcome.row_count,
+        instructions,
+    })
+}
+
 /// Execute the journaled LIMIT 1 shape through the fluent query path and
 /// attach the shared fluent query phase attribution.
 #[cfg(feature = "sql")]
@@ -2075,6 +2108,18 @@ fn perf_audit_journaled_users() -> Vec<PerfAuditJournaledUser> {
     (1..=512)
         .map(|id| {
             build_perf_audit_journaled_user(id, &format!("journaled-user-{id:04}"), 18 + (id % 47))
+        })
+        .collect()
+}
+
+fn perf_audit_journaled_reentry_probe_users() -> Vec<PerfAuditJournaledUser> {
+    (1..=JOURNALED_REENTRY_PROBE_ROWS)
+        .map(|id| {
+            build_perf_audit_journaled_user(
+                id,
+                &format!("journaled-reentry-{id:04}"),
+                18 + (id % 13),
+            )
         })
         .collect()
 }

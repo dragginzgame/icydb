@@ -5,7 +5,9 @@ This document defines the long-term direction and architectural identity of IcyD
 This roadmap is directional and planning-oriented.
 Behavioral guarantees are defined exclusively in:
 
+- `docs/contracts/DURABILITY.md`
 - `docs/contracts/ATOMICITY.md`
+- `docs/contracts/PERSISTED_FORMAT_POLICY.md`
 - `docs/contracts/REF_INTEGRITY.md`
 - `docs/contracts/RESOURCE_MODEL.md`
 - `docs/contracts/TRANSACTION_SEMANTICS.md`

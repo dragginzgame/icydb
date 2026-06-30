@@ -3,6 +3,8 @@
 
 This document defines the **atomicity, write-safety, and invariant contract** for
 IcyDB mutations executed within a **single Internet Computer update call**.
+The operator-facing durability summary lives in
+`docs/contracts/DURABILITY.md`.
 
 It is a **normative constraint on future changes**, not an implementation plan.
 

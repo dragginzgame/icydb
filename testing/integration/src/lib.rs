@@ -424,6 +424,35 @@ pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
     load.expect("icydb_fixtures_load should succeed");
 }
 
+/// Build and upgrade one installed fixture canister with the current local WASM.
+///
+/// # Panics
+///
+/// Panics if the canister cannot be built, the built WASM cannot be read, empty
+/// upgrade args cannot be encoded, or PocketIC rejects the upgrade.
+pub fn upgrade_fixture_canister(fixture: &StandaloneCanisterFixture, canister_name: &str) {
+    let wasm_path = build_canister_with_options(
+        canister_name,
+        CanisterBuildOptions {
+            build_target: CanisterBuildTarget::Local,
+            ..CanisterBuildOptions::default()
+        },
+    )
+    .unwrap_or_else(|err| panic!("{canister_name} canister should build for upgrade: {err}"));
+    let wasm = fs::read(&wasm_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to read built {canister_name} canister wasm at {}: {err}",
+            wasm_path.display()
+        )
+    });
+    let args = candid::encode_args(()).expect("encode empty upgrade args");
+
+    fixture
+        .pic()
+        .upgrade_canister(fixture.canister_id(), wasm, args, None)
+        .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));
+}
+
 /// Build one supported SQL canister WASM with explicit options and return the
 /// built wasm path.
 pub fn build_canister_with_options(
