@@ -13,7 +13,7 @@ Detailed notes: [docs/changelog/0.193.md](docs/changelog/0.193.md)
 
 - `0.193.4` makes the default read-admission contract discoverable from the
   main developer, setup, facade, query, and SQL docs and guards trusted SQL
-  lane wording.
+  lane wording while keeping no-default core clippy clean.
 
 - `0.193.3` connects every stable read-admission diagnostic reason to
   developer-facing fixes and guards internal/public rejection-code alignment.

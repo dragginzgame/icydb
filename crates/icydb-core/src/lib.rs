@@ -6,6 +6,10 @@
 //! Core runtime for IcyDB: entity traits, values, executors, visitors, and
 //! the ergonomics exported via the `prelude`.
 #![warn(unreachable_pub)]
+// The no-default test target intentionally type-checks shared test/helper
+// surfaces whose consuming tests live behind SQL, SQL-explain, or diagnostics
+// features. Keep production and all-features dead-code linting strict.
+#![cfg_attr(all(test, not(feature = "sql")), allow(dead_code))]
 
 extern crate self as icydb;
 
