@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.193.md](docs/changelog/0.193.md)
 
+- `0.193.5` closes the public-query ergonomics line with copyable
+  read-admission rejection examples, EXPLAIN fix guidance, and explicit
+  future-design boundaries for configurable public policies and generated
+  public typed endpoints.
+
 - `0.193.4` makes the default read-admission contract discoverable from the
   main developer, setup, facade, query, and SQL docs and guards trusted SQL
   lane wording while keeping no-default core clippy clean.

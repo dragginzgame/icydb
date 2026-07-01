@@ -183,6 +183,373 @@ should branch on the diagnostic detail, not rendered text.
 | Introspection requested through a lane that does not expose it | `QueryReadAdmissionCode::IntrospectionDisabledForLane` | Use a controller-gated diagnostic/admin endpoint for introspection. |
 | Caller-controlled SQL sent to the trusted SQL helper | `QueryReadAdmissionCode::UnsupportedStatementForQueryLane` | Prefer typed/fluent reads or a tightly allowlisted application-owned SQL surface. |
 
+## Copyable Rejection Examples
+
+The snippets below use `User` and field names as placeholders. They are meant
+to be copied into canister-owned code and adapted to the model's real indexed
+fields. Ordinary examples intentionally stay on `execute()`, `execute_rows()`,
+or `execute_paged()` so they exercise the default bounded public-read lane.
+
+### Missing returned-row bound
+
+`QueryReadAdmissionCode::PublicQueryRequiresLimit`
+
+```rust
+let err = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .execute_rows();
+```
+
+Fix it by adding a finite row bound, or by using grouped execution with
+explicit grouped budgets when the query is genuinely grouped:
+
+```rust
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_rows()?;
+```
+
+### Full scan, missing index proof, or missing scan bound
+
+`QueryReadAdmissionCode::UnboundedFullScanRejected`
+`QueryReadAdmissionCode::PublicQueryRequiresIndex`
+`QueryReadAdmissionCode::ScanBoundUnavailable`
+`QueryReadAdmissionCode::EstimatedOnlyBoundRejected`
+
+```rust
+let err = db()
+    .load::<User>()
+    .order_term(icydb::asc("age"))
+    .limit(1)
+    .execute_rows();
+```
+
+`LIMIT 1` bounds returned rows, not scanned rows. The public lane needs a
+route-proven bounded access path.
+
+```rust
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_rows()?;
+```
+
+If the broad scan is maintenance work, keep it controller/admin-only:
+
+```rust
+require_controller()?;
+
+let users = db()
+    .load::<User>()
+    .order_term(icydb::asc("age"))
+    .limit(1)
+    .trusted_read_unchecked()
+    .execute_rows()?;
+```
+
+### Proven scan bound above policy
+
+`QueryReadAdmissionCode::ScanBoundExceedsPolicy`
+
+```rust
+let err = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("s"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(1_000)
+    .execute_rows();
+```
+
+Fix it by tightening the predicate, lowering the page size, or moving the
+large report behind a trusted/admin endpoint:
+
+```rust
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(25)
+    .execute_rows()?;
+```
+
+### Non-zero offset
+
+`QueryReadAdmissionCode::PublicQueryOffsetRejected`
+
+```rust
+let err = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .offset(10)
+    .execute_rows();
+```
+
+Use cursor pagination for caller-facing pages:
+
+```rust
+let page = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_paged()?;
+```
+
+### Materialized sort or materialization budget
+
+`QueryReadAdmissionCode::SortRequiresMaterialization`
+`QueryReadAdmissionCode::MaterializationExceedsBudget`
+
+```rust
+let err = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("active").eq(true))
+    .filter(icydb::FieldRef::new("tier").eq("gold"))
+    .order_term(icydb::asc("age"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_rows();
+```
+
+Fix it by ordering with the selected index route, adding a suitable composite
+index, or keeping the report trusted/admin-only:
+
+```rust
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("tier").eq("gold"))
+    .order_term(icydb::asc("tier"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_rows()?;
+```
+
+### Response or returned-row budget
+
+`QueryReadAdmissionCode::ProjectionResponseMayExceedLimit`
+`QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy`
+
+```rust
+let err = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(1_000)
+    .execute_rows();
+```
+
+Fix it by reducing the row bound, using smaller cursor pages, or returning a
+narrower application-shaped response after the admitted read:
+
+```rust
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(25)
+    .execute_rows()?;
+```
+
+### Missing grouped budgets
+
+`QueryReadAdmissionCode::GroupedQueryRequiresLimits`
+
+```rust
+let err = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .group_by("status")?
+    .aggregate(icydb::count())
+    .execute();
+```
+
+Add query-owned grouped limits:
+
+```rust
+let groups = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .group_by("status")?
+    .aggregate(icydb::count())
+    .grouped_limits(100, 64 * 1024)
+    .execute()?
+    .into_grouped()?;
+```
+
+Grouped `DISTINCT` aggregates also need to fit the default distinct-entry
+budget.
+
+### Grouped budget above policy
+
+`QueryReadAdmissionCode::GroupedQueryExceedsBudget`
+
+```rust
+let err = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .group_by("status")?
+    .aggregate(icydb::count())
+    .grouped_limits(10_000, 1024 * 1024)
+    .execute();
+```
+
+Lower the grouped limits, reduce grouped `DISTINCT` state, or move the report
+behind a trusted/admin endpoint:
+
+```rust
+let groups = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .group_by("status")?
+    .aggregate(icydb::count())
+    .grouped_limits(100, 64 * 1024)
+    .execute()?
+    .into_grouped()?;
+```
+
+### Diagnostic lane used as execution
+
+`QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute`
+
+```rust
+let explain = db()
+    .load::<User>()
+    .order_term(icydb::asc("age"))
+    .limit(1)
+    .explain_execution_verbose()?;
+```
+
+Use the explanation to fix the route; do not treat EXPLAIN as a row-execution
+API. After adding a suitable index or changing the query shape, execute through
+the ordinary public lane:
+
+```rust
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_rows()?;
+```
+
+### Introspection from the wrong lane
+
+`QueryReadAdmissionCode::IntrospectionDisabledForLane`
+
+```rust
+// Do not expose introspection through arbitrary public read handlers.
+fn public_query(sql: String) -> Result<(), icydb::Error> {
+    db().execute_sql_query::<User>(&sql)?;
+    Ok(())
+}
+```
+
+Keep introspection behind a controller-gated diagnostic/admin endpoint:
+
+```rust
+fn controller_describe_users() -> Result<(), icydb::Error> {
+    require_controller()?;
+    db().execute_sql_query::<User>("DESCRIBE User")?;
+    Ok(())
+}
+```
+
+### Unsupported caller-controlled SQL
+
+`QueryReadAdmissionCode::UnsupportedStatementForQueryLane`
+
+```rust
+// Do not pass caller-controlled SQL into the trusted SQL helper.
+fn public_query(sql: String) -> Result<(), icydb::Error> {
+    db().execute_sql_query::<User>(&sql)?;
+    Ok(())
+}
+```
+
+Prefer a typed/fluent endpoint or a tightly allowlisted application-owned SQL
+surface:
+
+```rust
+fn public_users_by_prefix(prefix: String) -> Result<Vec<User>, icydb::Error> {
+    require_authenticated_user()?;
+
+    Ok(db()
+        .load::<User>()
+        .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
+        .order_term(icydb::asc("username"))
+        .order_term(icydb::asc("id"))
+        .limit(25)
+        .execute_rows()?
+        .entities())
+}
+
+fn controller_sql(sql: String) -> Result<(), icydb::Error> {
+    require_controller()?;
+    db().execute_sql_query::<User>(&sql)?;
+    Ok(())
+}
+```
+
+## EXPLAIN Admission Diagnostics
+
+EXPLAIN is the fastest way to see why a public read shape would fail, but it
+does not authorize execution and does not bypass guarded recovery.
+
+```rust
+let explain = db()
+    .load::<User>()
+    .order_term(icydb::asc("age"))
+    .limit(1)
+    .explain_execution_verbose()?;
+```
+
+For an unindexed `age` order, the verbose admission block should point at a
+full-scan or materialized-sort rejection. The production fix is to change the
+query to an indexed, bounded shape:
+
+```rust
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_rows()?;
+```
+
+If the shape is intentionally broad operational work, keep the actual
+execution on an explicit trusted/admin path after controller authorization.
+
+## Future Policy And Endpoint Work
+
+Configurable public read policies are intentionally not part of the
+application-facing facade. Reintroducing them requires a fresh design with
+demonstrated user demand, examples that prevent accidental public full scans,
+and a new hard-cut regression guard.
+
+Generated public typed endpoints are also outside the current generated
+endpoint contract. Adding them requires a separate endpoint-authority design
+covering caller authorization, generated method visibility, response budgets,
+and read-admission evidence. Generated SQL remains controller-gated.
+
 If a public endpoint accepts caller-provided SQL, it must:
 
 - reject anonymous callers and perform any application authorization before
