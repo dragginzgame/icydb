@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Starts the 0.193 public-query ergonomics line by documenting the fresh
+  default read-admission contract, guarding the hard-cut public facade, and
+  adding default fluent execution witnesses.
+
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)

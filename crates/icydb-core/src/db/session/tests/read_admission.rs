@@ -212,6 +212,26 @@ fn default_fluent_execute_rejects_unindexed_full_scan() {
 }
 
 #[test]
+fn default_fluent_execute_rows_rejects_unindexed_full_scan_without_policy_setup() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
+
+    let err = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .limit(1)
+        .execute_rows()
+        .expect_err("default fluent execute_rows should reject unindexed full scans");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::UnboundedFullScanRejected,
+        "default fluent execute_rows full scan",
+    );
+}
+
+#[test]
 fn default_fluent_terminal_rejects_unindexed_full_scan() {
     reset_session_sql_store();
     let session = sql_session();
@@ -259,6 +279,23 @@ fn trusted_fluent_execute_keeps_existing_unbounded_behavior() {
         .limit(1)
         .execute_trusted()
         .expect("trusted fluent execute should keep existing behavior");
+
+    assert_eq!(response.count(), 1);
+}
+
+#[test]
+fn trusted_read_unchecked_execute_rows_bypasses_default_admission_explicitly() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
+
+    let response = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .limit(1)
+        .trusted_read_unchecked()
+        .execute_rows()
+        .expect("trusted_read_unchecked should explicitly bypass default read admission");
 
     assert_eq!(response.count(), 1);
 }

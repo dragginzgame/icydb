@@ -14,6 +14,7 @@ status=0
 DOC="docs/contracts/READ_ADMISSION.md"
 GENERATED_SQL="crates/icydb-build/src/db/sql.rs"
 CONFIG_PARSE="crates/icydb-config/src/parse.rs"
+PUBLIC_FACADE="crates/icydb/src"
 
 if [[ ! -f "$DOC" ]]; then
   echo "[ERROR] Missing read-admission contract: $DOC" >&2
@@ -32,7 +33,8 @@ else
     "\`DbSession::execute_query_trusted::<E>\`" \
     "\`trusted_read_unchecked()\`" \
     "must not expose caller-controlled SQL through \`execute_sql_query\`" \
-    "execute_sql_query_with_perf_attribution"
+    "execute_sql_query_with_perf_attribution" \
+    "Which API should I use?"
   do
     if ! rg -F --quiet "$required_phrase" "$DOC"; then
       echo "[ERROR] Read-admission contract is missing required phrase: $required_phrase" >&2
@@ -54,6 +56,28 @@ else
       status=1
     fi
   done <<< "$generated_query_names"
+fi
+
+if [[ ! -d "$PUBLIC_FACADE" ]]; then
+  echo "[ERROR] Missing public facade source directory: $PUBLIC_FACADE" >&2
+  status=1
+else
+  for forbidden_public_facade_pattern in \
+    "execute_query_with_policy" \
+    "execute_with_policy" \
+    "with_query_policy" \
+    "execute_query_with_read_admission_policy" \
+    "execute_sql_query_with_read_admission_policy" \
+    "QueryAdmissionPolicy" \
+    "GroupedAdmissionPolicy" \
+    "public_custom" \
+    "public_read_policy"
+  do
+    if rg -F --quiet "$forbidden_public_facade_pattern" "$PUBLIC_FACADE"; then
+      echo "[ERROR] Public facade must not reintroduce custom read-policy API: $forbidden_public_facade_pattern" >&2
+      status=1
+    fi
+  done
 fi
 
 if [[ ! -f "$GENERATED_SQL" ]]; then

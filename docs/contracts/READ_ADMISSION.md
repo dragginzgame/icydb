@@ -52,6 +52,17 @@ must not expose caller-controlled SQL through `execute_sql_query`; that helper
 is a trusted/admin lane. Generated `icydb.toml` SQL settings intentionally have
 no `sql.public_read` key.
 
+## Which API should I use?
+
+| You want to... | Use | Notes |
+| --- | --- | --- |
+| serve normal users | ordinary typed/fluent execution | Default bounded admission rejects unsafe public read shapes before row execution. |
+| run controller diagnostics | trusted/admin execution | Caller authorization and an explicit resource policy are required before calling trusted helpers. |
+| explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
+| paginate public results | cursor-paged ordinary execution | Prefer cursor pagination; non-zero `OFFSET` is rejected by the public lane. |
+| run a broad maintenance scan | trusted execution | Keep it controller/admin-only and apply a maintenance resource policy. |
+| expose arbitrary SQL publicly | do not | Generated SQL remains controller-gated; caller-facing SQL must be application-owned and tightly allowlisted. |
+
 ## Generated SQL Query Surface
 
 The generated `icydb_query` endpoint is deliberately not a public read lane.
@@ -77,6 +88,38 @@ returns the shared read-admission error before row execution. Endpoints must
 still enforce caller authorization before entering IcyDB and any final
 application-level response-byte budget after shaping the typed response.
 
+Example default behavior:
+
+```rust
+// Rejected before row execution when `age` is not route-proven by an index.
+let err = db()
+    .load::<User>()
+    .order_term(icydb::asc("age"))
+    .limit(1)
+    .execute_rows();
+
+// Admitted when the selected route is index-backed and the result is bounded.
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(10)
+    .execute_rows()?;
+```
+
+If the rejected query is intentional maintenance work, keep it off arbitrary
+caller paths and use an explicit trusted API after caller authorization:
+
+```rust
+let users = db()
+    .load::<User>()
+    .order_term(icydb::asc("age"))
+    .limit(1)
+    .trusted_read_unchecked()
+    .execute_rows()?;
+```
+
 The default typed/fluent policy is intentionally conservative:
 
 - maximum returned rows: 100;
@@ -100,6 +143,18 @@ for `PublicRead` admission:
   `grouped_limits(max_groups, max_group_bytes)`;
 - the query must fit the built-in grouped read policy, including the
   distinct-entry budget for grouped aggregates that use `DISTINCT`.
+
+Example grouped public read:
+
+```rust
+let rows = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .group_by("status")?
+    .aggregate(icydb::count())
+    .grouped_limits(100, 64 * 1024)
+    .execute_rows()?;
+```
 
 If a public endpoint accepts caller-provided SQL, it must:
 
