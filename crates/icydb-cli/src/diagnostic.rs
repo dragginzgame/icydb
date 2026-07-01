@@ -836,6 +836,40 @@ mod tests {
     }
 
     #[test]
+    fn renders_query_read_admission_fix_hint_for_every_rejection_code() {
+        let reasons = [
+            icydb::diagnostic::QueryReadAdmissionCode::PublicQueryRequiresLimit,
+            icydb::diagnostic::QueryReadAdmissionCode::PublicQueryRequiresIndex,
+            icydb::diagnostic::QueryReadAdmissionCode::UnboundedFullScanRejected,
+            icydb::diagnostic::QueryReadAdmissionCode::ScanBoundUnavailable,
+            icydb::diagnostic::QueryReadAdmissionCode::ScanBoundExceedsPolicy,
+            icydb::diagnostic::QueryReadAdmissionCode::EstimatedOnlyBoundRejected,
+            icydb::diagnostic::QueryReadAdmissionCode::SortRequiresMaterialization,
+            icydb::diagnostic::QueryReadAdmissionCode::MaterializationExceedsBudget,
+            icydb::diagnostic::QueryReadAdmissionCode::ProjectionResponseMayExceedLimit,
+            icydb::diagnostic::QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+            icydb::diagnostic::QueryReadAdmissionCode::GroupedQueryExceedsBudget,
+            icydb::diagnostic::QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute,
+            icydb::diagnostic::QueryReadAdmissionCode::IntrospectionDisabledForLane,
+            icydb::diagnostic::QueryReadAdmissionCode::UnsupportedStatementForQueryLane,
+            icydb::diagnostic::QueryReadAdmissionCode::PublicQueryOffsetRejected,
+            icydb::diagnostic::QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy,
+        ];
+
+        for reason in reasons {
+            let rendered = render_query_read_admission_error(reason);
+            let (_, fix) = rendered
+                .split_once("; fix: ")
+                .expect("read-admission diagnostics should render a fix hint");
+
+            assert!(
+                !fix.is_empty(),
+                "read-admission diagnostics should render a non-empty fix hint: {rendered}",
+            );
+        }
+    }
+
+    #[test]
     fn renders_unknown_aggregate_target_field_code() {
         let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::from_code(
             icydb::diagnostic::DiagnosticCode::QueryUnknownAggregateTargetField,
@@ -903,5 +937,17 @@ mod tests {
             render_error(&err),
             "E_RUNTIME_INTERNAL: internal runtime failure"
         );
+    }
+
+    fn render_query_read_admission_error(
+        reason: icydb::diagnostic::QueryReadAdmissionCode,
+    ) -> String {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+            icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
+            icydb::diagnostic::ErrorOrigin::Query,
+            Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission { reason }),
+        ));
+
+        render_error(&err)
     }
 }

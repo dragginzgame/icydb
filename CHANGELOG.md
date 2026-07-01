@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds a complete read-admission rejection/fix table, enum-alignment invariant
+  coverage, and CLI diagnostic witnesses so stable reasons stay connected to
+  developer-facing query fixes.
+
 ## [0.193.x] 🧭 - 2026-07-01 - Public Query Ergonomics And Admission Evidence
 
 Detailed notes: [docs/changelog/0.193.md](docs/changelog/0.193.md)

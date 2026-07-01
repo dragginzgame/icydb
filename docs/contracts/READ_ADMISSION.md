@@ -157,6 +157,32 @@ let groups = db()
     .into_grouped()?;
 ```
 
+## Common Rejections And Fixes
+
+Read-admission errors keep a stable diagnostic identity through
+`DiagnosticCode::QueryReadAdmission` plus a `QueryReadAdmissionCode` detail.
+The human-facing message may become more helpful over time, but endpoint logic
+should branch on the diagnostic detail, not rendered text.
+
+| Query shape | Diagnostic detail | Typical fix |
+| --- | --- | --- |
+| Ordinary read without a finite row or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Add `limit(...)`, or use a grouped query with `grouped_limits(...)` when the grouped shape itself supplies the bound. |
+| Ordinary read with `LIMIT 1` but no route-proven index access | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Add an index for the filter/order, tighten the predicate, or move the broad scan behind a controller/admin trusted path. |
+| Ordinary read whose selected route cannot prove an index-backed access path | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | Add a matching index or change the query to use an indexed predicate/order. |
+| Ordinary read whose selected plan cannot prove a scan bound | `QueryReadAdmissionCode::ScanBoundUnavailable` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
+| Ordinary read whose proven scan bound exceeds the public budget | `QueryReadAdmissionCode::ScanBoundExceedsPolicy` | Tighten the predicate or lower the query bound so the proven scan fits the endpoint budget. |
+| Ordinary read whose only scan bound is estimated | `QueryReadAdmissionCode::EstimatedOnlyBoundRejected` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
+| Ordinary read using non-zero `OFFSET` | `QueryReadAdmissionCode::PublicQueryOffsetRejected` | Use cursor pagination instead of offset pagination. |
+| Ordinary read ordered by a field the selected route cannot satisfy | `QueryReadAdmissionCode::SortRequiresMaterialization` | Order by the selected index order, add a suitable composite index, or keep the report trusted/admin-only. |
+| Ordinary read whose materialized row bound exceeds the public budget | `QueryReadAdmissionCode::MaterializationExceedsBudget` | Reduce the materialized row bound or use an index-backed order that avoids materialization. |
+| Ordinary read whose response may exceed the endpoint byte budget | `QueryReadAdmissionCode::ProjectionResponseMayExceedLimit` | Lower the row bound, return narrower projections, or split the read into smaller cursor-paged requests. |
+| Ordinary read whose returned-row bound exceeds the public row budget | `QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy` | Lower `LIMIT` or split the query into smaller cursor-paged reads. |
+| Grouped read without query-owned group and memory limits | `QueryReadAdmissionCode::GroupedQueryRequiresLimits` | Add `grouped_limits(max_groups, max_group_bytes)` and keep `DISTINCT` aggregate state inside policy. |
+| Grouped read whose query-owned limits exceed the public policy | `QueryReadAdmissionCode::GroupedQueryExceedsBudget` | Lower `grouped_limits(...)`, reduce grouped `DISTINCT` state, or move the report behind a trusted/admin endpoint. |
+| EXPLAIN or diagnostic lane asked to execute rows | `QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute` | Use EXPLAIN for diagnostics only, then execute through an admitted ordinary or explicit trusted path. |
+| Introspection requested through a lane that does not expose it | `QueryReadAdmissionCode::IntrospectionDisabledForLane` | Use a controller-gated diagnostic/admin endpoint for introspection. |
+| Caller-controlled SQL sent to the trusted SQL helper | `QueryReadAdmissionCode::UnsupportedStatementForQueryLane` | Prefer typed/fluent reads or a tightly allowlisted application-owned SQL surface. |
+
 If a public endpoint accepts caller-provided SQL, it must:
 
 - reject anonymous callers and perform any application authorization before
@@ -179,6 +205,8 @@ quietly drifting. They fail if:
   gate;
 - grouped facade docs stop pointing grouped callers to
   `execute().into_grouped()`;
+- internal `QueryAdmissionRejection` variants stop matching public
+  `QueryReadAdmissionCode` variants one-for-one;
 - the documented default row, response-byte, group, group-byte, or distinct
   budgets drift from the source constants.
 

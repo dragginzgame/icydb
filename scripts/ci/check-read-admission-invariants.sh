@@ -19,6 +19,24 @@ PUBLIC_FACADE_SESSION="crates/icydb/src/db/session/mod.rs"
 PUBLIC_FACADE_LOAD="crates/icydb/src/db/session/load.rs"
 PUBLIC_FACADE_SESSION_MACROS="crates/icydb/src/db/session/macros.rs"
 ADMISSION_SOURCE="crates/icydb-core/src/db/query/admission.rs"
+DIAGNOSTIC_CODES="crates/icydb-diagnostic-code/src/lib.rs"
+
+extract_rust_enum_variants() {
+  local enum_name="$1"
+  local source_file="$2"
+  awk -v enum_name="$enum_name" '
+    $0 ~ "enum " enum_name "[[:space:]]*\\{" { in_enum = 1; next }
+    in_enum && /^}/ { exit }
+    in_enum {
+      line = $0
+      sub(/\/\/.*/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      sub(/,.*/, "", line)
+      sub(/[[:space:]]*=.*/, "", line)
+      if (line ~ /^[A-Z][A-Za-z0-9_]*$/) print line
+    }
+  ' "$source_file"
+}
 
 if [[ ! -f "$DOC" ]]; then
   echo "[ERROR] Missing read-admission contract: $DOC" >&2
@@ -39,6 +57,7 @@ else
     "must not expose caller-controlled SQL through \`execute_sql_query\`" \
     "execute_sql_query_with_perf_attribution" \
     "Which API should I use?" \
+    "Common Rejections And Fixes" \
     "Regression Guard" \
     "\`execute().into_grouped()\`" \
     "maximum returned rows: 100" \
@@ -50,6 +69,25 @@ else
       status=1
     fi
   done
+
+  if [[ ! -f "$DIAGNOSTIC_CODES" ]]; then
+    echo "[ERROR] Missing diagnostic code source: $DIAGNOSTIC_CODES" >&2
+    status=1
+  else
+    found_rejection_code=0
+    while IFS= read -r rejection_variant; do
+      found_rejection_code=1
+      required_rejection_code="QueryReadAdmissionCode::$rejection_variant"
+      if ! rg -F --quiet "$required_rejection_code" "$DOC"; then
+        echo "[ERROR] Read-admission common rejection table is missing diagnostic detail: $required_rejection_code" >&2
+        status=1
+      fi
+    done < <(extract_rust_enum_variants "QueryReadAdmissionCode" "$DIAGNOSTIC_CODES")
+    if [[ "$found_rejection_code" -eq 0 ]]; then
+      echo "[ERROR] No QueryReadAdmissionCode variants discovered in: $DIAGNOSTIC_CODES" >&2
+      status=1
+    fi
+  fi
 
   generated_query_names="$(
     rg -o --no-heading --color=never 'query\(name = "[^"]+"' crates/icydb-build/src \
@@ -83,6 +121,29 @@ else
       status=1
     fi
   done
+
+  if [[ -f "$DIAGNOSTIC_CODES" ]]; then
+    public_rejection_variants="$(
+      extract_rust_enum_variants "QueryReadAdmissionCode" "$DIAGNOSTIC_CODES"
+    )"
+    internal_rejection_variants="$(
+      extract_rust_enum_variants "QueryAdmissionRejection" "$ADMISSION_SOURCE"
+    )"
+    if [[ -z "$public_rejection_variants" ]]; then
+      echo "[ERROR] No public QueryReadAdmissionCode variants discovered in: $DIAGNOSTIC_CODES" >&2
+      status=1
+    elif [[ -z "$internal_rejection_variants" ]]; then
+      echo "[ERROR] No internal QueryAdmissionRejection variants discovered in: $ADMISSION_SOURCE" >&2
+      status=1
+    elif [[ "$internal_rejection_variants" != "$public_rejection_variants" ]]; then
+      echo "[ERROR] Internal QueryAdmissionRejection variants must match public QueryReadAdmissionCode variants one-for-one." >&2
+      echo "[ERROR] Internal variants:" >&2
+      printf '%s\n' "$internal_rejection_variants" >&2
+      echo "[ERROR] Public variants:" >&2
+      printf '%s\n' "$public_rejection_variants" >&2
+      status=1
+    fi
+  fi
 fi
 
 if [[ ! -d "$PUBLIC_FACADE" ]]; then
