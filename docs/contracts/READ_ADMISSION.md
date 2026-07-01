@@ -147,13 +147,14 @@ for `PublicRead` admission:
 Example grouped public read:
 
 ```rust
-let rows = db()
+let groups = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .group_by("status")?
     .aggregate(icydb::count())
     .grouped_limits(100, 64 * 1024)
-    .execute_rows()?;
+    .execute()?
+    .into_grouped()?;
 ```
 
 If a public endpoint accepts caller-provided SQL, it must:

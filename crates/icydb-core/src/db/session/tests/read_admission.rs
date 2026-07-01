@@ -307,6 +307,26 @@ fn default_fluent_execute_rejects_grouped_query_without_hard_limits() {
 }
 
 #[test]
+fn default_fluent_execute_admits_grouped_query_with_hard_limits() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let grouped = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count())
+        .grouped_limits(10, 8192)
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_grouped)
+        .expect("default fluent execute should admit grouped reads with hard limits");
+
+    assert_eq!(grouped.rows().len(), 2);
+}
+
+#[test]
 fn default_fluent_terminal_rejects_unindexed_full_scan() {
     reset_session_sql_store();
     let session = sql_session();
