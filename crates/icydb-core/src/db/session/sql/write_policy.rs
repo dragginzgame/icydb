@@ -96,6 +96,53 @@ pub(in crate::db::session::sql) enum SqlWriteBoundedPolicyRejection {
     LimitTooHigh,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) enum SqlGeneratedWritePolicyKind {
+    Query,
+    Ddl,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) enum SqlWriteExposureClass {
+    SessionWriteCurrent,
+    GeneratedQuery,
+    GeneratedDdl,
+    PublicPrimaryKeyOnly,
+    PublicBoundedDeterministic,
+    AdminBulk,
+}
+
+impl SqlWriteExposureClass {
+    pub(in crate::db::session::sql) const fn generated_policy_kind(
+        self,
+    ) -> Option<SqlGeneratedWritePolicyKind> {
+        match self {
+            Self::GeneratedQuery => Some(SqlGeneratedWritePolicyKind::Query),
+            Self::GeneratedDdl => Some(SqlGeneratedWritePolicyKind::Ddl),
+            Self::SessionWriteCurrent
+            | Self::PublicPrimaryKeyOnly
+            | Self::PublicBoundedDeterministic
+            | Self::AdminBulk => None,
+        }
+    }
+
+    const fn admission_lane(self) -> Option<SqlWriteAdmissionLane> {
+        Some(match self {
+            Self::PublicPrimaryKeyOnly => SqlWriteAdmissionLane::PrimaryKeyOnly,
+            Self::PublicBoundedDeterministic => SqlWriteAdmissionLane::BoundedDeterministic,
+            Self::SessionWriteCurrent | Self::AdminBulk => SqlWriteAdmissionLane::Bulk,
+            Self::GeneratedQuery | Self::GeneratedDdl => return None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) enum SqlWriteShapePolicyRejection {
+    MissingWhere,
+    PrimaryKeyProofFailed,
+    Bounded(SqlWriteBoundedPolicyRejection),
+}
+
 /// Shared `RETURNING` bounds carried by policy-validated SQL write plans.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -159,6 +206,42 @@ impl SqlWriteStatementShape {
         self.bounded_policy_rejection(bounds.public_bounded_limit)
     }
 
+    pub(in crate::db::session::sql) const fn required_where_rejection(
+        &self,
+    ) -> Option<SqlWriteShapePolicyRejection> {
+        if self.where_proof.has_where() {
+            None
+        } else {
+            Some(SqlWriteShapePolicyRejection::MissingWhere)
+        }
+    }
+
+    pub(in crate::db::session::sql) const fn primary_key_policy_rejection(
+        &self,
+    ) -> Option<SqlWriteShapePolicyRejection> {
+        if let Some(rejection) = self.required_where_rejection() {
+            return Some(rejection);
+        }
+        if self.where_proof.is_primary_key_equality() {
+            None
+        } else {
+            Some(SqlWriteShapePolicyRejection::PrimaryKeyProofFailed)
+        }
+    }
+
+    pub(in crate::db::session::sql) const fn bounded_deterministic_policy_rejection(
+        &self,
+        bounds: SqlWritePolicyBounds,
+    ) -> Option<SqlWriteShapePolicyRejection> {
+        if let Some(rejection) = self.required_where_rejection() {
+            return Some(rejection);
+        }
+        match self.bounded_policy_rejection_for_bounds(bounds) {
+            Some(rejection) => Some(SqlWriteShapePolicyRejection::Bounded(rejection)),
+            None => None,
+        }
+    }
+
     pub(in crate::db::session::sql) const fn execution_bounds_for_admission_lane(
         &self,
         admission_lane: SqlWriteAdmissionLane,
@@ -171,6 +254,19 @@ impl SqlWriteStatementShape {
             bounds.returning_rows,
             bounds.returning_response_bytes,
         )
+    }
+
+    pub(in crate::db::session::sql) const fn execution_bounds_for_exposure_class(
+        &self,
+        exposure_class: SqlWriteExposureClass,
+        bounds: SqlWritePolicyBounds,
+    ) -> Option<SqlWriteExecutionBounds> {
+        match exposure_class.admission_lane() {
+            Some(admission_lane) => {
+                Some(self.execution_bounds_for_admission_lane(admission_lane, bounds))
+            }
+            None => None,
+        }
     }
 }
 

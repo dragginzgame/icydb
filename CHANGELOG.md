@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
 
+- `0.192.10` continues the duplicate-code cleanup by sharing SQL
+  UPDATE/DELETE write-policy shape checks and diagnostics snapshot metadata
+  derivation without changing public behavior.
+
 - `0.192.9` closes the duplicate-code cleanup by centralizing shared
   authority-adjacent helpers across schema mutation staging, query planning,
   access validation, predicate compilation, and journal recovery without

@@ -9,11 +9,11 @@ use crate::db::{
     QueryError,
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteAdmissionLane, SqlWriteBoundedPlanProof, SqlWriteBoundedPolicyRejection,
-        SqlWriteExecutionBounds, SqlWritePlanCore, SqlWritePolicyBounds,
-        SqlWritePrimaryKeyPlanProof, SqlWriteReturningBounds, SqlWriteStatementShape,
-        SqlWriteStatementShapeInput, classify_write_statement_shape, contains_field,
-        current_table_field_name,
+        SqlGeneratedWritePolicyKind, SqlWriteBoundedPlanProof, SqlWriteBoundedPolicyRejection,
+        SqlWriteExecutionBounds, SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
+        SqlWritePrimaryKeyPlanProof, SqlWriteReturningBounds, SqlWriteShapePolicyRejection,
+        SqlWriteStatementShape, SqlWriteStatementShapeInput, classify_write_statement_shape,
+        contains_field, current_table_field_name,
     },
     sql::parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
 };
@@ -47,13 +47,15 @@ pub enum SqlUpdateExposurePolicy {
 }
 
 impl SqlUpdateExposurePolicy {
-    const fn validated_admission_lane(self) -> Option<SqlWriteAdmissionLane> {
-        Some(match self {
-            Self::PublicPrimaryKeyOnly => SqlWriteAdmissionLane::PrimaryKeyOnly,
-            Self::PublicBoundedDeterministic => SqlWriteAdmissionLane::BoundedDeterministic,
-            Self::SessionWriteCurrent | Self::AdminBulk => SqlWriteAdmissionLane::Bulk,
-            Self::GeneratedQuery | Self::GeneratedDdl => return None,
-        })
+    const fn exposure_class(self) -> SqlWriteExposureClass {
+        match self {
+            Self::SessionWriteCurrent => SqlWriteExposureClass::SessionWriteCurrent,
+            Self::GeneratedQuery => SqlWriteExposureClass::GeneratedQuery,
+            Self::GeneratedDdl => SqlWriteExposureClass::GeneratedDdl,
+            Self::PublicPrimaryKeyOnly => SqlWriteExposureClass::PublicPrimaryKeyOnly,
+            Self::PublicBoundedDeterministic => SqlWriteExposureClass::PublicBoundedDeterministic,
+            Self::AdminBulk => SqlWriteExposureClass::AdminBulk,
+        }
     }
 }
 
@@ -332,6 +334,16 @@ impl SqlUpdatePolicyRejection {
             SqlWriteBoundedPolicyRejection::LimitTooHigh => Self::LimitTooHigh,
         }
     }
+
+    const fn from_write_shape_rejection(rejection: SqlWriteShapePolicyRejection) -> Self {
+        match rejection {
+            SqlWriteShapePolicyRejection::MissingWhere => Self::MissingWhere,
+            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed => Self::PrimaryKeyProofFailed,
+            SqlWriteShapePolicyRejection::Bounded(rejection) => {
+                Self::from_bounded_write_rejection(rejection)
+            }
+        }
+    }
 }
 
 /// Result of classifying one SQL statement under an `UPDATE` exposure policy.
@@ -427,21 +439,14 @@ const fn update_policy_rejection(
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Option<SqlUpdatePolicyRejection> {
-    match policy {
-        SqlUpdateExposurePolicy::GeneratedQuery => {
-            return Some(SqlUpdatePolicyRejection::GeneratedQueryRejectsUpdate);
-        }
-        SqlUpdateExposurePolicy::GeneratedDdl => {
-            return Some(SqlUpdatePolicyRejection::GeneratedDdlRejectsUpdate);
-        }
-        SqlUpdateExposurePolicy::SessionWriteCurrent
-        | SqlUpdateExposurePolicy::PublicPrimaryKeyOnly
-        | SqlUpdateExposurePolicy::PublicBoundedDeterministic
-        | SqlUpdateExposurePolicy::AdminBulk => {}
+    if let Some(rejection) = generated_policy_rejection(policy) {
+        return Some(rejection);
     }
 
-    if !classification.write_shape.where_proof.has_where() {
-        return Some(SqlUpdatePolicyRejection::MissingWhere);
+    if let Some(rejection) =
+        write_shape_policy_rejection(classification.write_shape.required_where_rejection())
+    {
+        return Some(rejection);
     }
 
     if !classification.assignment_policy.admitted() {
@@ -451,19 +456,13 @@ const fn update_policy_rejection(
     match policy {
         SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => None,
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => {
-            if !classification
+            write_shape_policy_rejection(classification.write_shape.primary_key_policy_rejection())
+        }
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic => write_shape_policy_rejection(
+            classification
                 .write_shape
-                .where_proof
-                .is_primary_key_equality()
-            {
-                return Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed);
-            }
-
-            None
-        }
-        SqlUpdateExposurePolicy::PublicBoundedDeterministic => {
-            bounded_policy_rejection(classification, context)
-        }
+                .bounded_deterministic_policy_rejection(context.write_bounds()),
+        ),
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             generated_policy_rejection(policy)
         }
@@ -509,33 +508,38 @@ fn validated_update_plan(
     }
 }
 
-fn execution_bounds(
+const fn execution_bounds(
     policy: SqlUpdateExposurePolicy,
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Option<SqlWriteExecutionBounds> {
-    let admission_lane = policy.validated_admission_lane()?;
-    Some(
-        classification
-            .write_shape
-            .execution_bounds_for_admission_lane(admission_lane, context.write_bounds()),
-    )
+    classification
+        .write_shape
+        .execution_bounds_for_exposure_class(policy.exposure_class(), context.write_bounds())
 }
 
 const fn generated_policy_rejection(
     policy: SqlUpdateExposurePolicy,
 ) -> Option<SqlUpdatePolicyRejection> {
-    match policy {
-        SqlUpdateExposurePolicy::GeneratedQuery => {
+    match policy.exposure_class().generated_policy_kind() {
+        Some(SqlGeneratedWritePolicyKind::Query) => {
             Some(SqlUpdatePolicyRejection::GeneratedQueryRejectsUpdate)
         }
-        SqlUpdateExposurePolicy::GeneratedDdl => {
+        Some(SqlGeneratedWritePolicyKind::Ddl) => {
             Some(SqlUpdatePolicyRejection::GeneratedDdlRejectsUpdate)
         }
-        SqlUpdateExposurePolicy::SessionWriteCurrent
-        | SqlUpdateExposurePolicy::PublicPrimaryKeyOnly
-        | SqlUpdateExposurePolicy::PublicBoundedDeterministic
-        | SqlUpdateExposurePolicy::AdminBulk => None,
+        None => None,
+    }
+}
+
+const fn write_shape_policy_rejection(
+    rejection: Option<SqlWriteShapePolicyRejection>,
+) -> Option<SqlUpdatePolicyRejection> {
+    match rejection {
+        Some(rejection) => Some(SqlUpdatePolicyRejection::from_write_shape_rejection(
+            rejection,
+        )),
+        None => None,
     }
 }
 
@@ -550,21 +554,6 @@ const fn unsafe_assignment_rejection(
         Some(SqlUpdatePolicyRejection::ManagedFieldMutation)
     } else {
         None
-    }
-}
-
-const fn bounded_policy_rejection(
-    classification: &SqlUpdateStatementClassification,
-    context: SqlUpdatePolicyContext<'_>,
-) -> Option<SqlUpdatePolicyRejection> {
-    match classification
-        .write_shape
-        .bounded_policy_rejection_for_bounds(context.write_bounds())
-    {
-        Some(rejection) => Some(SqlUpdatePolicyRejection::from_bounded_write_rejection(
-            rejection,
-        )),
-        None => None,
     }
 }
 

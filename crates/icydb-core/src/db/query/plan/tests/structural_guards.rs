@@ -758,11 +758,16 @@ fn sql_write_policy_validated_plan_helpers_are_recoverable() {
     assert_source_contains_patterns(
         &write_policy,
         &[
+            "enum SqlWriteExposureClass",
+            "enum SqlWriteShapePolicyRejection",
+            "fn primary_key_policy_rejection(",
+            "fn bounded_deterministic_policy_rejection(",
+            "fn execution_bounds_for_exposure_class(",
             "fn from_admitted_shape(",
             ") -> Option<Self> {",
             "shape.limit?",
         ],
-        "bounded SQL write proof construction should stay fallible when the admitted-shape limit is absent",
+        "shared SQL write policy shape and proof construction should stay fallible and centralized",
     );
     assert_source_excludes_patterns(
         &write_policy,
@@ -777,10 +782,11 @@ fn sql_write_policy_validated_plan_helpers_are_recoverable() {
         assert_source_contains_patterns(
             source,
             &[
-                "const fn validated_admission_lane(self) -> Option<SqlWriteAdmissionLane>",
+                "const fn exposure_class(self) -> SqlWriteExposureClass",
                 "fn validated_",
                 "-> Option<SqlValidated",
                 "const fn generated_policy_rejection(",
+                ".execution_bounds_for_exposure_class(policy.exposure_class(), context.write_bounds())",
             ],
             &format!(
                 "{policy_name} generated-policy and validated-plan helpers should stay fallible"
@@ -789,6 +795,7 @@ fn sql_write_policy_validated_plan_helpers_are_recoverable() {
         assert_source_excludes_patterns(
             source,
             &[
+                "const fn validated_admission_lane(self) -> Option<SqlWriteAdmissionLane>",
                 "unreachable!(\"generated policies",
                 "unreachable!(\"generated policies returned before shared checks\")",
             ],

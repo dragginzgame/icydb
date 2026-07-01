@@ -419,6 +419,51 @@ impl StoreSnapshotSchemaMetadata {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StoreRoleSnapshotFields {
+    path: String,
+    storage: StoreSnapshotStorageMode,
+    allocation: StoreAllocationIdentityCapability,
+    durability: StoreDurability,
+    commit: StoreCommitParticipation,
+    recovery: StoreRecoveryCapability,
+    schema_metadata: StoreSchemaMetadataCapability,
+    memory_id: Option<u8>,
+    stable_key: Option<String>,
+    schema_version: Option<u32>,
+    schema_fingerprint_method_version: Option<u8>,
+    schema_fingerprint: Option<String>,
+}
+
+impl StoreRoleSnapshotFields {
+    fn new(
+        path: String,
+        storage: StoreSnapshotStorageMode,
+        capabilities: StoreRuntimeStorageCapabilities,
+        allocation: Option<StoreSnapshotAllocationIdentity>,
+        schema_metadata: StoreSnapshotSchemaMetadata,
+    ) -> Self {
+        let (memory_id, stable_key) = match allocation {
+            Some(allocation) => (Some(allocation.memory_id()), Some(allocation.stable_key)),
+            None => (None, None),
+        };
+        Self {
+            path,
+            storage,
+            allocation: capabilities.allocation_identity(),
+            durability: capabilities.durability(),
+            commit: capabilities.commit_participation(),
+            recovery: capabilities.recovery(),
+            schema_metadata: capabilities.schema_metadata(),
+            memory_id,
+            stable_key,
+            schema_version: schema_metadata.schema_version(),
+            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
+            schema_fingerprint: schema_metadata.schema_fingerprint(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct IndexStoreSnapshotStats {
     entries: u64,
@@ -457,26 +502,21 @@ impl SchemaStoreSnapshot {
         schema_metadata: StoreSnapshotSchemaMetadata,
         entity_count: u64,
     ) -> Self {
-        let memory_id = allocation
-            .as_ref()
-            .map(StoreSnapshotAllocationIdentity::memory_id);
-        let stable_key = match allocation {
-            Some(allocation) => Some(allocation.stable_key),
-            None => None,
-        };
+        let fields =
+            StoreRoleSnapshotFields::new(path, storage, capabilities, allocation, schema_metadata);
         Self {
-            path,
-            storage,
-            allocation: capabilities.allocation_identity(),
-            durability: capabilities.durability(),
-            commit: capabilities.commit_participation(),
-            recovery: capabilities.recovery(),
-            schema_metadata: capabilities.schema_metadata(),
-            memory_id,
-            stable_key,
-            schema_version: schema_metadata.schema_version(),
-            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
-            schema_fingerprint: schema_metadata.schema_fingerprint(),
+            path: fields.path,
+            storage: fields.storage,
+            allocation: fields.allocation,
+            durability: fields.durability,
+            commit: fields.commit,
+            recovery: fields.recovery,
+            schema_metadata: fields.schema_metadata,
+            memory_id: fields.memory_id,
+            stable_key: fields.stable_key,
+            schema_version: fields.schema_version,
+            schema_fingerprint_method_version: fields.schema_fingerprint_method_version,
+            schema_fingerprint: fields.schema_fingerprint,
             entity_count,
         }
     }
@@ -597,26 +637,21 @@ impl DataStoreSnapshot {
         entries: u64,
         memory_bytes: u64,
     ) -> Self {
-        let memory_id = allocation
-            .as_ref()
-            .map(StoreSnapshotAllocationIdentity::memory_id);
-        let stable_key = match allocation {
-            Some(allocation) => Some(allocation.stable_key),
-            None => None,
-        };
+        let fields =
+            StoreRoleSnapshotFields::new(path, storage, capabilities, allocation, schema_metadata);
         Self {
-            path,
-            storage,
-            allocation: capabilities.allocation_identity(),
-            durability: capabilities.durability(),
-            commit: capabilities.commit_participation(),
-            recovery: capabilities.recovery(),
-            schema_metadata: capabilities.schema_metadata(),
-            memory_id,
-            stable_key,
-            schema_version: schema_metadata.schema_version(),
-            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
-            schema_fingerprint: schema_metadata.schema_fingerprint(),
+            path: fields.path,
+            storage: fields.storage,
+            allocation: fields.allocation,
+            durability: fields.durability,
+            commit: fields.commit,
+            recovery: fields.recovery,
+            schema_metadata: fields.schema_metadata,
+            memory_id: fields.memory_id,
+            stable_key: fields.stable_key,
+            schema_version: fields.schema_version,
+            schema_fingerprint_method_version: fields.schema_fingerprint_method_version,
+            schema_fingerprint: fields.schema_fingerprint,
             entries,
             memory_bytes,
         }
@@ -746,26 +781,21 @@ impl IndexStoreSnapshot {
         schema_metadata: StoreSnapshotSchemaMetadata,
         stats: IndexStoreSnapshotStats,
     ) -> Self {
-        let memory_id = allocation
-            .as_ref()
-            .map(StoreSnapshotAllocationIdentity::memory_id);
-        let stable_key = match allocation {
-            Some(allocation) => Some(allocation.stable_key),
-            None => None,
-        };
+        let fields =
+            StoreRoleSnapshotFields::new(path, storage, capabilities, allocation, schema_metadata);
         Self {
-            path,
-            storage,
-            allocation: capabilities.allocation_identity(),
-            durability: capabilities.durability(),
-            commit: capabilities.commit_participation(),
-            recovery: capabilities.recovery(),
-            schema_metadata: capabilities.schema_metadata(),
-            memory_id,
-            stable_key,
-            schema_version: schema_metadata.schema_version(),
-            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
-            schema_fingerprint: schema_metadata.schema_fingerprint(),
+            path: fields.path,
+            storage: fields.storage,
+            allocation: fields.allocation,
+            durability: fields.durability,
+            commit: fields.commit,
+            recovery: fields.recovery,
+            schema_metadata: fields.schema_metadata,
+            memory_id: fields.memory_id,
+            stable_key: fields.stable_key,
+            schema_version: fields.schema_version,
+            schema_fingerprint_method_version: fields.schema_fingerprint_method_version,
+            schema_fingerprint: fields.schema_fingerprint,
             entries: stats.entries,
             user_entries: stats.user_entries,
             system_entries: stats.system_entries,
