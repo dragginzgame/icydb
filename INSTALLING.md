@@ -46,6 +46,12 @@ icydb config init --canister demo_rpg --all --force
 the workspace. Readonly SQL is enabled by default; pass `--no-readonly` only for
 canisters that should not expose `__icydb_query`.
 
+Readonly SQL is a generated controller-gated admin surface, not a generated
+public read endpoint. Caller-facing reads should use ordinary typed/fluent
+execution so the default bounded read-admission gate applies after the endpoint
+has performed caller authorization. See
+[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
+
 Example generated endpoint config:
 
 ```toml

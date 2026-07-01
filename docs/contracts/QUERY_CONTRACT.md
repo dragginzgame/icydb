@@ -6,11 +6,15 @@ source-of-truth boundary: anything not stated here is not a facade guarantee.
 This document defines **what the facade guarantees** at intent, planning, and
 execution boundaries. Predicate semantics, coercion rules, diagnostics, and
 testing practices live in `docs/contracts/QUERY_PRACTICE.md`.
+Read-execution lanes, default bounded admission, and trusted/admin bypass
+rules live in `docs/contracts/READ_ADMISSION.md`.
 
 ## Scope
 
 - Applies to query intent construction, planning, and execution boundaries.
 - Does not describe storage internals, macro expansion, or encoding.
+- Does not define caller authorization or trusted/admin lane ownership; see
+  `docs/contracts/READ_ADMISSION.md`.
 - This is an intent contract, not an implementation spec.
 
 ## Query Intent: What It Is

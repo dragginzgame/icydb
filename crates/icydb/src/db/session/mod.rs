@@ -278,7 +278,11 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((Self::query_response_from_core(result), attribution))
     }
 
-    /// Execute one reduced SQL query against one concrete entity type.
+    /// Execute one trusted/admin reduced SQL query against one concrete entity type.
+    ///
+    /// This helper does not make caller-controlled SQL public-safe. Public
+    /// endpoints should prefer ordinary typed/fluent reads, or use an
+    /// application-owned SQL allowlist before entering this trusted lane.
     #[cfg(feature = "sql")]
     pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
@@ -289,7 +293,10 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one SQL query and return the shell perf envelope shape.
+    /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
+    ///
+    /// This helper is used by generated controller-gated SQL surfaces and keeps
+    /// the same trusted-lane caller contract as `execute_sql_query`.
     #[cfg(all(feature = "sql", not(feature = "diagnostics")))]
     #[doc(hidden)]
     pub fn execute_sql_query_with_perf_attribution<E>(
@@ -305,7 +312,10 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one SQL query and return the shell perf envelope shape.
+    /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
+    ///
+    /// This helper is used by generated controller-gated SQL surfaces and keeps
+    /// the same trusted-lane caller contract as `execute_sql_query`.
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     #[doc(hidden)]
     pub fn execute_sql_query_with_perf_attribution<E>(
@@ -320,8 +330,11 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((result, SqlQueryPerfAttribution::from(attribution)))
     }
 
-    /// Execute one reduced SQL query and report the top-level compile/execute
-    /// cost split at the SQL seam.
+    /// Execute one trusted/admin reduced SQL query and report the top-level
+    /// compile/execute cost split at the SQL seam.
+    ///
+    /// This helper keeps the same trusted-lane caller contract as
+    /// `execute_sql_query`.
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     #[doc(hidden)]
     pub fn execute_sql_query_with_attribution<E>(

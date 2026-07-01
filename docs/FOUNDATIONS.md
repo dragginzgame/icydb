@@ -18,6 +18,7 @@ Normative specifications live in:
 - `docs/contracts/PERSISTED_FORMAT_INVENTORY.md`
 - `docs/contracts/REF_INTEGRITY.md`
 - `docs/contracts/QUERY_CONTRACT.md`
+- `docs/contracts/READ_ADMISSION.md`
 - `docs/contracts/IDENTITY_CONTRACT.md`
 
 Architecture terminology lives in:

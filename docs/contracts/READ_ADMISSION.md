@@ -205,6 +205,12 @@ quietly drifting. They fail if:
   gate;
 - grouped facade docs stop pointing grouped callers to
   `execute().into_grouped()`;
+- top-level developer, facade, query-contract, or SQL-contract docs stop
+  linking to this read-admission contract;
+- downstream setup docs stop describing generated readonly SQL as
+  controller-gated admin SQL;
+- public SQL helper docs stop warning that caller-controlled SQL is not
+  public-safe by itself;
 - internal `QueryAdmissionRejection` variants stop matching public
   `QueryReadAdmissionCode` variants one-for-one;
 - the documented default row, response-byte, group, group-byte, or distinct

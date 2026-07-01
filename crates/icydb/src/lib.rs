@@ -46,6 +46,17 @@
 //!   The public database façade: session handles, query builders,
 //!   and typed responses.
 //!
+//! ## Read execution defaults
+//!
+//! Ordinary typed/fluent reads through `DbSession::execute_query`, fluent
+//! `execute`, `execute_rows`, cursor-paged execution, and terminal helpers use
+//! the default bounded read-admission gate. Caller-facing endpoints still own
+//! caller authorization before entering IcyDB. Trusted read helpers are for
+//! controller/admin or maintenance code with a separate resource policy.
+//!
+//! The operational lane contract lives in
+//! `docs/contracts/READ_ADMISSION.md`.
+//!
 //! ## Preludes
 //!
 //! - `prelude`

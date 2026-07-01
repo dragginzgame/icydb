@@ -156,6 +156,15 @@ pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
 }
 ```
 
+Ordinary typed/fluent reads are bounded by default. `execute`, `execute_rows`,
+cursor-paged execution, and terminal helpers such as `entities()` apply the
+default read-admission gate, so caller-facing endpoints still enforce caller
+authorization first and then receive a typed error for unsafe full scans,
+non-zero offsets, materialized sorts, missing row bounds, or grouped reads
+without query-owned hard limits. Broad maintenance scans belong on explicit
+trusted/admin paths after controller authorization. See
+[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
+
 Use atomic batch helpers when a same-entity batch must be all-or-nothing:
 
 ```rust
@@ -186,6 +195,10 @@ let ddl = db!().execute_sql_ddl::<User>(
     "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
 )?;
 ```
+
+`execute_sql_query` is the trusted/admin SQL lane. It is not public-safe for
+caller-controlled SQL by itself; public reads should prefer typed/fluent APIs or
+an application-owned SQL allowlist after caller authorization.
 
 ## SQL Scope
 
@@ -267,6 +280,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - [docs/operations/DURABILITY_GUIDE.md](docs/operations/DURABILITY_GUIDE.md)
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
+- [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
 - [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
 - [docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md)
 - [docs/contracts/ATOMICITY.md](docs/contracts/ATOMICITY.md)

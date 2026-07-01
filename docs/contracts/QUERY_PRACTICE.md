@@ -3,6 +3,8 @@
 This document consolidates the practical, non-facade query guidance:
 predicate semantics, coercion rules, diagnostics guarantees, and testing
 expectations. It complements `docs/contracts/QUERY_CONTRACT.md`.
+Read-execution lane and default bounded-admission rules live in
+`docs/contracts/READ_ADMISSION.md`.
 
 ---
 

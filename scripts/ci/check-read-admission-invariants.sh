@@ -12,9 +12,16 @@ require_rg "read-admission invariant checks"
 status=0
 
 DOC="docs/contracts/READ_ADMISSION.md"
+README_DOC="README.md"
+INSTALLING_DOC="INSTALLING.md"
+FOUNDATIONS_DOC="docs/FOUNDATIONS.md"
+QUERY_CONTRACT_DOC="docs/contracts/QUERY_CONTRACT.md"
+QUERY_PRACTICE_DOC="docs/contracts/QUERY_PRACTICE.md"
+SQL_SUBSET_DOC="docs/contracts/SQL_SUBSET.md"
 GENERATED_SQL="crates/icydb-build/src/db/sql.rs"
 CONFIG_PARSE="crates/icydb-config/src/parse.rs"
 PUBLIC_FACADE="crates/icydb/src"
+PUBLIC_CRATE_LIB="crates/icydb/src/lib.rs"
 PUBLIC_FACADE_SESSION="crates/icydb/src/db/session/mod.rs"
 PUBLIC_FACADE_LOAD="crates/icydb/src/db/session/load.rs"
 PUBLIC_FACADE_SESSION_MACROS="crates/icydb/src/db/session/macros.rs"
@@ -105,6 +112,53 @@ else
   done <<< "$generated_query_names"
 fi
 
+declare -A required_read_admission_links=(
+  ["$README_DOC"]="[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)"
+  ["$INSTALLING_DOC"]="[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)"
+  ["$FOUNDATIONS_DOC"]="docs/contracts/READ_ADMISSION.md"
+  ["$QUERY_CONTRACT_DOC"]="docs/contracts/READ_ADMISSION.md"
+  ["$QUERY_PRACTICE_DOC"]="docs/contracts/READ_ADMISSION.md"
+  ["$SQL_SUBSET_DOC"]="docs/contracts/READ_ADMISSION.md"
+  ["$PUBLIC_CRATE_LIB"]="docs/contracts/READ_ADMISSION.md"
+)
+
+for link_owner in "${!required_read_admission_links[@]}"; do
+  required_link="${required_read_admission_links[$link_owner]}"
+  if [[ ! -f "$link_owner" ]]; then
+    echo "[ERROR] Missing read-admission discovery document: $link_owner" >&2
+    status=1
+    continue
+  fi
+  if ! rg -F --quiet "$required_link" "$link_owner"; then
+    echo "[ERROR] Read-admission contract is not discoverable from $link_owner: $required_link" >&2
+    status=1
+  fi
+done
+
+if ! rg -F --quiet "Ordinary typed/fluent reads are bounded by default" "$README_DOC"; then
+  echo "[ERROR] README query guidance must mention the default bounded read-admission gate." >&2
+  status=1
+fi
+
+if ! rg -F --quiet "\`execute_sql_query\` is the trusted/admin SQL lane" "$README_DOC"; then
+  echo "[ERROR] README SQL guidance must warn that execute_sql_query is the trusted/admin lane." >&2
+  status=1
+fi
+
+if ! rg -F --quiet "Readonly SQL is a generated controller-gated admin surface" \
+  "$INSTALLING_DOC"
+then
+  echo "[ERROR] Installing docs must clarify generated readonly SQL lane ownership." >&2
+  status=1
+fi
+
+if ! rg -F --quiet "Ordinary typed/fluent reads through \`DbSession::execute_query\`" \
+  "$PUBLIC_CRATE_LIB"
+then
+  echo "[ERROR] Public crate docs must mention ordinary typed/fluent default read admission." >&2
+  status=1
+fi
+
 if [[ ! -f "$ADMISSION_SOURCE" ]]; then
   echo "[ERROR] Missing read-admission source owner: $ADMISSION_SOURCE" >&2
   status=1
@@ -190,6 +244,18 @@ else
     "$PUBLIC_FACADE_LOAD"
   then
     echo "[ERROR] Public facade cursor pagination docs must mention the default bounded read-admission gate." >&2
+    status=1
+  fi
+
+  if ! rg -F --quiet "This helper does not make caller-controlled SQL public-safe" \
+    "$PUBLIC_FACADE_SESSION"
+  then
+    echo "[ERROR] Public SQL helper docs must keep the trusted/admin lane warning." >&2
+    status=1
+  fi
+
+  if ! rg -F --quiet "generated controller-gated SQL surfaces" "$PUBLIC_FACADE_SESSION"; then
+    echo "[ERROR] Public SQL attribution helper docs must keep generated controller-gated lane wording." >&2
     status=1
   fi
 fi
