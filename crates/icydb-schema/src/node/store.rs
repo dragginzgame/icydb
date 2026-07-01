@@ -767,19 +767,22 @@ impl MacroNode for Store {
 impl ValidateNode for Store {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        let schema = schema_read();
 
-        match schema.cast_node::<Canister>(self.canister()) {
-            Ok(canister) => {
-                validate_stable_key_segment(&mut errs, "store store_name", self.store_name());
-                match self.storage() {
-                    StoreStorage::Heap(_) => {}
-                    StoreStorage::Journaled(config) => {
-                        validate_journaled_memory_config(&mut errs, self, *config, canister);
+        {
+            let schema = schema_read();
+
+            match schema.cast_node::<Canister>(self.canister()) {
+                Ok(canister) => {
+                    validate_stable_key_segment(&mut errs, "store store_name", self.store_name());
+                    match self.storage() {
+                        StoreStorage::Heap(_) => {}
+                        StoreStorage::Journaled(config) => {
+                            validate_journaled_memory_config(&mut errs, self, *config, canister);
+                        }
                     }
                 }
+                Err(e) => errs.add(e),
             }
-            Err(e) => errs.add(e),
         }
 
         errs.result()

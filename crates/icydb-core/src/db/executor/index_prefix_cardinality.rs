@@ -157,51 +157,33 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
 
     let data_generation = store.with_data(DataStore::generation);
     let index_id = IndexId::new(entity_tag, index.ordinal());
-    let mut expanded_specs = Vec::new();
 
     for spec in specs {
         if spec.prefix_components().len().saturating_add(1) != expansion.target_prefix_len() {
             return Err(InternalError::query_executor_invariant());
         }
-        let remaining = total_cap.saturating_sub(expanded_specs.len());
-        if remaining == 0 {
-            let Some(child_prefixes) = store.with_index(|index_store| {
-                index_store.exact_child_prefixes(
-                    data_generation,
-                    IndexKeyKind::User,
-                    index_id,
-                    spec.prefix_components(),
-                    1,
-                )
-            }) else {
-                return Ok(None);
-            };
-            if child_prefixes.is_empty() {
-                continue;
-            }
+    }
 
-            return Ok(None);
-        }
+    let Some(child_prefixes) = store.with_index(|index_store| {
+        index_store.exact_child_prefixes_for_parent_set(
+            data_generation,
+            IndexKeyKind::User,
+            index_id,
+            specs.iter().map(LoweredIndexPrefixSpec::prefix_components),
+            total_cap,
+        )
+    }) else {
+        return Ok(None);
+    };
 
-        let Some(child_prefixes) = store.with_index(|index_store| {
-            index_store.exact_child_prefixes(
-                data_generation,
-                IndexKeyKind::User,
-                index_id,
-                spec.prefix_components(),
-                remaining,
-            )
-        }) else {
-            return Ok(None);
-        };
-        for child_prefix in child_prefixes {
-            expanded_specs.push(LoweredIndexPrefixSpec::from_raw_component_prefix(
-                entity_tag,
-                index.index_contract(),
-                IndexKeyKind::User,
-                child_prefix,
-            )?);
-        }
+    let mut expanded_specs = Vec::with_capacity(child_prefixes.len());
+    for child_prefix in child_prefixes {
+        expanded_specs.push(LoweredIndexPrefixSpec::from_raw_component_prefix(
+            entity_tag,
+            index.index_contract(),
+            IndexKeyKind::User,
+            child_prefix,
+        )?);
     }
 
     Ok(Some(ExpandedIndexPrefixFamily::new(

@@ -18,8 +18,6 @@ use std::ops::Bound;
 ///
 
 pub(in crate::db) enum IndexBoundsSpec<'a> {
-    /// Exact index-prefix lookup over zero or more leading components.
-    Prefix { values: &'a [Value] },
     /// Component range lookup after zero or more exact prefix components.
     ComponentRange {
         prefix: &'a [Value],
@@ -124,14 +122,6 @@ pub(in crate::db) fn build_index_bounds_for_arity(
     spec: IndexBoundsSpec<'_>,
 ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
     match spec {
-        IndexBoundsSpec::Prefix { values } => {
-            let encoded_prefix = EncodedValue::try_encode_all(values)
-                .map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
-            let (lower, upper) =
-                raw_keys_for_encoded_prefix(index_id, index_len, encoded_prefix.as_slice())?;
-
-            Ok((Bound::Included(lower), Bound::Included(upper)))
-        }
         IndexBoundsSpec::ComponentRange {
             prefix,
             lower,
@@ -207,32 +197,21 @@ fn text_prefix_mode_for_component_bounds<'a>(
 }
 
 ///
-/// raw_keys_for_encoded_prefix
+/// build_index_prefix_bounds_for_encoded_components
 ///
-/// Build canonical raw start/end keys for an encoded prefix in the user namespace.
+/// Build canonical exact-prefix raw key-space bounds from already-encoded
+/// index components.
 ///
-
-fn raw_keys_for_encoded_prefix(
-    index_id: &IndexId,
-    index_len: usize,
-    prefix: &[EncodedValue],
-) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
-    raw_keys_for_encoded_prefix_with_kind(index_id, IndexKeyKind::User, index_len, prefix)
-}
-
-///
-/// raw_keys_for_encoded_prefix_with_kind
-///
-/// Build canonical raw start/end keys for an encoded prefix in the requested key namespace.
-///
-
-pub(in crate::db) fn raw_keys_for_encoded_prefix_with_kind(
+pub(in crate::db) fn build_index_prefix_bounds_for_encoded_components(
     index_id: &IndexId,
     key_kind: IndexKeyKind,
     index_len: usize,
     prefix: &[EncodedValue],
-) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
-    raw_keys_for_component_prefix_with_kind(index_id, key_kind, index_len, prefix)
+) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
+    let (lower, upper) =
+        raw_keys_for_component_prefix_with_kind(index_id, key_kind, index_len, prefix)?;
+
+    Ok((Bound::Included(lower), Bound::Included(upper)))
 }
 
 /// Build canonical raw start/end keys for any pre-encoded prefix bytes in the

@@ -5,7 +5,7 @@
 
 use crate::error::InternalError;
 #[cfg(not(test))]
-use ic_memory::runtime;
+use ic_memory::open_default_memory_manager_memory;
 use ic_memory::stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
 use std::{
     cell::Cell,
@@ -65,7 +65,7 @@ pub(super) fn commit_memory_handle(
 pub(super) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
 ) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
-    runtime::open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
+    open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
         .map_err(InternalError::commit_memory_id_registration_failed)
 }
 
@@ -76,11 +76,13 @@ fn commit_memory_allocations() -> &'static Mutex<Vec<CommitMemoryAllocation>> {
 fn register_commit_memory_allocation(
     allocation: CommitMemoryAllocation,
 ) -> Result<(), InternalError> {
-    let mut allocations = commit_memory_allocations()
-        .lock()
-        .map_err(|_| InternalError::store_invariant())?;
-    if validate_commit_memory_allocation_compat(&allocations, allocation)?.is_none() {
-        allocations.push(allocation);
+    {
+        let mut allocations = commit_memory_allocations()
+            .lock()
+            .map_err(|_| InternalError::store_invariant())?;
+        if validate_commit_memory_allocation_compat(&allocations, allocation)?.is_none() {
+            allocations.push(allocation);
+        }
     }
 
     Ok(())

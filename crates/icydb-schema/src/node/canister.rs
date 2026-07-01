@@ -85,7 +85,6 @@ impl MacroNode for Canister {
 impl ValidateNode for Canister {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        let schema = schema_read();
 
         let canister_path = self.def().path();
         let mut seen_ids = BTreeMap::<u8, (String, String)>::new();
@@ -118,73 +117,79 @@ impl ValidateNode for Canister {
             &mut errs,
         );
 
-        // Check all Store nodes for this canister
-        for (path, store) in schema.filter_nodes::<Store>(|node| node.canister() == canister_path) {
-            match store.storage() {
-                StoreStorage::Journaled(_) => {
-                    assert_unique_memory_allocation(
-                        store
-                            .stable_data_allocation(self.memory_namespace())
-                            .memory_id(),
-                        store
-                            .stable_data_allocation(self.memory_namespace())
-                            .stable_key()
-                            .to_string(),
-                        format!("Store `{path}`.data_memory"),
-                        &canister_path,
-                        &mut seen_ids,
-                        &mut seen_keys,
-                        &mut errs,
-                    );
+        {
+            let schema = schema_read();
 
-                    assert_unique_memory_allocation(
-                        store
-                            .stable_index_allocation(self.memory_namespace())
-                            .memory_id(),
-                        store
-                            .stable_index_allocation(self.memory_namespace())
-                            .stable_key()
-                            .to_string(),
-                        format!("Store `{path}`.index_memory"),
-                        &canister_path,
-                        &mut seen_ids,
-                        &mut seen_keys,
-                        &mut errs,
-                    );
-
-                    assert_unique_memory_allocation(
-                        store
-                            .stable_schema_allocation(self.memory_namespace())
-                            .memory_id(),
-                        store
-                            .stable_schema_allocation(self.memory_namespace())
-                            .stable_key()
-                            .to_string(),
-                        format!("Store `{path}`.schema_memory"),
-                        &canister_path,
-                        &mut seen_ids,
-                        &mut seen_keys,
-                        &mut errs,
-                    );
-
-                    if store.is_journaled_storage() {
+            // Check all Store nodes for this canister
+            for (path, store) in
+                schema.filter_nodes::<Store>(|node| node.canister() == canister_path)
+            {
+                match store.storage() {
+                    StoreStorage::Journaled(_) => {
                         assert_unique_memory_allocation(
                             store
-                                .journal_allocation(self.memory_namespace())
+                                .stable_data_allocation(self.memory_namespace())
                                 .memory_id(),
                             store
-                                .journal_allocation(self.memory_namespace())
+                                .stable_data_allocation(self.memory_namespace())
                                 .stable_key()
                                 .to_string(),
-                            format!("Store `{path}`.journal_memory"),
+                            format!("Store `{path}`.data_memory"),
                             &canister_path,
                             &mut seen_ids,
                             &mut seen_keys,
                             &mut errs,
                         );
+
+                        assert_unique_memory_allocation(
+                            store
+                                .stable_index_allocation(self.memory_namespace())
+                                .memory_id(),
+                            store
+                                .stable_index_allocation(self.memory_namespace())
+                                .stable_key()
+                                .to_string(),
+                            format!("Store `{path}`.index_memory"),
+                            &canister_path,
+                            &mut seen_ids,
+                            &mut seen_keys,
+                            &mut errs,
+                        );
+
+                        assert_unique_memory_allocation(
+                            store
+                                .stable_schema_allocation(self.memory_namespace())
+                                .memory_id(),
+                            store
+                                .stable_schema_allocation(self.memory_namespace())
+                                .stable_key()
+                                .to_string(),
+                            format!("Store `{path}`.schema_memory"),
+                            &canister_path,
+                            &mut seen_ids,
+                            &mut seen_keys,
+                            &mut errs,
+                        );
+
+                        if store.is_journaled_storage() {
+                            assert_unique_memory_allocation(
+                                store
+                                    .journal_allocation(self.memory_namespace())
+                                    .memory_id(),
+                                store
+                                    .journal_allocation(self.memory_namespace())
+                                    .stable_key()
+                                    .to_string(),
+                                format!("Store `{path}`.journal_memory"),
+                                &canister_path,
+                                &mut seen_ids,
+                                &mut seen_keys,
+                                &mut errs,
+                            );
+                        }
                     }
+                    StoreStorage::Heap(_) => {}
                 }
-                StoreStorage::Heap(_) => {}
             }
         }
 

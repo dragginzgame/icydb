@@ -30,6 +30,7 @@ pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> Stri
 
     // Render the canister actor glue from the schema-owned metadata.
     let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone(), options);
+    drop(schema);
     let tokens = code.generate();
 
     tokens.to_string()

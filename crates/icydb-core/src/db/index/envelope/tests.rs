@@ -7,9 +7,9 @@ use crate::{
     db::{
         direction::Direction,
         index::{
-            EncodedValue, RawIndexStoreKey, envelope_is_empty,
+            EncodedValue, RawIndexStoreKey, build_index_prefix_bounds_for_encoded_components,
+            envelope_is_empty,
             key::{IndexId, IndexKeyKind, OrderedValueEncodeError},
-            raw_keys_for_encoded_prefix_with_kind,
         },
     },
     error::{ErrorClass, ErrorOrigin},
@@ -193,13 +193,17 @@ fn property_index_id() -> IndexId {
 fn canonical_raw_key(values: &[Value]) -> RawIndexStoreKey {
     let encoded = EncodedValue::try_encode_all(values)
         .expect("property-domain values must remain canonically index-encodable");
-    let (key, _) = raw_keys_for_encoded_prefix_with_kind(
+    let (lower, _) = build_index_prefix_bounds_for_encoded_components(
         &property_index_id(),
         IndexKeyKind::User,
         values.len(),
         encoded.as_slice(),
     )
     .expect("test index range bounds should encode");
+
+    let Bound::Included(key) = lower else {
+        panic!("canonical prefix lower bound should be included");
+    };
 
     key
 }

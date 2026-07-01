@@ -140,19 +140,27 @@ impl Entity {
         relation_name: &str,
         target_path: &str,
     ) {
-        let schema = schema_read();
-        let Ok(source_store) = schema.cast_node::<Store>(self.store()) else {
-            return;
-        };
-        let Ok(target) = schema.cast_node::<Self>(target_path) else {
-            return;
-        };
-        let Ok(target_store) = schema.cast_node::<Store>(target.store()) else {
+        let Some((source_capabilities, target_capabilities, target_store_path)) = ({
+            let schema = schema_read();
+            let Ok(source_store) = schema.cast_node::<Store>(self.store()) else {
+                return;
+            };
+            let Ok(target) = schema.cast_node::<Self>(target_path) else {
+                return;
+            };
+            let Ok(target_store) = schema.cast_node::<Store>(target.store()) else {
+                return;
+            };
+            let source_capabilities = source_store.storage_capabilities();
+            let target_capabilities = target_store.storage_capabilities();
+            let target_store_path = target.store().to_string();
+            drop(schema);
+
+            Some((source_capabilities, target_capabilities, target_store_path))
+        }) else {
             return;
         };
 
-        let source_capabilities = source_store.storage_capabilities();
-        let target_capabilities = target_store.storage_capabilities();
         if matches!(
             source_capabilities.relation_source(),
             RelationSourceCapability::DurableSource
@@ -165,7 +173,7 @@ impl Entity {
                 "relation '{}' from durable store '{}' to volatile target store '{}' is not supported; durable stores cannot own referential integrity against volatile heap targets",
                 relation_name,
                 self.store(),
-                target.store(),
+                target_store_path,
             );
         }
     }
@@ -180,16 +188,19 @@ impl MacroNode for Entity {
 impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        let schema = schema_read();
 
         if self.schema_version() == 0 {
             err!(errs, "entity schema_version must be a positive integer");
         }
 
-        // store
-        match schema.cast_node::<Store>(self.store()) {
-            Ok(_) => {}
-            Err(e) => errs.add(e),
+        {
+            let schema = schema_read();
+
+            // store
+            match schema.cast_node::<Store>(self.store()) {
+                Ok(_) => {}
+                Err(e) => errs.add(e),
+            }
         }
 
         for relation in self.relations() {

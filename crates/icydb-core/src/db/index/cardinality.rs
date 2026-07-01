@@ -125,42 +125,65 @@ impl IndexPrefixCardinality {
     }
 
     #[must_use]
-    pub(super) fn exact_child_prefixes(
+    pub(super) fn exact_child_prefixes_for_parent_set<'a>(
         &self,
         data_generation: u64,
         key_kind: IndexKeyKind,
         index_id: IndexId,
-        parent_components: &[Vec<u8>],
+        parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         max_children: usize,
     ) -> Option<Vec<Vec<Vec<u8>>>> {
-        if parent_components.is_empty()
-            || !self.decodable
-            || self.data_generation != Some(data_generation)
-        {
+        if !self.decodable || self.data_generation != Some(data_generation) {
             return None;
         }
 
-        self.exact_child_prefixes_synchronized(key_kind, index_id, parent_components, max_children)
+        self.exact_child_prefixes_for_parent_set_synchronized(
+            key_kind,
+            index_id,
+            parent_component_prefixes,
+            max_children,
+        )
     }
 
-    fn exact_child_prefixes_synchronized(
+    fn exact_child_prefixes_for_parent_set_synchronized<'a>(
         &self,
         key_kind: IndexKeyKind,
         index_id: IndexId,
-        parent_components: &[Vec<u8>],
+        parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         max_children: usize,
     ) -> Option<Vec<Vec<Vec<u8>>>> {
-        let child_len = parent_components.len().saturating_add(1);
-        let start = IndexPrefixCardinalityKey::new(key_kind, index_id, parent_components);
+        let mut parents = parent_component_prefixes
+            .into_iter()
+            .map(<[Vec<u8>]>::to_vec)
+            .collect::<Vec<_>>();
+        if parents.iter().any(Vec::is_empty) {
+            return None;
+        }
+        parents.sort_unstable();
+        parents.dedup();
+        let Some(parent_len) = parents.first().map(Vec::len) else {
+            return Some(Vec::new());
+        };
+        if parents.iter().any(|parent| parent.len() != parent_len) {
+            return None;
+        }
+
+        let child_len = parent_len.saturating_add(1);
+        let start = IndexPrefixCardinalityKey::range_start(key_kind, index_id);
         let mut children = Vec::new();
 
         for (key, _count) in self.counts.range(start..) {
-            if !key.matches_identity(key_kind, index_id)
-                || !key.components_start_with(parent_components)
-            {
+            if !key.matches_identity(key_kind, index_id) {
                 break;
             }
             if key.components.len() != child_len {
+                continue;
+            }
+            let parent = &key.components[..parent_len];
+            if parents
+                .binary_search_by(|candidate| candidate.as_slice().cmp(parent))
+                .is_err()
+            {
                 continue;
             }
             if children.len() == max_children {
@@ -474,6 +497,14 @@ impl IndexPrefixCardinalityKey {
         }
     }
 
+    const fn range_start(key_kind: IndexKeyKind, index_id: IndexId) -> Self {
+        Self {
+            key_kind,
+            index_id,
+            components: Vec::new(),
+        }
+    }
+
     fn from_index_key(index_key: &IndexKey, component_len: usize) -> Self {
         let components = (0..component_len)
             .filter_map(|slot| index_key.component(slot).map(<[u8]>::to_vec))
@@ -488,10 +519,6 @@ impl IndexPrefixCardinalityKey {
 
     fn matches_identity(&self, key_kind: IndexKeyKind, index_id: IndexId) -> bool {
         self.key_kind == key_kind && self.index_id == index_id
-    }
-
-    fn components_start_with(&self, prefix: &[Vec<u8>]) -> bool {
-        self.components.starts_with(prefix)
     }
 }
 

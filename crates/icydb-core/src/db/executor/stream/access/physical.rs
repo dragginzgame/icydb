@@ -63,6 +63,9 @@ enum PrefixMergeResumePolicy {
     PrimaryKeySuffix,
 }
 
+const MATERIALIZED_PREFIX_FAMILY_MAX_ACTIVE_PREFIXES: usize = 16;
+const MATERIALIZED_PREFIX_FAMILY_MAX_SCANNED_KEYS: usize = 1024;
+
 impl PrefixMergeResumePolicy {
     const fn from_index_leaf_order_policy(policy: IndexLeafOrderPolicy) -> Self {
         match policy {
@@ -427,14 +430,19 @@ impl KeyAccessRuntime {
             return Ok(Some(ordered_key_stream_from_materialized_keys(Vec::new())));
         }
 
-        self.resolve_merged_index_prefix_streams(MergedIndexPrefixStreamSpec::new(
+        let request = MergedIndexPrefixStreamSpec::new(
             expanded_family.index(),
             expanded_family.specs(),
             continuation,
             index_fetch_hint,
             PrefixMergeResumePolicy::PrimaryKeySuffix,
-        ))
-        .map(Some)
+        );
+
+        if let Some(stream) = self.try_materialized_bounded_prefix_family_stream(request)? {
+            return Ok(Some(stream));
+        }
+
+        self.resolve_merged_index_prefix_streams(request).map(Some)
     }
 
     fn resolve_merged_index_prefix_streams(
@@ -494,6 +502,65 @@ impl KeyAccessRuntime {
                 branch_chunk_entries,
             ),
         ))
+    }
+
+    fn try_materialized_bounded_prefix_family_stream(
+        &self,
+        request: MergedIndexPrefixStreamSpec<'_>,
+    ) -> Result<Option<OrderedKeyStreamBox>, InternalError> {
+        let Some(fetch_limit) = request.index_fetch_hint else {
+            return Ok(None);
+        };
+        if !matches!(
+            request.resume_policy,
+            PrefixMergeResumePolicy::PrimaryKeySuffix
+        ) || request.continuation.primary_key_boundary().is_some()
+            || request
+                .continuation
+                .index_scan_continuation()
+                .anchor()
+                .is_some()
+        {
+            return Ok(None);
+        }
+        if fetch_limit == 0 {
+            return Ok(Some(ordered_key_stream_from_materialized_keys(Vec::new())));
+        }
+
+        let active_specs =
+            active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
+        if active_specs.is_empty() {
+            return Ok(Some(ordered_key_stream_from_materialized_keys(Vec::new())));
+        }
+        if active_specs.len() > MATERIALIZED_PREFIX_FAMILY_MAX_ACTIVE_PREFIXES
+            || active_specs.len().saturating_mul(fetch_limit)
+                > MATERIALIZED_PREFIX_FAMILY_MAX_SCANNED_KEYS
+        {
+            return Ok(None);
+        }
+
+        let mut keys = Vec::with_capacity(fetch_limit.min(ACCESS_SCAN_CHUNK_ENTRIES));
+        for spec in active_specs {
+            keys.extend(IndexScan::prefix_structural(
+                self.store,
+                self.entity_tag,
+                spec,
+                request.continuation.direction(),
+                fetch_limit,
+                None,
+            )?);
+        }
+
+        keys.sort_unstable();
+        keys.dedup();
+        if matches!(request.continuation.direction(), Direction::Desc) {
+            keys.reverse();
+        }
+        if keys.len() > fetch_limit {
+            keys.truncate(fetch_limit);
+        }
+
+        Ok(Some(ordered_key_stream_from_materialized_keys(keys)))
     }
 
     // Resolve one secondary-index range scan.

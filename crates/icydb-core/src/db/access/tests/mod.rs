@@ -9,13 +9,17 @@ use crate::{
     db::{
         access::{
             AccessPathKind, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemsRef,
-            SemanticIndexRangeSpec,
+            SemanticIndexRangeSpec, lower_access,
+        },
+        index::{
+            EncodedValue, IndexId, IndexKeyKind, build_index_prefix_bounds_for_encoded_components,
         },
         test_support::source_guard::{
             collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
         },
     },
     model::index::{IndexKeyItemsRef, IndexModel},
+    types::EntityTag,
     value::Value,
 };
 
@@ -153,6 +157,60 @@ fn access_shape_facts_keep_branch_tree_closeout_families_distinct() {
         !intersection_facts.has_selected_index_access_path(),
         "general set-intersection access must not masquerade as one selected index path",
     );
+}
+
+#[test]
+fn lower_access_multi_lookup_matches_individual_prefix_bounds() {
+    let index = SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX);
+    let values = vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)];
+    let multi_lookup: AccessPlan<Value> =
+        AccessPlan::index_multi_lookup_from_contract(index.clone(), values.clone());
+    let lowered_multi_lookup =
+        lower_access(EntityTag::new(0xA11C), &multi_lookup).expect("multi-lookup should lower");
+    let expected_prefix_specs = values
+        .iter()
+        .map(|value| {
+            let prefix: AccessPlan<Value> =
+                AccessPlan::index_prefix_from_contract(index.clone(), vec![value.clone()]);
+            lower_access(EntityTag::new(0xA11C), &prefix)
+                .expect("single prefix should lower")
+                .index_prefix_specs()
+                .first()
+                .expect("single prefix should emit one lowered spec")
+                .clone()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        lowered_multi_lookup.index_prefix_specs(),
+        expected_prefix_specs.as_slice(),
+        "batched multi-lookup lowering must preserve the exact per-prefix bounds contract",
+    );
+}
+
+#[test]
+fn lower_access_index_prefix_matches_canonical_prefix_bounds() {
+    let index = SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX);
+    let values = vec![Value::Nat64(7), Value::Text("alpha".to_string())];
+    let plan: AccessPlan<Value> =
+        AccessPlan::index_prefix_from_contract(index.clone(), values.clone());
+    let lowered = lower_access(EntityTag::new(0xA11C), &plan).expect("prefix should lower");
+    let spec = lowered
+        .index_prefix_specs()
+        .first()
+        .expect("index prefix should emit one lowered spec");
+    let encoded_values =
+        EncodedValue::try_encode_all(values.as_slice()).expect("prefix values should encode");
+    let expected = build_index_prefix_bounds_for_encoded_components(
+        &IndexId::new(EntityTag::new(0xA11C), index.ordinal()),
+        IndexKeyKind::User,
+        index.key_arity(),
+        encoded_values.as_slice(),
+    )
+    .expect("canonical prefix bounds should build");
+
+    assert_eq!(spec.lower(), &expected.0);
+    assert_eq!(spec.upper(), &expected.1);
 }
 
 // Detect raw `AccessPath::` tokens while excluding prefixed identifiers

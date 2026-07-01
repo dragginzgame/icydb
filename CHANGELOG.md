@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
 
+- `0.194.1` reduces sparse indexed `IN` query cost by batching prefix-family
+  expansion and access lowering while tightening significant-drop lint
+  cleanups.
+
 - `0.194.0` starts the optimization line by separating wasm audit fixture
   attribution from generated metrics endpoint cost and capturing broad SQL and
   fluent query hotspot baselines for the next performance work.

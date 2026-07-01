@@ -871,11 +871,13 @@ fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
 }
 
 fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
-    let mut keys = recovered_keys()
-        .lock()
-        .map_err(|_| InternalError::store_invariant())?;
-    if !keys.contains(&key) {
-        keys.push(key);
+    {
+        let mut keys = recovered_keys()
+            .lock()
+            .map_err(|_| InternalError::store_invariant())?;
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
     }
 
     Ok(())
