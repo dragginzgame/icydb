@@ -38,6 +38,10 @@ const FIXTURE_CANISTERS: &[FixtureCanister] = &[
         package: "canister_audit_default_empty",
     },
     FixtureCanister {
+        name: "default_empty_metrics",
+        package: "canister_audit_default_empty_metrics",
+    },
+    FixtureCanister {
         name: "one_entity_fluent_rows",
         package: "canister_audit_one_entity_fluent_rows",
     },

@@ -203,6 +203,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_audit_default_empty_metrics"
+version = "0.193.5"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-config",
+ "icydb-testing-audit-default-empty-fixtures",
+]
+
+[[package]]
 name = "canister_audit_one_entity_fluent_execute"
 version = "0.193.5"
 dependencies = [

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "canisters/audit/default_empty",
+    "canisters/audit/default_empty_metrics",
     "canisters/audit/one_entity_fluent_execute",
     "canisters/audit/one_entity_fluent_rows",
     "canisters/audit/one_entity_sql_query",

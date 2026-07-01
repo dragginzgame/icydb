@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.194.x] 📊 - 2026-07-01 - Query Perf Hotspot Baseline
+
+Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
+
+- `0.194.0` starts the optimization line by separating wasm audit fixture
+  attribution from generated metrics endpoint cost and capturing broad SQL and
+  fluent query hotspot baselines for the next performance work.
+
 ## [0.193.x] 🧭 - 2026-07-01 - Public Query Ergonomics And Admission Evidence
 
 Detailed notes: [docs/changelog/0.193.md](docs/changelog/0.193.md)

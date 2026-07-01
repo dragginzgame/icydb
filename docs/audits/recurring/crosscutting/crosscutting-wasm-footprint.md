@@ -22,10 +22,30 @@ Measure and report:
 
 Default targets:
 
-- canisters: `default_empty`, `one_entity_fluent_rows`,
-  `one_entity_fluent_execute`, `one_entity_sql_query`, and
-  `ten_entity_fluent_rows`
+- canisters: `default_empty`, `default_empty_metrics`,
+  `one_entity_fluent_rows`, `one_entity_fluent_execute`,
+  `one_entity_sql_query`, and `ten_entity_fluent_rows`
 - profile: `wasm-release`
+
+Default target roles:
+
+- `default_empty` is the zero-export generated-runtime floor. Keep generated
+  metrics disabled so it measures baseline runtime retention without IC method
+  glue.
+- `default_empty_metrics` isolates the compact generated metrics endpoint cost.
+  It intentionally starts from the empty schema so metrics/Candid/IC method
+  retention is not mixed into query runtime growth.
+- `one_entity_fluent_rows` measures the fluent rows-only query endpoint.
+- `one_entity_fluent_execute` measures the broader fluent `execute()` response
+  path.
+- `one_entity_sql_query` measures the SQL query frontend/runtime path.
+- `ten_entity_fluent_rows` measures entity-count scale against the one-entity
+  fluent rows baseline.
+
+The `sql_perf` audit canister is deliberately excluded from the default
+footprint matrix. It is a broad instruction-sampling and access-shape fixture,
+not a small attribution fixture, and should be measured explicitly when a perf
+scenario needs it.
 
 ---
 
