@@ -182,7 +182,15 @@ const fn query_projection_text(reason: QueryProjectionCode) -> &'static str {
     }
 }
 
-const fn query_read_admission_text(reason: QueryReadAdmissionCode) -> &'static str {
+fn query_read_admission_text(reason: QueryReadAdmissionCode) -> String {
+    format!(
+        "{}; fix: {}",
+        query_read_admission_reason_text(reason),
+        query_read_admission_fix_text(reason),
+    )
+}
+
+const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'static str {
     match reason {
         QueryReadAdmissionCode::PublicQueryRequiresLimit => {
             "public read queries require an explicit LIMIT"
@@ -231,6 +239,53 @@ const fn query_read_admission_text(reason: QueryReadAdmissionCode) -> &'static s
         }
         QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy => {
             "the returned-row bound exceeds this endpoint's read budget"
+        }
+    }
+}
+
+const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'static str {
+    match reason {
+        QueryReadAdmissionCode::PublicQueryRequiresLimit => {
+            "add a finite LIMIT or use an aggregate/grouped shape with explicit budgets"
+        }
+        QueryReadAdmissionCode::PublicQueryRequiresIndex
+        | QueryReadAdmissionCode::UnboundedFullScanRejected
+        | QueryReadAdmissionCode::ScanBoundUnavailable
+        | QueryReadAdmissionCode::EstimatedOnlyBoundRejected => {
+            "add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint"
+        }
+        QueryReadAdmissionCode::ScanBoundExceedsPolicy => {
+            "tighten the predicate or lower the query bound so the proven scan fits the endpoint budget"
+        }
+        QueryReadAdmissionCode::SortRequiresMaterialization => {
+            "order by the selected index order, remove the sort, or keep the query on a trusted admin path"
+        }
+        QueryReadAdmissionCode::MaterializationExceedsBudget => {
+            "reduce the materialized row bound or use an index-backed order that avoids materialization"
+        }
+        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit => {
+            "return fewer rows or narrower projections before exposing the read publicly"
+        }
+        QueryReadAdmissionCode::GroupedQueryRequiresLimits => {
+            "add grouped_limits(max_groups, max_group_bytes) and keep DISTINCT aggregates within policy"
+        }
+        QueryReadAdmissionCode::GroupedQueryExceedsBudget => {
+            "lower grouped_limits or split the report into a trusted/admin query"
+        }
+        QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute => {
+            "run EXPLAIN for diagnostics only, then execute through an admitted ordinary or trusted lane"
+        }
+        QueryReadAdmissionCode::IntrospectionDisabledForLane => {
+            "use a controller-gated diagnostic/admin endpoint for introspection"
+        }
+        QueryReadAdmissionCode::UnsupportedStatementForQueryLane => {
+            "use an ordinary typed/fluent read shape or a controller-gated trusted SQL endpoint"
+        }
+        QueryReadAdmissionCode::PublicQueryOffsetRejected => {
+            "use cursor pagination instead of OFFSET"
+        }
+        QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy => {
+            "lower LIMIT or split the query into smaller cursor-paged reads"
         }
     }
 }
@@ -744,8 +799,40 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries require an explicit LIMIT",
+            "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries require an explicit LIMIT; fix: add a finite LIMIT or use an aggregate/grouped shape with explicit budgets",
         );
+    }
+
+    #[test]
+    fn renders_query_read_admission_fix_hints_for_common_public_read_rejections() {
+        let cases = [
+            (
+                icydb::diagnostic::QueryReadAdmissionCode::UnboundedFullScanRejected,
+                "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries cannot execute an unbounded full scan; fix: add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint",
+            ),
+            (
+                icydb::diagnostic::QueryReadAdmissionCode::PublicQueryOffsetRejected,
+                "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries cannot use a non-zero OFFSET; fix: use cursor pagination instead of OFFSET",
+            ),
+            (
+                icydb::diagnostic::QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+                "E_QUERY_READ_ADMISSION: query read admission rejected: grouped reads require explicit group and memory budgets; fix: add grouped_limits(max_groups, max_group_bytes) and keep DISTINCT aggregates within policy",
+            ),
+            (
+                icydb::diagnostic::QueryReadAdmissionCode::SortRequiresMaterialization,
+                "E_QUERY_READ_ADMISSION: query read admission rejected: this read requires materializing rows for ORDER BY; fix: order by the selected index order, remove the sort, or keep the query on a trusted admin path",
+            ),
+        ];
+
+        for (reason, expected) in cases {
+            let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+                icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
+                icydb::diagnostic::ErrorOrigin::Query,
+                Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission { reason }),
+            ));
+
+            assert_eq!(render_error(&err), expected);
+        }
     }
 
     #[test]

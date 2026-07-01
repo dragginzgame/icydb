@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Starts the 0.193 public-query ergonomics line by documenting the fresh
-  default read-admission contract, guarding the hard-cut public facade, and
-  adding default fluent execution witnesses.
+## [0.193.x] 🧭 - 2026-07-01 - Public Query Ergonomics And Admission Evidence
+
+Detailed notes: [docs/changelog/0.193.md](docs/changelog/0.193.md)
+
+- `0.193.0` starts the public-query ergonomics line by adding CLI fix hints and
+  default fluent execution witnesses for read-admission failures.
 
 ## [0.192.x] 🔒 - 2026-06-30 - Query Admission And EXPLAIN
 
 Detailed notes: [docs/changelog/0.192.md](docs/changelog/0.192.md)
+
+- `0.192.11` starts the 0.193 public-query ergonomics handoff by documenting
+  fresh default read-admission behavior, guarding the hard-cut public facade,
+  and adding default fluent execution witnesses.
 
 - `0.192.10` continues the duplicate-code cleanup by sharing SQL
   UPDATE/DELETE write-policy shape checks and diagnostics snapshot metadata

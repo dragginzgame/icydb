@@ -232,6 +232,81 @@ fn default_fluent_execute_rows_rejects_unindexed_full_scan_without_policy_setup(
 }
 
 #[test]
+fn default_fluent_execute_rejects_non_zero_offset_without_policy_setup() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .offset(1)
+        .execute()
+        .expect_err("default fluent execute should reject non-zero OFFSET");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::PublicQueryOffsetRejected,
+        "default fluent execute offset",
+    );
+}
+
+#[test]
+fn default_fluent_execute_rejects_materialized_sort_without_policy_setup() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "Sam", true, "gold", "sam", 30),
+            (2, "Sasha", true, "gold", "sasha", 24),
+            (3, "Mira", true, "silver", "mira", 40),
+        ],
+    );
+
+    let err = session
+        .load::<FilteredIndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("active").eq(true))
+        .filter(crate::db::FieldRef::new("tier").eq("gold"))
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .execute()
+        .expect_err("default fluent execute should reject materialized sorts");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::SortRequiresMaterialization,
+        "default fluent execute materialized sort",
+    );
+}
+
+#[test]
+fn default_fluent_execute_rejects_grouped_query_without_hard_limits() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .group_by("name")
+        .expect("group_by(name) should resolve")
+        .aggregate(crate::db::count())
+        .execute()
+        .expect_err("default fluent execute should reject grouped reads without hard limits");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+        "default fluent execute missing grouped limits",
+    );
+}
+
+#[test]
 fn default_fluent_terminal_rejects_unindexed_full_scan() {
     reset_session_sql_store();
     let session = sql_session();
