@@ -1,17 +1,15 @@
 //! Per-key range constraint classification for access-choice evaluation.
 
-use crate::{
-    db::{
-        access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
-        predicate::{CoercionId, CompareOp, ComparePredicate},
-        query::plan::{
-            access_choice::model::{AccessChoiceRejectedReason, RangeFieldConstraint},
-            key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
-            planner::index_literal_matches_schema,
-        },
-        schema::SchemaInfo,
+use crate::db::{
+    access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
+    predicate::{CoercionId, CompareOp, ComparePredicate},
+    query::plan::{
+        access_choice::model::{AccessChoiceRejectedReason, RangeFieldConstraint},
+        field_key_contract_supports_operator,
+        key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
+        planner::index_literal_matches_schema,
     },
-    model::index::IndexKeyItemsRef,
+    schema::SchemaInfo,
 };
 
 // This classifier keeps the full range-family rejection and bound-strength
@@ -140,47 +138,4 @@ pub(super) fn classify_range_constraints_for_key_item(
     }
 
     Ok(constraint)
-}
-
-pub(super) fn field_key_contract_supports_operator(
-    index_contract: &SemanticIndexAccessContract,
-    field: &str,
-    op: CompareOp,
-) -> bool {
-    if index_contract.has_expression_key_items() {
-        return false;
-    }
-    if !contract_contains_field_key(index_contract, field) {
-        return false;
-    }
-
-    matches!(
-        op,
-        CompareOp::Eq
-            | CompareOp::In
-            | CompareOp::Gt
-            | CompareOp::Gte
-            | CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::StartsWith
-    )
-}
-
-fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, field: &str) -> bool {
-    match index_contract.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => {
-            fields.iter().any(|key_field| key_field == field)
-        }
-        SemanticIndexKeyItemsRef::Accepted(items) => items
-            .iter()
-            .any(|item| matches!(item.as_ref(), SemanticIndexKeyItemRef::Field(key_field) if key_field == field)),
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
-            fields.contains(&field)
-        }
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
-            items.iter().any(
-                |item| matches!(item, crate::model::index::IndexKeyItem::Field(key_field) if key_field == &field),
-            )
-        }
-    }
 }

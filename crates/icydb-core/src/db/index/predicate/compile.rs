@@ -164,30 +164,9 @@ fn compile_index_program_and_subset(
     children: &[ExecutablePredicate],
     index_slots: &[usize],
 ) -> Option<IndexPredicateProgram> {
-    let mut compiled = Vec::new();
-    for child in children {
-        let child_program = if let ExecutablePredicate::And(nested) = child {
-            // Nested AND nodes can also be safely reduced to a conjunction subset.
-            compile_index_program_and_subset(nested, index_slots)
-        } else {
-            compile_index_program_from_resolved_full(child, index_slots)
-        };
-
-        let Some(child_program) = child_program else {
-            continue;
-        };
-        match child_program {
-            IndexPredicateProgram::True => {}
-            IndexPredicateProgram::False => return Some(IndexPredicateProgram::False),
-            other => compiled.push(other),
-        }
-    }
-
-    match compiled.len() {
-        0 => None,
-        1 => compiled.pop(),
-        _ => Some(IndexPredicateProgram::And(compiled)),
-    }
+    compile_index_program_and_subset_with(children, &mut |child| {
+        compile_index_program_from_resolved_full(child, index_slots)
+    })
 }
 
 // Compile an AND node by retaining only safely compilable children for one
@@ -196,12 +175,22 @@ fn compile_index_program_and_subset_for_targets(
     children: &[ExecutablePredicate],
     compile_targets: &[IndexCompileTarget],
 ) -> Option<IndexPredicateProgram> {
+    compile_index_program_and_subset_with(children, &mut |child| {
+        compile_index_program_from_resolved_full_for_targets(child, compile_targets)
+    })
+}
+
+fn compile_index_program_and_subset_with(
+    children: &[ExecutablePredicate],
+    compile_child: &mut impl FnMut(&ExecutablePredicate) -> Option<IndexPredicateProgram>,
+) -> Option<IndexPredicateProgram> {
     let mut compiled = Vec::new();
     for child in children {
         let child_program = if let ExecutablePredicate::And(nested) = child {
-            compile_index_program_and_subset_for_targets(nested, compile_targets)
+            // Nested AND nodes can also be safely reduced to a conjunction subset.
+            compile_index_program_and_subset_with(nested, compile_child)
         } else {
-            compile_index_program_from_resolved_full_for_targets(child, compile_targets)
+            compile_child(child)
         };
 
         let Some(child_program) = child_program else {

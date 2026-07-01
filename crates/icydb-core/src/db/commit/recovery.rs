@@ -338,6 +338,12 @@ fn sorted_journaled_store_handles<C: CanisterKind>(db: &Db<C>) -> Vec<(&'static 
     stores
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum JournalRecordApplyMode {
+    Replay,
+    Fold,
+}
+
 fn replay_journal_batch<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -382,65 +388,13 @@ fn replay_journal_record<C: CanisterKind>(
     expected_handle: StoreHandle,
     record: &JournalRecord,
 ) -> Result<(), InternalError> {
-    match record {
-        JournalRecord::RowPut {
-            entity_path,
-            primary_key,
-            row_bytes,
-            schema_fingerprint,
-        } => {
-            validate_journal_row_record(
-                db,
-                expected_store_path,
-                expected_handle,
-                entity_path,
-                primary_key,
-                schema_fingerprint,
-            )?;
-            let row =
-                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
-            expected_handle.with_data_mut(|store| {
-                store
-                    .apply_recovered_journal_put(primary_key.clone(), row)
-                    .map(|_| ())
-            })
-        }
-        JournalRecord::RowDelete {
-            entity_path,
-            primary_key,
-            schema_fingerprint,
-        } => {
-            validate_journal_row_record(
-                db,
-                expected_store_path,
-                expected_handle,
-                entity_path,
-                primary_key,
-                schema_fingerprint,
-            )?;
-            expected_handle.with_data_mut(|store| {
-                store
-                    .apply_recovered_journal_delete(primary_key)
-                    .map(|_| ())
-            })
-        }
-        JournalRecord::SchemaPut {
-            store_path,
-            schema_snapshot_bytes,
-        } => {
-            if store_path != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-            let hooks = db.runtime_hook_for_entity_path(snapshot.entity_path())?;
-            if hooks.store_path != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            expected_handle.with_schema_mut(|schema_store| {
-                schema_store.insert_persisted_snapshot(hooks.entity_tag, &snapshot)
-            })
-        }
-    }
+    apply_journal_record(
+        db,
+        expected_store_path,
+        expected_handle,
+        record,
+        JournalRecordApplyMode::Replay,
+    )
 }
 
 fn fold_journal_record<C: CanisterKind>(
@@ -448,6 +402,22 @@ fn fold_journal_record<C: CanisterKind>(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
     record: &JournalRecord,
+) -> Result<(), InternalError> {
+    apply_journal_record(
+        db,
+        expected_store_path,
+        expected_handle,
+        record,
+        JournalRecordApplyMode::Fold,
+    )
+}
+
+fn apply_journal_record<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    record: &JournalRecord,
+    mode: JournalRecordApplyMode,
 ) -> Result<(), InternalError> {
     match record {
         JournalRecord::RowPut {
@@ -466,10 +436,13 @@ fn fold_journal_record<C: CanisterKind>(
             )?;
             let row =
                 RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
-            expected_handle.with_data_mut(|store| {
-                store
+            expected_handle.with_data_mut(|store| match mode {
+                JournalRecordApplyMode::Replay => store
+                    .apply_recovered_journal_put(primary_key.clone(), row)
+                    .map(|_| ()),
+                JournalRecordApplyMode::Fold => store
                     .fold_recovered_journal_put(primary_key.clone(), row)
-                    .map(|_| ())
+                    .map(|_| ()),
             })
         }
         JournalRecord::RowDelete {
@@ -485,8 +458,14 @@ fn fold_journal_record<C: CanisterKind>(
                 primary_key,
                 schema_fingerprint,
             )?;
-            expected_handle
-                .with_data_mut(|store| store.fold_recovered_journal_delete(primary_key).map(|_| ()))
+            expected_handle.with_data_mut(|store| match mode {
+                JournalRecordApplyMode::Replay => store
+                    .apply_recovered_journal_delete(primary_key)
+                    .map(|_| ()),
+                JournalRecordApplyMode::Fold => {
+                    store.fold_recovered_journal_delete(primary_key).map(|_| ())
+                }
+            })
         }
         JournalRecord::SchemaPut {
             store_path,
@@ -500,8 +479,13 @@ fn fold_journal_record<C: CanisterKind>(
             if hooks.store_path != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
-            expected_handle.with_schema_mut(|schema_store| {
-                schema_store.fold_persisted_snapshot(hooks.entity_tag, &snapshot)
+            expected_handle.with_schema_mut(|schema_store| match mode {
+                JournalRecordApplyMode::Replay => {
+                    schema_store.insert_persisted_snapshot(hooks.entity_tag, &snapshot)
+                }
+                JournalRecordApplyMode::Fold => {
+                    schema_store.fold_persisted_snapshot(hooks.entity_tag, &snapshot)
+                }
             })
         }
     }

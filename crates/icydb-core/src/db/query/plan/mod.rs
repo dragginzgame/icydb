@@ -12,6 +12,7 @@ pub(in crate::db) mod expr;
 mod group;
 mod grouped_layout;
 mod key_item_match;
+mod key_support;
 mod logical_builder;
 mod model;
 mod model_builder;
@@ -78,6 +79,7 @@ pub(in crate::db) use group::{
     resolved_grouped_distinct_execution_strategy_with_schema_info,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
+pub(in crate::db::query::plan) use key_support::field_key_contract_supports_operator;
 pub(in crate::db::query) use logical_builder::{
     LogicalPlanningInputs, build_logical_plan, canonicalize_order_spec_for_grouping,
     logical_query_from_logical_inputs,

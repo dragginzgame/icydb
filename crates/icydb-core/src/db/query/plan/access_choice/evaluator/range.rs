@@ -9,6 +9,7 @@ use crate::db::{
         access_choice::model::{
             AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore, RangeCompareKind,
         },
+        field_key_contract_supports_operator,
         key_item_match::{
             eq_lookup_value_for_key_item, key_item_matches_field_and_coercion,
             starts_with_lookup_value_for_key_item,
@@ -18,7 +19,7 @@ use crate::db::{
     schema::SchemaInfo,
 };
 
-use constraints::{classify_range_constraints_for_key_item, field_key_contract_supports_operator};
+use constraints::classify_range_constraints_for_key_item;
 
 pub(super) fn evaluate_range_candidate_from_contract(
     index_contract: SemanticIndexAccessContract,

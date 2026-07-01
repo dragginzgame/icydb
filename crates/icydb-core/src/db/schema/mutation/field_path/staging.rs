@@ -227,28 +227,12 @@ impl SchemaFieldPathIndexStagedRebuild {
 fn has_duplicate_unique_components(
     entries: &[SchemaFieldPathIndexStagedEntry],
 ) -> Result<bool, SchemaFieldPathIndexStagedValidationError> {
-    for pair in entries.windows(2) {
-        let left = staged_index_key(pair[0].key())?;
-        let right = staged_index_key(pair[1].key())?;
-        if same_unique_components(&left, &right) {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
-fn staged_index_key(
-    key: &RawIndexStoreKey,
-) -> Result<IndexKey, SchemaFieldPathIndexStagedValidationError> {
-    IndexKey::try_from_raw(key)
-        .map_err(|_| SchemaFieldPathIndexStagedValidationError::IndexKeyDecode)
-}
-
-fn same_unique_components(left: &IndexKey, right: &IndexKey) -> bool {
-    left.index_id() == right.index_id()
-        && left.component_count() == right.component_count()
-        && (0..left.component_count()).all(|index| left.component(index) == right.component(index))
+    staged_index_keys_have_duplicate_unique_components(
+        entries.iter().map(SchemaFieldPathIndexStagedEntry::key),
+    )
+    .map_err(|SchemaStagedIndexValidationError::IndexKeyDecode| {
+        SchemaFieldPathIndexStagedValidationError::IndexKeyDecode
+    })
 }
 
 ///

@@ -270,6 +270,23 @@ fn accepted_lower_name_expression_target() -> super::SchemaExpressionIndexRebuil
     target
 }
 
+fn unique_lower_name_expression_target() -> super::SchemaExpressionIndexRebuildTarget {
+    let unique = PersistedIndexSnapshot::new(
+        3,
+        "unique_lower_name".to_string(),
+        "test::mutation::unique_lower_name".to_string(),
+        true,
+        expression_name_index().key().clone(),
+        Some("LOWER(name) IS NOT NULL".to_string()),
+    );
+    let request = SchemaMutationRequest::from_accepted_expression_index(&unique)
+        .expect("unique expression index should lower to a rebuild target");
+    let SchemaMutationRequest::AddExpressionIndex { target } = request else {
+        panic!("unique expression index request should preserve rebuild target");
+    };
+    target
+}
+
 fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
     let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower")

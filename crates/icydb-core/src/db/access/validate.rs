@@ -197,24 +197,7 @@ fn validate_index_prefix(
     }
 
     for (slot, value) in values.iter().enumerate() {
-        let Some(field) = index.key_item_at(slot).map(SemanticIndexKeyItemRef::field) else {
-            return Err(AccessPlanError::IndexPrefixTooLong {
-                prefix_len: values.len(),
-                field_len: index.key_arity(),
-            });
-        };
-        let field_type =
-            schema
-                .field(field)
-                .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-                    field: field.to_string(),
-                })?;
-
-        if !literal_matches_type(value, field_type) {
-            return Err(AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            });
-        }
+        validate_index_prefix_literal_at_slot(schema, &index, slot, values.len(), value)?;
     }
 
     Ok(())
@@ -348,24 +331,7 @@ fn validate_index_range(
     }
 
     for (slot, value) in prefix.iter().enumerate() {
-        let Some(field) = index.key_item_at(slot).map(SemanticIndexKeyItemRef::field) else {
-            return Err(AccessPlanError::IndexPrefixTooLong {
-                prefix_len: prefix.len(),
-                field_len: index.key_arity(),
-            });
-        };
-        let field_type =
-            schema
-                .field(field)
-                .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-                    field: field.to_string(),
-                })?;
-
-        if !literal_matches_type(value, field_type) {
-            return Err(AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            });
-        }
+        validate_index_prefix_literal_at_slot(schema, &index, slot, prefix.len(), value)?;
     }
 
     let Some(range_field) = index
@@ -412,6 +378,35 @@ fn model_or_schema_has_index_contract(
             .expression_indexes()
             .iter()
             .any(|candidate| candidate.name() == index_name)
+}
+
+fn validate_index_prefix_literal_at_slot(
+    schema: &SchemaInfo,
+    index: &SemanticIndexAccessContract,
+    slot: usize,
+    prefix_len: usize,
+    value: &Value,
+) -> Result<(), AccessPlanError> {
+    let Some(field) = index.key_item_at(slot).map(SemanticIndexKeyItemRef::field) else {
+        return Err(AccessPlanError::IndexPrefixTooLong {
+            prefix_len,
+            field_len: index.key_arity(),
+        });
+    };
+    let field_type =
+        schema
+            .field(field)
+            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            })?;
+
+    if !literal_matches_type(value, field_type) {
+        return Err(AccessPlanError::IndexPrefixValueMismatch {
+            field: field.to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_index_range_bound_value(

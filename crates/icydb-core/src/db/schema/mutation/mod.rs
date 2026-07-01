@@ -129,6 +129,11 @@ pub(in crate::db::schema) use identity::{
     SchemaMutationPublicationIdentity, SchemaMutationRuntimeEpoch,
 };
 
+mod staged_index_validation;
+pub(in crate::db::schema) use staged_index_validation::{
+    SchemaStagedIndexValidationError, staged_index_keys_have_duplicate_unique_components,
+};
+
 ///
 /// SchemaMutation
 ///

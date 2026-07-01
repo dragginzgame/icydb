@@ -232,26 +232,12 @@ impl SchemaExpressionIndexStagedRebuild {
 fn has_duplicate_unique_components(
     entries: &[SchemaExpressionIndexStagedEntry],
 ) -> Result<bool, SchemaExpressionIndexStagedValidationError> {
-    for pair in entries.windows(2) {
-        let left = staged_index_key(pair[0].key())?;
-        let right = staged_index_key(pair[1].key())?;
-        if same_unique_components(&left, &right) {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
-fn staged_index_key(
-    raw_key: &RawIndexStoreKey,
-) -> Result<IndexKey, SchemaExpressionIndexStagedValidationError> {
-    IndexKey::try_from_raw(raw_key)
-        .map_err(|_| SchemaExpressionIndexStagedValidationError::IndexKeyDecode)
-}
-
-fn same_unique_components(left: &IndexKey, right: &IndexKey) -> bool {
-    left.has_same_components(right)
+    staged_index_keys_have_duplicate_unique_components(
+        entries.iter().map(SchemaExpressionIndexStagedEntry::key),
+    )
+    .map_err(|SchemaStagedIndexValidationError::IndexKeyDecode| {
+        SchemaExpressionIndexStagedValidationError::IndexKeyDecode
+    })
 }
 
 ///
