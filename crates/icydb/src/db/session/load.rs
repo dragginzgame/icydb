@@ -78,7 +78,8 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     ///
     /// Use this only for controller/admin maintenance code that has its own
     /// authorization and resource policy. Application-facing reads should stay
-    /// on the normal bounded execution path.
+    /// on the normal bounded execution path through `execute`, `execute_rows`,
+    /// `execute_paged`, or terminal helpers.
     #[must_use]
     pub fn trusted_read_unchecked(mut self) -> Self {
         self.inner = self.inner.trusted_read_unchecked();
@@ -144,7 +145,8 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         })
     }
 
-    /// Execute as cursor pagination, returning entities plus an opaque continuation token.
+    /// Execute as cursor pagination through the default bounded read-admission
+    /// gate, returning entities plus an opaque continuation token.
     pub fn execute_paged(self) -> Result<PagedResponse<E>, Error>
     where
         E: Entity,
@@ -164,7 +166,11 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         self.page()?.execute_trusted()
     }
 
-    /// Execute as a scalar row load.
+    /// Execute as a scalar row load through the default bounded read-admission
+    /// gate.
+    ///
+    /// Grouped queries return grouped rows through `execute().into_grouped()`;
+    /// this method is for scalar entity-row reads.
     pub fn execute_rows(&self) -> Result<Response<E>, Error>
     where
         E: Entity,
@@ -807,7 +813,8 @@ impl<E: Entity> PagedLoadQuery<'_, E> {
         self
     }
 
-    /// Execute in cursor-pagination mode.
+    /// Execute in cursor-pagination mode through the default bounded
+    /// read-admission gate.
     ///
     /// Continuation is best-effort and forward-only over live state:
     /// deterministic per request under canonical ordering, with no

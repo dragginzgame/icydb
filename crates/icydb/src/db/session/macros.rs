@@ -443,7 +443,12 @@ macro_rules! impl_session_query_shape_methods {
 
 macro_rules! impl_session_materialization_methods {
     () => {
-        /// Execute the session query and materialize scalar or grouped rows.
+        /// Execute an ordinary typed/fluent read through the default bounded
+        /// read-admission gate.
+        ///
+        /// Scalar queries return `QueryResponse::Rows`; grouped queries return
+        /// `QueryResponse::Grouped`. Use `into_rows()` or `into_grouped()` when
+        /// the endpoint expects one concrete shape.
         pub fn execute(&self) -> Result<QueryResponse<E>, Error>
         where
             E: crate::traits::Entity,

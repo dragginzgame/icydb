@@ -166,6 +166,22 @@ If a public endpoint accepts caller-provided SQL, it must:
   instead;
 - keep generated SQL endpoints controller-gated.
 
+## Regression Guard
+
+The repository invariant checks keep the hard-cut public read contract from
+quietly drifting. They fail if:
+
+- public facade custom-policy helpers or builders reappear;
+- generated SQL starts accepting a `sql.public_read` key;
+- generated SQL query endpoints stop requiring the controller gate;
+- generated SQL query glue constructs hidden public-read policies;
+- public facade method docs stop naming the default bounded read-admission
+  gate;
+- grouped facade docs stop pointing grouped callers to
+  `execute().into_grouped()`;
+- the documented default row, response-byte, group, group-byte, or distinct
+  budgets drift from the source constants.
+
 ## Persisted Format
 
 Read admission is a pre-execution runtime policy. It does not change marker,

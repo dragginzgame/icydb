@@ -15,6 +15,10 @@ DOC="docs/contracts/READ_ADMISSION.md"
 GENERATED_SQL="crates/icydb-build/src/db/sql.rs"
 CONFIG_PARSE="crates/icydb-config/src/parse.rs"
 PUBLIC_FACADE="crates/icydb/src"
+PUBLIC_FACADE_SESSION="crates/icydb/src/db/session/mod.rs"
+PUBLIC_FACADE_LOAD="crates/icydb/src/db/session/load.rs"
+PUBLIC_FACADE_SESSION_MACROS="crates/icydb/src/db/session/macros.rs"
+ADMISSION_SOURCE="crates/icydb-core/src/db/query/admission.rs"
 
 if [[ ! -f "$DOC" ]]; then
   echo "[ERROR] Missing read-admission contract: $DOC" >&2
@@ -34,7 +38,12 @@ else
     "\`trusted_read_unchecked()\`" \
     "must not expose caller-controlled SQL through \`execute_sql_query\`" \
     "execute_sql_query_with_perf_attribution" \
-    "Which API should I use?"
+    "Which API should I use?" \
+    "Regression Guard" \
+    "\`execute().into_grouped()\`" \
+    "maximum returned rows: 100" \
+    "maximum plan-level response bytes: 128 KiB" \
+    "100 groups, 64 KiB per group, and 1024 distinct entries"
   do
     if ! rg -F --quiet "$required_phrase" "$DOC"; then
       echo "[ERROR] Read-admission contract is missing required phrase: $required_phrase" >&2
@@ -58,6 +67,24 @@ else
   done <<< "$generated_query_names"
 fi
 
+if [[ ! -f "$ADMISSION_SOURCE" ]]; then
+  echo "[ERROR] Missing read-admission source owner: $ADMISSION_SOURCE" >&2
+  status=1
+else
+  for required_source_constant in \
+    "const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;" \
+    "const DEFAULT_BOUNDED_READ_RESPONSE_BYTES: u32 = 128 * 1024;" \
+    "const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;" \
+    "const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;" \
+    "const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;"
+  do
+    if ! rg -F --quiet "$required_source_constant" "$ADMISSION_SOURCE"; then
+      echo "[ERROR] Default read-admission budget changed without updating the invariant contract: $required_source_constant" >&2
+      status=1
+    fi
+  done
+fi
+
 if [[ ! -d "$PUBLIC_FACADE" ]]; then
   echo "[ERROR] Missing public facade source directory: $PUBLIC_FACADE" >&2
   status=1
@@ -78,6 +105,32 @@ else
       status=1
     fi
   done
+
+  declare -A required_public_facade_phrases=(
+    ["$PUBLIC_FACADE_SESSION"]="Execute an ordinary typed/fluent query through the default bounded"
+    ["$PUBLIC_FACADE_SESSION_MACROS"]="Scalar queries return \`QueryResponse::Rows\`; grouped queries return"
+    ["$PUBLIC_FACADE_LOAD"]="Grouped queries return grouped rows through \`execute().into_grouped()\`"
+  )
+
+  for public_facade_file in "${!required_public_facade_phrases[@]}"; do
+    required_phrase="${required_public_facade_phrases[$public_facade_file]}"
+    if [[ ! -f "$public_facade_file" ]]; then
+      echo "[ERROR] Missing public facade read-admission source: $public_facade_file" >&2
+      status=1
+      continue
+    fi
+    if ! rg -F --quiet "$required_phrase" "$public_facade_file"; then
+      echo "[ERROR] Public facade read-admission docs are missing required phrase: $required_phrase" >&2
+      status=1
+    fi
+  done
+
+  if ! rg -F --quiet "Execute in cursor-pagination mode through the default bounded" \
+    "$PUBLIC_FACADE_LOAD"
+  then
+    echo "[ERROR] Public facade cursor pagination docs must mention the default bounded read-admission gate." >&2
+    status=1
+  fi
 fi
 
 if [[ ! -f "$GENERATED_SQL" ]]; then

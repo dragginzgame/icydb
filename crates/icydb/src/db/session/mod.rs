@@ -678,6 +678,13 @@ impl<C: CanisterKind> DbSession<C> {
     // Execution
     // ------------------------------------------------------------------
 
+    /// Execute an ordinary typed/fluent query through the default bounded
+    /// read-admission gate.
+    ///
+    /// This is the public endpoint path for caller-facing reads after the
+    /// endpoint has performed its own caller authorization. Use
+    /// `execute_query_trusted` only for controller/admin paths with a separate
+    /// resource policy.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
     where
         E: crate::traits::EntityFor<C>,

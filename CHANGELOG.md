@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Corrects grouped read-admission docs to use grouped execution results and adds
-  a default fluent execution witness for grouped reads with hard limits.
-
 ## [0.193.x] 🧭 - 2026-07-01 - Public Query Ergonomics And Admission Evidence
 
 Detailed notes: [docs/changelog/0.193.md](docs/changelog/0.193.md)
+
+- `0.193.2` clarifies and guards public facade read-execution docs so ordinary
+  scalar, grouped, and paged fluent reads visibly use default bounded admission.
+
+- `0.193.1` corrects grouped read-admission docs and adds default fluent
+  execution evidence for grouped reads with hard limits.
 
 - `0.193.0` starts the public-query ergonomics line by adding CLI fix hints and
   default fluent execution witnesses for read-admission failures.

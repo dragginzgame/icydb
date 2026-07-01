@@ -23,7 +23,9 @@ use icydb_core::db::LoadQueryResult as CoreLoadQueryResult;
 
 #[derive(Debug)]
 pub enum QueryResponse<E: EntityKind> {
+    /// Scalar entity rows returned by ordinary scalar typed/fluent reads.
     Rows(Response<E>),
+    /// Grouped rows returned by grouped typed/fluent reads through `execute`.
     Grouped(PagedGroupedResponse),
 }
 
@@ -60,6 +62,8 @@ impl<E: EntityKind> QueryResponse<E> {
     }
 
     /// Consume this response and require scalar entity rows.
+    ///
+    /// Returns an error when the query shape produced grouped rows.
     pub fn into_rows(self) -> Result<Response<E>, Error> {
         match self {
             Self::Rows(rows) => Ok(rows),
@@ -71,6 +75,8 @@ impl<E: EntityKind> QueryResponse<E> {
     }
 
     /// Consume this response and require grouped rows.
+    ///
+    /// Returns an error when the query shape produced scalar entity rows.
     pub fn into_grouped(self) -> Result<PagedGroupedResponse, Error> {
         match self {
             Self::Grouped(grouped) => Ok(grouped),
