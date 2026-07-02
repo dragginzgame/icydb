@@ -52,6 +52,41 @@ impl CoveringProjectionRows {
 }
 
 ///
+/// PreparedCoveringProjectionRuntime
+///
+/// Runtime-only covering projection inputs that travel together from the
+/// shared prepared plan into pure or hybrid covering execution.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct PreparedCoveringProjectionRuntime<'a> {
+    plan: &'a AccessPlannedQuery,
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    index_range_specs: &'a [LoweredIndexRangeSpec],
+    index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    metrics: CoveringProjectionMetricsRecorder,
+}
+
+impl<'a> PreparedCoveringProjectionRuntime<'a> {
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        plan: &'a AccessPlannedQuery,
+        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+        index_range_specs: &'a [LoweredIndexRangeSpec],
+        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+        metrics: CoveringProjectionMetricsRecorder,
+    ) -> Self {
+        Self {
+            plan,
+            index_prefix_specs,
+            index_range_specs,
+            index_predicate_execution,
+            metrics,
+        }
+    }
+}
+
+///
 /// CoveringProjectionMetricsRecorder
 ///
 /// Executor callback bundle for covering projection materialization counters.
@@ -99,13 +134,9 @@ impl CoveringProjectionMetricsRecorder {
 pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
-    plan: &AccessPlannedQuery,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-    index_range_specs: &[LoweredIndexRangeSpec],
+    runtime: PreparedCoveringProjectionRuntime<'_>,
     covering: Option<Arc<CoveringReadExecutionPlan>>,
     hybrid: impl FnOnce() -> Option<Arc<CoveringHybridReadExecutionPlan>>,
-    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Option<CoveringProjectionRows>, InternalError>
 where
     C: CanisterKind,
@@ -114,11 +145,11 @@ where
         && let Some(projected) = pure::try_execute_covering_projection_rows_with_plan_for_canister(
             db,
             authority.clone(),
-            plan,
-            index_prefix_specs,
-            index_range_specs,
+            runtime.plan,
+            runtime.index_prefix_specs,
+            runtime.index_range_specs,
             &covering,
-            index_predicate_execution,
+            runtime.index_predicate_execution,
         )?
     {
         return Ok(Some(CoveringProjectionRows::new(projected)));
@@ -129,14 +160,7 @@ where
     };
 
     hybrid::try_execute_hybrid_covering_projection_rows_with_plan_for_canister(
-        db,
-        authority,
-        plan,
-        index_prefix_specs,
-        index_range_specs,
-        metrics,
-        &hybrid,
-        index_predicate_execution,
+        db, authority, runtime, &hybrid,
     )
     .map(|projected| projected.map(CoveringProjectionRows::new))
 }

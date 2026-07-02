@@ -17,7 +17,9 @@ mod tests;
 #[cfg(feature = "sql")]
 pub(in crate::db) use covering::CoveringProjectionMetricsRecorder;
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) use covering::try_execute_prepared_covering_projection_rows_for_canister;
+pub(in crate::db::executor) use covering::{
+    PreparedCoveringProjectionRuntime, try_execute_prepared_covering_projection_rows_for_canister,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use covering::{
     current_pure_covering_decode_local_instructions,

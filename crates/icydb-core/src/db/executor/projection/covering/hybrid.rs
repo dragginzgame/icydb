@@ -3,22 +3,18 @@ use crate::{
         Db,
         data::{DataStore, DecodedDataStoreKey},
         executor::projection::covering::{
-            CoveringProjectionMetricsRecorder,
+            CoveringProjectionMetricsRecorder, PreparedCoveringProjectionRuntime,
             contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringHybridReadExecutionPlan,
                 CoveringReadField, CoveringReadFieldSource,
             },
             shared::{
-                PreparedCoveringIndexScan, apply_covering_page_window,
+                CoveringIndexScanRequest, PreparedCoveringIndexScan, apply_covering_page_window,
                 covering_residual_filter_supported, decode_hybrid_covering_components,
                 resolve_index_backed_covering_scan,
             },
         },
-        executor::{
-            CoveringProjectionComponentRows, EntityAuthority, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, terminal::RowLayout,
-        },
-        index::predicate::IndexPredicateExecution,
+        executor::{CoveringProjectionComponentRows, EntityAuthority, terminal::RowLayout},
     },
     error::InternalError,
     traits::CanisterKind,
@@ -29,20 +25,16 @@ use std::collections::BTreeMap;
 pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
-    plan: &AccessPlannedQuery,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-    index_range_specs: &[LoweredIndexRangeSpec],
-    metrics: CoveringProjectionMetricsRecorder,
+    runtime: PreparedCoveringProjectionRuntime<'_>,
     hybrid: &CoveringHybridReadExecutionPlan,
-    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
     C: CanisterKind,
 {
     if !covering_residual_filter_supported(
-        plan,
+        runtime.plan,
         hybrid.strict_predicate_compatible,
-        index_predicate_execution.is_some(),
+        runtime.index_predicate_execution.is_some(),
     ) {
         return Ok(None);
     }
@@ -57,13 +49,15 @@ where
     }) = resolve_index_backed_covering_scan(
         db,
         &authority,
-        plan,
-        index_prefix_specs,
-        index_range_specs,
-        hybrid.fields.as_slice(),
-        hybrid.order_contract,
-        hybrid.existing_row_mode,
-        index_predicate_execution,
+        CoveringIndexScanRequest {
+            plan: runtime.plan,
+            index_prefix_specs: runtime.index_prefix_specs,
+            index_range_specs: runtime.index_range_specs,
+            fields: hybrid.fields.as_slice(),
+            order_contract: hybrid.order_contract,
+            existing_row_mode: hybrid.existing_row_mode,
+            index_predicate_execution: runtime.index_predicate_execution,
+        },
     )?
     else {
         return Ok(None);
@@ -77,27 +71,27 @@ where
             execute_hybrid_covering_projection_with_proven_rows(
                 &row_layout,
                 data_store,
-                plan,
+                runtime.plan,
                 hybrid,
                 component_indices.as_slice(),
                 row_field_slots.as_slice(),
                 scan_window.page_skip_count,
                 scan_window.page_window_applied,
                 raw_pairs,
-                metrics,
+                runtime.metrics,
             )?
         } else {
             execute_hybrid_covering_projection_with_checked_rows(
                 &row_layout,
                 data_store,
-                plan,
+                runtime.plan,
                 hybrid,
                 component_indices.as_slice(),
                 row_field_slots.as_slice(),
                 scan_window.page_skip_count,
                 scan_window.page_window_applied,
                 raw_pairs,
-                metrics,
+                runtime.metrics,
             )?
         };
 

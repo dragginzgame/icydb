@@ -17,7 +17,10 @@ use crate::db::{
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
-use std::sync::{Arc, OnceLock};
+use std::{
+    rc::Rc,
+    sync::{Arc, OnceLock},
+};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlCompiledSchemaFingerprint {
@@ -140,7 +143,7 @@ impl SqlGlobalAggregateCountPlanCacheEntry {
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
         query: Arc<StructuralQuery>,
-        plan_cache: Arc<OnceLock<Arc<SqlSelectPlanCacheEntry>>>,
+        plan_cache: Rc<OnceLock<Rc<SqlSelectPlanCacheEntry>>>,
     },
     Delete {
         query: Arc<StructuralQuery>,
@@ -148,7 +151,7 @@ pub(in crate::db) enum CompiledSqlCommand {
     },
     GlobalAggregate {
         command: Arc<SqlGlobalAggregateCommand>,
-        plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregatePlanCacheEntry>>>,
+        plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregatePlanCacheEntry>>>,
         count_plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
     #[cfg(feature = "sql-explain")]
@@ -251,7 +254,7 @@ impl CompiledSqlCommand {
     pub(in crate::db) fn select(query: StructuralQuery) -> Self {
         Self::Select {
             query: Arc::new(query),
-            plan_cache: Arc::new(OnceLock::new()),
+            plan_cache: Rc::new(OnceLock::new()),
         }
     }
 
@@ -259,7 +262,7 @@ impl CompiledSqlCommand {
     pub(in crate::db) fn global_aggregate(command: SqlGlobalAggregateCommand) -> Self {
         Self::GlobalAggregate {
             command: Arc::new(command),
-            plan_cache: Arc::new(OnceLock::new()),
+            plan_cache: Rc::new(OnceLock::new()),
             count_plan_cache: Arc::new(OnceLock::new()),
         }
     }
@@ -287,7 +290,7 @@ impl CompiledSqlCommand {
         projection: SqlProjectionContract,
     ) {
         if let Self::Select { plan_cache, .. } = self {
-            let _ = plan_cache.set(Arc::new(SqlSelectPlanCacheEntry::new(
+            let _ = plan_cache.set(Rc::new(SqlSelectPlanCacheEntry::new(
                 schema_fingerprint,
                 prepared_plan,
                 projection,
@@ -336,7 +339,7 @@ impl CompiledSqlCommand {
         prepared_plan: SharedPreparedExecutionPlan,
     ) {
         if let Self::GlobalAggregate { plan_cache, .. } = self {
-            let _ = plan_cache.set(Arc::new(SqlGlobalAggregatePlanCacheEntry::new(
+            let _ = plan_cache.set(Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
                 schema_fingerprint,
                 prepared_plan,
             )));

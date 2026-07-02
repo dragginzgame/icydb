@@ -16,7 +16,7 @@ use crate::{
                 CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
             },
             shared::{
-                PreparedCoveringIndexScan, apply_covering_page_window,
+                CoveringIndexScanRequest, PreparedCoveringIndexScan, apply_covering_page_window,
                 covering_residual_filter_supported, covering_scan_window,
                 project_covering_row_from_decoded_values,
                 project_covering_row_from_owned_decoded_values,
@@ -86,13 +86,15 @@ where
     }) = resolve_index_backed_covering_scan(
         db,
         &authority,
-        plan,
-        index_prefix_specs,
-        index_range_specs,
-        covering.fields.as_slice(),
-        covering.order_contract,
-        covering.existing_row_mode,
-        index_predicate_execution,
+        CoveringIndexScanRequest {
+            plan,
+            index_prefix_specs,
+            index_range_specs,
+            fields: covering.fields.as_slice(),
+            order_contract: covering.order_contract,
+            existing_row_mode: covering.existing_row_mode,
+            index_predicate_execution,
+        },
     )?
     else {
         return Ok(None);

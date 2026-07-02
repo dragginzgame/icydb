@@ -40,6 +40,17 @@ pub(super) struct CoveringScanWindow {
     pub(super) page_window_applied: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct CoveringIndexScanRequest<'a> {
+    pub(super) plan: &'a AccessPlannedQuery,
+    pub(super) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    pub(super) index_range_specs: &'a [LoweredIndexRangeSpec],
+    pub(super) fields: &'a [CoveringReadField],
+    pub(super) order_contract: CoveringProjectionOrder,
+    pub(super) existing_row_mode: CoveringExistingRowMode,
+    pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+}
+
 pub(super) fn covering_residual_filter_supported(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
@@ -98,40 +109,34 @@ const fn covering_scan_direction(
 pub(super) fn resolve_index_backed_covering_scan<C>(
     db: &Db<C>,
     authority: &EntityAuthority,
-    plan: &AccessPlannedQuery,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-    index_range_specs: &[LoweredIndexRangeSpec],
-    fields: &[CoveringReadField],
-    order_contract: CoveringProjectionOrder,
-    existing_row_mode: CoveringExistingRowMode,
-    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    request: CoveringIndexScanRequest<'_>,
 ) -> Result<Option<PreparedCoveringIndexScan>, InternalError>
 where
     C: CanisterKind,
 {
-    if !plan.access.has_selected_index_access_path() {
+    if !request.plan.access.has_selected_index_access_path() {
         return Ok(None);
     }
 
-    let component_indices = covering_projection_component_indices(fields);
+    let component_indices = covering_projection_component_indices(request.fields);
     let store = db.recovered_store(authority.store_path())?;
     let (expanded_index_prefix_specs, primary_key_order_scan_safe) =
         expanded_covering_index_prefix_specs_if_ordered(
             db,
             authority,
-            plan,
-            order_contract,
-            index_prefix_specs,
+            request.plan,
+            request.order_contract,
+            request.index_prefix_specs,
         )?;
     let index_prefix_specs = expanded_index_prefix_specs
         .as_deref()
-        .unwrap_or(index_prefix_specs);
+        .unwrap_or(request.index_prefix_specs);
     let scan_window = covering_scan_window(
-        order_contract,
+        request.order_contract,
         primary_key_order_scan_safe,
-        existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
-        plan.scalar_plan().distinct,
-        plan.scalar_plan().page.as_ref(),
+        request.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
+        request.plan.scalar_plan().distinct,
+        request.plan.scalar_plan().page.as_ref(),
     );
     let raw_pairs = if expanded_index_prefix_specs
         .as_ref()
@@ -142,13 +147,16 @@ where
         resolve_covering_projection_components_from_lowered_specs(
             authority.entity_tag(),
             index_prefix_specs,
-            index_range_specs,
+            request.index_range_specs,
             scan_window.direction,
             scan_window.limit,
             component_indices.as_slice(),
-            index_predicate_execution,
+            request.index_predicate_execution,
             if primary_key_order_scan_safe
-                || matches!(order_contract, CoveringProjectionOrder::IndexOrder(_))
+                || matches!(
+                    request.order_contract,
+                    CoveringProjectionOrder::IndexOrder(_)
+                )
             {
                 PrefixSetMergeSafety::OrderedMergeSafe
             } else {

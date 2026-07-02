@@ -8,8 +8,8 @@ use crate::{
         Db,
         executor::{
             CoveringProjectionMetricsRecorder, ExecutionPreparation,
-            ProjectionMaterializationMetricsRecorder, SharedPreparedExecutionPlan,
-            SharedPreparedProjectionRuntimeHandoff,
+            PreparedCoveringProjectionRuntime, ProjectionMaterializationMetricsRecorder,
+            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             planning::preparation::slot_map_for_model_plan,
             projection::{
@@ -136,13 +136,15 @@ where
         if let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
             db,
             prepared_plan.authority(),
-            prepared_plan.logical_plan(),
-            index_prefix_specs,
-            index_range_specs,
+            PreparedCoveringProjectionRuntime::new(
+                prepared_plan.logical_plan(),
+                index_prefix_specs,
+                index_range_specs,
+                index_predicate_execution,
+                covering_metrics,
+            ),
             covering,
             || prepared_plan.hybrid_covering_read_plan(),
-            index_predicate_execution,
-            covering_metrics,
         )? {
             let rows = MaterializedProjectionRows::from_value_rows(projected.into_value_rows());
 
