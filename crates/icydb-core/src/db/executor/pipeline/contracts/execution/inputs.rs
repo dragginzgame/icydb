@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::{
     db::{
@@ -41,7 +41,7 @@ use crate::{
 
 pub(in crate::db::executor) struct PreparedExecutionProjection {
     retained_slot_layout: Option<RetainedSlotLayout>,
-    projection_validation: Option<Arc<PreparedSlotProjectionValidation>>,
+    projection_validation: Option<Rc<PreparedSlotProjectionValidation>>,
 }
 
 impl PreparedExecutionProjection {
@@ -61,7 +61,7 @@ impl PreparedExecutionProjection {
     pub(in crate::db::executor) fn compile(
         authority: EntityAuthority,
         plan: &AccessPlannedQuery,
-        prepared_projection_validation: Option<Arc<PreparedSlotProjectionValidation>>,
+        prepared_projection_validation: Option<Rc<PreparedSlotProjectionValidation>>,
         prepared_retained_slot_layout: Option<RetainedSlotLayout>,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,

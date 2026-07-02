@@ -26,7 +26,7 @@ use crate::{
     traits::{CanisterKind, EntityValue},
     value::Value,
 };
-use std::sync::Arc;
+use std::rc::Rc;
 
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
@@ -42,7 +42,7 @@ pub(super) enum DirectCountCardinalityTarget {
     FallbackOnly(EntityAuthority),
     CountPlan {
         authority: EntityAuthority,
-        entry: Arc<SqlGlobalAggregateCountPlanCacheEntry>,
+        entry: Rc<SqlGlobalAggregateCountPlanCacheEntry>,
     },
 }
 
@@ -93,7 +93,7 @@ pub(super) fn direct_count_rows_statement_result(
 impl DirectCountCardinalityTarget {
     fn from_optional_entry(
         authority: EntityAuthority,
-        entry: Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>,
+        entry: Option<Rc<SqlGlobalAggregateCountPlanCacheEntry>>,
     ) -> Self {
         match entry {
             Some(entry) => Self::CountPlan { authority, entry },
@@ -101,7 +101,7 @@ impl DirectCountCardinalityTarget {
         }
     }
 
-    const fn count_plan_entry(&self) -> Option<&Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
+    const fn count_plan_entry(&self) -> Option<&Rc<SqlGlobalAggregateCountPlanCacheEntry>> {
         match self {
             Self::CountPlan { entry, .. } => Some(entry),
             Self::Disabled | Self::FallbackOnly(_) => None,
@@ -168,21 +168,21 @@ impl DirectCountCardinalityPlanInput {
 fn direct_count_cardinality_plan_entry_from_prefix_specs(
     catalog: &AcceptedSchemaCatalogContext,
     prefix_specs: Option<Vec<LoweredIndexPrefixCardinalitySpec>>,
-) -> Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
+) -> Option<Rc<SqlGlobalAggregateCountPlanCacheEntry>> {
     let prefix_specs = prefix_specs?;
     if prefix_specs.is_empty() {
         return None;
     }
 
-    Some(Arc::new(SqlGlobalAggregateCountPlanCacheEntry::new(
+    Some(Rc::new(SqlGlobalAggregateCountPlanCacheEntry::new(
         SqlCompiledSchemaFingerprint::from_catalog(catalog),
-        Arc::from(prefix_specs),
+        Rc::from(prefix_specs),
     )))
 }
 
 fn direct_count_cardinality_target_from_entry<E>(
     catalog: &AcceptedSchemaCatalogContext,
-    entry: Arc<SqlGlobalAggregateCountPlanCacheEntry>,
+    entry: Rc<SqlGlobalAggregateCountPlanCacheEntry>,
 ) -> Result<DirectCountCardinalityTarget, QueryError>
 where
     E: PersistedRow + EntityValue,
@@ -197,7 +197,7 @@ where
 fn cached_compiled_direct_count_cardinality_entry(
     compiled: &CompiledSqlCommand,
     catalog: &AcceptedSchemaCatalogContext,
-) -> Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
+) -> Option<Rc<SqlGlobalAggregateCountPlanCacheEntry>> {
     compiled.cached_global_aggregate_count_plan(SqlCompiledSchemaFingerprint::from_catalog(catalog))
 }
 
@@ -206,7 +206,7 @@ fn cache_compiled_direct_count_cardinality_target(
     target: &DirectCountCardinalityTarget,
 ) {
     if let Some(entry) = target.count_plan_entry() {
-        compiled.set_cached_global_aggregate_count_plan(Arc::clone(entry));
+        compiled.set_cached_global_aggregate_count_plan(Rc::clone(entry));
     }
 }
 
@@ -348,7 +348,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         visible_indexes: &VisibleIndexes<'_>,
         schema_info: &SchemaInfo,
-    ) -> Result<Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>, QueryError> {
+    ) -> Result<Option<Rc<SqlGlobalAggregateCountPlanCacheEntry>>, QueryError> {
         Ok(direct_count_cardinality_plan_entry_from_prefix_specs(
             catalog,
             Self::direct_count_cardinality_prefix_specs_for_accepted_authority(

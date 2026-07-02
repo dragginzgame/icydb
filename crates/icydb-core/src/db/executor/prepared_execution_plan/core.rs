@@ -64,11 +64,11 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) schema_fingerprint:
         Option<CommitSchemaFingerprint>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_projection_contract:
-        OnceLock<Option<Arc<PreparedProjectionContract>>>,
+        OnceLock<Option<Rc<PreparedProjectionContract>>>,
     pub(in crate::db::executor::prepared_execution_plan) projection_covering_read_execution_plan:
-        OnceLock<Option<Arc<CoveringReadExecutionPlan>>>,
+        OnceLock<Option<Rc<CoveringReadExecutionPlan>>>,
     pub(in crate::db::executor::prepared_execution_plan) hybrid_covering_read_plan:
-        OnceLock<Option<Arc<CoveringHybridReadExecutionPlan>>>,
+        OnceLock<Option<Rc<CoveringHybridReadExecutionPlan>>>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_grouped_runtime_residents:
         OnceLock<Option<Rc<PreparedGroupedRuntimeResidents>>>,
     pub(in crate::db::executor::prepared_execution_plan) aggregate_execution_preparation:
@@ -317,7 +317,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_shape(
         &self,
         authority: EntityAuthority,
-    ) -> Result<Option<Arc<PreparedProjectionContract>>, InternalError> {
+    ) -> Result<Option<Rc<PreparedProjectionContract>>, InternalError> {
         // Projection adapters consume this shape directly; scalar validation
         // callers request it explicitly before execution.
         if let Some(cached) = self.residents.prepared_projection_contract.get() {
@@ -325,7 +325,7 @@ impl PreparedExecutionPlanCore {
         }
 
         let prepared = if self.residents.plan.scalar_projection_plan().is_some() {
-            Some(Arc::new(prepare_projection_contract_from_plan(
+            Some(Rc::new(prepare_projection_contract_from_plan(
                 authority.row_layout_ref()?,
                 &self.residents.plan,
             )?))
@@ -344,7 +344,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_covering_read_execution_plan(
         &self,
         authority: EntityAuthority,
-    ) -> Option<Arc<CoveringReadExecutionPlan>> {
+    ) -> Option<Rc<CoveringReadExecutionPlan>> {
         self.residents
             .projection_covering_read_execution_plan
             .get_or_init(|| {
@@ -353,7 +353,7 @@ impl PreparedExecutionPlanCore {
 
                 authority
                     .covering_read_execution_plan(&self.residents.plan, strict_predicate_compatible)
-                    .map(Arc::new)
+                    .map(Rc::new)
             })
             .clone()
     }
@@ -362,7 +362,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_hybrid_covering_read_plan(
         &self,
         authority: EntityAuthority,
-    ) -> Option<Arc<CoveringHybridReadExecutionPlan>> {
+    ) -> Option<Rc<CoveringHybridReadExecutionPlan>> {
         self.residents
             .hybrid_covering_read_plan
             .get_or_init(|| {
@@ -374,7 +374,7 @@ impl PreparedExecutionPlanCore {
                         &self.residents.plan,
                         strict_predicate_compatible,
                     )
-                    .map(Arc::new)
+                    .map(Rc::new)
             })
             .clone()
     }

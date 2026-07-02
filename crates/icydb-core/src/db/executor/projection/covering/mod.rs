@@ -10,7 +10,11 @@ mod shared;
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 use std::cell::Cell;
+use std::rc::Rc;
 
+use self::contracts::{
+    AccessPlannedQuery, CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan,
+};
 use crate::{
     db::{
         Db,
@@ -20,11 +24,6 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
     value::Value,
-};
-use std::sync::Arc;
-
-use self::contracts::{
-    AccessPlannedQuery, CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan,
 };
 
 ///
@@ -135,8 +134,8 @@ pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for
     db: &Db<C>,
     authority: EntityAuthority,
     runtime: PreparedCoveringProjectionRuntime<'_>,
-    covering: Option<Arc<CoveringReadExecutionPlan>>,
-    hybrid: impl FnOnce() -> Option<Arc<CoveringHybridReadExecutionPlan>>,
+    covering: Option<Rc<CoveringReadExecutionPlan>>,
+    hybrid: impl FnOnce() -> Option<Rc<CoveringHybridReadExecutionPlan>>,
 ) -> Result<Option<CoveringProjectionRows>, InternalError>
 where
     C: CanisterKind,

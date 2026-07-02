@@ -3,7 +3,7 @@
 //! Does not own: scalar execution, sink execution, or page finalization.
 //! Boundary: converts prepared scalar plan inputs into one runtime bundle.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::diagnostics::measure_local_instruction_delta;
@@ -521,7 +521,7 @@ fn build_prepared_scalar_route_runtime(
     store: StoreHandle,
     authority: EntityAuthority,
     prep: ExecutionPreparation,
-    prepared_projection_validation: Option<Arc<PreparedProjectionContract>>,
+    prepared_projection_validation: Option<Rc<PreparedProjectionContract>>,
     prepared_retained_slot_layout: Option<RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
     route_plan: ExecutionPlan,
@@ -566,7 +566,7 @@ pub(super) fn prepare_scalar_route_runtime_from_inputs<C>(
     debug: bool,
     authority: EntityAuthority,
     prep: ExecutionPreparation,
-    prepared_projection_validation: Option<Arc<PreparedProjectionContract>>,
+    prepared_projection_validation: Option<Rc<PreparedProjectionContract>>,
     prepared_retained_slot_layout: Option<RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
     options: ScalarPreparedRuntimeOptions,

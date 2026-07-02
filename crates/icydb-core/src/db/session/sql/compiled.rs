@@ -110,14 +110,14 @@ impl SqlGlobalAggregatePlanCacheEntry {
 #[derive(Debug)]
 pub(in crate::db) struct SqlGlobalAggregateCountPlanCacheEntry {
     schema_fingerprint: SqlCompiledSchemaFingerprint,
-    prefix_specs: Arc<[LoweredIndexPrefixCardinalitySpec]>,
+    prefix_specs: Rc<[LoweredIndexPrefixCardinalitySpec]>,
 }
 
 impl SqlGlobalAggregateCountPlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
         schema_fingerprint: SqlCompiledSchemaFingerprint,
-        prefix_specs: Arc<[LoweredIndexPrefixCardinalitySpec]>,
+        prefix_specs: Rc<[LoweredIndexPrefixCardinalitySpec]>,
     ) -> Self {
         Self {
             schema_fingerprint,
@@ -152,7 +152,7 @@ pub(in crate::db) enum CompiledSqlCommand {
     GlobalAggregate {
         command: Arc<SqlGlobalAggregateCommand>,
         plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregatePlanCacheEntry>>>,
-        count_plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregateCountPlanCacheEntry>>>,
+        count_plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
     #[cfg(feature = "sql-explain")]
     Explain(Box<LoweredSqlCommand>),
@@ -263,7 +263,7 @@ impl CompiledSqlCommand {
         Self::GlobalAggregate {
             command: Arc::new(command),
             plan_cache: Rc::new(OnceLock::new()),
-            count_plan_cache: Arc::new(OnceLock::new()),
+            count_plan_cache: Rc::new(OnceLock::new()),
         }
     }
 
@@ -318,7 +318,7 @@ impl CompiledSqlCommand {
     pub(in crate::db) fn cached_global_aggregate_count_plan(
         &self,
         schema_fingerprint: SqlCompiledSchemaFingerprint,
-    ) -> Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
+    ) -> Option<Rc<SqlGlobalAggregateCountPlanCacheEntry>> {
         let Self::GlobalAggregate {
             count_plan_cache, ..
         } = self
@@ -330,7 +330,7 @@ impl CompiledSqlCommand {
             return None;
         }
 
-        Some(Arc::clone(entry))
+        Some(Rc::clone(entry))
     }
 
     pub(in crate::db) fn set_cached_global_aggregate_plan(
@@ -348,7 +348,7 @@ impl CompiledSqlCommand {
 
     pub(in crate::db) fn set_cached_global_aggregate_count_plan(
         &self,
-        entry: Arc<SqlGlobalAggregateCountPlanCacheEntry>,
+        entry: Rc<SqlGlobalAggregateCountPlanCacheEntry>,
     ) {
         if let Self::GlobalAggregate {
             count_plan_cache, ..

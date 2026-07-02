@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Move SQL direct-count, prepared projection, and covering-plan cache handles
+  to single-threaded ownership, matching the IC runtime model.
+
 ## [0.194.x] 📊 - 2026-07-01 - Query Perf Hotspot Baseline
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)

@@ -9,7 +9,7 @@ use crate::db::{
         terminal::RetainedSlotLayout,
     },
 };
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 ///
 /// PreparedScalarRuntimeHandoff
@@ -24,7 +24,7 @@ pub(in crate::db::executor) struct PreparedScalarRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
     pub(in crate::db::executor) prepared_projection_contract:
-        Option<Arc<PreparedProjectionContract>>,
+        Option<Rc<PreparedProjectionContract>>,
     pub(in crate::db::executor) retained_slot_layout: Option<RetainedSlotLayout>,
     pub(in crate::db::executor) plan_core: PreparedScalarPlanCore,
 }
@@ -125,6 +125,6 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingPlanHandoff {
 pub(in crate::db::executor) struct SharedPreparedProjectionRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) prepared_projection_contract:
-        Option<Arc<PreparedProjectionContract>>,
+        Option<Rc<PreparedProjectionContract>>,
     pub(in crate::db::executor) scalar_runtime: PreparedScalarRuntimeHandoff,
 }

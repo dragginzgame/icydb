@@ -28,6 +28,8 @@ use crate::{
     traits::EntityKind,
 };
 use std::marker::PhantomData;
+#[cfg(feature = "sql")]
+use std::rc::Rc;
 
 ///
 /// SharedPreparedExecutionPlan
@@ -196,7 +198,7 @@ impl SharedPreparedExecutionPlan {
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn projection_covering_read_execution_plan(
         &self,
-    ) -> Option<std::sync::Arc<CoveringReadExecutionPlan>> {
+    ) -> Option<Rc<CoveringReadExecutionPlan>> {
         self.core
             .get_or_init_projection_covering_read_execution_plan(self.authority.clone())
     }
@@ -205,7 +207,7 @@ impl SharedPreparedExecutionPlan {
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn hybrid_covering_read_plan(
         &self,
-    ) -> Option<std::sync::Arc<CoveringHybridReadExecutionPlan>> {
+    ) -> Option<Rc<CoveringHybridReadExecutionPlan>> {
         self.core
             .get_or_init_hybrid_covering_read_plan(self.authority.clone())
     }
