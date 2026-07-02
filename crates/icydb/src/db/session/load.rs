@@ -755,6 +755,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     // Convenience aliases (semantic sugar)
     // ------------------------------------------------------------------
 
+    /// Materialize exactly one entity.
     pub fn one(&self) -> Result<E, Error>
     where
         E: Entity,
@@ -762,13 +763,15 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         self.entity()
     }
 
-    pub fn one_opt(&self) -> Result<Option<E>, Error>
+    /// Materialize zero or one entity, failing when more than one row matches.
+    pub fn try_one(&self) -> Result<Option<E>, Error>
     where
         E: Entity,
     {
         self.try_entity()
     }
 
+    /// Materialize all entities.
     pub fn all(&self) -> Result<Vec<E>, Error>
     where
         E: Entity,

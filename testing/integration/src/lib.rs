@@ -4,6 +4,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::{Command, Output},
+    sync::OnceLock,
 };
 
 use ic_testkit::artifacts::wasm_path;
@@ -18,48 +19,59 @@ const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
 struct FixtureCanister {
     name: &'static str,
     package: &'static str,
+    local_wasm_bytes: OnceLock<Vec<u8>>,
 }
 
-const FIXTURE_CANISTERS: &[FixtureCanister] = &[
+static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "sql",
         package: "canister_test_sql",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "sql_bounded",
         package: "canister_test_sql_bounded",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "default_empty",
         package: "canister_audit_default_empty",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "default_empty_metrics",
         package: "canister_audit_default_empty_metrics",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "one_entity_fluent_rows",
         package: "canister_audit_one_entity_fluent_rows",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "one_entity_fluent_execute",
         package: "canister_audit_one_entity_fluent_execute",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "one_entity_sql_query",
         package: "canister_audit_one_entity_sql_query",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "sql_perf",
         package: "canister_audit_sql_perf",
+        local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
         name: "ten_entity_fluent_rows",
         package: "canister_audit_ten_entity_fluent_rows",
+        local_wasm_bytes: OnceLock::new(),
     },
 ];
 
@@ -212,11 +224,10 @@ fn target_dir(workspace_root: &Path) -> PathBuf {
     env::var_os("CARGO_TARGET_DIR").map_or_else(|| workspace_root.join("target"), PathBuf::from)
 }
 
-fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String> {
+fn fixture_for_canister_name(canister_name: &str) -> Result<&'static FixtureCanister, String> {
     FIXTURE_CANISTERS
         .iter()
         .find(|fixture| fixture.name == canister_name)
-        .map(|fixture| fixture.package)
         .ok_or_else(|| {
             let expected = FIXTURE_CANISTERS
                 .iter()
@@ -226,6 +237,10 @@ fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String
 
             format!("unsupported canister '{canister_name}', expected one of '{expected}'")
         })
+}
+
+fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String> {
+    fixture_for_canister_name(canister_name).map(|fixture| fixture.package)
 }
 
 fn run_checked(mut command: Command, context: &str) -> Result<(), String> {
@@ -386,20 +401,7 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
 /// init args cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
-    let wasm_path = build_canister_with_options(
-        canister_name,
-        CanisterBuildOptions {
-            build_target: CanisterBuildTarget::Local,
-            ..CanisterBuildOptions::default()
-        },
-    )
-    .unwrap_or_else(|err| panic!("{canister_name} canister should build: {err}"));
-    let wasm = fs::read(&wasm_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to read built {canister_name} canister wasm at {}: {err}",
-            wasm_path.display()
-        )
-    });
+    let wasm = local_fixture_wasm_bytes(canister_name);
 
     install_prebuilt_canister_from_spec(
         InstallSpec::new(
@@ -409,6 +411,36 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
         )
         .label(canister_name),
     )
+}
+
+fn local_fixture_wasm_bytes(canister_name: &str) -> Vec<u8> {
+    let fixture = fixture_for_canister_name(canister_name)
+        .unwrap_or_else(|err| panic!("fixture canister should be supported: {err}"));
+
+    fixture
+        .local_wasm_bytes
+        .get_or_init(|| build_local_fixture_wasm_bytes(fixture))
+        .clone()
+}
+
+fn build_local_fixture_wasm_bytes(fixture: &FixtureCanister) -> Vec<u8> {
+    let wasm_path = build_canister_package(
+        fixture.package,
+        CanisterBuildOptions {
+            build_target: CanisterBuildTarget::Local,
+            ..CanisterBuildOptions::default()
+        },
+        &format!("{} canister build (debug)", fixture.name),
+    )
+    .unwrap_or_else(|err| panic!("{} canister should build: {err}", fixture.name));
+
+    fs::read(&wasm_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to read built {} canister wasm at {}: {err}",
+            fixture.name,
+            wasm_path.display()
+        )
+    })
 }
 
 /// Reset and reload the generated IcyDB fixture set on one installed canister.
@@ -435,20 +467,7 @@ pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
 /// Panics if the canister cannot be built, the built WASM cannot be read, empty
 /// upgrade args cannot be encoded, or PocketIC rejects the upgrade.
 pub fn upgrade_fixture_canister(fixture: &StandaloneCanisterFixture, canister_name: &str) {
-    let wasm_path = build_canister_with_options(
-        canister_name,
-        CanisterBuildOptions {
-            build_target: CanisterBuildTarget::Local,
-            ..CanisterBuildOptions::default()
-        },
-    )
-    .unwrap_or_else(|err| panic!("{canister_name} canister should build for upgrade: {err}"));
-    let wasm = fs::read(&wasm_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to read built {canister_name} canister wasm at {}: {err}",
-            wasm_path.display()
-        )
-    });
+    let wasm = local_fixture_wasm_bytes(canister_name);
     let args = candid::encode_args(()).expect("encode empty upgrade args");
 
     fixture

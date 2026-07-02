@@ -5,6 +5,7 @@
 
 mod canister;
 mod config;
+mod diagnostic;
 mod metrics;
 mod schema;
 mod sql;
@@ -12,6 +13,7 @@ mod target;
 
 pub(crate) use canister::CanisterCommand;
 pub(crate) use config::{ConfigArgs, ConfigCommand, ConfigInitArgs};
+pub(crate) use diagnostic::DiagnosticArgs;
 pub(crate) use metrics::MetricsArgs;
 pub(crate) use schema::SchemaCommand;
 pub(crate) use sql::{SqlArgs, SqlShellFields};
@@ -66,6 +68,9 @@ pub(crate) enum CliCommand {
 
     /// Read or reset metrics on an IcyDB canister.
     Metrics(MetricsArgs),
+
+    /// Explain a compact IcyDB error code such as E7 or E190.
+    Diagnostic(DiagnosticArgs),
 
     /// Inspect accepted and generated schema metadata from an IcyDB canister.
     #[command(subcommand)]

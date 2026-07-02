@@ -64,6 +64,17 @@ fn clap_help_exposes_available_short_flags_on_config_commands() {
     }
 }
 
+#[test]
+fn cli_args_group_diagnostic_lookup_under_top_level_keyword() {
+    let args =
+        CliArgs::try_parse_from(["icydb", "diagnostic", "E7"]).expect("diagnostic should parse");
+    let CliCommand::Diagnostic(args) = args.into_command() else {
+        panic!("expected diagnostic command");
+    };
+
+    assert_eq!(args.code(), "E7");
+}
+
 fn clap_help_text(args: &[&str]) -> String {
     let err = CliArgs::try_parse_from(args).expect_err("help invocation should exit through clap");
 

@@ -146,7 +146,7 @@ mod tests {
         let _ = session
             .load::<Entity>()
             .filter_eq(Entity::A, 3_i32)
-            .one_opt();
+            .try_one();
     }
 
     #[expect(dead_code)]
@@ -176,7 +176,7 @@ mod tests {
             .filter_between_fields(Entity::A, Entity::A, Entity::A)
             .filter_not_between(Entity::A, 1_i32, 10_i32)
             .filter_not_between_fields(Entity::A, Entity::A, Entity::A)
-            .one_opt();
+            .try_one();
 
         let _ = session
             .load::<BoundedTextEntity>()
@@ -187,7 +187,7 @@ mod tests {
             .filter_text_starts_with_ci(BoundedTextEntity::NAME, "a")
             .filter_text_ends_with(BoundedTextEntity::NAME, "a")
             .filter_text_ends_with_ci(BoundedTextEntity::NAME, "A")
-            .one_opt();
+            .try_one();
     }
 
     #[test]

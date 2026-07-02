@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
 
+- `0.194.3` hard-cuts fluent response helper naming from `.one_opt()` to
+  `.try_one()`, aligns identity helpers around `id()` / `try_id()` / `ids()`,
+  and adds `icydb diagnostic <CODE>` for compact public errors like `E7` and
+  `E190`.
+
 - `0.194.2` reduces indexed `IN`, SQL covering-read, and row-decode overhead
   by reusing prepared access specs and moving hot decode/layout sharing to
   borrowed or single-threaded ownership.

@@ -4,10 +4,63 @@
 //! Boundary: keeps rich diagnostic prose out of production canister crates.
 
 use icydb::diagnostic::{
-    DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode,
-    QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
-    SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+    DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin, QueryErrorKind,
+    QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode, RuntimeBoundaryCode,
+    RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
+    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
+
+/// Render one compact public IcyDB error code for CLI lookup.
+pub(crate) fn render_error_code_report(input: &str) -> Result<String, String> {
+    let raw = parse_error_code(input)?;
+    let code = ErrorCode::from_raw(raw);
+    let diagnostic_code = code.diagnostic_code();
+    let default_origin = diagnostic_code.origin();
+    let facade_error = icydb::Error::from_error_code(code, default_origin.into());
+
+    let mut lines = Vec::with_capacity(7);
+    lines.push(format!("IcyDB diagnostic E{}", code.raw()));
+    lines.push(format!("raw code: {}", code.raw()));
+    lines.push(format!(
+        "known: {}",
+        if code.is_known() { "yes" } else { "no" }
+    ));
+    lines.push(format!("class: {}", class_text(code.class())));
+    lines.push(format!("default origin: {}", origin_text(default_origin)));
+
+    if code.is_known() {
+        lines.push(format!("reason: {}", render_error(&facade_error)));
+    } else {
+        lines.push("reason: unknown compact error code".to_string());
+        lines.push(format!(
+            "registry fallback: {}",
+            render_error(&facade_error)
+        ));
+    }
+
+    Ok(lines.join("\n"))
+}
+
+fn parse_error_code(input: &str) -> Result<u16, String> {
+    let trimmed = input.trim().trim_matches(['"', '\'']);
+    let digits = match trimmed
+        .strip_prefix('E')
+        .or_else(|| trimmed.strip_prefix('e'))
+    {
+        Some(rest) => rest,
+        None => trimmed,
+    };
+
+    if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(format!(
+            "invalid IcyDB diagnostic code `{input}`; expected E7, 7, E190, or 190"
+        ));
+    }
+
+    digits
+        .parse::<u16>()
+        .map_err(|_| format!("invalid IcyDB diagnostic code `{input}`; code does not fit u16"))
+}
 
 /// Render one compact public IcyDB error for CLI output.
 pub(crate) fn render_error(err: &icydb::Error) -> String {
@@ -19,6 +72,36 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         .map_or_else(|| code_text(code).to_string(), diagnostic_detail_text);
 
     format!("{}: {detail}", code_label(code))
+}
+
+const fn class_text(class: ErrorClass) -> &'static str {
+    match class {
+        ErrorClass::Conflict => "conflict",
+        ErrorClass::Corruption => "corruption",
+        ErrorClass::IncompatiblePersistedFormat => "incompatible-persisted-format",
+        ErrorClass::Internal => "internal",
+        ErrorClass::InvariantViolation => "invariant-violation",
+        ErrorClass::NotFound => "not-found",
+        ErrorClass::Query => "query",
+        ErrorClass::Unsupported => "unsupported",
+    }
+}
+
+const fn origin_text(origin: ErrorOrigin) -> &'static str {
+    match origin {
+        ErrorOrigin::Cursor => "cursor",
+        ErrorOrigin::Executor => "executor",
+        ErrorOrigin::Identity => "identity",
+        ErrorOrigin::Index => "index",
+        ErrorOrigin::Interface => "interface",
+        ErrorOrigin::Planner => "planner",
+        ErrorOrigin::Query => "query",
+        ErrorOrigin::Recovery => "recovery",
+        ErrorOrigin::Response => "response",
+        ErrorOrigin::Runtime => "runtime",
+        ErrorOrigin::Serialize => "serialize",
+        ErrorOrigin::Store => "store",
+    }
 }
 
 fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
@@ -689,7 +772,64 @@ const fn sql_ddl_feature_text(feature: SqlFeatureCode) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::render_error;
+    use super::{parse_error_code, render_error, render_error_code_report};
+
+    #[test]
+    fn renders_compact_query_not_found_code_report() {
+        let report = render_error_code_report("E7").expect("E7 should parse");
+
+        assert!(report.contains("IcyDB diagnostic E7"), "{report}");
+        assert!(report.contains("known: yes"), "{report}");
+        assert!(report.contains("class: not-found"), "{report}");
+        assert!(report.contains("default origin: query"), "{report}");
+        assert!(
+            report.contains("E_QUERY_NOT_FOUND: query expected one row but found none"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn renders_compact_read_admission_code_report() {
+        let report = render_error_code_report("190").expect("190 should parse");
+
+        assert!(report.contains("IcyDB diagnostic E190"), "{report}");
+        assert!(report.contains("E_QUERY_READ_ADMISSION"), "{report}");
+        assert!(
+            report.contains("public read queries cannot execute an unbounded full scan"),
+            "{report}"
+        );
+        assert!(
+            report.contains("add a suitable index"),
+            "read-admission report should include fix guidance: {report}"
+        );
+    }
+
+    #[test]
+    fn diagnostic_code_parser_accepts_quoted_e_prefix() {
+        assert_eq!(parse_error_code("\"e7\""), Ok(7));
+    }
+
+    #[test]
+    fn diagnostic_code_parser_rejects_non_numeric_input() {
+        let err = parse_error_code("banana").expect_err("non-code input should fail");
+
+        assert!(err.contains("expected E7"), "{err}");
+    }
+
+    #[test]
+    fn unknown_compact_code_report_is_explicit() {
+        let report = render_error_code_report("9999").expect("numeric code should parse");
+
+        assert!(report.contains("known: no"), "{report}");
+        assert!(
+            report.contains("reason: unknown compact error code"),
+            "{report}"
+        );
+        assert!(
+            report.contains("registry fallback: E_RUNTIME_INTERNAL"),
+            "{report}"
+        );
+    }
 
     #[test]
     fn renders_schema_ddl_admission_detail() {

@@ -31,7 +31,7 @@ impl<E: EntityKind> ResponseCardinalityExt<E> for ExternalCardinality<E> {
         unreachable!()
     }
 
-    fn require_id(self) -> Result<icydb_core::types::Id<E>, ResponseError> {
+    fn id(self) -> Result<icydb_core::types::Id<E>, ResponseError> {
         unreachable!()
     }
 }

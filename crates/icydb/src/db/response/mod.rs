@@ -93,8 +93,8 @@ impl<E: EntityKind> Response<E> {
     /// Return the single identity.
     ///
     /// This key is a public identifier and does not grant access or authority.
-    pub fn require_id(self) -> Result<Id<E>, Error> {
-        CoreResponseCardinalityExt::require_id(self.inner).map_err(Into::into)
+    pub fn id(self) -> Result<Id<E>, Error> {
+        CoreResponseCardinalityExt::id(self.inner).map_err(Into::into)
     }
 
     /// Return zero or one primary key.

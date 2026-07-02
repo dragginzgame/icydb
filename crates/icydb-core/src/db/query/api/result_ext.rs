@@ -53,8 +53,8 @@ pub trait ResponseCardinalityExt<E: EntityKind>: SealedResponseCardinalityExt<E>
     /// Consume and return the single entity, failing on zero/many rows.
     fn entity(self) -> Result<E, ResponseError>;
 
-    /// Require exactly one row and return its identifier.
-    fn require_id(self) -> Result<Id<E>, ResponseError>;
+    /// Consume and return the single identifier, failing on zero/many rows.
+    fn id(self) -> Result<Id<E>, ResponseError>;
 }
 
 impl<E: EntityKind> ResponseCardinalityExt<E> for EntityResponse<E> {
@@ -99,7 +99,7 @@ impl<E: EntityKind> ResponseCardinalityExt<E> for EntityResponse<E> {
         self.try_entity()?.ok_or(ResponseError::not_found(E::PATH))
     }
 
-    fn require_id(self) -> Result<Id<E>, ResponseError> {
+    fn id(self) -> Result<Id<E>, ResponseError> {
         self.row().map(|row| row.id())
     }
 }

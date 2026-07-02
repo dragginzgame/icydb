@@ -4,8 +4,12 @@
 //! Boundary: exposes the top-level parsed-command runner used by `main`.
 
 use crate::{
-    cli::{CanisterCommand, CanisterTarget, CliArgs, CliCommand, ConfigCommand, SchemaCommand},
+    cli::{
+        CanisterCommand, CanisterTarget, CliArgs, CliCommand, ConfigCommand, DiagnosticArgs,
+        SchemaCommand,
+    },
     config::{check_config, init_config, show_config},
+    diagnostic::render_error_code_report,
     icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
     observability::{
         run_metrics_command, run_schema_check_command, run_schema_show_command,
@@ -20,10 +24,16 @@ pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
         CliCommand::Sql(args) => run_sql_command(args),
         CliCommand::Snapshot(target) => run_snapshot_command(target),
         CliCommand::Metrics(args) => run_metrics_command(args),
+        CliCommand::Diagnostic(args) => run_diagnostic_command(args),
         CliCommand::Schema(args) => run_schema_command(args),
         CliCommand::Config(args) => run_config_command(args),
         CliCommand::Canister(args) => run_canister_command(args),
     }
+}
+
+fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String> {
+    println!("{}", render_error_code_report(args.code())?);
+    Ok(())
 }
 
 fn run_schema_command(command: SchemaCommand) -> Result<(), String> {

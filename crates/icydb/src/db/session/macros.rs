@@ -540,20 +540,12 @@ macro_rules! impl_session_materialization_methods {
             Ok(self.inner.execute_rows()?.rows())
         }
 
-        /// Materialize an optional id.
-        pub fn id(&self) -> Result<Option<Id<E>>, Error>
+        /// Materialize one id.
+        pub fn id(&self) -> Result<Id<E>, Error>
         where
             E: crate::traits::Entity,
         {
-            Ok(self.inner.execute_rows()?.iter().next().map(|row| row.id()))
-        }
-
-        /// Materialize one required id.
-        pub fn require_id(&self) -> Result<Id<E>, Error>
-        where
-            E: crate::traits::Entity,
-        {
-            icydb_core::db::ResponseCardinalityExt::require_id(self.inner.execute_rows()?)
+            icydb_core::db::ResponseCardinalityExt::id(self.inner.execute_rows()?)
                 .map_err(Into::into)
         }
 
