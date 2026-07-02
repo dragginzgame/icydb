@@ -587,7 +587,10 @@ fn project_static_execution_planning_contract_for_model(
 ) -> Result<StaticExecutionPlanningContract, InternalError> {
     let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
     let execution_preparation_predicate = plan.execution_preparation_predicate();
-    let residual_filter_predicate = derive_residual_filter_predicate(plan);
+    let residual_filter_predicate = derive_residual_filter_predicate_from_preparation(
+        plan,
+        execution_preparation_predicate.as_ref(),
+    );
     let residual_filter_expr = derive_residual_filter_expr_for_model(model, plan);
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
         schema_info,
@@ -727,9 +730,20 @@ fn derive_execution_preparation_predicate(plan: &AccessPlannedQuery) -> Option<P
 // access path.
 fn derive_residual_filter_predicate(plan: &AccessPlannedQuery) -> Option<Predicate> {
     let filtered_residual = derive_execution_preparation_predicate(plan);
-    let filtered_residual = filtered_residual.as_ref()?;
 
-    residual_query_predicate_after_access_path_bounds(plan.access.as_path(), filtered_residual)
+    derive_residual_filter_predicate_from_preparation(plan, filtered_residual.as_ref())
+}
+
+fn derive_residual_filter_predicate_from_preparation(
+    plan: &AccessPlannedQuery,
+    execution_preparation_predicate: Option<&Predicate>,
+) -> Option<Predicate> {
+    let execution_preparation_predicate = execution_preparation_predicate?;
+
+    residual_query_predicate_after_access_path_bounds(
+        plan.access.as_path(),
+        execution_preparation_predicate,
+    )
 }
 
 // Derive the explicit residual semantic expression once for finalized plans.

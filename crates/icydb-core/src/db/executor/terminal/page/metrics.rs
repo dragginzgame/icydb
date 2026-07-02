@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::cell::RefCell;
 
 #[cfg(any(test, feature = "diagnostics"))]
-use super::{RetainedSlotLayout, RetainedSlotValueMode};
+use super::RetainedSlotLayout;
 
 #[cfg(feature = "diagnostics")]
 pub(super) use crate::db::diagnostics::measure_local_instruction_delta as measure_direct_data_row_phase;
@@ -199,13 +199,7 @@ pub(super) fn record_kernel_slots_only_path_hit() {
 #[cfg(any(test, feature = "diagnostics"))]
 pub(super) fn record_kernel_retained_slot_layout(layout: &RetainedSlotLayout) {
     let retained_values = usize_to_u64(layout.retained_value_count());
-    let octet_length_values = usize_to_u64(
-        layout
-            .value_modes()
-            .iter()
-            .filter(|mode| **mode == RetainedSlotValueMode::ScalarOctetLength)
-            .count(),
-    );
+    let octet_length_values = usize_to_u64(layout.octet_length_value_count());
 
     update_scalar_materialization_lane_metrics(|metrics| {
         metrics.kernel_retained_layout_hits = metrics.kernel_retained_layout_hits.saturating_add(1);

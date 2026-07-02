@@ -334,8 +334,16 @@ impl RowDecoder {
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Vec<Option<Value>>, InternalError> {
         let required_slots = retained_slot_layout.required_slots();
-        let value_modes = retained_slot_layout.value_modes();
         let mut values = Vec::with_capacity(retained_slot_layout.retained_value_count());
+
+        let Some(value_modes) = retained_slot_layout.override_value_modes() else {
+            for &slot in required_slots {
+                values.push(Some(row_fields.required_value_by_contract(slot)?));
+            }
+
+            return Ok(values);
+        };
+        debug_assert_eq!(required_slots.len(), value_modes.len());
 
         for (&slot, mode) in required_slots.iter().zip(value_modes) {
             let value = match mode {
