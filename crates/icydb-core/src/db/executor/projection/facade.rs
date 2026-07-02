@@ -8,12 +8,13 @@ use crate::{
         Db,
         executor::{
             CoveringProjectionMetricsRecorder, ExecutionPreparation,
-            PreparedCoveringProjectionRuntime, ProjectionMaterializationMetricsRecorder,
-            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
+            ProjectionMaterializationMetricsRecorder, SharedPreparedExecutionPlan,
+            SharedPreparedProjectionRuntimeHandoff,
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             planning::preparation::slot_map_for_model_plan,
             projection::{
-                MaterializedProjectionRows, ProjectionDistinctWindow, project, project_distinct,
+                MaterializedProjectionRows, PreparedCoveringProjectionRuntime,
+                ProjectionDistinctWindow, project, project_distinct,
                 try_execute_prepared_covering_projection_rows_for_canister,
             },
             saturating_u32_len,
