@@ -479,7 +479,7 @@ fn filter_authority_predicate_subset_derivation_sites_are_explicit() {
 fn filter_authority_sql_explicit_predicate_lanes_are_explicit() {
     let expected = BTreeMap::from([
         ("src/db/sql/lowering/predicate/mod.rs".to_string(), 1),
-        ("src/db/sql/lowering/select/mod.rs".to_string(), 3),
+        ("src/db/sql/lowering/select/mod.rs".to_string(), 2),
     ]);
 
     assert_eq!(

@@ -151,8 +151,6 @@ impl LoweredSqlFilter {
 
         match (visible_expr, self.predicate_subset) {
             (Some(filter_expr), Some(predicate)) => {
-                let predicate =
-                    derive_sql_where_expr_predicate_subset(&filter_expr).unwrap_or(predicate);
                 let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
 
                 query.filter_expr_with_normalized_predicate(filter_expr, predicate)

@@ -4,7 +4,9 @@
 //! Boundary: stores entity-bound query intent consumed by the planner pipeline.
 
 #[cfg(any(test, feature = "sql"))]
-use crate::db::predicate::{Predicate, normalize};
+use crate::db::predicate::Predicate;
+#[cfg(test)]
+use crate::db::predicate::normalize;
 use crate::db::query::intent::{StructuralQueryCacheKey, state::GroupedIntent};
 use crate::{
     db::{
@@ -236,7 +238,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         debug_assert!(is_normalized_bool_expr(&expr));
 
         self.intent
-            .append_filter_with_predicate_subset(expr, normalize(&predicate));
+            .append_filter_with_predicate_subset(expr, predicate);
         self
     }
 
