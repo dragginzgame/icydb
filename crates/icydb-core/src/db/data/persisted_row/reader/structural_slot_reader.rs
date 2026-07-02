@@ -62,7 +62,7 @@ fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
 ///
 
 pub(in crate::db) struct StructuralSlotReader<'a> {
-    contract: StructuralRowContract,
+    contract: Cow<'a, StructuralRowContract>,
     field_bytes: StructuralRowFieldBytes<'a>,
     pub(in crate::db::data::persisted_row) cached_values: Vec<CachedSlotValue>,
     #[cfg(any(test, feature = "diagnostics"))]
@@ -88,15 +88,34 @@ impl<'a> StructuralSlotReader<'a> {
         raw_row: &'a RawRow,
         contract: StructuralRowContract,
     ) -> Result<Self, InternalError> {
+        Self::from_raw_row_with_contract_cow(raw_row, Cow::Owned(contract))
+    }
+
+    /// Build one slot reader over one persisted row by borrowing an existing
+    /// frozen structural row contract.
+    pub(in crate::db) fn from_raw_row_with_borrowed_contract(
+        raw_row: &'a RawRow,
+        contract: &'a StructuralRowContract,
+    ) -> Result<Self, InternalError> {
+        Self::from_raw_row_with_contract_cow(raw_row, Cow::Borrowed(contract))
+    }
+
+    fn from_raw_row_with_contract_cow(
+        raw_row: &'a RawRow,
+        contract: Cow<'a, StructuralRowContract>,
+    ) -> Result<Self, InternalError> {
         let field_bytes =
-            StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.clone())
+            StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.as_ref())
                 .map_err(StructuralRowDecodeError::into_internal_error)?;
+        let cached_values = build_initial_slot_cache(contract.as_ref());
+        #[cfg(any(test, feature = "diagnostics"))]
+        let metrics = metrics::StructuralReadProbe::begin(contract.field_count());
         let reader = Self {
-            contract: contract.clone(),
+            contract,
             field_bytes,
-            cached_values: build_initial_slot_cache(&contract),
+            cached_values,
             #[cfg(any(test, feature = "diagnostics"))]
-            metrics: metrics::StructuralReadProbe::begin(contract.field_count()),
+            metrics,
         };
 
         Ok(reader)
@@ -109,6 +128,18 @@ impl<'a> StructuralSlotReader<'a> {
         contract: StructuralRowContract,
     ) -> Result<Self, InternalError> {
         let reader = Self::from_raw_row_with_contract(raw_row, contract)?;
+        reader.validate_all_declared_slots()?;
+
+        Ok(reader)
+    }
+
+    /// Build one borrowed-contract slot reader, then validate every declared
+    /// slot eagerly.
+    pub(in crate::db) fn from_raw_row_with_validated_borrowed_contract(
+        raw_row: &'a RawRow,
+        contract: &'a StructuralRowContract,
+    ) -> Result<Self, InternalError> {
+        let reader = Self::from_raw_row_with_borrowed_contract(raw_row, contract)?;
         reader.validate_all_declared_slots()?;
 
         Ok(reader)
@@ -136,19 +167,19 @@ impl<'a> StructuralSlotReader<'a> {
 
     /// Return the declared structural field count for this reader contract.
     #[must_use]
-    pub(in crate::db) const fn field_count(&self) -> usize {
+    pub(in crate::db) fn field_count(&self) -> usize {
         self.contract.field_count()
     }
 
     /// Borrow the structural row contract selected for this reader.
     #[must_use]
-    pub(in crate::db) const fn contract(&self) -> &StructuralRowContract {
-        &self.contract
+    pub(in crate::db) fn contract(&self) -> &StructuralRowContract {
+        self.contract.as_ref()
     }
 
     /// Return whether this reader is governed by accepted persisted schema.
     #[must_use]
-    pub(in crate::db) const fn has_accepted_decode_contract(&self) -> bool {
+    pub(in crate::db) fn has_accepted_decode_contract(&self) -> bool {
         self.contract.has_accepted_decode_contract()
     }
 
@@ -296,7 +327,7 @@ impl<'a> StructuralSlotReader<'a> {
                 if materialized.get().is_none() {
                     let value = materialize_validated_scalar_slot_value(
                         validated,
-                        self.contract.clone(),
+                        &self.contract,
                         &self.field_bytes,
                         slot,
                     )?;
@@ -716,7 +747,7 @@ impl SlotReader for StructuralSlotReader<'_> {
 
                     scalar_slot_value_ref_from_validated(
                         validated,
-                        self.contract.clone(),
+                        &self.contract,
                         &self.field_bytes,
                         slot,
                     )

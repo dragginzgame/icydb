@@ -12,7 +12,11 @@ mod shared;
 use std::cell::Cell;
 
 use crate::{
-    db::{Db, executor::EntityAuthority, index::predicate::IndexPredicateExecution},
+    db::{
+        Db,
+        executor::{EntityAuthority, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
+        index::predicate::IndexPredicateExecution,
+    },
     error::InternalError,
     traits::CanisterKind,
     value::Value,
@@ -96,6 +100,8 @@ pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    index_range_specs: &[LoweredIndexRangeSpec],
     covering: Option<Arc<CoveringReadExecutionPlan>>,
     hybrid: impl FnOnce() -> Option<Arc<CoveringHybridReadExecutionPlan>>,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -109,6 +115,8 @@ where
             db,
             authority.clone(),
             plan,
+            index_prefix_specs,
+            index_range_specs,
             &covering,
             index_predicate_execution,
         )?
@@ -124,6 +132,8 @@ where
         db,
         authority,
         plan,
+        index_prefix_specs,
+        index_range_specs,
         metrics,
         &hybrid,
         index_predicate_execution,

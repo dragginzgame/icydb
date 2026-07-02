@@ -1,13 +1,12 @@
 use crate::{
     db::{
         Db,
-        access::{LoweredIndexPrefixSpec, lower_access},
+        access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
-            AccessWindow, CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
-            PrefixSetMergeSafety, apply_offset_limit_window,
-            expand_index_prefix_family_with_exact_child_prefixes,
+            AccessWindow, CoveringProjectionComponentRows, EntityAuthority, PrefixSetMergeSafety,
+            apply_offset_limit_window, expand_index_prefix_family_with_exact_child_prefixes,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
                 CoveringReadField, CoveringReadFieldSource, PageSpec,
@@ -100,6 +99,8 @@ pub(super) fn resolve_index_backed_covering_scan<C>(
     db: &Db<C>,
     authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    index_range_specs: &[LoweredIndexRangeSpec],
     fields: &[CoveringReadField],
     order_contract: CoveringProjectionOrder,
     existing_row_mode: CoveringExistingRowMode,
@@ -114,26 +115,17 @@ where
 
     let component_indices = covering_projection_component_indices(fields);
     let store = db.recovered_store(authority.store_path())?;
-    let lowered_access =
-        lower_access(authority.entity_tag(), &plan.access).map_err(|err| match err {
-            crate::db::access::LoweredAccessError::IndexPrefix => {
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            }
-            crate::db::access::LoweredAccessError::IndexRange => {
-                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
-            }
-        })?;
     let (expanded_index_prefix_specs, primary_key_order_scan_safe) =
         expanded_covering_index_prefix_specs_if_ordered(
             db,
             authority,
             plan,
             order_contract,
-            &lowered_access,
+            index_prefix_specs,
         )?;
     let index_prefix_specs = expanded_index_prefix_specs
         .as_deref()
-        .unwrap_or_else(|| lowered_access.index_prefix_specs());
+        .unwrap_or(index_prefix_specs);
     let scan_window = covering_scan_window(
         order_contract,
         primary_key_order_scan_safe,
@@ -150,7 +142,7 @@ where
         resolve_covering_projection_components_from_lowered_specs(
             authority.entity_tag(),
             index_prefix_specs,
-            lowered_access.index_range_specs(),
+            index_range_specs,
             scan_window.direction,
             scan_window.limit,
             component_indices.as_slice(),
@@ -179,7 +171,7 @@ fn expanded_covering_index_prefix_specs_if_ordered<C>(
     authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
     order_contract: CoveringProjectionOrder,
-    lowered_access: &crate::db::access::LoweredAccess<'_, crate::value::Value>,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
 ) -> Result<(Option<Vec<LoweredIndexPrefixSpec>>, bool), InternalError>
 where
     C: CanisterKind,
@@ -201,7 +193,7 @@ where
         db.recovered_store(authority.store_path())?,
         authority.entity_tag(),
         &index,
-        lowered_access.index_prefix_specs(),
+        index_prefix_specs,
         expansion,
     )?
     else {

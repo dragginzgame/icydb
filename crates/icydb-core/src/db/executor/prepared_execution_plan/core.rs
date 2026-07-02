@@ -27,7 +27,10 @@ use crate::{
     },
     error::InternalError,
 };
-use std::sync::{Arc, OnceLock};
+use std::{
+    rc::Rc,
+    sync::{Arc, OnceLock},
+};
 
 #[cfg(feature = "sql")]
 use crate::db::executor::planning::preparation::covering_strict_predicate_compatible_for_plan;
@@ -67,7 +70,7 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) hybrid_covering_read_plan:
         OnceLock<Option<Arc<CoveringHybridReadExecutionPlan>>>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_grouped_runtime_residents:
-        OnceLock<Option<Arc<PreparedGroupedRuntimeResidents>>>,
+        OnceLock<Option<Rc<PreparedGroupedRuntimeResidents>>>,
     pub(in crate::db::executor::prepared_execution_plan) aggregate_execution_preparation:
         OnceLock<ExecutionPreparation>,
     pub(in crate::db::executor::prepared_execution_plan) scalar_execution_preparation:
@@ -153,7 +156,7 @@ fn clone_once_lock<T: Clone>(source: &OnceLock<T>) -> OnceLock<T> {
 #[derive(Clone, Debug)]
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) residents:
-        Arc<PreparedExecutionPlanResidents>,
+        Rc<PreparedExecutionPlanResidents>,
 }
 
 ///
@@ -279,7 +282,7 @@ impl PreparedExecutionPlanCore {
         index_range_spec_invalid: bool,
     ) -> Self {
         Self {
-            residents: Arc::new(PreparedExecutionPlanResidents {
+            residents: Rc::new(PreparedExecutionPlanResidents {
                 plan,
                 schema_fingerprint,
                 prepared_projection_contract: OnceLock::new(),
@@ -379,7 +382,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_grouped_runtime_residents(
         &self,
         authority: EntityAuthority,
-    ) -> Result<Option<Arc<PreparedGroupedRuntimeResidents>>, InternalError> {
+    ) -> Result<Option<Rc<PreparedGroupedRuntimeResidents>>, InternalError> {
         // Grouped execution needs both the runtime preparation and slot layout
         // together, so cache them behind one grouped-resident initializer.
         if let Some(cached) = self.residents.prepared_grouped_runtime_residents.get() {
@@ -405,7 +408,7 @@ impl PreparedExecutionPlanCore {
                     execution_preparation.effective_runtime_filter_program(),
                 );
 
-                Some(Arc::new(PreparedGroupedRuntimeResidents::new(
+                Some(Rc::new(PreparedGroupedRuntimeResidents::new(
                     execution_preparation,
                     grouped_slot_layout,
                 )))
@@ -603,7 +606,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn into_residents(
         self,
     ) -> PreparedExecutionPlanResidents {
-        Arc::try_unwrap(self.residents).unwrap_or_else(|residents| residents.as_ref().clone())
+        Rc::try_unwrap(self.residents).unwrap_or_else(|residents| residents.as_ref().clone())
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn prepare_cursor(

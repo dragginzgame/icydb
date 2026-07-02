@@ -114,6 +114,8 @@ where
     // before executor-owned deduplication and windowing.
     if !distinct {
         let covering = prepared_plan.projection_covering_read_execution_plan();
+        let index_prefix_specs = prepared_plan.index_prefix_specs()?;
+        let index_range_specs = prepared_plan.index_range_specs()?;
         let covering_execution_preparation = prepared_plan
             .logical_plan()
             .has_residual_filter_predicate()
@@ -135,6 +137,8 @@ where
             db,
             prepared_plan.authority(),
             prepared_plan.logical_plan(),
+            index_prefix_specs,
+            index_range_specs,
             covering,
             || prepared_plan.hybrid_covering_read_plan(),
             index_predicate_execution,

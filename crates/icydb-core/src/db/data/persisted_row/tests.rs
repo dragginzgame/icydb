@@ -902,10 +902,9 @@ fn canonical_row_from_raw_row_for_accepted_test_model(
     model: &'static EntityModel,
     raw_row: &RawRow,
 ) -> Result<CanonicalRow, InternalError> {
-    canonical_row_from_raw_row_with_structural_contract(
-        raw_row,
-        accepted_row_contract_for_model(model),
-    )
+    let contract = accepted_row_contract_for_model(model);
+
+    canonical_row_from_raw_row_with_structural_contract(raw_row, &contract)
 }
 
 // Build one accepted row contract for the additive required-field fixture with
@@ -1823,27 +1822,27 @@ fn accepted_row_contract_reads_missing_trailing_nullable_slots_as_null() {
             .expect("accepted row contract should allow missing nullable append-only slot");
     let dense = super::decode_dense_raw_row_with_contract(
         &raw_row,
-        contract.clone(),
+        &contract,
         &PrimaryKeyComponent::Ulid(id).into(),
     )
     .expect("dense direct decode should synthesize null for missing nullable slot");
     let sparse = super::decode_sparse_raw_row_with_contract(
         &raw_row,
-        contract.clone(),
+        &contract,
         &PrimaryKeyComponent::Ulid(id).into(),
         &[2],
     )
     .expect("sparse direct decode should synthesize null for missing nullable slot");
     let compact = super::decode_sparse_indexed_raw_row_with_contract(
         &raw_row,
-        contract.clone(),
+        &contract,
         &PrimaryKeyComponent::Ulid(id).into(),
         &[2],
     )
     .expect("compact sparse direct decode should synthesize null for missing nullable slot");
     let required = decode_sparse_required_slot_with_contract(
         &raw_row,
-        contract,
+        &contract,
         &PrimaryKeyComponent::Ulid(id).into(),
         2,
     )
@@ -1881,7 +1880,7 @@ fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
             accepted_decode_contract.clone(),
         );
     let canonical_from_reader =
-        canonical_row_from_raw_row_with_structural_contract(&raw_row, contract.clone())
+        canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
             .expect("accepted structural contract should re-emit the current slot count");
     let canonical_from_patch = apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
         ADDITIVE_NULLABLE_MODEL.path(),
@@ -1899,9 +1898,9 @@ fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
                 .try_into()
                 .expect("slot count prefix should be present"),
         );
-        let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
+        let mut reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
             canonical.as_raw_row(),
-            contract.clone(),
+            &contract,
         )
         .expect("canonical accepted row should reopen through accepted contract");
 
@@ -1927,7 +1926,7 @@ fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
             accepted_decode_contract.clone(),
         );
     let canonical_from_reader =
-        canonical_row_from_raw_row_with_structural_contract(&raw_row, contract.clone())
+        canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
             .expect("accepted structural contract should re-emit defaulted slot count");
     let canonical_from_patch = apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
         ADDITIVE_REQUIRED_MODEL.path(),
@@ -1945,9 +1944,9 @@ fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
                 .try_into()
                 .expect("slot count prefix should be present"),
         );
-        let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
+        let mut reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
             canonical.as_raw_row(),
-            contract.clone(),
+            &contract,
         )
         .expect("canonical accepted row should reopen through accepted contract");
 
@@ -1967,13 +1966,13 @@ fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
 
     let decoded = super::decode_dense_raw_row_with_contract(
         &raw_row,
-        contract.clone(),
+        &contract,
         &PrimaryKeyComponent::Ulid(id).into(),
     )
     .expect("accepted primary-key contract should validate expected row key");
     let err = super::decode_dense_raw_row_with_contract(
         &raw_row,
-        contract,
+        &contract,
         &PrimaryKeyComponent::Ulid(Ulid::from_u128(150)).into(),
     )
     .expect_err("accepted primary-key contract should reject mismatched row key");
@@ -1995,7 +1994,7 @@ fn accepted_row_contract_preserves_malformed_present_slot_corruption_taxonomy() 
     };
     let dense_err = super::decode_dense_raw_row_with_contract(
         &raw_row,
-        contract,
+        &contract,
         &PrimaryKeyComponent::Ulid(id).into(),
     )
     .expect_err("accepted dense decode must reject malformed present slot bytes");
@@ -2689,9 +2688,10 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_primary
     )
     .expect("build raw row");
 
+    let contract = StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL);
     let decoded = super::decode_dense_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
+        &contract,
         &PrimaryKeyComponent::Ulid(token_id).into(),
     )
     .expect("relation primary-key row decode should succeed");
@@ -2722,9 +2722,10 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
     )
     .expect("build raw row");
 
+    let contract = StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL);
     let decoded = decode_sparse_required_slot_with_contract(
         &raw_row,
-        StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
+        &contract,
         &PrimaryKeyComponent::Ulid(token_id).into(),
         0,
     )
@@ -2756,9 +2757,10 @@ fn sparse_indexed_slot_decode_materializes_relation_primary_key_from_authoritati
     )
     .expect("build raw row");
 
+    let contract = StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL);
     let decoded = super::decode_sparse_indexed_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
+        &contract,
         &PrimaryKeyComponent::Ulid(token_id).into(),
         &[0],
     )

@@ -1,5 +1,5 @@
 use crate::{db::executor::projection::ProjectionValidationRow, value::Value};
-use std::sync::Arc;
+use std::rc::Rc;
 
 ///
 /// RetainedSlotLayout
@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) struct RetainedSlotLayout {
-    data: Arc<RetainedSlotLayoutData>,
+    data: Rc<RetainedSlotLayoutData>,
 }
 
 ///
@@ -72,7 +72,7 @@ impl RetainedSlotLayout {
         }
 
         Self {
-            data: Arc::new(RetainedSlotLayoutData {
+            data: Rc::new(RetainedSlotLayoutData {
                 required_slots: required_slots.into_boxed_slice(),
                 value_modes: value_modes.into_boxed_slice(),
                 slot_to_value_index: slot_to_value_index.into_boxed_slice(),

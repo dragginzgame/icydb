@@ -174,6 +174,24 @@ impl SharedPreparedExecutionPlan {
         Ok(())
     }
 
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) fn index_prefix_specs(
+        &self,
+    ) -> Result<&[crate::db::executor::LoweredIndexPrefixSpec], InternalError> {
+        self.validate_lowered_access_specs()?;
+
+        Ok(self.core.residents.index_prefix_specs.as_ref())
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) fn index_range_specs(
+        &self,
+    ) -> Result<&[crate::db::executor::LoweredIndexRangeSpec], InternalError> {
+        self.validate_lowered_access_specs()?;
+
+        Ok(self.core.residents.index_range_specs.as_ref())
+    }
+
     #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn projection_covering_read_execution_plan(

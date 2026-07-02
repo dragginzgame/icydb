@@ -37,25 +37,24 @@ use crate::{
 /// validation boundary before decoding their caller-selected slot layout.
 ///
 
-struct DirectStructuralRowFields<'a> {
-    contract: StructuralRowContract,
+struct DirectStructuralRowFields<'row, 'contract> {
+    contract: &'contract StructuralRowContract,
     expected_key: PrimaryKeyValue,
-    field_bytes: StructuralRowFieldBytes<'a>,
+    field_bytes: StructuralRowFieldBytes<'row>,
 }
 
-impl<'a> DirectStructuralRowFields<'a> {
+impl<'row, 'contract> DirectStructuralRowFields<'row, 'contract> {
     // Open one raw row into structural field spans and validate the persisted
     // primary-key payload against the authoritative row key before any selected
     // slot decode can run.
     fn open(
-        raw_row: &'a RawRow,
-        contract: StructuralRowContract,
+        raw_row: &'row RawRow,
+        contract: &'contract StructuralRowContract,
         expected_key: &PrimaryKeyValue,
     ) -> Result<Self, InternalError> {
-        let field_bytes =
-            StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.clone())
-                .map_err(StructuralRowDecodeError::into_internal_error)?;
-        validate_primary_key_value_from_field_bytes(contract.clone(), &field_bytes, expected_key)?;
+        let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
+            .map_err(StructuralRowDecodeError::into_internal_error)?;
+        validate_primary_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
 
         Ok(Self {
             contract,
@@ -72,12 +71,20 @@ impl<'a> DirectStructuralRowFields<'a> {
         probe: &StructuralReadProbe,
     ) -> Result<Value, InternalError> {
         decode_selected_slot_value(
-            self.contract.clone(),
+            self.contract,
             &self.field_bytes,
             slot,
             &self.expected_key,
             probe,
         )
+    }
+
+    const fn field_count(&self) -> usize {
+        self.contract.field_count()
+    }
+
+    fn has_active_field_slot(&self, slot: usize) -> bool {
+        self.contract.has_active_field_slot(slot)
     }
 }
 
@@ -90,30 +97,30 @@ impl<'a> DirectStructuralRowFields<'a> {
 /// while still centralizing primary-key validation before value materialization.
 ///
 
-struct DirectSparseRequiredRowField<'a> {
-    contract: StructuralRowContract,
+struct DirectSparseRequiredRowField<'row, 'contract> {
+    contract: &'contract StructuralRowContract,
     expected_key: PrimaryKeyComponent,
     required_slot: usize,
-    field_bytes: SparseRequiredRowFieldBytes<'a>,
+    field_bytes: SparseRequiredRowFieldBytes<'row>,
 }
 
-impl<'a> DirectSparseRequiredRowField<'a> {
+impl<'row, 'contract> DirectSparseRequiredRowField<'row, 'contract> {
     // Open one raw row through the compact two-span scanner and validate the
     // primary-key span before the requested slot is decoded.
     fn open(
-        raw_row: &'a RawRow,
-        contract: StructuralRowContract,
+        raw_row: &'row RawRow,
+        contract: &'contract StructuralRowContract,
         expected_key: PrimaryKeyComponent,
         required_slot: usize,
     ) -> Result<Self, InternalError> {
         let field_bytes = SparseRequiredRowFieldBytes::from_raw_row_with_contract(
             raw_row,
-            contract.clone(),
+            contract,
             required_slot,
         )
         .map_err(StructuralRowDecodeError::into_internal_error)?;
         validate_primary_key_component_from_slot_bytes_with_contract(
-            &contract,
+            contract,
             contract.primary_key_slot(),
             field_bytes.primary_key_field(),
             expected_key,
@@ -132,7 +139,7 @@ impl<'a> DirectSparseRequiredRowField<'a> {
     fn decode(&self, probe: &StructuralReadProbe) -> Result<Value, InternalError> {
         if self.required_slot == self.contract.primary_key_slot() {
             return decode_slot_with_contract(
-                &self.contract,
+                self.contract,
                 self.required_slot,
                 &[],
                 Some(self.expected_key),
@@ -145,12 +152,16 @@ impl<'a> DirectSparseRequiredRowField<'a> {
         };
 
         decode_slot_with_contract(
-            &self.contract,
+            self.contract,
             self.required_slot,
             raw_value,
             (self.required_slot == self.contract.primary_key_slot()).then_some(self.expected_key),
             probe,
         )
+    }
+
+    const fn field_count(&self) -> usize {
+        self.contract.field_count()
     }
 }
 
@@ -158,21 +169,22 @@ impl<'a> DirectSparseRequiredRowField<'a> {
 // without constructing the lazy per-slot cache used by sparse readers.
 pub(in crate::db) fn decode_dense_raw_row_with_contract(
     raw_row: &RawRow,
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
     expected_key: &PrimaryKeyValue,
 ) -> Result<Vec<Option<Value>>, InternalError> {
     // Phase 1: open and key-validate the row once through the direct reader
     // boundary shared by dense and sparse decode helpers.
-    let fields = DirectStructuralRowFields::open(raw_row, contract.clone(), expected_key)?;
+    let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
 
     // Phase 2: decode every declared slot in one straight-line loop.
-    let mut values = Vec::with_capacity(contract.field_count());
+    let field_count = fields.field_count();
+    let mut values = Vec::with_capacity(field_count);
     // Dense full-row decode intentionally stays off the sparse-reader metrics
     // surface. We still reuse the shared slot helper so PK slots can avoid a
     // second decode, but we do not flush this probe into the aggregate.
-    let probe = StructuralReadProbe::begin(contract.field_count());
-    for slot in 0..contract.field_count() {
-        if contract.has_active_field_slot(slot) {
+    let probe = StructuralReadProbe::begin(field_count);
+    for slot in 0..field_count {
+        if fields.has_active_field_slot(slot) {
             values.push(Some(fields.decode_slot(slot, &probe)?));
         } else {
             values.push(None);
@@ -192,18 +204,19 @@ pub(in crate::db) fn decode_dense_raw_row_with_contract(
 /// validation steps.
 pub(in crate::db) fn decode_sparse_raw_row_with_contract(
     raw_row: &RawRow,
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
     expected_key: &PrimaryKeyValue,
     required_slots: &[usize],
 ) -> Result<Vec<Option<Value>>, InternalError> {
     // Phase 1: open and key-validate the row once through the direct reader
     // boundary shared by dense and sparse decode helpers.
-    let fields = DirectStructuralRowFields::open(raw_row, contract.clone(), expected_key)?;
+    let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
 
     // Phase 2: decode only the requested slots without building the general
     // lazy cache shape that sparse executor reads never reuse.
-    let mut values = vec![None; contract.field_count()];
-    let probe = StructuralReadProbe::begin(contract.field_count());
+    let field_count = fields.field_count();
+    let mut values = vec![None; field_count];
+    let probe = StructuralReadProbe::begin(field_count);
 
     for &slot in required_slots {
         values[slot] = Some(fields.decode_slot(slot, &probe)?);
@@ -218,18 +231,18 @@ pub(in crate::db) fn decode_sparse_raw_row_with_contract(
 /// without constructing the surrounding `StructuralSlotReader`.
 pub(in crate::db) fn decode_sparse_indexed_raw_row_with_contract(
     raw_row: &RawRow,
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
     expected_key: &PrimaryKeyValue,
     required_slots: &[usize],
 ) -> Result<Vec<Option<Value>>, InternalError> {
     // Phase 1: open and key-validate the row once through the direct reader
     // boundary shared by dense and sparse decode helpers.
-    let fields = DirectStructuralRowFields::open(raw_row, contract.clone(), expected_key)?;
+    let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
 
     // Phase 2: decode only the requested retained slots into compact layout
     // order, matching the executor-owned retained-slot layout contract.
     let mut values = Vec::with_capacity(required_slots.len());
-    let probe = StructuralReadProbe::begin(contract.field_count());
+    let probe = StructuralReadProbe::begin(fields.field_count());
 
     for &slot in required_slots {
         values.push(Some(fields.decode_slot(slot, &probe)?));
@@ -244,7 +257,7 @@ pub(in crate::db) fn decode_sparse_indexed_raw_row_with_contract(
 /// constructing the surrounding row-reader cache.
 pub(in crate::db) fn decode_sparse_required_slot_with_contract(
     raw_row: &RawRow,
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
     expected_key: &PrimaryKeyValue,
     required_slot: usize,
 ) -> Result<Option<Value>, InternalError> {
@@ -256,13 +269,13 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract(
 // layer for all sparse required-slot readers.
 fn decode_sparse_required_slot(
     raw_row: &RawRow,
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
     expected_key: &PrimaryKeyValue,
     required_slot: usize,
 ) -> Result<Option<Value>, InternalError> {
     if matches!(expected_key, PrimaryKeyValue::Composite(_)) {
-        let fields = DirectStructuralRowFields::open(raw_row, contract.clone(), expected_key)?;
-        let probe = StructuralReadProbe::begin(contract.field_count());
+        let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
+        let probe = StructuralReadProbe::begin(fields.field_count());
         let value = fields.decode_slot(required_slot, &probe)?;
         finish_direct_probe(&probe);
 
@@ -275,12 +288,11 @@ fn decode_sparse_required_slot(
 
     // Phase 1: scan and key-validate the row through the compact two-span
     // reader owner used only by narrow one-slot decode paths.
-    let field =
-        DirectSparseRequiredRowField::open(raw_row, contract.clone(), expected_key, required_slot)?;
+    let field = DirectSparseRequiredRowField::open(raw_row, contract, expected_key, required_slot)?;
 
     // Phase 2: decode exactly one caller-selected slot and report it through
     // the same sparse-read metrics surface used by the reader-backed path.
-    let probe = StructuralReadProbe::begin(contract.field_count());
+    let probe = StructuralReadProbe::begin(field.field_count());
     let value = field.decode(&probe)?;
     finish_direct_probe(&probe);
 
@@ -290,17 +302,17 @@ fn decode_sparse_required_slot(
 // Decode one caller-selected slot directly from the structural field-byte
 // spans after row-envelope and primary-key validation have already succeeded.
 fn decode_selected_slot_value(
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
     field_bytes: &StructuralRowFieldBytes<'_>,
     slot: usize,
     expected_key: &PrimaryKeyValue,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
     let expected_primary_key_component =
-        expected_primary_key_component_for_slot(&contract, expected_key, slot)?;
+        expected_primary_key_component_for_slot(contract, expected_key, slot)?;
     if expected_primary_key_component.is_some() {
         return decode_slot_with_contract(
-            &contract,
+            contract,
             slot,
             &[],
             expected_primary_key_component,
@@ -313,7 +325,7 @@ fn decode_selected_slot_value(
     };
 
     decode_slot_with_contract(
-        &contract,
+        contract,
         slot,
         raw_value,
         expected_primary_key_component,

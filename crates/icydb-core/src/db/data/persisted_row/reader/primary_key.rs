@@ -41,7 +41,7 @@ const fn primary_key_component_from_runtime_value(value: &Value) -> Option<Prima
 // Validate the persisted primary-key payload against one authoritative
 // primary-key value directly from structural field bytes.
 pub(super) fn validate_primary_key_value_from_field_bytes(
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
     field_bytes: &StructuralRowFieldBytes<'_>,
     expected_key: &PrimaryKeyValue,
 ) -> Result<(), InternalError> {
@@ -54,7 +54,7 @@ pub(super) fn validate_primary_key_value_from_field_bytes(
             })?;
 
             validate_primary_key_component_from_slot_bytes_with_contract(
-                &contract,
+                contract,
                 primary_key_slot,
                 raw_value,
                 component,
@@ -72,7 +72,7 @@ pub(super) fn validate_primary_key_value_from_field_bytes(
                     InternalError::persisted_row_declared_field_missing(field_name)
                 })?;
                 validate_primary_key_component_from_slot_bytes_with_contract(
-                    &contract, slot, raw_value, component,
+                    contract, slot, raw_value, component,
                 )?;
             }
 

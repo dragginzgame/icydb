@@ -17,8 +17,7 @@ use crate::{
     model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     value::Value,
 };
-use std::borrow::Cow;
-use std::sync::Arc;
+use std::{borrow::Cow, rc::Rc};
 
 type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
@@ -42,7 +41,7 @@ pub(in crate::db) struct StructuralRowContract {
     field_count: usize,
     max_physical_slot_count: usize,
     primary_key_slot: usize,
-    accepted_decode_contract: Option<Arc<AcceptedRowDecodeContract>>,
+    accepted_decode_contract: Option<Rc<AcceptedRowDecodeContract>>,
 }
 
 impl StructuralRowContract {
@@ -109,7 +108,7 @@ impl StructuralRowContract {
             field_count: accepted_decode_contract.required_slot_count(),
             max_physical_slot_count: accepted_decode_contract.max_physical_slot_count(),
             primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
-            accepted_decode_contract: Some(Arc::new(accepted_decode_contract)),
+            accepted_decode_contract: Some(Rc::new(accepted_decode_contract)),
         }
     }
 
@@ -447,10 +446,10 @@ impl<'a> StructuralRowFieldBytes<'a> {
     /// Decode one raw row payload into contract slot-aligned encoded field spans.
     fn from_row_bytes_with_contract(
         row_bytes: &'a [u8],
-        contract: StructuralRowContract,
+        contract: &StructuralRowContract,
     ) -> Result<Self, StructuralRowDecodeError> {
         let payload = decode_structural_row_payload_bytes(row_bytes)?;
-        let (payload, spans) = decode_row_field_spans(payload, &contract)?;
+        let (payload, spans) = decode_row_field_spans(payload, contract)?;
 
         Ok(Self { payload, spans })
     }
@@ -458,7 +457,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
     /// Decode one raw row into contract slot-aligned encoded field payload spans.
     pub(in crate::db::data) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,
-        contract: StructuralRowContract,
+        contract: &StructuralRowContract,
     ) -> Result<Self, StructuralRowDecodeError> {
         Self::from_row_bytes_with_contract(raw_row.as_bytes(), contract)
     }
@@ -493,12 +492,12 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
     /// by sparse direct slot reads.
     pub(in crate::db::data) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,
-        contract: StructuralRowContract,
+        contract: &StructuralRowContract,
         required_slot: usize,
     ) -> Result<Self, StructuralRowDecodeError> {
         let payload = decode_structural_row_payload_bytes(raw_row.as_bytes())?;
         let (payload, required_span, primary_key_span) =
-            decode_sparse_required_row_field_spans(payload, &contract, required_slot)?;
+            decode_sparse_required_row_field_spans(payload, contract, required_slot)?;
 
         Ok(Self {
             payload,

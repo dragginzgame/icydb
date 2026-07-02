@@ -48,7 +48,7 @@ impl<'a, K> LoweredAccess<'a, K> {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(test)]
     pub(in crate::db) const fn index_range_specs(&self) -> &[LoweredIndexRangeSpec] {
         self.index_range_specs.as_slice()
     }

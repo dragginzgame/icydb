@@ -1320,6 +1320,40 @@ fn planner_multi_lookup_selection_prefers_order_compatible_index_over_name_order
 }
 
 #[test]
+fn planner_multi_lookup_residual_stripping_removes_access_proven_in_predicate() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANKING_MODEL);
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "tier",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("silver".to_string()),
+            Value::Text("gold".to_string()),
+        ]),
+        CoercionId::Strict,
+    ));
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_RANKING_MODEL,
+        schema,
+        Some(&predicate),
+        Some(canonical_order(&[
+            ("handle", OrderDirection::Asc),
+            ("id", OrderDirection::Asc),
+        ])),
+    )
+    .expect("multi-lookup predicate should plan");
+
+    assert!(
+        matches!(plan.as_path(), Some(AccessPath::IndexMultiLookup { .. })),
+        "test setup should select the multi-lookup route",
+    );
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(plan.as_path(), &predicate),
+        None,
+        "access-proven IN predicate must not survive as a residual filter",
+    );
+}
+
+#[test]
 fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() {
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(

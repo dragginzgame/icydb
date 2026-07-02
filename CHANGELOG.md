@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
 
+- `0.194.2` reduces indexed `IN`, SQL covering-read, and row-decode overhead
+  by reusing prepared access specs and moving hot decode/layout sharing to
+  borrowed or single-threaded ownership.
+
 - `0.194.1` reduces sparse indexed `IN` query cost by batching prefix-family
   expansion and access lowering while tightening significant-drop lint
   cleanups.

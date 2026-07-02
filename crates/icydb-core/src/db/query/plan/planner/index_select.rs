@@ -121,13 +121,13 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     } else if let Some((index, values)) = access_path.as_index_multi_lookup_contract() {
         AccessBoundClauses {
             equalities: Vec::new(),
-            branch_in: access_bound_branch_in(index, 0, values),
+            branch_in: access_bound_branch_in(&index, 0, values),
         }
     } else if let Some(spec) = access_path.as_index_branch_set_spec() {
         AccessBoundClauses {
             equalities: access_bound_equalities(spec.index(), spec.fixed_values()),
             branch_in: access_bound_branch_in(
-                spec.index(),
+                spec.index_ref(),
                 spec.branch_slot(),
                 spec.branch_values(),
             ),
@@ -207,30 +207,33 @@ fn access_bound_equalities(
 }
 
 #[derive(Default)]
-struct AccessBoundClauses {
+struct AccessBoundClauses<'a> {
     equalities: Vec<ComparePredicate>,
-    branch_in: Option<ComparePredicate>,
+    branch_in: Option<AccessBoundBranchIn<'a>>,
 }
 
-impl AccessBoundClauses {
+struct AccessBoundBranchIn<'a> {
+    field: String,
+    values: &'a [Value],
+}
+
+impl AccessBoundClauses<'_> {
     const fn is_empty(&self) -> bool {
         self.equalities.is_empty() && self.branch_in.is_none()
     }
 }
 
-fn access_bound_branch_in(
-    index: SemanticIndexAccessContract,
+fn access_bound_branch_in<'values>(
+    index: &SemanticIndexAccessContract,
     branch_slot: usize,
-    branch_values: &[Value],
-) -> Option<ComparePredicate> {
+    branch_values: &'values [Value],
+) -> Option<AccessBoundBranchIn<'values>> {
     let field = index.key_field_at(branch_slot)?;
 
-    Some(ComparePredicate::with_coercion(
-        field,
-        CompareOp::In,
-        Value::List(branch_values.to_vec()),
-        CoercionId::Strict,
-    ))
+    Some(AccessBoundBranchIn {
+        field: field.to_string(),
+        values: branch_values,
+    })
 }
 
 fn strip_query_clauses_satisfied_by_access_bounds(
@@ -270,28 +273,28 @@ fn equality_bound_implies_required(bound: &ComparePredicate, cmp: &ComparePredic
 }
 
 fn branch_in_clause_implies_required(
-    branch_in: Option<&ComparePredicate>,
+    branch_in: Option<&AccessBoundBranchIn<'_>>,
     cmp: &ComparePredicate,
 ) -> bool {
     let Some(branch_in) = branch_in else {
         return false;
     };
-    if cmp.field() != branch_in.field() || branch_in.op() != CompareOp::In {
+    if cmp.field() != branch_in.field.as_str() {
         return false;
     }
-    let Value::List(branch_values) = branch_in.value() else {
-        return false;
-    };
 
     match cmp.op() {
-        CompareOp::Eq => branch_values
+        CompareOp::Eq => branch_in
+            .values
             .iter()
             .all(|branch_value| values_equal(branch_value, cmp.value())),
-        CompareOp::Ne => branch_values
+        CompareOp::Ne => branch_in
+            .values
             .iter()
             .all(|branch_value| !values_equal(branch_value, cmp.value())),
-        CompareOp::In => list_contains_all_values(cmp.value(), branch_values),
-        CompareOp::NotIn => branch_values
+        CompareOp::In => list_contains_all_values(cmp.value(), branch_in.values),
+        CompareOp::NotIn => branch_in
+            .values
             .iter()
             .all(|branch_value| !list_contains_value(cmp.value(), branch_value)),
         CompareOp::Gt

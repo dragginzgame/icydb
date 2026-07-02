@@ -370,9 +370,10 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader_with_accepted_con
 /// construct generated row contracts.
 pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
     raw_row: &RawRow,
-    contract: StructuralRowContract,
+    contract: &StructuralRowContract,
 ) -> Result<CanonicalRow, InternalError> {
-    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)?;
+    let row_fields =
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
 
     if row_fields.has_accepted_decode_contract() {
         return canonical_row_from_structural_slot_reader_with_accepted_contract(&row_fields);
@@ -401,7 +402,7 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_accepted_decode_contract(
     let contract =
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
 
-    canonical_row_from_raw_row_with_structural_contract(raw_row, contract)
+    canonical_row_from_raw_row_with_structural_contract(raw_row, &contract)
 }
 
 // Rewrap one row already loaded from storage as a canonical write token.
@@ -565,7 +566,7 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
     let contract =
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
     let row_fields =
-        StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract.clone())?;
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, &contract)?;
     let mut values = Vec::with_capacity(contract.field_count());
 
     // Phase 1: materialize the accepted baseline into current generated slot
