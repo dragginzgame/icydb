@@ -96,27 +96,6 @@ impl ExpandedIndexPrefixFamily {
     }
 }
 
-/// Return one fail-open empty-prefix bitmap for a lowered branch-prefix set.
-#[must_use]
-pub(in crate::db::executor) fn lowered_index_prefix_empty_bitmap(
-    store: StoreHandle,
-    specs: &[LoweredIndexPrefixSpec],
-) -> Vec<bool> {
-    let data_generation = store.with_data(DataStore::generation);
-    store.with_index(|index_store| {
-        specs
-            .iter()
-            .map(|spec| {
-                lowered_index_prefix_is_proven_empty_at_generation(
-                    index_store,
-                    data_generation,
-                    spec,
-                )
-            })
-            .collect()
-    })
-}
-
 /// Return whether one lowered exact-prefix scan is proven empty by synchronized metadata.
 #[must_use]
 pub(in crate::db::executor) fn lowered_index_prefix_is_proven_empty(
@@ -210,7 +189,7 @@ pub(in crate::db) fn lowered_index_prefix_cardinality_specs_from_plan(
     (!specs.is_empty()).then_some(specs)
 }
 
-fn lowered_index_prefix_is_proven_empty_at_generation(
+pub(in crate::db::executor) fn lowered_index_prefix_is_proven_empty_at_generation(
     index_store: &IndexStore,
     data_generation: u64,
     spec: &LoweredIndexPrefixSpec,

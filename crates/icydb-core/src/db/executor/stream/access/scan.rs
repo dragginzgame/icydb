@@ -9,12 +9,13 @@ use crate::{
             ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput, LoopAction,
             WindowCursorContract,
         },
-        data::{DecodedDataStoreKey, RawDataStoreKey},
+        data::{DataStore, DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-            lowered_index_prefix_empty_bitmap, record_row_check_index_entry_scanned,
-            record_row_check_index_key_owned_entry, record_row_check_index_row_identity_decoded,
+            lowered_index_prefix_is_proven_empty_at_generation,
+            record_row_check_index_entry_scanned, record_row_check_index_key_owned_entry,
+            record_row_check_index_row_identity_decoded,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
@@ -132,21 +133,40 @@ pub(in crate::db::executor) fn active_lowered_index_prefix_specs<'a>(
     index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Vec<&'a LoweredIndexPrefixSpec> {
-    let empty_prefixes = empty_proof_store.map_or_else(
-        || vec![false; index_prefix_specs.len()],
-        |store| lowered_index_prefix_empty_bitmap(store, index_prefix_specs),
-    );
     let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
-    for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
-        if proven_empty {
-            continue;
-        }
-        if index_predicate_rejects_prefix_components(spec.prefix_components(), predicate_execution)
-        {
-            continue;
-        }
 
-        active_specs.push(spec);
+    if let Some(store) = empty_proof_store {
+        let data_generation = store.with_data(DataStore::generation);
+        store.with_index(|index_store| {
+            for spec in index_prefix_specs {
+                if lowered_index_prefix_is_proven_empty_at_generation(
+                    index_store,
+                    data_generation,
+                    spec,
+                ) {
+                    continue;
+                }
+                if index_predicate_rejects_prefix_components(
+                    spec.prefix_components(),
+                    predicate_execution,
+                ) {
+                    continue;
+                }
+
+                active_specs.push(spec);
+            }
+        });
+    } else {
+        for spec in index_prefix_specs {
+            if index_predicate_rejects_prefix_components(
+                spec.prefix_components(),
+                predicate_execution,
+            ) {
+                continue;
+            }
+
+            active_specs.push(spec);
+        }
     }
 
     active_specs

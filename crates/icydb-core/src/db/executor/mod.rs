@@ -89,14 +89,15 @@ pub(in crate::db) use index_prefix_cardinality::{
     LoweredIndexPrefixCardinalityPlan, exact_count_cardinality_prefixes_for_plan,
 };
 pub(in crate::db::executor) use index_prefix_cardinality::{
-    expand_index_prefix_family_with_exact_child_prefixes, lowered_index_prefix_empty_bitmap,
-    lowered_index_prefix_is_proven_empty,
+    expand_index_prefix_family_with_exact_child_prefixes, lowered_index_prefix_is_proven_empty,
+    lowered_index_prefix_is_proven_empty_at_generation,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
-    OrderReadableRow, apply_structural_order_window, apply_structural_order_window_to_data_rows,
+    BoundedDirectOrderWindow, OrderReadableRow, apply_structural_order_window,
+    apply_structural_order_window_to_data_rows, can_use_bounded_direct_order_collection,
     compare_orderable_row_with_boundary,
 };
 pub(super) use pipeline::contracts::LoadExecutor;

@@ -53,7 +53,9 @@ pub use metrics::{ScalarMaterializationLaneMetrics, with_scalar_materialization_
 pub(crate) use metrics::{
     ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
 };
-pub(in crate::db::executor) use plan::{KernelRowScanStrategy, resolve_cursorless_short_path_plan};
+pub(in crate::db::executor) use plan::{
+    KernelRowOrderWindow, KernelRowScanStrategy, resolve_cursorless_short_path_plan,
+};
 pub(in crate::db) use retained::RetainedSlotRow;
 pub(in crate::db::executor) use retained::{RetainedSlotLayout, RetainedSlotValueMode};
 pub(in crate::db::executor) use row_runtime::{
@@ -236,7 +238,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
             consistency,
             continuation,
             row_runtime,
-        ))?;
+        )?)?;
     let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
         plan,
         &mut rows,

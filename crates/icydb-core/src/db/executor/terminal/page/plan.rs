@@ -2,7 +2,8 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         executor::{
-            OrderedKeyStreamBox, ScalarContinuationContext,
+            ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
+            can_use_bounded_direct_order_collection,
             pipeline::contracts::{
                 CursorEmissionMode, MaterializedExecutionPayload, PageCursor,
                 ScalarMaterializationCapabilities,
@@ -68,17 +69,18 @@ impl<'a> ScalarMaterializationPlan<'a> {
         consistency: MissingRowPolicy,
         continuation: &'a ScalarContinuationContext,
         row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
-    ) -> ScalarPageKernelRequest<'a, 'r> {
-        ScalarPageKernelRequest {
+    ) -> Result<ScalarPageKernelRequest<'a, 'r>, InternalError> {
+        Ok(ScalarPageKernelRequest {
             key_stream,
             scan_budget_hint,
             row_keep_cap: self.branch_set_page_scan_keep_cap(plan, continuation),
+            order_window: self.bounded_materialized_order_scan_window(plan, continuation)?,
             load_order_route_mode,
             consistency,
             scan_strategy: self.kernel_row_scan_strategy,
             continuation,
             row_runtime,
-        }
+        })
     }
 
     // Return the post-access strategy already frozen into this plan.
@@ -128,6 +130,53 @@ impl<'a> ScalarMaterializationPlan<'a> {
             continuation
                 .keep_count_for_limit_window(plan, limit)
                 .saturating_add(1),
+        )
+    }
+
+    // Bound unordered retained-row materialization at the same top-K page
+    // window later consumed by post-access ordering. This is only valid once
+    // residual filtering is already scan-time or absent, because deferred
+    // filters must run before a row can count toward the ordered window.
+    fn bounded_materialized_order_scan_window(
+        &self,
+        plan: &'a AccessPlannedQuery,
+        continuation: &ScalarContinuationContext,
+    ) -> Result<Option<KernelRowOrderWindow<'a>>, InternalError> {
+        let logical = plan.scalar_plan();
+        if !logical.mode.is_load()
+            || logical.distinct
+            || access_order_satisfied_by_route_mode(plan)
+            || self
+                .post_access_strategy
+                .predicate_strategy
+                .requires_post_access_filtering()
+            || self
+                .post_access_strategy
+                .defer_retained_slot_distinct_window
+            || !self.kernel_row_scan_strategy.materializes_slots()
+        {
+            return Ok(None);
+        }
+
+        if logical
+            .order
+            .as_ref()
+            .is_none_or(|order| order.fields.is_empty())
+        {
+            return Ok(None);
+        }
+        let resolved_order = plan.require_resolved_order()?;
+        if !can_use_bounded_direct_order_collection(resolved_order) {
+            return Ok(None);
+        }
+
+        Ok(
+            ExecutionKernel::bounded_order_keep_count(plan, continuation.cursor_boundary()).map(
+                |keep_count| KernelRowOrderWindow {
+                    resolved_order,
+                    keep_count,
+                },
+            ),
         )
     }
 
@@ -191,6 +240,7 @@ impl<'a> CursorlessShortPathPlan<'a> {
             scan_strategy: self.scan_strategy,
             row_keep_cap: self.row_keep_cap,
             row_skip_count: self.row_skip_count,
+            order_window: None,
             row_runtime,
         }
     }
@@ -437,6 +487,28 @@ pub(in crate::db::executor) enum KernelRowScanStrategy<'a> {
         filter_program: &'a EffectiveRuntimeFilterProgram,
         retained_slot_layout: &'a RetainedSlotLayout,
     },
+}
+
+impl KernelRowScanStrategy<'_> {
+    // Return whether rows emitted by this scan strategy carry decoded slots
+    // usable by post-access ordering and cursor comparisons.
+    const fn materializes_slots(self) -> bool {
+        !matches!(self, Self::DataRows)
+    }
+}
+
+///
+/// KernelRowOrderWindow
+///
+/// KernelRowOrderWindow carries the scan-time top-K retained-row order window.
+/// The scan uses it only to reduce the retained working set; post-access
+/// ordering still owns final canonical ordering and pagination.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct KernelRowOrderWindow<'a> {
+    pub(in crate::db::executor) resolved_order: &'a ResolvedOrder,
+    pub(in crate::db::executor) keep_count: usize,
 }
 
 ///

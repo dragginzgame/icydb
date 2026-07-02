@@ -20,6 +20,7 @@ use crate::{
 use std::{array, borrow::Cow, cmp::Ordering, mem};
 
 const INLINE_ORDER_VALUE_CAPACITY: usize = 2;
+const BOUNDED_DIRECT_ORDER_INITIAL_CAPACITY: usize = 64;
 
 ///
 /// OrderReadableRow
@@ -187,6 +188,97 @@ fn apply_structural_order_window_inner<R>(
     cached_rows
         .sort_by(|left, right| compare_cached_orderable_rows(&left.1, &right.1, resolved_order));
     rows.extend(cached_rows.into_iter().map(|(row, _)| row));
+}
+
+/// Return whether a scan-time bounded order window can compare rows through
+/// already-materialized direct slots without evaluating expression terms.
+#[must_use]
+pub(in crate::db::executor) fn can_use_bounded_direct_order_collection(
+    resolved_order: &ResolvedOrder,
+) -> bool {
+    resolved_order_uses_only_direct_fields(resolved_order)
+}
+
+///
+/// BoundedDirectOrderWindow
+///
+/// BoundedDirectOrderWindow retains the best `keep_count` rows under one
+/// direct-slot order while a scan is still running.
+/// It deliberately does not final-sort rows; the canonical post-access
+/// order/window phase remains the final ordering authority.
+///
+
+pub(in crate::db::executor) struct BoundedDirectOrderWindow<R> {
+    rows: Vec<R>,
+    worst_index: Option<usize>,
+    keep_count: usize,
+}
+
+impl<R> BoundedDirectOrderWindow<R>
+where
+    R: OrderReadableRow,
+{
+    /// Build one bounded direct-order accumulator.
+    #[must_use]
+    pub(in crate::db::executor) fn new(keep_count: usize) -> Self {
+        Self {
+            rows: Vec::with_capacity(keep_count.min(BOUNDED_DIRECT_ORDER_INITIAL_CAPACITY)),
+            worst_index: None,
+            keep_count,
+        }
+    }
+
+    /// Retain one candidate if it belongs in the bounded order window.
+    pub(in crate::db::executor) fn push(&mut self, candidate: R, resolved_order: &ResolvedOrder) {
+        if self.keep_count == 0 {
+            return;
+        }
+        if self.rows.len() < self.keep_count {
+            self.rows.push(candidate);
+            self.update_worst_after_append(resolved_order);
+            return;
+        }
+
+        let worst_index = self
+            .worst_index
+            .unwrap_or_else(|| worst_direct_order_row_index(self.rows.as_slice(), resolved_order));
+        if compare_borrowed_direct_orderable_rows(
+            &candidate,
+            &self.rows[worst_index],
+            resolved_order,
+        )
+        .is_lt()
+        {
+            self.rows[worst_index] = candidate;
+            self.worst_index = Some(worst_direct_order_row_index(
+                self.rows.as_slice(),
+                resolved_order,
+            ));
+        }
+    }
+
+    /// Consume the retained, not-yet-final-sorted rows.
+    #[must_use]
+    pub(in crate::db::executor) fn into_rows(self) -> Vec<R> {
+        self.rows
+    }
+
+    fn update_worst_after_append(&mut self, resolved_order: &ResolvedOrder) {
+        let appended_index = self.rows.len().saturating_sub(1);
+        let Some(worst_index) = self.worst_index else {
+            self.worst_index = Some(appended_index);
+            return;
+        };
+        if compare_borrowed_direct_orderable_rows(
+            &self.rows[appended_index],
+            &self.rows[worst_index],
+            resolved_order,
+        )
+        .is_gt()
+        {
+            self.worst_index = Some(appended_index);
+        }
+    }
 }
 
 /// Apply canonical in-memory ordering with an optional bounded top-k window
@@ -432,6 +524,27 @@ where
     }
 
     Ordering::Equal
+}
+
+// Find the currently worst retained row under canonical direct-slot ordering.
+fn worst_direct_order_row_index<R>(rows: &[R], resolved_order: &ResolvedOrder) -> usize
+where
+    R: OrderReadableRow,
+{
+    debug_assert!(
+        !rows.is_empty(),
+        "bounded order window must have retained rows before resolving worst row",
+    );
+    let mut worst_index = 0usize;
+    for index in 1..rows.len() {
+        if compare_borrowed_direct_orderable_rows(&rows[index], &rows[worst_index], resolved_order)
+            .is_gt()
+        {
+            worst_index = index;
+        }
+    }
+
+    worst_index
 }
 
 // Cache one row's order values once so sort/select hot loops can compare

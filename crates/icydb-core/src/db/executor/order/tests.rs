@@ -223,6 +223,24 @@ fn apply_structural_order_window_uses_borrowed_direct_slot_fast_path() {
     );
 }
 
+#[test]
+fn bounded_direct_order_window_keeps_best_rows_without_sorting() {
+    let order = resolved_order(&[(0, OrderDirection::Asc)]);
+    let mut window = BoundedDirectOrderWindow::new(2);
+    for value in [4, 1, 3, 2] {
+        window.push(TestRow::new(vec![Some(Value::Nat64(value))]), &order);
+    }
+    let mut rows = window.into_rows();
+
+    apply_structural_order_window(&mut rows, &order, Some(2));
+
+    let ordered = rows
+        .into_iter()
+        .map(|row| row.read_order_slot(0))
+        .collect::<Vec<_>>();
+    assert_eq!(ordered, vec![Some(Value::Nat64(1)), Some(Value::Nat64(2))]);
+}
+
 crate::test_canister! {
     ident = OrderWindowCanister,
     commit_memory_id = crate::testing::test_commit_memory_id(),

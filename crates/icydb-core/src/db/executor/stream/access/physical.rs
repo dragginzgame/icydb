@@ -343,12 +343,17 @@ impl KeyAccessRuntime {
         validate_index_prefix_count(index_prefix_specs, value_count)?;
 
         let per_prefix_limit = index_fetch_hint.unwrap_or(usize::MAX);
-        let mut keys = Vec::new();
-        for spec in active_lowered_index_prefix_specs(
+        let active_specs = active_lowered_index_prefix_specs(
             Some(self.store),
             index_prefix_specs,
             index_predicate_execution,
-        ) {
+        );
+        let key_capacity = index_fetch_hint.map_or(0, |hint| {
+            hint.saturating_mul(active_specs.len())
+                .min(ACCESS_SCAN_CHUNK_ENTRIES)
+        });
+        let mut keys = Vec::with_capacity(key_capacity);
+        for spec in active_specs {
             keys.extend(IndexScan::prefix_structural(
                 self.store,
                 self.entity_tag,
