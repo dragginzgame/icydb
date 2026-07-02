@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
 
+- `0.194.8` trims retained-slot layout and static residual-planning overhead
+  by caching retained-mode facts and reusing already-derived preparation
+  predicates during finalized query planning.
+
 - `0.194.7` improves sparse indexed `IN (...)` and retained-row direct-field
   ordering hotspots by streaming prefix-family filtering and keeping bounded
   order windows during scan before canonical post-access finalization.
