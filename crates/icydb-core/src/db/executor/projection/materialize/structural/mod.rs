@@ -60,3 +60,23 @@ impl MaterializedProjectionRows {
         self.0
     }
 }
+
+pub(super) struct RowViewCollector {
+    rows: Vec<Vec<Value>>,
+}
+
+impl RowViewCollector {
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            rows: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub(super) fn push(&mut self, row_view: RowView<'_>) {
+        self.rows.push(row_view.into_owned());
+    }
+
+    pub(super) fn finish(self) -> MaterializedProjectionRows {
+        MaterializedProjectionRows::from_value_rows(self.rows)
+    }
+}

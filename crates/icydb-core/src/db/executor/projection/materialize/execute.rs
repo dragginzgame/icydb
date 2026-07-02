@@ -270,9 +270,7 @@ fn project_slot_row_dense_into(
     row: &RetainedSlotRow,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
-    let projection = prepared_projection.projection();
     shaped.clear();
-    shaped.reserve(projection.len());
 
     if project_slot_row_direct_octet_lengths_into(prepared_projection, row, shaped)? {
         return Ok(());
@@ -378,7 +376,6 @@ fn project_slot_row_from_direct_slots_into(
 ) -> Result<(), InternalError> {
     let projections = direct_slots.projections();
     shaped.clear();
-    shaped.reserve(projections.len());
 
     if direct_slots.has_repeated_source() {
         return project_repeated_slot_row_from_direct_slots_into(&mut row, projections, shaped);
@@ -503,7 +500,6 @@ fn project_data_row_from_direct_slots_into(
     let (data_key, raw_row) = row;
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
-    shaped.reserve(projections.len());
 
     for projection in projections {
         let slot = projection.source_slot();
@@ -526,7 +522,6 @@ fn project_repeated_data_row_from_direct_slots_into(
     let (data_key, raw_row) = row;
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
-    shaped.reserve(projections.len());
 
     for projection in projections {
         let value = if let Some(previous_projection_index) = projection.previous_projection_index()
@@ -609,7 +604,6 @@ fn project_scalar_data_row_into(
     shaped.clear();
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
-    shaped.reserve(compiled_fields.len());
 
     for compiled in compiled_fields {
         let mut record_slot = |slot| {

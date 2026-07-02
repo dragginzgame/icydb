@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
 
+- `0.194.6` trims structural projection materialization row-loop overhead by
+  removing repeated no-op buffer reserves and sharing the row-view collection
+  boundary.
+
 - `0.194.5` directly encodes raw index prefix/range scan bounds during access
   lowering, reducing sparse indexed `IN (...)` and indexed range planning costs
   without changing persisted index-key bytes.

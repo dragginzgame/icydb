@@ -10,7 +10,9 @@ use crate::{
             execute::{visit_data_row_views, visit_slot_row_views},
             metrics::ProjectionMaterializationMetricsRecorder,
             plan::PreparedProjectionContract,
-            structural::{MaterializedProjectionRows, identity::project_identity_page},
+            structural::{
+                MaterializedProjectionRows, RowViewCollector, identity::project_identity_page,
+            },
         },
         terminal::RowLayout,
     },
@@ -34,32 +36,32 @@ pub(in crate::db) fn project(
         |slot_rows| {
             metrics.record_slot_rows_path_hit();
 
-            let mut rows = Vec::with_capacity(slot_rows.len());
+            let mut collector = RowViewCollector::with_capacity(slot_rows.len());
             visit_slot_row_views(prepared_projection, slot_rows, |row_view| {
-                rows.push(row_view.into_owned());
+                collector.push(row_view);
 
                 Ok(())
             })?;
 
-            Ok(MaterializedProjectionRows::from_value_rows(rows))
+            Ok(collector.finish())
         },
         |data_rows| {
             metrics.record_data_rows_path_hit();
 
-            let mut rows = Vec::with_capacity(data_rows.len());
+            let mut collector = RowViewCollector::with_capacity(data_rows.len());
             visit_data_row_views(
                 row_layout,
                 prepared_projection,
                 data_rows.as_slice(),
                 metrics,
                 |row_view| {
-                    rows.push(row_view.into_owned());
+                    collector.push(row_view);
 
                     Ok(())
                 },
             )?;
 
-            Ok(MaterializedProjectionRows::from_value_rows(rows))
+            Ok(collector.finish())
         },
     )
 }
