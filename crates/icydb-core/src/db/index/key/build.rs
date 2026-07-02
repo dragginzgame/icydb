@@ -42,6 +42,7 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
+#[cfg(test)]
 use std::ops::Bound;
 
 type AcceptedFieldPathComponentEncoder<'a> = dyn FnMut(&SchemaIndexInfo, &SchemaIndexFieldPathInfo) -> Result<Option<Vec<u8>>, InternalError>
@@ -422,6 +423,7 @@ impl IndexKey {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::index) fn bounds_for_prefix_with_kind<C: AsRef<[u8]>>(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
@@ -495,6 +497,7 @@ impl IndexKey {
     /// - bounds constrain component `prefix.len()`
     /// - remaining suffix components and PK are set to canonical min/max sentinels
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::index) fn bounds_for_prefix_component_range<
         C: AsRef<[u8]>,
         B: AsRef<[u8]>,
@@ -517,6 +520,7 @@ impl IndexKey {
 
     /// Variant of `bounds_for_prefix_component_range` with explicit key kind.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::index) fn bounds_for_prefix_component_range_with_kind<
         C: AsRef<[u8]>,
         B: AsRef<[u8]>,
@@ -1195,6 +1199,7 @@ fn encode_value_index_component_ref(value: &Value) -> Result<Option<Vec<u8>>, In
     Ok(Some(encoded))
 }
 
+#[cfg(test)]
 fn normalize_range_component_bound<C: AsRef<[u8]>>(
     bound: &Bound<C>,
     high: bool,

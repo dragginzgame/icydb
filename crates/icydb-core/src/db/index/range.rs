@@ -222,15 +222,8 @@ pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
     index_len: usize,
     prefix: &[C],
 ) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
-    let (start, end) = IndexKey::bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix);
-    let start = start
-        .to_raw()
-        .map_err(|_| IndexRangeBoundEncodeError::RawKey)?;
-    let end = end
-        .to_raw()
-        .map_err(|_| IndexRangeBoundEncodeError::RawKey)?;
-
-    Ok((start, end))
+    IndexKey::raw_bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix)
+        .map_err(|_| IndexRangeBoundEncodeError::RawKey)
 }
 
 ///
@@ -248,17 +241,15 @@ fn raw_bounds_for_encoded_index_component_range(
 ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
     let lower_component = encoded_component_bound(lower);
     let upper_component = encoded_component_bound(upper);
-    let (start, end) = IndexKey::bounds_for_prefix_component_range(
+    IndexKey::raw_bounds_for_prefix_component_range_with_kind(
         index_id,
+        IndexKeyKind::User,
         index_len,
         prefix,
         &lower_component,
         &upper_component,
-    );
-    let start = raw_index_store_key_bound(start)?;
-    let end = raw_index_store_key_bound(end)?;
-
-    Ok((start, end))
+    )
+    .map_err(|_| IndexRangeBoundEncodeError::RawKey)
 }
 
 ///
@@ -327,22 +318,6 @@ fn encode_semantic_component_bound(
         Bound::Excluded(value) => EncodedValue::try_from_ref(value)
             .map(Bound::Excluded)
             .map_err(|_| kind),
-    }
-}
-
-fn raw_index_store_key_bound(
-    bound: Bound<IndexKey>,
-) -> Result<Bound<RawIndexStoreKey>, IndexRangeBoundEncodeError> {
-    match bound {
-        Bound::Unbounded => Ok(Bound::Unbounded),
-        Bound::Included(key) => key
-            .to_raw()
-            .map(Bound::Included)
-            .map_err(|_| IndexRangeBoundEncodeError::RawKey),
-        Bound::Excluded(key) => key
-            .to_raw()
-            .map(Bound::Excluded)
-            .map_err(|_| IndexRangeBoundEncodeError::RawKey),
     }
 }
 

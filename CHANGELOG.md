@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Move SQL direct-count, prepared projection, and covering-plan cache handles
-  to single-threaded ownership, matching the IC runtime model.
-
 ## [0.194.x] 📊 - 2026-07-01 - Query Perf Hotspot Baseline
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
+
+- `0.194.5` directly encodes raw index prefix/range scan bounds during access
+  lowering, reducing sparse indexed `IN (...)` and indexed range planning costs
+  without changing persisted index-key bytes.
+
+- `0.194.4` moves SQL direct-count and prepared projection cache handles to
+  single-threaded ownership and records the full SQL matrix delta against the
+  pre-Rc baseline.
 
 - `0.194.3` hard-cuts fluent response helper naming from `.one_opt()` to
   `.try_one()`, aligns identity helpers around `id()` / `try_id()` / `ids()`,

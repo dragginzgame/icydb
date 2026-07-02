@@ -39,11 +39,13 @@ impl IndexKey {
     pub(crate) const MIN_STORED_SIZE_USIZE: usize = Self::MIN_STORED_SIZE_BYTES as usize;
 
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn wildcard_low_component() -> Vec<u8> {
         vec![0]
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn wildcard_high_component() -> Vec<u8> {
         vec![0xFF; Self::MAX_COMPONENT_SIZE]
     }

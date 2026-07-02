@@ -66,6 +66,32 @@ fn compact_pk(key: PrimaryKeyComponent) -> Vec<u8> {
         .expect("test primary key should encode")
 }
 
+fn raw_bound_bytes(bound: RangeBound<RawIndexStoreKey>) -> RangeBound<Vec<u8>> {
+    match bound {
+        RangeBound::Unbounded => RangeBound::Unbounded,
+        RangeBound::Included(raw) => RangeBound::Included(raw.as_bytes().to_vec()),
+        RangeBound::Excluded(raw) => RangeBound::Excluded(raw.as_bytes().to_vec()),
+    }
+}
+
+fn raw_bound_bytes_from_index_key_bound(bound: RangeBound<IndexKey>) -> RangeBound<Vec<u8>> {
+    match bound {
+        RangeBound::Unbounded => RangeBound::Unbounded,
+        RangeBound::Included(key) => RangeBound::Included(
+            key.to_raw()
+                .expect("test index key bound should encode")
+                .as_bytes()
+                .to_vec(),
+        ),
+        RangeBound::Excluded(key) => RangeBound::Excluded(
+            key.to_raw()
+                .expect("test index key bound should encode")
+                .as_bytes()
+                .to_vec(),
+        ),
+    }
+}
+
 fn next_random_u64(state: &mut u64) -> u64 {
     let mut x = *state;
     x ^= x << 13;
@@ -371,6 +397,96 @@ fn raw_bounds_for_all_components_match_canonical_wildcard_primary_key_bounds() {
 
     assert_eq!(lower.as_bytes(), expected_lower.as_bytes());
     assert_eq!(upper.as_bytes(), expected_upper.as_bytes());
+}
+
+#[test]
+fn raw_prefix_bounds_direct_encoder_matches_canonical_builder() {
+    let prefix_cases = [
+        Vec::<Vec<u8>>::new(),
+        vec![make_component(0x11)],
+        vec![make_component(0x11), make_component(0x22)],
+    ];
+
+    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+        for index_len in 1..=3 {
+            for prefix in prefix_cases
+                .iter()
+                .filter(|prefix| prefix.len() <= index_len)
+            {
+                let (expected_lower, expected_upper) =
+                    IndexKey::bounds_for_prefix_with_kind(&index_id(), kind, index_len, prefix);
+                let expected_lower = expected_lower
+                    .to_raw()
+                    .expect("canonical prefix lower bound should encode");
+                let expected_upper = expected_upper
+                    .to_raw()
+                    .expect("canonical prefix upper bound should encode");
+                let (actual_lower, actual_upper) =
+                    IndexKey::raw_bounds_for_prefix_with_kind(&index_id(), kind, index_len, prefix)
+                        .expect("direct prefix bounds should encode");
+
+                assert_eq!(actual_lower.as_bytes(), expected_lower.as_bytes());
+                assert_eq!(actual_upper.as_bytes(), expected_upper.as_bytes());
+            }
+        }
+    }
+}
+
+#[test]
+fn raw_component_range_bounds_direct_encoder_matches_canonical_builder() {
+    let prefix_cases = [Vec::<Vec<u8>>::new(), vec![make_component(0x11)]];
+    let lower_cases = [
+        RangeBound::Unbounded,
+        RangeBound::Included(make_component(0x22)),
+        RangeBound::Excluded(make_component(0x33)),
+    ];
+    let upper_cases = [
+        RangeBound::Unbounded,
+        RangeBound::Included(make_component(0x44)),
+        RangeBound::Excluded(make_component(0x55)),
+    ];
+
+    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+        for index_len in 1..=3 {
+            for prefix in prefix_cases
+                .iter()
+                .filter(|prefix| prefix.len() < index_len)
+            {
+                for lower in &lower_cases {
+                    for upper in &upper_cases {
+                        let (expected_lower, expected_upper) =
+                            IndexKey::bounds_for_prefix_component_range_with_kind(
+                                &index_id(),
+                                kind,
+                                index_len,
+                                prefix,
+                                lower,
+                                upper,
+                            );
+                        let (actual_lower, actual_upper) =
+                            IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+                                &index_id(),
+                                kind,
+                                index_len,
+                                prefix,
+                                lower,
+                                upper,
+                            )
+                            .expect("direct component-range bounds should encode");
+
+                        assert_eq!(
+                            raw_bound_bytes_from_index_key_bound(expected_lower),
+                            raw_bound_bytes(actual_lower),
+                        );
+                        assert_eq!(
+                            raw_bound_bytes_from_index_key_bound(expected_upper),
+                            raw_bound_bytes(actual_upper),
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
