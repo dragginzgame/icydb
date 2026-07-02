@@ -98,9 +98,25 @@ pub(super) fn index_multi_lookup_for_in(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Option<AccessPlan<Value>> {
-    // Cache schema/literal compatibility once per `IN` item so candidate-index
-    // selection does not repeat the same field-type check for every index.
+    if values.is_empty() {
+        return None;
+    }
+
     let matcher = index_field_literal_matcher(schema, field);
+    if coercion == CoercionId::Strict
+        && values.iter().all(|value| matcher.matches(value))
+        && let Some(index) =
+            best_strict_field_multi_lookup_index(candidate_indexes, schema, field, order, grouped)
+    {
+        return Some(AccessPlan::index_multi_lookup_from_contract(
+            index,
+            values.to_vec(),
+        ));
+    }
+
+    // Cache schema/literal compatibility once per `IN` item so expression
+    // index candidate selection does not repeat schema checks on every index
+    // iteration.
     let cached_values = values
         .iter()
         .map(|value| (value, matcher.matches(value)))
@@ -155,6 +171,46 @@ pub(super) fn index_multi_lookup_for_in(
     best.map(|(_, index, lookup_values)| {
         AccessPlan::index_multi_lookup_from_contract(index, lookup_values)
     })
+}
+
+fn best_strict_field_multi_lookup_index(
+    candidate_indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
+    field: &str,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+) -> Option<SemanticIndexAccessContract> {
+    let mut best: Option<(AccessCandidateScore, SemanticIndexAccessContract)> = None;
+    for index in candidate_indexes {
+        let Some(SemanticIndexKeyItemRef::Field(key_field)) = index.key_item_at(0) else {
+            continue;
+        };
+        if key_field != field {
+            continue;
+        }
+
+        let score = access_candidate_score_from_index_contract(
+            schema,
+            order,
+            index.clone(),
+            1,
+            index.key_arity() == 1,
+            0,
+            grouped,
+        );
+        match &best {
+            None => best = Some((score, index.clone())),
+            Some((best_score, best_index))
+                if access_candidate_score_outranks(score, *best_score, true)
+                    || (score == *best_score && index.name() < best_index.name()) =>
+            {
+                best = Some((score, index.clone()));
+            }
+            Some(_) => {}
+        }
+    }
+
+    best.map(|(_, index)| index)
 }
 
 pub(super) fn index_prefix_from_and(

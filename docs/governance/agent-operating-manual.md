@@ -178,6 +178,11 @@ struct TypeName;
 - Primary decision metrics: built `.wasm`, shrunk `.wasm`.
 - Deterministic `.wasm.gz` artifacts are secondary transport metrics.
 - Mention gzip deltas only as support or when unexpectedly large.
+- Report wasm-size and performance deltas with an explicit complexity delta.
+  Include files touched, approximate line delta, and a short judgment of whether
+  the implementation shape became simpler, stayed neutral, or became more
+  complex. Do not present small byte/instruction wins without the code-shape
+  cost needed to get them.
 
 ## Historical Cleanup Notes
 

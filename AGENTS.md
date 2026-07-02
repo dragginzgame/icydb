@@ -31,6 +31,9 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
+- Report perf and wasm-size deltas alongside a complexity delta: files touched,
+  approximate line delta, and whether the implementation shape got simpler,
+  stayed neutral, or became more complex.
 
 ## Lookup Docs
 
