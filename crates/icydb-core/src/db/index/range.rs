@@ -89,6 +89,53 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
     RawKey,
 }
 
+///
+/// IndexBoundsLowering
+///
+/// Raw index range bounds plus the exact encoded equality-prefix components
+/// produced while lowering those bounds.
+///
+
+pub(in crate::db) struct IndexBoundsLowering {
+    lower: Bound<RawIndexStoreKey>,
+    upper: Bound<RawIndexStoreKey>,
+    encoded_prefix: Vec<EncodedValue>,
+}
+
+impl IndexBoundsLowering {
+    const fn new(
+        lower: Bound<RawIndexStoreKey>,
+        upper: Bound<RawIndexStoreKey>,
+        encoded_prefix: Vec<EncodedValue>,
+    ) -> Self {
+        Self {
+            lower,
+            upper,
+            encoded_prefix,
+        }
+    }
+
+    pub(in crate::db) fn into_bounds(self) -> (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>) {
+        (self.lower, self.upper)
+    }
+
+    pub(in crate::db) fn into_bounds_and_prefix_components(
+        self,
+    ) -> (
+        Bound<RawIndexStoreKey>,
+        Bound<RawIndexStoreKey>,
+        Vec<Vec<u8>>,
+    ) {
+        let prefix_components = self
+            .encoded_prefix
+            .into_iter()
+            .map(EncodedValue::into_bytes)
+            .collect();
+
+        (self.lower, self.upper, prefix_components)
+    }
+}
+
 impl IndexRangeBoundEncodeError {
     #[must_use]
     pub(in crate::db) const fn cursor_anchor_not_indexable_reason(self) -> &'static str {
@@ -121,6 +168,17 @@ pub(in crate::db) fn build_index_bounds_for_arity(
     index_len: usize,
     spec: IndexBoundsSpec<'_>,
 ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
+    build_index_bounds_lowering_for_arity(index_id, index_len, spec)
+        .map(IndexBoundsLowering::into_bounds)
+}
+
+/// Build raw index-key bounds and return the encoded equality-prefix bytes
+/// produced by the same canonical lowering pass.
+pub(in crate::db) fn build_index_bounds_lowering_for_arity(
+    index_id: &IndexId,
+    index_len: usize,
+    spec: IndexBoundsSpec<'_>,
+) -> Result<IndexBoundsLowering, IndexRangeBoundEncodeError> {
     match spec {
         IndexBoundsSpec::ComponentRange {
             prefix,
@@ -265,7 +323,7 @@ fn raw_bounds_for_semantic_index_component_range(
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
-) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
+) -> Result<IndexBoundsLowering, IndexRangeBoundEncodeError> {
     // Phase 1: encode semantic values into canonical index-component bytes.
     let encoded_prefix =
         EncodedValue::try_encode_all(prefix).map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
@@ -273,13 +331,15 @@ fn raw_bounds_for_semantic_index_component_range(
     let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
 
     // Phase 2: lower encoded bounds to canonical raw index-key bounds.
-    raw_bounds_for_encoded_index_component_range(
+    let (lower, upper) = raw_bounds_for_encoded_index_component_range(
         index_id,
         index_len,
         encoded_prefix.as_slice(),
         &encoded_lower,
         &encoded_upper,
-    )
+    )?;
+
+    Ok(IndexBoundsLowering::new(lower, upper, encoded_prefix))
 }
 
 /// Return the smallest strict lexical successor prefix, or `None` when the

@@ -57,6 +57,11 @@ impl EncodedValue {
     pub(crate) const fn encoded(&self) -> &[u8] {
         self.encoded.as_slice()
     }
+
+    /// Consume this cached wrapper into the owned encoded component bytes.
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
+        self.encoded
+    }
 }
 
 impl AsRef<[u8]> for EncodedValue {

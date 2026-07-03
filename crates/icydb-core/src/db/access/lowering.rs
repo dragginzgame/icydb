@@ -8,7 +8,7 @@ use crate::{
         access::{AccessPath, AccessPlan, ExecutableAccessPlan},
         index::{
             EncodedValue, IndexBoundsSpec, IndexId, IndexKeyKind, IndexRangeBoundEncodeError,
-            RawIndexStoreKey, build_index_bounds_for_arity,
+            RawIndexStoreKey, build_index_bounds_lowering_for_arity,
             build_index_prefix_bounds_for_encoded_components,
             raw_keys_for_component_prefix_with_kind,
         },
@@ -20,6 +20,8 @@ use crate::{
 use std::{ops::Bound, sync::Arc};
 
 pub(in crate::db) type LoweredKey = RawIndexStoreKey;
+
+type LoweredIndexRangeEnvelope = (Bound<LoweredKey>, Bound<LoweredKey>, Vec<Vec<u8>>);
 
 ///
 /// LoweredAccess
@@ -331,27 +333,17 @@ fn lower_index_range_bounds_for_scope(
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
-) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), InternalError> {
+) -> Result<LoweredIndexRangeEnvelope, InternalError> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
-    build_index_bounds_for_arity(
+    let lowering = build_index_bounds_lowering_for_arity(
         &index_id,
         index.key_arity(),
         IndexBoundsSpec::component_range(prefix, lower, upper),
     )
-    .map_err(validated_spec_not_indexable)
-}
+    .map_err(validated_spec_not_indexable)?;
 
-fn lower_index_range_prefix_components(prefix: &[Value]) -> Result<Vec<Vec<u8>>, InternalError> {
-    if prefix.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    Ok(EncodedValue::try_encode_all(prefix)
-        .map_err(|_| InternalError::query_executor_invariant())?
-        .into_iter()
-        .map(|encoded| encoded.encoded().to_vec())
-        .collect())
+    Ok(lowering.into_bounds_and_prefix_components())
 }
 
 // Lower one access node and collect raw index-bound specs in the same
@@ -441,7 +433,7 @@ fn lower_index_specs_for_path<K>(
                 spec.prefix_values().len().saturating_add(1),
                 "semantic range field-slot arity must remain prefix_len + range slot",
             );
-            let (lower, upper) = lower_index_range_bounds_for_scope(
+            let (lower, upper, prefix_components) = lower_index_range_bounds_for_scope(
                 entity_tag,
                 spec.index(),
                 spec.prefix_values(),
@@ -449,8 +441,6 @@ fn lower_index_specs_for_path<K>(
                 spec.upper(),
             )
             .map_err(|_err| LoweredAccessError::IndexRange)?;
-            let prefix_components = lower_index_range_prefix_components(spec.prefix_values())
-                .map_err(|_err| LoweredAccessError::IndexRange)?;
             index_range_specs.push(LoweredIndexRangeSpec::new(
                 spec.index(),
                 lower,
@@ -508,15 +498,18 @@ fn lower_single_component_index_prefix_cardinality_specs(
     }
 
     let index_id = IndexId::new(entity_tag, index_ordinal);
-    let encoded = EncodedValue::try_encode_all(values)
-        .map_err(|_| InternalError::query_executor_invariant())?;
+    let mut specs = Vec::with_capacity(values.len());
+    for value in values {
+        let component = EncodedValue::try_from_ref(value)
+            .map_err(|_| InternalError::query_executor_invariant())?
+            .into_bytes();
+        specs.push(LoweredIndexPrefixCardinalitySpec::new(
+            index_id,
+            vec![component],
+        ));
+    }
 
-    Ok(encoded
-        .into_iter()
-        .map(|component| {
-            LoweredIndexPrefixCardinalitySpec::new(index_id, vec![component.encoded().to_vec()])
-        })
-        .collect())
+    Ok(specs)
 }
 
 fn lower_index_prefix_values_for_specs(
@@ -567,23 +560,48 @@ fn push_lowered_index_prefix_spec_from_encoded_components(
     Ok(())
 }
 
+fn push_lowered_index_prefix_spec_from_single_encoded_component(
+    entity_tag: EntityTag,
+    index: &crate::db::access::SemanticIndexAccessContract,
+    scan_contract: LoweredIndexScanContract,
+    encoded_value: EncodedValue,
+    specs: &mut Vec<LoweredIndexPrefixSpec>,
+) -> Result<(), InternalError> {
+    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let (lower, upper) = build_index_prefix_bounds_for_encoded_components(
+        &index_id,
+        IndexKeyKind::User,
+        index.key_arity(),
+        std::slice::from_ref(&encoded_value),
+    )
+    .map_err(validated_spec_not_indexable)?;
+    specs.push(LoweredIndexPrefixSpec::from_scan_contract(
+        scan_contract,
+        lower,
+        upper,
+        vec![encoded_value.into_bytes()],
+    ));
+
+    Ok(())
+}
+
 fn lower_single_component_index_prefix_values_for_specs(
     entity_tag: EntityTag,
     index: crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let encoded_values = EncodedValue::try_encode_all(values)
-        .map_err(|_| InternalError::query_executor_invariant())?;
     let scan_contract = LoweredIndexScanContract::from_access_contract(index.clone());
 
-    specs.reserve(encoded_values.len());
-    for encoded in encoded_values {
-        push_lowered_index_prefix_spec_from_encoded_components(
+    specs.reserve(values.len());
+    for value in values {
+        let encoded = EncodedValue::try_from_ref(value)
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        push_lowered_index_prefix_spec_from_single_encoded_component(
             entity_tag,
             &index,
             scan_contract.clone(),
-            std::slice::from_ref(&encoded),
+            encoded,
             specs,
         )?;
     }

@@ -12,7 +12,8 @@ use crate::{
             SemanticIndexRangeSpec, lower_access,
         },
         index::{
-            EncodedValue, IndexId, IndexKeyKind, build_index_prefix_bounds_for_encoded_components,
+            EncodedValue, IndexBoundsSpec, IndexId, IndexKeyKind, build_index_bounds_for_arity,
+            build_index_prefix_bounds_for_encoded_components,
         },
         test_support::source_guard::{
             collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
@@ -211,6 +212,44 @@ fn lower_access_index_prefix_matches_canonical_prefix_bounds() {
 
     assert_eq!(spec.lower(), &expected.0);
     assert_eq!(spec.upper(), &expected.1);
+}
+
+#[test]
+fn lower_access_index_range_carries_canonical_prefix_components() {
+    let prefix_values = vec![Value::Nat64(7)];
+    let lower = Bound::Included(Value::Text("alpha".to_string()));
+    let upper = Bound::Excluded(Value::Text("omega".to_string()));
+    let plan: AccessPlan<Value> = AccessPlan::index_range(SemanticIndexRangeSpec::new(
+        CAPABILITY_TEST_INDEX,
+        vec![0, 1],
+        prefix_values.clone(),
+        lower.clone(),
+        upper.clone(),
+    ));
+    let lowered = lower_access(EntityTag::new(0xA11C), &plan).expect("range should lower");
+    let [spec] = lowered.index_range_specs() else {
+        panic!("index range should emit one lowered range spec");
+    };
+    let encoded_prefix =
+        EncodedValue::try_encode_all(prefix_values.as_slice()).expect("prefix should encode");
+    let expected_prefix_components = encoded_prefix
+        .into_iter()
+        .map(EncodedValue::into_bytes)
+        .collect::<Vec<_>>();
+    let expected_bounds = build_index_bounds_for_arity(
+        &IndexId::new(EntityTag::new(0xA11C), CAPABILITY_TEST_INDEX.ordinal()),
+        CAPABILITY_TEST_INDEX.fields().len(),
+        IndexBoundsSpec::component_range(prefix_values.as_slice(), &lower, &upper),
+    )
+    .expect("canonical range bounds should build");
+
+    assert_eq!(spec.lower(), &expected_bounds.0);
+    assert_eq!(spec.upper(), &expected_bounds.1);
+    assert_eq!(
+        spec.prefix_components(),
+        expected_prefix_components.as_slice(),
+        "lowered range specs should retain canonical equality-prefix bytes",
+    );
 }
 
 // Detect raw `AccessPath::` tokens while excluding prefixed identifiers

@@ -40,8 +40,8 @@ pub(in crate::db) use predicate::{
 };
 pub(in crate::db) use range::{
     IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode, build_index_bounds_for_arity,
-    build_index_prefix_bounds_for_encoded_components, raw_keys_for_component_prefix_with_kind,
-    starts_with_component_bounds,
+    build_index_bounds_lowering_for_arity, build_index_prefix_bounds_for_encoded_components,
+    raw_keys_for_component_prefix_with_kind, starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{
     IndexEntryReader, IndexReadContract, PrimaryRowReader, SealedIndexEntryReader,

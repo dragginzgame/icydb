@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
 
+- `0.194.11` optimizes indexed prefix/range lowering by moving encoded
+  component bytes into execution, range, and direct-count cardinality specs
+  instead of cloning or re-encoding intermediate batches.
+
 - `0.194.10` removes redundant SQL filter predicate re-derivation and
   normalization for proven predicate-subset handoffs, reducing sparse indexed
   `IN (...)` compile cost without changing query semantics.
