@@ -314,11 +314,14 @@ fn exact_cardinality_plan_from_lowered_specs(
 }
 
 fn exact_cardinality_index_id_from_lowered_spec(spec: &LoweredIndexPrefixSpec) -> Option<IndexId> {
+    if let Some((index_id, key_kind)) = spec.deferred_cardinality_source() {
+        return (key_kind == IndexKeyKind::User).then_some(index_id);
+    }
     if spec.prefix_components().is_empty() {
         return None;
     }
 
-    let Bound::Included(raw_key) = spec.lower() else {
+    let Ok(Bound::Included(raw_key)) = spec.lower() else {
         return None;
     };
     let key = IndexKey::try_from_raw(raw_key).ok()?;

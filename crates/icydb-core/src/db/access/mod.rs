@@ -37,6 +37,8 @@ pub(in crate::db) use execution_contract::{
     ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
     summarize_executable_access_plan,
 };
+#[cfg(test)]
+pub(in crate::db) use lowering::current_deferred_index_prefix_raw_bound_materialization_count_for_tests;
 pub(in crate::db) use lowering::{
     LoweredAccess, LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
     LoweredIndexScanContract, LoweredKey, lower_access,

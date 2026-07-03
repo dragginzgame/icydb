@@ -505,7 +505,7 @@ impl KeyAccessRuntime {
                 resume_anchor,
                 request.index_fetch_hint,
                 branch_chunk_entries,
-            ),
+            )?,
         ))
     }
 
@@ -665,7 +665,8 @@ fn primary_key_suffix_resume_anchor_for_prefix(
 }
 
 fn lowered_prefix_start_key(spec: &LoweredIndexPrefixSpec) -> Result<IndexKey, InternalError> {
-    let Bound::Included(raw_key) = spec.lower() else {
+    let (lower, _upper) = spec.raw_bounds()?;
+    let Bound::Included(raw_key) = lower else {
         return Err(InternalError::query_executor_invariant());
     };
 
@@ -932,16 +933,17 @@ impl IndexRangeKeyStream {
         anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
         chunk_entries: usize,
-    ) -> Self {
-        Self::new(
+    ) -> Result<Self, InternalError> {
+        let (lower, upper) = spec.raw_bounds()?;
+        Ok(Self::new(
             store,
             entity_tag,
-            (spec.lower().clone(), spec.upper().clone()),
+            (lower.clone(), upper.clone()),
             direction,
             anchor,
             limit,
             chunk_entries,
-        )
+        ))
     }
 
     // Build one index stream from a lowered range envelope and continuation.

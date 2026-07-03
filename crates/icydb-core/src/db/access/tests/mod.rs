@@ -182,10 +182,76 @@ fn lower_access_multi_lookup_matches_individual_prefix_bounds() {
         })
         .collect::<Vec<_>>();
 
+    let lowered_specs = lowered_multi_lookup.index_prefix_specs();
     assert_eq!(
-        lowered_multi_lookup.index_prefix_specs(),
-        expected_prefix_specs.as_slice(),
-        "batched multi-lookup lowering must preserve the exact per-prefix bounds contract",
+        lowered_specs.len(),
+        expected_prefix_specs.len(),
+        "batched multi-lookup lowering must preserve the per-prefix contract count",
+    );
+    for (actual, expected) in lowered_specs.iter().zip(expected_prefix_specs.iter()) {
+        assert!(
+            !actual.has_deferred_raw_bounds_for_tests(),
+            "small multi-lookup prefix raw bounds should stay on the eager path",
+        );
+        assert_eq!(
+            actual.prefix_components(),
+            expected.prefix_components(),
+            "multi-lookup should preserve encoded prefix components",
+        );
+        assert_eq!(
+            actual
+                .raw_bounds()
+                .expect("multi-lookup bounds should lower"),
+            expected.raw_bounds().expect("prefix bounds should lower"),
+            "batched multi-lookup lowering must preserve the exact per-prefix bounds contract",
+        );
+        assert!(
+            actual.deferred_raw_bounds_materialized_for_tests(),
+            "eager small multi-lookup prefix bounds should already be materialized",
+        );
+    }
+}
+
+#[test]
+fn lower_access_large_multi_lookup_defers_prefix_bounds_until_requested() {
+    let index = SemanticIndexAccessContract::model_only_from_generated_index(CAPABILITY_TEST_INDEX);
+    let values = (0..40).map(Value::Nat64).collect::<Vec<_>>();
+    let multi_lookup: AccessPlan<Value> =
+        AccessPlan::index_multi_lookup_from_contract(index, values);
+    let lowered_multi_lookup =
+        lower_access(EntityTag::new(0xA11C), &multi_lookup).expect("multi-lookup should lower");
+    let lowered_specs = lowered_multi_lookup.index_prefix_specs();
+
+    assert_eq!(lowered_specs.len(), 40);
+    assert!(
+        lowered_specs
+            .iter()
+            .all(super::lowering::LoweredIndexPrefixSpec::has_deferred_raw_bounds_for_tests),
+        "large multi-lookup prefix raw bounds should use the deferred path",
+    );
+    assert!(
+        lowered_specs
+            .iter()
+            .all(|spec| !spec.deferred_raw_bounds_materialized_for_tests()),
+        "large multi-lookup lowering should not materialize raw prefix bounds",
+    );
+
+    let first = lowered_specs
+        .first()
+        .expect("large multi-lookup should lower at least one prefix");
+    let _ = first
+        .raw_bounds()
+        .expect("deferred prefix bounds should materialize on demand");
+    assert!(
+        first.deferred_raw_bounds_materialized_for_tests(),
+        "explicit raw-bound access should materialize the deferred multi-lookup bounds",
+    );
+    assert!(
+        lowered_specs
+            .iter()
+            .skip(1)
+            .all(|spec| !spec.deferred_raw_bounds_materialized_for_tests()),
+        "materializing one deferred prefix should not materialize sibling branches",
     );
 }
 
@@ -210,8 +276,14 @@ fn lower_access_index_prefix_matches_canonical_prefix_bounds() {
     )
     .expect("canonical prefix bounds should build");
 
-    assert_eq!(spec.lower(), &expected.0);
-    assert_eq!(spec.upper(), &expected.1);
+    assert_eq!(
+        spec.lower().expect("prefix lower bound should lower"),
+        &expected.0
+    );
+    assert_eq!(
+        spec.upper().expect("prefix upper bound should lower"),
+        &expected.1
+    );
 }
 
 #[test]

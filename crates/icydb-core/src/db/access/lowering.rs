@@ -17,11 +17,37 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
-use std::{ops::Bound, sync::Arc};
+#[cfg(test)]
+use std::cell::Cell;
+use std::{ops::Bound, sync::Arc, sync::OnceLock};
+
+#[cfg(test)]
+thread_local! {
+    static DEFERRED_INDEX_PREFIX_RAW_BOUND_MATERIALIZATION_COUNT: Cell<u64> =
+        const { Cell::new(0) };
+}
+
+#[cfg(test)]
+fn record_deferred_index_prefix_raw_bound_materialization() {
+    DEFERRED_INDEX_PREFIX_RAW_BOUND_MATERIALIZATION_COUNT.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+}
+
+#[cfg(not(test))]
+const fn record_deferred_index_prefix_raw_bound_materialization() {}
+
+#[cfg(test)]
+pub(in crate::db) fn current_deferred_index_prefix_raw_bound_materialization_count_for_tests() -> u64
+{
+    DEFERRED_INDEX_PREFIX_RAW_BOUND_MATERIALIZATION_COUNT.with(Cell::get)
+}
 
 pub(in crate::db) type LoweredKey = RawIndexStoreKey;
 
 type LoweredIndexRangeEnvelope = (Bound<LoweredKey>, Bound<LoweredKey>, Vec<Vec<u8>>);
+
+const DEFERRED_MULTI_LOOKUP_PREFIX_BOUND_MIN_VALUES: usize = 32;
 
 ///
 /// LoweredAccess
@@ -149,9 +175,135 @@ impl LoweredIndexScanContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexPrefixSpec {
     scan_contract: LoweredIndexScanContract,
-    lower: Bound<LoweredKey>,
-    upper: Bound<LoweredKey>,
+    raw_bounds: LoweredIndexPrefixRawBounds,
     prefix_components: Vec<Vec<u8>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DeferredIndexPrefixRawBoundsSource {
+    index_id: IndexId,
+    key_kind: IndexKeyKind,
+    key_arity: usize,
+}
+
+#[derive(Debug)]
+enum LoweredIndexPrefixRawBounds {
+    Materialized {
+        lower: Bound<LoweredKey>,
+        upper: Bound<LoweredKey>,
+    },
+    DeferredComponentPrefix {
+        source: DeferredIndexPrefixRawBoundsSource,
+        raw_bounds: OnceLock<(Bound<LoweredKey>, Bound<LoweredKey>)>,
+    },
+}
+
+impl Clone for LoweredIndexPrefixRawBounds {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Materialized { lower, upper } => Self::Materialized {
+                lower: lower.clone(),
+                upper: upper.clone(),
+            },
+            Self::DeferredComponentPrefix { source, raw_bounds } => {
+                let cloned_raw_bounds = OnceLock::new();
+                if let Some(bounds) = raw_bounds.get() {
+                    let _ = cloned_raw_bounds.set(bounds.clone());
+                }
+
+                Self::DeferredComponentPrefix {
+                    source: *source,
+                    raw_bounds: cloned_raw_bounds,
+                }
+            }
+        }
+    }
+}
+
+impl Eq for LoweredIndexPrefixRawBounds {}
+
+impl PartialEq for LoweredIndexPrefixRawBounds {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Materialized {
+                    lower: left_lower,
+                    upper: left_upper,
+                },
+                Self::Materialized {
+                    lower: right_lower,
+                    upper: right_upper,
+                },
+            ) => left_lower == right_lower && left_upper == right_upper,
+            (
+                Self::DeferredComponentPrefix {
+                    source: left_source,
+                    ..
+                },
+                Self::DeferredComponentPrefix {
+                    source: right_source,
+                    ..
+                },
+            ) => left_source == right_source,
+            _ => false,
+        }
+    }
+}
+
+impl LoweredIndexPrefixRawBounds {
+    const fn materialized(lower: Bound<LoweredKey>, upper: Bound<LoweredKey>) -> Self {
+        Self::Materialized { lower, upper }
+    }
+
+    const fn deferred_component_prefix(
+        index_id: IndexId,
+        key_kind: IndexKeyKind,
+        key_arity: usize,
+    ) -> Self {
+        Self::DeferredComponentPrefix {
+            source: DeferredIndexPrefixRawBoundsSource {
+                index_id,
+                key_kind,
+                key_arity,
+            },
+            raw_bounds: OnceLock::new(),
+        }
+    }
+
+    fn raw_bounds(
+        &self,
+        prefix_components: &[Vec<u8>],
+    ) -> Result<(&Bound<LoweredKey>, &Bound<LoweredKey>), InternalError> {
+        match self {
+            Self::Materialized { lower, upper } => Ok((lower, upper)),
+            Self::DeferredComponentPrefix { source, raw_bounds } => {
+                if let Some(bounds) = raw_bounds.get() {
+                    return Ok((&bounds.0, &bounds.1));
+                }
+
+                let (lower, upper) = raw_keys_for_component_prefix_with_kind(
+                    &source.index_id,
+                    source.key_kind,
+                    source.key_arity,
+                    prefix_components,
+                )
+                .map_err(validated_spec_not_indexable)?;
+                record_deferred_index_prefix_raw_bound_materialization();
+                let _ = raw_bounds.set((Bound::Included(lower), Bound::Included(upper)));
+                raw_bounds
+                    .get()
+                    .map(|bounds| (&bounds.0, &bounds.1))
+                    .ok_or_else(InternalError::query_executor_invariant)
+            }
+        }
+    }
+
+    const fn deferred_source(&self) -> Option<DeferredIndexPrefixRawBoundsSource> {
+        match self {
+            Self::Materialized { .. } => None,
+            Self::DeferredComponentPrefix { source, .. } => Some(*source),
+        }
+    }
 }
 
 impl LoweredIndexPrefixSpec {
@@ -179,8 +331,24 @@ impl LoweredIndexPrefixSpec {
     ) -> Self {
         Self {
             scan_contract,
-            lower,
-            upper,
+            raw_bounds: LoweredIndexPrefixRawBounds::materialized(lower, upper),
+            prefix_components,
+        }
+    }
+
+    #[must_use]
+    const fn from_deferred_component_prefix(
+        scan_contract: LoweredIndexScanContract,
+        index_id: IndexId,
+        key_kind: IndexKeyKind,
+        key_arity: usize,
+        prefix_components: Vec<Vec<u8>>,
+    ) -> Self {
+        Self {
+            scan_contract,
+            raw_bounds: LoweredIndexPrefixRawBounds::deferred_component_prefix(
+                index_id, key_kind, key_arity,
+            ),
             prefix_components,
         }
     }
@@ -217,19 +385,54 @@ impl LoweredIndexPrefixSpec {
         self.scan_contract.clone()
     }
 
-    #[must_use]
-    pub(in crate::db) const fn lower(&self) -> &Bound<LoweredKey> {
-        &self.lower
+    pub(in crate::db) fn raw_bounds(
+        &self,
+    ) -> Result<(&Bound<LoweredKey>, &Bound<LoweredKey>), InternalError> {
+        self.raw_bounds.raw_bounds(self.prefix_components())
     }
 
-    #[must_use]
-    pub(in crate::db) const fn upper(&self) -> &Bound<LoweredKey> {
-        &self.upper
+    pub(in crate::db) fn lower(&self) -> Result<&Bound<LoweredKey>, InternalError> {
+        self.raw_bounds().map(|bounds| bounds.0)
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn upper(&self) -> Result<&Bound<LoweredKey>, InternalError> {
+        self.raw_bounds().map(|bounds| bounds.1)
     }
 
     #[must_use]
     pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
         self.prefix_components.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn deferred_cardinality_source(
+        &self,
+    ) -> Option<(IndexId, IndexKeyKind)> {
+        match self.raw_bounds.deferred_source() {
+            Some(source) => Some((source.index_id, source.key_kind)),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn has_deferred_raw_bounds_for_tests(&self) -> bool {
+        matches!(
+            &self.raw_bounds,
+            LoweredIndexPrefixRawBounds::DeferredComponentPrefix { .. }
+        )
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn deferred_raw_bounds_materialized_for_tests(&self) -> bool {
+        match &self.raw_bounds {
+            LoweredIndexPrefixRawBounds::Materialized { .. } => true,
+            LoweredIndexPrefixRawBounds::DeferredComponentPrefix { raw_bounds, .. } => {
+                raw_bounds.get().is_some()
+            }
+        }
     }
 }
 
@@ -566,19 +769,32 @@ fn push_lowered_index_prefix_spec_from_single_encoded_component(
     scan_contract: LoweredIndexScanContract,
     encoded_value: EncodedValue,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
+    defer_raw_bounds: bool,
 ) -> Result<(), InternalError> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
-    let (lower, upper) = build_index_prefix_bounds_for_encoded_components(
-        &index_id,
+    if !defer_raw_bounds {
+        let (lower, upper) = build_index_prefix_bounds_for_encoded_components(
+            &index_id,
+            IndexKeyKind::User,
+            index.key_arity(),
+            std::slice::from_ref(&encoded_value),
+        )
+        .map_err(validated_spec_not_indexable)?;
+        specs.push(LoweredIndexPrefixSpec::from_scan_contract(
+            scan_contract,
+            lower,
+            upper,
+            vec![encoded_value.into_bytes()],
+        ));
+
+        return Ok(());
+    }
+
+    specs.push(LoweredIndexPrefixSpec::from_deferred_component_prefix(
+        scan_contract,
+        index_id,
         IndexKeyKind::User,
         index.key_arity(),
-        std::slice::from_ref(&encoded_value),
-    )
-    .map_err(validated_spec_not_indexable)?;
-    specs.push(LoweredIndexPrefixSpec::from_scan_contract(
-        scan_contract,
-        lower,
-        upper,
         vec![encoded_value.into_bytes()],
     ));
 
@@ -592,6 +808,7 @@ fn lower_single_component_index_prefix_values_for_specs(
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
     let scan_contract = LoweredIndexScanContract::from_access_contract(index.clone());
+    let defer_raw_bounds = values.len() >= DEFERRED_MULTI_LOOKUP_PREFIX_BOUND_MIN_VALUES;
 
     specs.reserve(values.len());
     for value in values {
@@ -603,6 +820,7 @@ fn lower_single_component_index_prefix_values_for_specs(
             scan_contract.clone(),
             encoded,
             specs,
+            defer_raw_bounds,
         )?;
     }
 

@@ -3,7 +3,7 @@ use crate::{
         access::LoweredKey,
         codec::hex::encode_hex_lower,
         executor::{
-            PreparedExecutionPlan,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, PreparedExecutionPlan,
             planning::route::{
                 LoadTerminalFastPathContract, derive_load_terminal_fast_path_contract_for_plan,
             },
@@ -43,59 +43,8 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             derive_load_terminal_fast_path_contract_for_plan(authority, plan);
 
         // Phase 2: lower index-bound summaries into stable compact text.
-        let render_lowered_bound = |bound: &Bound<LoweredKey>| match bound {
-            Bound::Included(key) => {
-                let bytes = key.as_bytes();
-                let head_len = bytes.len().min(8);
-                let tail_len = bytes.len().min(8);
-                let head = encode_hex_lower(&bytes[..head_len]);
-                let tail = encode_hex_lower(&bytes[bytes.len() - tail_len..]);
-
-                format!("included(len:{}:head:{head}:tail:{tail})", bytes.len())
-            }
-            Bound::Excluded(key) => {
-                let bytes = key.as_bytes();
-                let head_len = bytes.len().min(8);
-                let tail_len = bytes.len().min(8);
-                let head = encode_hex_lower(&bytes[..head_len]);
-                let tail = encode_hex_lower(&bytes[bytes.len() - tail_len..]);
-
-                format!("excluded(len:{}:head:{head}:tail:{tail})", bytes.len())
-            }
-            Bound::Unbounded => "unbounded".to_string(),
-        };
-        let index_prefix_specs = format!(
-            "[{}]",
-            self.core
-                .index_prefix_specs()?
-                .iter()
-                .map(|spec| {
-                    format!(
-                        "{{index:{},bound_type:equality,lower:{},upper:{}}}",
-                        spec.scan_contract().name(),
-                        render_lowered_bound(spec.lower()),
-                        render_lowered_bound(spec.upper()),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-        let index_range_specs = format!(
-            "[{}]",
-            self.core
-                .index_range_specs()?
-                .iter()
-                .map(|spec| {
-                    format!(
-                        "{{index:{},lower:{},upper:{}}}",
-                        spec.scan_contract().name(),
-                        render_lowered_bound(spec.lower()),
-                        render_lowered_bound(spec.upper()),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",")
-        );
+        let index_prefix_specs = render_index_prefix_specs(self.core.index_prefix_specs()?)?;
+        let index_range_specs = render_index_range_specs(self.core.index_range_specs()?);
         let explain_plan = plan.explain();
 
         // Phase 3: join the canonical snapshot payload in one stable line order.
@@ -129,4 +78,59 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         ]
         .join("\n"))
     }
+}
+
+fn render_index_prefix_specs(specs: &[LoweredIndexPrefixSpec]) -> Result<String, InternalError> {
+    Ok(format!(
+        "[{}]",
+        specs
+            .iter()
+            .map(|spec| {
+                let (lower, upper) = spec.raw_bounds()?;
+                Ok(format!(
+                    "{{index:{},bound_type:equality,lower:{},upper:{}}}",
+                    spec.scan_contract().name(),
+                    render_lowered_bound(lower),
+                    render_lowered_bound(upper),
+                ))
+            })
+            .collect::<Result<Vec<_>, InternalError>>()?
+            .join(",")
+    ))
+}
+
+fn render_index_range_specs(specs: &[LoweredIndexRangeSpec]) -> String {
+    format!(
+        "[{}]",
+        specs
+            .iter()
+            .map(|spec| {
+                format!(
+                    "{{index:{},lower:{},upper:{}}}",
+                    spec.scan_contract().name(),
+                    render_lowered_bound(spec.lower()),
+                    render_lowered_bound(spec.upper()),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn render_lowered_bound(bound: &Bound<LoweredKey>) -> String {
+    match bound {
+        Bound::Included(key) => render_key_bound("included", key),
+        Bound::Excluded(key) => render_key_bound("excluded", key),
+        Bound::Unbounded => "unbounded".to_string(),
+    }
+}
+
+fn render_key_bound(kind: &str, key: &LoweredKey) -> String {
+    let bytes = key.as_bytes();
+    let head_len = bytes.len().min(8);
+    let tail_len = bytes.len().min(8);
+    let head = encode_hex_lower(&bytes[..head_len]);
+    let tail = encode_hex_lower(&bytes[bytes.len() - tail_len..]);
+
+    format!("{kind}(len:{}:head:{head}:tail:{tail})", bytes.len())
 }

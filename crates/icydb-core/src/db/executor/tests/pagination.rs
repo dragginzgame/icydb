@@ -6,6 +6,7 @@
 use super::support::*;
 use crate::{
     db::{
+        access::current_deferred_index_prefix_raw_bound_materialization_count_for_tests,
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec, lower_access},
         cursor::{
             ContinuationToken, CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput,
@@ -3745,11 +3746,21 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
         "single index-prefix path should lower to exactly one prefix spec",
     );
     assert!(
-        matches!(prefix_specs[0].lower(), std::ops::Bound::Included(_)),
+        matches!(
+            prefix_specs[0]
+                .lower()
+                .expect("prefix lower bound should lower"),
+            std::ops::Bound::Included(_)
+        ),
         "index-prefix lower bound should stay closed",
     );
     assert!(
-        matches!(prefix_specs[0].upper(), std::ops::Bound::Included(_)),
+        matches!(
+            prefix_specs[0]
+                .upper()
+                .expect("prefix upper bound should lower"),
+            std::ops::Bound::Included(_)
+        ),
         "index-prefix upper bound should stay closed",
     );
     let pushdown_response = load
@@ -6196,12 +6207,17 @@ fn load_index_multi_lookup_sparse_values_prunes_empty_prefix_range_scans() {
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("sparse indexed IN plan should build");
+    let deferred_raw_bounds_before =
+        current_deferred_index_prefix_raw_bound_materialization_count_for_tests();
     let range_scans_before = IndexStore::current_range_scan_call_count();
     let response = load
         .execute(plan)
         .expect("sparse indexed IN load should execute");
     let range_scans =
         IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+    let deferred_raw_bounds =
+        current_deferred_index_prefix_raw_bound_materialization_count_for_tests()
+            .saturating_sub(deferred_raw_bounds_before);
 
     assert_eq!(
         indexed_metric_ids_from_response(&response),
@@ -6215,6 +6231,10 @@ fn load_index_multi_lookup_sparse_values_prunes_empty_prefix_range_scans() {
     assert_eq!(
         range_scans, 1,
         "sparse indexed IN load should not open one index range per empty IN value (range_scans={range_scans})",
+    );
+    assert_eq!(
+        deferred_raw_bounds, 1,
+        "sparse indexed IN load should materialize raw bounds only for the live retained branch",
     );
 }
 

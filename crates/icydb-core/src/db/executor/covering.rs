@@ -252,11 +252,12 @@ where
     match PrefixSetExecutionShape::from_active_prefixes(active_specs, scan.merge_safety) {
         PrefixSetExecutionShape::Empty => Ok(Vec::new()),
         PrefixSetExecutionShape::Single(active) => {
+            let (lower, upper) = active.prefix.raw_bounds()?;
             resolve_covering_projection_components_for_index_bounds(
                 active.store,
                 entity_tag,
                 active.scan_contract,
-                (active.prefix.lower(), active.prefix.upper()),
+                (lower, upper),
                 IndexScanContinuationInput::new(None, scan.direction),
                 scan.limit,
                 component_indices.as_ref(),
@@ -276,12 +277,13 @@ where
             let chunk_entries = branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
             let mut streams = Vec::with_capacity(active_specs.len());
             for active in active_specs {
+                let (lower, upper) = active.prefix.raw_bounds()?;
                 streams.push(CoveringComponentStreamBox::prefix(
                     active.store,
                     entity_tag,
                     active.scan_contract,
-                    active.prefix.lower().clone(),
-                    active.prefix.upper().clone(),
+                    lower.clone(),
+                    upper.clone(),
                     scan.direction,
                     Some(scan.limit),
                     chunk_entries,
@@ -310,11 +312,12 @@ fn resolve_materialized_covering_projection_components_for_prefix_set(
 ) -> Result<CoveringProjectionComponentRows, InternalError> {
     let mut rows = Vec::new();
     for active in active_specs {
+        let (lower, upper) = active.prefix.raw_bounds()?;
         rows.extend(resolve_covering_projection_components_for_index_bounds(
             active.store,
             entity_tag,
             active.scan_contract,
-            (active.prefix.lower(), active.prefix.upper()),
+            (lower, upper),
             IndexScanContinuationInput::new(None, scan.direction),
             usize::MAX,
             component_indices,

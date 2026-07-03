@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.195.x] 📊 - 2026-07-03 - Deferred Access Physicalization
+
+Detailed notes: [docs/changelog/0.195.md](docs/changelog/0.195.md)
+
+- `0.195.0` starts deferred access physicalization by keeping large indexed
+  multi-lookup prefix bounds logical until execution-time empty-prefix pruning,
+  reducing sparse `IN (...)` page planning cost without changing route, cache,
+  cursor, or persisted-format semantics.
+
 ## [0.194.x] 📊 - 2026-07-01 - Query Perf Hotspot Baseline
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)

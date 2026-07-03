@@ -276,11 +276,12 @@ impl IndexScan {
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
+        let (lower, upper) = spec.raw_bounds()?;
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
-            spec.lower(),
-            spec.upper(),
+            lower,
+            upper,
             IndexScanContinuationInput::new(None, direction),
             limit,
             predicate_execution,
