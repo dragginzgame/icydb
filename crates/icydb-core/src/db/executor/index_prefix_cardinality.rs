@@ -382,8 +382,10 @@ mod tests {
     use crate::{
         db::{
             access::SemanticIndexAccessContract,
-            index::{IndexEntryValue, IndexKey, RawIndexStoreKey},
-            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            index::{IndexEntryValue, RawIndexStoreKey},
+            key_taxonomy::{
+                EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKey, PrimaryKeyComponent,
+            },
         },
         model::index::IndexModel,
     };
@@ -413,13 +415,14 @@ mod tests {
     }
 
     fn liveness_raw_key(component: &[u8], primary_key: u64) -> RawIndexStoreKey {
-        IndexKey::new_from_components_with_primary_key_value(
-            &IndexId::new(LIVENESS_ENTITY, LIVENESS_INDEX.ordinal()),
-            IndexKeyKind::User,
-            &[component.to_vec()],
-            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
+        IndexStoreKey::new(
+            IndexId::new(LIVENESS_ENTITY, LIVENESS_INDEX.ordinal()),
+            vec![EncodedIndexComponent::from_canonical_bytes(
+                component.to_vec(),
+            )],
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat64(primary_key))
+                .expect("test primary key should encode"),
         )
-        .expect("test index key should build")
         .to_raw()
         .expect("test index key should encode")
     }
