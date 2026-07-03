@@ -12,7 +12,8 @@ use crate::{
             SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
             SchemaVersion, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
-            execute_sql_ddl_field_addition,
+            execute_sql_ddl_field_addition, persisted_schema_snapshot_decode_count_for_tests,
+            reset_persisted_schema_snapshot_decode_count_for_tests,
         },
         session::sql::{
             SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
@@ -805,6 +806,38 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         show_memory,
         session.show_memory(),
         "SHOW MEMORY should expose the same public payload as the typed metadata surface",
+    );
+}
+
+#[test]
+fn show_entities_reuses_accepted_schema_cache_after_identity_probe() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
+
+    let first = session
+        .try_show_entities()
+        .expect("SHOW ENTITIES should derive from accepted schema snapshots");
+    assert!(
+        first
+            .iter()
+            .any(|entry| entry.entity_path() == JournaledSessionSqlEntity::PATH),
+        "SHOW ENTITIES should include the journaled SQL entity: {first:?}",
+    );
+
+    reset_persisted_schema_snapshot_decode_count_for_tests();
+    let second = session
+        .try_show_entities()
+        .expect("cached SHOW ENTITIES should still derive");
+
+    assert_eq!(
+        second, first,
+        "cached SHOW ENTITIES should preserve the public catalog payload",
+    );
+    assert_eq!(
+        persisted_schema_snapshot_decode_count_for_tests(),
+        0,
+        "warm SHOW ENTITIES should reuse accepted schema snapshots after the identity probe",
     );
 }
 

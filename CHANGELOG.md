@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Reuses accepted-schema query cache entries for warm `SHOW ENTITIES`
+  catalog reads after an accepted identity probe, avoiding repeated schema
+  snapshot decodes.
+
 ## [0.194.x] 📊 - 2026-07-01 - Query Perf Hotspot Baseline
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)

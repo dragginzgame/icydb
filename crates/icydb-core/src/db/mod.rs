@@ -45,7 +45,6 @@ use crate::{
         data::RawDataStoreKey,
         executor::Context,
         registry::StoreHandle,
-        schema::{AcceptedSchemaSnapshot, PersistedFieldKind, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -453,53 +452,6 @@ impl<C: CanisterKind> Db<C> {
         runtime_hooks::has_runtime_hooks(self.entity_runtime_hooks)
     }
 
-    /// Return one deterministic list of registered runtime entity catalog rows.
-    pub(crate) fn runtime_entity_catalog(
-        &self,
-    ) -> Result<Vec<EntityCatalogDescription>, InternalError> {
-        let mut entities = Vec::with_capacity(self.entity_runtime_hooks.len());
-
-        for hooks in self.entity_runtime_hooks {
-            let store = self.recovered_store(hooks.store_path)?;
-            let storage = store
-                .storage_capabilities()
-                .storage_mode()
-                .as_str()
-                .to_string();
-            let accepted = store.with_schema_mut(|schema_store| {
-                if let Some(snapshot) = schema_store.latest_persisted_snapshot(hooks.entity_tag)? {
-                    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
-                    if accepted.entity_path() == hooks.entity_path {
-                        return Ok(accepted);
-                    }
-                }
-
-                ensure_accepted_schema_snapshot(
-                    schema_store,
-                    hooks.entity_tag,
-                    hooks.entity_path,
-                    hooks.model,
-                )
-            })?;
-            let snapshot = accepted.persisted_snapshot();
-
-            entities.push(EntityCatalogDescription::new(
-                snapshot.entity_name().to_string(),
-                snapshot.entity_path().to_string(),
-                hooks.store_path.to_string(),
-                storage,
-                EntityCatalogCounts::new(
-                    u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),
-                    u32::try_from(snapshot.indexes().len()).unwrap_or(u32::MAX),
-                    u32::try_from(relation_field_count(snapshot.fields())).unwrap_or(u32::MAX),
-                    snapshot.version().get(),
-                ),
-            ));
-        }
-
-        Ok(entities)
-    }
-
     /// Return one deterministic list of registered runtime stores.
     #[must_use]
     pub(crate) fn runtime_store_catalog(&self) -> Vec<StoreCatalogDescription> {
@@ -572,23 +524,6 @@ impl<C: CanisterKind> Db<C> {
         entity_path: &str,
     ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
         runtime_hooks::resolve_runtime_hook_by_path(self.entity_runtime_hooks, entity_path)
-    }
-}
-
-fn relation_field_count(fields: &[crate::db::schema::PersistedFieldSnapshot]) -> usize {
-    fields
-        .iter()
-        .filter(|field| persisted_kind_is_relation_field(field.kind()))
-        .count()
-}
-
-fn persisted_kind_is_relation_field(kind: &PersistedFieldKind) -> bool {
-    match kind {
-        PersistedFieldKind::Relation { .. } => true,
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
-            matches!(inner.as_ref(), PersistedFieldKind::Relation { .. })
-        }
-        _ => false,
     }
 }
 

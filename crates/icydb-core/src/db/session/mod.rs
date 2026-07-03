@@ -19,19 +19,20 @@ mod write;
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
-        Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
-        FluentLoadQuery, IntegrityReport, MissingRowPolicy, PersistedRow, Query, StorageReport,
+        Db, EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription,
+        EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
+        IntegrityReport, MissingRowPolicy, PersistedRow, Query, StorageReport,
         StoreCatalogDescription, StoreRegistry, WriteBatchResponse,
         commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         schema::{
             AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedRowDecodeContract,
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo, SchemaVersion,
-            accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
-            describe_entity_fields, describe_entity_fields_with_persisted_schema,
-            describe_entity_model, describe_entity_model_with_persisted_schema,
-            ensure_accepted_schema_snapshot, show_indexes_for_model,
-            show_indexes_for_model_with_runtime_state,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, PersistedFieldKind,
+            PersistedFieldSnapshot, SchemaInfo, SchemaVersion, accepted_commit_schema_fingerprint,
+            accepted_schema_cache_fingerprint, describe_entity_fields,
+            describe_entity_fields_with_persisted_schema, describe_entity_model,
+            describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
+            show_indexes_for_model, show_indexes_for_model_with_runtime_state,
             show_indexes_for_schema_info_with_runtime_state,
         },
     },
@@ -108,6 +109,8 @@ struct AcceptedSchemaQueryCacheEntry {
     snapshot: AcceptedSchemaSnapshot,
     identity: AcceptedCatalogIdentity,
 }
+
+type AcceptedSchemaQueryCacheKey = (usize, &'static str);
 
 pub(in crate::db) type AcceptedSaveContract = (
     AcceptedRowDecodeContract,
@@ -287,6 +290,23 @@ where
         schema_info,
         schema_fingerprint,
     ))
+}
+
+fn relation_field_count(fields: &[PersistedFieldSnapshot]) -> usize {
+    fields
+        .iter()
+        .filter(|field| persisted_kind_is_relation_field(field.kind()))
+        .count()
+}
+
+fn persisted_kind_is_relation_field(kind: &PersistedFieldKind) -> bool {
+    match kind {
+        PersistedFieldKind::Relation { .. } => true,
+        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+            matches!(inner.as_ref(), PersistedFieldKind::Relation { .. })
+        }
+        _ => false,
+    }
 }
 
 thread_local! {
@@ -628,10 +648,105 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Return one stable list of runtime-registered entity catalog entries.
-    pub fn try_show_entities(
+    pub fn try_show_entities(&self) -> Result<Vec<EntityCatalogDescription>, InternalError> {
+        let mut entities = Vec::with_capacity(self.db.entity_runtime_hooks.len());
+
+        for hooks in self.db.entity_runtime_hooks {
+            let store = self.db.recovered_store(hooks.store_path)?;
+            let storage = store
+                .storage_capabilities()
+                .storage_mode()
+                .as_str()
+                .to_string();
+            let accepted = self.accepted_schema_catalog_context_for_runtime_hook(hooks, store)?;
+            let snapshot = accepted.snapshot().persisted_snapshot();
+
+            entities.push(EntityCatalogDescription::new(
+                snapshot.entity_name().to_string(),
+                snapshot.entity_path().to_string(),
+                hooks.store_path.to_string(),
+                storage,
+                EntityCatalogCounts::new(
+                    u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),
+                    u32::try_from(snapshot.indexes().len()).unwrap_or(u32::MAX),
+                    u32::try_from(relation_field_count(snapshot.fields())).unwrap_or(u32::MAX),
+                    snapshot.version().get(),
+                ),
+            ));
+        }
+
+        Ok(entities)
+    }
+
+    fn accepted_schema_catalog_context_for_runtime_hook(
         &self,
-    ) -> Result<Vec<crate::db::EntityCatalogDescription>, InternalError> {
-        self.db.runtime_entity_catalog()
+        hooks: &EntityRuntimeHooks<C>,
+        store: crate::db::registry::StoreHandle,
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
+        let cache_key = self.accepted_schema_query_cache_key(hooks.entity_path);
+        if let Some(context) =
+            Self::accepted_schema_catalog_context_from_runtime_hook_cache(cache_key, hooks, store)?
+        {
+            return Ok(context);
+        }
+
+        let snapshot = Self::load_accepted_schema_snapshot_for_runtime_hook(hooks, store)?;
+        let identity = AcceptedCatalogIdentity::new(
+            hooks.entity_tag,
+            hooks.entity_path,
+            hooks.store_path,
+            snapshot.persisted_snapshot().version(),
+            accepted_schema_cache_fingerprint(&snapshot)?,
+        );
+        let context = AcceptedSchemaCatalogContext::new(snapshot.clone(), identity);
+        Self::insert_accepted_schema_query_cache(cache_key, snapshot, identity);
+
+        Ok(context)
+    }
+
+    fn accepted_schema_catalog_context_from_runtime_hook_cache(
+        cache_key: AcceptedSchemaQueryCacheKey,
+        hooks: &EntityRuntimeHooks<C>,
+        store: crate::db::registry::StoreHandle,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
+        let selection = store.with_schema_mut(|schema_store| {
+            schema_store.latest_catalog_identity(
+                hooks.entity_tag,
+                hooks.entity_path,
+                hooks.store_path,
+            )
+        })?;
+        if let Some(selection) = selection
+            && let Some(context) = Self::accepted_schema_catalog_context_from_query_cache(
+                cache_key,
+                selection.identity(),
+            )
+        {
+            return Ok(Some(context));
+        }
+
+        Ok(None)
+    }
+
+    fn load_accepted_schema_snapshot_for_runtime_hook(
+        hooks: &EntityRuntimeHooks<C>,
+        store: crate::db::registry::StoreHandle,
+    ) -> Result<AcceptedSchemaSnapshot, InternalError> {
+        store.with_schema_mut(|schema_store| {
+            if let Some(snapshot) = schema_store.latest_persisted_snapshot(hooks.entity_tag)? {
+                let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+                if accepted.entity_path() == hooks.entity_path {
+                    return Ok(accepted);
+                }
+            }
+
+            ensure_accepted_schema_snapshot(
+                schema_store,
+                hooks.entity_tag,
+                hooks.entity_path,
+                hooks.model,
+            )
+        })
     }
 
     /// Return one stable list of runtime-registered stores.
@@ -729,6 +844,45 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    fn accepted_schema_query_cache_key(
+        &self,
+        entity_path: &'static str,
+    ) -> AcceptedSchemaQueryCacheKey {
+        (self.db.cache_scope_id(), entity_path)
+    }
+
+    fn accepted_schema_catalog_context_from_query_cache(
+        cache_key: AcceptedSchemaQueryCacheKey,
+        identity: AcceptedCatalogIdentity,
+    ) -> Option<AcceptedSchemaCatalogContext> {
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow().get(&cache_key).and_then(|entry| {
+                (entry.identity == identity)
+                    .then(|| AcceptedSchemaCatalogContext::new(entry.snapshot.clone(), identity))
+            })
+        })
+    }
+
+    fn insert_accepted_schema_query_cache(
+        cache_key: AcceptedSchemaQueryCacheKey,
+        snapshot: AcceptedSchemaSnapshot,
+        identity: AcceptedCatalogIdentity,
+    ) {
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow_mut().insert(
+                cache_key,
+                AcceptedSchemaQueryCacheEntry { snapshot, identity },
+            );
+        });
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn clear_accepted_schema_query_cache_for_tests() {
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow_mut().clear();
+        });
+    }
+
     // Load the current accepted schema snapshot for read/query paths without
     // rerunning generated proposal reconciliation on every cold query call.
     // Startup and write paths still own reconciliation; the fallback only keeps
@@ -739,7 +893,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let cache_key = (self.db.cache_scope_id(), E::PATH);
+        let cache_key = self.accepted_schema_query_cache_key(E::PATH);
         if let Some(entry) =
             ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned())
         {
@@ -758,15 +912,7 @@ impl<C: CanisterKind> DbSession<C> {
             snapshot.persisted_snapshot().version(),
             fingerprint,
         );
-        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache.borrow_mut().insert(
-                cache_key,
-                AcceptedSchemaQueryCacheEntry {
-                    snapshot: snapshot.clone(),
-                    identity,
-                },
-            );
-        });
+        Self::insert_accepted_schema_query_cache(cache_key, snapshot.clone(), identity);
 
         Ok(AcceptedSchemaCatalogContext::new(snapshot, identity))
     }
@@ -791,15 +937,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let cache_key = (self.db.cache_scope_id(), E::PATH);
-        if let Some(entry) =
-            ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned())
-            && entry.identity == selection.identity()
+        let cache_key = self.accepted_schema_query_cache_key(E::PATH);
+        if let Some(context) =
+            Self::accepted_schema_catalog_context_from_query_cache(cache_key, selection.identity())
         {
-            return Ok(Some(AcceptedSchemaCatalogContext::new(
-                entry.snapshot,
-                entry.identity,
-            )));
+            return Ok(Some(context));
         }
 
         let snapshot = selection.decode_verified()?;
@@ -808,15 +950,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let context = AcceptedSchemaCatalogContext::new(snapshot.clone(), selection.identity());
 
-        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache.borrow_mut().insert(
-                cache_key,
-                AcceptedSchemaQueryCacheEntry {
-                    snapshot,
-                    identity: selection.identity(),
-                },
-            );
-        });
+        Self::insert_accepted_schema_query_cache(cache_key, snapshot, selection.identity());
 
         Ok(Some(context))
     }
@@ -826,7 +960,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let cache_key = (self.db.cache_scope_id(), E::PATH);
+        let cache_key = self.accepted_schema_query_cache_key(E::PATH);
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow_mut().remove(&cache_key);
         });
