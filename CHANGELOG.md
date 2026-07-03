@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Makes 0.195 branch liveness an explicit tri-state executor contract so
+  runtime prefix pruning skips only generation-compatible proven-empty
+  branches and conservatively scans missing or stale metadata.
+
 ## [0.195.x] 📊 - 2026-07-03 - Deferred Access Physicalization
 
 Detailed notes: [docs/changelog/0.195.md](docs/changelog/0.195.md)

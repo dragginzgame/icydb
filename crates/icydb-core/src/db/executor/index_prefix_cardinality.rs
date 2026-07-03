@@ -96,15 +96,49 @@ impl ExpandedIndexPrefixFamily {
     }
 }
 
-/// Return whether one lowered exact-prefix scan is proven empty by synchronized metadata.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum IndexBranchLiveness {
+    ProvenEmpty(IndexBranchEmptyReason),
+    PossiblyLive,
+    UnknownConservative(IndexBranchUnknownReason),
+}
+
+impl IndexBranchLiveness {
+    #[must_use]
+    pub(in crate::db::executor) const fn should_scan(self) -> bool {
+        match self {
+            Self::ProvenEmpty(reason) => {
+                let _ = reason;
+                false
+            }
+            Self::PossiblyLive => true,
+            Self::UnknownConservative(reason) => {
+                let _ = reason;
+                true
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum IndexBranchEmptyReason {
+    ExactPrefixCardinalityZero,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum IndexBranchUnknownReason {
+    MissingPrefixCardinalityKey,
+    MissingGenerationCompatibleCardinality,
+}
+
 #[must_use]
-pub(in crate::db::executor) fn lowered_index_prefix_is_proven_empty(
+pub(in crate::db::executor) fn lowered_index_prefix_liveness(
     store: StoreHandle,
     spec: &LoweredIndexPrefixSpec,
-) -> bool {
+) -> IndexBranchLiveness {
     let data_generation = store.with_data(DataStore::generation);
     store.with_index(|index_store| {
-        lowered_index_prefix_is_proven_empty_at_generation(index_store, data_generation, spec)
+        lowered_index_prefix_liveness_at_generation(index_store, data_generation, spec)
     })
 }
 
@@ -189,25 +223,33 @@ pub(in crate::db) fn lowered_index_prefix_cardinality_specs_from_plan(
     (!specs.is_empty()).then_some(specs)
 }
 
-pub(in crate::db::executor) fn lowered_index_prefix_is_proven_empty_at_generation(
+pub(in crate::db::executor) fn lowered_index_prefix_liveness_at_generation(
     index_store: &IndexStore,
     data_generation: u64,
     spec: &LoweredIndexPrefixSpec,
-) -> bool {
+) -> IndexBranchLiveness {
     let Some(cardinality_key) =
         lowered_index_prefix_cardinality_key(spec, spec.prefix_components().len())
     else {
-        return false;
+        return IndexBranchLiveness::UnknownConservative(
+            IndexBranchUnknownReason::MissingPrefixCardinalityKey,
+        );
     };
 
-    index_store
-        .exact_prefix_cardinality(
-            data_generation,
-            IndexKeyKind::User,
-            cardinality_key.index_id(),
-            cardinality_key.prefix_components(),
-        )
-        .is_some_and(|count| count == 0)
+    match index_store.exact_prefix_cardinality(
+        data_generation,
+        IndexKeyKind::User,
+        cardinality_key.index_id(),
+        cardinality_key.prefix_components(),
+    ) {
+        Some(0) => {
+            IndexBranchLiveness::ProvenEmpty(IndexBranchEmptyReason::ExactPrefixCardinalityZero)
+        }
+        Some(_) => IndexBranchLiveness::PossiblyLive,
+        None => IndexBranchLiveness::UnknownConservative(
+            IndexBranchUnknownReason::MissingGenerationCompatibleCardinality,
+        ),
+    }
 }
 
 pub(in crate::db::executor) fn lowered_index_prefix_cardinality_key(
@@ -332,4 +374,121 @@ fn exact_cardinality_index_id_from_lowered_spec(spec: &LoweredIndexPrefixSpec) -
     }
 
     Some(*key.index_id())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        db::{
+            access::SemanticIndexAccessContract,
+            index::{IndexEntryValue, IndexKey, RawIndexStoreKey},
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+        },
+        model::index::IndexModel,
+    };
+
+    const LIVENESS_ENTITY: EntityTag = EntityTag::new(0x1951);
+    const LIVENESS_INDEX_FIELDS: [&str; 1] = ["collection_id"];
+    const LIVENESS_INDEX: IndexModel = IndexModel::generated_with_ordinal(
+        3,
+        "executor::liveness::collection_id",
+        "executor::liveness::Store",
+        &LIVENESS_INDEX_FIELDS,
+        false,
+    );
+
+    fn liveness_index_contract() -> SemanticIndexAccessContract {
+        SemanticIndexAccessContract::model_only_from_generated_index(LIVENESS_INDEX)
+    }
+
+    fn liveness_spec(component: &[u8], key_kind: IndexKeyKind) -> LoweredIndexPrefixSpec {
+        LoweredIndexPrefixSpec::from_raw_component_prefix(
+            LIVENESS_ENTITY,
+            liveness_index_contract(),
+            key_kind,
+            vec![component.to_vec()],
+        )
+        .expect("test prefix spec should lower")
+    }
+
+    fn liveness_raw_key(component: &[u8], primary_key: u64) -> RawIndexStoreKey {
+        IndexKey::new_from_components_with_primary_key_value(
+            &IndexId::new(LIVENESS_ENTITY, LIVENESS_INDEX.ordinal()),
+            IndexKeyKind::User,
+            &[component.to_vec()],
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
+        )
+        .expect("test index key should build")
+        .to_raw()
+        .expect("test index key should encode")
+    }
+
+    #[test]
+    fn index_branch_liveness_reports_possibly_live_for_synchronized_non_empty_prefix() {
+        let mut store = IndexStore::init_heap();
+        let component = b"live";
+        store.insert(liveness_raw_key(component, 1), IndexEntryValue::presence());
+        store.mark_prefix_cardinality_data_generation(7);
+
+        assert_eq!(
+            lowered_index_prefix_liveness_at_generation(
+                &store,
+                7,
+                &liveness_spec(component, IndexKeyKind::User),
+            ),
+            IndexBranchLiveness::PossiblyLive,
+        );
+    }
+
+    #[test]
+    fn index_branch_liveness_reports_proven_empty_for_synchronized_zero_prefix() {
+        let mut store = IndexStore::init_heap();
+        store.mark_prefix_cardinality_data_generation(7);
+
+        assert_eq!(
+            lowered_index_prefix_liveness_at_generation(
+                &store,
+                7,
+                &liveness_spec(b"missing", IndexKeyKind::User),
+            ),
+            IndexBranchLiveness::ProvenEmpty(IndexBranchEmptyReason::ExactPrefixCardinalityZero,),
+        );
+    }
+
+    #[test]
+    fn index_branch_liveness_keeps_generation_mismatch_conservative() {
+        let mut store = IndexStore::init_heap();
+        let component = b"live";
+        store.insert(liveness_raw_key(component, 1), IndexEntryValue::presence());
+        store.mark_prefix_cardinality_data_generation(7);
+
+        assert_eq!(
+            lowered_index_prefix_liveness_at_generation(
+                &store,
+                8,
+                &liveness_spec(component, IndexKeyKind::User),
+            ),
+            IndexBranchLiveness::UnknownConservative(
+                IndexBranchUnknownReason::MissingGenerationCompatibleCardinality,
+            ),
+        );
+    }
+
+    #[test]
+    fn index_branch_liveness_keeps_non_user_prefixes_conservative() {
+        let mut store = IndexStore::init_heap();
+        store.mark_prefix_cardinality_data_generation(7);
+
+        assert_eq!(
+            lowered_index_prefix_liveness_at_generation(
+                &store,
+                7,
+                &liveness_spec(b"system", IndexKeyKind::System),
+            ),
+            IndexBranchLiveness::UnknownConservative(
+                IndexBranchUnknownReason::MissingPrefixCardinalityKey,
+            ),
+        );
+    }
 }

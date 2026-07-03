@@ -13,9 +13,8 @@ use crate::{
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-            lowered_index_prefix_is_proven_empty_at_generation,
-            record_row_check_index_entry_scanned, record_row_check_index_key_owned_entry,
-            record_row_check_index_row_identity_decoded,
+            lowered_index_prefix_liveness_at_generation, record_row_check_index_entry_scanned,
+            record_row_check_index_key_owned_entry, record_row_check_index_row_identity_decoded,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
@@ -139,11 +138,9 @@ pub(in crate::db::executor) fn active_lowered_index_prefix_specs<'a>(
         let data_generation = store.with_data(DataStore::generation);
         store.with_index(|index_store| {
             for spec in index_prefix_specs {
-                if lowered_index_prefix_is_proven_empty_at_generation(
-                    index_store,
-                    data_generation,
-                    spec,
-                ) {
+                if !lowered_index_prefix_liveness_at_generation(index_store, data_generation, spec)
+                    .should_scan()
+                {
                     continue;
                 }
                 if index_predicate_rejects_prefix_components(

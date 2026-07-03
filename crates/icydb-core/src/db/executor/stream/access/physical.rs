@@ -19,7 +19,7 @@ use crate::{
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
             branch_stream_chunk_entries, expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
-            index_stream_output_limit_for_chunk, lowered_index_prefix_is_proven_empty,
+            index_stream_output_limit_for_chunk, lowered_index_prefix_liveness,
             ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput, route::IndexPrefixChildExpansionHint,
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
@@ -274,7 +274,7 @@ impl KeyAccessRuntime {
         ) {
             return Ok((Vec::new(), key_order_state));
         }
-        if lowered_index_prefix_is_proven_empty(self.store, spec) {
+        if !lowered_index_prefix_liveness(self.store, spec).should_scan() {
             return Ok((Vec::new(), key_order_state));
         }
 
