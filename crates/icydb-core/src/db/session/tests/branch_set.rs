@@ -39,6 +39,14 @@ const MISSING_SPARSE_COLLECTION_IDS: [&str; 5] = [
     "missing-collection-003",
     "missing-collection-004",
 ];
+#[cfg(feature = "diagnostics")]
+const CACHED_PLAN_REUSE_LATE_COLLECTION: &str = "cache-reuse-late-collection";
+#[cfg(feature = "diagnostics")]
+const CACHED_PLAN_REUSE_MISSING_COLLECTION_COUNT: usize = 40;
+#[cfg(feature = "diagnostics")]
+const CACHED_PLAN_REUSE_LIMIT: u32 = 32;
+#[cfg(feature = "diagnostics")]
+const CACHED_PLAN_REUSE_LATE_ID: u128 = 19_520;
 
 fn branch_target_sql(select: &str, limit: usize) -> String {
     format!(
@@ -913,6 +921,52 @@ fn sparse_collection_filter_expr() -> crate::db::FilterExpr {
 #[cfg(feature = "diagnostics")]
 fn missing_sparse_collection_filter_expr() -> crate::db::FilterExpr {
     crate::db::query::builder::FieldRef::new("collection_id").in_list(MISSING_SPARSE_COLLECTION_IDS)
+}
+
+#[cfg(feature = "diagnostics")]
+fn cached_plan_reuse_collection_ids() -> Vec<String> {
+    let mut collection_ids = Vec::with_capacity(CACHED_PLAN_REUSE_MISSING_COLLECTION_COUNT + 2);
+    collection_ids.extend([
+        BRANCH_COLLECTION.to_string(),
+        CACHED_PLAN_REUSE_LATE_COLLECTION.to_string(),
+    ]);
+    collection_ids.extend(
+        (0..CACHED_PLAN_REUSE_MISSING_COLLECTION_COUNT)
+            .map(|index| format!("cache-reuse-missing-collection-{index:02}")),
+    );
+    collection_ids
+}
+
+#[cfg(feature = "diagnostics")]
+fn cached_plan_reuse_sparse_collection_query() -> Query<BranchIndexedSessionSqlEntity> {
+    Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
+        .filter(
+            crate::db::query::builder::FieldRef::new("collection_id")
+                .in_list(cached_plan_reuse_collection_ids()),
+        )
+        .order_term(crate::db::asc("id"))
+        .limit(CACHED_PLAN_REUSE_LIMIT)
+}
+
+#[cfg(feature = "diagnostics")]
+fn execute_cached_plan_reuse_sparse_collection_query(
+    session: &DbSession<SessionSqlCanister>,
+) -> (Vec<Ulid>, u64, u64) {
+    let deferred_raw_bounds_before =
+        crate::db::access::current_deferred_index_prefix_raw_bound_materialization_count_for_tests(
+        );
+    let range_scans_before = crate::db::index::IndexStore::current_range_scan_call_count();
+    let rows = session
+        .execute_query(&cached_plan_reuse_sparse_collection_query())
+        .unwrap_or_else(|err| panic!("cached sparse collection query should execute: {err:?}"));
+    let range_scans = crate::db::index::IndexStore::current_range_scan_call_count()
+        .saturating_sub(range_scans_before);
+    let deferred_raw_bounds =
+        crate::db::access::current_deferred_index_prefix_raw_bound_materialization_count_for_tests(
+        )
+        .saturating_sub(deferred_raw_bounds_before);
+
+    (response_branch_ids(&rows), range_scans, deferred_raw_bounds)
 }
 
 #[cfg(feature = "diagnostics")]
@@ -2123,6 +2177,115 @@ fn session_branch_set_fluent_missing_sparse_in_exists_uses_empty_prefix_cardinal
     assert_fluent_prefix_cardinality_terminal(
         &attribution,
         "fluent missing sparse collection EXISTS",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_large_sparse_in_cached_plan_rechecks_liveness_after_insert_delete() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    seed_branch_set_fixture(&session);
+
+    let planned_branch_count = u64::try_from(CACHED_PLAN_REUSE_MISSING_COLLECTION_COUNT + 2)
+        .expect("cached-plan reuse branch count should fit u64");
+    let expected_without_late = expected_collection_ulids(usize::MAX);
+    let (first_ids, first_range_scans, first_raw_bounds) =
+        execute_cached_plan_reuse_sparse_collection_query(&session);
+
+    assert_eq!(
+        first_ids, expected_without_late,
+        "initial cached sparse query should only return the populated fixture branch",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first sparse execution should cache one shared read plan",
+    );
+    assert!(
+        first_range_scans <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
+        "initial sparse query should prune missing branches before range scans, got {first_range_scans}",
+    );
+    assert!(
+        first_raw_bounds < planned_branch_count,
+        "initial sparse query should not materialize every planned missing branch, got {first_raw_bounds}",
+    );
+
+    let late_id = Ulid::from_u128(CACHED_PLAN_REUSE_LATE_ID);
+    seed_branch_indexed_session_sql_entities(
+        &session,
+        &[(
+            CACHED_PLAN_REUSE_LATE_ID,
+            CACHED_PLAN_REUSE_LATE_COLLECTION,
+            "Draft",
+            "late-draft",
+        )],
+    );
+    let mut expected_with_late = expected_without_late.clone();
+    expected_with_late.push(late_id);
+    let (second_ids, second_range_scans, second_raw_bounds) =
+        execute_cached_plan_reuse_sparse_collection_query(&session);
+
+    assert_eq!(
+        second_ids, expected_with_late,
+        "cached sparse query must see rows inserted into a previously empty branch",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "insert-time branch liveness must not create a second shared read plan",
+    );
+    assert!(
+        second_range_scans <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP + 1,
+        "post-insert sparse query should retain only live branches before scanning, got {second_range_scans}",
+    );
+    assert!(
+        second_raw_bounds < planned_branch_count,
+        "post-insert sparse query should not materialize every planned missing branch, got {second_raw_bounds}",
+    );
+
+    let delete_plan = Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .filter(crate::db::query::builder::FieldRef::new("id").eq(late_id))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .expect("late-branch cleanup delete plan should build");
+    let deleted_rows = session
+        .delete_executor::<BranchIndexedSessionSqlEntity>()
+        .execute(delete_plan)
+        .unwrap_or_else(|err| panic!("late-branch cleanup delete should execute: {err:?}"));
+    assert_eq!(
+        response_branch_ids(&deleted_rows),
+        vec![late_id],
+        "cleanup delete should remove only the late branch row",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "direct cleanup delete must not populate the shared read-plan cache",
+    );
+
+    let (third_ids, third_range_scans, third_raw_bounds) =
+        execute_cached_plan_reuse_sparse_collection_query(&session);
+    assert_eq!(
+        third_ids, expected_without_late,
+        "cached sparse query must prune the branch again after its row is deleted",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "empty-again branch liveness must reuse the original shared read plan",
+    );
+    assert!(
+        third_range_scans <= SPARSE_COLLECTION_CHILD_PREFIX_RANGE_CAP,
+        "post-delete sparse query should prune the empty branch before scanning, got {third_range_scans}",
+    );
+    assert!(
+        third_raw_bounds < planned_branch_count,
+        "post-delete sparse query should not materialize every planned missing branch, got {third_raw_bounds}",
     );
 }
 

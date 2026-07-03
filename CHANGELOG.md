@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.195.md](docs/changelog/0.195.md)
 
+- `0.195.2` adds cached-plan reuse evidence proving large sparse indexed
+  `IN (...)` reads recheck execution-time branch liveness after insert/delete
+  without changing route, cache, cursor, or persisted-format semantics.
+
 - `0.195.1` makes branch liveness an explicit tri-state executor contract so
   runtime prefix pruning skips only generation-compatible proven-empty branches
   and conservatively scans missing or stale metadata.
