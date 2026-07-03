@@ -186,7 +186,7 @@ pub(in crate::db::query::plan) const fn range_bound_count<T>(
 pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_order(
     schema: &SchemaInfo,
     order: Option<&OrderSpec>,
-    index: SemanticIndexAccessContract,
+    index: &SemanticIndexAccessContract,
     prefix_len: usize,
     grouped: bool,
 ) -> bool {
@@ -228,7 +228,7 @@ pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_or
 pub(in crate::db::query::plan) fn access_candidate_score_from_index_contract(
     schema: &SchemaInfo,
     order: Option<&OrderSpec>,
-    index: SemanticIndexAccessContract,
+    index: &SemanticIndexAccessContract,
     prefix_len: usize,
     exact: bool,
     range_bound_count: u8,

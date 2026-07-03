@@ -23,7 +23,7 @@ use crate::{
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
-                    evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
+                    evaluate_index_candidate, ranked_rejection_reason, sorted_index_refs,
                 },
                 model::AccessChoiceFamily,
             },
@@ -154,16 +154,9 @@ fn project_access_choice_explain_snapshot_from_authority(
     // Phase 2: walk deterministic model order once so alternative/rejection
     // projection stays under one evaluation owner after the chosen score has
     // already been frozen from planner evaluation.
-    for index in sorted_indexes(visible_indexes) {
+    for index in sorted_index_refs(visible_indexes) {
         let index_name = index.name().to_string();
-        match evaluate_index_candidate(
-            family,
-            index.clone(),
-            schema_info,
-            predicate,
-            order,
-            grouped,
-        ) {
+        match evaluate_index_candidate(family, index, schema_info, predicate, order, grouped) {
             self::model::CandidateEvaluation::Eligible(score)
                 if index_name == chosen_index_name.as_str() =>
             {
@@ -178,7 +171,7 @@ fn project_access_choice_explain_snapshot_from_authority(
                 eligible_other_scores.push(score);
                 let mut rejected_on_residual_burden = false;
                 if let Some(candidate_access) =
-                    eligible_candidate_access_for_index(model, schema_info, plan, &index)
+                    eligible_candidate_access_for_index(model, schema_info, plan, index)
                 {
                     let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
                     let residual_burden = residual_burden_for_plan(&candidate_plan);
@@ -449,14 +442,7 @@ fn chosen_score_for_visible_indexes(
         .iter()
         .find(|index| index.name() == chosen_index_name)
         .and_then(|index| {
-            match evaluate_index_candidate(
-                family,
-                index.clone(),
-                schema_info,
-                predicate,
-                order,
-                grouped,
-            ) {
+            match evaluate_index_candidate(family, index, schema_info, predicate, order, grouped) {
                 self::model::CandidateEvaluation::Eligible(score) => Some(score),
                 self::model::CandidateEvaluation::Rejected(_) => None,
             }
@@ -552,18 +538,13 @@ fn same_score_competing_candidate_plans(
     );
 
     let mut candidates = Vec::new();
-    for index in sorted_indexes(visible_indexes) {
+    for index in sorted_index_refs(visible_indexes) {
         if index.name() == chosen_index_name.as_str() {
             continue;
         }
-        let self::model::CandidateEvaluation::Eligible(score) = evaluate_index_candidate(
-            family,
-            index.clone(),
-            schema_info,
-            predicate,
-            order,
-            grouped,
-        ) else {
+        let self::model::CandidateEvaluation::Eligible(score) =
+            evaluate_index_candidate(family, index, schema_info, predicate, order, grouped)
+        else {
             continue;
         };
         if score != chosen_score {
@@ -571,7 +552,7 @@ fn same_score_competing_candidate_plans(
         }
 
         let candidate_access =
-            eligible_candidate_access_for_index(model, schema_info, plan, &index)?;
+            eligible_candidate_access_for_index(model, schema_info, plan, index)?;
         let candidate_access_name = candidate_access
             .selected_index_contract()
             .map(|contract| contract.name().to_string());

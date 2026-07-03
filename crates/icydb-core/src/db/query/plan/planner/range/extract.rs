@@ -134,7 +134,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
 
     let mut best: Option<(
         AccessCandidateScore,
-        SemanticIndexAccessContract,
+        &SemanticIndexAccessContract,
         usize,
         Vec<Value>,
         RangeConstraint,
@@ -150,19 +150,19 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             prefix_len,
             false,
             range_bound_count(&range.lower, &range.upper),
             grouped,
         );
         match best {
-            None => best = Some((score, index.clone(), range_slot, prefix, range)),
+            None => best = Some((score, index, range_slot, prefix, range)),
             Some((best_score, best_index, _, _, _))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone(), range_slot, prefix, range));
+                best = Some((score, index, range_slot, prefix, range));
             }
             _ => {}
         }
@@ -172,7 +172,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         let field_slots = (0..=range_slot).collect();
 
         SemanticIndexRangeSpec::from_access_contract(
-            index,
+            index.clone(),
             field_slots,
             prefix,
             range.lower,

@@ -22,7 +22,7 @@ use crate::db::{
 use constraints::classify_range_constraints_for_key_item;
 
 pub(super) fn evaluate_range_candidate_from_contract(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> CandidateEvaluation {
@@ -42,23 +42,23 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_range_candidate(
     predicate: &Predicate,
 ) -> CandidateEvaluation {
     evaluate_range_candidate_from_contract(
-        SemanticIndexAccessContract::model_only_from_generated_index(*index),
+        &SemanticIndexAccessContract::model_only_from_generated_index(*index),
         schema,
         predicate,
     )
 }
 
 fn evaluate_range_compare_candidate(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> CandidateEvaluation {
     let evaluation = match classify_single_range_compare_kind(cmp.op) {
         Some(RangeCompareKind::StartsWith) => {
-            evaluate_starts_with_range_compare_candidate(&index_contract, schema, cmp)
+            evaluate_starts_with_range_compare_candidate(index_contract, schema, cmp)
         }
         Some(RangeCompareKind::Ordered) => {
-            evaluate_ordered_range_compare_candidate(&index_contract, schema, cmp)
+            evaluate_ordered_range_compare_candidate(index_contract, schema, cmp)
         }
         None => Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
     };
@@ -68,7 +68,7 @@ fn evaluate_range_compare_candidate(
             prefix_len: 0,
             exact: true,
             filtered: index_contract.is_filtered(),
-            range_bound_count: single_range_compare_bound_count(&index_contract, cmp.op),
+            range_bound_count: single_range_compare_bound_count(index_contract, cmp.op),
             order_compatible: false,
         }),
         Err(reason) => CandidateEvaluation::Rejected(reason),
@@ -76,7 +76,7 @@ fn evaluate_range_compare_candidate(
 }
 
 fn evaluate_range_and_candidate(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     children: &[Predicate],
 ) -> CandidateEvaluation {
@@ -135,7 +135,7 @@ fn collect_range_and_compares(
 }
 
 fn range_candidate_score_from_compares(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     compares: &[&ComparePredicate],
 ) -> Result<CandidateScore, AccessChoiceRejectedReason> {
@@ -149,7 +149,7 @@ fn range_candidate_score_from_compares(
             return Err(AccessChoiceRejectedReason::MissingContiguousPrefixOrRange);
         };
         let constraint =
-            classify_range_constraints_for_key_item(&index_contract, schema, key_item, compares)?;
+            classify_range_constraints_for_key_item(index_contract, schema, key_item, compares)?;
 
         if !range_seen {
             if constraint.eq_value.is_some() {

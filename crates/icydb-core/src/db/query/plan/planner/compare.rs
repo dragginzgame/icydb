@@ -206,7 +206,7 @@ fn plan_starts_with_compare(
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
     let mut best: Option<(
         AccessCandidateScore,
-        SemanticIndexAccessContract,
+        &SemanticIndexAccessContract,
         Bound<Value>,
         Bound<Value>,
     )> = None;
@@ -240,19 +240,19 @@ fn plan_starts_with_compare(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             0,
             false,
             range_bound_count(&lower, &upper),
             grouped,
         );
         match best {
-            None => best = Some((score, index.clone(), lower, upper)),
+            None => best = Some((score, index, lower, upper)),
             Some((best_score, best_index, _, _))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone(), lower, upper));
+                best = Some((score, index, lower, upper));
             }
             _ => {}
         }
@@ -260,7 +260,7 @@ fn plan_starts_with_compare(
 
     best.map(|(_, index, lower, upper)| {
         AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
-            index,
+            index.clone(),
             vec![0usize],
             Vec::new(),
             lower,
@@ -284,7 +284,7 @@ fn plan_ordered_compare(
 
     let mut best: Option<(
         AccessCandidateScore,
-        SemanticIndexAccessContract,
+        &SemanticIndexAccessContract,
         Bound<Value>,
         Bound<Value>,
     )> = None;
@@ -343,19 +343,19 @@ fn plan_ordered_compare(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             0,
             false,
             range_bound_count(&lower, &upper),
             grouped,
         );
         match best {
-            None => best = Some((score, index.clone(), lower, upper)),
+            None => best = Some((score, index, lower, upper)),
             Some((best_score, best_index, _, _))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone(), lower, upper));
+                best = Some((score, index, lower, upper));
             }
             _ => {}
         }
@@ -363,7 +363,7 @@ fn plan_ordered_compare(
 
     best.map(|(_, index, lower, upper)| {
         AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
-            index,
+            index.clone(),
             vec![0usize],
             Vec::new(),
             lower,

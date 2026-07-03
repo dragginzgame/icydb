@@ -29,30 +29,28 @@ pub(in crate::db::query::plan::access_choice) use ranking::{
     chosen_access_shape_projection, chosen_selection_reason, ranked_rejection_reason,
 };
 
-pub(super) fn sorted_indexes(
+pub(super) fn sorted_index_refs(
     indexes: &[SemanticIndexAccessContract],
-) -> Vec<SemanticIndexAccessContract> {
-    let mut indexes = indexes.to_vec();
+) -> Vec<&SemanticIndexAccessContract> {
+    let mut indexes = indexes.iter().collect::<Vec<_>>();
     indexes.sort_unstable_by(|left, right| left.name().cmp(right.name()));
     indexes
 }
 
-#[derive(Clone)]
-struct CandidateScoringIndex {
-    contract: SemanticIndexAccessContract,
+#[derive(Clone, Copy)]
+struct CandidateScoringIndex<'a> {
+    contract: &'a SemanticIndexAccessContract,
 }
 
 pub(super) fn evaluate_index_candidate(
     family: AccessChoiceFamily,
-    index: SemanticIndexAccessContract,
+    index: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> CandidateEvaluation {
-    let scoring_index = CandidateScoringIndex {
-        contract: index.clone(),
-    };
+    let scoring_index = CandidateScoringIndex { contract: index };
 
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
         return evaluate_order_only_range_candidate(scoring_index, schema, order, grouped);
@@ -64,21 +62,21 @@ pub(super) fn evaluate_index_candidate(
 
     match family {
         AccessChoiceFamily::Prefix => augment_candidate_with_order_compatibility(
-            prefix::evaluate_prefix_candidate(&index, schema, predicate),
+            prefix::evaluate_prefix_candidate(index, schema, predicate),
             schema,
             order,
             scoring_index,
             grouped,
         ),
         AccessChoiceFamily::MultiLookup => augment_candidate_with_order_compatibility(
-            prefix::evaluate_multi_lookup_candidate_from_contract(&index, schema, predicate),
+            prefix::evaluate_multi_lookup_candidate_from_contract(index, schema, predicate),
             schema,
             order,
             scoring_index,
             grouped,
         ),
         AccessChoiceFamily::BranchSet => augment_candidate_with_order_compatibility(
-            prefix::evaluate_branch_set_candidate_from_contract(&index, schema, predicate),
+            prefix::evaluate_branch_set_candidate_from_contract(index, schema, predicate),
             schema,
             order,
             scoring_index,
@@ -102,7 +100,7 @@ pub(super) fn evaluate_index_candidate(
 // ordering. The canonical score still carries order compatibility so explain
 // can report why one visible index won the fallback.
 fn evaluate_order_only_range_candidate(
-    scoring_index: CandidateScoringIndex,
+    scoring_index: CandidateScoringIndex<'_>,
     schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     grouped: bool,
@@ -122,7 +120,7 @@ fn augment_candidate_with_order_compatibility(
     evaluation: CandidateEvaluation,
     schema: &SchemaInfo,
     order: Option<&OrderSpec>,
-    scoring_index: CandidateScoringIndex,
+    scoring_index: CandidateScoringIndex<'_>,
     grouped: bool,
 ) -> CandidateEvaluation {
     match evaluation {
@@ -147,7 +145,7 @@ fn augment_candidate_with_order_compatibility(
 fn candidate_score_with_order_compatibility(
     schema: &SchemaInfo,
     order: Option<&OrderSpec>,
-    scoring_index: CandidateScoringIndex,
+    scoring_index: CandidateScoringIndex<'_>,
     prefix_len: usize,
     exact: bool,
     range_bound_count: u8,

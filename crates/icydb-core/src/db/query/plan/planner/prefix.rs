@@ -55,7 +55,7 @@ pub(super) fn index_prefix_for_eq(
 ) -> Option<AccessPlan<Value>> {
     let literal_compatible = index_literal_matches_schema(schema, field, value);
 
-    let mut best: Option<(AccessCandidateScore, SemanticIndexAccessContract, Value)> = None;
+    let mut best: Option<(AccessCandidateScore, &SemanticIndexAccessContract, Value)> = None;
     for index in candidate_indexes {
         let Some(lookup_value) =
             leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
@@ -66,26 +66,26 @@ pub(super) fn index_prefix_for_eq(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             1,
             index.key_arity() == 1,
             0,
             grouped,
         );
         match best {
-            None => best = Some((score, index.clone(), lookup_value)),
+            None => best = Some((score, index, lookup_value)),
             Some((best_score, best_index, _))
                 if access_candidate_score_outranks(score, best_score, true)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone(), lookup_value));
+                best = Some((score, index, lookup_value));
             }
             _ => {}
         }
     }
 
     best.map(|(_, index, lookup_value)| {
-        AccessPlan::index_prefix_from_contract(index, vec![lookup_value])
+        AccessPlan::index_prefix_from_contract(index.clone(), vec![lookup_value])
     })
 }
 
@@ -109,7 +109,7 @@ pub(super) fn index_multi_lookup_for_in(
             best_strict_field_multi_lookup_index(candidate_indexes, schema, field, order, grouped)
     {
         return Some(AccessPlan::index_multi_lookup_from_contract(
-            index,
+            index.clone(),
             values.to_vec(),
         ));
     }
@@ -124,7 +124,7 @@ pub(super) fn index_multi_lookup_for_in(
 
     let mut best: Option<(
         AccessCandidateScore,
-        SemanticIndexAccessContract,
+        &SemanticIndexAccessContract,
         Vec<Value>,
     )> = None;
     for index in candidate_indexes {
@@ -150,37 +150,37 @@ pub(super) fn index_multi_lookup_for_in(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             1,
             index.key_arity() == 1,
             0,
             grouped,
         );
         match &best {
-            None => best = Some((score, index.clone(), lookup_values)),
+            None => best = Some((score, index, lookup_values)),
             Some((best_score, best_index, _))
                 if access_candidate_score_outranks(score, *best_score, true)
                     || (score == *best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone(), lookup_values));
+                best = Some((score, index, lookup_values));
             }
             Some(_) => {}
         }
     }
 
     best.map(|(_, index, lookup_values)| {
-        AccessPlan::index_multi_lookup_from_contract(index, lookup_values)
+        AccessPlan::index_multi_lookup_from_contract(index.clone(), lookup_values)
     })
 }
 
-fn best_strict_field_multi_lookup_index(
-    candidate_indexes: &[SemanticIndexAccessContract],
+fn best_strict_field_multi_lookup_index<'a>(
+    candidate_indexes: &'a [SemanticIndexAccessContract],
     schema: &SchemaInfo,
     field: &str,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<SemanticIndexAccessContract> {
-    let mut best: Option<(AccessCandidateScore, SemanticIndexAccessContract)> = None;
+) -> Option<&'a SemanticIndexAccessContract> {
+    let mut best: Option<(AccessCandidateScore, &SemanticIndexAccessContract)> = None;
     for index in candidate_indexes {
         let Some(SemanticIndexKeyItemRef::Field(key_field)) = index.key_item_at(0) else {
             continue;
@@ -192,19 +192,19 @@ fn best_strict_field_multi_lookup_index(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             1,
             index.key_arity() == 1,
             0,
             grouped,
         );
         match &best {
-            None => best = Some((score, index.clone())),
+            None => best = Some((score, index)),
             Some((best_score, best_index))
                 if access_candidate_score_outranks(score, *best_score, true)
                     || (score == *best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone()));
+                best = Some((score, index));
             }
             Some(_) => {}
         }
@@ -248,7 +248,7 @@ pub(super) fn index_prefix_from_and(
 
     let mut best: Option<(
         AccessCandidateScore,
-        SemanticIndexAccessContract,
+        &SemanticIndexAccessContract,
         Vec<Value>,
     )> = None;
     for index in candidate_indexes {
@@ -262,25 +262,25 @@ pub(super) fn index_prefix_from_and(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             prefix.len(),
             prefix.len() == index.key_arity(),
             0,
             grouped,
         );
         match &best {
-            None => best = Some((score, index.clone(), prefix)),
+            None => best = Some((score, index, prefix)),
             Some((best_score, best_index, _))
                 if access_candidate_score_outranks(score, *best_score, true)
                     || (score == *best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone(), prefix));
+                best = Some((score, index, prefix));
             }
             Some(_) => {}
         }
     }
 
-    best.map(|(_, index, values)| AccessPlan::index_prefix_from_contract(index, values))
+    best.map(|(_, index, values)| AccessPlan::index_prefix_from_contract(index.clone(), values))
 }
 
 pub(super) fn index_branch_set_from_and(
@@ -311,7 +311,7 @@ pub(super) fn index_branch_set_from_and(
 
     let mut best: Option<(
         AccessCandidateScore,
-        SemanticIndexAccessContract,
+        &SemanticIndexAccessContract,
         Vec<Value>,
         Vec<Value>,
     )> = None;
@@ -344,7 +344,7 @@ pub(super) fn index_branch_set_from_and(
             && !selected_index_contract_satisfies_secondary_order(
                 schema,
                 order,
-                index.clone(),
+                index,
                 branch_prefix_len,
                 false,
             )
@@ -355,19 +355,19 @@ pub(super) fn index_branch_set_from_and(
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
-            index.clone(),
+            index,
             branch_prefix_len,
             false,
             0,
             false,
         );
         match &best {
-            None => best = Some((score, index.clone(), fixed_values, branch_values)),
+            None => best = Some((score, index, fixed_values, branch_values)),
             Some((best_score, best_index, _, _))
                 if access_candidate_score_outranks(score, *best_score, true)
                     || (score == *best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index.clone(), fixed_values, branch_values));
+                best = Some((score, index, fixed_values, branch_values));
             }
             Some(_) => {}
         }
@@ -377,9 +377,9 @@ pub(super) fn index_branch_set_from_and(
         if let [branch_value] = branch_values.as_slice() {
             let mut values = fixed_values;
             values.push(branch_value.clone());
-            AccessPlan::index_prefix_from_contract(index, values)
+            AccessPlan::index_prefix_from_contract(index.clone(), values)
         } else {
-            AccessPlan::index_branch_set_from_contract(index, fixed_values, branch_values)
+            AccessPlan::index_branch_set_from_contract(index.clone(), fixed_values, branch_values)
         }
     })
 }

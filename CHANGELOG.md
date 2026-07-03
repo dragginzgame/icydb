@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Reuses accepted-schema query cache entries for warm `SHOW ENTITIES`
-  catalog reads after an accepted identity probe, avoiding repeated schema
-  snapshot decodes.
-
 ## [0.194.x] 📊 - 2026-07-01 - Query Perf Hotspot Baseline
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
+
+- `0.194.14` trims planner-visible index scoring and best-candidate selection
+  by borrowing semantic index contracts until the final chosen access plan.
+
+- `0.194.13` reuses accepted-schema query cache entries for warm `SHOW
+  ENTITIES` catalog reads after an accepted identity probe.
 
 - `0.194.12` reduces compact SQL membership compile work by preparing `IN`
   list literals in one pass and adds an equality-prefix plus range perf canary.

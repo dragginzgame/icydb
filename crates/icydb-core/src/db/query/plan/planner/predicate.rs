@@ -449,7 +449,7 @@ fn access_preserves_required_order(
         return selected_index_contract_satisfies_secondary_order(
             schema,
             Some(order),
-            index,
+            &index,
             prefix_values.len(),
             false,
         );
@@ -458,7 +458,7 @@ fn access_preserves_required_order(
         return selected_index_contract_satisfies_secondary_order(
             schema,
             Some(order),
-            spec.index(),
+            &spec.index(),
             spec.branch_prefix_len(),
             false,
         );
@@ -467,7 +467,7 @@ fn access_preserves_required_order(
         return selected_index_contract_satisfies_secondary_order(
             schema,
             Some(order),
-            spec.index(),
+            &spec.index(),
             spec.prefix_values().len(),
             false,
         );

@@ -296,7 +296,7 @@ fn evaluate_multi_lookup_candidate_projects_primary_key_suffix_order_compatibili
 
     let evaluation = evaluate_index_candidate(
         AccessChoiceFamily::MultiLookup,
-        index,
+        &index,
         range_schema(),
         Some(&predicate),
         Some(&order),
@@ -334,7 +334,7 @@ fn evaluate_multi_lookup_candidate_rejects_order_compatibility_when_suffix_is_bl
 
     let evaluation = evaluate_index_candidate(
         AccessChoiceFamily::MultiLookup,
-        index,
+        &index,
         range_schema(),
         Some(&predicate),
         Some(&order),
