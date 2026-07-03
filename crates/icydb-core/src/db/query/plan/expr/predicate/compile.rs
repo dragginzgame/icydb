@@ -608,29 +608,30 @@ fn compile_bool_membership_truth_sets(args: &[Expr]) -> Option<(Predicate, Predi
         return None;
     };
     let (field, target_coercion) = compile_bool_membership_target(target)?;
-    let (non_null_values, has_null) = partition_membership_values(values.as_slice());
-    if let Some(truth_sets) = compile_bool_compact_membership_truth_sets(
-        field.as_str(),
-        target_coercion,
-        non_null_values.as_slice(),
-        has_null,
-    ) {
-        return Some(truth_sets);
+    let literal_set = MembershipLiteralSet::from_values(values.as_slice(), target_coercion)?;
+    if let Some(shared_coercion) = literal_set.shared_coercion() {
+        let has_null = literal_set.has_null();
+        return Some(compile_bool_compact_membership_truth_sets(
+            field.as_str(),
+            literal_set.into_values(),
+            shared_coercion,
+            has_null,
+        ));
     }
 
     let true_set = compile_bool_membership_leaf_set(
         field.as_str(),
         target_coercion,
-        non_null_values.as_slice(),
+        literal_set.values(),
         true,
     );
-    let false_set = if has_null {
+    let false_set = if literal_set.has_null() {
         Predicate::False
     } else {
         compile_bool_membership_leaf_set(
             field.as_str(),
             target_coercion,
-            non_null_values.as_slice(),
+            literal_set.values(),
             false,
         )
     };
@@ -638,30 +639,77 @@ fn compile_bool_membership_truth_sets(args: &[Expr]) -> Option<(Predicate, Predi
     Some((true_set, false_set))
 }
 
-fn partition_membership_values(values: &[Value]) -> (Vec<Value>, bool) {
-    let mut non_null_values = Vec::with_capacity(values.len());
-    let mut has_null = false;
+struct MembershipLiteralSet {
+    values: Vec<Value>,
+    has_null: bool,
+    shared_coercion: Option<CoercionId>,
+}
 
-    for value in values {
-        if matches!(value, Value::Null) {
-            has_null = true;
-        } else {
+impl MembershipLiteralSet {
+    fn from_values(values: &[Value], target_coercion: Option<CoercionId>) -> Option<Self> {
+        let mut non_null_values = Vec::with_capacity(values.len());
+        let mut has_null = false;
+        let mut shared_coercion = None;
+        let mut mixed_coercion = false;
+
+        for value in values {
+            if matches!(value, Value::Null) {
+                has_null = true;
+                continue;
+            }
+            if !membership_value_is_in_safe(value) {
+                return None;
+            }
+
+            let coercion =
+                target_coercion.unwrap_or_else(|| compare_literal_coercion(CompareOp::Eq, value));
+            match shared_coercion {
+                Some(current) if current != coercion => {
+                    mixed_coercion = true;
+                }
+                Some(_) => {}
+                None => {
+                    shared_coercion = Some(coercion);
+                }
+            }
             non_null_values.push(value.clone());
         }
+
+        if non_null_values.len() < 2 || mixed_coercion {
+            shared_coercion = None;
+        }
+
+        Some(Self {
+            values: non_null_values,
+            has_null,
+            shared_coercion,
+        })
     }
 
-    (non_null_values, has_null)
+    const fn values(&self) -> &[Value] {
+        self.values.as_slice()
+    }
+
+    const fn has_null(&self) -> bool {
+        self.has_null
+    }
+
+    const fn shared_coercion(&self) -> Option<CoercionId> {
+        self.shared_coercion
+    }
+
+    fn into_values(self) -> Vec<Value> {
+        self.values
+    }
 }
 
 fn compile_bool_compact_membership_truth_sets(
     field: &str,
-    target_coercion: Option<CoercionId>,
-    values: &[Value],
+    values: Vec<Value>,
+    coercion: CoercionId,
     has_null: bool,
-) -> Option<(Predicate, Predicate)> {
-    let coercion = shared_membership_coercion(values, target_coercion)?;
-    let list = canonical_membership_value_list(values.to_vec());
-
+) -> (Predicate, Predicate) {
+    let list = canonical_membership_value_list(values);
     let true_set = Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::In,
@@ -679,7 +727,7 @@ fn compile_bool_compact_membership_truth_sets(
         ))
     };
 
-    Some((true_set, false_set))
+    (true_set, false_set)
 }
 
 fn compile_bool_membership_leaf_set(
@@ -703,33 +751,6 @@ fn compile_bool_membership_leaf_set(
     } else {
         Predicate::And(leaf_predicates)
     }
-}
-
-fn shared_membership_coercion(
-    values: &[Value],
-    target_coercion: Option<CoercionId>,
-) -> Option<CoercionId> {
-    if values.len() < 2 {
-        return None;
-    }
-
-    let mut shared = None;
-    for value in values {
-        if !membership_value_is_in_safe(value) {
-            return None;
-        }
-        let coercion =
-            target_coercion.unwrap_or_else(|| compare_literal_coercion(CompareOp::Eq, value));
-        if let Some(current) = shared {
-            if current != coercion {
-                return None;
-            }
-        } else {
-            shared = Some(coercion);
-        }
-    }
-
-    shared
 }
 
 fn membership_leaf_predicates<'a>(

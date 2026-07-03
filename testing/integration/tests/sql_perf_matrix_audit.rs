@@ -351,6 +351,12 @@ fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
             ),
         ),
         scenario(
+            "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
+            MatrixSurface::Token,
+            "route.prefixed_range.page_only",
+            token_prefixed_stage_range_page_sql("id", 50),
+        ),
+        scenario(
             "token.collection_stage_id.branch_set.count",
             MatrixSurface::Token,
             "route.branch_set.count",
@@ -421,6 +427,12 @@ fn token_branch_page_sql_with_extra_predicate(
 fn token_branch_count_sql(stages: &str) -> String {
     format!(
         "SELECT COUNT(*) FROM PerfAuditToken WHERE collection_id = '{TOKEN_TARGET_COLLECTION}' AND stage IN ({stages})"
+    )
+}
+
+fn token_prefixed_stage_range_page_sql(projection: &str, limit: u32) -> String {
+    format!(
+        "SELECT {projection} FROM PerfAuditToken WHERE collection_id = '{TOKEN_TARGET_COLLECTION}' AND stage >= 'Draft' AND stage < 'Review' ORDER BY stage ASC, id ASC LIMIT {limit}"
     )
 }
 
@@ -2402,6 +2414,7 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
         "token.collection_stage_id.branch_set.noncovered_page_only.limit50",
         "token.collection_stage_id.branch_set.full_entity.limit50",
         "token.collection_stage_id.branch_set.index_residual_covering.limit3",
+        "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
         "token.collection_stage_id.branch_set.count",
         "token.collection_stage_id.branch_set.duplicate_count",
         "token.collection_stage_id.branch_set.wide_page_only.limit50",
@@ -2446,6 +2459,23 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
     assert!(
         branch.sql.contains("ORDER BY id ASC LIMIT 50"),
         "branch-set route hotspot should preserve the primary-key page order"
+    );
+
+    let prefixed_range = scenarios_by_key
+        .get("token.collection_stage_id.prefixed_stage_range.page_only.limit50")
+        .expect("prefixed range route hotspot should exist")
+        .1;
+    assert!(
+        prefixed_range
+            .sql
+            .contains("stage >= 'Draft' AND stage < 'Review'"),
+        "prefixed range hotspot should exercise one equality prefix plus one range component"
+    );
+    assert!(
+        prefixed_range
+            .sql
+            .contains("ORDER BY stage ASC, id ASC LIMIT 50"),
+        "prefixed range hotspot should preserve index-order pagination"
     );
 
     let wide_branch = scenarios_by_key

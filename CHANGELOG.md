@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.194.md](docs/changelog/0.194.md)
 
+- `0.194.12` reduces compact SQL membership compile work by preparing `IN`
+  list literals in one pass and adds an equality-prefix plus range perf canary.
+
 - `0.194.11` optimizes indexed prefix/range lowering by moving encoded
   component bytes into execution, range, and direct-count cardinality specs
   instead of cloning or re-encoding intermediate batches.
