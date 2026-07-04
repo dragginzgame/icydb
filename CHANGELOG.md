@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-## [0.196.x] 📊 - 2026-07-04 - SQLite-Informed Ordered Read Pushdown
+## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
-- `0.196.0` closes the SQLite-informed ordered-read pushdown slice with full
+- `0.196.1` hardens the SQLite-audit diagnostics evidence by exposing
+  order-shape and limit-stop proof attribution in EXPLAIN and matrix artifacts.
+
+- `0.196.0` publishes the SQLite-comparison audit as the active design backlog
+  and lands the first measured ordered-read pushdown slice with full
   deterministic matrix route/delta evidence, access-proven range residual
-  stripping, and exact primary-key public-read admission without redundant
-  `LIMIT`.
+  stripping, and exact primary-key public-read admission.
 
 ## [0.195.x] 📊 - 2026-07-03 - Deferred Access Physicalization
 

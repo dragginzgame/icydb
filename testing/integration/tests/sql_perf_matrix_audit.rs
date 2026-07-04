@@ -148,6 +148,16 @@ struct MatrixOutcome {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct MatrixLimitStopAfter {
+    possible: bool,
+    returned_limit: Option<usize>,
+    lookahead: usize,
+    stopped_after_matches: Option<u64>,
+    stopped_after_index_entries: Option<u64>,
+    disabled_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct MatrixSample {
     key: String,
     source: String,
@@ -160,6 +170,10 @@ struct MatrixSample {
     route_outcome: String,
     #[serde(default)]
     route_reason: Option<String>,
+    #[serde(default)]
+    order_by_idx_hint: Option<String>,
+    #[serde(default)]
+    limit_stop_after: MatrixLimitStopAfter,
     #[serde(default)]
     result_signature: Option<String>,
     #[serde(default)]
@@ -300,6 +314,10 @@ struct MatrixDeltaRow {
     after_route_outcome: Option<String>,
     before_route_reason: Option<String>,
     after_route_reason: Option<String>,
+    before_order_by_idx_hint: Option<String>,
+    after_order_by_idx_hint: Option<String>,
+    before_limit_stop_after: Option<MatrixLimitStopAfter>,
+    after_limit_stop_after: Option<MatrixLimitStopAfter>,
     before_result_signature: Option<String>,
     after_result_signature: Option<String>,
     #[serde(flatten)]
@@ -1465,6 +1483,8 @@ fn matrix_sample_from_perf(scenario: &MatrixScenario, perf: &SqlQueryPerfResult)
     sample.route_family = route.family.to_string();
     sample.route_outcome = route.outcome.to_string();
     sample.route_reason = route.reason.map(str::to_string);
+    sample.order_by_idx_hint = sql_order_by_idx_hint(&sample.sql);
+    sample.limit_stop_after = limit_stop_after_for_sample(&sample);
     sample.result_signature = Some(result_signature(&perf.result));
     sample.cursor_signature = cursor_signature(&perf.result);
 
@@ -1606,6 +1626,85 @@ fn sql_clause_usize_value(sql: &str, marker: &str) -> Option<usize> {
     tail[..end].parse().ok()
 }
 
+fn sql_order_by_idx_hint(sql: &str) -> Option<String> {
+    let clause = sql_order_by_clause(sql)?;
+    let terms = split_sql_top_level_commas(clause)
+        .into_iter()
+        .map(normalize_sql_order_term)
+        .filter(|term| !term.is_empty())
+        .collect::<Vec<_>>();
+    if terms.is_empty() {
+        return None;
+    }
+
+    Some(terms.join(", "))
+}
+
+fn sql_order_by_clause(sql: &str) -> Option<&str> {
+    let tail = sql.split_once(" ORDER BY ")?.1.trim_start();
+    let end = [" LIMIT ", " OFFSET "]
+        .into_iter()
+        .filter_map(|marker| tail.find(marker))
+        .min()
+        .unwrap_or(tail.len());
+    let clause = tail[..end].trim();
+    (!clause.is_empty()).then_some(clause)
+}
+
+fn split_sql_top_level_commas(input: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    let mut in_string = false;
+
+    for (index, character) in input.char_indices() {
+        match character {
+            '\'' => in_string = !in_string,
+            '(' if !in_string => depth = depth.saturating_add(1),
+            ')' if !in_string => depth = depth.saturating_sub(1),
+            ',' if !in_string && depth == 0 => {
+                parts.push(input[start..index].trim());
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(input[start..].trim());
+    parts
+}
+
+fn normalize_sql_order_term(term: &str) -> String {
+    term.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn limit_stop_after_for_sample(sample: &MatrixSample) -> MatrixLimitStopAfter {
+    let returned_limit = sql_clause_usize_value(&sample.sql, " LIMIT ");
+    let possible = sample.route_outcome == "pushed";
+    MatrixLimitStopAfter {
+        possible,
+        returned_limit,
+        lookahead: returned_limit.map_or(0, |limit| usize::from(limit > 0)),
+        stopped_after_matches: possible
+            .then(|| u64::try_from(sample.outcome.row_count).unwrap_or(u64::MAX)),
+        stopped_after_index_entries: possible.then_some(sample.index_store_entry_reads),
+        disabled_reason: (!possible).then(|| limit_stop_after_disabled_reason(sample)),
+    }
+}
+
+fn limit_stop_after_disabled_reason(sample: &MatrixSample) -> String {
+    if !sample.sql.contains(" LIMIT ") {
+        return "no_limit".to_string();
+    }
+    if !sample.sql.contains(" ORDER BY ") {
+        return "no_order_by".to_string();
+    }
+
+    sample
+        .route_reason
+        .clone()
+        .unwrap_or_else(|| "not_pushed".to_string())
+}
+
 fn classify_secondary_order_route(sample: &MatrixSample) -> RouteClassification {
     let Some((predicate_key, order_key)) = select_predicate_and_order_keys(&sample.family) else {
         return RouteClassification::new(
@@ -1614,6 +1713,13 @@ fn classify_secondary_order_route(sample: &MatrixSample) -> RouteClassification 
             Some("secondary_order_candidate"),
         );
     };
+    if secondary_order_has_index_suffix_gap(sample, order_key) {
+        return RouteClassification::new(
+            "secondary_order",
+            "missing_tie_breaker",
+            Some("index_order_suffix_gap"),
+        );
+    }
     if predicate_order_is_obviously_incompatible(predicate_key, order_key) {
         return RouteClassification::new(
             "incompatible_filter_first_order",
@@ -1648,6 +1754,14 @@ fn classify_index_order_route(
     }
 
     RouteClassification::new(family, "eligible_but_not_pushed", Some(candidate_reason))
+}
+
+fn secondary_order_has_index_suffix_gap(sample: &MatrixSample, order_key: &str) -> bool {
+    // PerfAuditBlob's ordered metadata index is `(bucket, label, id)`. The
+    // matrix also emits `ORDER BY bucket, id` cases to expose the next-order
+    // frontier, but those cannot use the declared index order because `label`
+    // is the intervening suffix key.
+    sample.surface == MatrixSurface::Blob.label() && order_key == "bucket_asc"
 }
 
 fn index_order_limit_stop_is_proven(sample: &MatrixSample) -> bool {
@@ -2256,6 +2370,11 @@ fn matrix_delta_row(
     let after_result_signature = after_sample.and_then(|sample| sample.result_signature.clone());
     let before_cursor_signature = before_sample.and_then(|sample| sample.cursor_signature.clone());
     let after_cursor_signature = after_sample.and_then(|sample| sample.cursor_signature.clone());
+    let before_order_by_idx_hint =
+        before_sample.and_then(|sample| sample.order_by_idx_hint.clone());
+    let after_order_by_idx_hint = after_sample.and_then(|sample| sample.order_by_idx_hint.clone());
+    let before_limit_stop_after = before_sample.map(|sample| sample.limit_stop_after.clone());
+    let after_limit_stop_after = after_sample.map(|sample| sample.limit_stop_after.clone());
     let (before_route_family, before_route_outcome, before_route_reason) = before_route
         .map_or((None, None, None), |(family, outcome, reason)| {
             (Some(family), Some(outcome), reason)
@@ -2316,6 +2435,10 @@ fn matrix_delta_row(
         after_route_outcome,
         before_route_reason,
         after_route_reason,
+        before_order_by_idx_hint,
+        after_order_by_idx_hint,
+        before_limit_stop_after,
+        after_limit_stop_after,
         signature_changes: MatrixDeltaSignatureChanges {
             result_signature_changed: signatures_changed(
                 before_result_signature.as_ref(),
@@ -2677,6 +2800,8 @@ fn append_delta_focus_and_change_tables(output: &mut String, delta: &MatrixDelta
                 row.before_route_family != row.after_route_family
                     || row.before_route_outcome != row.after_route_outcome
                     || row.before_route_reason != row.after_route_reason
+                    || row.before_order_by_idx_hint != row.after_order_by_idx_hint
+                    || row.before_limit_stop_after != row.after_limit_stop_after
             })
             .collect::<Vec<_>>(),
     );
@@ -2825,18 +2950,18 @@ fn append_delta_rows_table(output: &mut String, title: &str, rows: Vec<&MatrixDe
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Status | Total Delta | Total %bp | Compile Delta | Execute Delta | Store Delta | Executor Delta | data_store.get Delta | index ranges Delta | index entries Delta | Rows Delta | Route Family | Route Outcome | Result Changed | Cursor Changed |"
+        "| Scenario | Status | Total Delta | Total %bp | Compile Delta | Execute Delta | Store Delta | Executor Delta | data_store.get Delta | index ranges Delta | index entries Delta | Rows Delta | Route Family | Route Outcome | Order Hint | Limit Stop | Result Changed | Cursor Changed |"
     )
     .expect("write to string should succeed");
     writeln!(
         output,
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|"
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|---|"
     )
     .expect("write to string should succeed");
     for row in rows {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} -> {} | {} -> {} | {} | {} |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} -> {} | {} -> {} | {} | {} | {} | {} |",
             row.key,
             row.status_class,
             metric_delta_text(&row.total_local_instructions),
@@ -2855,6 +2980,14 @@ fn append_delta_rows_table(output: &mut String, title: &str, rows: Vec<&MatrixDe
             row.after_route_family.as_deref().unwrap_or(""),
             row.before_route_outcome.as_deref().unwrap_or(""),
             row.after_route_outcome.as_deref().unwrap_or(""),
+            option_string_transition(
+                row.before_order_by_idx_hint.as_deref(),
+                row.after_order_by_idx_hint.as_deref(),
+            ),
+            limit_stop_after_transition(
+                row.before_limit_stop_after.as_ref(),
+                row.after_limit_stop_after.as_ref(),
+            ),
             row.signature_changes.result_signature_changed,
             row.signature_changes.cursor_signature_changed,
         )
@@ -2865,6 +2998,47 @@ fn append_delta_rows_table(output: &mut String, title: &str, rows: Vec<&MatrixDe
 
 fn metric_delta_text(metric: &MetricDelta) -> String {
     metric.delta.map_or_else(|| "n/a".to_string(), signed_i64)
+}
+
+fn option_string_transition(before: Option<&str>, after: Option<&str>) -> String {
+    format!("{} -> {}", before.unwrap_or(""), after.unwrap_or(""))
+}
+
+fn limit_stop_after_transition(
+    before: Option<&MatrixLimitStopAfter>,
+    after: Option<&MatrixLimitStopAfter>,
+) -> String {
+    format!(
+        "{} -> {}",
+        limit_stop_after_text(before),
+        limit_stop_after_text(after)
+    )
+}
+
+fn limit_stop_after_text(value: Option<&MatrixLimitStopAfter>) -> String {
+    let Some(value) = value else {
+        return String::new();
+    };
+    if value.possible {
+        return format!(
+            "possible(limit={},lookahead={},matches={},index_entries={})",
+            value
+                .returned_limit
+                .map_or_else(|| "n/a".to_string(), |limit| limit.to_string()),
+            value.lookahead,
+            value
+                .stopped_after_matches
+                .map_or_else(|| "n/a".to_string(), |count| count.to_string()),
+            value
+                .stopped_after_index_entries
+                .map_or_else(|| "n/a".to_string(), |count| count.to_string()),
+        );
+    }
+
+    format!(
+        "disabled({})",
+        value.disabled_reason.as_deref().unwrap_or("unknown")
+    )
 }
 
 fn signed_i64(value: i64) -> String {
@@ -4016,6 +4190,31 @@ fn sql_perf_matrix_classifies_bounded_primary_order_limit_as_pushed() {
 }
 
 #[test]
+fn sql_perf_matrix_limit_stop_after_reports_pushed_bound() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+        "select.pk.all.pk_asc",
+    );
+    sample.data_store_get_calls = 1;
+    let route = route_classification_for_sample(&sample);
+    sample.route_family = route.family.to_string();
+    sample.route_outcome = route.outcome.to_string();
+    sample.route_reason = route.reason.map(str::to_string);
+
+    assert_eq!(
+        limit_stop_after_for_sample(&sample),
+        MatrixLimitStopAfter {
+            possible: true,
+            returned_limit: Some(1),
+            lookahead: 1,
+            stopped_after_matches: Some(1),
+            stopped_after_index_entries: Some(0),
+            disabled_reason: None,
+        },
+    );
+}
+
+#[test]
 fn sql_perf_matrix_classifies_offset_primary_order_limit_as_pushed_when_bounded() {
     let mut sample = route_classification_sample(
         "SELECT id FROM PerfAuditUser ORDER BY id DESC LIMIT 3 OFFSET 2",
@@ -4111,6 +4310,75 @@ fn sql_perf_matrix_keeps_secondary_order_candidate_unpushed_without_index_bound(
 }
 
 #[test]
+fn sql_perf_matrix_classifies_blob_bucket_id_order_as_missing_index_suffix() {
+    let mut sample = route_classification_sample(
+        "SELECT id, label FROM PerfAuditBlob WHERE bucket >= 10 AND bucket < 40 ORDER BY bucket ASC, id ASC LIMIT 3",
+        "select.narrow.bucket_range.bucket_asc",
+    );
+    sample.surface = MatrixSurface::Blob.label().to_string();
+    sample.data_store_get_calls = 3;
+    sample.index_store_entry_reads = 4;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "secondary_order",
+            "missing_tie_breaker",
+            Some("index_order_suffix_gap"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_limit_stop_after_reports_index_suffix_gap_reason() {
+    let mut sample = route_classification_sample(
+        "SELECT id, label FROM PerfAuditBlob WHERE bucket >= 10 AND bucket < 40 ORDER BY bucket ASC, id ASC LIMIT 3",
+        "select.narrow.bucket_range.bucket_asc",
+    );
+    sample.surface = MatrixSurface::Blob.label().to_string();
+    let route = route_classification_for_sample(&sample);
+    sample.route_family = route.family.to_string();
+    sample.route_outcome = route.outcome.to_string();
+    sample.route_reason = route.reason.map(str::to_string);
+
+    assert_eq!(
+        limit_stop_after_for_sample(&sample),
+        MatrixLimitStopAfter {
+            possible: false,
+            returned_limit: Some(3),
+            lookahead: 1,
+            stopped_after_matches: None,
+            stopped_after_index_entries: None,
+            disabled_reason: Some("index_order_suffix_gap".to_string()),
+        },
+    );
+}
+
+#[test]
+fn sql_perf_matrix_keeps_blob_bucket_label_id_order_pushable() {
+    let mut sample = route_classification_sample(
+        "SELECT id, label FROM PerfAuditBlob WHERE bucket >= 10 AND bucket < 40 ORDER BY bucket ASC, label ASC, id ASC LIMIT 3",
+        "select.narrow.bucket_range.bucket_label_asc",
+    );
+    sample.surface = MatrixSurface::Blob.label().to_string();
+    sample.data_store_get_calls = 3;
+    sample.index_store_entry_reads = 4;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "secondary_order",
+            "pushed",
+            Some("secondary_order_limit_stop_proven"),
+        ),
+    );
+}
+
+#[test]
 fn sql_perf_matrix_classifies_bounded_equality_prefix_suffix_order_as_pushed() {
     let mut sample = route_classification_sample(
         "SELECT id FROM PerfAuditToken WHERE collection_id = '01KV5N439P0000000000000000' ORDER BY stage ASC, id ASC LIMIT 50",
@@ -4133,6 +4401,26 @@ fn sql_perf_matrix_classifies_bounded_equality_prefix_suffix_order_as_pushed() {
     );
 }
 
+#[test]
+fn sql_perf_matrix_extracts_order_by_hint_from_matrix_sql() {
+    assert_eq!(
+        sql_order_by_idx_hint("SELECT id FROM PerfAuditToken ORDER BY stage ASC, id ASC LIMIT 50",)
+            .as_deref(),
+        Some("stage ASC, id ASC"),
+    );
+    assert_eq!(
+        sql_order_by_idx_hint(
+            "SELECT name FROM PerfAuditUser ORDER BY ROUND(age / 3, 2) DESC, name ASC LIMIT 2",
+        )
+        .as_deref(),
+        Some("ROUND(age / 3, 2) DESC, name ASC"),
+    );
+    assert_eq!(
+        sql_order_by_idx_hint("SELECT id FROM PerfAuditUser LIMIT 1"),
+        None,
+    );
+}
+
 fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
     let mut before_sample = report_matrix_sample(
         "user.select.pk.all.pk_asc.limit1",
@@ -4146,6 +4434,9 @@ fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
     after_sample.total_local_instructions = 900;
     after_sample.execute_local_instructions = 899;
     after_sample.data_store_get_calls = 0;
+    after_sample.route_outcome = "pushed".to_string();
+    after_sample.route_reason = Some("primary_order_limit_stop_proven".to_string());
+    after_sample.limit_stop_after = limit_stop_after_for_sample(&after_sample);
     after_sample
         .result_signature
         .clone_from(&before_sample.result_signature);
@@ -4252,6 +4543,21 @@ fn sql_perf_matrix_delta_reports_union_status_routes_and_signatures() {
         row.before_route_outcome.as_deref(),
         Some("eligible_but_not_pushed")
     );
+    assert_eq!(row.after_route_outcome.as_deref(), Some("pushed"));
+    assert_eq!(row.before_order_by_idx_hint.as_deref(), Some("id ASC"));
+    assert_eq!(row.after_order_by_idx_hint.as_deref(), Some("id ASC"));
+    assert_eq!(
+        row.before_limit_stop_after
+            .as_ref()
+            .map(|limit| limit.possible),
+        Some(false),
+    );
+    assert_eq!(
+        row.after_limit_stop_after
+            .as_ref()
+            .map(|limit| limit.possible),
+        Some(true),
+    );
     assert!(!row.signature_changes.result_signature_changed);
 
     let markdown = matrix_delta_markdown(&delta);
@@ -4262,6 +4568,16 @@ fn sql_perf_matrix_delta_reports_union_status_routes_and_signatures() {
     assert!(
         markdown.contains("Route Family Delta"),
         "delta markdown should include route-family aggregate"
+    );
+    assert!(
+        markdown.contains("id ASC -> id ASC"),
+        "delta markdown should include order-by hint transitions"
+    );
+    assert!(
+        markdown.contains(
+            "disabled(test_sample) -> possible(limit=1,lookahead=1,matches=1,index_entries=0)"
+        ),
+        "delta markdown should include limit-stop transitions"
     );
 }
 
@@ -4783,6 +5099,15 @@ fn report_matrix_sample(
         route_family: "primary_order".to_string(),
         route_outcome: "eligible_but_not_pushed".to_string(),
         route_reason: Some("test_sample".to_string()),
+        order_by_idx_hint: sql_order_by_idx_hint(sql),
+        limit_stop_after: MatrixLimitStopAfter {
+            possible: false,
+            returned_limit: sql_clause_usize_value(sql, " LIMIT "),
+            lookahead: sql_clause_usize_value(sql, " LIMIT ")
+                .map_or(0, |limit| usize::from(limit > 0)),
+            disabled_reason: Some("test_sample".to_string()),
+            ..MatrixLimitStopAfter::default()
+        },
         result_signature: Some("projection|PerfAuditHeapUser|id|1|1".to_string()),
         cursor_signature: None,
         compile_local_instructions: 1,

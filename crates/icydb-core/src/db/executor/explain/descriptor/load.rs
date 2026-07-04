@@ -44,9 +44,9 @@ use crate::db::executor::explain::descriptor::shared::{
     execution_preparation_predicate_index_capability, explain_execution_mode,
     explain_filter_expr_for_plan, explain_predicate_for_plan,
     explain_residual_filter_expr_for_plan, index_range_limit_pushdown_descriptor,
-    order_by_execution_node_descriptor, predicate_index_capability_label,
-    predicate_stage_descriptors, route_diagnostic_line_bool, route_diagnostic_line_debug,
-    route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
+    materialized_order_index_hint, order_by_execution_node_descriptor,
+    predicate_index_capability_label, predicate_stage_descriptors, route_diagnostic_line_bool,
+    route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
     secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
 
@@ -361,7 +361,7 @@ fn load_modifier_execution_nodes(
     // Phase 2: emit planner-owned post-access modifiers that depend on route shape,
     // distinct strategy, and continuation state.
     if let Some(node) = order_by_execution_node_descriptor(
-        plan.scalar_plan().order.is_some(),
+        plan.scalar_plan().order.as_ref(),
         explain_access_order_satisfied_for_model(plan, load_terminal_fast_path),
         execution_mode,
     ) {
@@ -471,6 +471,15 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         "diag.r.load_order_route_reason",
         load_order_observability.reason,
     ));
+    if !route_plan.load_order_route_mode().allows_streaming_load()
+        && let Some(order) = plan.scalar_plan().order.as_ref()
+        && let Some(hint) = materialized_order_index_hint(order)
+    {
+        lines.push(descriptor_route_property_line(
+            "diag.r.order_by_idx_hint",
+            &hint,
+        ));
+    }
     lines.push(route_diagnostic_line_bool(
         "projection_pushdown",
         covering_projection_selected,

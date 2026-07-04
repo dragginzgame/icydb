@@ -123,6 +123,7 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const INDEX: &str = "index";
     pub(in crate::db) const OFFSET: &str = "offset";
     pub(in crate::db) const ORDER_BY_INDEX: &str = "order_by_idx";
+    pub(in crate::db) const ORDER_BY_INDEX_HINT: &str = "order_by_idx_hint";
     pub(in crate::db) const ORDER_ROUTE_MODE: &str = "ord_route_mode";
     pub(in crate::db) const ORDER_ROUTE_REASON: &str = "ord_route_reason";
     pub(in crate::db) const PREDICATE_INDEX_CAPABILITY: &str = "pred_idx_cap";

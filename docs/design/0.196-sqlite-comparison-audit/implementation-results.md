@@ -14,8 +14,8 @@ The production changes are narrow:
   when the chosen access path already proves them;
 - exact primary-key public reads may use the key-count upper bound instead of a
   redundant `LIMIT`;
-- route classification, signatures, and full union-key delta artifacts are
-  emitted by the matrix harness.
+- route classification, structured limit-stop attribution, signatures, and full
+  union-key delta artifacts are emitted by the matrix harness.
 
 ## Artifacts
 
@@ -33,7 +33,53 @@ The production changes are narrow:
   `/tmp/icydb-196-after-full/sql_perf_196_full_matrix_delta.md`
 
 The raw JSON files are about 15 MB each and are intentionally kept under `/tmp`
-unless release packaging wants to archive them separately.
+unless release packaging wants to archive them separately. These scratch paths
+are not durable; regenerate and archive fresh full-matrix artifacts before using
+them as release attachments.
+
+## Order-Hint Artifact Refresh
+
+After adding `order_by_idx_hint` to execution diagnostics and matrix samples, a
+fresh deterministic full matrix was captured at:
+
+- `/tmp/icydb-196-after-order-hint/sql_perf_196_after_order_hint_full_matrix.json`
+- `/tmp/icydb-196-after-order-hint/sql_perf_196_after_order_hint_full_matrix.md`
+
+The saved-report delta against the prior after matrix was captured at:
+
+- `/tmp/icydb-196-after-order-hint/sql_perf_196_order_hint_delta.json`
+- `/tmp/icydb-196-after-order-hint/sql_perf_196_order_hint_delta.md`
+
+That refresh passed the closeout gate with 1,756 union scenarios, 1,675 common
+successful scenarios, 81 common failures, 0 new failures, 0 resolved failures,
+and 0 result or cursor signature changes. It populated order-hint transitions
+for 1,663 scenarios so the full matrix delta now exposes the requested
+deterministic ordering shape beside each route-family/outcome transition.
+
+## Classifier Hardening
+
+After the order-hint refresh, the matrix classifier was tightened for Blob
+`ORDER BY bucket, id` scenarios. The Blob ordered metadata index is
+`(bucket, label, id)`, so those routes now classify as `secondary_order` /
+`missing_tie_breaker` with reason `index_order_suffix_gap` instead of looking
+like generic eligible-but-unpushed secondary-order routes. Blob
+`ORDER BY bucket, label, id` scenarios remain pushable.
+
+This is report attribution only; it does not change production execution,
+cursor, cache, persisted format, or public API behavior. The full matrix was not
+rerun after this classifier-only hardening.
+
+## Limit-Stop Attribution
+
+Matrix samples now emit `limit_stop_after` as a structured proof object. Pushed
+routes record the returned limit, lookahead, observed returned matches, and
+index entries. Non-pushed routes record the same limit/lookahead context plus a
+stable disabled reason such as `index_order_suffix_gap`, `no_order_by`, or the
+route reason. Delta Markdown also prints the before/after limit-stop transition.
+
+This is report attribution only; it does not change production execution,
+cursor, cache, persisted format, or public API behavior. The full matrix was not
+rerun after this matrix-schema hardening.
 
 ## Full Matrix Delta
 
@@ -101,12 +147,17 @@ instruction regression threshold or did not indicate semantic drift.
 - `cargo test -p icydb-core --all-features planner_composite_index_range_residual_stripping -- --nocapture`: pass.
 - `cargo test -p icydb-core --all-features read_admission -- --nocapture`: pass.
 - `cargo test -p icydb-testing-integration --test sql_perf_matrix_audit`: pass.
+- `cargo test -p icydb-testing-integration --test sql_perf_matrix_audit -- --nocapture`: pass.
 - `cargo clippy -p icydb-core --all-features --tests -- -D warnings`: pass.
 - `cargo clippy -p icydb-testing-integration --all-features --test sql_perf_matrix_audit -- -D warnings`: pass.
+- `cargo clippy -p icydb-testing-integration --tests -- -D warnings`: pass.
 - `jq empty docs/design/0.196-sqlite-comparison-audit/implementation-results.json`: pass.
 - `git diff --check`: pass.
 - Full after deterministic matrix: pass.
 - Full before/after delta helper: pass.
+- Fresh order-hint deterministic matrix refresh: pass.
+- Saved-report order-hint delta helper: pass.
+- `python3 -m json.tool docs/design/0.196-sqlite-comparison-audit/implementation-results.json`: pass.
 
 One malformed local command failed before validation because `cargo test` accepts
 only one test-name filter before `--`; it was rerun with valid filters.

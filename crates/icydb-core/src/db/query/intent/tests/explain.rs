@@ -324,6 +324,39 @@ fn explain_execution_verbose_reports_top_n_seek_hints() {
 }
 
 #[test]
+fn explain_execution_materialized_order_reports_index_hint() {
+    let descriptor = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
+        .order_term(crate::db::desc("occurred_on"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .explain_execution()
+        .expect("materialized-order execution explain should build");
+
+    let mut order_index_hint = None;
+    descriptor.for_each_preorder(&mut |node| {
+        if node.node_type() == ExplainExecutionNodeType::OrderByMaterializedSort {
+            order_index_hint = node.node_properties().get("order_by_idx_hint").cloned();
+        }
+    });
+    assert_eq!(
+        order_index_hint,
+        Some(Value::Text("occurred_on DESC, id ASC".to_string())),
+        "materialized ORDER BY should expose the index shape that would satisfy the requested order",
+    );
+
+    let json = descriptor.render_json_canonical();
+    assert!(
+        json.contains("\"order_by_idx_hint\":\"Text(\\\"occurred_on DESC, id ASC\\\")\""),
+        "canonical execution JSON should carry the materialized-order index hint: {json}",
+    );
+    let verbose = descriptor.render_text_tree_verbose();
+    assert!(
+        verbose.contains("order_by_idx_hint=Text(\"occurred_on DESC, id ASC\")"),
+        "verbose execution text should carry the materialized-order index hint: {verbose}",
+    );
+}
+
+#[test]
 fn expression_casefold_eq_access_and_execution_route_stay_in_parity() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "email",

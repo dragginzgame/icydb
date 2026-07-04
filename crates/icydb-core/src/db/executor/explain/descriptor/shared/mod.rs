@@ -25,8 +25,8 @@ use crate::{
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlanProjection, AccessPlannedQuery,
-                AggregateKind, DistinctExecutionStrategy, explain_access_strategy_label,
-                project_explain_access_path,
+                AggregateKind, DistinctExecutionStrategy, OrderDirection, OrderSpec,
+                explain_access_strategy_label, project_explain_access_path,
             },
         },
     },
@@ -516,13 +516,11 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
 }
 
 pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_descriptor(
-    has_order_by: bool,
+    order: Option<&OrderSpec>,
     access_order_satisfied: bool,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
-    if !has_order_by {
-        return None;
-    }
+    let order = order?;
 
     // EXPLAIN should describe whether the chosen access route already preserves
     // final ORDER BY semantics, even when some outer boundary still materializes
@@ -538,8 +536,43 @@ pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_desc
         property_keys::ORDER_BY_INDEX,
         matches!(node_type, ExplainExecutionNodeType::OrderByAccessSatisfied),
     );
+    if matches!(node_type, ExplainExecutionNodeType::OrderByMaterializedSort)
+        && let Some(hint) = materialized_order_index_hint(order)
+    {
+        insert_node_property(&mut node, property_keys::ORDER_BY_INDEX_HINT, hint);
+    }
 
     Some(node)
+}
+
+pub(in crate::db::executor::explain::descriptor) fn materialized_order_index_hint(
+    order: &OrderSpec,
+) -> Option<String> {
+    if order.fields.is_empty() {
+        return None;
+    }
+
+    Some(
+        order
+            .fields
+            .iter()
+            .map(|term| {
+                format!(
+                    "{} {}",
+                    term.rendered_label(),
+                    order_direction_hint_label(term.direction())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+const fn order_direction_hint_label(direction: OrderDirection) -> &'static str {
+    match direction {
+        OrderDirection::Asc => "ASC",
+        OrderDirection::Desc => "DESC",
+    }
 }
 
 pub(in crate::db::executor::explain::descriptor) const fn distinct_execution_node_descriptor(
