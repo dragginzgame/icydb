@@ -20,12 +20,16 @@
     "route_diagnostics_delta_markdown": "/tmp/icydb-196-matrix-delta/sql_perf_196_route_diagnostics_delta.md",
     "line_196_0_baseline_full_matrix_json": "/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.json",
     "line_196_0_baseline_full_matrix_markdown": "/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.md",
-    "line_196_0_to_end_delta_json": "/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.json",
-    "line_196_0_to_end_delta_markdown": "/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.md",
+    "line_196_0_to_end_delta_json": "/tmp/icydb-196-line-delta-1966/sql_perf_196_0_to_196_6_delta.json",
+    "line_196_0_to_end_delta_markdown": "/tmp/icydb-196-line-delta-1966/sql_perf_196_0_to_196_6_delta.md",
     "classifier_hardening_full_matrix_json": "/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.json",
     "classifier_hardening_full_matrix_markdown": "/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.md",
     "classifier_hardening_delta_json": "/tmp/icydb-196-5-classifier-delta/sql_perf_196_5_classifier_delta.json",
-    "classifier_hardening_delta_markdown": "/tmp/icydb-196-5-classifier-delta/sql_perf_196_5_classifier_delta.md"
+    "classifier_hardening_delta_markdown": "/tmp/icydb-196-5-classifier-delta/sql_perf_196_5_classifier_delta.md",
+    "grouped_classifier_full_matrix_json": "/tmp/icydb-196-6-grouped-classifier-report/sql_perf_196_6_grouped_classifier_full_matrix.json",
+    "grouped_classifier_full_matrix_markdown": "/tmp/icydb-196-6-grouped-classifier-report/sql_perf_196_6_grouped_classifier_full_matrix.md",
+    "grouped_classifier_delta_json": "/tmp/icydb-196-6-grouped-classifier-delta/sql_perf_196_6_grouped_classifier_delta.json",
+    "grouped_classifier_delta_markdown": "/tmp/icydb-196-6-grouped-classifier-delta/sql_perf_196_6_grouped_classifier_delta.md"
   },
   "artifact_retention": "Recorded /tmp paths are scratch captures, not durable release attachments; regenerate and archive fresh full-matrix artifacts before release packaging.",
   "order_hint_refresh": {
@@ -320,20 +324,217 @@
       }
     ]
   },
-  "line_196_0_to_end_delta": {
-    "comparison": "clean v0.196.0 baseline versus current end-of-196 worktree state",
+  "grouped_aggregate_classifier_split_196_6": {
+    "comparison": "0.196.5 classifier-hardened matrix versus current 0.196.6 grouped-aggregate classifier split",
     "canister_wasm_profile": "debug",
+    "generated_scenarios": 1756,
+    "executed_scenarios": 1675,
+    "failed_scenarios": 81,
     "union_scenarios": 1756,
     "common_successful_scenarios": 1675,
     "common_failures": 81,
-    "improved_scenarios": 114,
-    "regressed_scenarios": 1561,
+    "improved_scenarios": 633,
+    "regressed_scenarios": 1042,
     "neutral_scenarios": 0,
     "new_failures": 0,
     "resolved_failures": 0,
     "result_signature_changes": 0,
     "cursor_signature_changes": 0,
-    "route_fact_changes": 609,
+    "route_fact_changes": 4,
+    "order_hint_changes": 0,
+    "limit_stop_attribution_changes": 0,
+    "data_store_get_delta": 0,
+    "index_range_delta": 0,
+    "index_entry_delta": 0,
+    "rows_returned_delta": 0,
+    "total_instruction_baseline": 4820024676,
+    "total_instruction_current": 4825263485,
+    "total_instruction_delta": 5238809,
+    "aggregate_instruction_delta_percent": 0.11,
+    "regression_gate_crossings": 0,
+    "expected_improvement_count": 0,
+    "focused_target_count": 0,
+    "closeout_gate": "pass",
+    "remaining_eligible_but_not_pushed_scenarios": 10,
+    "interpretation": "0.196.6 is classifier/evidence hardening, not a new runtime optimization. It separates grouped aggregate materialization from scalar secondary-order pushdown candidates without changing result, cursor, access-counter, or row-count behavior.",
+    "grouped_aggregate_scenarios": [
+      "account.aggregate.group_tier_count",
+      "user.aggregate.group_active_avg_age",
+      "user.aggregate.group_age_count",
+      "user.aggregate.group_age_having_alias"
+    ],
+    "remaining_candidate_shape": "scalar PerfAuditUser age IN (...) ORDER BY age ASC/DESC, id ASC/DESC LIMIT 1",
+    "route_family_outcome_reason_coverage": [
+      {
+        "route_family": "equality_prefix_ordered_suffix",
+        "route_outcome": "pushed",
+        "route_reason": "equality_prefix_ordered_suffix_limit_stop_proven",
+        "scenarios": 1,
+        "total_instructions": 2481265,
+        "data_store_get": 0,
+        "index_ranges": 1,
+        "index_entries": 50,
+        "rows_returned": 50
+      },
+      {
+        "route_family": "incompatible_filter_first_order",
+        "route_outcome": "materialized",
+        "route_reason": "filter_order_mismatch",
+        "scenarios": 498,
+        "total_instructions": 679469958,
+        "data_store_get": 2089,
+        "index_ranges": 651,
+        "index_entries": 2210,
+        "rows_returned": 1220
+      },
+      {
+        "route_family": "materialized_order",
+        "route_outcome": "materialized",
+        "route_reason": "grouped_aggregate_materialized",
+        "scenarios": 4,
+        "total_instructions": 5471623,
+        "data_store_get": 24,
+        "index_ranges": 0,
+        "index_entries": 0,
+        "rows_returned": 12
+      },
+      {
+        "route_family": "materialized_order",
+        "route_outcome": "materialized",
+        "route_reason": "requires_materialized_sort",
+        "scenarios": 114,
+        "total_instructions": 150044504,
+        "data_store_get": 570,
+        "index_ranges": 78,
+        "index_entries": 354,
+        "rows_returned": 291
+      },
+      {
+        "route_family": "materialized_order",
+        "route_outcome": "materialized",
+        "route_reason": "storage_mirror_has_primary_index_only",
+        "scenarios": 144,
+        "total_instructions": 2830489179,
+        "data_store_get": 73728,
+        "index_ranges": 0,
+        "index_entries": 0,
+        "rows_returned": 672
+      },
+      {
+        "route_family": "not_ordered_or_not_paginated",
+        "route_outcome": "unchanged_or_not_applicable",
+        "route_reason": "not_a_paginated_select",
+        "scenarios": 13,
+        "total_instructions": 16500754,
+        "data_store_get": 6,
+        "index_ranges": 0,
+        "index_entries": 0,
+        "rows_returned": 35
+      },
+      {
+        "route_family": "primary_order",
+        "route_outcome": "pushed",
+        "route_reason": "primary_order_limit_stop_proven",
+        "scenarios": 169,
+        "total_instructions": 212238835,
+        "data_store_get": 758,
+        "index_ranges": 32,
+        "index_entries": 1016,
+        "rows_returned": 1069
+      },
+      {
+        "route_family": "residual_filter_ordered_scan",
+        "route_outcome": "residual_unbounded",
+        "route_reason": "residual_filter_requires_candidate_scan",
+        "scenarios": 315,
+        "total_instructions": 405613464,
+        "data_store_get": 1366,
+        "index_ranges": 263,
+        "index_entries": 484,
+        "rows_returned": 884
+      },
+      {
+        "route_family": "secondary_order",
+        "route_outcome": "eligible_but_not_pushed",
+        "route_reason": "secondary_order_candidate",
+        "scenarios": 10,
+        "total_instructions": 12959909,
+        "data_store_get": 8,
+        "index_ranges": 30,
+        "index_entries": 34,
+        "rows_returned": 10
+      },
+      {
+        "route_family": "secondary_order",
+        "route_outcome": "missing_tie_breaker",
+        "route_reason": "index_order_suffix_gap",
+        "scenarios": 60,
+        "total_instructions": 82106808,
+        "data_store_get": 225,
+        "index_ranges": 45,
+        "index_entries": 135,
+        "rows_returned": 135
+      },
+      {
+        "route_family": "secondary_order",
+        "route_outcome": "pushed",
+        "route_reason": "secondary_order_limit_stop_proven",
+        "scenarios": 227,
+        "total_instructions": 263799326,
+        "data_store_get": 464,
+        "index_ranges": 333,
+        "index_entries": 698,
+        "rows_returned": 631
+      },
+      {
+        "route_family": "unsupported_access_kind",
+        "route_outcome": "unsupported",
+        "route_reason": "order_expression_not_classified",
+        "scenarios": 120,
+        "total_instructions": 164087860,
+        "data_store_get": 600,
+        "index_ranges": 90,
+        "index_entries": 240,
+        "rows_returned": 310
+      }
+    ],
+    "route_fact_transitions": [
+      {
+        "scenario": "account.aggregate.group_tier_count",
+        "before": "secondary_order/eligible_but_not_pushed/secondary_order_candidate",
+        "after": "materialized_order/materialized/grouped_aggregate_materialized"
+      },
+      {
+        "scenario": "user.aggregate.group_active_avg_age",
+        "before": "unsupported_access_kind/unsupported/order_expression_not_classified",
+        "after": "materialized_order/materialized/grouped_aggregate_materialized"
+      },
+      {
+        "scenario": "user.aggregate.group_age_count",
+        "before": "secondary_order/eligible_but_not_pushed/secondary_order_candidate",
+        "after": "materialized_order/materialized/grouped_aggregate_materialized"
+      },
+      {
+        "scenario": "user.aggregate.group_age_having_alias",
+        "before": "unsupported_access_kind/unsupported/order_expression_not_classified",
+        "after": "materialized_order/materialized/grouped_aggregate_materialized"
+      }
+    ]
+  },
+  "line_196_0_to_end_delta": {
+    "comparison": "clean v0.196.0 baseline versus current 0.196.6 end-of-196 worktree state",
+    "canister_wasm_profile": "debug",
+    "union_scenarios": 1756,
+    "common_successful_scenarios": 1675,
+    "common_failures": 81,
+    "improved_scenarios": 78,
+    "regressed_scenarios": 1597,
+    "neutral_scenarios": 0,
+    "new_failures": 0,
+    "resolved_failures": 0,
+    "result_signature_changes": 0,
+    "cursor_signature_changes": 0,
+    "route_fact_changes": 613,
     "order_hint_changes": 1663,
     "limit_stop_attribution_changes": 1675,
     "data_store_get_delta": 0,
@@ -341,19 +542,19 @@
     "index_entry_delta": 0,
     "rows_returned_delta": 0,
     "total_instruction_baseline": 4814331699,
-    "total_instruction_current": 4820024676,
-    "total_instruction_delta": 5692977,
-    "compile_instruction_delta": 3710200,
-    "execute_instruction_delta": 1982777,
-    "planner_instruction_delta": 3785732,
-    "executor_instruction_delta": -1376527,
-    "store_instruction_delta": -64281,
-    "aggregate_instruction_delta_percent": 0.12,
+    "total_instruction_current": 4825263485,
+    "total_instruction_delta": 10931786,
+    "compile_instruction_delta": 3806027,
+    "execute_instruction_delta": 7125759,
+    "planner_instruction_delta": 3696588,
+    "executor_instruction_delta": 3158586,
+    "store_instruction_delta": 217230,
+    "aggregate_instruction_delta_percent": 0.23,
     "regression_gate_crossings": 0,
     "expected_improvement_count": 0,
     "focused_target_count": 0,
     "closeout_gate": "pass",
-    "interpretation": "The post-0.196.0 line is diagnostic hardening, not a new runtime optimization: no result, cursor, row-count, data-store, index-range, or index-entry counters changed. The 609 route-fact changes include Blob ORDER BY bucket, id suffix-gap reclassification plus the 0.196.5 separation of materialized order windows, residual candidate scans, and unsupported expression orders from true pushdown candidates."
+    "interpretation": "The post-0.196.0 line is diagnostic hardening, not a new runtime optimization: no result, cursor, row-count, data-store, index-range, or index-entry counters changed. The 613 route-fact changes include Blob ORDER BY bucket, id suffix-gap reclassification, the 0.196.5 separation of materialized order windows, residual candidate scans, and unsupported expression orders from true pushdown candidates, and the 0.196.6 grouped-aggregate classifier split."
   },
   "matrix_delta": {
     "canister_wasm_profile": "debug",
@@ -418,6 +619,7 @@
     "exact primary-key public reads can use the selected key-count bound without a redundant LIMIT",
     "matrix reports include route family, route outcome, order-by index-shape hints, structured limit_stop_after attribution, Blob index suffix-gap classification, result signatures, cursor signatures, and union-key delta artifacts",
     "matrix classifiers separate materialized order windows, residual candidate scans, and unsupported expression orders from true pushdown candidates",
+    "matrix classifiers separate grouped aggregate materialization from scalar secondary-order pushdown candidates",
     "verbose EXPLAIN diagnostics include route-level limit_stop_after attribution",
     "canonical execution descriptors include bounded-fetch limit_stop_after node properties",
     "scalar-load canonical execution descriptors include route_family, route_outcome, and route_reason node properties"
@@ -452,6 +654,10 @@
     "0.196.5 SQL perf matrix audit integration test",
     "0.196.5 fresh deterministic SQL perf full matrix",
     "0.196.5 saved-report classifier SQL perf matrix delta helper",
+    "0.196.6 SQL perf matrix grouped aggregate classifier focused test",
+    "0.196.6 fresh deterministic SQL perf full matrix",
+    "0.196.6 saved-report grouped aggregate classifier SQL perf matrix delta helper",
+    "0.196.6 saved-report v0.196.0 to current line delta helper",
     "python3 -m json.tool docs/design/0.196-sqlite-comparison-audit/implementation-results.json"
   ],
   "wasm_size_delta": "not_measured"

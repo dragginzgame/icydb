@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
+- `0.196.6` separates grouped aggregate matrix routes from scalar
+  secondary-order pushdown candidates, leaving the remaining candidate bucket
+  scalar-only without changing execution semantics.
+
 - `0.196.5` tightens SQL matrix route classification so materialized order
   windows, residual candidate scans, and unsupported expression orders no
   longer appear as pushdown candidates, without changing execution semantics.

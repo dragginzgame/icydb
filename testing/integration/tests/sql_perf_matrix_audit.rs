@@ -1546,6 +1546,13 @@ fn route_classification_for_sample(sample: &MatrixSample) -> RouteClassification
             "equality_prefix_ordered_suffix_limit_stop_proven",
         );
     }
+    if sample.sql.contains(" GROUP BY ") {
+        return RouteClassification::new(
+            "materialized_order",
+            "materialized",
+            Some("grouped_aggregate_materialized"),
+        );
+    }
     if sample.sql.contains("ORDER BY age ")
         || sample.sql.contains("ORDER BY name ")
         || sample.sql.contains("ORDER BY handle ")
@@ -4444,6 +4451,29 @@ fn sql_perf_matrix_classifies_unindexed_order_expression_as_unsupported() {
             "unsupported_access_kind",
             "unsupported",
             Some("order_expression_not_classified"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_grouped_aggregate_as_materialized() {
+    let mut sample = route_classification_sample(
+        "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+        "aggregate.grouped",
+    );
+    sample.outcome.result_kind = "grouped".to_string();
+    sample.outcome.row_count = 6;
+    sample.grouped_fold_local_instructions = 8_192;
+    sample.data_store_get_calls = 6;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "materialized_order",
+            "materialized",
+            Some("grouped_aggregate_materialized"),
         ),
     );
 }

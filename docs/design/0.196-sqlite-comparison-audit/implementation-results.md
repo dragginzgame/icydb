@@ -275,6 +275,87 @@ Route-fact changes from the previous descriptor route-diagnostics matrix:
 | `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | `unsupported_access_kind` / `unsupported` / `order_expression_not_classified` | 15 |
 | `secondary_order` / `pushed` / `secondary_order_limit_stop_proven` | `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 32 |
 
+## 0.196.6 Grouped Aggregate Classifier Split
+
+After the 0.196.5 classifier hardening, the remaining
+`eligible_but_not_pushed` bucket still included two grouped aggregate
+scenarios. Grouped aggregates are not scalar ordered-read pushdown candidates:
+they have grouped fold/finalize work and should remain materialized until a
+separate grouped-aggregate execution design exists.
+
+The matrix classifier now reports all `GROUP BY ... ORDER BY ... LIMIT`
+scenarios as `materialized_order` / `materialized` with reason
+`grouped_aggregate_materialized`. This is diagnostic hardening only: no
+production execution, cursor, cache, persisted format, public API, or public
+read-admission behavior changed.
+
+- Current full matrix:
+  `/tmp/icydb-196-6-grouped-classifier-report/sql_perf_196_6_grouped_classifier_full_matrix.json`
+- Current full matrix Markdown:
+  `/tmp/icydb-196-6-grouped-classifier-report/sql_perf_196_6_grouped_classifier_full_matrix.md`
+- Delta JSON:
+  `/tmp/icydb-196-6-grouped-classifier-delta/sql_perf_196_6_grouped_classifier_delta.json`
+- Delta Markdown:
+  `/tmp/icydb-196-6-grouped-classifier-delta/sql_perf_196_6_grouped_classifier_delta.md`
+
+The refresh compares the 0.196.5 classifier-hardened matrix to the 0.196.6
+grouped-aggregate classifier split. It is not evidence of a new runtime
+pushdown win; expected improvement and focused-target counts were both zero.
+
+| Metric | Result |
+| --- | ---: |
+| Generated scenarios | 1,756 |
+| Executed scenarios | 1,675 |
+| Failed scenarios | 81 |
+| Union scenarios | 1,756 |
+| Common successful scenarios | 1,675 |
+| Common failures | 81 |
+| Improved scenarios | 633 |
+| Regressed scenarios | 1,042 |
+| New failures | 0 |
+| Resolved failures | 0 |
+| Result signature changes | 0 |
+| Cursor signature changes | 0 |
+| Route fact changes | 4 |
+| Order-hint changes | 0 |
+| Limit-stop attribution changes | 0 |
+| `data_store.get` delta | 0 |
+| Index range delta | 0 |
+| Index entry delta | 0 |
+| Rows returned delta | 0 |
+| Aggregate total instructions | +5,238,809 / 4,820,024,676 baseline |
+| Regression gate crossings (`>=10%` and `>=100k`) | 0 |
+| Closeout gate | PASS |
+
+The classifier now leaves only 10 `eligible_but_not_pushed` scenarios, all
+scalar secondary-order `PerfAuditUser` `age IN (...) ORDER BY age ASC/DESC, id
+ASC/DESC LIMIT 1` select scenarios. Four grouped aggregate scenarios moved to
+the grouped-materialized route:
+
+| Scenario | Before | After |
+| --- | --- | --- |
+| `account.aggregate.group_tier_count` | `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | `materialized_order` / `materialized` / `grouped_aggregate_materialized` |
+| `user.aggregate.group_active_avg_age` | `unsupported_access_kind` / `unsupported` / `order_expression_not_classified` | `materialized_order` / `materialized` / `grouped_aggregate_materialized` |
+| `user.aggregate.group_age_count` | `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | `materialized_order` / `materialized` / `grouped_aggregate_materialized` |
+| `user.aggregate.group_age_having_alias` | `unsupported_access_kind` / `unsupported` / `order_expression_not_classified` | `materialized_order` / `materialized` / `grouped_aggregate_materialized` |
+
+Route-family/outcome coverage for the refreshed matrix:
+
+| Route family/outcome/reason | Scenarios | Total instructions | `data_store.get` | Index ranges | Index entries | Rows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `equality_prefix_ordered_suffix` / `pushed` / `equality_prefix_ordered_suffix_limit_stop_proven` | 1 | 2,481,265 | 0 | 1 | 50 | 50 |
+| `incompatible_filter_first_order` / `materialized` / `filter_order_mismatch` | 498 | 679,469,958 | 2,089 | 651 | 2,210 | 1,220 |
+| `materialized_order` / `materialized` / `grouped_aggregate_materialized` | 4 | 5,471,623 | 24 | 0 | 0 | 12 |
+| `materialized_order` / `materialized` / `requires_materialized_sort` | 114 | 150,044,504 | 570 | 78 | 354 | 291 |
+| `materialized_order` / `materialized` / `storage_mirror_has_primary_index_only` | 144 | 2,830,489,179 | 73,728 | 0 | 0 | 672 |
+| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` / `not_a_paginated_select` | 13 | 16,500,754 | 6 | 0 | 0 | 35 |
+| `primary_order` / `pushed` / `primary_order_limit_stop_proven` | 169 | 212,238,835 | 758 | 32 | 1,016 | 1,069 |
+| `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 315 | 405,613,464 | 1,366 | 263 | 484 | 884 |
+| `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | 10 | 12,959,909 | 8 | 30 | 34 | 10 |
+| `secondary_order` / `missing_tie_breaker` / `index_order_suffix_gap` | 60 | 82,106,808 | 225 | 45 | 135 | 135 |
+| `secondary_order` / `pushed` / `secondary_order_limit_stop_proven` | 227 | 263,799,326 | 464 | 333 | 698 | 631 |
+| `unsupported_access_kind` / `unsupported` / `order_expression_not_classified` | 120 | 164,087,860 | 600 | 90 | 240 | 310 |
+
 ## 0.196.0 To End-Of-196 Matrix Delta
 
 A clean `v0.196.0` baseline was captured in a detached worktree and compared to
@@ -286,68 +367,68 @@ what changed after the initial `0.196.0` release point.
 - `0.196.0` baseline full matrix Markdown:
   `/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.md`
 - Current end-of-196 full matrix:
-  `/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.json`
+  `/tmp/icydb-196-6-grouped-classifier-report/sql_perf_196_6_grouped_classifier_full_matrix.json`
 - Current end-of-196 full matrix Markdown:
-  `/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.md`
+  `/tmp/icydb-196-6-grouped-classifier-report/sql_perf_196_6_grouped_classifier_full_matrix.md`
 - Line delta JSON:
-  `/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.json`
+  `/tmp/icydb-196-line-delta-1966/sql_perf_196_0_to_196_6_delta.json`
 - Line delta Markdown:
-  `/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.md`
+  `/tmp/icydb-196-line-delta-1966/sql_perf_196_0_to_196_6_delta.md`
 
 | Metric | Result |
 | --- | ---: |
 | Union scenarios | 1,756 |
 | Common successful scenarios | 1,675 |
 | Common failures | 81 |
-| Improved scenarios | 114 |
-| Regressed scenarios | 1,561 |
+| Improved scenarios | 78 |
+| Regressed scenarios | 1,597 |
 | New failures | 0 |
 | Resolved failures | 0 |
 | Result signature changes | 0 |
 | Cursor signature changes | 0 |
-| Route fact changes | 609 |
+| Route fact changes | 613 |
 | Order-hint changes | 1,663 |
 | Limit-stop attribution changes | 1,675 |
 | `data_store.get` delta | 0 |
 | Index range delta | 0 |
 | Index entry delta | 0 |
 | Rows returned delta | 0 |
-| Aggregate total instructions | +5,692,977 / 4,814,331,699 baseline |
-| Compile instruction delta | +3,710,200 |
-| Execute instruction delta | +1,982,777 |
-| Planner instruction delta | +3,785,732 |
-| Executor instruction delta | -1,376,527 |
-| Store instruction delta | -64,281 |
+| Aggregate total instructions | +10,931,786 / 4,814,331,699 baseline |
+| Compile instruction delta | +3,806,027 |
+| Execute instruction delta | +7,125,759 |
+| Planner instruction delta | +3,696,588 |
+| Executor instruction delta | +3,158,586 |
+| Store instruction delta | +217,230 |
 | Regression gate crossings (`>=10%` and `>=100k`) | 0 |
 | Closeout gate | PASS |
 
-The 609 route-fact changes include the earlier Blob `ORDER BY bucket, id`
+The 613 route-fact changes include the earlier Blob `ORDER BY bucket, id`
 suffix-gap reclassification plus the 0.196.5 classifier hardening that separates
 materialized order windows, residual candidate scans, and unsupported expression
-orders from true pushdown candidates. No row, cursor, access-counter, or result
-signature changed.
+orders from true pushdown candidates, and the 0.196.6 grouped-aggregate split.
+No row, cursor, access-counter, or result signature changed.
 
 The post-`0.196.0` line is therefore diagnostic hardening rather than a new
 runtime optimisation: order hints became visible for 1,663 scenarios,
 limit-stop proof attribution became explicit for all 1,675 common successful
 scenarios, scalar-load descriptor route facts became visible, and the matrix now
-leaves only 12 true `eligible_but_not_pushed` scenarios. The aggregate
-instruction movement is about +0.12%, below the closeout regression gate.
+leaves only 10 scalar `eligible_but_not_pushed` scenarios. The aggregate
+instruction movement is about +0.23%, below the closeout regression gate.
 
 Route-family/outcome deltas from `0.196.0` to the current end-of-196 state:
 
 | Route family/outcome | Scenarios | Total instruction delta |
 | --- | ---: | ---: |
-| `incompatible_filter_first_order` / `materialized` | 498 | +2,505,118 |
-| `residual_filter_ordered_scan` / `residual_unbounded` | 315 | +1,838,889 |
-| `secondary_order` / `pushed` | 227 | +830,217 |
-| `materialized_order` / `materialized` | 258 | -788,439 |
-| `primary_order` / `pushed` | 169 | +520,933 |
-| `unsupported_access_kind` / `unsupported` | 122 | +497,752 |
-| `secondary_order` / `missing_tie_breaker` | 60 | +192,339 |
-| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` | 13 | +52,745 |
-| `secondary_order` / `eligible_but_not_pushed` | 12 | +39,007 |
-| `equality_prefix_ordered_suffix` / `pushed` | 1 | +4,416 |
+| `materialized_order` / `materialized` | 262 | +3,724,321 |
+| `incompatible_filter_first_order` / `materialized` | 498 | +2,636,036 |
+| `residual_filter_ordered_scan` / `residual_unbounded` | 315 | +1,973,599 |
+| `secondary_order` / `pushed` | 227 | +1,050,158 |
+| `primary_order` / `pushed` | 169 | +626,566 |
+| `unsupported_access_kind` / `unsupported` | 120 | +556,938 |
+| `secondary_order` / `missing_tie_breaker` | 60 | +246,178 |
+| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` | 13 | +63,921 |
+| `secondary_order` / `eligible_but_not_pushed` | 10 | +44,712 |
+| `equality_prefix_ordered_suffix` / `pushed` | 1 | +9,357 |
 
 ## Full Matrix Delta
 
@@ -435,6 +516,10 @@ instruction regression threshold or did not indicate semantic drift.
 - Fresh `v0.196.0` deterministic matrix baseline: pass.
 - Saved-report `v0.196.0` to end-of-196 delta helper: pass.
 - `python3 -m json.tool docs/design/0.196-sqlite-comparison-audit/implementation-results.json`: pass.
+- 0.196.6 grouped aggregate classifier focused test: pass.
+- 0.196.6 fresh deterministic SQL perf full matrix: pass.
+- 0.196.6 saved-report grouped aggregate classifier delta helper: pass.
+- 0.196.6 saved-report `v0.196.0` to current line delta helper: pass.
 
 One malformed local command failed before validation because `cargo test` accepts
 only one test-name filter before `--`; it was rerun with valid filters.

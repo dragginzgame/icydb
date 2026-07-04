@@ -1,0 +1,1003 @@
+{
+  "audit": {
+    "date": "2026-07-04",
+    "repo_commit": "1f4fb54ac062bbdb8538b4888251b444e6f0ebcd",
+    "dirty_worktree": "Worktree changed during the audit. Final validation status showed modified CHANGELOG.md, docs/changelog/0.196.md, docs/design/0.196-sqlite-comparison-audit/implementation-results.json, docs/design/0.196-sqlite-comparison-audit/implementation-results.md, testing/integration/tests/sql_perf_matrix_audit.rs, plus the new docs/audits/technical-debt audit artifacts from this task.",
+    "commands_run": [
+      {
+        "command": "git status --short",
+        "result": "pass"
+      },
+      {
+        "command": "git rev-parse HEAD",
+        "result": "pass"
+      },
+      {
+        "command": "cargo metadata --format-version 1 --no-deps",
+        "result": "pass"
+      },
+      {
+        "command": "cargo tree --workspace --all-features --depth 1",
+        "result": "pass"
+      },
+      {
+        "command": "cargo fmt --check",
+        "result": "pass"
+      },
+      {
+        "command": "cargo test --workspace --all-features",
+        "result": "fail",
+        "notes": "Environmental PocketIC binary missing for fluent_perf_audit; focused approved rerun passed."
+      },
+      {
+        "command": "env IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test fluent_perf_audit",
+        "result": "pass"
+      },
+      {
+        "command": "cargo clippy --workspace --all-features --all-targets -- -D warnings",
+        "result": "pass"
+      },
+      {
+        "command": "cargo tree --workspace --all-features --duplicates",
+        "result": "pass"
+      },
+      {
+        "command": "targeted rg/find/sed inspections recorded in markdown report",
+        "result": "pass_with_some_expected_truncation_or_bad-glob_failures"
+      },
+      {
+        "command": "jq empty docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json",
+        "result": "pass"
+      },
+      {
+        "command": "git diff --check -- docs/audits/technical-debt/icydb-technical-debt-audit-2026-07-04.md docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json",
+        "result": "pass"
+      },
+      {
+        "command": "wc -l docs/audits/technical-debt/icydb-technical-debt-audit-2026-07-04.md docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json",
+        "result": "pass",
+        "notes": "Final artifact counts: report 1900 lines, ledger 1003 lines, total 2903 lines."
+      },
+      {
+        "command": "git status --short",
+        "result": "pass",
+        "notes": "Final status recorded modified pre-existing files plus untracked technical-debt audit directory."
+      }
+    ],
+    "baseline_designs_considered": [
+      "docs/design/0.196-sqlite-comparison-audit/0.196-design.md",
+      "docs/design/0.196-sqlite-comparison-audit/implementation-results.md",
+      "docs/design/0.196-sqlite-comparison-audit/findings.json",
+      "docs/design/0.197-deterministic-optimizer-canonicalization/0.197-design.md",
+      "docs/design/0.193-public-query-ergonomics-and-admission-evidence/0.193-design.md",
+      "docs/design/0.192-mega-audit-3/audit-results.md",
+      "docs/design/0.191-durability-productization-format-policy/0.191-design.md",
+      "docs/design/0.190-ic-reliability-followup/0.190-design.md",
+      "docs/contracts/QUERY_CONTRACT.md",
+      "docs/contracts/READ_ADMISSION.md",
+      "docs/contracts/CURSOR.md",
+      "docs/contracts/DURABILITY.md",
+      "docs/contracts/PERSISTED_FORMAT_POLICY.md",
+      "docs/contracts/PERSISTED_FORMAT_INVENTORY.md",
+      "docs/1.0-TODO.md",
+      "docs/ROADMAP.md",
+      "docs/governance/fast-path-inventory.md"
+    ]
+  },
+  "summary": {
+    "is_debt_accumulating": "Mostly managed. The repo is paying down major architecture debt, but pre-1.0 hardening debt is accumulating around public DTOs, durable byte formats, recovery/migration boundaries, query contracts, and 0.197 proof/cache tests.",
+    "top_immediate_cleanup_prs": [
+      "Update query/cursor contracts for 0.196 route-dependent pushdown facts.",
+      "Add remaining fast-path guard tests.",
+      "Refactor SQL perf matrix route classification into typed metadata.",
+      "Add 0.197 cache/proof/parity tripwire tests.",
+      "Refresh docs/1.0-TODO.md and stale 0.196 status text."
+    ],
+    "top_pre_1_0_blockers": [
+      "Byte-level persisted-format specification.",
+      "Durable migration lifecycle or explicit broad-migration non-goal.",
+      "Public EXPLAIN/SQL/perf DTO stability and version policy.",
+      "Recovery-size support matrix or streaming recovery design.",
+      "Cursor contract/envelope closure."
+    ],
+    "biggest_architecture_debt": "Planner/admission/executor proof ownership around 0.197 primary-key canonicalization.",
+    "biggest_test_debt": "Missing 0.197 proof/cache/parity tests plus remaining fast-path tripwire gaps.",
+    "biggest_doc_debt": "Query/cursor contracts and docs/1.0-TODO.md lag current design status.",
+    "biggest_performance_debt": "Recursive structural decode allocation and missing allocation/wasm-size measurements.",
+    "biggest_api_debt": "Public EXPLAIN, SQL result, and perf attribution DTOs may harden before their stability policy is explicit."
+  },
+  "findings": [
+    {
+      "id": "TD-001",
+      "title": "Query/cursor performance contract lags 0.196 route facts",
+      "category": "Documentation",
+      "severity": "High",
+      "priority": "P1",
+      "confidence": "High",
+      "debt_type": "stale contract",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "docs/contracts/QUERY_CONTRACT.md states cursor continuation is post-access and not pushed into index seek/range operations.",
+        "docs/contracts/CURSOR.md repeats post-access behavior.",
+        "docs/design/0.196-sqlite-comparison-audit/implementation-results.md records pushed ordered-read and limit-stop route facts."
+      ],
+      "why_debt": "The docs blur semantic guarantees and current route-dependent optimization facts.",
+      "why_may_be_intentional": "Pushdown should not be promised as a public cursor guarantee.",
+      "risk_if_ignored": "0.197 implementers may rely on stale performance wording or users may misread diagnostics as token semantics.",
+      "recommended_cleanup": "Rewrite query/cursor performance sections to separate semantics from internal route pushdown.",
+      "acceptance_criteria": [
+        "Docs cite 0.196 implementation results.",
+        "Pagination semantics remain unchanged.",
+        "Pushdown is documented as route-dependent optimization."
+      ],
+      "estimated_effort": "S",
+      "files_likely_touched": [
+        "docs/contracts/QUERY_CONTRACT.md",
+        "docs/contracts/CURSOR.md"
+      ],
+      "follow_up_patch_prompt": "Update query and cursor contracts to reflect 0.196 route-dependent ordered-read pushdown without making it a public cursor guarantee."
+    },
+    {
+      "id": "TD-002",
+      "title": "Primary-key equality canonicalization gap",
+      "category": "Query",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "first-slice deferral",
+      "interest_rate": "High",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": true,
+      "evidence": [
+        "docs/design/0.197-deterministic-optimizer-canonicalization/0.197-design.md requires scalar primary-key equality and finite IN canonicalization.",
+        "docs/contracts/READ_ADMISSION.md documents exact by_id/by_ids admission."
+      ],
+      "why_debt": "Users expect WHERE pk = value to converge with by_id(value).",
+      "why_may_be_intentional": "This is intentionally deferred from 0.196 into 0.197.",
+      "risk_if_ignored": "IcyDB-specific query spellings harden and later changes become more visible.",
+      "recommended_cleanup": "Implement planner-owned ByKey/ByKeys/Empty for strict scalar primary-key predicates only.",
+      "acceptance_criteria": [
+        "SQL/fluent parity tests pass.",
+        "Wrong-type and malformed inputs fail without scanning.",
+        "Empty performs zero data/index IO."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "crates/icydb-core/src/db/query",
+        "crates/icydb-core/src/db/session/query/cache.rs",
+        "crates/icydb-core/src/db/query/admission.rs"
+      ],
+      "follow_up_patch_prompt": "Implement the first 0.197 scalar primary-key canonicalization slice with planner-owned proof artifacts and fail-closed tests."
+    },
+    {
+      "id": "TD-003",
+      "title": "Planner/admission/executor proof drift risk",
+      "category": "Architecture",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "missing invariant test",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "blocks_0_196": false,
+      "blocks_0_197": true,
+      "evidence": [
+        "0.197 design says canonicalization must not be a late executor trick.",
+        "docs/governance/fast-path-inventory.md lists unguarded areas.",
+        "crates/icydb-core/src/db/query/admission.rs is a large admission authority."
+      ],
+      "why_debt": "Independent proof inference can make admission, explain, cache, and execution diverge.",
+      "why_may_be_intentional": "Existing exact-read and 0.196 pushdown paths are deliberately bounded.",
+      "risk_if_ignored": "A future optimization could become a public-read bypass or stale explain/cache route.",
+      "recommended_cleanup": "Add tests that force execution to consume a planner-owned proof artifact.",
+      "acceptance_criteria": [
+        "Tests fail if executor independently upgrades a non-admitted shape.",
+        "Explain/admission/execution route facts agree for admitted shapes."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "crates/icydb-core/src/db/query",
+        "crates/icydb-core/src/db/executor",
+        "crates/icydb-core/src/db/session/tests"
+      ],
+      "follow_up_patch_prompt": "Add 0.197 proof-drift guard tests before implementing primary-key canonicalization."
+    },
+    {
+      "id": "TD-004",
+      "title": "Recursive structural-value decode allocates full owned values",
+      "category": "Performance",
+      "severity": "Medium",
+      "priority": "P2",
+      "confidence": "High",
+      "debt_type": "performance TODO",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs has the only two active scoped source TODOs.",
+        "Both TODOs identify recursive list/map decode allocation."
+      ],
+      "why_debt": "Projection-only and validation paths cannot avoid full recursive Value allocation.",
+      "why_may_be_intentional": "The current path is correct, bounded, and simpler.",
+      "risk_if_ignored": "Row-codec and projection performance work may hide allocation costs.",
+      "recommended_cleanup": "Add measurement counters first, then consider a visitor path.",
+      "acceptance_criteria": [
+        "Recursive decode allocation pressure is measured.",
+        "No persisted-format change is introduced."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs",
+        "testing/integration/tests/sql_perf_matrix_audit.rs"
+      ],
+      "follow_up_patch_prompt": "Add measurement-only recursive decode allocation counters and decide whether a visitor path is justified."
+    },
+    {
+      "id": "TD-005",
+      "title": "Persisted format inventory is not a byte-level spec",
+      "category": "Storage",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "undocumented persisted contract",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "docs/contracts/PERSISTED_FORMAT_INVENTORY.md says it is a review checklist, not a byte-level layout specification.",
+        "docs/contracts/PERSISTED_FORMAT_POLICY.md governs classifications but not exact bytes."
+      ],
+      "why_debt": "Post-1.0 compatibility review needs exact durable byte authority.",
+      "why_may_be_intentional": "Before 1.0, source-owned encoding and hard cuts are acceptable.",
+      "risk_if_ignored": "Durable byte changes can land without complete compatibility review.",
+      "recommended_cleanup": "Write a byte-level persisted-format spec linked to codecs and tests.",
+      "acceptance_criteria": [
+        "Every persisted surface is mapped to bytes, version behavior, and tests.",
+        "Unknown version behavior is explicit."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "docs/contracts/PERSISTED_FORMAT_INVENTORY.md",
+        "docs/contracts/PERSISTED_FORMAT_POLICY.md"
+      ],
+      "follow_up_patch_prompt": "Create a byte-level persisted-format specification expanding the existing inventory."
+    },
+    {
+      "id": "TD-006",
+      "title": "Schema mutation lacks durable migration lifecycle",
+      "category": "Schema",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "migration state debt",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "0.192 audit identified no durable migration IDs, phases, watermarks, or reentry state.",
+        "crates/icydb-core/src/db/schema/mutation/mod.rs says startup reconciliation can currently execute only no-rebuild plans.",
+        "SchemaFieldPathIndexRunner is narrow and does not by itself create a durable lifecycle."
+      ],
+      "why_debt": "Physical schema work needs recovery authority comparable to commit recovery.",
+      "why_may_be_intentional": "Broad online migration may remain a 1.0 non-goal.",
+      "risk_if_ignored": "Future DDL can publish schema around incomplete physical work.",
+      "recommended_cleanup": "Implement minimal durable migration state or explicitly keep broad online migrations out of 1.0.",
+      "acceptance_criteria": [
+        "Incomplete migration state fails closed.",
+        "Admitted physical migration paths are reentrant or explicitly unsupported."
+      ],
+      "estimated_effort": "L",
+      "files_likely_touched": [
+        "crates/icydb-core/src/db/schema/mutation",
+        "crates/icydb-core/src/db/schema/reconcile.rs",
+        "docs/contracts"
+      ],
+      "follow_up_patch_prompt": "Define the 1.0 schema migration boundary with durable phases or explicit fail-closed non-goal documentation."
+    },
+    {
+      "id": "TD-007",
+      "title": "Recovery scale evidence is regression floor, not production bound",
+      "category": "Storage",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "missing recovery contract",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "docs/contracts/DURABILITY.md says 0.190/0.191 recovery measurements are proof shapes, not production IC guarantees.",
+        "docs/operations/DURABILITY_GUIDE.md warns operators not to claim arbitrary large-index recovery is budget-certified."
+      ],
+      "why_debt": "Durability product claims need a supported recovery-size envelope.",
+      "why_may_be_intentional": "Fail-closed recovery is the correct current posture.",
+      "risk_if_ignored": "Large canisters may fail closed without a documented support bound.",
+      "recommended_cleanup": "Produce a recovery-size support matrix or streaming recovery design.",
+      "acceptance_criteria": [
+        "Supported recovery bounds or streaming design are documented.",
+        "Idempotent reentry tests cover the supported bound."
+      ],
+      "estimated_effort": "L",
+      "files_likely_touched": [
+        "docs/contracts/DURABILITY.md",
+        "docs/operations/DURABILITY_GUIDE.md",
+        "testing/integration"
+      ],
+      "follow_up_patch_prompt": "Produce recovery-size support evidence or a streaming recovery design with fail-closed tests."
+    },
+    {
+      "id": "TD-008",
+      "title": "Fast-path ownership tripwires remain incomplete",
+      "category": "Testing",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "debt_type": "missing invariant test",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": true,
+      "evidence": [
+        "docs/governance/fast-path-inventory.md lists stream precedence helpers, grouped dedicated ownership, and bytes-terminal derivation exception as unguarded."
+      ],
+      "why_debt": "Fast paths can silently drift from planner-owned proofs.",
+      "why_may_be_intentional": "The inventory explicitly tracks these as follow-ups.",
+      "risk_if_ignored": "Future optimization can bypass proof/admission boundaries.",
+      "recommended_cleanup": "Add one focused guard test per remaining unguarded area.",
+      "acceptance_criteria": [
+        "Inventory is updated after tests land.",
+        "Tests fail on ownership/precedence drift."
+      ],
+      "estimated_effort": "S",
+      "files_likely_touched": [
+        "docs/governance/fast-path-inventory.md",
+        "crates/icydb-core/src/db/executor/planning/route/tests"
+      ],
+      "follow_up_patch_prompt": "Add guard tests for the three remaining fast-path inventory gaps."
+    },
+    {
+      "id": "TD-009",
+      "title": "SQL perf matrix route classifier relies on SQL string heuristics",
+      "category": "Observability",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "debt_type": "test harness complexity",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "testing/integration/tests/sql_perf_matrix_audit.rs is about 5563 lines.",
+        "route_classification_for_sample branches on sample.sql.contains(...) patterns.",
+        "Current dirty change adds GROUP BY string classification."
+      ],
+      "why_debt": "Performance reports can be misclassified if SQL text changes but execution facts do not.",
+      "why_may_be_intentional": "It is test-only and pragmatic for saved-report closeout.",
+      "risk_if_ignored": "0.197 route deltas may be hidden as classifier changes.",
+      "recommended_cleanup": "Use structured scenario metadata and runtime route facts, keeping saved-report fallback.",
+      "acceptance_criteria": [
+        "Current labels remain stable.",
+        "Classifier unit tests cover route families."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "testing/integration/tests/sql_perf_matrix_audit.rs"
+      ],
+      "follow_up_patch_prompt": "Refactor matrix route classification to structured metadata while preserving saved-report compatibility."
+    },
+    {
+      "id": "TD-010",
+      "title": "Public EXPLAIN and SQL DTOs need stability policy",
+      "category": "API",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "public API risk",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "crates/icydb/src/db/query/mod.rs re-exports many Explain*V1 types.",
+        "ExplainAccessDecisionV1 has public fields and schema_version.",
+        "SqlQueryResult and SQL perf attribution DTOs expose public fields."
+      ],
+      "why_debt": "Route facts and diagnostics are still changing, but public DTOs can freeze internal vocabulary.",
+      "why_may_be_intentional": "V1 names and schema_version show versioning intent.",
+      "risk_if_ignored": "Future diagnostics cleanup becomes public API breakage.",
+      "recommended_cleanup": "Classify each DTO as stable, versioned, or opaque before 1.0.",
+      "acceptance_criteria": [
+        "API docs state DTO stability guarantees.",
+        "Candid/API shape tests cover stable schemas."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "crates/icydb/src/db",
+        "crates/icydb-core/src/db/query/explain",
+        "docs/contracts"
+      ],
+      "follow_up_patch_prompt": "Audit public EXPLAIN, SQL result, and perf attribution DTO stability before 1.0."
+    },
+    {
+      "id": "TD-011",
+      "title": "1.0 TODO mixes stale, closed, and real blockers",
+      "category": "Governance",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "debt_type": "stale checklist",
+      "interest_rate": "Medium",
+      "blocks_1_0": true,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "docs/1.0-TODO.md has many unchecked items that overlap with later contracts and changelogs."
+      ],
+      "why_debt": "Noisy release checklists hide current blockers and cause duplicated audits.",
+      "why_may_be_intentional": "It is an umbrella checklist rather than a status dashboard.",
+      "risk_if_ignored": "Release planning wastes effort re-proving already-closed work.",
+      "recommended_cleanup": "Reclassify entries as closed, blocker, non-goal, deferred, or needs evidence.",
+      "acceptance_criteria": [
+        "Each remaining blocker links to evidence or owner doc.",
+        "Closed/non-goal items are separated."
+      ],
+      "estimated_effort": "S",
+      "files_likely_touched": [
+        "docs/1.0-TODO.md"
+      ],
+      "follow_up_patch_prompt": "Reconcile docs/1.0-TODO.md against current contracts and changelog evidence."
+    },
+    {
+      "id": "TD-012",
+      "title": "Query-plan cache identity must hard-cut for 0.197 if shape semantics change",
+      "category": "Caching",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "cache-version risk",
+      "interest_rate": "High",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": true,
+      "evidence": [
+        "crates/icydb-core/src/db/session/query/cache.rs has SHARED_QUERY_PLAN_CACHE_METHOD_VERSION = 3.",
+        "0.197 design requires hard-cut cache identity if semantics change."
+      ],
+      "why_debt": "Primary-key predicate canonicalization changes the meaning of cached query shapes.",
+      "why_may_be_intentional": "The method-version mechanism is already the right mitigation.",
+      "risk_if_ignored": "Parameterized SQL can reuse stale values or stale generic/rejected plans.",
+      "recommended_cleanup": "Add parameterized cache identity tests before implementation.",
+      "acceptance_criteria": [
+        "Same shape with different key values returns the bound key.",
+        "Wrong type fails without scan.",
+        "Method-version change makes old entries miss."
+      ],
+      "estimated_effort": "S",
+      "files_likely_touched": [
+        "crates/icydb-core/src/db/session/query/cache.rs",
+        "crates/icydb-core/src/db/session/tests"
+      ],
+      "follow_up_patch_prompt": "Add 0.197 query/SQL cache identity tests for shape/value separation and stale plan misses."
+    },
+    {
+      "id": "TD-013",
+      "title": "Operator durability diagnostics remain narrower than recovery authority",
+      "category": "Observability",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "Medium",
+      "debt_type": "operator diagnostics gap",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "0.192 audit requested compact operator durability diagnostics.",
+        "Durability docs warn raw stable-memory access bypasses guarded recovery."
+      ],
+      "why_debt": "Operators need marker/journal/fold readiness facts without raw access.",
+      "why_may_be_intentional": "Raw repair/import remains an explicit non-goal.",
+      "risk_if_ignored": "Recovery triage requires internal source knowledge.",
+      "recommended_cleanup": "Add bounded operator durability health report.",
+      "acceptance_criteria": [
+        "Report is query-safe.",
+        "Clean, marker-present, journal-tail, and fail-closed states are tested."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "crates/icydb-core/src/db/diagnostics",
+        "docs/operations/DURABILITY_GUIDE.md"
+      ],
+      "follow_up_patch_prompt": "Design and add a bounded durability health report for guarded recovery readiness facts."
+    },
+    {
+      "id": "TD-014",
+      "title": "Perf evidence lacks allocation counters and wasm-size deltas",
+      "category": "Performance",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "debt_type": "measurement gap",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": true,
+      "evidence": [
+        "0.196 implementation results state no wasm-size artifact was produced.",
+        "SQL perf matrix records instruction counters but not allocation counters."
+      ],
+      "why_debt": "Performance changes can move cost into allocation or code size without visibility.",
+      "why_may_be_intentional": "Full matrices are already expensive and 0.196 was diagnostic-only.",
+      "risk_if_ignored": "0.197 perf closeout may miss allocation or wasm regressions.",
+      "recommended_cleanup": "Add measurement-only wasm-size and allocation/proxy counters.",
+      "acceptance_criteria": [
+        "Reports include raw wasm byte size where available.",
+        "Counters cover decode, projection, cache, and covering paths."
+      ],
+      "estimated_effort": "S",
+      "files_likely_touched": [
+        "testing/integration/tests/sql_perf_matrix_audit.rs"
+      ],
+      "follow_up_patch_prompt": "Add measurement-only wasm-size and allocation/proxy counters to the SQL perf harness."
+    },
+    {
+      "id": "TD-015",
+      "title": "Feature combination coverage exists but was not audited as fully closed",
+      "category": "Feature flags",
+      "severity": "Low",
+      "priority": "P2",
+      "confidence": "Medium",
+      "debt_type": "needs more evidence",
+      "interest_rate": "Low",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "crates/icydb and crates/icydb-core have default=[], sql, sql-explain, diagnostics.",
+        "Makefile and CI include no-default and feature checks.",
+        "This audit ran all-features only."
+      ],
+      "why_debt": "All-features does not prove no-default or diagnostics-only behavior.",
+      "why_may_be_intentional": "CI appears to cover important combinations.",
+      "risk_if_ignored": "Release audits may overclaim feature coverage.",
+      "recommended_cleanup": "Document supported feature matrix and check mapping.",
+      "acceptance_criteria": [
+        "Supported combinations are listed.",
+        "Each combination maps to CI/Makefile commands."
+      ],
+      "estimated_effort": "S",
+      "files_likely_touched": [
+        "docs/governance",
+        ".github/workflows/ci.yml",
+        "Makefile"
+      ],
+      "follow_up_patch_prompt": "Document the supported feature matrix and its CI coverage."
+    },
+    {
+      "id": "TD-016",
+      "title": "SQL/fluent parity for 0.197 is not yet proven",
+      "category": "Testing",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "debt_type": "missing regression tests",
+      "interest_rate": "High",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": true,
+      "evidence": [
+        "0.197 design lists SQL literal, SQL parameter, and fluent primary-key equivalence tests as required."
+      ],
+      "why_debt": "Canonicalization must be surface-neutral.",
+      "why_may_be_intentional": "The behavior belongs to the 0.197 slice.",
+      "risk_if_ignored": "SQL and fluent behavior can diverge around exact primary-key access.",
+      "recommended_cleanup": "Add parity tests before or with canonicalization.",
+      "acceptance_criteria": [
+        "SQL literal, SQL parameter, and fluent variants return same results and route facts.",
+        "Wrong-type and residual cases fail consistently."
+      ],
+      "estimated_effort": "M",
+      "files_likely_touched": [
+        "crates/icydb-core/src/db/session/tests",
+        "crates/icydb-core/src/db/sql/lowering/tests"
+      ],
+      "follow_up_patch_prompt": "Add 0.197 SQL/fluent primary-key equality and IN parity tests."
+    },
+    {
+      "id": "TD-017",
+      "title": "Macro/codegen public path assumptions need feature-combo smoke",
+      "category": "Macro-codegen",
+      "severity": "Medium",
+      "priority": "P2",
+      "confidence": "Medium",
+      "debt_type": "generated-code assumption risk",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "crates/icydb/src/lib.rs exposes a doc-hidden __macro generated-code surface.",
+        "icydb-build emits feature-gated generated endpoint code."
+      ],
+      "why_debt": "Hidden facade paths can become de facto public for generated downstream code.",
+      "why_may_be_intentional": "Generated code needs narrow hidden wiring.",
+      "risk_if_ignored": "Facade cleanup can break generated code under untested features.",
+      "recommended_cleanup": "Add compile fixtures for supported generated-code feature combinations.",
+      "acceptance_criteria": [
+        "No-default, SQL, SQL-explain, and diagnostics generated-code paths compile where supported."
+      ],
+      "estimated_effort": "S",
+      "files_likely_touched": [
+        "testing/macro-tests",
+        "crates/icydb-schema-derive"
+      ],
+      "follow_up_patch_prompt": "Add generated-code compile fixtures for facade __macro paths across supported feature combinations."
+    },
+    {
+      "id": "TD-018",
+      "title": "0.196 design status header is stale versus implementation closeout",
+      "category": "Documentation",
+      "severity": "Low",
+      "priority": "P2",
+      "confidence": "High",
+      "debt_type": "stale status",
+      "interest_rate": "Low",
+      "blocks_1_0": false,
+      "blocks_0_196": false,
+      "blocks_0_197": false,
+      "evidence": [
+        "0.196 design says full-matrix closeout is pending.",
+        "0.196 implementation results show full-matrix closeout evidence."
+      ],
+      "why_debt": "Stale status causes duplicated audit work.",
+      "why_may_be_intentional": "Design docs can preserve historical context.",
+      "risk_if_ignored": "Readers distrust or rerun already-recorded closeout evidence.",
+      "recommended_cleanup": "Update status header to point at implementation-results.md.",
+      "acceptance_criteria": [
+        "Header no longer says closeout pending.",
+        "Implementation results are linked."
+      ],
+      "estimated_effort": "XS",
+      "files_likely_touched": [
+        "docs/design/0.196-sqlite-comparison-audit/0.196-design.md"
+      ],
+      "follow_up_patch_prompt": "Update the 0.196 design status header to point at implementation-results.md as closeout authority."
+    }
+  ],
+  "backlog": [
+    {
+      "rank": 1,
+      "title": "Write byte-level persisted-format spec",
+      "category": "Storage",
+      "priority": "P0",
+      "effort": "M",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Stabilizes durable byte compatibility review.",
+      "acceptance_criteria": [
+        "All durable surfaces mapped to bytes, versions, and tests."
+      ]
+    },
+    {
+      "rank": 2,
+      "title": "Decide 1.0 schema migration boundary",
+      "category": "Schema",
+      "priority": "P0",
+      "effort": "L",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Prevents unsafe migration semantics from hardening.",
+      "acceptance_criteria": [
+        "Durable phases exist or broad migrations are explicit non-goal."
+      ]
+    },
+    {
+      "rank": 3,
+      "title": "Public DTO stability/version audit",
+      "category": "API",
+      "priority": "P0",
+      "effort": "M",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Prevents post-1.0 API breakage.",
+      "acceptance_criteria": [
+        "Each DTO classified stable, versioned, or opaque."
+      ]
+    },
+    {
+      "rank": 4,
+      "title": "Recovery-size support matrix or streaming plan",
+      "category": "Storage",
+      "priority": "P0",
+      "effort": "L",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Defines durability product envelope.",
+      "acceptance_criteria": [
+        "Supported recovery bounds or streaming design documented and tested."
+      ]
+    },
+    {
+      "rank": 5,
+      "title": "Cursor contract closure",
+      "category": "Query",
+      "priority": "P1",
+      "effort": "S",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Aligns semantics, tokens, and route optimization wording.",
+      "acceptance_criteria": [
+        "Query and cursor contracts describe semantics separately from pushdown."
+      ]
+    },
+    {
+      "rank": 6,
+      "title": "0.197 cache identity tests",
+      "category": "Caching",
+      "priority": "P0",
+      "effort": "S",
+      "interest_rate": "High",
+      "blocks_1_0": false,
+      "expected_benefit": "Prevents stale plan reuse.",
+      "acceptance_criteria": [
+        "Same-shape/different-value and wrong-type tests pass."
+      ]
+    },
+    {
+      "rank": 7,
+      "title": "0.197 SQL/fluent parity tests",
+      "category": "Testing",
+      "priority": "P0",
+      "effort": "M",
+      "interest_rate": "High",
+      "blocks_1_0": false,
+      "expected_benefit": "Prevents public surface drift.",
+      "acceptance_criteria": [
+        "SQL literal, SQL parameter, and fluent forms match."
+      ]
+    },
+    {
+      "rank": 8,
+      "title": "0.197 proof-drift guard tests",
+      "category": "Architecture",
+      "priority": "P0",
+      "effort": "M",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Blocks executor shortcut implementation.",
+      "acceptance_criteria": [
+        "Execution cannot upgrade access without planner proof artifact."
+      ]
+    },
+    {
+      "rank": 9,
+      "title": "Add remaining fast-path guards",
+      "category": "Testing",
+      "priority": "P1",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Locks fast-path ownership.",
+      "acceptance_criteria": [
+        "Fast-path inventory remaining areas are guarded."
+      ]
+    },
+    {
+      "rank": 10,
+      "title": "Refactor SQL perf route classifier",
+      "category": "Performance",
+      "priority": "P1",
+      "effort": "M",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Makes matrix route evidence trustworthy.",
+      "acceptance_criteria": [
+        "Structured metadata drives classification for generated scenarios."
+      ]
+    },
+    {
+      "rank": 11,
+      "title": "Refresh docs/1.0-TODO.md",
+      "category": "Governance",
+      "priority": "P1",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": true,
+      "expected_benefit": "Separates stale items from real blockers.",
+      "acceptance_criteria": [
+        "Items are closed, blocker, non-goal, deferred, or needs-evidence."
+      ]
+    },
+    {
+      "rank": 12,
+      "title": "Update 0.196 design status",
+      "category": "Documentation",
+      "priority": "P2",
+      "effort": "XS",
+      "interest_rate": "Low",
+      "blocks_1_0": false,
+      "expected_benefit": "Removes closeout confusion.",
+      "acceptance_criteria": [
+        "Status links to implementation-results.md."
+      ]
+    },
+    {
+      "rank": 13,
+      "title": "Add wasm-size measurement",
+      "category": "Performance",
+      "priority": "P1",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Catches code-size regressions.",
+      "acceptance_criteria": [
+        "Reports include raw wasm byte size when available."
+      ]
+    },
+    {
+      "rank": 14,
+      "title": "Add allocation/proxy counters",
+      "category": "Performance",
+      "priority": "P1",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Reveals hidden allocation cost.",
+      "acceptance_criteria": [
+        "Decode, projection, cache, and covering paths have counters or proxies."
+      ]
+    },
+    {
+      "rank": 15,
+      "title": "Recursive decode visitor experiment",
+      "category": "Serialization",
+      "priority": "P2",
+      "effort": "M",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Can reduce projection decode cost if counters justify it.",
+      "acceptance_criteria": [
+        "No persisted-format change; benchmark demonstrates benefit."
+      ]
+    },
+    {
+      "rank": 16,
+      "title": "Operator durability health DTO",
+      "category": "Observability",
+      "priority": "P1",
+      "effort": "M",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Improves recovery triage.",
+      "acceptance_criteria": [
+        "Health report is query-safe and covers marker/journal/fold readiness."
+      ]
+    },
+    {
+      "rank": 17,
+      "title": "Feature matrix contract",
+      "category": "Feature flags",
+      "priority": "P2",
+      "effort": "S",
+      "interest_rate": "Low",
+      "blocks_1_0": false,
+      "expected_benefit": "Prevents unsupported combination confusion.",
+      "acceptance_criteria": [
+        "Supported feature combinations map to CI/Makefile checks."
+      ]
+    },
+    {
+      "rank": 18,
+      "title": "Generated-code feature fixtures",
+      "category": "Macro-codegen",
+      "priority": "P2",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Locks hidden facade assumptions.",
+      "acceptance_criteria": [
+        "No-default, SQL, SQL-explain, and diagnostics generated-code paths compile where supported."
+      ]
+    },
+    {
+      "rank": 19,
+      "title": "Link contracts to tests",
+      "category": "Documentation",
+      "priority": "P2",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Speeds future audits.",
+      "acceptance_criteria": [
+        "Contracts cite core tests for major invariants."
+      ]
+    },
+    {
+      "rank": 20,
+      "title": "Public SQL result version note",
+      "category": "API",
+      "priority": "P1",
+      "effort": "S",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Clarifies SQL endpoint stability.",
+      "acceptance_criteria": [
+        "SqlQueryResult version/stability policy documented and tested."
+      ]
+    },
+    {
+      "rank": 21,
+      "title": "Explain route facts stability note",
+      "category": "Observability",
+      "priority": "P1",
+      "effort": "S",
+      "interest_rate": "High",
+      "blocks_1_0": true,
+      "expected_benefit": "Lets 0.197 add route facts deliberately.",
+      "acceptance_criteria": [
+        "EXPLAIN DTO stability and versioning documented."
+      ]
+    },
+    {
+      "rank": 22,
+      "title": "Recovery fail-closed operator examples",
+      "category": "Operations",
+      "priority": "P2",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Reduces support burden.",
+      "acceptance_criteria": [
+        "Operations guide includes marker/journal/recovery failure examples."
+      ]
+    },
+    {
+      "rank": 23,
+      "title": "Heap vs journaled parity note",
+      "category": "Storage",
+      "priority": "P3",
+      "effort": "XS",
+      "interest_rate": "Low",
+      "blocks_1_0": false,
+      "expected_benefit": "Avoids durability confusion.",
+      "acceptance_criteria": [
+        "Docs distinguish semantic parity from durability parity."
+      ]
+    },
+    {
+      "rank": 24,
+      "title": "Matrix saved-artifact archiving policy",
+      "category": "Performance",
+      "priority": "P2",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Avoids relying on /tmp evidence.",
+      "acceptance_criteria": [
+        "Perf docs define when matrix artifacts must be archived."
+      ]
+    },
+    {
+      "rank": 25,
+      "title": "Changelog/audit closeout checklist",
+      "category": "Governance",
+      "priority": "P2",
+      "effort": "S",
+      "interest_rate": "Medium",
+      "blocks_1_0": false,
+      "expected_benefit": "Converts audits into actionable backlog.",
+      "acceptance_criteria": [
+        "Governance docs describe how audit findings become backlog and closeout evidence."
+      ]
+    }
+  ]
+}
