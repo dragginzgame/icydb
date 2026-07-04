@@ -274,7 +274,8 @@ where
         }
         PrefixSetExecutionShape::OrderedMerge(active_specs) => {
             let index_fetch_hint = Some(scan.limit);
-            let chunk_entries = branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
+            let chunk_entries =
+                covering_branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
             let mut streams = Vec::with_capacity(active_specs.len());
             for active in active_specs {
                 let (lower, upper) = active.prefix.raw_bounds()?;
@@ -302,6 +303,21 @@ where
             stream.collect_limit(scan.limit)
         }
     }
+}
+
+fn covering_branch_stream_chunk_entries(
+    index_fetch_hint: Option<usize>,
+    active_branch_count: usize,
+) -> usize {
+    let fair_chunk_entries = branch_stream_chunk_entries(index_fetch_hint, active_branch_count);
+    let Some(fetch_hint) = index_fetch_hint else {
+        return fair_chunk_entries;
+    };
+    if active_branch_count != 2 || fetch_hint <= 4 {
+        return fair_chunk_entries;
+    }
+
+    fair_chunk_entries.div_ceil(2).max(2)
 }
 
 fn resolve_materialized_covering_projection_components_for_prefix_set(
@@ -787,6 +803,12 @@ where
     let mut emitted_rows = 0usize;
 
     for (data_key, _existence_witness, components) in raw_pairs {
+        if matches!(consistency, MissingRowPolicy::Ignore)
+            && window.limit.is_some_and(|limit| emitted_rows >= limit)
+        {
+            break;
+        }
+
         if existing_row_mode.requires_row_presence_check() {
             record_row_check_covering_candidate_seen();
             let row_present = store.with_data(|data| {

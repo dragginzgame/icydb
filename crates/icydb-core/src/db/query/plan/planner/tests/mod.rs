@@ -1171,6 +1171,69 @@ fn planner_branch_set_prunes_not_in_branch_values_before_admission() {
 }
 
 #[test]
+fn planner_branch_set_prunes_not_in_over_cap_values_before_admission() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_BRANCH_SET_MODEL);
+    let excluded_stage = format!("Stage{:02}", crate::db::access::MAX_INDEX_BRANCH_SET_VALUES);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "collection_id",
+            CompareOp::Eq,
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::In,
+            Value::List(
+                (0..=crate::db::access::MAX_INDEX_BRANCH_SET_VALUES)
+                    .map(|index| Value::Text(format!("Stage{index:02}")))
+                    .collect(),
+            ),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::NotIn,
+            Value::List(vec![Value::Text(excluded_stage)]),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_BRANCH_SET_MODEL,
+        schema,
+        Some(&predicate),
+        Some(branch_set_target_order()),
+    )
+    .expect("over-cap branch predicate should plan after NOT IN pruning");
+    let AccessPlan::Path(path) = &plan else {
+        panic!("pruned over-cap branch predicate should lower to one explicit access path");
+    };
+    let AccessPath::IndexBranchSet { spec } = path.as_ref() else {
+        panic!("cap-sized surviving branches should remain a branch-set route");
+    };
+
+    assert_eq!(
+        spec.branch_values().len(),
+        crate::db::access::MAX_INDEX_BRANCH_SET_VALUES,
+        "planner should enforce the cap after exclusion pruning",
+    );
+    assert_eq!(
+        spec.branch_values().first(),
+        Some(&Value::Text("Stage00".to_string())),
+    );
+    assert_eq!(
+        spec.branch_values().last(),
+        Some(&Value::Text("Stage15".to_string())),
+    );
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(plan.as_path(), &predicate),
+        None,
+        "over-cap IN and NOT IN predicates are both proven by the reduced branch route",
+    );
+}
+
+#[test]
 fn planner_secondary_prefix_still_beats_primary_key_range_without_required_order() {
     let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![

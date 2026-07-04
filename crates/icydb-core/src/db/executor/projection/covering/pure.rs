@@ -82,6 +82,7 @@ where
         component_indices,
         raw_pairs,
         scan_window,
+        stream_order_satisfies_projection_order,
         store,
     }) = resolve_index_backed_covering_scan(
         db,
@@ -101,7 +102,6 @@ where
     };
     let page = plan.scalar_plan().page.as_ref();
     let order_contract = covering.order_contract;
-    let index_order = matches!(order_contract, CoveringProjectionOrder::IndexOrder(_));
 
     if component_indices.is_empty() {
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -133,7 +133,7 @@ where
             return Ok(None);
         };
 
-        if index_order {
+        if stream_order_satisfies_projection_order {
             let mut projected_rows = assemble_covering_rows_in_index_order(
                 projected_keys,
                 scan_window.page_skip_count,
@@ -186,7 +186,7 @@ where
     if component_indices.len() == 1 {
         let component_index = component_indices[0];
 
-        let decoded_scan_time_skip_count = if index_order {
+        let decoded_scan_time_skip_count = if stream_order_satisfies_projection_order {
             scan_window.page_skip_count
         } else {
             0
@@ -222,7 +222,7 @@ where
             return Ok(None);
         };
 
-        if index_order {
+        if stream_order_satisfies_projection_order {
             let mut projected_rows = assemble_covering_rows_in_index_order(
                 decoded_rows,
                 0,
@@ -272,7 +272,7 @@ where
     // Phase 3: reuse the executor-owned covering decode contract so planner-
     // proven routes avoid row-store reads entirely while row-check-required
     // routes still preserve missing-row consistency rules.
-    let decoded_scan_time_skip_count = if index_order {
+    let decoded_scan_time_skip_count = if stream_order_satisfies_projection_order {
         scan_window.page_skip_count
     } else {
         0
@@ -308,7 +308,7 @@ where
         return Ok(None);
     };
 
-    if index_order {
+    if stream_order_satisfies_projection_order {
         let mut projected_rows = assemble_covering_rows_in_index_order(
             decoded_rows,
             0,

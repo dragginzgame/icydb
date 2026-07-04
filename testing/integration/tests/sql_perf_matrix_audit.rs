@@ -443,9 +443,10 @@ const TOKEN_BRANCH_STAGES_WITH_DUPLICATE: &str = "'Draft', 'Draft', 'Review'";
 const TOKEN_BRANCH_STAGES_WIDE: &str =
     "'Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden'";
 const TOKEN_BRANCH_STAGES_OVER_CAP: &str = "'Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07'";
+const TOKEN_BRANCH_STAGES_OVER_CAP_EXCLUSIONS: &str = "'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07'";
 
 fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
-    vec![
+    let mut scenarios = vec![
         scenario(
             "token.collection_stage_id.branch_set.page_only.limit50",
             MatrixSurface::Token,
@@ -511,18 +512,9 @@ fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
             "route.branch_set.wide_noncovered_page_only",
             token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_WIDE, 50),
         ),
-        scenario(
-            "token.collection_stage_id.overcap_fallback.page_only.limit50",
-            MatrixSurface::Token,
-            "route.branch_over_cap.page_only",
-            token_branch_page_sql("id", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
-        ),
-        scenario(
-            "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
-            MatrixSurface::Token,
-            "route.branch_over_cap.noncovered_page_only",
-            token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
-        ),
+    ];
+    scenarios.extend(token_branch_over_cap_hotspot_matrix());
+    scenarios.extend([
         scenario(
             "token.collection_id.sparse_in.page_only.limit50",
             MatrixSurface::Token,
@@ -534,6 +526,35 @@ fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
             MatrixSurface::Token,
             "route.sparse_in.count",
             token_sparse_collection_in_count_sql(250),
+        ),
+    ]);
+    scenarios
+}
+
+fn token_branch_over_cap_hotspot_matrix() -> Vec<MatrixScenario> {
+    vec![
+        scenario(
+            "token.collection_stage_id.overcap_fallback.page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_over_cap.page_only",
+            token_branch_page_sql("id", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.overcap_pruned.page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_over_cap_pruned.page_only",
+            token_branch_page_sql_with_extra_predicate(
+                "id",
+                TOKEN_BRANCH_STAGES_OVER_CAP,
+                &format!("stage NOT IN ({TOKEN_BRANCH_STAGES_OVER_CAP_EXCLUSIONS})"),
+                50,
+            ),
+        ),
+        scenario(
+            "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_over_cap.noncovered_page_only",
+            token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
         ),
     ]
 }
@@ -4080,6 +4101,7 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
         "token.collection_stage_id.branch_set.wide_page_only.limit50",
         "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
         "token.collection_stage_id.overcap_fallback.page_only.limit50",
+        "token.collection_stage_id.overcap_pruned.page_only.limit50",
         "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
     ];
 
@@ -4108,6 +4130,13 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
         );
     }
 
+    assert_branch_route_hotspot_sql_shapes(&scenarios_by_key);
+    assert_sparse_collection_in_route_hotspots(&scenarios_by_key);
+}
+
+fn assert_branch_route_hotspot_sql_shapes(
+    scenarios_by_key: &BTreeMap<&str, (usize, &MatrixScenario)>,
+) {
     let branch = scenarios_by_key
         .get("token.collection_stage_id.branch_set.page_only.limit50")
         .expect("branch-set route hotspot should exist")
@@ -4160,7 +4189,22 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
         "over-cap route hotspot should exceed the branch-set admission cap"
     );
 
-    assert_sparse_collection_in_route_hotspots(&scenarios_by_key);
+    let over_cap_pruned = scenarios_by_key
+        .get("token.collection_stage_id.overcap_pruned.page_only.limit50")
+        .expect("post-exclusion over-cap route hotspot should exist")
+        .1;
+    assert!(
+        over_cap_pruned.sql.contains(
+            "stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')"
+        ),
+        "post-exclusion over-cap route hotspot should start from the same over-cap stage list"
+    );
+    assert!(
+        over_cap_pruned.sql.contains(
+            "stage NOT IN ('Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')"
+        ),
+        "post-exclusion over-cap route hotspot should explicitly reduce the branch set under the cap"
+    );
 }
 
 fn assert_sparse_collection_in_route_hotspots(

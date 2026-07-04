@@ -330,12 +330,9 @@ pub(super) fn index_branch_set_from_and(
         let Some(branch_values) = build_index_branch_values(branch_key_item, &in_values) else {
             continue;
         };
-        if branch_values.len() < 2 || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
-            continue;
-        }
         let mut branch_values = branch_values;
         prune_branch_values_by_exclusions(branch_key_item, &mut branch_values, &excluded_values);
-        if branch_values.is_empty() {
+        if branch_values.is_empty() || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
             continue;
         }
 

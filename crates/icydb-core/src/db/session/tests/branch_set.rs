@@ -187,6 +187,22 @@ fn branch_target_over_cap_sparse_sql(select: &str, limit: usize) -> String {
     )
 }
 
+#[cfg(feature = "diagnostics")]
+fn branch_target_over_cap_pruned_sql(select: &str, limit: usize) -> String {
+    let stages = branch_target_over_cap_stage_literals();
+    let missing_stages = branch_target_over_cap_missing_stage_literals();
+
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ({stages}) \
+           AND stage NOT IN ({missing_stages}) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
 fn branch_target_over_cap_stage_literals() -> String {
     let mut stages = vec!["'Draft'".to_string(), "'Review'".to_string()];
     stages.extend(
@@ -194,6 +210,14 @@ fn branch_target_over_cap_stage_literals() -> String {
             .map(|index| format!("'Missing{index:02}'")),
     );
     stages.join(", ")
+}
+
+#[cfg(feature = "diagnostics")]
+fn branch_target_over_cap_missing_stage_literals() -> String {
+    (0..crate::db::access::MAX_INDEX_BRANCH_SET_VALUES)
+        .map(|index| format!("'Missing{index:02}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(feature = "diagnostics")]
@@ -1110,6 +1134,42 @@ fn session_branch_set_sql_large_in_falls_back_and_keeps_residual_stage_predicate
     assert!(
         rendered.contains("stage"),
         "fallback route must retain the unproven stage predicate: {rendered}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_over_cap_pruned_by_not_in_uses_branch_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_over_cap_pruned_sql("id", BRANCH_LIMIT);
+    let descriptor = branch_descriptor(sql.as_str());
+
+    assert_target_branch_route(&descriptor);
+    assert_target_top_n_fetch(&descriptor);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("pruned over-cap branch SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("pruned over-cap branch SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| runtime_outputs(row))
+            .collect::<Vec<_>>(),
+        expected_branch_rows(BRANCH_LIMIT),
+        "explicit exclusions should reduce the over-cap IN list to the bounded branch route",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "key-only pruned over-cap branch projection should stay row-store free",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= BRANCH_HEAD_MERGE_READ_CAP,
+        "pruned over-cap branch route should stay bounded by the page fetch, got {attribution:?}",
     );
 }
 

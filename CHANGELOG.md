@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
+- `0.196.10` reduces SQL boolean predicate compile work by deriving only the
+  requested truth branch for access predicates, trimming membership bind cost
+  without changing cursor, persisted-format, or execution semantics.
+
+- `0.196.9` tightens proven-order covering and branch-window execution,
+  admits explicitly pruned over-cap branch predicates onto bounded routes, and
+  adds deterministic matrix coverage without changing cursor or persisted
+  formats.
+
 - `0.196.8` fixes resumed branch-set SQL cursor pages so secondary-prefix
   fast streams preserve continuation boundaries instead of replaying first-page
   branch-prefix entries.

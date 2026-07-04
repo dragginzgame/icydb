@@ -46,6 +46,7 @@ where
         raw_pairs,
         scan_window,
         store,
+        ..
     }) = resolve_index_backed_covering_scan(
         db,
         &authority,

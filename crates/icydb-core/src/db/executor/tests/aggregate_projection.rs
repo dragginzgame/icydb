@@ -11,6 +11,7 @@ use crate::{
         executor::{
             PreparedExecutionPlan,
             aggregate::{AggregateKind, ScalarProjectionBoundaryRequest},
+            with_row_check_metrics,
         },
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
@@ -1113,6 +1114,67 @@ fn aggregate_projection_covering_index_distinct_non_leading_component_preserves_
     assert_eq!(
         distinct_values, expected_distinct_from_values,
         "distinct_values_by(rank) must preserve first-observed semantics when duplicates are non-adjacent in covering order",
+    );
+}
+
+#[test]
+fn aggregate_projection_covering_index_window_stops_after_ignore_limit() {
+    seed_pushdown_entities(&[
+        (8_4039, 7, 10),
+        (8_4040, 7, 20),
+        (8_4041, 7, 30),
+        (8_4042, 7, 40),
+        (8_4043, 7, 50),
+    ]);
+    remove_pushdown_row_data(8_4043);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        let mut logical = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        PUSHDOWN_PARITY_INDEX_MODELS[0],
+                    ),
+                values: vec![Value::Nat64(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+            ],
+        });
+        logical.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        PreparedExecutionPlan::<PushdownParityEntity>::new(logical)
+    };
+
+    let (values, metrics) = with_row_check_metrics(|| {
+        execute_projection_values_boundary(
+            &load,
+            build_plan(),
+            planned_slot::<PushdownParityEntity>("rank"),
+        )
+        .expect("values_by(rank) should ignore stale rows after the effective window")
+    });
+
+    assert_eq!(
+        values,
+        vec![Value::Nat64(20), Value::Nat64(30)],
+        "covering index projection should return the effective window before stale tail rows",
+    );
+    assert_eq!(
+        metrics.row_check_covering_candidates_seen, 3,
+        "ignore-mode covering projection should stop after offset plus emitted limit rows",
+    );
+    assert_eq!(
+        metrics.row_presence_probe_borrowed_data_store_count, 3,
+        "ignore-mode covering projection should not probe stale tail rows after the window",
     );
 }
 

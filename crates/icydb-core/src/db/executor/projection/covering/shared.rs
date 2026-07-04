@@ -30,6 +30,7 @@ pub(super) struct PreparedCoveringIndexScan {
     pub(super) component_indices: Vec<usize>,
     pub(super) raw_pairs: CoveringProjectionComponentRows,
     pub(super) scan_window: CoveringScanWindow,
+    pub(super) stream_order_satisfies_projection_order: bool,
     pub(super) store: StoreHandle,
 }
 
@@ -138,6 +139,11 @@ where
         request.plan.scalar_plan().distinct,
         request.plan.scalar_plan().page.as_ref(),
     );
+    let stream_order_satisfies_projection_order = primary_key_order_scan_safe
+        || matches!(
+            request.order_contract,
+            CoveringProjectionOrder::IndexOrder(_)
+        );
     let raw_pairs = if expanded_index_prefix_specs
         .as_ref()
         .is_some_and(Vec::is_empty)
@@ -170,6 +176,7 @@ where
         component_indices,
         raw_pairs,
         scan_window,
+        stream_order_satisfies_projection_order,
         store,
     }))
 }
@@ -320,6 +327,9 @@ pub(super) fn project_covering_row_from_decoded_values(
     if component_indices.len() != decoded_values.len() {
         return Err(InternalError::query_executor_invariant());
     }
+    if let Some(projected) = project_single_primary_key_covering_row(data_key, fields)? {
+        return Ok(projected);
+    }
 
     let mut projected = Vec::with_capacity(fields.len());
 
@@ -351,6 +361,22 @@ pub(super) fn project_covering_row_from_decoded_values(
     }
 
     Ok(projected)
+}
+
+fn project_single_primary_key_covering_row(
+    data_key: &DecodedDataStoreKey,
+    fields: &[CoveringReadField],
+) -> Result<Option<Vec<Value>>, InternalError> {
+    let [field] = fields else {
+        return Ok(None);
+    };
+    let CoveringReadFieldSource::PrimaryKey { component_index } = &field.source else {
+        return Ok(None);
+    };
+
+    Ok(Some(vec![
+        data_key.primary_key_component_runtime_value(*component_index)?,
+    ]))
 }
 
 pub(super) fn project_covering_row_from_owned_decoded_values(
