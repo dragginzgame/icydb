@@ -7,20 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🐛 Fixed
+## [0.196.x] 📊 - 2026-07-04 - SQLite-Informed Ordered Read Pushdown
 
-- Allows exact primary-key `by_id(...)` / `by_ids(...)` public reads to use
-  their proven key-count bound without requiring a redundant `LIMIT`, while
-  still rejecting oversized key sets against the public returned-row policy.
+Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
-### 🧪 Testing
-
-- Adds SQL perf matrix route classification, deterministic result signatures,
-  a full before/after delta helper for 0.196 performance closeout evidence,
-  primary/secondary cursor mutation edge tests, and bounded secondary-order plus
-  equality-prefix ordered-suffix pushdown attribution coverage, with matrix wasm
-  profile recording and opt-in PocketIC install-stage diagnostics for matrix
-  runs.
+- `0.196.0` closes the SQLite-informed ordered-read pushdown slice with full
+  deterministic matrix route/delta evidence, access-proven range residual
+  stripping, and exact primary-key public-read admission without redundant
+  `LIMIT`.
 
 ## [0.195.x] 📊 - 2026-07-03 - Deferred Access Physicalization
 

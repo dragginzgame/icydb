@@ -4,6 +4,7 @@
 use crate::{
     db::{
         access::{AccessPath, SemanticIndexAccessContract},
+        index::{TextPrefixBoundMode, starts_with_component_bounds},
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         schema::{FieldType, SchemaInfo, literal_matches_type},
@@ -319,7 +320,8 @@ fn access_bound_clauses_imply_required(
     implied_bounds: &AccessBoundClauses,
     cmp: &ComparePredicate,
 ) -> bool {
-    branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp)
+    access_bound_text_prefix_range_implies_required(implied_bounds, cmp)
+        || branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp)
         || implied_bounds
             .equalities
             .iter()
@@ -328,6 +330,53 @@ fn access_bound_clauses_imply_required(
             .ranges
             .iter()
             .any(|bound| range_bound_implies_required(bound, cmp))
+}
+
+fn access_bound_text_prefix_range_implies_required(
+    implied_bounds: &AccessBoundClauses,
+    cmp: &ComparePredicate,
+) -> bool {
+    if cmp.op() != CompareOp::StartsWith || cmp.coercion().id != CoercionId::Strict {
+        return false;
+    }
+    let Value::Text(prefix) = cmp.value() else {
+        return false;
+    };
+    let Some((lower, upper)) = starts_with_component_bounds(prefix, TextPrefixBoundMode::Strict)
+    else {
+        return false;
+    };
+
+    access_bound_ranges_include_lower_bound(cmp.field(), &implied_bounds.ranges, &lower)
+        && access_bound_ranges_include_upper_bound(cmp.field(), &implied_bounds.ranges, &upper)
+}
+
+fn access_bound_ranges_include_lower_bound(
+    field: &str,
+    ranges: &[ComparePredicate],
+    required: &Bound<Value>,
+) -> bool {
+    let Some(required_clause) = access_bound_lower_range_clause(field, required) else {
+        return true;
+    };
+
+    ranges
+        .iter()
+        .any(|bound| range_bound_implies_required(bound, &required_clause))
+}
+
+fn access_bound_ranges_include_upper_bound(
+    field: &str,
+    ranges: &[ComparePredicate],
+    required: &Bound<Value>,
+) -> bool {
+    let Some(required_clause) = access_bound_upper_range_clause(field, required) else {
+        return true;
+    };
+
+    ranges
+        .iter()
+        .any(|bound| range_bound_implies_required(bound, &required_clause))
 }
 
 fn equality_bound_implies_required(bound: &ComparePredicate, cmp: &ComparePredicate) -> bool {

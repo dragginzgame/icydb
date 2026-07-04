@@ -994,6 +994,28 @@ fn planner_index_range_residual_stripping_removes_access_proven_bounds() {
 }
 
 #[test]
+fn planner_index_range_residual_stripping_removes_access_proven_text_prefix() {
+    let access = AccessPath::<Value>::index_range(
+        PLANNER_ORDER_INDEXES[0],
+        Vec::new(),
+        Bound::Included(Value::Text("sam".to_string())),
+        Bound::Excluded(Value::Text("san".to_string())),
+    );
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("sam".to_string()),
+        CoercionId::Strict,
+    ));
+
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(Some(&access), &predicate),
+        None,
+        "the selected strict text-prefix range already proves its starts-with predicate",
+    );
+}
+
+#[test]
 fn planner_index_range_residual_stripping_keeps_stricter_sibling_bounds() {
     let access = AccessPath::<Value>::index_range(
         PLANNER_ORDER_INDEXES[0],
