@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Extends ordered-read pushdown to scalar secondary `IN (...) ORDER BY` routes
   by preserving proven index-prefix branch order through the fast stream path
   without changing persisted or cursor formats.
+- Fixes resumed branch-set SQL cursor pages so secondary-prefix fast streams
+  preserve the prepared continuation boundary and keep bounded lookahead reads
+  without replaying the first page.
 
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 

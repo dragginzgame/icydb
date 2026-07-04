@@ -61,19 +61,6 @@ impl<'a> AccessStreamBindings<'a> {
         Self::new(&[], &[], AccessScanContinuationInput::new(None, direction))
     }
 
-    /// Build one binding envelope for an index-prefix spec slice.
-    #[must_use]
-    pub(in crate::db::executor) const fn with_index_prefixes(
-        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-        direction: Direction,
-    ) -> Self {
-        Self::new(
-            index_prefix_specs,
-            &[],
-            AccessScanContinuationInput::new(None, direction),
-        )
-    }
-
     /// Build one binding envelope for one index-range spec with explicit continuation contract.
     #[must_use]
     pub(in crate::db::executor) const fn with_index_range_continuation(

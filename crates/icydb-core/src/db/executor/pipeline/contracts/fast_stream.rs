@@ -8,8 +8,8 @@ use crate::{
         access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            pipeline::contracts::AccessScanContinuationInput,
+            LoweredIndexRangeSpec,
+            pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -46,8 +46,7 @@ pub(in crate::db::executor) enum FastStreamRouteRequest<'a, 'plan> {
     SecondaryIndex {
         plan: &'a AccessPlannedQuery,
         executable_access: &'a ExecutableAccessPlan<'plan, Value>,
-        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-        stream_direction: Direction,
+        bindings: AccessStreamBindings<'a>,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     },

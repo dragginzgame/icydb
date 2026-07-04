@@ -95,8 +95,11 @@ impl ExecutionKernel {
             FastStreamRouteRequest::SecondaryIndex {
                 plan: inputs.logical_plan,
                 executable_access: inputs.executable_access,
-                index_prefix_specs: inputs.index_prefix_specs,
-                stream_direction: inputs.direction,
+                bindings: AccessStreamBindings::new(
+                    inputs.index_prefix_specs,
+                    &[],
+                    AccessScanContinuationInput::new(None, inputs.direction),
+                ),
                 probe_fetch_hint,
                 index_predicate_execution,
             },

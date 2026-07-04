@@ -6,10 +6,9 @@
 use crate::{
     db::{
         access::ExecutableAccessPlan,
-        direction::Direction,
         executor::{
             AccessStreamBindings, AccessStreamExecutionPolicy, ExecutionOptimization,
-            LoweredIndexPrefixSpec, pipeline::contracts::FastPathKeyResult,
+            pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
         },
@@ -25,8 +24,7 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     runtime: &TraversalRuntime,
     _plan: &AccessPlannedQuery,
     executable: &ExecutableAccessPlan<'_, Value>,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-    stream_direction: Direction,
+    bindings: AccessStreamBindings<'_>,
     probe_fetch_hint: Option<usize>,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
@@ -38,6 +36,7 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     let Some(details) = path_facts.index_prefix_details() else {
         return Ok(None);
     };
+    let index_prefix_specs = bindings.index_prefix_specs;
     if index_prefix_specs.len() != path_facts.index_prefix_spec_count() {
         return Err(InternalError::secondary_index_prefix_spec_required());
     }
@@ -55,7 +54,7 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     let fast = execute_structural_fast_stream_request(
         runtime,
         executable,
-        AccessStreamBindings::with_index_prefixes(index_prefix_specs, stream_direction),
+        bindings,
         AccessStreamExecutionPolicy::new(
             probe_fetch_hint,
             crate::db::executor::IndexLeafOrderPolicy::PreservePrefixBranch,

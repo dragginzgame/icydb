@@ -58,6 +58,7 @@ fn apply_index_set_page_fetch_hint(
         .is_some_and(index_prefix_set_page_fetch_hint_shape_supported);
     if route_plan.scan_hints.physical_fetch_hint.is_some()
         || residual_filter_present
+        || !cursor_fetch_hint_safe(route_plan, plan, continuation)
         || !index_prefix_set_page
         || !plan.scalar_plan().mode.is_load()
         || plan.scalar_plan().distinct
@@ -85,6 +86,23 @@ fn apply_index_set_page_fetch_hint(
             .saturating_add(1)
     };
     route_plan.scan_hints.physical_fetch_hint = Some(fetch);
+}
+
+fn cursor_fetch_hint_safe(
+    route_plan: &crate::db::executor::ExecutionPlan,
+    plan: &AccessPlannedQuery,
+    continuation: &ScalarContinuationContext,
+) -> bool {
+    if !continuation.has_cursor_boundary() {
+        return true;
+    }
+
+    let access_continuation = continuation.access_scan_input(route_plan.direction(), plan);
+    access_continuation.primary_key_boundary().is_some()
+        || access_continuation
+            .index_scan_continuation()
+            .anchor()
+            .is_some()
 }
 
 // Execute one prepared scalar runtime bundle through the canonical monomorphic

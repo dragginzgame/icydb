@@ -99,8 +99,7 @@ impl FastPathRouteHandler {
             Self::SecondaryPrefix => inputs.runtime().try_execute_secondary_index_order_stream(
                 inputs.plan(),
                 inputs.executable_access().clone(),
-                inputs.stream_bindings().index_prefix_specs,
-                inputs.stream_bindings().direction(),
+                *inputs.stream_bindings(),
                 route_plan.scan_hints.physical_fetch_hint,
                 index_predicate_execution,
             ),
