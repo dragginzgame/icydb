@@ -428,7 +428,7 @@ fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
             "fn try_compile_canonical_bool_expr_to_compiled_predicate(",
             ") -> Option<PredicateCompilation>",
             "fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Option<Predicate>",
-            "compile_bool_truth_sets(expr)?",
+            "compile_bool_truth_predicate(expr, BoolTruth::True)?",
             "return None;",
         ],
         "predicate compilation should fail closed when runtime predicate admission and lowering drift",
