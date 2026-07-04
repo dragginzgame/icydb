@@ -1,0 +1,745 @@
+{
+  "audit": {
+    "date": "2026-07-03",
+    "repo_commit": "54ea26674652399a57b5282a0b7117886cffb7e1",
+    "sqlite_version": "unavailable: sqlite3 command not found",
+    "icydb_build_profile": "workspace test/dev validation with --all-features; existing performance artifacts are PocketIC instruction reports",
+    "feature_flags": [
+      "all workspace features",
+      "diagnostics",
+      "sql",
+      "sql-explain"
+    ]
+  },
+  "summary": {
+    "top_immediate_wins": [
+      "Push cursor boundaries into deterministic index-backed ordered pages.",
+      "Add streaming visitors for recursive value-storage projection and validation.",
+      "Surface exact index cardinality and materialization facts in explain/diagnostics.",
+      "Close documented fast-path tripwire gaps.",
+      "Add an optional SQLite STRICT comparison benchmark harness."
+    ],
+    "top_strategic_wins": [
+      "Use explicit IC-native query-plan facts with deterministic exact statistics.",
+      "Prototype offset-addressable row storage before persisted adoption.",
+      "Productize durable schema migration state before broad DDL.",
+      "Write a byte-level stable-memory format specification.",
+      "Add SQLite differential and durability fault-injection harnesses."
+    ],
+    "biggest_correctness_risk": "Schema mutation and recovery edge cases once migration support expands beyond the current fail-closed supported path.",
+    "biggest_performance_risk": "Bounded ordered reads that materialize or read many candidates before applying page boundaries.",
+    "biggest_testing_gap": "Differential plus fault-injection testing across query, index, persisted decode, and recovery paths."
+  },
+  "findings": [
+    {
+      "id": "SQLITE-COMP-001",
+      "title": "Cursor boundaries are applied after access/materialization",
+      "category": "performance",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "sqlite_reference": "SQLite B-tree cursor/range access and ORDER BY/LIMIT avoidance principles.",
+      "icydb_evidence": [
+        "docs/contracts/QUERY_CONTRACT.md:181",
+        "docs/contracts/CURSOR.md:20",
+        "testing/integration/target/perf-hotspots/sql_perf_195_1_liveness_full_matrix.md:13"
+      ],
+      "recommended_fix": "Implement cursor boundary pushdown for deterministic index-backed ordered reads, starting with order-compatible single-index plans and stop-after-limit execution.",
+      "acceptance_criteria": [
+        "Forward and reverse page tests show no duplicates or skipped rows.",
+        "Row reads for matching LIMIT 1/3/10 pages scale with page size.",
+        "Explain output reports whether cursor handling was pushed down or post-access."
+      ],
+      "estimated_effort": "M",
+      "risk": "Pagination correctness regressions around equal keys, tombstones, reverse scans, or live/journaled overlays.",
+      "follow_up_patch_prompt": "Implement cursor boundary pushdown for deterministic index-backed ordered reads. Limit the first slice to order-compatible single-index plans, add page-stability tests, and extend explain/perf attribution to show pushed versus post-access cursor handling."
+    },
+    {
+      "id": "SQLITE-COMP-002",
+      "title": "Recursive value-storage decode allocates projected containers",
+      "category": "serialization",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "sqlite_reference": "SQLite serial-record discipline permits field-aware access without constructing unnecessary application values.",
+      "icydb_evidence": [
+        "crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs:484",
+        "crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs:504",
+        "docs/ROADMAP.md:153"
+      ],
+      "recommended_fix": "Add streaming or borrowed visitors for recursive list/map decode and migrate projection-only validation paths away from owned Value allocation.",
+      "acceptance_criteria": [
+        "Owned decode and streaming visitor produce identical values/errors.",
+        "Projection tests prove unselected recursive fields are not materialized.",
+        "Microbench records allocation reduction for nested projection/validation."
+      ],
+      "estimated_effort": "M",
+      "risk": "Decode error path or malformed-data diagnostics could regress.",
+      "follow_up_patch_prompt": "Add streaming visitors for recursive structural value-storage list/map decode, wire projection/validation paths to avoid owned Value allocation where possible, and add allocation-sensitive tests or benches."
+    },
+    {
+      "id": "SQLITE-COMP-003",
+      "title": "There is no runnable fair SQLite comparison harness",
+      "category": "testing",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "sqlite_reference": "SQLite performance practice relies on reproducible benchmarks and explicit durability/configuration settings.",
+      "icydb_evidence": [
+        "sqlite3 --version failed: command not found",
+        "No project benches found after pruning .cache, target, and .git",
+        "testing/integration/tests/sql_perf_matrix_audit.rs:1",
+        "crates/icydb-core/src/db/session/tests/execution_hot_path_bench.rs:35"
+      ],
+      "recommended_fix": "Create an optional benchmark harness that compares overlapping IcyDB and SQLite STRICT scenarios with explicit WAL/synchronous modes and fairness notes.",
+      "acceptance_criteria": [
+        "Harness skips cleanly when SQLite is unavailable.",
+        "Insert/read/range/filter/order/count/update/delete scenarios are covered.",
+        "Output includes median, p95 or min/max, ratio, and fairness notes."
+      ],
+      "estimated_effort": "M",
+      "risk": "Misleading benchmark framing if unsafe SQLite modes are treated as headline results.",
+      "follow_up_patch_prompt": "Create an optional SQLite/IcyDB comparison benchmark harness using STRICT SQLite schemas and IcyDB typed equivalents. Record environment metadata, WAL modes, median/p95 timings, and clear fairness notes; skip gracefully when SQLite is unavailable."
+    },
+    {
+      "id": "SQLITE-COMP-004",
+      "title": "Exact cardinality metadata is not yet a first-class planner/diagnostic signal",
+      "category": "performance",
+      "severity": "High",
+      "priority": "P1",
+      "confidence": "High",
+      "sqlite_reference": "SQLite uses statistics to guide planning; IcyDB can use synchronized exact index cardinality deterministically.",
+      "icydb_evidence": [
+        "crates/icydb-core/src/db/index/cardinality.rs:1",
+        "crates/icydb-core/src/db/executor/index_prefix_cardinality.rs:226",
+        "crates/icydb-core/src/db/query/plan/planner/ranking.rs:117",
+        "docs/1.0-TODO.md:1"
+      ],
+      "recommended_fix": "Surface exact per-index prefix counts in explain and diagnostics, then use synchronized counts for deterministic admission/ranking where safe.",
+      "acceptance_criteria": [
+        "Explain shows exact, stale, or unavailable cardinality status.",
+        "Diagnostics expose bounded per-index cardinality summaries.",
+        "Planner/admission tests use only synchronized exact counts."
+      ],
+      "estimated_effort": "M",
+      "risk": "Stale cardinality could mislead plans unless generation checks fail closed.",
+      "follow_up_patch_prompt": "Promote exact index cardinality metadata into query explain and bounded diagnostics, then add deterministic planner/admission tests that only use synchronized exact counts."
+    },
+    {
+      "id": "SQLITE-COMP-005",
+      "title": "Ordered small-limit paths still materialize excessive work",
+      "category": "performance",
+      "severity": "High",
+      "priority": "P1",
+      "confidence": "Medium",
+      "sqlite_reference": "SQLite avoids temporary sorting and stops early when an index satisfies ORDER BY plus LIMIT.",
+      "icydb_evidence": [
+        "testing/integration/target/perf-hotspots/sql_perf_195_1_liveness_full_matrix.md:13",
+        "artifacts/perf-audit/sql_perf_deterministic_matrix_current.md:213",
+        "docs/contracts/READ_ADMISSION.md:123"
+      ],
+      "recommended_fix": "Add explain diagnostics for materialized ORDER BY + LIMIT and then expand order-compatible composite/covering plan support where measurements justify it.",
+      "acceptance_criteria": [
+        "Explain output identifies materialized order/window paths.",
+        "Suggested index shape is shown where deterministic.",
+        "At least one top perf-matrix ordered limit row improves after a targeted path."
+      ],
+      "estimated_effort": "S for diagnostics, M/L for broader plan support",
+      "risk": "Choosing a filter index over an order index can improve one workload and hurt another without exact counts.",
+      "follow_up_patch_prompt": "Add explain diagnostics for ORDER BY + LIMIT paths that materialize ordering, including exact candidate count when available and a suggested composite index shape; keep public admission behavior unchanged."
+    },
+    {
+      "id": "SQLITE-COMP-006",
+      "title": "Fast-path ownership still has documented unguarded areas",
+      "category": "testing",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "sqlite_reference": "SQLite-style optimizer work needs regression tests that lock down fast-path ownership.",
+      "icydb_evidence": [
+        "docs/governance/fast-path-inventory.md:164"
+      ],
+      "recommended_fix": "Add ownership/tripwire tests for stream precedence helpers, grouped fast paths, and bytes-terminal derivation.",
+      "acceptance_criteria": [
+        "Fast-path inventory links each formerly unguarded area to tests.",
+        "Tests fail when the wrong path owns or bypasses the fast path.",
+        "No production behavior change is required."
+      ],
+      "estimated_effort": "S",
+      "risk": "Tests can become brittle if they assert exact instruction counts instead of ownership labels.",
+      "follow_up_patch_prompt": "Close the remaining unguarded entries in docs/governance/fast-path-inventory.md by adding ownership/tripwire tests for stream precedence, grouped fast paths, and bytes-terminal derivation."
+    },
+    {
+      "id": "SQLITE-COMP-007",
+      "title": "Durable schema migration execution is not yet ready for broad DDL",
+      "category": "correctness",
+      "severity": "High",
+      "priority": "P1",
+      "confidence": "High",
+      "sqlite_reference": "SQLite schema metadata/versioning discipline maps to a durable IC-native migration state machine.",
+      "icydb_evidence": [
+        "crates/icydb-core/src/db/schema/reconcile.rs:1",
+        "crates/icydb-core/src/db/schema/reconcile.rs:260",
+        "crates/icydb-core/src/db/schema/mutation/execution.rs:1",
+        "docs/design/0.192-mega-audit-3/audit-results.md:1"
+      ],
+      "recommended_fix": "Before enabling broader mutation kinds, add durable migration id, phase, watermark, publication, validation, and recovery tests for one supported mutation kind.",
+      "acceptance_criteria": [
+        "Migration state survives interruption at every phase.",
+        "Old schema remains readable until publish or failure is fail-closed.",
+        "Index rebuild validates before publication.",
+        "Migration semantics are documented."
+      ],
+      "estimated_effort": "L",
+      "risk": "A too-general framework could delay useful narrow migration support.",
+      "follow_up_patch_prompt": "Design and implement the first durable schema migration state slice for one supported mutation kind, with migration id, phase, watermark, publish point, recovery tests, and documentation."
+    },
+    {
+      "id": "SQLITE-COMP-008",
+      "title": "Durability health lacks marker/journal/fold diagnostics",
+      "category": "observability",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "sqlite_reference": "SQLite exposes operational journal/WAL state; IcyDB needs bounded IC-native durability health.",
+      "icydb_evidence": [
+        "crates/icydb-core/src/db/journal/store.rs:48",
+        "crates/icydb-core/src/db/commit/marker.rs:32",
+        "crates/icydb-core/src/db/commit/recovery.rs:175",
+        "crates/icydb-core/src/db/diagnostics/storage_report.rs:1"
+      ],
+      "recommended_fix": "Add a bounded DurabilityHealth diagnostic containing marker state, journal tail sequence/chunk state, fold watermark, and recovery readiness/last phase.",
+      "acceptance_criteria": [
+        "Diagnostic does not scan unbounded row data.",
+        "Clean, marker-present, journal-tail, and recovered states are tested.",
+        "API lives under diagnostics and is documented as operational introspection."
+      ],
+      "estimated_effort": "S/M",
+      "risk": "Exposing internal fields can become API debt; keep it diagnostic and bounded.",
+      "follow_up_patch_prompt": "Add a bounded durability health diagnostic report that surfaces commit marker state, journal tail/fold-watermark state, recovery readiness, and tests for clean, dirty, and recovered stores."
+    },
+    {
+      "id": "SQLITE-COMP-009",
+      "title": "Persisted format policy is explicit but byte-level format docs are missing",
+      "category": "documentation",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "sqlite_reference": "SQLite publishes a detailed file-format specification; IcyDB should document its stable-memory surfaces in its own terms.",
+      "icydb_evidence": [
+        "docs/contracts/PERSISTED_FORMAT_INVENTORY.md:10",
+        "docs/contracts/PERSISTED_FORMAT_POLICY.md:30",
+        "docs/contracts/DURABILITY.md:138"
+      ],
+      "recommended_fix": "Create a byte-level stable storage format spec mapping schema, data, indexes, journal chunks, commit marker, versioning, and fail-closed decode rules to code/tests.",
+      "acceptance_criteria": [
+        "Each durable surface links to implementation and tests.",
+        "Spec states versioning and pre-1.0 hard-cut policy.",
+        "Future persisted-format changes are required to update the spec."
+      ],
+      "estimated_effort": "M",
+      "risk": "Spec could fossilize unstable pre-1.0 details unless clearly labeled.",
+      "follow_up_patch_prompt": "Draft a byte-level persisted storage format spec that maps every durable stable-memory surface to code, tests, version/fail-closed rules, and pre-1.0 compatibility policy."
+    },
+    {
+      "id": "SQLITE-COMP-010",
+      "title": "Query-side metrics are intentionally not surfaced, leaving an observability gap",
+      "category": "observability",
+      "severity": "Medium",
+      "priority": "P1",
+      "confidence": "High",
+      "sqlite_reference": "SQLite EXPLAIN QUERY PLAN maps to query-safe explain/analyze output for IcyDB.",
+      "icydb_evidence": [
+        "crates/icydb-core/src/metrics/state.rs:6",
+        "crates/icydb-core/src/metrics/state.rs:1"
+      ],
+      "recommended_fix": "Return operation-local explain/analyze metrics without mutating state, and optionally add update-lane snapshots for trusted diagnostics.",
+      "acceptance_criteria": [
+        "Query calls do not mutate canister state.",
+        "Analyze output includes plan, index, rows read/returned, cache hit/miss, and materialization flags.",
+        "Tests prove metrics collection does not change results or state."
+      ],
+      "estimated_effort": "M",
+      "risk": "Analyze itself can become expensive; keep it explicit and bounded.",
+      "follow_up_patch_prompt": "Add a query-safe explain/analyze result that returns operation-local read metrics without mutating canister state, with tests proving state invariance."
+    },
+    {
+      "id": "SQLITE-COMP-011",
+      "title": "Caches are bounded but fixed FIFO and weakly tunable",
+      "category": "performance",
+      "severity": "Medium",
+      "priority": "P2",
+      "confidence": "Medium",
+      "sqlite_reference": "SQLite page/prepared-statement cache principles map to visible, measured IcyDB plan-cache behavior.",
+      "icydb_evidence": [
+        "crates/icydb-core/src/db/session/query/cache.rs:1",
+        "crates/icydb-core/src/db/session/sql/cache.rs:1",
+        "crates/icydb-core/src/db/session/bounded_cache.rs:1"
+      ],
+      "recommended_fix": "Expose cache hit/miss/eviction diagnostics and capacity configuration or documentation before considering LRU.",
+      "acceptance_criteria": [
+        "Cache hit/miss/eviction reasons are visible in diagnostics or explain.",
+        "Capacity is configurable or clearly documented.",
+        "Repeated same-shape benchmark scenarios exist."
+      ],
+      "estimated_effort": "S/M",
+      "risk": "Configuration surface can grow without evidence; diagnostics should come first.",
+      "follow_up_patch_prompt": "Expose bounded query/SQL cache capacity and hit/miss/eviction diagnostics, then add repeated-shape benchmark scenarios before considering an LRU policy."
+    },
+    {
+      "id": "SQLITE-COMP-012",
+      "title": "Differential testing against SQLite is only a design idea today",
+      "category": "testing",
+      "severity": "High",
+      "priority": "P0",
+      "confidence": "High",
+      "sqlite_reference": "SQLite testing discipline supports independent-oracle and randomized testing.",
+      "icydb_evidence": [
+        "docs/design/ideas/sql-fuzzer.md:1",
+        "No committed differential SQLite harness found by repository search"
+      ],
+      "recommended_fix": "Build a small random operation harness over SQLite STRICT schemas and IcyDB typed equivalents, classifying mismatches explicitly.",
+      "acceptance_criteria": [
+        "Random insert/update/delete/get/range/filter/count/sort/limit sequences run on both engines.",
+        "Harness uses only overlapping semantics and explicit ordering.",
+        "Failure output includes seed and operation sequence."
+      ],
+      "estimated_effort": "M",
+      "risk": "False positives if semantic mapping is too broad.",
+      "follow_up_patch_prompt": "Implement a small SQLite STRICT differential test harness for users/posts/events with random insert/update/delete/query sequences and explicit mismatch classification."
+    },
+    {
+      "id": "SQLITE-COMP-013",
+      "title": "Fault-injection, corruption, and OOM-style tests remain below SQLite's bar",
+      "category": "testing",
+      "severity": "High",
+      "priority": "P1",
+      "confidence": "Medium",
+      "sqlite_reference": "SQLite systematically tests crashes, I/O errors, OOM, and malformed databases.",
+      "icydb_evidence": [
+        "docs/contracts/DURABILITY.md:155",
+        "docs/contracts/PERSISTED_FORMAT_POLICY.md:123",
+        "crates/icydb-core/src/db/commit/recovery.rs:175"
+      ],
+      "recommended_fix": "Add a test-only phase-by-phase recovery fault harness for marker, journal, fold, live rebuild, index rebuild, marker clear, and decode failures.",
+      "acceptance_criteria": [
+        "Each injected phase recovers to old/new state or fails closed with typed diagnostics.",
+        "Integrity report passes after successful recovery.",
+        "Corrupted persisted bytes fail closed without mutating state."
+      ],
+      "estimated_effort": "L",
+      "risk": "Test hooks can pollute production code; keep them cfg(test) and minimal.",
+      "follow_up_patch_prompt": "Add a test-only recovery fault-injection harness that interrupts each commit/recovery phase and asserts fail-closed or fully recovered invariants."
+    },
+    {
+      "id": "SQLITE-COMP-014",
+      "title": "Public read admission is strong, but performance guidance needs index-design examples",
+      "category": "documentation",
+      "severity": "Medium",
+      "priority": "P2",
+      "confidence": "High",
+      "sqlite_reference": "SQLite planner docs teach users how indexes affect query behavior.",
+      "icydb_evidence": [
+        "docs/contracts/READ_ADMISSION.md:123",
+        "docs/contracts/QUERY_CONTRACT.md:181",
+        "testing/integration/target/perf-hotspots/sql_perf_195_1_liveness_full_matrix.md:13"
+      ],
+      "recommended_fix": "Write an IcyDB query performance guide covering equality-prefix indexes, range bounds, order compatibility, covering projections, cursor pagination, and admission failures.",
+      "acceptance_criteria": [
+        "Guide includes good/bad index-shape examples.",
+        "Examples link to explain output and read-admission behavior.",
+        "Examples compile or are tied to tested fixtures where feasible."
+      ],
+      "estimated_effort": "S",
+      "risk": "Documentation can drift unless examples are connected to tests.",
+      "follow_up_patch_prompt": "Write a query performance and index-design guide for IcyDB's deterministic planner, including equality-prefix, range, ORDER BY + LIMIT, covering, cursor, and read-admission examples."
+    },
+    {
+      "id": "SQLITE-COMP-015",
+      "title": "cargo bench and allocation regression gates are absent",
+      "category": "performance",
+      "severity": "Medium",
+      "priority": "P2",
+      "confidence": "High",
+      "sqlite_reference": "SQLite uses performance regression discipline alongside correctness testing.",
+      "icydb_evidence": [
+        "No project benches found after pruning third-party/cache directories",
+        "crates/icydb-core/src/db/session/tests/execution_hot_path_bench.rs:35",
+        "Ignored PocketIC performance report tests are present"
+      ],
+      "recommended_fix": "Add a minimal native cargo benchmark target with allocation counters for PK get, indexed range, covering projection, recursive decode, and plan-cache reuse.",
+      "acceptance_criteria": [
+        "cargo bench runs the selected hot paths.",
+        "Decode/projection scenarios record allocation counts.",
+        "Docs label native benches as complements to PocketIC instruction reports."
+      ],
+      "estimated_effort": "M",
+      "risk": "Native microbenchmarks may not predict wasm/stable-memory performance.",
+      "follow_up_patch_prompt": "Add a small native cargo benchmark target for IcyDB hot paths with allocation counters, explicitly labeled as a complement to PocketIC instruction benchmarks."
+    },
+    {
+      "id": "SQLITE-COMP-016",
+      "title": "Checksums/import/export need a 1.0 decision record",
+      "category": "durability",
+      "severity": "Medium",
+      "priority": "P2",
+      "confidence": "High",
+      "sqlite_reference": "SQLite's documented file/recovery semantics highlight the need for explicit IcyDB backup/corruption decisions.",
+      "icydb_evidence": [
+        "docs/contracts/DURABILITY.md:33",
+        "docs/contracts/DURABILITY.md:138",
+        "docs/contracts/PERSISTED_FORMAT_POLICY.md:95"
+      ],
+      "recommended_fix": "Write a 1.0 decision record for checksums, raw export/import, logical export/import, repair scope, and CLI health commands.",
+      "acceptance_criteria": [
+        "Decision classifies each item as copy, adapt IC-natively, or reject.",
+        "If checksums are deferred, alternative detection is documented.",
+        "CLI/tooling backlog is updated."
+      ],
+      "estimated_effort": "S/M",
+      "risk": "Premature checksum format can create migration burden.",
+      "follow_up_patch_prompt": "Write a 1.0 durability tooling decision record for checksums, raw/logical export-import, repair scope, and CLI health commands."
+    },
+    {
+      "id": "SQLITE-COMP-017",
+      "title": "Offset-addressable row storage is the highest-leverage strategic performance bet",
+      "category": "architecture",
+      "severity": "High",
+      "priority": "P1",
+      "confidence": "Medium",
+      "sqlite_reference": "SQLite's serial record format shows the value of compact field-aware row access; IcyDB needs an IC-native variant.",
+      "icydb_evidence": [
+        "docs/ROADMAP.md:153",
+        "crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs:484",
+        "testing/integration/target/perf-hotspots/sql_perf_195_1_liveness_full_matrix.md:13"
+      ],
+      "recommended_fix": "Prototype an offset-addressable row codec in benchmarks/tests before persisted-format adoption.",
+      "acceptance_criteria": [
+        "Old/new row codecs are benchmarked for full decode, projected fields, nested fields, and malformed input.",
+        "Persisted-format policy is updated before any durable adoption.",
+        "No pre-1.0 compatibility fallback is retained unless explicitly required."
+      ],
+      "estimated_effort": "L",
+      "risk": "Persisted format churn and migration complexity.",
+      "follow_up_patch_prompt": "Prototype an offset-addressable row codec in tests/benchmarks only, compare decode/projection allocation and instruction cost, then prepare a persisted-format policy update if it wins."
+    },
+    {
+      "id": "SQLITE-COMP-018",
+      "title": "IcyDB should not copy several SQLite mechanisms unchanged",
+      "category": "architecture",
+      "severity": "Low",
+      "priority": "P3",
+      "confidence": "High",
+      "sqlite_reference": "SQLite's POSIX file, locking, temp file, dynamic typing, and broad SQL design serve a different environment.",
+      "icydb_evidence": [
+        "docs/contracts/RESOURCE_MODEL.md:1",
+        "docs/contracts/SQL_SUBSET.md:1",
+        "docs/ROADMAP.md:226"
+      ],
+      "recommended_fix": "Document which SQLite ideas IcyDB copies, adapts IC-natively, or rejects.",
+      "acceptance_criteria": [
+        "Architecture docs explicitly reject POSIX fsync assumptions, temp disk spill, dynamic typing, broad SQL feature parity, and unsafe speed PRAGMAs as default guidance.",
+        "Roadmap items tie to IC-specific success metrics."
+      ],
+      "estimated_effort": "XS",
+      "risk": "Over-documentation if not kept short and linked to existing contracts.",
+      "follow_up_patch_prompt": "Add a short architecture note classifying SQLite ideas IcyDB should copy, adapt IC-natively, or reject, with links to resource model and SQL subset docs."
+    }
+  ],
+  "backlog": [
+    {
+      "rank": 1,
+      "title": "Cursor-boundary pushdown for index-backed ordered pages",
+      "category": "performance",
+      "priority": "P0",
+      "effort": "M",
+      "expected_impact": "Large instruction reduction for small paginated reads.",
+      "acceptance_criteria": [
+        "Row reads scale with limit.",
+        "No duplicates or skipped rows across pages.",
+        "Explain reports pushed versus post-access cursor."
+      ]
+    },
+    {
+      "rank": 2,
+      "title": "Streaming recursive value decode visitors",
+      "category": "serialization",
+      "priority": "P0",
+      "effort": "M",
+      "expected_impact": "Lower allocation and instruction cost for projection and validation.",
+      "acceptance_criteria": [
+        "Decode parity tests pass.",
+        "Projection avoids unselected recursive allocation.",
+        "Allocation benchmark improves."
+      ]
+    },
+    {
+      "rank": 3,
+      "title": "SQLite STRICT differential harness skeleton",
+      "category": "testing",
+      "priority": "P0",
+      "effort": "M",
+      "expected_impact": "Independent oracle for overlapping query/index semantics.",
+      "acceptance_criteria": [
+        "Random operation sequences run on both engines.",
+        "Mismatch classes are explicit.",
+        "Failures include seed and operation log."
+      ]
+    },
+    {
+      "rank": 4,
+      "title": "Fast-path tripwire tests",
+      "category": "testing",
+      "priority": "P1",
+      "effort": "S",
+      "expected_impact": "Protects recent optimization work from regression.",
+      "acceptance_criteria": [
+        "Inventory unguarded entries have test links.",
+        "Tests assert ownership labels or path facts."
+      ]
+    },
+    {
+      "rank": 5,
+      "title": "Query explain cardinality/materialization facts",
+      "category": "observability",
+      "priority": "P1",
+      "effort": "M",
+      "expected_impact": "Makes expensive plan causes visible and supports deterministic planner improvements.",
+      "acceptance_criteria": [
+        "Explain includes exact/stale/unavailable cardinality.",
+        "Explain includes order/cursor materialization flags."
+      ]
+    },
+    {
+      "rank": 6,
+      "title": "Durability health diagnostic",
+      "category": "observability",
+      "priority": "P1",
+      "effort": "S/M",
+      "expected_impact": "Improves operator visibility into marker, journal, fold, and recovery state.",
+      "acceptance_criteria": [
+        "Clean, dirty, and recovered states are tested.",
+        "Report is bounded."
+      ]
+    },
+    {
+      "rank": 7,
+      "title": "Optional SQLite/IcyDB benchmark harness",
+      "category": "performance",
+      "priority": "P1",
+      "effort": "M",
+      "expected_impact": "Provides fair comparative bottleneck evidence.",
+      "acceptance_criteria": [
+        "Skips cleanly when SQLite is unavailable.",
+        "Records WAL/synchronous modes and environment metadata."
+      ]
+    },
+    {
+      "rank": 8,
+      "title": "Query performance and index-design guide",
+      "category": "documentation",
+      "priority": "P2",
+      "effort": "S",
+      "expected_impact": "Helps users write bounded performant queries.",
+      "acceptance_criteria": [
+        "Examples cover equality-prefix, range, order, limit, covering, and admission failures."
+      ]
+    },
+    {
+      "rank": 9,
+      "title": "Stable storage byte-format spec scaffold",
+      "category": "documentation",
+      "priority": "P1",
+      "effort": "M",
+      "expected_impact": "Improves persisted-format review and upgrade safety.",
+      "acceptance_criteria": [
+        "Every durable surface maps to code and tests.",
+        "Pre-1.0 hard-cut policy is explicit."
+      ]
+    },
+    {
+      "rank": 10,
+      "title": "Recovery fault-injection harness",
+      "category": "correctness",
+      "priority": "P1",
+      "effort": "L",
+      "expected_impact": "Raises confidence in marker/journal/recovery invariants.",
+      "acceptance_criteria": [
+        "Every injected phase recovers or fails closed.",
+        "Integrity report passes after recovery."
+      ]
+    },
+    {
+      "rank": 11,
+      "title": "Materialized ORDER BY + LIMIT explain hints",
+      "category": "performance",
+      "priority": "P1",
+      "effort": "S",
+      "expected_impact": "Gives immediate feedback for top perf hotspots.",
+      "acceptance_criteria": [
+        "Explain includes materialized order flag and suggested index shape when deterministic."
+      ]
+    },
+    {
+      "rank": 12,
+      "title": "Cache hit/miss/eviction diagnostics",
+      "category": "performance",
+      "priority": "P2",
+      "effort": "S/M",
+      "expected_impact": "Improves repeated-query tuning.",
+      "acceptance_criteria": [
+        "Diagnostics expose hit/miss/eviction reasons.",
+        "Repeated-shape benchmark exists."
+      ]
+    },
+    {
+      "rank": 13,
+      "title": "Native hot-path cargo bench target",
+      "category": "performance",
+      "priority": "P2",
+      "effort": "M",
+      "expected_impact": "Catches allocation regressions before full PocketIC runs.",
+      "acceptance_criteria": [
+        "cargo bench covers PK, range, decode, projection, and cache paths.",
+        "Native scope is documented."
+      ]
+    },
+    {
+      "rank": 14,
+      "title": "Persisted decode fuzz target",
+      "category": "testing",
+      "priority": "P1",
+      "effort": "M",
+      "expected_impact": "Finds malformed persisted-format decode bugs.",
+      "acceptance_criteria": [
+        "Malformed bytes fail closed.",
+        "No state mutation occurs after decode failure."
+      ]
+    },
+    {
+      "rank": 15,
+      "title": "Durable migration state first slice",
+      "category": "correctness",
+      "priority": "P1",
+      "effort": "L",
+      "expected_impact": "Enables safe schema mutation growth.",
+      "acceptance_criteria": [
+        "Migration id, phase, watermark, publish point, and recovery tests exist."
+      ]
+    },
+    {
+      "rank": 16,
+      "title": "Offset row codec prototype",
+      "category": "architecture",
+      "priority": "P1",
+      "effort": "L",
+      "expected_impact": "Potentially large projection/filter decode win.",
+      "acceptance_criteria": [
+        "Old/new codecs are benchmarked.",
+        "Persisted adoption waits for policy update."
+      ]
+    },
+    {
+      "rank": 17,
+      "title": "Covering-index projection expansion",
+      "category": "performance",
+      "priority": "P1",
+      "effort": "M",
+      "expected_impact": "Reduces row reads for projection queries.",
+      "acceptance_criteria": [
+        "Index path equals scan path.",
+        "Row-presence checks stay explicit."
+      ]
+    },
+    {
+      "rank": 18,
+      "title": "Read-admission exact-count option",
+      "category": "safety",
+      "priority": "P2",
+      "effort": "M",
+      "expected_impact": "Rejects known-expensive reads earlier.",
+      "acceptance_criteria": [
+        "Only synchronized exact counts drive admission.",
+        "Stale metadata fails closed."
+      ]
+    },
+    {
+      "rank": 19,
+      "title": "CLI durability check/export/import decision",
+      "category": "tooling",
+      "priority": "P2",
+      "effort": "S/M",
+      "expected_impact": "Clarifies 1.0 operator story.",
+      "acceptance_criteria": [
+        "Decision covers checksums, raw/logical export-import, repair, and CLI health commands."
+      ]
+    },
+    {
+      "rank": 20,
+      "title": "Macro compile-error polish audit",
+      "category": "api",
+      "priority": "P3",
+      "effort": "S/M",
+      "expected_impact": "Improves developer experience.",
+      "acceptance_criteria": [
+        "Trybuild tests cover common schema/macro mistakes with actionable messages."
+      ]
+    },
+    {
+      "rank": 21,
+      "title": "Query-safe analyze API",
+      "category": "observability",
+      "priority": "P1",
+      "effort": "M",
+      "expected_impact": "Provides per-call plan metrics without mutating query state.",
+      "acceptance_criteria": [
+        "State-invariance tests pass.",
+        "Analyze output is bounded and explicit."
+      ]
+    },
+    {
+      "rank": 22,
+      "title": "Stable memory read/write counter scenarios",
+      "category": "performance",
+      "priority": "P1",
+      "effort": "M",
+      "expected_impact": "Makes IC-specific bottlenecks visible.",
+      "acceptance_criteria": [
+        "Key scenarios report stable reads/writes and bytes."
+      ]
+    },
+    {
+      "rank": 23,
+      "title": "Storage fragmentation/free-space report",
+      "category": "storage",
+      "priority": "P2",
+      "effort": "M",
+      "expected_impact": "Detects durable bloat and compaction needs.",
+      "acceptance_criteria": [
+        "Bounded estimate is documented and tested."
+      ]
+    },
+    {
+      "rank": 24,
+      "title": "Feature and configuration guide",
+      "category": "documentation",
+      "priority": "P3",
+      "effort": "S",
+      "expected_impact": "Clarifies performance/correctness trade-offs.",
+      "acceptance_criteria": [
+        "Feature flags and defaults are documented in one guide."
+      ]
+    },
+    {
+      "rank": 25,
+      "title": "SQLite copy/adapt/reject architecture note",
+      "category": "documentation",
+      "priority": "P3",
+      "effort": "XS",
+      "expected_impact": "Prevents inappropriate SQLite feature copying.",
+      "acceptance_criteria": [
+        "Architecture note classifies SQLite principles as copy, adapt, or reject."
+      ]
+    }
+  ]
+}

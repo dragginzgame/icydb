@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🐛 Fixed
+
+- Allows exact primary-key `by_id(...)` / `by_ids(...)` public reads to use
+  their proven key-count bound without requiring a redundant `LIMIT`, while
+  still rejecting oversized key sets against the public returned-row policy.
+
+### 🧪 Testing
+
+- Adds SQL perf matrix route classification, deterministic result signatures,
+  a full before/after delta helper for 0.196 performance closeout evidence,
+  primary/secondary cursor mutation edge tests, and bounded secondary-order plus
+  equality-prefix ordered-suffix pushdown attribution coverage, with matrix wasm
+  profile recording and opt-in PocketIC install-stage diagnostics for matrix
+  runs.
+
 ## [0.195.x] 📊 - 2026-07-03 - Deferred Access Physicalization
 
 Detailed notes: [docs/changelog/0.195.md](docs/changelog/0.195.md)

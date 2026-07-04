@@ -10,6 +10,7 @@ use std::{
 use ic_testkit::artifacts::wasm_path;
 use ic_testkit::pic::{
     InstallSpec, StandaloneCanisterFixture, install_prebuilt_canister_from_spec,
+    try_ensure_pocket_ic_bin,
 };
 use icydb::Error;
 
@@ -99,7 +100,9 @@ impl CanisterWasmProfile {
         }
     }
 
-    const fn as_str(self) -> &'static str {
+    /// Return the Cargo profile label accepted by [`CanisterWasmProfile::parse`].
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Debug => "debug",
             Self::Release => "release",
@@ -401,36 +404,137 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
 /// init args cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
-    let wasm = local_fixture_wasm_bytes(canister_name);
+    install_fixture_canister_with_options_and_optional_progress(
+        canister_name,
+        local_canister_build_options(),
+        None,
+    )
+}
 
-    install_prebuilt_canister_from_spec(
+/// Build one supported fixture canister and install it into a fresh standalone
+/// fixture while printing install-stage progress to stderr.
+///
+/// This is intended for expensive ignored audits where a hung PocketIC startup
+/// or install needs a precise stage marker in test logs.
+///
+/// # Panics
+///
+/// Panics if the canister cannot be built, the built WASM cannot be read, empty
+/// init args cannot be encoded, or installation fails.
+#[must_use]
+pub fn install_fixture_canister_with_progress(
+    canister_name: &str,
+    progress_label: &str,
+) -> StandaloneCanisterFixture {
+    install_fixture_canister_with_options_and_optional_progress(
+        canister_name,
+        local_canister_build_options(),
+        Some(progress_label),
+    )
+}
+
+/// Build one supported fixture canister with explicit options and install it
+/// into a fresh standalone fixture with empty init args.
+///
+/// # Panics
+///
+/// Panics if the canister cannot be built, the built WASM cannot be read, empty
+/// init args cannot be encoded, or installation fails.
+#[must_use]
+pub fn install_fixture_canister_with_options(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+) -> StandaloneCanisterFixture {
+    install_fixture_canister_with_options_and_optional_progress(canister_name, options, None)
+}
+
+/// Build one supported fixture canister with explicit options and install it
+/// into a fresh standalone fixture while printing install-stage progress to
+/// stderr.
+///
+/// # Panics
+///
+/// Panics if the canister cannot be built, the built WASM cannot be read, empty
+/// init args cannot be encoded, or installation fails.
+#[must_use]
+pub fn install_fixture_canister_with_options_and_progress(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+    progress_label: &str,
+) -> StandaloneCanisterFixture {
+    install_fixture_canister_with_options_and_optional_progress(
+        canister_name,
+        options,
+        Some(progress_label),
+    )
+}
+
+fn install_fixture_canister_with_options_and_optional_progress(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+    progress_label: Option<&str>,
+) -> StandaloneCanisterFixture {
+    if let Some(label) = progress_label {
+        eprintln!("{label}: resolving/building local {canister_name} wasm");
+    }
+    let wasm = local_fixture_wasm_bytes_with_options(canister_name, options);
+    if let Some(label) = progress_label {
+        eprintln!(
+            "{label}: local {canister_name} wasm ready ({} bytes)",
+            wasm.len(),
+        );
+        eprintln!("{label}: resolving PocketIC binary");
+        let pocket_ic_bin = try_ensure_pocket_ic_bin()
+            .unwrap_or_else(|err| panic!("{label}: failed to resolve PocketIC binary: {err}"));
+        eprintln!("{label}: PocketIC binary {}", pocket_ic_bin.display());
+    }
+    if let Some(label) = progress_label {
+        eprintln!("{label}: handing off to PocketIC install/startup");
+    }
+
+    let fixture = install_prebuilt_canister_from_spec(
         InstallSpec::new(
             wasm,
             candid::encode_args(()).expect("encode empty init args"),
             FIXTURE_INSTALL_CYCLES,
         )
         .label(canister_name),
-    )
+    );
+    if let Some(label) = progress_label {
+        eprintln!("{label}: installed {canister_name} canister in PocketIC");
+    }
+    fixture
 }
 
 fn local_fixture_wasm_bytes(canister_name: &str) -> Vec<u8> {
+    local_fixture_wasm_bytes_with_options(canister_name, local_canister_build_options())
+}
+
+fn local_fixture_wasm_bytes_with_options(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+) -> Vec<u8> {
     let fixture = fixture_for_canister_name(canister_name)
         .unwrap_or_else(|err| panic!("fixture canister should be supported: {err}"));
 
-    fixture
-        .local_wasm_bytes
-        .get_or_init(|| build_local_fixture_wasm_bytes(fixture))
-        .clone()
+    if options == local_canister_build_options() {
+        return fixture
+            .local_wasm_bytes
+            .get_or_init(|| build_local_fixture_wasm_bytes_with_options(fixture, options))
+            .clone();
+    }
+
+    build_local_fixture_wasm_bytes_with_options(fixture, options)
 }
 
-fn build_local_fixture_wasm_bytes(fixture: &FixtureCanister) -> Vec<u8> {
+fn build_local_fixture_wasm_bytes_with_options(
+    fixture: &FixtureCanister,
+    options: CanisterBuildOptions,
+) -> Vec<u8> {
     let wasm_path = build_canister_package(
         fixture.package,
-        CanisterBuildOptions {
-            build_target: CanisterBuildTarget::Local,
-            ..CanisterBuildOptions::default()
-        },
-        &format!("{} canister build (debug)", fixture.name),
+        options,
+        &canister_build_label(fixture, options),
     )
     .unwrap_or_else(|err| panic!("{} canister should build: {err}", fixture.name));
 
@@ -441,6 +545,21 @@ fn build_local_fixture_wasm_bytes(fixture: &FixtureCanister) -> Vec<u8> {
             wasm_path.display()
         )
     })
+}
+
+fn local_canister_build_options() -> CanisterBuildOptions {
+    CanisterBuildOptions {
+        build_target: CanisterBuildTarget::Local,
+        ..CanisterBuildOptions::default()
+    }
+}
+
+fn canister_build_label(fixture: &FixtureCanister, options: CanisterBuildOptions) -> String {
+    format!(
+        "{} canister build ({})",
+        fixture.name,
+        options.profile.as_str(),
+    )
 }
 
 /// Reset and reload the generated IcyDB fixture set on one installed canister.

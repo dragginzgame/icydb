@@ -129,6 +129,57 @@ fn execute_sql_projection_filtered_composite_order_only_matrix_returns_guarded_r
     }
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_filtered_composite_order_only_pushdown_keeps_reads_bounded() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_composite_order_fixture(&session);
+    let sql = "SELECT tier, handle \
+               FROM FilteredIndexedSessionSqlEntity \
+               WHERE active = true AND tier = 'gold' \
+               ORDER BY handle ASC, id ASC \
+               LIMIT 2";
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<FilteredIndexedSessionSqlEntity>(sql)
+        .unwrap_or_else(|err| {
+            panic!("filtered composite order-only query should execute: {err:?}")
+        });
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("filtered composite order-only query should return projection rows");
+    };
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| runtime_outputs(row))
+            .collect::<Vec<_>>(),
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ],
+        "filtered composite order-only query should preserve the guarded ordered suffix",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "covering filtered composite order-only query should not hydrate row-store records",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 1,
+        "filtered composite order-only query should use one bounded index range",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= 3,
+        "filtered composite order-only query should read no more than LIMIT plus lookahead entries, got {attribution:?}",
+    );
+}
+
 #[test]
 fn session_explain_execution_filtered_composite_order_matrix_is_stable() {
     reset_indexed_session_sql_store();

@@ -686,7 +686,11 @@ impl QueryAdmissionPolicy {
             return Some(QueryAdmissionRejection::PublicQueryRequiresIndex);
         }
 
-        if self.require_limit() && summary.limit().is_none() && summary.grouped().is_none() {
+        if self.require_limit()
+            && summary.limit().is_none()
+            && summary.grouped().is_none()
+            && !summary.returned_row_bound_kind().admits_public_read()
+        {
             return Some(QueryAdmissionRejection::PublicQueryRequiresLimit);
         }
 
@@ -1058,8 +1062,12 @@ impl QueryAdmissionSummary {
         let access = summarize_access_plan(plan);
         let grouped = plan.grouped_plan().map(summarize_grouped_plan);
         let (limit, offset) = scalar_limit_and_offset(plan.scalar_plan());
-        let (returned_row_bound, returned_row_bound_kind) =
+        let (mut returned_row_bound, mut returned_row_bound_kind) =
             returned_row_bound_from_plan(limit, grouped);
+        if returned_row_bound.is_none() && grouped.is_none() {
+            (returned_row_bound, returned_row_bound_kind) =
+                returned_row_bound_from_exact_access(&access);
+        }
         let scan_bound_kind = access.scan_bound_kind();
         Self {
             lane,
@@ -1525,6 +1533,22 @@ fn returned_row_bound_from_plan(
     )
 }
 
+fn returned_row_bound_from_exact_access(
+    access: &AdmissionAccessSummary,
+) -> (Option<u32>, QueryBoundKind) {
+    match (access.kind, access.exact_scan_bound) {
+        (QueryAdmissionAccessKind::ByKey | QueryAdmissionAccessKind::ByKeys, Some(bound)) => (
+            Some(clamp_u64_to_u32(bound)),
+            QueryBoundKind::ConservativeUpperBound,
+        ),
+        _ => (None, QueryBoundKind::Unavailable),
+    }
+}
+
+fn clamp_u64_to_u32(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
 const fn admission_residual_filter(shape: ResidualFilterShape) -> QueryAdmissionResidualFilter {
     match shape {
         ResidualFilterShape::Absent => QueryAdmissionResidualFilter::Absent,
@@ -1778,6 +1802,44 @@ mod tests {
     }
 
     #[test]
+    fn plan_summary_uses_exact_primary_key_access_as_returned_row_bound_without_limit() {
+        let plan =
+            AccessPlannedQuery::new(AccessPath::ByKey(Value::Nat64(7)), MissingRowPolicy::Ignore);
+
+        let summary = QueryAdmissionSummary::from_plan(QueryAdmissionLane::PublicRead, &plan);
+
+        assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKey);
+        assert_eq!(summary.limit(), None);
+        assert_eq!(summary.scan_bound(), Some(1));
+        assert_eq!(summary.scan_bound_kind(), QueryBoundKind::Exact);
+        assert_eq!(summary.returned_row_bound(), Some(1));
+        assert_eq!(
+            summary.returned_row_bound_kind(),
+            QueryBoundKind::ConservativeUpperBound
+        );
+    }
+
+    #[test]
+    fn plan_summary_uses_exact_primary_key_set_as_returned_row_bound_without_limit() {
+        let plan = AccessPlannedQuery::new(
+            AccessPath::ByKeys(vec![Value::Nat64(7), Value::Nat64(8)]),
+            MissingRowPolicy::Ignore,
+        );
+
+        let summary = QueryAdmissionSummary::from_plan(QueryAdmissionLane::PublicRead, &plan);
+
+        assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKeys);
+        assert_eq!(summary.limit(), None);
+        assert_eq!(summary.scan_bound(), Some(2));
+        assert_eq!(summary.scan_bound_kind(), QueryBoundKind::Exact);
+        assert_eq!(summary.returned_row_bound(), Some(2));
+        assert_eq!(
+            summary.returned_row_bound_kind(),
+            QueryBoundKind::ConservativeUpperBound
+        );
+    }
+
+    #[test]
     fn plan_summary_preserves_selected_index_identity() {
         let plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
@@ -1931,14 +1993,31 @@ mod tests {
         let policy = public_read_policy();
         let summary = summary_for_path(
             AccessPath::ByKey(Value::Text("primary".to_string())),
-            Some(1),
+            None,
             0,
         );
 
         let evaluated = policy.evaluate(summary);
 
         assert_eq!(evaluated.decision(), QueryAdmissionDecision::Admitted);
+        assert_eq!(evaluated.limit(), None);
         assert_eq!(evaluated.scan_bound(), Some(1));
+        assert_eq!(evaluated.returned_row_bound(), Some(1));
+    }
+
+    #[test]
+    fn public_read_evaluation_rejects_primary_key_set_above_returned_row_policy() {
+        let policy = public_read_policy();
+        let keys = (0..=50).map(Value::Nat64).collect();
+        let summary = summary_for_path(AccessPath::ByKeys(keys), None, 0);
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
+        assert_eq!(
+            evaluated.rejection(),
+            Some(QueryAdmissionRejection::ReturnedRowBoundExceedsPolicy)
+        );
     }
 
     #[test]

@@ -974,6 +974,69 @@ fn planner_branch_set_residual_stripping_removes_access_proven_prefix_predicates
 }
 
 #[test]
+fn planner_index_range_residual_stripping_removes_access_proven_bounds() {
+    let access = AccessPath::<Value>::index_range(
+        PLANNER_ORDER_INDEXES[0],
+        Vec::new(),
+        Bound::Included(Value::Text("br".to_string())),
+        Bound::Excluded(Value::Text("bs".to_string())),
+    );
+    let predicate = Predicate::And(vec![
+        Predicate::gte("name".to_string(), Value::Text("br".to_string())),
+        Predicate::lt("name".to_string(), Value::Text("bs".to_string())),
+    ]);
+
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(Some(&access), &predicate),
+        None,
+        "the selected index range already proves its own lower and upper bounds",
+    );
+}
+
+#[test]
+fn planner_index_range_residual_stripping_keeps_stricter_sibling_bounds() {
+    let access = AccessPath::<Value>::index_range(
+        PLANNER_ORDER_INDEXES[0],
+        Vec::new(),
+        Bound::Included(Value::Text("br".to_string())),
+        Bound::Excluded(Value::Text("bs".to_string())),
+    );
+    let stricter_lower = Predicate::gt("name".to_string(), Value::Text("br".to_string()));
+    let predicate = Predicate::And(vec![
+        Predicate::gte("name".to_string(), Value::Text("br".to_string())),
+        Predicate::lt("name".to_string(), Value::Text("bs".to_string())),
+        stricter_lower.clone(),
+    ]);
+
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(Some(&access), &predicate),
+        Some(stricter_lower),
+        "range-bound stripping must not remove predicates that narrow the selected access range",
+    );
+}
+
+#[test]
+fn planner_composite_index_range_residual_stripping_removes_prefix_and_bounds() {
+    let access = AccessPath::<Value>::index_range(
+        PLANNER_ORDER_COMPOSITE_INDEXES[0],
+        vec![Value::Text("batch-a".to_string())],
+        Bound::Included(10u64.into()),
+        Bound::Excluded(20u64.into()),
+    );
+    let predicate = Predicate::And(vec![
+        Predicate::eq("code".to_string(), Value::Text("batch-a".to_string())),
+        Predicate::gte("serial".to_string(), 10u64.into()),
+        Predicate::lt("serial".to_string(), 20u64.into()),
+    ]);
+
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(Some(&access), &predicate),
+        None,
+        "composite index ranges should strip both fixed prefix equality and selected range bounds",
+    );
+}
+
+#[test]
 fn planner_branch_set_prunes_excluded_branch_to_prefix_and_strips_residual() {
     let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_BRANCH_SET_MODEL);
     let predicate = Predicate::And(vec![

@@ -10,7 +10,7 @@ use crate::{
     },
     value::Value,
 };
-use std::cmp::Ordering;
+use std::{cmp::Ordering, ops::Bound};
 
 pub(in crate::db::query) fn sorted_index_contracts(
     indexes: &[SemanticIndexAccessContract],
@@ -111,21 +111,24 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     };
 
     // Phase 1: derive only clauses that the concrete access path already
-    // guarantees. Range paths intentionally keep their open bounds as residual
-    // semantics unless they appear in the fixed equality prefix.
+    // guarantees. Range paths may prove their own selected lower/upper bounds,
+    // but stricter sibling predicates still remain residual.
     let implied_bounds = if let Some((index, values)) = access_path.as_index_prefix_contract() {
         AccessBoundClauses {
             equalities: access_bound_equalities(index, values),
+            ranges: Vec::new(),
             branch_in: None,
         }
     } else if let Some((index, values)) = access_path.as_index_multi_lookup_contract() {
         AccessBoundClauses {
             equalities: Vec::new(),
+            ranges: Vec::new(),
             branch_in: access_bound_branch_in(&index, 0, values),
         }
     } else if let Some(spec) = access_path.as_index_branch_set_spec() {
         AccessBoundClauses {
             equalities: access_bound_equalities(spec.index(), spec.fixed_values()),
+            ranges: Vec::new(),
             branch_in: access_bound_branch_in(
                 spec.index_ref(),
                 spec.branch_slot(),
@@ -133,8 +136,15 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
             ),
         }
     } else if let Some(spec) = access_path.as_index_range() {
+        let index = spec.index();
         AccessBoundClauses {
-            equalities: access_bound_equalities(spec.index(), spec.prefix_values()),
+            equalities: access_bound_equalities(index.clone(), spec.prefix_values()),
+            ranges: access_bound_range_clauses(
+                index,
+                spec.field_slots(),
+                spec.lower(),
+                spec.upper(),
+            ),
             branch_in: None,
         }
     } else {
@@ -209,6 +219,7 @@ fn access_bound_equalities(
 #[derive(Default)]
 struct AccessBoundClauses<'a> {
     equalities: Vec<ComparePredicate>,
+    ranges: Vec<ComparePredicate>,
     branch_in: Option<AccessBoundBranchIn<'a>>,
 }
 
@@ -219,7 +230,66 @@ struct AccessBoundBranchIn<'a> {
 
 impl AccessBoundClauses<'_> {
     const fn is_empty(&self) -> bool {
-        self.equalities.is_empty() && self.branch_in.is_none()
+        self.equalities.is_empty() && self.ranges.is_empty() && self.branch_in.is_none()
+    }
+}
+
+fn access_bound_range_clauses(
+    index: SemanticIndexAccessContract,
+    field_slots: &[usize],
+    lower: &Bound<Value>,
+    upper: &Bound<Value>,
+) -> Vec<ComparePredicate> {
+    let Some(range_slot) = field_slots.last().copied() else {
+        return Vec::new();
+    };
+    let Some(field) = index.key_field_at(range_slot) else {
+        return Vec::new();
+    };
+
+    let mut ranges = Vec::with_capacity(2);
+    if let Some(lower) = access_bound_lower_range_clause(field, lower) {
+        ranges.push(lower);
+    }
+    if let Some(upper) = access_bound_upper_range_clause(field, upper) {
+        ranges.push(upper);
+    }
+    ranges
+}
+
+fn access_bound_lower_range_clause(field: &str, bound: &Bound<Value>) -> Option<ComparePredicate> {
+    match bound {
+        Bound::Included(value) => Some(ComparePredicate::with_coercion(
+            field,
+            CompareOp::Gte,
+            value.clone(),
+            CoercionId::Strict,
+        )),
+        Bound::Excluded(value) => Some(ComparePredicate::with_coercion(
+            field,
+            CompareOp::Gt,
+            value.clone(),
+            CoercionId::Strict,
+        )),
+        Bound::Unbounded => None,
+    }
+}
+
+fn access_bound_upper_range_clause(field: &str, bound: &Bound<Value>) -> Option<ComparePredicate> {
+    match bound {
+        Bound::Included(value) => Some(ComparePredicate::with_coercion(
+            field,
+            CompareOp::Lte,
+            value.clone(),
+            CoercionId::Strict,
+        )),
+        Bound::Excluded(value) => Some(ComparePredicate::with_coercion(
+            field,
+            CompareOp::Lt,
+            value.clone(),
+            CoercionId::Strict,
+        )),
+        Bound::Unbounded => None,
     }
 }
 
@@ -254,6 +324,10 @@ fn access_bound_clauses_imply_required(
             .equalities
             .iter()
             .any(|bound| equality_bound_implies_required(bound, cmp))
+        || implied_bounds
+            .ranges
+            .iter()
+            .any(|bound| range_bound_implies_required(bound, cmp))
 }
 
 fn equality_bound_implies_required(bound: &ComparePredicate, cmp: &ComparePredicate) -> bool {
@@ -270,6 +344,14 @@ fn equality_bound_implies_required(bound: &ComparePredicate, cmp: &ComparePredic
         CompareOp::NotIn => !list_contains_value(cmp.value(), bound.value()),
         CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => false,
     }
+}
+
+fn range_bound_implies_required(bound: &ComparePredicate, cmp: &ComparePredicate) -> bool {
+    if bound.field() != cmp.field() {
+        return false;
+    }
+
+    compare_clause_supported(cmp) && query_clause_implies_required(bound, cmp)
 }
 
 fn branch_in_clause_implies_required(

@@ -5,6 +5,7 @@ use crate::db::{
 };
 
 type SessionKeyAgeRows = Vec<(Ulid, u64)>;
+type IndexedSessionNameKeyRows = Vec<(String, Ulid)>;
 type GroupedAgeCountRows = Vec<(Value, Vec<Value>)>;
 
 const PHYSICAL_STREAM_CHUNK_TEST_ROWS: usize = 150;
@@ -22,6 +23,99 @@ fn entity_response_key_age_rows(response: &EntityResponse<SessionSqlEntity>) -> 
 // Project one paged execution response into the same key/order assertion shape.
 fn paged_key_age_rows(page: &PagedLoadExecution<SessionSqlEntity>) -> SessionKeyAgeRows {
     entity_response_key_age_rows(page.response())
+}
+
+// Project just primary keys from one paged execution response.
+fn paged_keys(page: &PagedLoadExecution<SessionSqlEntity>) -> Vec<Ulid> {
+    paged_key_age_rows(page)
+        .into_iter()
+        .map(|(id, _age)| id)
+        .collect()
+}
+
+fn encoded_scalar_cursor(page: &PagedLoadExecution<SessionSqlEntity>, context: &str) -> String {
+    crate::db::encode_cursor(
+        page.continuation_cursor()
+            .unwrap_or_else(|| panic!("{context} should emit a continuation cursor")),
+    )
+}
+
+fn insert_fixed_session_sql_entity(
+    session: &DbSession<SessionSqlCanister>,
+    id: u128,
+    name: &'static str,
+    age: u64,
+) {
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(id),
+            name: name.to_string(),
+            age,
+        })
+        .unwrap_or_else(|err| panic!("fixed cursor mutation insert should succeed: {err}"));
+}
+
+fn delete_fixed_session_sql_entity(session: &DbSession<SessionSqlCanister>, id: u128) {
+    let deleted = session
+        .delete::<SessionSqlEntity>()
+        .filter(FieldRef::new("id").eq(Ulid::from_u128(id)))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .execute()
+        .unwrap_or_else(|err| panic!("fixed cursor mutation delete should succeed: {err}"));
+    assert_eq!(
+        deleted, 1,
+        "fixed cursor mutation delete should remove exactly one row",
+    );
+}
+
+fn indexed_page_name_key_rows(
+    page: &PagedLoadExecution<IndexedSessionSqlEntity>,
+) -> IndexedSessionNameKeyRows {
+    page.response()
+        .iter()
+        .map(|row| (row.entity_ref().name.clone(), row.id().key()))
+        .collect()
+}
+
+fn encoded_indexed_scalar_cursor(
+    page: &PagedLoadExecution<IndexedSessionSqlEntity>,
+    context: &str,
+) -> String {
+    crate::db::encode_cursor(
+        page.continuation_cursor()
+            .unwrap_or_else(|| panic!("{context} should emit a continuation cursor")),
+    )
+}
+
+fn insert_fixed_indexed_session_sql_entity(
+    session: &DbSession<SessionSqlCanister>,
+    id: u128,
+    name: &'static str,
+    age: u64,
+) {
+    session
+        .insert(IndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            name: name.to_string(),
+            age,
+        })
+        .unwrap_or_else(|err| panic!("fixed indexed cursor insert should succeed: {err}"));
+}
+
+fn update_fixed_indexed_session_sql_entity(
+    session: &DbSession<SessionSqlCanister>,
+    id: u128,
+    name: &'static str,
+    age: u64,
+) {
+    session
+        .update(IndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            name: name.to_string(),
+            age,
+        })
+        .unwrap_or_else(|err| panic!("fixed indexed cursor update should succeed: {err}"));
 }
 
 // Project one grouped execution response into `(group_key, aggregate_values)`
@@ -433,6 +527,169 @@ fn primary_key_stream_resume_crosses_chunk_boundary_without_gaps() {
 }
 
 #[test]
+fn primary_key_cursor_resume_skips_deleted_boundary_and_unseen_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_fixed_session_sql_entities(
+        &session,
+        &[
+            (10, "cursor-delete-10", 10),
+            (20, "cursor-delete-20", 20),
+            (30, "cursor-delete-30", 30),
+            (40, "cursor-delete-40", 40),
+            (50, "cursor-delete-50", 50),
+        ],
+    );
+    let query = lower_select_query_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity ORDER BY id ASC LIMIT 2",
+    )
+    .expect("primary cursor deletion SQL should lower");
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("primary cursor deletion first page should execute")
+        .into_execution();
+    assert_eq!(
+        paged_keys(&first),
+        vec![Ulid::from_u128(10), Ulid::from_u128(20)],
+        "first page should establish a stable primary-key cursor boundary",
+    );
+    let cursor = encoded_scalar_cursor(&first, "primary cursor deletion first page");
+
+    delete_fixed_session_sql_entity(&session, 20);
+    delete_fixed_session_sql_entity(&session, 30);
+
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+        .expect("primary cursor deletion second page should execute")
+        .into_execution();
+    assert_eq!(
+        paged_keys(&second),
+        vec![Ulid::from_u128(40), Ulid::from_u128(50)],
+        "resume should use the cursor key boundary rather than replaying or requiring the deleted row",
+    );
+    assert_eq!(
+        second.continuation_cursor(),
+        None,
+        "deleted unseen rows should not force a phantom continuation cursor",
+    );
+}
+
+#[test]
+fn primary_key_cursor_resume_places_inserted_rows_by_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_fixed_session_sql_entities(
+        &session,
+        &[
+            (10, "cursor-insert-10", 10),
+            (20, "cursor-insert-20", 20),
+            (40, "cursor-insert-40", 40),
+            (50, "cursor-insert-50", 50),
+        ],
+    );
+    let query = lower_select_query_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity ORDER BY id ASC LIMIT 2",
+    )
+    .expect("primary cursor insertion SQL should lower");
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("primary cursor insertion first page should execute")
+        .into_execution();
+    assert_eq!(
+        paged_keys(&first),
+        vec![Ulid::from_u128(10), Ulid::from_u128(20)],
+        "first page should establish the insertion boundary after id 20",
+    );
+    let first_cursor = encoded_scalar_cursor(&first, "primary cursor insertion first page");
+
+    insert_fixed_session_sql_entity(&session, 15, "cursor-insert-before", 15);
+    insert_fixed_session_sql_entity(&session, 30, "cursor-insert-after", 30);
+    insert_fixed_session_sql_entity(&session, 45, "cursor-insert-later", 45);
+
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(first_cursor.as_str()))
+        .expect("primary cursor insertion second page should execute")
+        .into_execution();
+    assert_eq!(
+        paged_keys(&second),
+        vec![Ulid::from_u128(30), Ulid::from_u128(40)],
+        "resume should ignore new rows before the boundary and include new rows after it in order",
+    );
+    let second_cursor = encoded_scalar_cursor(&second, "primary cursor insertion second page");
+
+    let third = session
+        .execute_load_query_paged_with_trace(&query, Some(second_cursor.as_str()))
+        .expect("primary cursor insertion third page should execute")
+        .into_execution();
+    assert_eq!(
+        paged_keys(&third),
+        vec![Ulid::from_u128(45), Ulid::from_u128(50)],
+        "subsequent resume should continue through rows inserted after the previous boundary",
+    );
+    assert_eq!(
+        third.continuation_cursor(),
+        None,
+        "tail page after inserted rows should finish without a continuation cursor",
+    );
+}
+
+#[test]
+fn primary_key_desc_cursor_resume_places_inserted_rows_by_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_fixed_session_sql_entities(
+        &session,
+        &[
+            (10, "cursor-desc-10", 10),
+            (20, "cursor-desc-20", 20),
+            (40, "cursor-desc-40", 40),
+            (50, "cursor-desc-50", 50),
+        ],
+    );
+    let query = lower_select_query_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity ORDER BY id DESC LIMIT 2",
+    )
+    .expect("primary DESC cursor insertion SQL should lower");
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("primary DESC cursor insertion first page should execute")
+        .into_execution();
+    assert_eq!(
+        paged_keys(&first),
+        vec![Ulid::from_u128(50), Ulid::from_u128(40)],
+        "first DESC page should establish the insertion boundary before id 40",
+    );
+    let cursor = encoded_scalar_cursor(&first, "primary DESC cursor insertion first page");
+
+    insert_fixed_session_sql_entity(&session, 60, "cursor-desc-before", 60);
+    insert_fixed_session_sql_entity(&session, 35, "cursor-desc-after-high", 35);
+    insert_fixed_session_sql_entity(&session, 30, "cursor-desc-after-low", 30);
+    delete_fixed_session_sql_entity(&session, 20);
+    delete_fixed_session_sql_entity(&session, 10);
+
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+        .expect("primary DESC cursor insertion second page should execute")
+        .into_execution();
+    assert_eq!(
+        paged_keys(&second),
+        vec![Ulid::from_u128(35), Ulid::from_u128(30)],
+        "DESC resume should ignore new rows before the boundary and include new rows after it",
+    );
+    assert_eq!(
+        second.continuation_cursor(),
+        None,
+        "DESC tail page after inserted rows should finish without a continuation cursor",
+    );
+}
+
+#[test]
 fn secondary_index_stream_spans_multiple_chunks_in_final_order() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -461,6 +718,75 @@ fn secondary_index_stream_spans_multiple_chunks_in_final_order() {
         actual_names,
         names[..130],
         "secondary index final-order stream should span raw-index chunks without gaps",
+    );
+}
+
+#[test]
+fn secondary_index_cursor_resume_preserves_tie_breakers_after_insert_and_update() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    for (id, name, age) in [
+        (100_u128, "alpha", 10_u64),
+        (200, "bravo", 20),
+        (300, "bravo", 30),
+        (500, "delta", 50),
+    ] {
+        insert_fixed_indexed_session_sql_entity(&session, id, name, age);
+    }
+    let query = lower_select_query_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT * FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("secondary cursor mutation SQL should lower");
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("secondary cursor mutation first page should execute")
+        .into_execution();
+    assert_eq!(
+        indexed_page_name_key_rows(&first),
+        vec![
+            ("alpha".to_string(), Ulid::from_u128(100)),
+            ("bravo".to_string(), Ulid::from_u128(200)),
+        ],
+        "first page should use the secondary value and PK tie-breaker as its boundary",
+    );
+    let first_cursor =
+        encoded_indexed_scalar_cursor(&first, "secondary cursor mutation first page");
+
+    insert_fixed_indexed_session_sql_entity(&session, 150, "alpha", 15);
+    insert_fixed_indexed_session_sql_entity(&session, 250, "bravo", 25);
+    update_fixed_indexed_session_sql_entity(&session, 500, "aardvark", 55);
+    update_fixed_indexed_session_sql_entity(&session, 100, "charlie", 11);
+
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(first_cursor.as_str()))
+        .expect("secondary cursor mutation second page should execute")
+        .into_execution();
+    assert_eq!(
+        indexed_page_name_key_rows(&second),
+        vec![
+            ("bravo".to_string(), Ulid::from_u128(250)),
+            ("bravo".to_string(), Ulid::from_u128(300)),
+        ],
+        "resume should skip new/updated rows that now sort before the cursor and include equal-key rows after the PK tie-breaker",
+    );
+    let second_cursor =
+        encoded_indexed_scalar_cursor(&second, "secondary cursor mutation second page");
+
+    let third = session
+        .execute_load_query_paged_with_trace(&query, Some(second_cursor.as_str()))
+        .expect("secondary cursor mutation third page should execute")
+        .into_execution();
+    assert_eq!(
+        indexed_page_name_key_rows(&third),
+        vec![("charlie".to_string(), Ulid::from_u128(100))],
+        "a row updated after the cursor boundary should appear once at its new ordered position",
+    );
+    assert_eq!(
+        third.continuation_cursor(),
+        None,
+        "secondary cursor mutation tail page should finish without a continuation cursor",
     );
 }
 

@@ -9,8 +9,8 @@ use super::{
     seed_session_sql_entities, sql_session,
 };
 use crate::db::{
-    QueryAdmissionDecision, QueryAdmissionRejection, QueryAdmissionSummary, QueryBoundKind,
-    QueryError, SqlStatementResult,
+    QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionRejection,
+    QueryAdmissionSummary, QueryBoundKind, QueryError, ResponseCardinalityExt, SqlStatementResult,
     query::admission::{GroupedAdmissionPolicy, QueryAdmissionPolicy},
 };
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryReadAdmissionCode};
@@ -168,6 +168,57 @@ fn public_read_fluent_admission_admits_indexed_bounded_scalar_query() {
         QueryBoundKind::Unavailable,
         "non-executing fluent admission should not claim response-byte proof",
     );
+}
+
+#[test]
+fn public_read_fluent_admission_admits_primary_key_lookup_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let id = crate::types::Ulid::from_u128(18_801);
+
+    let query = session
+        .load::<IndexedSessionSqlEntity>()
+        .by_id(crate::types::Id::from_key(id));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("fluent primary-key lookup admission should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKey);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(1));
+    assert_eq!(summary.returned_row_bound(), Some(1));
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound
+    );
+}
+
+#[test]
+fn default_fluent_try_entity_admits_primary_key_lookup_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let id = crate::types::Ulid::from_u128(18_802);
+    session
+        .insert(IndexedSessionSqlEntity {
+            id,
+            name: "Sam".to_string(),
+            age: 30,
+        })
+        .expect("test row should insert");
+
+    let entity = session
+        .load::<IndexedSessionSqlEntity>()
+        .by_id(crate::types::Id::from_key(id))
+        .execute_rows()
+        .expect("primary-key try_entity should be admitted without explicit LIMIT")
+        .try_entity()
+        .expect("primary-key response should satisfy optional-entity cardinality")
+        .expect("inserted row should exist");
+
+    assert_eq!(entity.id, id);
+    assert_eq!(entity.name, "Sam");
 }
 
 #[test]

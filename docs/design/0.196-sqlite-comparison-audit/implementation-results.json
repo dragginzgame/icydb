@@ -1,0 +1,91 @@
+{
+  "date": "2026-07-04",
+  "status": "closeout_gate_passed",
+  "artifacts": {
+    "before_full_matrix_json": "/tmp/icydb-196-current-full/sql_perf_196_current_full_matrix.json",
+    "before_full_matrix_markdown": "/tmp/icydb-196-current-full/sql_perf_196_current_full_matrix.md",
+    "after_full_matrix_json": "/tmp/icydb-196-after-full/sql_perf_196_after_full_matrix.json",
+    "after_full_matrix_markdown": "/tmp/icydb-196-after-full/sql_perf_196_after_full_matrix.md",
+    "delta_json": "/tmp/icydb-196-after-full/sql_perf_196_full_matrix_delta.json",
+    "delta_markdown": "/tmp/icydb-196-after-full/sql_perf_196_full_matrix_delta.md"
+  },
+  "matrix_delta": {
+    "canister_wasm_profile": "debug",
+    "union_scenarios": 1756,
+    "common_successful_scenarios": 1675,
+    "improved_scenarios": 699,
+    "regressed_scenarios": 976,
+    "neutral_scenarios": 0,
+    "new_failures": 0,
+    "resolved_failures": 0,
+    "result_signature_changes": 0,
+    "cursor_signature_changes": 0,
+    "route_fact_changes_to_pushed": 10,
+    "closeout_gate": "pass"
+  },
+  "route_family_outcome_delta": [
+    {
+      "route_family": "secondary_order",
+      "route_outcome": "pushed",
+      "scenarios": 255,
+      "total_instruction_delta": -6488741
+    },
+    {
+      "route_family": "secondary_order",
+      "route_outcome": "eligible_but_not_pushed",
+      "scenarios": 116,
+      "total_instruction_delta": -3806227
+    },
+    {
+      "route_family": "primary_order",
+      "route_outcome": "eligible_but_not_pushed",
+      "scenarios": 129,
+      "total_instruction_delta": -2033301
+    },
+    {
+      "route_family": "primary_order",
+      "route_outcome": "pushed",
+      "scenarios": 397,
+      "total_instruction_delta": -1158849
+    },
+    {
+      "route_family": "equality_prefix_ordered_suffix",
+      "route_outcome": "pushed",
+      "scenarios": 1,
+      "total_instruction_delta": -192393
+    },
+    {
+      "route_family": "incompatible_filter_first_order",
+      "route_outcome": "materialized",
+      "scenarios": 618,
+      "total_instruction_delta": -5974224
+    },
+    {
+      "route_family": "materialized_order",
+      "route_outcome": "materialized",
+      "scenarios": 144,
+      "total_instruction_delta": 4393947
+    }
+  ],
+  "production_changes": [
+    "selected index-range bounds are stripped from residual predicates only when the access path proves them",
+    "exact primary-key public reads can use the selected key-count bound without a redundant LIMIT",
+    "matrix reports include route family, route outcome, result signatures, cursor signatures, and union-key delta artifacts"
+  ],
+  "validation": [
+    "cargo fmt --all",
+    "cargo test -p icydb-core --all-features db::query::admission::tests -- --nocapture",
+    "cargo test -p icydb-core --all-features primary_key_lookup_without_limit -- --nocapture",
+    "cargo test -p icydb-core --all-features planner_index_range_residual_stripping -- --nocapture",
+    "cargo test -p icydb-core --all-features planner_composite_index_range_residual_stripping -- --nocapture",
+    "cargo test -p icydb-core --all-features read_admission -- --nocapture",
+    "cargo test -p icydb-testing-integration --test sql_perf_matrix_audit",
+    "cargo clippy -p icydb-core --all-features --tests -- -D warnings",
+    "cargo clippy -p icydb-testing-integration --all-features --test sql_perf_matrix_audit -- -D warnings",
+    "jq empty docs/design/0.196-sqlite-comparison-audit/implementation-results.json",
+    "git diff --check",
+    "full after deterministic SQL perf matrix",
+    "full before/after SQL perf matrix delta helper"
+  ],
+  "wasm_size_delta": "not_measured"
+}

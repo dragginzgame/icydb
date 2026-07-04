@@ -175,6 +175,47 @@ fn execute_sql_projection_index_covering_residual_predicate_avoids_row_store_get
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_index_covering_order_only_pushdown_keeps_reads_bounded() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_covering_order_fixture(&session);
+
+    let sql = "SELECT name FROM IndexedSessionSqlEntity \
+               ORDER BY name ASC, id ASC \
+               LIMIT 2";
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<IndexedSessionSqlEntity>(sql)
+        .expect("secondary-order covering projection should execute with attribution");
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("secondary-order covering projection should return projection rows");
+    };
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| runtime_outputs(row))
+            .collect::<Vec<_>>(),
+        vec![
+            vec![Value::Text("alice".to_string())],
+            vec![Value::Text("bob".to_string())],
+        ],
+        "secondary-order covering projection should preserve index order",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "secondary-order covering projection should not hydrate row-store records",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 1,
+        "secondary-order covering projection should use one bounded index range",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= 3,
+        "secondary-order covering projection should read no more than LIMIT plus lookahead entries, got {attribution:?}",
+    );
+}
+
 #[test]
 fn session_explain_execution_covering_query_matrix_uses_index_range_access() {
     // Phase 1: run both the plain and filtered covering shapes through the

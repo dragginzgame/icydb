@@ -22,7 +22,9 @@ The current lanes are:
 
 - `PublicRead`: caller-facing bounded reads. These require finite returned-row
   and response-byte caps, reject unsafe full scans by default, reject non-zero
-  `OFFSET`, and require explicit grouped budgets for grouped queries.
+  `OFFSET`, and require explicit grouped budgets for grouped queries. Exact
+  primary-key `by_id(...)` / `by_ids(...)` reads may use their selected
+  key-count upper bound as the returned-row cap.
 - `AdminAdHoc`: trusted/controller-gated operational reads. These may use the
   broad SQL query helper, but the endpoint must remain visibly controller
   gated and must not be mistaken for a public read surface.
@@ -38,7 +40,7 @@ Estimates may be reported by diagnostics, but estimates do not authorize
 | Surface | Lane | Guard | Query execution authority |
 | --- | --- | --- | --- |
 | `DbSession::execute_sql_query::<E>` | `AdminAdHoc` by caller contract | caller-owned | Trusted single-entity SQL query helper. It is not public-safe by itself. |
-| `DbSession::execute_query::<E>` / `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, non-zero offset, materialized sorts, missing row bounds, and grouped reads without query hard limits. |
+| `DbSession::execute_query::<E>` / `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, non-zero offset, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound. |
 | `DbSession::execute_query_trusted::<E>` / `FluentLoadQuery::*_trusted` execution methods / `trusted_read_unchecked()` | trusted caller contract | caller-owned | Explicit bypass for maintenance/admin code with its own authorization and resource policy. It is not public-safe by itself. |
 | generated `icydb_query` | `AdminAdHoc` | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
 | generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission and schema authority. |
@@ -106,6 +108,13 @@ let users = db()
     .order_term(icydb::asc("id"))
     .limit(10)
     .execute_rows()?;
+
+// Also admitted: exact selected primary-key access proves at most one row, so
+// a redundant LIMIT is not required.
+let user = db()
+    .load::<User>()
+    .by_id(icydb::Id::<User>::from_key(user_id))
+    .try_one()?;
 ```
 
 If the rejected query is intentional maintenance work, keep it off arbitrary
@@ -126,6 +135,8 @@ The default typed/fluent policy is intentionally conservative:
 - maximum plan-level response bytes: 128 KiB where the surface can prove it;
 - full scans are rejected;
 - an index-backed access proof is required;
+- selected primary-key `by_id(...)` / `by_ids(...)` access may satisfy the
+  returned-row bound from the exact key count;
 - non-zero `OFFSET` is rejected;
 - materialized sorts are rejected;
 - grouped reads require query-owned `grouped_limits(...)` and must fit within
@@ -166,7 +177,7 @@ should branch on the diagnostic detail, not rendered text.
 
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |
-| Ordinary read without a finite row or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Add `limit(...)`, or use a grouped query with `grouped_limits(...)` when the grouped shape itself supplies the bound. |
+| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Add `limit(...)`, use `by_id(...)` / bounded `by_ids(...)` for exact primary-key reads, or use a grouped query with `grouped_limits(...)` when the grouped shape itself supplies the bound. |
 | Ordinary read with `LIMIT 1` but no route-proven index access | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Add an index for the filter/order, tighten the predicate, or move the broad scan behind a controller/admin trusted path. |
 | Ordinary read whose selected route cannot prove an index-backed access path | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | Add a matching index or change the query to use an indexed predicate/order. |
 | Ordinary read whose selected plan cannot prove a scan bound | `QueryReadAdmissionCode::ScanBoundUnavailable` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
@@ -202,7 +213,9 @@ let err = db()
 ```
 
 Fix it by adding a finite row bound, or by using grouped execution with
-explicit grouped budgets when the query is genuinely grouped:
+explicit grouped budgets when the query is genuinely grouped. For exact
+primary-key reads, prefer the key API so admission can consume the selected
+`ByKey` proof:
 
 ```rust
 let users = db()
@@ -212,6 +225,11 @@ let users = db()
     .order_term(icydb::asc("id"))
     .limit(10)
     .execute_rows()?;
+
+let user = db()
+    .load::<User>()
+    .by_id(icydb::Id::<User>::from_key(user_id))
+    .try_one()?;
 ```
 
 ### Full scan, missing index proof, or missing scan bound

@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     env,
     fmt::Write as _,
     fs,
@@ -8,19 +8,27 @@ use std::{
 };
 
 use candid::CandidType;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{
+    StandaloneCanisterFixture, try_acquire_pic_serial_guard, try_ensure_pocket_ic_bin, try_pic,
+};
 use icydb::{
     Error, ErrorOrigin,
     db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
     diagnostic::{DiagnosticCode, ErrorClass},
 };
-use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
+use icydb_testing_integration::{
+    CanisterBuildOptions, CanisterBuildTarget, CanisterWasmProfile,
+    install_fixture_canister_with_options, install_fixture_canister_with_options_and_progress,
+    reset_icydb_fixtures,
+};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MATRIX_LIMIT: usize = 300;
 const DEFAULT_RANDOM_CASE_COUNT: usize = 300;
 const DEFAULT_TOP_N: usize = 20;
 const DEFAULT_RANDOM_SEED: u64 = 0x1cdb_0182_0000_0001;
+const SQL_PERF_MATRIX_WASM_PROFILE_ENV: &str = "ICYDB_SQL_PERF_MATRIX_WASM_PROFILE";
+const SQL_PERF_MATRIX_INSTALL_PROGRESS_ENV: &str = "ICYDB_SQL_PERF_MATRIX_INSTALL_PROGRESS";
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlQueryPerfResult {
@@ -132,20 +140,30 @@ struct MatrixScenario {
     sql: String,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct MatrixOutcome {
-    result_kind: &'static str,
+    result_kind: String,
     entity: String,
     row_count: usize,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct MatrixSample {
     key: String,
     source: String,
     surface: String,
     family: String,
     sql: String,
+    #[serde(default)]
+    route_family: String,
+    #[serde(default)]
+    route_outcome: String,
+    #[serde(default)]
+    route_reason: Option<String>,
+    #[serde(default)]
+    result_signature: Option<String>,
+    #[serde(default)]
+    cursor_signature: Option<String>,
     compile_local_instructions: u64,
     compile_cache_key_local_instructions: u64,
     compile_cache_lookup_local_instructions: u64,
@@ -216,23 +234,31 @@ struct MatrixSample {
     outcome: MatrixOutcome,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct MatrixFailure {
     key: String,
     source: String,
     surface: String,
     family: String,
     sql: String,
+    #[serde(default = "failed_route_family")]
+    route_family: String,
+    #[serde(default = "failed_route_outcome")]
+    route_outcome: String,
+    #[serde(default = "failed_route_reason")]
+    route_reason: String,
     code: u16,
     diagnostic_code: u16,
-    diagnostic_label: &'static str,
+    diagnostic_label: String,
     class: String,
     origin: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct MatrixReport {
     matrix_mode: String,
+    #[serde(default)]
+    canister_wasm_profile: String,
     generated_scenario_count: usize,
     executed_scenario_count: usize,
     failed_scenario_count: usize,
@@ -242,6 +268,93 @@ struct MatrixReport {
     random_case_count: usize,
     samples: Vec<MatrixSample>,
     failures: Vec<MatrixFailure>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+struct MetricDelta {
+    before: Option<u64>,
+    after: Option<u64>,
+    delta: Option<i64>,
+    delta_percent_bp: Option<i64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct MatrixDeltaRow {
+    key: String,
+    before_status: String,
+    after_status: String,
+    status_class: String,
+    total_local_instructions: MetricDelta,
+    compile_local_instructions: MetricDelta,
+    execute_local_instructions: MetricDelta,
+    planner_local_instructions: MetricDelta,
+    executor_local_instructions: MetricDelta,
+    store_local_instructions: MetricDelta,
+    data_store_get_calls: MetricDelta,
+    index_store_range_scan_calls: MetricDelta,
+    index_store_entry_reads: MetricDelta,
+    rows_returned: MetricDelta,
+    before_route_family: Option<String>,
+    after_route_family: Option<String>,
+    before_route_outcome: Option<String>,
+    after_route_outcome: Option<String>,
+    before_route_reason: Option<String>,
+    after_route_reason: Option<String>,
+    before_result_signature: Option<String>,
+    after_result_signature: Option<String>,
+    #[serde(flatten)]
+    signature_changes: MatrixDeltaSignatureChanges,
+    before_cursor_signature: Option<String>,
+    after_cursor_signature: Option<String>,
+    result_row_count_before: Option<usize>,
+    result_row_count_after: Option<usize>,
+    #[serde(flatten)]
+    target_flags: MatrixDeltaTargetFlags,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct MatrixDeltaSignatureChanges {
+    result_signature_changed: bool,
+    cursor_signature_changed: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct MatrixDeltaTargetFlags {
+    focused_target: bool,
+    expected_to_improve: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+struct MatrixDeltaRouteAggregate {
+    route_family: Option<String>,
+    route_outcome: Option<String>,
+    scenario_count: usize,
+    total_delta: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct MatrixDeltaReport {
+    baseline_path: String,
+    current_path: String,
+    baseline_canister_wasm_profile: String,
+    current_canister_wasm_profile: String,
+    baseline_scenario_count: usize,
+    current_scenario_count: usize,
+    union_scenario_count: usize,
+    common_successful_scenario_count: usize,
+    improved_scenario_count: usize,
+    regressed_scenario_count: usize,
+    neutral_scenario_count: usize,
+    new_failure_count: usize,
+    resolved_failure_count: usize,
+    common_failure_count: usize,
+    focused_target_count: usize,
+    expected_improvement_count: usize,
+    closeout_failures: Vec<String>,
+    route_family_aggregates: Vec<MatrixDeltaRouteAggregate>,
+    route_outcome_aggregates: Vec<MatrixDeltaRouteAggregate>,
+    route_pair_aggregates: Vec<MatrixDeltaRouteAggregate>,
+    rows: Vec<MatrixDeltaRow>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1215,8 +1328,40 @@ fn matrix_scenario_key_filter() -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
+fn matrix_canister_wasm_profile() -> CanisterWasmProfile {
+    env::var(SQL_PERF_MATRIX_WASM_PROFILE_ENV).map_or(CanisterWasmProfile::Debug, |value| {
+        CanisterWasmProfile::parse(&value).unwrap_or_else(|err| panic!("{err}"))
+    })
+}
+
+fn matrix_canister_build_options() -> CanisterBuildOptions {
+    CanisterBuildOptions {
+        profile: matrix_canister_wasm_profile(),
+        build_target: CanisterBuildTarget::Local,
+        ..CanisterBuildOptions::default()
+    }
+}
+
 fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
-    install_fixture_canister("sql_perf")
+    let options = matrix_canister_build_options();
+    eprintln!(
+        "sql_perf_matrix: canister wasm profile {}",
+        options.profile.as_str(),
+    );
+    if matrix_install_progress_enabled() {
+        return install_fixture_canister_with_options_and_progress(
+            "sql_perf",
+            options,
+            "sql_perf_matrix",
+        );
+    }
+
+    install_fixture_canister_with_options("sql_perf", options)
+}
+
+fn matrix_install_progress_enabled() -> bool {
+    env::var(SQL_PERF_MATRIX_INSTALL_PROGRESS_ENV)
+        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
 }
 
 fn query_surface_with_perf(
@@ -1231,57 +1376,57 @@ fn query_surface_with_perf(
 fn summarize_perf_outcome(result: &SqlQueryResult) -> MatrixOutcome {
     match result {
         SqlQueryResult::Count { entity, row_count } => MatrixOutcome {
-            result_kind: "count",
+            result_kind: "count".to_string(),
             entity: entity.clone(),
             row_count: usize::try_from(*row_count).unwrap_or(usize::MAX),
         },
         SqlQueryResult::Projection(rows) => MatrixOutcome {
-            result_kind: "projection",
+            result_kind: "projection".to_string(),
             entity: rows.entity.clone(),
             row_count: usize::try_from(rows.row_count).unwrap_or(usize::MAX),
         },
         SqlQueryResult::Grouped(rows) => MatrixOutcome {
-            result_kind: "grouped",
+            result_kind: "grouped".to_string(),
             entity: rows.entity.clone(),
             row_count: usize::try_from(rows.row_count).unwrap_or(usize::MAX),
         },
         SqlQueryResult::Explain { entity, .. } => MatrixOutcome {
-            result_kind: "explain",
+            result_kind: "explain".to_string(),
             entity: entity.clone(),
             row_count: 1,
         },
         SqlQueryResult::Describe(entity) => MatrixOutcome {
-            result_kind: "describe",
+            result_kind: "describe".to_string(),
             entity: entity.entity_name().to_string(),
             row_count: entity.fields().len(),
         },
         SqlQueryResult::ShowIndexes { entity, indexes } => MatrixOutcome {
-            result_kind: "show_indexes",
+            result_kind: "show_indexes".to_string(),
             entity: entity.clone(),
             row_count: indexes.len(),
         },
         SqlQueryResult::ShowColumns { entity, columns } => MatrixOutcome {
-            result_kind: "show_columns",
+            result_kind: "show_columns".to_string(),
             entity: entity.clone(),
             row_count: columns.len(),
         },
         SqlQueryResult::ShowEntities { entities, .. } => MatrixOutcome {
-            result_kind: "show_entities",
+            result_kind: "show_entities".to_string(),
             entity: String::new(),
             row_count: entities.len(),
         },
         SqlQueryResult::ShowStores { stores, .. } => MatrixOutcome {
-            result_kind: "show_stores",
+            result_kind: "show_stores".to_string(),
             entity: String::new(),
             row_count: stores.len(),
         },
         SqlQueryResult::ShowMemory { memory } => MatrixOutcome {
-            result_kind: "show_memory",
+            result_kind: "show_memory".to_string(),
             entity: String::new(),
             row_count: memory.len(),
         },
         SqlQueryResult::Ddl { entity, .. } => MatrixOutcome {
-            result_kind: "icydb_ddl",
+            result_kind: "icydb_ddl".to_string(),
             entity: entity.clone(),
             row_count: 1,
         },
@@ -1309,7 +1454,6 @@ fn matrix_sample_from_perf(scenario: &MatrixScenario, perf: &SqlQueryPerfResult)
         outcome: summarize_perf_outcome(&perf.result),
         ..MatrixSample::default()
     };
-
     fill_matrix_compile_sample(&mut sample, attribution);
     fill_matrix_execution_sample(&mut sample, attribution);
     fill_matrix_grouped_sample(&mut sample, attribution);
@@ -1317,7 +1461,291 @@ fn matrix_sample_from_perf(scenario: &MatrixScenario, perf: &SqlQueryPerfResult)
     fill_matrix_projection_path_sample(&mut sample, attribution);
     fill_matrix_store_output_cache_sample(&mut sample, attribution);
 
+    let route = route_classification_for_sample(&sample);
+    sample.route_family = route.family.to_string();
+    sample.route_outcome = route.outcome.to_string();
+    sample.route_reason = route.reason.map(str::to_string);
+    sample.result_signature = Some(result_signature(&perf.result));
+    sample.cursor_signature = cursor_signature(&perf.result);
+
     sample
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RouteClassification {
+    family: &'static str,
+    outcome: &'static str,
+    reason: Option<&'static str>,
+}
+
+impl RouteClassification {
+    const fn new(
+        family: &'static str,
+        outcome: &'static str,
+        reason: Option<&'static str>,
+    ) -> Self {
+        Self {
+            family,
+            outcome,
+            reason,
+        }
+    }
+}
+
+fn route_classification_for_sample(sample: &MatrixSample) -> RouteClassification {
+    if !sample.sql.starts_with("SELECT") || !sample.sql.contains(" LIMIT ") {
+        return RouteClassification::new(
+            "not_ordered_or_not_paginated",
+            "unchanged_or_not_applicable",
+            Some("not_a_paginated_select"),
+        );
+    }
+    if !sample.sql.contains(" ORDER BY ") {
+        return RouteClassification::new(
+            "not_ordered_or_not_paginated",
+            "unchanged_or_not_applicable",
+            Some("no_order_by"),
+        );
+    }
+    if sample.surface == MatrixSurface::HeapUser.label()
+        || sample.surface == MatrixSurface::JournaledUser.label()
+    {
+        return classify_storage_mirror_route(sample);
+    }
+    if sample.sql.contains("ORDER BY id ASC") || sample.sql.contains("ORDER BY id DESC") {
+        return classify_primary_order_route(sample, "primary_order_candidate");
+    }
+    if sample.sql.contains("collection_id =")
+        && (sample.sql.contains("ORDER BY stage ASC, id ASC")
+            || sample.sql.contains("ORDER BY stage DESC, id DESC"))
+    {
+        return classify_index_order_route(
+            sample,
+            "equality_prefix_ordered_suffix",
+            "equality_prefix_ordered_suffix_candidate",
+            "equality_prefix_ordered_suffix_limit_stop_proven",
+        );
+    }
+    if sample.sql.contains("ORDER BY age ")
+        || sample.sql.contains("ORDER BY name ")
+        || sample.sql.contains("ORDER BY handle ")
+        || sample.sql.contains("ORDER BY bucket ")
+        || sample.sql.contains("ORDER BY label ")
+        || sample.sql.contains("ORDER BY tier ")
+        || sample.sql.contains("ORDER BY LOWER(")
+    {
+        return classify_secondary_order_route(sample);
+    }
+
+    RouteClassification::new(
+        "unsupported_access_kind",
+        "unsupported",
+        Some("order_expression_not_classified"),
+    )
+}
+
+fn classify_storage_mirror_route(sample: &MatrixSample) -> RouteClassification {
+    if sample.sql.contains("ORDER BY id ASC") || sample.sql.contains("ORDER BY id DESC") {
+        return classify_primary_order_route(sample, "storage_mirror_primary_order_candidate");
+    }
+
+    RouteClassification::new(
+        "materialized_order",
+        "materialized",
+        Some("storage_mirror_has_primary_index_only"),
+    )
+}
+
+fn classify_primary_order_route(
+    sample: &MatrixSample,
+    candidate_reason: &'static str,
+) -> RouteClassification {
+    if primary_order_limit_stop_is_proven(sample) {
+        return RouteClassification::new(
+            "primary_order",
+            "pushed",
+            Some("primary_order_limit_stop_proven"),
+        );
+    }
+
+    RouteClassification::new(
+        "primary_order",
+        "eligible_but_not_pushed",
+        Some(candidate_reason),
+    )
+}
+
+fn primary_order_limit_stop_is_proven(sample: &MatrixSample) -> bool {
+    let Some(bound) = ordered_limit_read_bound(sample) else {
+        return false;
+    };
+    if sample.direct_data_row_order_window_local_instructions != 0
+        || sample.kernel_row_order_window_local_instructions != 0
+    {
+        return false;
+    }
+
+    sample.data_store_get_calls <= bound
+}
+
+fn ordered_limit_read_bound(sample: &MatrixSample) -> Option<u64> {
+    let limit = sql_clause_usize_value(&sample.sql, " LIMIT ")?;
+    let offset = sql_clause_usize_value(&sample.sql, " OFFSET ").unwrap_or(0);
+    let bound = limit.saturating_add(offset).saturating_add(1);
+    Some(u64::try_from(bound).unwrap_or(u64::MAX))
+}
+
+fn sql_clause_usize_value(sql: &str, marker: &str) -> Option<usize> {
+    let tail = sql.split_once(marker)?.1.trim_start();
+    let end = tail
+        .find(|character: char| !character.is_ascii_digit())
+        .unwrap_or(tail.len());
+    if end == 0 {
+        return None;
+    }
+    tail[..end].parse().ok()
+}
+
+fn classify_secondary_order_route(sample: &MatrixSample) -> RouteClassification {
+    let Some((predicate_key, order_key)) = select_predicate_and_order_keys(&sample.family) else {
+        return RouteClassification::new(
+            "secondary_order",
+            "eligible_but_not_pushed",
+            Some("secondary_order_candidate"),
+        );
+    };
+    if predicate_order_is_obviously_incompatible(predicate_key, order_key) {
+        return RouteClassification::new(
+            "incompatible_filter_first_order",
+            "materialized",
+            Some("filter_order_mismatch"),
+        );
+    }
+    if predicate_key == "field_compare" {
+        return RouteClassification::new(
+            "residual_filter_ordered_scan",
+            "residual_unbounded",
+            Some("residual_filter_requires_candidate_scan"),
+        );
+    }
+
+    classify_index_order_route(
+        sample,
+        "secondary_order",
+        "secondary_order_candidate",
+        "secondary_order_limit_stop_proven",
+    )
+}
+
+fn classify_index_order_route(
+    sample: &MatrixSample,
+    family: &'static str,
+    candidate_reason: &'static str,
+    pushed_reason: &'static str,
+) -> RouteClassification {
+    if index_order_limit_stop_is_proven(sample) {
+        return RouteClassification::new(family, "pushed", Some(pushed_reason));
+    }
+
+    RouteClassification::new(family, "eligible_but_not_pushed", Some(candidate_reason))
+}
+
+fn index_order_limit_stop_is_proven(sample: &MatrixSample) -> bool {
+    let Some(bound) = ordered_limit_read_bound(sample) else {
+        return false;
+    };
+    if sample.direct_data_row_order_window_local_instructions != 0
+        || sample.kernel_row_order_window_local_instructions != 0
+    {
+        return false;
+    }
+
+    sample.data_store_get_calls <= bound && sample.index_store_entry_reads <= bound
+}
+
+fn select_predicate_and_order_keys(family: &str) -> Option<(&str, &str)> {
+    let mut parts = family.split('.');
+    if parts.next()? != "select" {
+        return None;
+    }
+    let _projection_key = parts.next()?;
+    let predicate_key = parts.next()?;
+    let order_key = parts.next()?;
+    Some((predicate_key, order_key))
+}
+
+fn predicate_order_is_obviously_incompatible(predicate_key: &str, order_key: &str) -> bool {
+    if predicate_key == "all" || order_key.starts_with("pk_") {
+        return false;
+    }
+    if predicate_key.starts_with("age") && order_key.starts_with("age") {
+        return false;
+    }
+    if predicate_key.starts_with("name") && order_key.starts_with("name") {
+        return false;
+    }
+    if predicate_key.starts_with("lower_name") && order_key.starts_with("lower_name") {
+        return false;
+    }
+    if predicate_key.starts_with("handle") && order_key.starts_with("handle") {
+        return false;
+    }
+    if predicate_key.starts_with("lower_handle") && order_key.starts_with("lower_handle") {
+        return false;
+    }
+    if predicate_key.starts_with("bucket") && order_key.starts_with("bucket") {
+        return false;
+    }
+    if predicate_key.starts_with("label") && order_key.starts_with("label") {
+        return false;
+    }
+    predicate_key != "active_true" || !order_key.starts_with("tier")
+}
+
+fn result_signature(result: &SqlQueryResult) -> String {
+    match result {
+        SqlQueryResult::Count { entity, row_count } => {
+            format!("count|{entity}|{row_count}")
+        }
+        SqlQueryResult::Projection(rows) => {
+            let rendered_rows = rows
+                .rendered_rows()
+                .into_iter()
+                .map(|row| row.join("\u{1f}"))
+                .collect::<Vec<_>>()
+                .join("\u{1e}");
+            format!(
+                "projection|{}|{}|{}|{}",
+                rows.entity,
+                rows.columns.join("\u{1f}"),
+                rows.row_count,
+                rendered_rows,
+            )
+        }
+        SqlQueryResult::Grouped(rows) => {
+            let rendered_rows = rows
+                .rows
+                .iter()
+                .map(|row| row.join("\u{1f}"))
+                .collect::<Vec<_>>()
+                .join("\u{1e}");
+            format!(
+                "grouped|{}|{}|{}|{}",
+                rows.entity,
+                rows.columns.join("\u{1f}"),
+                rows.row_count,
+                rendered_rows,
+            )
+        }
+        _ => result.render_lines().join("\n"),
+    }
+}
+
+fn cursor_signature(result: &SqlQueryResult) -> Option<String> {
+    match result {
+        SqlQueryResult::Grouped(rows) => rows.next_cursor.clone(),
+        _ => None,
+    }
 }
 
 const fn fill_matrix_compile_sample(
@@ -1464,12 +1892,27 @@ fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFai
         surface: scenario.surface.label().to_string(),
         family: scenario.family.clone(),
         sql: scenario.sql.clone(),
+        route_family: failed_route_family(),
+        route_outcome: failed_route_outcome(),
+        route_reason: failed_route_reason(),
         code: err.code().raw(),
         diagnostic_code: diagnostic_code.error_code().raw(),
-        diagnostic_label: diagnostic_label(diagnostic_code),
+        diagnostic_label: diagnostic_label(diagnostic_code).to_string(),
         class: error_class_label(err.class()).to_string(),
         origin: format!("{:?}", err.origin()),
     }
+}
+
+fn failed_route_family() -> String {
+    "failed_or_not_executed".to_string()
+}
+
+fn failed_route_outcome() -> String {
+    "failed".to_string()
+}
+
+fn failed_route_reason() -> String {
+    "scenario_failed".to_string()
 }
 
 const fn diagnostic_label(code: DiagnosticCode) -> &'static str {
@@ -1556,6 +1999,882 @@ fn write_matrix_reports(report: &MatrixReport) {
     println!("matrix Markdown: {}", md_path.display());
 }
 
+fn read_matrix_report(path: &Path) -> MatrixReport {
+    let json = fs::read_to_string(path)
+        .unwrap_or_else(|err| panic!("matrix JSON report should read {}: {err}", path.display()));
+    serde_json::from_str(&json)
+        .unwrap_or_else(|err| panic!("matrix JSON report should parse {}: {err}", path.display()))
+}
+
+fn write_matrix_delta_reports(delta: &MatrixDeltaReport, stem: &Path) {
+    if let Some(parent) = stem.parent() {
+        fs::create_dir_all(parent)
+            .unwrap_or_else(|err| panic!("matrix delta directory should be created: {err}"));
+    }
+
+    let json_path = stem.with_extension("json");
+    let md_path = stem.with_extension("md");
+    let json = serde_json::to_string_pretty(delta).expect("matrix delta report should serialize");
+    fs::write(&json_path, json)
+        .unwrap_or_else(|err| panic!("matrix delta JSON report should write: {err}"));
+    fs::write(&md_path, matrix_delta_markdown(delta))
+        .unwrap_or_else(|err| panic!("matrix delta Markdown report should write: {err}"));
+
+    println!("matrix delta JSON: {}", json_path.display());
+    println!("matrix delta Markdown: {}", md_path.display());
+}
+
+fn matrix_delta_report(
+    baseline_path: &Path,
+    baseline: &MatrixReport,
+    current_path: &Path,
+    current: &MatrixReport,
+    focused_targets: &BTreeSet<String>,
+    expected_improvements: &BTreeSet<String>,
+) -> MatrixDeltaReport {
+    let baseline_successes = sample_map(baseline);
+    let current_successes = sample_map(current);
+    let baseline_failures = failure_map(baseline);
+    let current_failures = failure_map(current);
+    let mut keys = BTreeSet::new();
+    keys.extend(baseline_successes.keys().map(|key| (*key).to_string()));
+    keys.extend(current_successes.keys().map(|key| (*key).to_string()));
+    keys.extend(baseline_failures.keys().map(|key| (*key).to_string()));
+    keys.extend(current_failures.keys().map(|key| (*key).to_string()));
+
+    let mut rows = keys
+        .iter()
+        .map(|key| {
+            let before = report_entry(
+                baseline_successes.get(key.as_str()).copied(),
+                baseline_failures.get(key.as_str()).copied(),
+            );
+            let after = report_entry(
+                current_successes.get(key.as_str()).copied(),
+                current_failures.get(key.as_str()).copied(),
+            );
+            matrix_delta_row(
+                key,
+                before,
+                after,
+                focused_targets.contains(key),
+                expected_improvements.contains(key),
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| left.key.cmp(&right.key));
+
+    let mut closeout_failures = matrix_delta_closeout_failures(&rows);
+    append_canister_profile_closeout_failures(&mut closeout_failures, baseline, current);
+    append_focused_target_closeout_failures(&mut closeout_failures, &rows, focused_targets);
+    append_expected_improvement_closeout_failures(
+        &mut closeout_failures,
+        &rows,
+        expected_improvements,
+    );
+
+    MatrixDeltaReport {
+        baseline_path: baseline_path.display().to_string(),
+        current_path: current_path.display().to_string(),
+        baseline_canister_wasm_profile: baseline.canister_wasm_profile.clone(),
+        current_canister_wasm_profile: current.canister_wasm_profile.clone(),
+        baseline_scenario_count: baseline.samples.len() + baseline.failures.len(),
+        current_scenario_count: current.samples.len() + current.failures.len(),
+        union_scenario_count: rows.len(),
+        common_successful_scenario_count: rows
+            .iter()
+            .filter(|row| row.status_class == "common_success")
+            .count(),
+        improved_scenario_count: rows
+            .iter()
+            .filter(|row| row.status_class == "common_success")
+            .filter(|row| {
+                row.total_local_instructions
+                    .delta
+                    .is_some_and(|delta| delta < 0)
+            })
+            .count(),
+        regressed_scenario_count: rows
+            .iter()
+            .filter(|row| row.status_class == "common_success")
+            .filter(|row| {
+                row.total_local_instructions
+                    .delta
+                    .is_some_and(|delta| delta > 0)
+            })
+            .count(),
+        neutral_scenario_count: rows
+            .iter()
+            .filter(|row| row.status_class == "common_success")
+            .filter(|row| row.total_local_instructions.delta == Some(0))
+            .count(),
+        new_failure_count: rows
+            .iter()
+            .filter(|row| row.status_class == "new_failure")
+            .count(),
+        resolved_failure_count: rows
+            .iter()
+            .filter(|row| row.status_class == "resolved_failure")
+            .count(),
+        common_failure_count: rows
+            .iter()
+            .filter(|row| row.status_class == "common_failure")
+            .count(),
+        focused_target_count: focused_targets.len(),
+        expected_improvement_count: expected_improvements.len(),
+        closeout_failures,
+        route_family_aggregates: route_delta_aggregates(&rows, RouteAggregateKind::Family),
+        route_outcome_aggregates: route_delta_aggregates(&rows, RouteAggregateKind::Outcome),
+        route_pair_aggregates: route_delta_aggregates(&rows, RouteAggregateKind::Pair),
+        rows,
+    }
+}
+
+fn append_canister_profile_closeout_failures(
+    closeout_failures: &mut Vec<String>,
+    baseline: &MatrixReport,
+    current: &MatrixReport,
+) {
+    if baseline.canister_wasm_profile.is_empty() {
+        closeout_failures.push("baseline report lacks canister_wasm_profile metadata".to_string());
+    }
+    if current.canister_wasm_profile.is_empty() {
+        closeout_failures.push("current report lacks canister_wasm_profile metadata".to_string());
+    }
+    if !baseline.canister_wasm_profile.is_empty()
+        && !current.canister_wasm_profile.is_empty()
+        && baseline.canister_wasm_profile != current.canister_wasm_profile
+    {
+        closeout_failures.push(format!(
+            "canister wasm profile mismatch: baseline `{}`, current `{}`",
+            baseline.canister_wasm_profile, current.canister_wasm_profile,
+        ));
+    }
+}
+
+fn append_focused_target_closeout_failures(
+    closeout_failures: &mut Vec<String>,
+    rows: &[MatrixDeltaRow],
+    focused_targets: &BTreeSet<String>,
+) {
+    for key in focused_targets {
+        match rows.iter().find(|row| &row.key == key) {
+            Some(row) if row.before_status == "missing" || row.after_status == "missing" => {
+                closeout_failures
+                    .push(format!("focused target `{key}` lacks before or after data"));
+            }
+            Some(_) => {}
+            None => {
+                closeout_failures.push(format!(
+                    "focused target `{key}` is absent from both reports"
+                ));
+            }
+        }
+    }
+}
+
+fn append_expected_improvement_closeout_failures(
+    closeout_failures: &mut Vec<String>,
+    rows: &[MatrixDeltaRow],
+    expected_improvements: &BTreeSet<String>,
+) {
+    for key in expected_improvements {
+        match rows.iter().find(|row| &row.key == key) {
+            Some(row) if row.status_class != "common_success" => {
+                closeout_failures.push(format!(
+                    "expected improvement target `{key}` is not a common successful scenario"
+                ));
+            }
+            Some(row)
+                if row
+                    .total_local_instructions
+                    .delta
+                    .is_none_or(|delta| delta >= 0) =>
+            {
+                closeout_failures.push(format!(
+                    "expected improvement target `{key}` did not reduce total instructions"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                closeout_failures.push(format!(
+                    "expected improvement target `{key}` is absent from both reports"
+                ));
+            }
+        }
+    }
+}
+
+fn sample_map(report: &MatrixReport) -> BTreeMap<&str, &MatrixSample> {
+    report
+        .samples
+        .iter()
+        .map(|sample| (sample.key.as_str(), sample))
+        .collect()
+}
+
+fn failure_map(report: &MatrixReport) -> BTreeMap<&str, &MatrixFailure> {
+    report
+        .failures
+        .iter()
+        .map(|failure| (failure.key.as_str(), failure))
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum ReportEntry<'a> {
+    Success(&'a MatrixSample),
+    Failure(&'a MatrixFailure),
+    Missing,
+}
+
+const fn report_entry<'a>(
+    success: Option<&'a MatrixSample>,
+    failure: Option<&'a MatrixFailure>,
+) -> ReportEntry<'a> {
+    if let Some(sample) = success {
+        ReportEntry::Success(sample)
+    } else if let Some(failure) = failure {
+        ReportEntry::Failure(failure)
+    } else {
+        ReportEntry::Missing
+    }
+}
+
+fn matrix_delta_row(
+    key: &str,
+    before: ReportEntry<'_>,
+    after: ReportEntry<'_>,
+    focused_target: bool,
+    expected_to_improve: bool,
+) -> MatrixDeltaRow {
+    let before_sample = entry_sample(before);
+    let after_sample = entry_sample(after);
+    let before_route = entry_route(before);
+    let after_route = entry_route(after);
+    let before_result_signature = before_sample.and_then(|sample| sample.result_signature.clone());
+    let after_result_signature = after_sample.and_then(|sample| sample.result_signature.clone());
+    let before_cursor_signature = before_sample.and_then(|sample| sample.cursor_signature.clone());
+    let after_cursor_signature = after_sample.and_then(|sample| sample.cursor_signature.clone());
+    let (before_route_family, before_route_outcome, before_route_reason) = before_route
+        .map_or((None, None, None), |(family, outcome, reason)| {
+            (Some(family), Some(outcome), reason)
+        });
+    let (after_route_family, after_route_outcome, after_route_reason) = after_route
+        .map_or((None, None, None), |(family, outcome, reason)| {
+            (Some(family), Some(outcome), reason)
+        });
+
+    MatrixDeltaRow {
+        key: key.to_string(),
+        before_status: entry_status(before).to_string(),
+        after_status: entry_status(after).to_string(),
+        status_class: status_class(before, after).to_string(),
+        total_local_instructions: metric_delta(
+            before_sample.map(|sample| sample.total_local_instructions),
+            after_sample.map(|sample| sample.total_local_instructions),
+        ),
+        compile_local_instructions: metric_delta(
+            before_sample.map(|sample| sample.compile_local_instructions),
+            after_sample.map(|sample| sample.compile_local_instructions),
+        ),
+        execute_local_instructions: metric_delta(
+            before_sample.map(|sample| sample.execute_local_instructions),
+            after_sample.map(|sample| sample.execute_local_instructions),
+        ),
+        planner_local_instructions: metric_delta(
+            before_sample.map(|sample| sample.planner_local_instructions),
+            after_sample.map(|sample| sample.planner_local_instructions),
+        ),
+        executor_local_instructions: metric_delta(
+            before_sample.map(|sample| sample.executor_local_instructions),
+            after_sample.map(|sample| sample.executor_local_instructions),
+        ),
+        store_local_instructions: metric_delta(
+            before_sample.map(|sample| sample.store_local_instructions),
+            after_sample.map(|sample| sample.store_local_instructions),
+        ),
+        data_store_get_calls: metric_delta(
+            before_sample.map(|sample| sample.data_store_get_calls),
+            after_sample.map(|sample| sample.data_store_get_calls),
+        ),
+        index_store_range_scan_calls: metric_delta(
+            before_sample.map(|sample| sample.index_store_range_scan_calls),
+            after_sample.map(|sample| sample.index_store_range_scan_calls),
+        ),
+        index_store_entry_reads: metric_delta(
+            before_sample.map(|sample| sample.index_store_entry_reads),
+            after_sample.map(|sample| sample.index_store_entry_reads),
+        ),
+        rows_returned: metric_delta(
+            before_sample.and_then(|sample| u64::try_from(sample.outcome.row_count).ok()),
+            after_sample.and_then(|sample| u64::try_from(sample.outcome.row_count).ok()),
+        ),
+        before_route_family,
+        after_route_family,
+        before_route_outcome,
+        after_route_outcome,
+        before_route_reason,
+        after_route_reason,
+        signature_changes: MatrixDeltaSignatureChanges {
+            result_signature_changed: signatures_changed(
+                before_result_signature.as_ref(),
+                after_result_signature.as_ref(),
+            ),
+            cursor_signature_changed: signatures_changed(
+                before_cursor_signature.as_ref(),
+                after_cursor_signature.as_ref(),
+            ),
+        },
+        before_result_signature,
+        after_result_signature,
+        before_cursor_signature,
+        after_cursor_signature,
+        result_row_count_before: before_sample.map(|sample| sample.outcome.row_count),
+        result_row_count_after: after_sample.map(|sample| sample.outcome.row_count),
+        target_flags: MatrixDeltaTargetFlags {
+            focused_target,
+            expected_to_improve,
+        },
+    }
+}
+
+const fn entry_sample(entry: ReportEntry<'_>) -> Option<&MatrixSample> {
+    match entry {
+        ReportEntry::Success(sample) => Some(sample),
+        ReportEntry::Failure(_) | ReportEntry::Missing => None,
+    }
+}
+
+fn entry_route(entry: ReportEntry<'_>) -> Option<(String, String, Option<String>)> {
+    match entry {
+        ReportEntry::Success(sample) => {
+            let route = route_for_sample(sample);
+            Some((route.0, route.1, route.2))
+        }
+        ReportEntry::Failure(failure) => Some((
+            non_empty_or_default(&failure.route_family, failed_route_family),
+            non_empty_or_default(&failure.route_outcome, failed_route_outcome),
+            Some(non_empty_or_default(
+                &failure.route_reason,
+                failed_route_reason,
+            )),
+        )),
+        ReportEntry::Missing => None,
+    }
+}
+
+fn route_for_sample(sample: &MatrixSample) -> (String, String, Option<String>) {
+    if !sample.route_family.is_empty() && !sample.route_outcome.is_empty() {
+        return (
+            sample.route_family.clone(),
+            sample.route_outcome.clone(),
+            sample.route_reason.clone(),
+        );
+    }
+
+    let route = route_classification_for_sample(sample);
+    (
+        route.family.to_string(),
+        route.outcome.to_string(),
+        route.reason.map(str::to_string),
+    )
+}
+
+fn non_empty_or_default(value: &str, default: fn() -> String) -> String {
+    if value.is_empty() {
+        default()
+    } else {
+        value.to_string()
+    }
+}
+
+const fn entry_status(entry: ReportEntry<'_>) -> &'static str {
+    match entry {
+        ReportEntry::Success(_) => "success",
+        ReportEntry::Failure(_) => "failure",
+        ReportEntry::Missing => "missing",
+    }
+}
+
+const fn status_class(before: ReportEntry<'_>, after: ReportEntry<'_>) -> &'static str {
+    match (before, after) {
+        (ReportEntry::Success(_), ReportEntry::Success(_)) => "common_success",
+        (ReportEntry::Success(_), ReportEntry::Failure(_)) => "new_failure",
+        (ReportEntry::Failure(_), ReportEntry::Success(_)) => "resolved_failure",
+        (ReportEntry::Failure(_), ReportEntry::Failure(_)) => "common_failure",
+        (ReportEntry::Success(_), ReportEntry::Missing) => "before_only_success",
+        (ReportEntry::Missing, ReportEntry::Success(_)) => "after_only_success",
+        _ => "skipped_or_missing",
+    }
+}
+
+fn metric_delta(before: Option<u64>, after: Option<u64>) -> MetricDelta {
+    let delta = before.zip(after).map(|(before, after)| {
+        i64::try_from(after).unwrap_or(i64::MAX) - i64::try_from(before).unwrap_or(i64::MAX)
+    });
+    let delta_percent_bp = before
+        .zip(after)
+        .and_then(|(before, after)| percent_delta_bp(before, after));
+
+    MetricDelta {
+        before,
+        after,
+        delta,
+        delta_percent_bp,
+    }
+}
+
+fn percent_delta_bp(before: u64, after: u64) -> Option<i64> {
+    if before == 0 {
+        return None;
+    }
+
+    let before = i128::from(before);
+    let after = i128::from(after);
+    i64::try_from((after - before).saturating_mul(10_000) / before).ok()
+}
+
+fn signatures_changed(before: Option<&String>, after: Option<&String>) -> bool {
+    matches!((before, after), (Some(before), Some(after)) if before != after)
+}
+
+fn matrix_delta_closeout_failures(rows: &[MatrixDeltaRow]) -> Vec<String> {
+    let mut failures = Vec::new();
+    for row in rows {
+        if row.status_class == "common_success" {
+            if row.total_local_instructions.before.is_none()
+                || row.total_local_instructions.after.is_none()
+            {
+                failures.push(format!(
+                    "common-success scenario `{}` lacks instruction totals",
+                    row.key
+                ));
+            }
+            if row.before_route_family.is_none()
+                || row.after_route_family.is_none()
+                || row.before_route_outcome.is_none()
+                || row.after_route_outcome.is_none()
+            {
+                failures.push(format!(
+                    "common-success scenario `{}` lacks route family/outcome",
+                    row.key
+                ));
+            }
+            if row.before_result_signature.is_none() || row.after_result_signature.is_none() {
+                failures.push(format!(
+                    "common-success scenario `{}` lacks result signatures",
+                    row.key
+                ));
+            }
+            if row.signature_changes.result_signature_changed {
+                failures.push(format!(
+                    "common-success scenario `{}` changed result signature without rationale",
+                    row.key
+                ));
+            }
+            if row.signature_changes.cursor_signature_changed {
+                failures.push(format!(
+                    "common-success scenario `{}` changed cursor signature without rationale",
+                    row.key
+                ));
+            }
+            if row
+                .total_local_instructions
+                .delta
+                .is_some_and(|delta| delta >= 100_000)
+                && row
+                    .total_local_instructions
+                    .delta_percent_bp
+                    .is_some_and(|percent| percent >= 1_000)
+            {
+                failures.push(format!(
+                    "common-success scenario `{}` regressed >=10% and >=100k instructions without rationale",
+                    row.key
+                ));
+            }
+        }
+        if row.status_class == "new_failure"
+            && (row.after_route_family.is_none() || row.after_route_outcome.is_none())
+        {
+            failures.push(format!(
+                "new failure `{}` lacks route classification",
+                row.key
+            ));
+        }
+    }
+
+    failures
+}
+
+#[derive(Clone, Copy)]
+enum RouteAggregateKind {
+    Family,
+    Outcome,
+    Pair,
+}
+
+fn route_delta_aggregates(
+    rows: &[MatrixDeltaRow],
+    kind: RouteAggregateKind,
+) -> Vec<MatrixDeltaRouteAggregate> {
+    let mut aggregates =
+        BTreeMap::<(Option<String>, Option<String>), MatrixDeltaRouteAggregate>::new();
+    for row in rows
+        .iter()
+        .filter(|row| row.status_class == "common_success")
+    {
+        let family = row
+            .after_route_family
+            .clone()
+            .or_else(|| row.before_route_family.clone());
+        let outcome = row
+            .after_route_outcome
+            .clone()
+            .or_else(|| row.before_route_outcome.clone());
+        let key = match kind {
+            RouteAggregateKind::Family => (family, None),
+            RouteAggregateKind::Outcome => (None, outcome),
+            RouteAggregateKind::Pair => (family, outcome),
+        };
+        let aggregate =
+            aggregates
+                .entry(key.clone())
+                .or_insert_with(|| MatrixDeltaRouteAggregate {
+                    route_family: key.0.clone(),
+                    route_outcome: key.1.clone(),
+                    scenario_count: 0,
+                    total_delta: 0,
+                });
+        aggregate.scenario_count += 1;
+        aggregate.total_delta += row.total_local_instructions.delta.unwrap_or_default();
+    }
+
+    let mut values = aggregates.into_values().collect::<Vec<_>>();
+    values.sort_by_key(|aggregate| Reverse(aggregate.total_delta.abs()));
+    values
+}
+
+fn matrix_delta_markdown(delta: &MatrixDeltaReport) -> String {
+    let mut output = String::new();
+    append_delta_heading(&mut output, delta);
+    append_delta_closeout_failures(&mut output, delta);
+    append_delta_aggregate_tables(&mut output, delta);
+    append_delta_ranked_tables(&mut output, delta);
+    append_delta_focus_and_change_tables(&mut output, delta);
+
+    output
+}
+
+fn append_delta_heading(output: &mut String, delta: &MatrixDeltaReport) {
+    writeln!(output, "# SQL Perf Matrix Delta").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(output, "- baseline: `{}`", delta.baseline_path)
+        .expect("write to string should succeed");
+    writeln!(output, "- current: `{}`", delta.current_path)
+        .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- canister wasm profile: baseline `{}`, current `{}`",
+        delta.baseline_canister_wasm_profile, delta.current_canister_wasm_profile,
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "- union scenarios: {}", delta.union_scenario_count)
+        .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- common successful scenarios: {}",
+        delta.common_successful_scenario_count
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- improved scenarios: {}",
+        delta.improved_scenario_count
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- regressed scenarios: {}",
+        delta.regressed_scenario_count
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- neutral scenarios: {}",
+        delta.neutral_scenario_count
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "- new failures: {}", delta.new_failure_count)
+        .expect("write to string should succeed");
+    writeln!(
+        output,
+        "- resolved failures: {}",
+        delta.resolved_failure_count
+    )
+    .expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_delta_aggregate_tables(output: &mut String, delta: &MatrixDeltaReport) {
+    append_delta_route_aggregate_table(
+        output,
+        "Route Family Delta",
+        &delta.route_family_aggregates,
+    );
+    append_delta_route_aggregate_table(
+        output,
+        "Route Outcome Delta",
+        &delta.route_outcome_aggregates,
+    );
+    append_delta_route_aggregate_table(
+        output,
+        "Route Family/Outcome Delta",
+        &delta.route_pair_aggregates,
+    );
+}
+
+fn append_delta_ranked_tables(output: &mut String, delta: &MatrixDeltaReport) {
+    append_delta_rows_table(
+        output,
+        "Top 50 Improvements By Absolute Instructions",
+        ranked_delta_rows(delta, DeltaRank::ImprovementAbsolute),
+    );
+    append_delta_rows_table(
+        output,
+        "Top 50 Regressions By Absolute Instructions",
+        ranked_delta_rows(delta, DeltaRank::RegressionAbsolute),
+    );
+    append_delta_rows_table(
+        output,
+        "Top 50 Improvements By Percent",
+        ranked_delta_rows(delta, DeltaRank::ImprovementPercent),
+    );
+    append_delta_rows_table(
+        output,
+        "Top 50 Regressions By Percent",
+        ranked_delta_rows(delta, DeltaRank::RegressionPercent),
+    );
+}
+
+fn append_delta_focus_and_change_tables(output: &mut String, delta: &MatrixDeltaReport) {
+    append_delta_rows_table(
+        output,
+        "Focused Target Scenarios",
+        delta
+            .rows
+            .iter()
+            .filter(|row| row.target_flags.focused_target)
+            .collect::<Vec<_>>(),
+    );
+    append_delta_rows_table(
+        output,
+        "Route Fact Changes",
+        delta
+            .rows
+            .iter()
+            .filter(|row| {
+                row.before_route_family != row.after_route_family
+                    || row.before_route_outcome != row.after_route_outcome
+                    || row.before_route_reason != row.after_route_reason
+            })
+            .collect::<Vec<_>>(),
+    );
+    append_delta_rows_table(
+        output,
+        "Result Or Status Changes",
+        delta
+            .rows
+            .iter()
+            .filter(|row| {
+                row.signature_changes.result_signature_changed
+                    || row.signature_changes.cursor_signature_changed
+                    || row.result_row_count_before != row.result_row_count_after
+                    || row.before_status != row.after_status
+            })
+            .collect::<Vec<_>>(),
+    );
+}
+
+fn append_delta_closeout_failures(output: &mut String, delta: &MatrixDeltaReport) {
+    if delta.closeout_failures.is_empty() {
+        writeln!(output, "## Closeout Gate").expect("write to string should succeed");
+        writeln!(output).expect("write to string should succeed");
+        writeln!(output, "- PASS").expect("write to string should succeed");
+        writeln!(output).expect("write to string should succeed");
+        return;
+    }
+
+    writeln!(output, "## Closeout Gate").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(output, "- FAIL").expect("write to string should succeed");
+    for failure in &delta.closeout_failures {
+        writeln!(output, "- {failure}").expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_delta_route_aggregate_table(
+    output: &mut String,
+    title: &str,
+    aggregates: &[MatrixDeltaRouteAggregate],
+) {
+    if aggregates.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Route Family | Route Outcome | Scenarios | Total Delta |"
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---:|---:|").expect("write to string should succeed");
+    for aggregate in aggregates.iter().take(50) {
+        writeln!(
+            output,
+            "| {} | {} | {} | {} |",
+            aggregate.route_family.as_deref().unwrap_or(""),
+            aggregate.route_outcome.as_deref().unwrap_or(""),
+            aggregate.scenario_count,
+            signed_i64(aggregate.total_delta),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+#[derive(Clone, Copy)]
+enum DeltaRank {
+    ImprovementAbsolute,
+    RegressionAbsolute,
+    ImprovementPercent,
+    RegressionPercent,
+}
+
+fn ranked_delta_rows(delta: &MatrixDeltaReport, rank: DeltaRank) -> Vec<&MatrixDeltaRow> {
+    let mut rows = delta
+        .rows
+        .iter()
+        .filter(|row| row.status_class == "common_success")
+        .filter(|row| row.total_local_instructions.delta != Some(0))
+        .collect::<Vec<_>>();
+    match rank {
+        DeltaRank::ImprovementAbsolute => {
+            rows.retain(|row| {
+                row.total_local_instructions
+                    .delta
+                    .is_some_and(|delta| delta < 0)
+            });
+            rows.sort_by_key(|row| row.total_local_instructions.delta.unwrap_or_default());
+        }
+        DeltaRank::RegressionAbsolute => {
+            rows.retain(|row| {
+                row.total_local_instructions
+                    .delta
+                    .is_some_and(|delta| delta > 0)
+            });
+            rows.sort_by_key(|row| Reverse(row.total_local_instructions.delta.unwrap_or_default()));
+        }
+        DeltaRank::ImprovementPercent => {
+            rows.retain(|row| {
+                row.total_local_instructions
+                    .before
+                    .is_some_and(|before| before >= 100_000)
+                    && row
+                        .total_local_instructions
+                        .delta
+                        .is_some_and(|delta| delta < 0)
+            });
+            rows.sort_by_key(|row| {
+                row.total_local_instructions
+                    .delta_percent_bp
+                    .unwrap_or_default()
+            });
+        }
+        DeltaRank::RegressionPercent => {
+            rows.retain(|row| {
+                row.total_local_instructions
+                    .before
+                    .is_some_and(|before| before >= 100_000)
+                    && row
+                        .total_local_instructions
+                        .delta
+                        .is_some_and(|delta| delta > 0)
+            });
+            rows.sort_by_key(|row| {
+                Reverse(
+                    row.total_local_instructions
+                        .delta_percent_bp
+                        .unwrap_or_default(),
+                )
+            });
+        }
+    }
+    rows.truncate(50);
+    rows
+}
+
+fn append_delta_rows_table(output: &mut String, title: &str, rows: Vec<&MatrixDeltaRow>) {
+    if rows.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Status | Total Delta | Total %bp | Compile Delta | Execute Delta | Store Delta | Executor Delta | data_store.get Delta | index ranges Delta | index entries Delta | Rows Delta | Route Family | Route Outcome | Result Changed | Cursor Changed |"
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|"
+    )
+    .expect("write to string should succeed");
+    for row in rows {
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} -> {} | {} -> {} | {} | {} |",
+            row.key,
+            row.status_class,
+            metric_delta_text(&row.total_local_instructions),
+            row.total_local_instructions
+                .delta_percent_bp
+                .map_or_else(|| "n/a".to_string(), signed_i64),
+            metric_delta_text(&row.compile_local_instructions),
+            metric_delta_text(&row.execute_local_instructions),
+            metric_delta_text(&row.store_local_instructions),
+            metric_delta_text(&row.executor_local_instructions),
+            metric_delta_text(&row.data_store_get_calls),
+            metric_delta_text(&row.index_store_range_scan_calls),
+            metric_delta_text(&row.index_store_entry_reads),
+            metric_delta_text(&row.rows_returned),
+            row.before_route_family.as_deref().unwrap_or(""),
+            row.after_route_family.as_deref().unwrap_or(""),
+            row.before_route_outcome.as_deref().unwrap_or(""),
+            row.after_route_outcome.as_deref().unwrap_or(""),
+            row.signature_changes.result_signature_changed,
+            row.signature_changes.cursor_signature_changed,
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn metric_delta_text(metric: &MetricDelta) -> String {
+    metric.delta.map_or_else(|| "n/a".to_string(), signed_i64)
+}
+
+fn signed_i64(value: i64) -> String {
+    if value >= 0 {
+        format!("+{value}")
+    } else {
+        value.to_string()
+    }
+}
+
 fn matrix_markdown(report: &MatrixReport) -> String {
     let mut output = String::new();
     let mode = matrix_mode_from_report(report);
@@ -1563,6 +2882,14 @@ fn matrix_markdown(report: &MatrixReport) -> String {
     writeln!(output).expect("write to string should succeed");
     writeln!(output, "- matrix mode: {}", report.matrix_mode)
         .expect("write to string should succeed");
+    if !report.canister_wasm_profile.is_empty() {
+        writeln!(
+            output,
+            "- canister wasm profile: {}",
+            report.canister_wasm_profile,
+        )
+        .expect("write to string should succeed");
+    }
     writeln!(
         output,
         "- generated scenarios: {}",
@@ -1596,9 +2923,80 @@ fn matrix_markdown(report: &MatrixReport) -> String {
 
     append_instruction_hotspot_tables(&mut output, &report.samples);
     append_storage_backend_comparison_table(&mut output, &report.samples);
+    append_route_classification_summary(&mut output, report);
     append_failure_table(&mut output, &report.failures);
 
     output
+}
+
+#[derive(Default)]
+struct MatrixRouteSummary {
+    scenario_count: usize,
+    total_local_instructions: u64,
+    data_store_get_calls: u64,
+    index_store_range_scan_calls: u64,
+    index_store_entry_reads: u64,
+    rows_returned: usize,
+}
+
+fn append_route_classification_summary(output: &mut String, report: &MatrixReport) {
+    let mut summaries = BTreeMap::<(String, String, String), MatrixRouteSummary>::new();
+    for sample in &report.samples {
+        let (family, outcome, reason) = route_for_sample(sample);
+        let key = (family, outcome, reason.unwrap_or_default());
+        let summary = summaries.entry(key).or_default();
+        summary.scenario_count += 1;
+        summary.total_local_instructions = summary
+            .total_local_instructions
+            .saturating_add(sample.total_local_instructions);
+        summary.data_store_get_calls = summary
+            .data_store_get_calls
+            .saturating_add(sample.data_store_get_calls);
+        summary.index_store_range_scan_calls = summary
+            .index_store_range_scan_calls
+            .saturating_add(sample.index_store_range_scan_calls);
+        summary.index_store_entry_reads = summary
+            .index_store_entry_reads
+            .saturating_add(sample.index_store_entry_reads);
+        summary.rows_returned = summary
+            .rows_returned
+            .saturating_add(sample.outcome.row_count);
+    }
+    for failure in &report.failures {
+        let key = (
+            non_empty_or_default(&failure.route_family, failed_route_family),
+            non_empty_or_default(&failure.route_outcome, failed_route_outcome),
+            non_empty_or_default(&failure.route_reason, failed_route_reason),
+        );
+        summaries.entry(key).or_default().scenario_count += 1;
+    }
+    if summaries.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## Route Classification Summary").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Route Family | Route Outcome | Reason | Scenarios | Total Instructions | data_store.get | index ranges | index entries | Rows |",
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---|---:|---:|---:|---:|---:|---:|")
+        .expect("write to string should succeed");
+    for ((family, outcome, reason), summary) in summaries {
+        writeln!(
+            output,
+            "| {family} | {outcome} | {reason} | {} | {} | {} | {} | {} | {} |",
+            summary.scenario_count,
+            summary.total_local_instructions,
+            summary.data_store_get_calls,
+            summary.index_store_range_scan_calls,
+            summary.index_store_entry_reads,
+            summary.rows_returned,
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
 }
 
 fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
@@ -2369,6 +3767,34 @@ fn print_matrix_summary(report: &MatrixReport) {
     println!("{}", matrix_markdown(report));
 }
 
+fn matrix_delta_path_env(name: &str) -> PathBuf {
+    env::var(name).map_or_else(
+        |_| panic!("{name} should point at one matrix JSON report"),
+        PathBuf::from,
+    )
+}
+
+fn matrix_delta_output_stem() -> PathBuf {
+    env::var("ICYDB_SQL_PERF_MATRIX_DELTA_OUT").map_or_else(
+        |_| workspace_root().join("artifacts/perf-audit/sql_perf_matrix_delta"),
+        PathBuf::from,
+    )
+}
+
+fn matrix_delta_key_set_env(name: &str) -> BTreeSet<String> {
+    env::var(name).map_or_else(
+        |_| BTreeSet::new(),
+        |value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_string)
+                .collect()
+        },
+    )
+}
+
 #[test]
 fn sql_perf_generated_matrix_has_stable_shape() {
     let deterministic = deterministic_matrix();
@@ -2570,6 +3996,411 @@ fn sql_perf_matrix_exact_key_filter_selects_known_scenarios() {
 }
 
 #[test]
+fn sql_perf_matrix_classifies_bounded_primary_order_limit_as_pushed() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+        "select.pk.all.pk_asc",
+    );
+    sample.data_store_get_calls = 1;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "primary_order",
+            "pushed",
+            Some("primary_order_limit_stop_proven"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_offset_primary_order_limit_as_pushed_when_bounded() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditUser ORDER BY id DESC LIMIT 3 OFFSET 2",
+        "select.pk.all.pk_desc",
+    );
+    sample.data_store_get_calls = 6;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "primary_order",
+            "pushed",
+            Some("primary_order_limit_stop_proven"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_keeps_primary_order_candidate_unpushed_without_bounded_evidence() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+        "select.pk.all.pk_asc",
+    );
+    sample.data_store_get_calls = 512;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "primary_order",
+            "eligible_but_not_pushed",
+            Some("primary_order_candidate"),
+        ),
+    );
+
+    sample.data_store_get_calls = 1;
+    sample.direct_data_row_order_window_local_instructions = 10;
+    let materialized_route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        materialized_route,
+        RouteClassification::new(
+            "primary_order",
+            "eligible_but_not_pushed",
+            Some("primary_order_candidate"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_bounded_secondary_order_limit_as_pushed() {
+    let mut sample = route_classification_sample(
+        "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+        "select.pk.all.age_asc",
+    );
+    sample.data_store_get_calls = 3;
+    sample.index_store_entry_reads = 4;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "secondary_order",
+            "pushed",
+            Some("secondary_order_limit_stop_proven"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_keeps_secondary_order_candidate_unpushed_without_index_bound() {
+    let mut sample = route_classification_sample(
+        "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+        "select.pk.all.age_asc",
+    );
+    sample.data_store_get_calls = 3;
+    sample.index_store_entry_reads = 512;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "secondary_order",
+            "eligible_but_not_pushed",
+            Some("secondary_order_candidate"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_bounded_equality_prefix_suffix_order_as_pushed() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditToken WHERE collection_id = '01KV5N439P0000000000000000' ORDER BY stage ASC, id ASC LIMIT 50",
+        "route.prefixed_range.page_only",
+    );
+    sample.surface = MatrixSurface::Token.label().to_string();
+    sample.data_store_get_calls = 0;
+    sample.index_store_range_scan_calls = 1;
+    sample.index_store_entry_reads = 50;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "equality_prefix_ordered_suffix",
+            "pushed",
+            Some("equality_prefix_ordered_suffix_limit_stop_proven"),
+        ),
+    );
+}
+
+fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
+    let mut before_sample = report_matrix_sample(
+        "user.select.pk.all.pk_asc.limit1",
+        "user",
+        1_000,
+        100,
+        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+    );
+    before_sample.result_signature = Some("projection|PerfAuditUser|id|1|1".to_string());
+    let mut after_sample = before_sample.clone();
+    after_sample.total_local_instructions = 900;
+    after_sample.execute_local_instructions = 899;
+    after_sample.data_store_get_calls = 0;
+    after_sample
+        .result_signature
+        .clone_from(&before_sample.result_signature);
+    let before_new_failure_sample = report_matrix_sample(
+        "user.failure.new",
+        "user",
+        1_100,
+        100,
+        "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression",
+    );
+    let after_resolved_failure_sample = report_matrix_sample(
+        "user.failure.resolved",
+        "user",
+        1_050,
+        100,
+        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+    );
+
+    let before_failure = MatrixFailure {
+        key: "user.failure.resolved".to_string(),
+        source: MatrixSource::Deterministic.label().to_string(),
+        surface: MatrixSurface::User.label().to_string(),
+        family: "failure.query_plan".to_string(),
+        sql: "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression".to_string(),
+        route_family: failed_route_family(),
+        route_outcome: failed_route_outcome(),
+        route_reason: failed_route_reason(),
+        code: 3,
+        diagnostic_code: 3,
+        diagnostic_label: "QueryPlan".to_string(),
+        class: "Query".to_string(),
+        origin: "Query".to_string(),
+    };
+    let after_failure = MatrixFailure {
+        key: "user.failure.new".to_string(),
+        ..before_failure.clone()
+    };
+
+    let before = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
+        generated_scenario_count: 3,
+        executed_scenario_count: 2,
+        failed_scenario_count: 1,
+        matrix_limit: 3,
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples: vec![before_sample, before_new_failure_sample],
+        failures: vec![before_failure],
+    };
+    let current = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
+        generated_scenario_count: 3,
+        executed_scenario_count: 2,
+        failed_scenario_count: 1,
+        matrix_limit: 3,
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples: vec![after_sample, after_resolved_failure_sample],
+        failures: vec![after_failure],
+    };
+
+    (before, current)
+}
+
+#[test]
+fn sql_perf_matrix_delta_reports_union_status_routes_and_signatures() {
+    let (before, current) = matrix_delta_report_test_fixture();
+    let focused = BTreeSet::from(["user.select.pk.all.pk_asc.limit1".to_string()]);
+    let expected = focused.clone();
+    let delta = matrix_delta_report(
+        Path::new("/tmp/before.json"),
+        &before,
+        Path::new("/tmp/after.json"),
+        &current,
+        &focused,
+        &expected,
+    );
+
+    assert_eq!(delta.union_scenario_count, 3);
+    assert_eq!(delta.common_successful_scenario_count, 1);
+    assert_eq!(delta.improved_scenario_count, 1);
+    assert_eq!(delta.new_failure_count, 1);
+    assert_eq!(delta.resolved_failure_count, 1);
+    assert!(
+        delta.closeout_failures.is_empty(),
+        "expected clean delta closeout, got {:?}",
+        delta.closeout_failures,
+    );
+
+    let row = delta
+        .rows
+        .iter()
+        .find(|row| row.key == "user.select.pk.all.pk_asc.limit1")
+        .expect("delta row should exist for common success");
+    assert_eq!(row.status_class, "common_success");
+    assert_eq!(row.total_local_instructions.delta, Some(-100));
+    assert_eq!(row.data_store_get_calls.delta, Some(-1));
+    assert_eq!(row.before_route_family.as_deref(), Some("primary_order"));
+    assert_eq!(
+        row.before_route_outcome.as_deref(),
+        Some("eligible_but_not_pushed")
+    );
+    assert!(!row.signature_changes.result_signature_changed);
+
+    let markdown = matrix_delta_markdown(&delta);
+    assert!(
+        markdown.contains("Top 50 Improvements By Absolute Instructions"),
+        "delta markdown should include improvement table"
+    );
+    assert!(
+        markdown.contains("Route Family Delta"),
+        "delta markdown should include route-family aggregate"
+    );
+}
+
+#[test]
+fn sql_perf_matrix_delta_gate_rejects_absent_focused_targets() {
+    let (before, current) = matrix_delta_report_test_fixture();
+    let focused = BTreeSet::from(["user.select.pk.missing.pk_asc.limit1".to_string()]);
+    let delta = matrix_delta_report(
+        Path::new("/tmp/before.json"),
+        &before,
+        Path::new("/tmp/after.json"),
+        &current,
+        &focused,
+        &BTreeSet::new(),
+    );
+
+    assert!(
+        delta.closeout_failures.contains(
+            &"focused target `user.select.pk.missing.pk_asc.limit1` is absent from both reports"
+                .to_string()
+        ),
+        "missing focused target should fail closeout, got {:?}",
+        delta.closeout_failures,
+    );
+}
+
+#[test]
+fn sql_perf_matrix_delta_gate_rejects_unimproved_expected_targets() {
+    let (mut before, mut current) = matrix_delta_report_test_fixture();
+    before.samples[0].total_local_instructions = 1_000;
+    current.samples[0].total_local_instructions = 1_000;
+    let expected = BTreeSet::from(["user.select.pk.all.pk_asc.limit1".to_string()]);
+    let delta = matrix_delta_report(
+        Path::new("/tmp/before.json"),
+        &before,
+        Path::new("/tmp/after.json"),
+        &current,
+        &BTreeSet::new(),
+        &expected,
+    );
+
+    assert!(
+        delta.closeout_failures.contains(
+            &"expected improvement target `user.select.pk.all.pk_asc.limit1` did not reduce total instructions"
+                .to_string(),
+        ),
+        "unimproved expected target should fail closeout, got {:?}",
+        delta.closeout_failures,
+    );
+}
+
+#[test]
+fn sql_perf_matrix_delta_gate_rejects_canister_wasm_profile_mismatch() {
+    let (before, mut current) = matrix_delta_report_test_fixture();
+    current.canister_wasm_profile = "wasm-release".to_string();
+    let delta = matrix_delta_report(
+        Path::new("/tmp/before.json"),
+        &before,
+        Path::new("/tmp/after.json"),
+        &current,
+        &BTreeSet::new(),
+        &BTreeSet::new(),
+    );
+
+    assert!(
+        delta.closeout_failures.contains(
+            &"canister wasm profile mismatch: baseline `test`, current `wasm-release`".to_string(),
+        ),
+        "profile mismatch should fail closeout, got {:?}",
+        delta.closeout_failures,
+    );
+}
+
+#[test]
+fn sql_perf_matrix_markdown_reports_route_classification_summary() {
+    let mut sample = report_matrix_sample(
+        "user.select.pk.all.pk_asc.limit1",
+        "user",
+        100,
+        10,
+        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+    );
+    sample.route_outcome = "pushed".to_string();
+    sample.route_reason = Some("primary_order_limit_stop_proven".to_string());
+
+    let failure = MatrixFailure {
+        key: "user.failure".to_string(),
+        source: MatrixSource::Deterministic.label().to_string(),
+        surface: MatrixSurface::User.label().to_string(),
+        family: "failure.query_plan".to_string(),
+        sql: "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression".to_string(),
+        route_family: failed_route_family(),
+        route_outcome: failed_route_outcome(),
+        route_reason: failed_route_reason(),
+        code: 3,
+        diagnostic_code: 3,
+        diagnostic_label: "QueryPlan".to_string(),
+        class: "Query".to_string(),
+        origin: "Query".to_string(),
+    };
+    let report = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
+        generated_scenario_count: 2,
+        executed_scenario_count: 1,
+        failed_scenario_count: 1,
+        matrix_limit: 2,
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples: vec![sample],
+        failures: vec![failure],
+    };
+
+    let markdown = matrix_markdown(&report);
+
+    assert!(
+        markdown.contains("- canister wasm profile: test"),
+        "matrix markdown should include the fixture wasm profile",
+    );
+    assert!(
+        markdown.contains("## Route Classification Summary"),
+        "matrix markdown should expose route classification coverage",
+    );
+    assert!(
+        markdown.contains(
+            "| primary_order | pushed | primary_order_limit_stop_proven | 1 | 100 | 1 | 0 | 0 | 1 |"
+        ),
+        "route summary should include successful pushed-route counters",
+    );
+    assert!(
+        markdown.contains(
+            "| failed_or_not_executed | failed | scenario_failed | 1 | 0 | 0 | 0 | 0 | 0 |"
+        ),
+        "route summary should include failed scenarios in the taxonomy",
+    );
+}
+
+#[test]
 fn sql_perf_random_matrix_has_seeded_stable_shape() {
     let random = random_matrix(DEFAULT_RANDOM_SEED, 20);
     assert_eq!(random.len(), 20);
@@ -2613,6 +4444,7 @@ fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
     ];
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
         generated_scenario_count: samples.len(),
         executed_scenario_count: samples.len(),
         failed_scenario_count: 0,
@@ -2675,6 +4507,7 @@ fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
     ];
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
         generated_scenario_count: samples.len(),
         executed_scenario_count: samples.len(),
         failed_scenario_count: 0,
@@ -2798,6 +4631,7 @@ fn sql_perf_matrix_reports_compile_phase_hotspots() {
 
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
         generated_scenario_count: 1,
         executed_scenario_count: 1,
         failed_scenario_count: 0,
@@ -2839,6 +4673,7 @@ fn sql_perf_matrix_reports_pure_covering_hotspots() {
     )];
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
         generated_scenario_count: samples.len(),
         executed_scenario_count: samples.len(),
         failed_scenario_count: 0,
@@ -2892,6 +4727,7 @@ fn sql_perf_matrix_reports_hybrid_covering_hotspots() {
     )];
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
         generated_scenario_count: samples.len(),
         executed_scenario_count: samples.len(),
         failed_scenario_count: 0,
@@ -2944,6 +4780,11 @@ fn report_matrix_sample(
         surface: surface.to_string(),
         family: "select.pk.all.pk_asc".to_string(),
         sql: sql.to_string(),
+        route_family: "primary_order".to_string(),
+        route_outcome: "eligible_but_not_pushed".to_string(),
+        route_reason: Some("test_sample".to_string()),
+        result_signature: Some("projection|PerfAuditHeapUser|id|1|1".to_string()),
+        cursor_signature: None,
         compile_local_instructions: 1,
         compile_cache_key_local_instructions: 0,
         compile_cache_lookup_local_instructions: 0,
@@ -3012,10 +4853,25 @@ fn report_matrix_sample(
         shared_query_plan_misses: 1,
         total_local_instructions: total,
         outcome: MatrixOutcome {
-            result_kind: "projection",
+            result_kind: "projection".to_string(),
             entity: "PerfAuditHeapUser".to_string(),
             row_count: 1,
         },
+    }
+}
+
+fn route_classification_sample(sql: &str, family: &str) -> MatrixSample {
+    MatrixSample {
+        source: MatrixSource::Deterministic.label().to_string(),
+        surface: MatrixSurface::User.label().to_string(),
+        family: family.to_string(),
+        sql: sql.to_string(),
+        outcome: MatrixOutcome {
+            result_kind: "projection".to_string(),
+            entity: "PerfAuditUser".to_string(),
+            row_count: 1,
+        },
+        ..MatrixSample::default()
     }
 }
 
@@ -3075,6 +4931,7 @@ fn sql_perf_matrix_reports_index_range_scan_hotspots() {
     sample.index_store_range_scan_calls = 251;
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        canister_wasm_profile: "test".to_string(),
         generated_scenario_count: 1,
         executed_scenario_count: 1,
         failed_scenario_count: 0,
@@ -3104,9 +4961,31 @@ fn sql_perf_matrix_reports_index_range_scan_hotspots() {
 }
 
 #[test]
+#[ignore = "PocketIC startup diagnostic; run manually with --ignored --nocapture"]
+fn sql_perf_matrix_pocketic_startup_smoke() {
+    eprintln!("sql_perf_matrix: resolving PocketIC binary");
+    let pocket_ic_bin =
+        try_ensure_pocket_ic_bin().expect("PocketIC binary should resolve for matrix run");
+    eprintln!(
+        "sql_perf_matrix: PocketIC binary {}",
+        pocket_ic_bin.display()
+    );
+    eprintln!("sql_perf_matrix: acquiring PocketIC process lock");
+    let _guard = try_acquire_pic_serial_guard().expect("PocketIC process lock should be acquired");
+    eprintln!("sql_perf_matrix: PocketIC process lock acquired");
+    eprintln!("sql_perf_matrix: starting fresh PocketIC instance");
+    let pic = try_pic().expect("fresh PocketIC instance should start");
+    eprintln!("sql_perf_matrix: fresh PocketIC instance started");
+    let canister_id = pic.create_canister();
+    eprintln!("sql_perf_matrix: created smoke canister {canister_id}");
+}
+
+#[test]
 #[ignore = "expensive PocketIC hotspot scan; run manually with --ignored --nocapture"]
 fn sql_perf_generated_matrix_reports_hotspots() {
+    eprintln!("sql_perf_matrix: installing sql_perf fixture canister");
     let fixture = install_sql_perf_canister_fixture();
+    eprintln!("sql_perf_matrix: resetting and loading fixture rows");
     reset_icydb_fixtures(&fixture);
 
     let mode = matrix_mode();
@@ -3116,12 +4995,23 @@ fn sql_perf_generated_matrix_reports_hotspots() {
     let scenarios = filter_matrix_scenarios(scenarios, scenario_key_filter.as_deref());
     let matrix_limit = matrix_limit(scenarios.len());
     let selected = scenarios.into_iter().take(matrix_limit).collect::<Vec<_>>();
+    eprintln!(
+        "sql_perf_matrix: selected {} of {generated_scenario_count} generated scenarios",
+        selected.len(),
+    );
     let mut samples = Vec::new();
     let mut failures = Vec::new();
     for scenario in &selected {
+        eprintln!("sql_perf_matrix: sampling {}", scenario.key);
         match sample_scenario(&fixture, scenario) {
-            Ok(sample) => samples.push(sample),
-            Err(failure) => failures.push(*failure),
+            Ok(sample) => {
+                eprintln!("sql_perf_matrix: sampled {}", scenario.key);
+                samples.push(sample);
+            }
+            Err(failure) => {
+                eprintln!("sql_perf_matrix: failed {}", scenario.key);
+                failures.push(*failure);
+            }
         }
     }
     let random_case_count = if mode == MatrixMode::Random {
@@ -3132,6 +5022,7 @@ fn sql_perf_generated_matrix_reports_hotspots() {
 
     let report = MatrixReport {
         matrix_mode: mode.label().to_string(),
+        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
         generated_scenario_count,
         executed_scenario_count: samples.len(),
         failed_scenario_count: failures.len(),
@@ -3145,4 +5036,34 @@ fn sql_perf_generated_matrix_reports_hotspots() {
 
     write_matrix_reports(&report);
     print_matrix_summary(&report);
+}
+
+#[test]
+#[ignore = "reads saved full-matrix reports; run manually after before/after matrix capture"]
+fn sql_perf_generated_matrix_compares_saved_reports() {
+    let baseline_path = matrix_delta_path_env("ICYDB_SQL_PERF_MATRIX_DELTA_BASELINE");
+    let current_path = matrix_delta_path_env("ICYDB_SQL_PERF_MATRIX_DELTA_CURRENT");
+    let output_stem = matrix_delta_output_stem();
+    let focused_targets = matrix_delta_key_set_env("ICYDB_SQL_PERF_MATRIX_DELTA_FOCUSED_KEYS");
+    let expected_improvements =
+        matrix_delta_key_set_env("ICYDB_SQL_PERF_MATRIX_DELTA_EXPECTED_IMPROVEMENTS");
+    let baseline = read_matrix_report(&baseline_path);
+    let current = read_matrix_report(&current_path);
+    let delta = matrix_delta_report(
+        baseline_path.as_path(),
+        &baseline,
+        current_path.as_path(),
+        &current,
+        &focused_targets,
+        &expected_improvements,
+    );
+
+    write_matrix_delta_reports(&delta, output_stem.as_path());
+    println!("{}", matrix_delta_markdown(&delta));
+
+    assert!(
+        delta.closeout_failures.is_empty(),
+        "matrix delta closeout gate failed: {:?}",
+        delta.closeout_failures,
+    );
 }
