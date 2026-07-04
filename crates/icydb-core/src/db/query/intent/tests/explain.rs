@@ -824,8 +824,8 @@ fn logical_explain_json_reports_range_anchor_residual_predicate_summary() {
     );
     assert_eq!(
         explain.access_decision().residual.residual_predicate_count,
-        2,
-        "range-bound safety predicate and non-access predicate should remain visible as residual work",
+        1,
+        "access-proven range bounds should be stripped while non-access predicates stay visible as residual work",
     );
 
     let err = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
@@ -852,7 +852,7 @@ fn logical_explain_json_reports_range_anchor_residual_predicate_summary() {
         "range explain should not count trailing predicates as access-bound",
     );
     assert!(
-        json.contains("\"residual_predicate_count\":2"),
+        json.contains("\"residual_predicate_count\":1"),
         "range explain should expose the residual predicate count",
     );
 }

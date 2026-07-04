@@ -3,7 +3,7 @@ use super::*;
 // Expected ordered-route shape for one range-ordered window shape.
 enum RangeOrderedRouteExpectation {
     TopNSeekAccessSatisfied,
-    MaterializedSort,
+    TopNSeekMaterializedSort,
 }
 
 // Expected EXPLAIN route properties for one index-range ordered window shape.
@@ -158,11 +158,11 @@ fn assert_range_route_descriptor(
                 "{context} should stay off the materialized-sort fallback",
             );
         }
-        RangeOrderedRouteExpectation::MaterializedSort => {
+        RangeOrderedRouteExpectation::TopNSeekMaterializedSort => {
             assert!(
                 explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::TopNSeek)
-                    .is_none(),
-                "{context} should stay off the bounded Top-N seek route",
+                    .is_some(),
+                "{context} should expose bounded Top-N seek routing",
             );
             assert!(
                 explain_execution_find_first_node(
@@ -189,15 +189,16 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: keep the bounded range-choice family under one matrix so the
-    // route stays visibly materialized across direction and optional offset.
+    // Phase 1: keep the bounded range-choice family under one matrix so Top-N
+    // routing and the descriptor-level materialized-order boundary stay visible
+    // across direction and optional offset.
     let cases = [
         (
             false,
             None,
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekMaterializedSort,
             },
             "range-choice roots",
         ),
@@ -206,7 +207,7 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
             None,
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekMaterializedSort,
             },
             "descending range-choice roots",
         ),
@@ -215,7 +216,7 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekMaterializedSort,
             },
             "range-choice offset roots",
         ),
@@ -224,7 +225,7 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekMaterializedSort,
             },
             "descending range-choice offset roots",
         ),
