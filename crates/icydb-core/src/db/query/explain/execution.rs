@@ -139,6 +139,9 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const PUSHDOWN: &str = "pushdown";
     pub(in crate::db) const RESIDUAL_FILTER_SHAPE: &str = "residual_filter_shape";
     pub(in crate::db) const RESUME_FROM: &str = "resume_from";
+    pub(in crate::db) const ROUTE_FAMILY: &str = "route_family";
+    pub(in crate::db) const ROUTE_OUTCOME: &str = "route_outcome";
+    pub(in crate::db) const ROUTE_REASON: &str = "route_reason";
     pub(in crate::db) const SCAN_DIRECTION: &str = "scan_dir";
     pub(in crate::db) const TERMINAL: &str = "terminal";
     pub(in crate::db) const TERMINAL_FIELD: &str = "terminal_field";

@@ -110,6 +110,156 @@ suite, verbose EXPLAIN diagnostics, executor semantics snapshots, core clippy,
 JSON validity, and whitespace checks. The full matrix was not rerun for this
 descriptor-only projection.
 
+## Canonical Descriptor Route Class Properties
+
+Scalar-load canonical execution descriptor roots now include `route_family`,
+`route_outcome`, and `route_reason` node properties. These labels are derived
+from executor-owned route facts and the selected access path, not from SQL text
+or matrix scenario names. They classify pushed ordered reads, residual
+unbounded routes, materialized routes, post-access cursor routes, unsupported
+access kinds, and not-ordered/not-paginated loads.
+
+Grouped aggregate descriptors are intentionally excluded because they already
+publish grouped-specific route fields. This avoids mixing scalar-load
+route-family labels into the grouped route contract.
+
+This is descriptor attribution only; it does not change production execution,
+cursor, cache, persisted format, public API behavior, or public read-admission
+behavior.
+
+## Descriptor Route-Diagnostics Matrix Refresh
+
+After adding scalar-load descriptor route-class properties, a fresh deterministic
+full matrix was captured against a clean `0.196.3` baseline so the descriptor
+diagnostic overhead and route-class coverage were measured instead of inferred.
+
+- Baseline full matrix:
+  `/tmp/icydb-196-matrix-baseline-report/sql_perf_196_3_baseline_full_matrix.json`
+- Baseline full matrix Markdown:
+  `/tmp/icydb-196-matrix-baseline-report/sql_perf_196_3_baseline_full_matrix.md`
+- Current full matrix:
+  `/tmp/icydb-196-matrix-current-report/sql_perf_196_current_route_diagnostics_full_matrix.json`
+- Current full matrix Markdown:
+  `/tmp/icydb-196-matrix-current-report/sql_perf_196_current_route_diagnostics_full_matrix.md`
+- Delta JSON:
+  `/tmp/icydb-196-matrix-delta/sql_perf_196_route_diagnostics_delta.json`
+- Delta Markdown:
+  `/tmp/icydb-196-matrix-delta/sql_perf_196_route_diagnostics_delta.md`
+
+This refresh compares `0.196.3` to the current uncommitted descriptor
+route-diagnostics slice. It is not evidence of a new runtime pushdown win; the
+expected improvement and focused-target counts were both zero.
+
+| Metric | Result |
+| --- | ---: |
+| Union scenarios | 1,756 |
+| Common successful scenarios | 1,675 |
+| Common failures | 81 |
+| Improved scenarios | 192 |
+| Regressed scenarios | 1,483 |
+| New failures | 0 |
+| Resolved failures | 0 |
+| Result signature changes | 0 |
+| Cursor signature changes | 0 |
+| Route fact changes | 0 |
+| `data_store.get` delta | 0 |
+| Index range delta | 0 |
+| Index entry delta | 0 |
+| Rows returned delta | 0 |
+| Aggregate total instructions | +4,381,279 / 4,817,348,069 baseline |
+| Regression gate crossings (`>=10%` and `>=100k`) | 0 |
+| Closeout gate | PASS |
+
+The route-diagnostics slice therefore preserves result semantics, cursor
+semantics, route decisions, and access counters. The aggregate instruction
+movement is about +0.09%, which is attributable to descriptor/reporting changes
+and measurement noise rather than route changes.
+
+Route-family/outcome coverage for common successful scenarios:
+
+| Route family/outcome | Scenarios | Total instruction delta |
+| --- | ---: | ---: |
+| `materialized_order` / `materialized` | 144 | +1,926,175 |
+| `incompatible_filter_first_order` / `materialized` | 603 | +846,552 |
+| `primary_order` / `pushed` | 397 | +718,061 |
+| `primary_order` / `eligible_but_not_pushed` | 129 | +390,309 |
+| `secondary_order` / `pushed` | 259 | +336,089 |
+| `secondary_order` / `eligible_but_not_pushed` | 67 | +73,106 |
+| `secondary_order` / `missing_tie_breaker` | 60 | +70,498 |
+| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` | 13 | +14,633 |
+| `equality_prefix_ordered_suffix` / `pushed` | 1 | +4,006 |
+| `unsupported_access_kind` / `unsupported` | 2 | +1,850 |
+
+## 0.196.0 To End-Of-196 Matrix Delta
+
+A clean `v0.196.0` baseline was captured in a detached worktree and compared to
+the current end-of-196 worktree state. This answers the line-level question:
+what changed after the initial `0.196.0` release point.
+
+- `0.196.0` baseline full matrix:
+  `/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.json`
+- `0.196.0` baseline full matrix Markdown:
+  `/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.md`
+- Current end-of-196 full matrix:
+  `/tmp/icydb-196-matrix-current-report/sql_perf_196_current_route_diagnostics_full_matrix.json`
+- Current end-of-196 full matrix Markdown:
+  `/tmp/icydb-196-matrix-current-report/sql_perf_196_current_route_diagnostics_full_matrix.md`
+- Line delta JSON:
+  `/tmp/icydb-196-line-delta/sql_perf_196_0_to_end_delta.json`
+- Line delta Markdown:
+  `/tmp/icydb-196-line-delta/sql_perf_196_0_to_end_delta.md`
+
+| Metric | Result |
+| --- | ---: |
+| Union scenarios | 1,756 |
+| Common successful scenarios | 1,675 |
+| Common failures | 81 |
+| Improved scenarios | 79 |
+| Regressed scenarios | 1,596 |
+| New failures | 0 |
+| Resolved failures | 0 |
+| Result signature changes | 0 |
+| Cursor signature changes | 0 |
+| Route fact changes | 60 |
+| Order-hint changes | 1,663 |
+| Limit-stop attribution changes | 1,675 |
+| `data_store.get` delta | 0 |
+| Index range delta | 0 |
+| Index entry delta | 0 |
+| Rows returned delta | 0 |
+| Aggregate total instructions | +7,397,649 / 4,814,331,699 baseline |
+| Regression gate crossings (`>=10%` and `>=100k`) | 0 |
+| Closeout gate | PASS |
+
+The 60 route-fact changes are Blob `ORDER BY bucket, id` scenarios reclassified
+from generic secondary-order eligibility or filter/order mismatch to
+`secondary_order` / `missing_tie_breaker` with reason `index_order_suffix_gap`.
+The Blob ordered metadata index is `(bucket, label, id)`, so this is a more
+accurate explanation of why `ORDER BY bucket, id` cannot use that index as a
+direct ordered stream. No row, cursor, access-counter, or result signature
+changed.
+
+The post-`0.196.0` line is therefore diagnostic hardening rather than a new
+runtime optimisation: order hints became visible for 1,663 scenarios,
+limit-stop proof attribution became explicit for all 1,675 common successful
+scenarios, and scalar-load descriptor route facts became visible. The aggregate
+instruction movement is about +0.15%, below the closeout regression gate.
+
+Route-family/outcome deltas from `0.196.0` to the current end-of-196 state:
+
+| Route family/outcome | Scenarios | Total instruction delta |
+| --- | ---: | ---: |
+| `materialized_order` / `materialized` | 144 | +2,914,992 |
+| `incompatible_filter_first_order` / `materialized` | 603 | +1,538,726 |
+| `primary_order` / `pushed` | 397 | +1,240,053 |
+| `secondary_order` / `pushed` | 259 | +746,545 |
+| `primary_order` / `eligible_but_not_pushed` | 129 | +607,854 |
+| `secondary_order` / `eligible_but_not_pushed` | 67 | +199,547 |
+| `secondary_order` / `missing_tie_breaker` | 60 | +110,407 |
+| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` | 13 | +33,289 |
+| `equality_prefix_ordered_suffix` / `pushed` | 1 | +3,537 |
+| `unsupported_access_kind` / `unsupported` | 2 | +2,699 |
+
 ## Full Matrix Delta
 
 | Metric | Result |
@@ -183,6 +333,7 @@ instruction regression threshold or did not indicate semantic drift.
 - `jq empty docs/design/0.196-sqlite-comparison-audit/implementation-results.json`: pass.
 - `git diff --check`: pass.
 - Descriptor limit-stop property focused EXPLAIN test: pass.
+- Scalar-load descriptor route-family focused EXPLAIN test: pass.
 - Canonical EXPLAIN intent suite: pass.
 - Verbose EXPLAIN intent suite: pass.
 - Executor semantics snapshot suite: pass.
@@ -190,6 +341,10 @@ instruction regression threshold or did not indicate semantic drift.
 - Full before/after delta helper: pass.
 - Fresh order-hint deterministic matrix refresh: pass.
 - Saved-report order-hint delta helper: pass.
+- Fresh descriptor route-diagnostics deterministic matrix refresh: pass.
+- Saved-report descriptor route-diagnostics delta helper: pass.
+- Fresh `v0.196.0` deterministic matrix baseline: pass.
+- Saved-report `v0.196.0` to end-of-196 delta helper: pass.
 - `python3 -m json.tool docs/design/0.196-sqlite-comparison-audit/implementation-results.json`: pass.
 
 One malformed local command failed before validation because `cargo test` accepts

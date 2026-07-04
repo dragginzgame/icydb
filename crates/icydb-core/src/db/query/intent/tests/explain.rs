@@ -348,6 +348,21 @@ fn explain_execution_root_reports_limit_stop_after_property_for_bounded_seek() {
         )),
         "canonical execution root should expose the bounded limit-stop proof",
     );
+    assert_eq!(
+        descriptor.node_properties().get("route_family").cloned(),
+        Some(Value::Text("primary_order".to_string())),
+        "canonical execution root should classify the pushed primary-order route family",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("route_outcome").cloned(),
+        Some(Value::Text("pushed".to_string())),
+        "canonical execution root should classify the pushed route outcome",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("route_reason").cloned(),
+        Some(Value::Text("primary_order_limit_stop_proven".to_string())),
+        "canonical execution root should explain why the primary-order route pushed",
+    );
 
     let json = descriptor.render_json_canonical();
     assert!(
@@ -360,6 +375,12 @@ fn explain_execution_root_reports_limit_stop_after_property_for_bounded_seek() {
     assert!(
         verbose.contains("limit_stop_after=Text(\"possible(limit=3,lookahead=1,fetch=6)\")"),
         "verbose execution text should carry the bounded limit-stop proof: {verbose}",
+    );
+    assert!(
+        verbose.contains("route_family=Text(\"primary_order\")")
+            && verbose.contains("route_outcome=Text(\"pushed\")")
+            && verbose.contains("route_reason=Text(\"primary_order_limit_stop_proven\")"),
+        "verbose execution text should carry route family/outcome attribution: {verbose}",
     );
 }
 

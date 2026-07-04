@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Adds canonical execution descriptor `limit_stop_after` node properties for
   bounded ordered-read fetch proofs, matching the verbose EXPLAIN diagnostic in
   machine-readable JSON/text tree output.
+- Adds scalar-load canonical execution descriptor `route_family`,
+  `route_outcome`, and `route_reason` node properties so JSON/text EXPLAIN
+  output reports the same route-class proof burden as the SQL matrix taxonomy.
 
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 

@@ -13,7 +13,8 @@ use crate::{
             aggregate::AggregateFoldMode,
             route::{
                 AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, FastPathOrder,
-                PushdownApplicability, TopNSeekSpec,
+                LoadOrderRouteMode, LoadOrderRouteReason, PushdownApplicability, RouteShapeKind,
+                TopNSeekSpec,
             },
         },
         query::{
@@ -206,11 +207,30 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
     if let Some(limit_stop_after) = route_limit_stop_after_node_property(route_plan) {
         insert_node_property(node, property_keys::LIMIT_STOP_AFTER, limit_stop_after);
     }
+    annotate_route_class_node_properties(node, route_plan);
     annotate_continuation_node_properties(
         node,
         route_plan.direction(),
         route_plan.continuation().mode(),
     );
+}
+
+fn annotate_route_class_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    route_plan: &ExecutionRoutePlan,
+) {
+    if !matches!(route_plan.route_shape_kind(), RouteShapeKind::LoadScalar) {
+        return;
+    }
+
+    let route_class = route_class_for_access(
+        node.access_strategy.as_ref(),
+        route_plan,
+        scan_fetch_pushdown(route_plan),
+    );
+    insert_node_property(node, property_keys::ROUTE_FAMILY, route_class.family);
+    insert_node_property(node, property_keys::ROUTE_OUTCOME, route_class.outcome);
+    insert_node_property(node, property_keys::ROUTE_REASON, route_class.reason);
 }
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown_node_properties(
@@ -335,6 +355,154 @@ fn scan_fetch_pushdown(route_plan: &ExecutionRoutePlan) -> Option<usize> {
         .top_n_seek_spec()
         .map(TopNSeekSpec::fetch)
         .or_else(|| route_plan.index_range_limit_spec.map(|spec| spec.fetch))
+}
+
+#[derive(Clone, Copy)]
+struct RouteClass {
+    family: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+}
+
+impl RouteClass {
+    const fn new(family: &'static str, outcome: &'static str, reason: &'static str) -> Self {
+        Self {
+            family,
+            outcome,
+            reason,
+        }
+    }
+}
+
+const fn route_class_for_access(
+    access_strategy: Option<&ExplainAccessRoute>,
+    route_plan: &ExecutionRoutePlan,
+    fetch: Option<usize>,
+) -> RouteClass {
+    if route_plan.continuation().limit().is_none() {
+        return RouteClass::new(
+            "not_ordered_or_not_paginated",
+            "unchanged_or_not_applicable",
+            "no_limit",
+        );
+    }
+    if route_plan.continuation().applied() && fetch.is_none() {
+        return RouteClass::new("post_access_cursor", "post_access", "continuation_applied");
+    }
+    if route_plan.pk_order_fast_path_eligible()
+        || access_is_primary_order_candidate(access_strategy)
+    {
+        return route_class_for_ordered_family(
+            "primary_order",
+            "primary_order_candidate",
+            "primary_order_limit_stop_proven",
+            route_plan,
+            fetch,
+        );
+    }
+    if route_plan.index_prefix_child_expansion().is_some() {
+        return route_class_for_ordered_family(
+            "equality_prefix_ordered_suffix",
+            "equality_prefix_ordered_suffix_candidate",
+            "equality_prefix_ordered_suffix_limit_stop_proven",
+            route_plan,
+            fetch,
+        );
+    }
+    if access_is_secondary_order_candidate(access_strategy) {
+        return route_class_for_ordered_family(
+            secondary_route_family(route_plan),
+            "secondary_order_candidate",
+            "secondary_order_limit_stop_proven",
+            route_plan,
+            fetch,
+        );
+    }
+    if matches!(access_strategy, Some(ExplainAccessRoute::FullScan)) {
+        return route_class_for_ordered_family(
+            "materialized_order",
+            "full_scan_order_candidate",
+            "full_scan_limit_stop_proven",
+            route_plan,
+            fetch,
+        );
+    }
+
+    RouteClass::new(
+        "unsupported_access_kind",
+        "unsupported",
+        "access_kind_not_classified",
+    )
+}
+
+const fn route_class_for_ordered_family(
+    family: &'static str,
+    candidate_reason: &'static str,
+    pushed_reason: &'static str,
+    route_plan: &ExecutionRoutePlan,
+    fetch: Option<usize>,
+) -> RouteClass {
+    match route_plan.load_order_route_mode() {
+        LoadOrderRouteMode::DirectStreaming => {
+            if fetch.is_some() {
+                RouteClass::new(family, "pushed", pushed_reason)
+            } else {
+                RouteClass::new(family, "eligible_but_not_pushed", candidate_reason)
+            }
+        }
+        LoadOrderRouteMode::MaterializedBoundary | LoadOrderRouteMode::MaterializedFallback => {
+            RouteClass::new(
+                family,
+                materialized_route_outcome(route_plan.load_order_route_reason()),
+                route_plan.load_order_route_reason().code(),
+            )
+        }
+    }
+}
+
+const fn materialized_route_outcome(reason: LoadOrderRouteReason) -> &'static str {
+    match reason {
+        LoadOrderRouteReason::ResidualFilterBlocksDirectStreaming => "residual_unbounded",
+        LoadOrderRouteReason::DescendingNonUniqueSecondaryPrefixNotAdmitted => {
+            "missing_tie_breaker"
+        }
+        LoadOrderRouteReason::None
+        | LoadOrderRouteReason::RequiresMaterializedSort
+        | LoadOrderRouteReason::DistinctRequiresMaterialization => "materialized",
+    }
+}
+
+const fn secondary_route_family(route_plan: &ExecutionRoutePlan) -> &'static str {
+    match route_plan.load_order_route_reason() {
+        LoadOrderRouteReason::ResidualFilterBlocksDirectStreaming => "residual_filter_ordered_scan",
+        LoadOrderRouteReason::RequiresMaterializedSort
+        | LoadOrderRouteReason::DistinctRequiresMaterialization => "materialized_order",
+        LoadOrderRouteReason::None
+        | LoadOrderRouteReason::DescendingNonUniqueSecondaryPrefixNotAdmitted => "secondary_order",
+    }
+}
+
+const fn access_is_primary_order_candidate(access_strategy: Option<&ExplainAccessRoute>) -> bool {
+    matches!(
+        access_strategy,
+        Some(
+            ExplainAccessRoute::ByKey { .. }
+                | ExplainAccessRoute::ByKeys { .. }
+                | ExplainAccessRoute::KeyRange { .. }
+        )
+    )
+}
+
+const fn access_is_secondary_order_candidate(access_strategy: Option<&ExplainAccessRoute>) -> bool {
+    matches!(
+        access_strategy,
+        Some(
+            ExplainAccessRoute::IndexPrefix { .. }
+                | ExplainAccessRoute::IndexMultiLookup { .. }
+                | ExplainAccessRoute::IndexBranchSet { .. }
+                | ExplainAccessRoute::IndexRange { .. }
+        )
+    )
 }
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_cursor_resume_node_properties(
