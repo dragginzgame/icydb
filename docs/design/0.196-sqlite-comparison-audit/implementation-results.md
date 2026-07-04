@@ -81,6 +81,18 @@ This is report attribution only; it does not change production execution,
 cursor, cache, persisted format, or public API behavior. The full matrix was not
 rerun after this matrix-schema hardening.
 
+## Verbose Limit-Stop Diagnostic
+
+Verbose EXPLAIN route diagnostics now emit `diag.r.limit_stop_after`. Directly
+streaming bounded ordered routes report the planned limit, lookahead, and fetch
+window, for example `possible(limit=3,lookahead=1,fetch=6)`. Routes that cannot
+prove final limit-stop behavior report a stable disabled reason such as
+`requires_materialized_sort`, `residual_filter_blocks_direct_streaming`,
+`continuation_applied`, `no_limit`, or `no_bounded_fetch`.
+
+This is explain attribution only; it does not change production execution,
+cursor, cache, persisted format, or public API behavior.
+
 ## Full Matrix Delta
 
 | Metric | Result |

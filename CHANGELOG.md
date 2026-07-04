@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds a route-level `limit_stop_after` verbose EXPLAIN diagnostic so bounded
+  ordered reads report the proven limit/lookahead/fetch window, while
+  materialized or unbounded routes report the stable disabled reason.
+
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)

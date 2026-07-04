@@ -42,6 +42,11 @@
     "production_execution_change": false,
     "full_matrix_rerun_after_limit_stop_schema_change": false
   },
+  "verbose_limit_stop_diagnostic": {
+    "summary": "Verbose EXPLAIN route diagnostics emit diag.r.limit_stop_after with planned limit/lookahead/fetch for directly streaming bounded ordered reads or a stable disabled reason.",
+    "production_execution_change": false,
+    "full_matrix_rerun_after_verbose_diagnostic_change": false
+  },
   "matrix_delta": {
     "canister_wasm_profile": "debug",
     "union_scenarios": 1756,
@@ -103,7 +108,8 @@
   "production_changes": [
     "selected index-range bounds are stripped from residual predicates only when the access path proves them",
     "exact primary-key public reads can use the selected key-count bound without a redundant LIMIT",
-    "matrix reports include route family, route outcome, order-by index-shape hints, structured limit_stop_after attribution, Blob index suffix-gap classification, result signatures, cursor signatures, and union-key delta artifacts"
+    "matrix reports include route family, route outcome, order-by index-shape hints, structured limit_stop_after attribution, Blob index suffix-gap classification, result signatures, cursor signatures, and union-key delta artifacts",
+    "verbose EXPLAIN diagnostics include route-level limit_stop_after attribution"
   ],
   "validation": [
     "cargo fmt --all",

@@ -46,7 +46,8 @@ use crate::db::executor::explain::descriptor::shared::{
     explain_residual_filter_expr_for_plan, index_range_limit_pushdown_descriptor,
     materialized_order_index_hint, order_by_execution_node_descriptor,
     predicate_index_capability_label, predicate_stage_descriptors, route_diagnostic_line_bool,
-    route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
+    route_diagnostic_line_debug, route_fetch_diagnostic_line,
+    route_limit_stop_after_diagnostic_line, secondary_order_pushdown_descriptor,
     secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
 
@@ -436,6 +437,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
+    lines.push(route_limit_stop_after_diagnostic_line(route_plan));
     if let Some(child_expansion) = route_plan.index_prefix_child_expansion() {
         lines.push(route_diagnostic_line_bool(
             "index_prefix_child_expansion",

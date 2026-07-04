@@ -736,6 +736,58 @@ pub(in crate::db::executor::explain::descriptor) fn route_fetch_diagnostic_line(
     out
 }
 
+pub(in crate::db::executor::explain::descriptor) fn route_limit_stop_after_diagnostic_line(
+    route_plan: &ExecutionRoutePlan,
+) -> String {
+    let mut out = route_diagnostic_prefix("limit_stop_after");
+    let Some(fetch) = scan_fetch_pushdown(route_plan) else {
+        write_disabled_limit_stop_after(&mut out, limit_stop_after_disabled_reason(route_plan));
+        return out;
+    };
+
+    if !route_plan.load_order_route_mode().allows_streaming_load() {
+        write_disabled_limit_stop_after(&mut out, route_plan.load_order_route_reason().code());
+        return out;
+    }
+
+    let keep = route_plan
+        .continuation()
+        .keep_access_window()
+        .fetch_limit()
+        .unwrap_or(fetch);
+    let lookahead = fetch.saturating_sub(keep);
+    let limit = route_plan
+        .continuation()
+        .limit()
+        .map_or_else(|| "none".to_string(), |limit| limit.to_string());
+    let _ = write!(
+        out,
+        "possible(limit={limit},lookahead={},fetch={})",
+        u64_from_usize(lookahead),
+        u64_from_usize(fetch),
+    );
+
+    out
+}
+
+fn write_disabled_limit_stop_after(out: &mut String, reason: &str) {
+    let _ = write!(out, "disabled({reason})");
+}
+
+const fn limit_stop_after_disabled_reason(route_plan: &ExecutionRoutePlan) -> &'static str {
+    if route_plan.continuation().limit().is_none() {
+        return "no_limit";
+    }
+    if route_plan.continuation().applied() {
+        return "continuation_applied";
+    }
+    if !route_plan.load_order_route_mode().allows_streaming_load() {
+        return route_plan.load_order_route_reason().code();
+    }
+
+    "no_bounded_fetch"
+}
+
 fn route_diagnostic_prefix(label: &str) -> String {
     let mut out = String::with_capacity("diag.r.".len() + label.len() + 1);
     out.push_str("diag.r.");

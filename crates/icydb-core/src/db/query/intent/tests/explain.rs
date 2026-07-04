@@ -317,6 +317,11 @@ fn explain_execution_verbose_reports_top_n_seek_hints() {
         "verbose execution explain should freeze top-n seek fetch diagnostics",
     );
     assert_eq!(
+        diagnostics.get("diag.r.limit_stop_after"),
+        Some(&"possible(limit=3,lookahead=1,fetch=6)".to_string()),
+        "verbose execution explain should expose the bounded limit-stop proof",
+    );
+    assert_eq!(
         diagnostics.get("diag.d.has_top_n_seek"),
         Some(&"true".to_string()),
         "descriptor diagnostics should report TopNSeek node presence",
