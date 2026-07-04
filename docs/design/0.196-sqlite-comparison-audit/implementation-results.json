@@ -20,8 +20,12 @@
     "route_diagnostics_delta_markdown": "/tmp/icydb-196-matrix-delta/sql_perf_196_route_diagnostics_delta.md",
     "line_196_0_baseline_full_matrix_json": "/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.json",
     "line_196_0_baseline_full_matrix_markdown": "/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.md",
-    "line_196_0_to_end_delta_json": "/tmp/icydb-196-line-delta/sql_perf_196_0_to_end_delta.json",
-    "line_196_0_to_end_delta_markdown": "/tmp/icydb-196-line-delta/sql_perf_196_0_to_end_delta.md"
+    "line_196_0_to_end_delta_json": "/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.json",
+    "line_196_0_to_end_delta_markdown": "/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.md",
+    "classifier_hardening_full_matrix_json": "/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.json",
+    "classifier_hardening_full_matrix_markdown": "/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.md",
+    "classifier_hardening_delta_json": "/tmp/icydb-196-5-classifier-delta/sql_perf_196_5_classifier_delta.json",
+    "classifier_hardening_delta_markdown": "/tmp/icydb-196-5-classifier-delta/sql_perf_196_5_classifier_delta.md"
   },
   "artifact_retention": "Recorded /tmp paths are scratch captures, not durable release attachments; regenerate and archive fresh full-matrix artifacts before release packaging.",
   "order_hint_refresh": {
@@ -109,20 +113,227 @@
     "closeout_gate": "pass",
     "interpretation": "Descriptor route diagnostics preserved result semantics, cursor semantics, route decisions, and access counters; aggregate instruction movement is reporting overhead/noise, not a new runtime pushdown win."
   },
+  "classifier_hardening_matrix_refresh_196_5": {
+    "comparison": "previous descriptor route-diagnostics matrix versus current 0.196.5 classifier-hardened matrix",
+    "canister_wasm_profile": "debug",
+    "generated_scenarios": 1756,
+    "executed_scenarios": 1675,
+    "failed_scenarios": 81,
+    "union_scenarios": 1756,
+    "common_successful_scenarios": 1675,
+    "common_failures": 81,
+    "improved_scenarios": 456,
+    "regressed_scenarios": 1219,
+    "neutral_scenarios": 0,
+    "new_failures": 0,
+    "resolved_failures": 0,
+    "result_signature_changes": 0,
+    "cursor_signature_changes": 0,
+    "route_fact_changes": 549,
+    "limit_stop_attribution_changes": 549,
+    "data_store_get_delta": 0,
+    "index_range_delta": 0,
+    "index_entry_delta": 0,
+    "rows_returned_delta": 0,
+    "total_instruction_baseline": 4821729348,
+    "total_instruction_current": 4820024676,
+    "total_instruction_delta": -1704672,
+    "compile_instruction_delta": 881042,
+    "execute_instruction_delta": -2585714,
+    "planner_instruction_delta": 1894802,
+    "executor_instruction_delta": -4232655,
+    "store_instruction_delta": -244825,
+    "regression_gate_crossings": 0,
+    "expected_improvement_count": 0,
+    "focused_target_count": 0,
+    "closeout_gate": "pass",
+    "remaining_eligible_but_not_pushed_scenarios": 12,
+    "interpretation": "0.196.5 is classifier/evidence hardening, not a new runtime optimization. It separates true pushdown candidates from materialized order windows, residual candidate scans, and unsupported expression ORDER BY shapes without changing result, cursor, access-counter, or row-count behavior.",
+    "route_family_outcome_reason_coverage": [
+      {
+        "route_family": "equality_prefix_ordered_suffix",
+        "route_outcome": "pushed",
+        "route_reason": "equality_prefix_ordered_suffix_limit_stop_proven",
+        "scenarios": 1,
+        "total_instructions": 2476324,
+        "data_store_get": 0,
+        "index_ranges": 1,
+        "index_entries": 50,
+        "rows_returned": 50
+      },
+      {
+        "route_family": "incompatible_filter_first_order",
+        "route_outcome": "materialized",
+        "route_reason": "filter_order_mismatch",
+        "scenarios": 498,
+        "total_instructions": 679339040,
+        "data_store_get": 2089,
+        "index_ranges": 651,
+        "index_entries": 2210,
+        "rows_returned": 1220
+      },
+      {
+        "route_family": "materialized_order",
+        "route_outcome": "materialized",
+        "route_reason": "requires_materialized_sort",
+        "scenarios": 114,
+        "total_instructions": 150007784,
+        "data_store_get": 570,
+        "index_ranges": 78,
+        "index_entries": 354,
+        "rows_returned": 291
+      },
+      {
+        "route_family": "materialized_order",
+        "route_outcome": "materialized",
+        "route_reason": "storage_mirror_has_primary_index_only",
+        "scenarios": 144,
+        "total_instructions": 2826027305,
+        "data_store_get": 73728,
+        "index_ranges": 0,
+        "index_entries": 0,
+        "rows_returned": 672
+      },
+      {
+        "route_family": "not_ordered_or_not_paginated",
+        "route_outcome": "unchanged_or_not_applicable",
+        "route_reason": "not_a_paginated_select",
+        "scenarios": 13,
+        "total_instructions": 16489578,
+        "data_store_get": 6,
+        "index_ranges": 0,
+        "index_entries": 0,
+        "rows_returned": 35
+      },
+      {
+        "route_family": "primary_order",
+        "route_outcome": "pushed",
+        "route_reason": "primary_order_limit_stop_proven",
+        "scenarios": 169,
+        "total_instructions": 212133202,
+        "data_store_get": 758,
+        "index_ranges": 32,
+        "index_entries": 1016,
+        "rows_returned": 1069
+      },
+      {
+        "route_family": "residual_filter_ordered_scan",
+        "route_outcome": "residual_unbounded",
+        "route_reason": "residual_filter_requires_candidate_scan",
+        "scenarios": 315,
+        "total_instructions": 405478754,
+        "data_store_get": 1366,
+        "index_ranges": 263,
+        "index_entries": 484,
+        "rows_returned": 884
+      },
+      {
+        "route_family": "secondary_order",
+        "route_outcome": "eligible_but_not_pushed",
+        "route_reason": "secondary_order_candidate",
+        "scenarios": 12,
+        "total_instructions": 15229146,
+        "data_store_get": 20,
+        "index_ranges": 30,
+        "index_entries": 34,
+        "rows_returned": 18
+      },
+      {
+        "route_family": "secondary_order",
+        "route_outcome": "missing_tie_breaker",
+        "route_reason": "index_order_suffix_gap",
+        "scenarios": 60,
+        "total_instructions": 82052969,
+        "data_store_get": 225,
+        "index_ranges": 45,
+        "index_entries": 135,
+        "rows_returned": 135
+      },
+      {
+        "route_family": "secondary_order",
+        "route_outcome": "pushed",
+        "route_reason": "secondary_order_limit_stop_proven",
+        "scenarios": 227,
+        "total_instructions": 263579385,
+        "data_store_get": 464,
+        "index_ranges": 333,
+        "index_entries": 698,
+        "rows_returned": 631
+      },
+      {
+        "route_family": "unsupported_access_kind",
+        "route_outcome": "unsupported",
+        "route_reason": "order_expression_not_classified",
+        "scenarios": 122,
+        "total_instructions": 167211189,
+        "data_store_get": 612,
+        "index_ranges": 90,
+        "index_entries": 240,
+        "rows_returned": 314
+      }
+    ],
+    "route_fact_transitions": [
+      {
+        "before": "incompatible_filter_first_order/materialized/filter_order_mismatch",
+        "after": "unsupported_access_kind/unsupported/order_expression_not_classified",
+        "scenarios": 105
+      },
+      {
+        "before": "primary_order/eligible_but_not_pushed/primary_order_candidate",
+        "after": "materialized_order/materialized/requires_materialized_sort",
+        "scenarios": 78
+      },
+      {
+        "before": "primary_order/eligible_but_not_pushed/primary_order_candidate",
+        "after": "residual_filter_ordered_scan/residual_unbounded/residual_filter_requires_candidate_scan",
+        "scenarios": 15
+      },
+      {
+        "before": "primary_order/eligible_but_not_pushed/storage_mirror_primary_order_candidate",
+        "after": "residual_filter_ordered_scan/residual_unbounded/residual_filter_requires_candidate_scan",
+        "scenarios": 36
+      },
+      {
+        "before": "primary_order/pushed/primary_order_limit_stop_proven",
+        "after": "residual_filter_ordered_scan/residual_unbounded/residual_filter_requires_candidate_scan",
+        "scenarios": 228
+      },
+      {
+        "before": "secondary_order/eligible_but_not_pushed/secondary_order_candidate",
+        "after": "materialized_order/materialized/requires_materialized_sort",
+        "scenarios": 36
+      },
+      {
+        "before": "secondary_order/eligible_but_not_pushed/secondary_order_candidate",
+        "after": "residual_filter_ordered_scan/residual_unbounded/residual_filter_requires_candidate_scan",
+        "scenarios": 4
+      },
+      {
+        "before": "secondary_order/eligible_but_not_pushed/secondary_order_candidate",
+        "after": "unsupported_access_kind/unsupported/order_expression_not_classified",
+        "scenarios": 15
+      },
+      {
+        "before": "secondary_order/pushed/secondary_order_limit_stop_proven",
+        "after": "residual_filter_ordered_scan/residual_unbounded/residual_filter_requires_candidate_scan",
+        "scenarios": 32
+      }
+    ]
+  },
   "line_196_0_to_end_delta": {
     "comparison": "clean v0.196.0 baseline versus current end-of-196 worktree state",
     "canister_wasm_profile": "debug",
     "union_scenarios": 1756,
     "common_successful_scenarios": 1675,
     "common_failures": 81,
-    "improved_scenarios": 79,
-    "regressed_scenarios": 1596,
+    "improved_scenarios": 114,
+    "regressed_scenarios": 1561,
     "neutral_scenarios": 0,
     "new_failures": 0,
     "resolved_failures": 0,
     "result_signature_changes": 0,
     "cursor_signature_changes": 0,
-    "route_fact_changes": 60,
+    "route_fact_changes": 609,
     "order_hint_changes": 1663,
     "limit_stop_attribution_changes": 1675,
     "data_store_get_delta": 0,
@@ -130,19 +341,19 @@
     "index_entry_delta": 0,
     "rows_returned_delta": 0,
     "total_instruction_baseline": 4814331699,
-    "total_instruction_current": 4821729348,
-    "total_instruction_delta": 7397649,
-    "compile_instruction_delta": 2829158,
-    "execute_instruction_delta": 4568491,
-    "planner_instruction_delta": 1890930,
-    "executor_instruction_delta": 2856128,
-    "store_instruction_delta": 180544,
-    "aggregate_instruction_delta_percent": 0.15,
+    "total_instruction_current": 4820024676,
+    "total_instruction_delta": 5692977,
+    "compile_instruction_delta": 3710200,
+    "execute_instruction_delta": 1982777,
+    "planner_instruction_delta": 3785732,
+    "executor_instruction_delta": -1376527,
+    "store_instruction_delta": -64281,
+    "aggregate_instruction_delta_percent": 0.12,
     "regression_gate_crossings": 0,
     "expected_improvement_count": 0,
     "focused_target_count": 0,
     "closeout_gate": "pass",
-    "interpretation": "The post-0.196.0 line is diagnostic hardening, not a new runtime optimization: no result, cursor, row-count, data-store, index-range, or index-entry counters changed. The 60 route-fact changes are Blob ORDER BY bucket, id scenarios reclassified to secondary_order / missing_tie_breaker with reason index_order_suffix_gap."
+    "interpretation": "The post-0.196.0 line is diagnostic hardening, not a new runtime optimization: no result, cursor, row-count, data-store, index-range, or index-entry counters changed. The 609 route-fact changes include Blob ORDER BY bucket, id suffix-gap reclassification plus the 0.196.5 separation of materialized order windows, residual candidate scans, and unsupported expression orders from true pushdown candidates."
   },
   "matrix_delta": {
     "canister_wasm_profile": "debug",
@@ -206,6 +417,7 @@
     "selected index-range bounds are stripped from residual predicates only when the access path proves them",
     "exact primary-key public reads can use the selected key-count bound without a redundant LIMIT",
     "matrix reports include route family, route outcome, order-by index-shape hints, structured limit_stop_after attribution, Blob index suffix-gap classification, result signatures, cursor signatures, and union-key delta artifacts",
+    "matrix classifiers separate materialized order windows, residual candidate scans, and unsupported expression orders from true pushdown candidates",
     "verbose EXPLAIN diagnostics include route-level limit_stop_after attribution",
     "canonical execution descriptors include bounded-fetch limit_stop_after node properties",
     "scalar-load canonical execution descriptors include route_family, route_outcome, and route_reason node properties"
@@ -236,6 +448,10 @@
     "saved-report descriptor route-diagnostics SQL perf matrix delta helper",
     "fresh v0.196.0 deterministic SQL perf matrix baseline",
     "saved-report v0.196.0 to end-of-196 SQL perf matrix delta helper",
+    "0.196.5 SQL perf matrix classifier focused tests",
+    "0.196.5 SQL perf matrix audit integration test",
+    "0.196.5 fresh deterministic SQL perf full matrix",
+    "0.196.5 saved-report classifier SQL perf matrix delta helper",
     "python3 -m json.tool docs/design/0.196-sqlite-comparison-audit/implementation-results.json"
   ],
   "wasm_size_delta": "not_measured"

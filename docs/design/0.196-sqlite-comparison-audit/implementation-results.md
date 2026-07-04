@@ -56,7 +56,7 @@ and 0 result or cursor signature changes. It populated order-hint transitions
 for 1,663 scenarios so the full matrix delta now exposes the requested
 deterministic ordering shape beside each route-family/outcome transition.
 
-## Classifier Hardening
+## Blob Classifier Hardening
 
 After the order-hint refresh, the matrix classifier was tightened for Blob
 `ORDER BY bucket, id` scenarios. The Blob ordered metadata index is
@@ -190,6 +190,91 @@ Route-family/outcome coverage for common successful scenarios:
 | `equality_prefix_ordered_suffix` / `pushed` | 1 | +4,006 |
 | `unsupported_access_kind` / `unsupported` | 2 | +1,850 |
 
+## 0.196.5 Classifier Hardening Matrix Refresh
+
+After the descriptor route-diagnostics refresh, the matrix classifier was
+tightened again so residual candidate scans, materialized order windows, and
+unsupported expression orders stop appearing as pushdown candidates. This is
+diagnostic hardening only: no production execution, cursor, cache, persisted
+format, public API, or public read-admission behavior changed.
+
+- Current full matrix:
+  `/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.json`
+- Current full matrix Markdown:
+  `/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.md`
+- Delta JSON:
+  `/tmp/icydb-196-5-classifier-delta/sql_perf_196_5_classifier_delta.json`
+- Delta Markdown:
+  `/tmp/icydb-196-5-classifier-delta/sql_perf_196_5_classifier_delta.md`
+
+The refresh compares the previous descriptor route-diagnostics matrix to the
+0.196.5 classifier-hardened matrix. It is not evidence of a new runtime
+pushdown win; expected improvement and focused-target counts were both zero.
+
+| Metric | Result |
+| --- | ---: |
+| Generated scenarios | 1,756 |
+| Executed scenarios | 1,675 |
+| Failed scenarios | 81 |
+| Union scenarios | 1,756 |
+| Common successful scenarios | 1,675 |
+| Common failures | 81 |
+| Improved scenarios | 456 |
+| Regressed scenarios | 1,219 |
+| New failures | 0 |
+| Resolved failures | 0 |
+| Result signature changes | 0 |
+| Cursor signature changes | 0 |
+| Route fact changes | 549 |
+| Limit-stop attribution changes | 549 |
+| `data_store.get` delta | 0 |
+| Index range delta | 0 |
+| Index entry delta | 0 |
+| Rows returned delta | 0 |
+| Aggregate total instructions | -1,704,672 / 4,821,729,348 baseline |
+| Compile instruction delta | +881,042 |
+| Execute instruction delta | -2,585,714 |
+| Planner instruction delta | +1,894,802 |
+| Executor instruction delta | -4,232,655 |
+| Store instruction delta | -244,825 |
+| Regression gate crossings (`>=10%` and `>=100k`) | 0 |
+| Closeout gate | PASS |
+
+The classifier now leaves only 12 `eligible_but_not_pushed` scenarios, all in
+the secondary-order candidate family. It also corrects 228 prior
+`primary_order` / `pushed` classifications to residual unbounded candidate
+scans when the predicate cannot prove bounded admission.
+
+Route-family/outcome coverage for the refreshed matrix:
+
+| Route family/outcome/reason | Scenarios | Total instructions | `data_store.get` | Index ranges | Index entries | Rows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `equality_prefix_ordered_suffix` / `pushed` / `equality_prefix_ordered_suffix_limit_stop_proven` | 1 | 2,476,324 | 0 | 1 | 50 | 50 |
+| `incompatible_filter_first_order` / `materialized` / `filter_order_mismatch` | 498 | 679,339,040 | 2,089 | 651 | 2,210 | 1,220 |
+| `materialized_order` / `materialized` / `requires_materialized_sort` | 114 | 150,007,784 | 570 | 78 | 354 | 291 |
+| `materialized_order` / `materialized` / `storage_mirror_has_primary_index_only` | 144 | 2,826,027,305 | 73,728 | 0 | 0 | 672 |
+| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` / `not_a_paginated_select` | 13 | 16,489,578 | 6 | 0 | 0 | 35 |
+| `primary_order` / `pushed` / `primary_order_limit_stop_proven` | 169 | 212,133,202 | 758 | 32 | 1,016 | 1,069 |
+| `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 315 | 405,478,754 | 1,366 | 263 | 484 | 884 |
+| `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | 12 | 15,229,146 | 20 | 30 | 34 | 18 |
+| `secondary_order` / `missing_tie_breaker` / `index_order_suffix_gap` | 60 | 82,052,969 | 225 | 45 | 135 | 135 |
+| `secondary_order` / `pushed` / `secondary_order_limit_stop_proven` | 227 | 263,579,385 | 464 | 333 | 698 | 631 |
+| `unsupported_access_kind` / `unsupported` / `order_expression_not_classified` | 122 | 167,211,189 | 612 | 90 | 240 | 314 |
+
+Route-fact changes from the previous descriptor route-diagnostics matrix:
+
+| Before | After | Scenarios |
+| --- | --- | ---: |
+| `incompatible_filter_first_order` / `materialized` / `filter_order_mismatch` | `unsupported_access_kind` / `unsupported` / `order_expression_not_classified` | 105 |
+| `primary_order` / `eligible_but_not_pushed` / `primary_order_candidate` | `materialized_order` / `materialized` / `requires_materialized_sort` | 78 |
+| `primary_order` / `eligible_but_not_pushed` / `primary_order_candidate` | `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 15 |
+| `primary_order` / `eligible_but_not_pushed` / `storage_mirror_primary_order_candidate` | `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 36 |
+| `primary_order` / `pushed` / `primary_order_limit_stop_proven` | `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 228 |
+| `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | `materialized_order` / `materialized` / `requires_materialized_sort` | 36 |
+| `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 4 |
+| `secondary_order` / `eligible_but_not_pushed` / `secondary_order_candidate` | `unsupported_access_kind` / `unsupported` / `order_expression_not_classified` | 15 |
+| `secondary_order` / `pushed` / `secondary_order_limit_stop_proven` | `residual_filter_ordered_scan` / `residual_unbounded` / `residual_filter_requires_candidate_scan` | 32 |
+
 ## 0.196.0 To End-Of-196 Matrix Delta
 
 A clean `v0.196.0` baseline was captured in a detached worktree and compared to
@@ -201,64 +286,68 @@ what changed after the initial `0.196.0` release point.
 - `0.196.0` baseline full matrix Markdown:
   `/tmp/icydb-196-line-baseline-report/sql_perf_196_0_full_matrix.md`
 - Current end-of-196 full matrix:
-  `/tmp/icydb-196-matrix-current-report/sql_perf_196_current_route_diagnostics_full_matrix.json`
+  `/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.json`
 - Current end-of-196 full matrix Markdown:
-  `/tmp/icydb-196-matrix-current-report/sql_perf_196_current_route_diagnostics_full_matrix.md`
+  `/tmp/icydb-196-5-classifier-report/sql_perf_196_5_classifier_full_matrix.md`
 - Line delta JSON:
-  `/tmp/icydb-196-line-delta/sql_perf_196_0_to_end_delta.json`
+  `/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.json`
 - Line delta Markdown:
-  `/tmp/icydb-196-line-delta/sql_perf_196_0_to_end_delta.md`
+  `/tmp/icydb-196-line-delta-1965/sql_perf_196_0_to_196_5_delta.md`
 
 | Metric | Result |
 | --- | ---: |
 | Union scenarios | 1,756 |
 | Common successful scenarios | 1,675 |
 | Common failures | 81 |
-| Improved scenarios | 79 |
-| Regressed scenarios | 1,596 |
+| Improved scenarios | 114 |
+| Regressed scenarios | 1,561 |
 | New failures | 0 |
 | Resolved failures | 0 |
 | Result signature changes | 0 |
 | Cursor signature changes | 0 |
-| Route fact changes | 60 |
+| Route fact changes | 609 |
 | Order-hint changes | 1,663 |
 | Limit-stop attribution changes | 1,675 |
 | `data_store.get` delta | 0 |
 | Index range delta | 0 |
 | Index entry delta | 0 |
 | Rows returned delta | 0 |
-| Aggregate total instructions | +7,397,649 / 4,814,331,699 baseline |
+| Aggregate total instructions | +5,692,977 / 4,814,331,699 baseline |
+| Compile instruction delta | +3,710,200 |
+| Execute instruction delta | +1,982,777 |
+| Planner instruction delta | +3,785,732 |
+| Executor instruction delta | -1,376,527 |
+| Store instruction delta | -64,281 |
 | Regression gate crossings (`>=10%` and `>=100k`) | 0 |
 | Closeout gate | PASS |
 
-The 60 route-fact changes are Blob `ORDER BY bucket, id` scenarios reclassified
-from generic secondary-order eligibility or filter/order mismatch to
-`secondary_order` / `missing_tie_breaker` with reason `index_order_suffix_gap`.
-The Blob ordered metadata index is `(bucket, label, id)`, so this is a more
-accurate explanation of why `ORDER BY bucket, id` cannot use that index as a
-direct ordered stream. No row, cursor, access-counter, or result signature
-changed.
+The 609 route-fact changes include the earlier Blob `ORDER BY bucket, id`
+suffix-gap reclassification plus the 0.196.5 classifier hardening that separates
+materialized order windows, residual candidate scans, and unsupported expression
+orders from true pushdown candidates. No row, cursor, access-counter, or result
+signature changed.
 
 The post-`0.196.0` line is therefore diagnostic hardening rather than a new
 runtime optimisation: order hints became visible for 1,663 scenarios,
 limit-stop proof attribution became explicit for all 1,675 common successful
-scenarios, and scalar-load descriptor route facts became visible. The aggregate
-instruction movement is about +0.15%, below the closeout regression gate.
+scenarios, scalar-load descriptor route facts became visible, and the matrix now
+leaves only 12 true `eligible_but_not_pushed` scenarios. The aggregate
+instruction movement is about +0.12%, below the closeout regression gate.
 
 Route-family/outcome deltas from `0.196.0` to the current end-of-196 state:
 
 | Route family/outcome | Scenarios | Total instruction delta |
 | --- | ---: | ---: |
-| `materialized_order` / `materialized` | 144 | +2,914,992 |
-| `incompatible_filter_first_order` / `materialized` | 603 | +1,538,726 |
-| `primary_order` / `pushed` | 397 | +1,240,053 |
-| `secondary_order` / `pushed` | 259 | +746,545 |
-| `primary_order` / `eligible_but_not_pushed` | 129 | +607,854 |
-| `secondary_order` / `eligible_but_not_pushed` | 67 | +199,547 |
-| `secondary_order` / `missing_tie_breaker` | 60 | +110,407 |
-| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` | 13 | +33,289 |
-| `equality_prefix_ordered_suffix` / `pushed` | 1 | +3,537 |
-| `unsupported_access_kind` / `unsupported` | 2 | +2,699 |
+| `incompatible_filter_first_order` / `materialized` | 498 | +2,505,118 |
+| `residual_filter_ordered_scan` / `residual_unbounded` | 315 | +1,838,889 |
+| `secondary_order` / `pushed` | 227 | +830,217 |
+| `materialized_order` / `materialized` | 258 | -788,439 |
+| `primary_order` / `pushed` | 169 | +520,933 |
+| `unsupported_access_kind` / `unsupported` | 122 | +497,752 |
+| `secondary_order` / `missing_tie_breaker` | 60 | +192,339 |
+| `not_ordered_or_not_paginated` / `unchanged_or_not_applicable` | 13 | +52,745 |
+| `secondary_order` / `eligible_but_not_pushed` | 12 | +39,007 |
+| `equality_prefix_ordered_suffix` / `pushed` | 1 | +4,416 |
 
 ## Full Matrix Delta
 

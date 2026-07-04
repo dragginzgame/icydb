@@ -1580,6 +1580,20 @@ fn classify_primary_order_route(
     sample: &MatrixSample,
     candidate_reason: &'static str,
 ) -> RouteClassification {
+    if primary_order_has_materialized_window(sample) {
+        return RouteClassification::new(
+            "materialized_order",
+            "materialized",
+            Some("requires_materialized_sort"),
+        );
+    }
+    if primary_order_requires_candidate_scan(sample) {
+        return RouteClassification::new(
+            "residual_filter_ordered_scan",
+            "residual_unbounded",
+            Some("residual_filter_requires_candidate_scan"),
+        );
+    }
     if primary_order_limit_stop_is_proven(sample) {
         return RouteClassification::new(
             "primary_order",
@@ -1595,13 +1609,22 @@ fn classify_primary_order_route(
     )
 }
 
+const fn primary_order_has_materialized_window(sample: &MatrixSample) -> bool {
+    order_window_was_materialized(sample)
+}
+
+fn primary_order_requires_candidate_scan(sample: &MatrixSample) -> bool {
+    let Some((predicate_key, _order_key)) = select_predicate_and_order_keys(&sample.family) else {
+        return false;
+    };
+    !(predicate_key == "all" || predicate_key.starts_with("pk"))
+}
+
 fn primary_order_limit_stop_is_proven(sample: &MatrixSample) -> bool {
     let Some(bound) = ordered_limit_read_bound(sample) else {
         return false;
     };
-    if sample.direct_data_row_order_window_local_instructions != 0
-        || sample.kernel_row_order_window_local_instructions != 0
-    {
+    if primary_order_requires_candidate_scan(sample) || order_window_was_materialized(sample) {
         return false;
     }
 
@@ -1720,6 +1743,13 @@ fn classify_secondary_order_route(sample: &MatrixSample) -> RouteClassification 
             Some("index_order_suffix_gap"),
         );
     }
+    if order_key.starts_with("numeric_expr") {
+        return RouteClassification::new(
+            "unsupported_access_kind",
+            "unsupported",
+            Some("order_expression_not_classified"),
+        );
+    }
     if predicate_order_is_obviously_incompatible(predicate_key, order_key) {
         return RouteClassification::new(
             "incompatible_filter_first_order",
@@ -1728,6 +1758,13 @@ fn classify_secondary_order_route(sample: &MatrixSample) -> RouteClassification 
         );
     }
     if predicate_key == "field_compare" {
+        return RouteClassification::new(
+            "residual_filter_ordered_scan",
+            "residual_unbounded",
+            Some("residual_filter_requires_candidate_scan"),
+        );
+    }
+    if secondary_order_requires_candidate_scan(predicate_key) {
         return RouteClassification::new(
             "residual_filter_ordered_scan",
             "residual_unbounded",
@@ -1749,11 +1786,24 @@ fn classify_index_order_route(
     candidate_reason: &'static str,
     pushed_reason: &'static str,
 ) -> RouteClassification {
+    if order_window_was_materialized(sample) {
+        return RouteClassification::new(
+            "materialized_order",
+            "materialized",
+            Some("requires_materialized_sort"),
+        );
+    }
     if index_order_limit_stop_is_proven(sample) {
         return RouteClassification::new(family, "pushed", Some(pushed_reason));
     }
 
     RouteClassification::new(family, "eligible_but_not_pushed", Some(candidate_reason))
+}
+
+fn secondary_order_requires_candidate_scan(predicate_key: &str) -> bool {
+    predicate_key == "field_compare"
+        || predicate_key.ends_with("_active")
+        || predicate_key.contains("_active_")
 }
 
 fn secondary_order_has_index_suffix_gap(sample: &MatrixSample, order_key: &str) -> bool {
@@ -1768,13 +1818,16 @@ fn index_order_limit_stop_is_proven(sample: &MatrixSample) -> bool {
     let Some(bound) = ordered_limit_read_bound(sample) else {
         return false;
     };
-    if sample.direct_data_row_order_window_local_instructions != 0
-        || sample.kernel_row_order_window_local_instructions != 0
-    {
+    if order_window_was_materialized(sample) {
         return false;
     }
 
     sample.data_store_get_calls <= bound && sample.index_store_entry_reads <= bound
+}
+
+const fn order_window_was_materialized(sample: &MatrixSample) -> bool {
+    sample.direct_data_row_order_window_local_instructions != 0
+        || sample.kernel_row_order_window_local_instructions != 0
 }
 
 fn select_predicate_and_order_keys(family: &str) -> Option<(&str, &str)> {
@@ -4260,9 +4313,29 @@ fn sql_perf_matrix_keeps_primary_order_candidate_unpushed_without_bounded_eviden
     assert_eq!(
         materialized_route,
         RouteClassification::new(
-            "primary_order",
-            "eligible_but_not_pushed",
-            Some("primary_order_candidate"),
+            "materialized_order",
+            "materialized",
+            Some("requires_materialized_sort"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_primary_order_residual_candidate_scan() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditUser WHERE active = true ORDER BY id DESC LIMIT 3",
+        "select.pk.active_true.pk_desc",
+    );
+    sample.data_store_get_calls = 5;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "residual_filter_ordered_scan",
+            "residual_unbounded",
+            Some("residual_filter_requires_candidate_scan"),
         ),
     );
 }
@@ -4305,6 +4378,72 @@ fn sql_perf_matrix_keeps_secondary_order_candidate_unpushed_without_index_bound(
             "secondary_order",
             "eligible_but_not_pushed",
             Some("secondary_order_candidate"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_materialized_secondary_order_window() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditAccount ORDER BY handle ASC, id ASC LIMIT 1",
+        "select.pk.all.handle_asc",
+    );
+    sample.surface = MatrixSurface::Account.label().to_string();
+    sample.data_store_get_calls = 6;
+    sample.kernel_row_order_window_local_instructions = 1_893;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "materialized_order",
+            "materialized",
+            Some("requires_materialized_sort"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_secondary_order_residual_candidate_scan() {
+    let mut sample = route_classification_sample(
+        "SELECT id, handle FROM PerfAuditAccount WHERE LOWER(handle) LIKE 'a%' AND active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        "select.narrow.lower_handle_prefix_active.lower_handle_asc",
+    );
+    sample.surface = MatrixSurface::Account.label().to_string();
+    sample.data_store_get_calls = 9;
+    sample.index_store_range_scan_calls = 3;
+    sample.index_store_entry_reads = 9;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "residual_filter_ordered_scan",
+            "residual_unbounded",
+            Some("residual_filter_requires_candidate_scan"),
+        ),
+    );
+}
+
+#[test]
+fn sql_perf_matrix_classifies_unindexed_order_expression_as_unsupported() {
+    let mut sample = route_classification_sample(
+        "SELECT id FROM PerfAuditUser ORDER BY age + rank ASC, id ASC LIMIT 1",
+        "select.pk.all.numeric_expr_asc",
+    );
+    sample.data_store_get_calls = 6;
+    sample.kernel_row_order_window_local_instructions = 2_048;
+
+    let route = route_classification_for_sample(&sample);
+
+    assert_eq!(
+        route,
+        RouteClassification::new(
+            "unsupported_access_kind",
+            "unsupported",
+            Some("order_expression_not_classified"),
         ),
     );
 }
