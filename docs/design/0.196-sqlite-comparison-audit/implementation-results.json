@@ -47,6 +47,17 @@
     "production_execution_change": false,
     "full_matrix_rerun_after_verbose_diagnostic_change": false
   },
+  "descriptor_limit_stop_property": {
+    "summary": "Canonical execution descriptor roots carry a limit_stop_after node property when the route has a bounded fetch proof, matching verbose EXPLAIN labels in JSON/text tree output.",
+    "production_execution_change": false,
+    "full_matrix_rerun_after_descriptor_property_change": false,
+    "validation": [
+      "focused EXPLAIN root-property test",
+      "canonical EXPLAIN intent suite",
+      "verbose EXPLAIN intent suite",
+      "executor semantics snapshot suite"
+    ]
+  },
   "matrix_delta": {
     "canister_wasm_profile": "debug",
     "union_scenarios": 1756,
@@ -109,7 +120,8 @@
     "selected index-range bounds are stripped from residual predicates only when the access path proves them",
     "exact primary-key public reads can use the selected key-count bound without a redundant LIMIT",
     "matrix reports include route family, route outcome, order-by index-shape hints, structured limit_stop_after attribution, Blob index suffix-gap classification, result signatures, cursor signatures, and union-key delta artifacts",
-    "verbose EXPLAIN diagnostics include route-level limit_stop_after attribution"
+    "verbose EXPLAIN diagnostics include route-level limit_stop_after attribution",
+    "canonical execution descriptors include bounded-fetch limit_stop_after node properties"
   ],
   "validation": [
     "cargo fmt --all",
@@ -125,6 +137,10 @@
     "cargo clippy -p icydb-testing-integration --tests -- -D warnings",
     "jq empty docs/design/0.196-sqlite-comparison-audit/implementation-results.json",
     "git diff --check",
+    "cargo test -p icydb-core --all-features explain_execution_root_reports_limit_stop_after_property_for_bounded_seek -- --nocapture",
+    "cargo test -p icydb-core --all-features db::query::intent::tests::explain -- --nocapture",
+    "cargo test -p icydb-core --all-features db::query::intent::tests::verbose -- --nocapture",
+    "cargo test -p icydb-core --all-features db::executor::tests::semantics -- --nocapture",
     "full after deterministic SQL perf matrix",
     "full before/after SQL perf matrix delta helper",
     "fresh order-hint deterministic SQL perf matrix",

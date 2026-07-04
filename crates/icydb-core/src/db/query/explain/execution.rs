@@ -121,6 +121,7 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const AGGREGATE_DIRECT_COUNT_PREFIXES: &str =
         "aggregate_direct_count_prefixes";
     pub(in crate::db) const INDEX: &str = "index";
+    pub(in crate::db) const LIMIT_STOP_AFTER: &str = "limit_stop_after";
     pub(in crate::db) const OFFSET: &str = "offset";
     pub(in crate::db) const ORDER_BY_INDEX: &str = "order_by_idx";
     pub(in crate::db) const ORDER_BY_INDEX_HINT: &str = "order_by_idx_hint";

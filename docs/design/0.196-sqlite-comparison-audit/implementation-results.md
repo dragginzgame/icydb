@@ -93,6 +93,23 @@ prove final limit-stop behavior report a stable disabled reason such as
 This is explain attribution only; it does not change production execution,
 cursor, cache, persisted format, or public API behavior.
 
+## Canonical Descriptor Limit-Stop Property
+
+Canonical execution descriptor roots now include a `limit_stop_after` node
+property when the route has a bounded fetch proof. Direct streaming routes
+record the same `possible(limit=...,lookahead=...,fetch=...)` label as verbose
+EXPLAIN. Routes with a bounded candidate fetch but materialized final order
+record the stable disabled reason, for example
+`disabled(residual_filter_blocks_direct_streaming)`.
+
+This is descriptor attribution only; it does not change production execution,
+cursor, cache, persisted format, or public read-admission behavior.
+
+Focused validation covered the new root property, the existing canonical EXPLAIN
+suite, verbose EXPLAIN diagnostics, executor semantics snapshots, core clippy,
+JSON validity, and whitespace checks. The full matrix was not rerun for this
+descriptor-only projection.
+
 ## Full Matrix Delta
 
 | Metric | Result |
@@ -165,6 +182,10 @@ instruction regression threshold or did not indicate semantic drift.
 - `cargo clippy -p icydb-testing-integration --tests -- -D warnings`: pass.
 - `jq empty docs/design/0.196-sqlite-comparison-audit/implementation-results.json`: pass.
 - `git diff --check`: pass.
+- Descriptor limit-stop property focused EXPLAIN test: pass.
+- Canonical EXPLAIN intent suite: pass.
+- Verbose EXPLAIN intent suite: pass.
+- Executor semantics snapshot suite: pass.
 - Full after deterministic matrix: pass.
 - Full before/after delta helper: pass.
 - Fresh order-hint deterministic matrix refresh: pass.

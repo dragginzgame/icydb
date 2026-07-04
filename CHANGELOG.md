@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Adds a route-level `limit_stop_after` verbose EXPLAIN diagnostic so bounded
-  ordered reads report the proven limit/lookahead/fetch window, while
-  materialized or unbounded routes report the stable disabled reason.
+- Adds canonical execution descriptor `limit_stop_after` node properties for
+  bounded ordered-read fetch proofs, matching the verbose EXPLAIN diagnostic in
+  machine-readable JSON/text tree output.
 
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
+
+- `0.196.2` promotes bounded ordered-read limit-stop proof into verbose
+  EXPLAIN route diagnostics without changing runtime semantics.
 
 - `0.196.1` hardens the SQLite-audit diagnostics evidence by exposing
   order-shape and limit-stop proof attribution in EXPLAIN and matrix artifacts.

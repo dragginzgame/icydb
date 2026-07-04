@@ -203,6 +203,9 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
     if let Some(fetch) = scan_fetch_pushdown(route_plan) {
         insert_fetch_node_property(node, fetch);
     }
+    if let Some(limit_stop_after) = route_limit_stop_after_node_property(route_plan) {
+        insert_node_property(node, property_keys::LIMIT_STOP_AFTER, limit_stop_after);
+    }
     annotate_continuation_node_properties(
         node,
         route_plan.direction(),
@@ -740,14 +743,22 @@ pub(in crate::db::executor::explain::descriptor) fn route_limit_stop_after_diagn
     route_plan: &ExecutionRoutePlan,
 ) -> String {
     let mut out = route_diagnostic_prefix("limit_stop_after");
-    let Some(fetch) = scan_fetch_pushdown(route_plan) else {
+    let Some(label) = route_limit_stop_after_node_property(route_plan) else {
         write_disabled_limit_stop_after(&mut out, limit_stop_after_disabled_reason(route_plan));
         return out;
     };
 
+    out.push_str(&label);
+    out
+}
+
+fn route_limit_stop_after_node_property(route_plan: &ExecutionRoutePlan) -> Option<String> {
+    let fetch = scan_fetch_pushdown(route_plan)?;
     if !route_plan.load_order_route_mode().allows_streaming_load() {
-        write_disabled_limit_stop_after(&mut out, route_plan.load_order_route_reason().code());
-        return out;
+        return Some(format!(
+            "disabled({})",
+            route_plan.load_order_route_reason().code()
+        ));
     }
 
     let keep = route_plan
@@ -760,14 +771,11 @@ pub(in crate::db::executor::explain::descriptor) fn route_limit_stop_after_diagn
         .continuation()
         .limit()
         .map_or_else(|| "none".to_string(), |limit| limit.to_string());
-    let _ = write!(
-        out,
+    Some(format!(
         "possible(limit={limit},lookahead={},fetch={})",
         u64_from_usize(lookahead),
         u64_from_usize(fetch),
-    );
-
-    out
+    ))
 }
 
 fn write_disabled_limit_stop_after(out: &mut String, reason: &str) {

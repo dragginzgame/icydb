@@ -329,6 +329,41 @@ fn explain_execution_verbose_reports_top_n_seek_hints() {
 }
 
 #[test]
+fn explain_execution_root_reports_limit_stop_after_property_for_bounded_seek() {
+    let descriptor = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .order_term(crate::db::desc("id"))
+        .offset(2)
+        .limit(3)
+        .explain_execution()
+        .expect("bounded top-n execution explain should build");
+
+    let limit_stop_after = descriptor
+        .node_properties()
+        .get("limit_stop_after")
+        .cloned();
+    assert_eq!(
+        limit_stop_after,
+        Some(Value::Text(
+            "possible(limit=3,lookahead=1,fetch=6)".to_string()
+        )),
+        "canonical execution root should expose the bounded limit-stop proof",
+    );
+
+    let json = descriptor.render_json_canonical();
+    assert!(
+        json.contains(
+            "\"limit_stop_after\":\"Text(\\\"possible(limit=3,lookahead=1,fetch=6)\\\")\""
+        ),
+        "canonical execution JSON should carry the bounded limit-stop proof: {json}",
+    );
+    let verbose = descriptor.render_text_tree_verbose();
+    assert!(
+        verbose.contains("limit_stop_after=Text(\"possible(limit=3,lookahead=1,fetch=6)\")"),
+        "verbose execution text should carry the bounded limit-stop proof: {verbose}",
+    );
+}
+
+#[test]
 fn explain_execution_materialized_order_reports_index_hint() {
     let descriptor = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("occurred_on"))
