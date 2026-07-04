@@ -45,7 +45,7 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
             FastStreamRouteRequest::SecondaryIndex {
                 plan,
                 executable_access,
-                index_prefix_spec,
+                index_prefix_specs,
                 stream_direction,
                 probe_fetch_hint,
                 index_predicate_execution,
@@ -54,7 +54,7 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
             runtime,
             plan,
             executable_access,
-            index_prefix_spec,
+            index_prefix_specs,
             stream_direction,
             probe_fetch_hint,
             index_predicate_execution,

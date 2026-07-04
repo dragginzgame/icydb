@@ -64,7 +64,7 @@ impl<'a> TraversalInputs<'a> {
         Self {
             execution_policy: self
                 .execution_policy
-                .with_index_leaf_order_policy(IndexLeafOrderPolicy::CanonicalKeyOrder),
+                .with_index_leaf_order_policy(IndexLeafOrderPolicy::CanonicalKey),
             ..self
         }
     }

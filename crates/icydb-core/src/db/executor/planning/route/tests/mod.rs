@@ -963,6 +963,30 @@ fn multi_lookup_primary_key_order_plan(
     plan
 }
 
+fn multi_lookup_secondary_rank_order_plan(direction: OrderDirection) -> AccessPlannedQuery {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexMultiLookup {
+            index: SemanticIndexAccessContract::model_only_from_generated_index(
+                ROUTE_CAPABILITY_PK_SUFFIX_INDEX_MODEL,
+            ),
+            values: vec![Value::Nat64(10), Value::Nat64(20)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", direction),
+            crate::db::query::plan::OrderTerm::field("id", direction),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 0,
+    });
+
+    plan
+}
+
 fn branch_set_primary_key_order_plan(direction: OrderDirection) -> AccessPlannedQuery {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexBranchSet {
@@ -1060,6 +1084,28 @@ fn assert_pk_suffix_multi_lookup_streams_in_primary_key_order() {
     assert!(
         !load_index_multi_lookup_prefix_cardinality_preflight_shape_supported(&single_prefix_plan),
         "single-prefix multi-lookup should not use the multi-prefix preflight gate",
+    );
+}
+
+fn assert_scalar_in_secondary_order_uses_branch_order_policy() {
+    let plan = multi_lookup_secondary_rank_order_plan(OrderDirection::Asc);
+    let finalized = finalized_plan_for_authority(route_capability_authority(), &plan);
+    assert!(
+        super::access_order_satisfied_by_route_mode(&finalized),
+        "rank IN ORDER BY rank,id should be satisfied by branch-ordered secondary prefixes",
+    );
+
+    let route_plan =
+        build_load_route_plan(&plan).expect("secondary branch-order route plan should build");
+    assert!(
+        route_plan.secondary_fast_path_eligible(),
+        "secondary branch-order route should remain a secondary fast-path candidate",
+    );
+    assert!(
+        route_plan
+            .index_leaf_order_policy()
+            .preserves_prefix_branch_order(),
+        "secondary branch-order routes must not use primary-key merge policy",
     );
 }
 
@@ -1269,6 +1315,7 @@ fn route_primary_order_satisfaction_accepts_only_proven_index_suffixes() {
     assert_primary_scan_primary_key_order_is_satisfied();
     assert_non_suffix_index_primary_key_order_is_rejected();
     assert_pk_suffix_multi_lookup_streams_in_primary_key_order();
+    assert_scalar_in_secondary_order_uses_branch_order_policy();
     assert_exact_prefix_multi_lookup_streams_without_child_expansion();
     assert_composite_suffix_multi_lookup_is_rejected();
     assert_sparse_child_suffix_multi_lookup_uses_scalar_expansion_proof();

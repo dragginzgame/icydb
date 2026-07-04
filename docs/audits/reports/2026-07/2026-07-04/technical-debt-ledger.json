@@ -2,7 +2,7 @@
   "audit": {
     "date": "2026-07-04",
     "repo_commit": "1f4fb54ac062bbdb8538b4888251b444e6f0ebcd",
-    "dirty_worktree": "Worktree changed during the audit. Final validation status showed modified CHANGELOG.md, docs/changelog/0.196.md, docs/design/0.196-sqlite-comparison-audit/implementation-results.json, docs/design/0.196-sqlite-comparison-audit/implementation-results.md, testing/integration/tests/sql_perf_matrix_audit.rs, plus the new docs/audits/technical-debt audit artifacts from this task.",
+    "dirty_worktree": "Worktree changed during the audit. Final validation status showed modified CHANGELOG.md, docs/changelog/0.196.md, docs/design/0.196-sqlite-comparison-audit/implementation-results.json, docs/design/0.196-sqlite-comparison-audit/implementation-results.md, testing/integration/tests/sql_perf_matrix_audit.rs, plus the new docs/audits/reports/2026-07/2026-07-04 audit artifacts from this task.",
     "commands_run": [
       {
         "command": "git status --short",
@@ -62,6 +62,35 @@
         "command": "git status --short",
         "result": "pass",
         "notes": "Final status recorded modified pre-existing files plus untracked technical-debt audit directory."
+      },
+      {
+        "command": "mkdir -p docs/audits/reports/2026-07/2026-07-04",
+        "result": "pass"
+      },
+      {
+        "command": "git mv docs/audits/technical-debt/icydb-technical-debt-audit-2026-07-04.md docs/audits/reports/2026-07/2026-07-04/technical-debt.md",
+        "result": "pass"
+      },
+      {
+        "command": "git mv docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json",
+        "result": "pass"
+      },
+      {
+        "command": "rmdir docs/audits/technical-debt",
+        "result": "pass"
+      },
+      {
+        "command": "jq empty docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json",
+        "result": "pass"
+      },
+      {
+        "command": "git diff --check -- docs/audits/reports/2026-07/2026-07-04/technical-debt.md docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json",
+        "result": "pass"
+      },
+      {
+        "command": "wc -l docs/audits/reports/2026-07/2026-07-04/technical-debt.md docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json",
+        "result": "pass",
+        "notes": "Final artifact counts: report 1904 lines, ledger 1032 lines, total 2936 lines."
       }
     ],
     "baseline_designs_considered": [

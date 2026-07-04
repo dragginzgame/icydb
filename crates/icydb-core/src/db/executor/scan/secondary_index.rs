@@ -25,7 +25,7 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     runtime: &TraversalRuntime,
     _plan: &AccessPlannedQuery,
     executable: &ExecutableAccessPlan<'_, Value>,
-    index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
     stream_direction: Direction,
     probe_fetch_hint: Option<usize>,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -38,12 +38,16 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     let Some(details) = path_facts.index_prefix_details() else {
         return Ok(None);
     };
-    let Some(index_prefix_spec) = index_prefix_spec else {
+    if index_prefix_specs.len() != path_facts.index_prefix_spec_count() {
         return Err(InternalError::secondary_index_prefix_spec_required());
-    };
-    debug_assert_eq!(
-        index_prefix_spec.scan_contract().name(),
-        details.name(),
+    }
+    if index_prefix_specs.is_empty() {
+        return Ok(None);
+    }
+    debug_assert!(
+        index_prefix_specs
+            .iter()
+            .all(|spec| spec.scan_contract().name() == details.name()),
         "secondary fast-path spec/index alignment must be validated by resolver",
     );
 
@@ -51,8 +55,11 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     let fast = execute_structural_fast_stream_request(
         runtime,
         executable,
-        AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
-        AccessStreamExecutionPolicy::canonical_key_order(probe_fetch_hint),
+        AccessStreamBindings::with_index_prefixes(index_prefix_specs, stream_direction),
+        AccessStreamExecutionPolicy::new(
+            probe_fetch_hint,
+            crate::db::executor::IndexLeafOrderPolicy::PreservePrefixBranch,
+        ),
         index_predicate_execution,
         ExecutionOptimization::SecondaryOrderPushdown,
     )?;

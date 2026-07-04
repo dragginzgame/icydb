@@ -307,7 +307,7 @@ impl ExecutionRuntimeAdapter {
         &self,
         plan: &AccessPlannedQuery,
         executable_access: ExecutableAccessPlan<'_, Value>,
-        index_prefix_spec: Option<&crate::db::executor::LoweredIndexPrefixSpec>,
+        index_prefix_specs: &[crate::db::executor::LoweredIndexPrefixSpec],
         direction: Direction,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -318,7 +318,7 @@ impl ExecutionRuntimeAdapter {
             FastStreamRouteRequest::SecondaryIndex {
                 plan,
                 executable_access: &executable_access,
-                index_prefix_spec,
+                index_prefix_specs,
                 stream_direction: direction,
                 probe_fetch_hint: physical_fetch_hint,
                 index_predicate_execution,

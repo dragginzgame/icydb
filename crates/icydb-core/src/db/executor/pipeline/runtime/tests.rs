@@ -8,19 +8,12 @@ fn fast_path_spec_arity_accepts_single_spec_shapes() {
 }
 
 #[test]
-fn fast_path_spec_arity_rejects_multiple_prefix_specs_for_secondary() {
-    let err = ensure_load_fast_path_spec_arity(true, 2, false, 0)
-        .expect_err("secondary fast-path must reject multiple index-prefix specs");
+fn fast_path_spec_arity_accepts_secondary_prefix_spec_slices() {
+    let result = ensure_load_fast_path_spec_arity(true, 2, false, 0);
 
-    assert_eq!(
-        err.class,
-        ErrorClass::InvariantViolation,
-        "prefix-spec arity violation must classify as invariant violation"
-    );
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
-        "prefix-spec arity violation must return the invariant diagnostic code"
+    assert!(
+        result.is_ok(),
+        "load secondary fast paths may consume multi-prefix slices after route verification",
     );
 }
 

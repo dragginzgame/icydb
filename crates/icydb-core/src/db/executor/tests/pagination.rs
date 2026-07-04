@@ -8082,6 +8082,84 @@ fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
 }
 
 #[test]
+fn load_secondary_in_order_top_n_preserves_branch_prefix_order() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_501, 8, 10, "g8-r10"),
+        (42_502, 7, 30, "g7-r30"),
+        (42_503, 7, 10, "g7-r10-a"),
+        (42_504, 8, 5, "g8-r5"),
+        (42_505, 7, 10, "g7-r10-b"),
+        (42_506, 9, 1, "g9-r1"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let group_in_predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::In,
+        Value::List(vec![Value::Nat64(7), Value::Nat64(8)]),
+        CoercionId::Strict,
+    ));
+    let expected_ids = vec![
+        Ulid::from_u128(42_503),
+        Ulid::from_u128(42_505),
+        Ulid::from_u128(42_502),
+        Ulid::from_u128(42_504),
+    ];
+
+    let build_index_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter_predicate(group_in_predicate.clone())
+            .order_term(crate::db::asc("group"))
+            .order_term(crate::db::asc("rank"))
+            .order_term(crate::db::asc("id"))
+            .limit(4)
+            .plan()
+            .map(PreparedExecutionPlan::from)
+            .expect("secondary IN branch-order plan should build")
+    };
+    let group_ids = rows
+        .iter()
+        .filter(|(_, group, _, _)| matches!(*group, 7 | 8))
+        .map(|(id, _, _, _)| Ulid::from_u128(*id))
+        .collect::<Vec<_>>();
+    let fallback_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids(group_ids)
+        .order_term(crate::db::asc("group"))
+        .order_term(crate::db::asc("rank"))
+        .order_term(crate::db::asc("id"))
+        .limit(4)
+        .plan()
+        .map(PreparedExecutionPlan::from)
+        .expect("fallback branch-order plan should build");
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+    let (index_page, trace) = load
+        .execute_paged_with_cursor_traced(build_index_plan(), ValidatedCursor::none())
+        .expect("secondary IN branch-order page should execute");
+    let fallback_page = load
+        .execute(fallback_plan)
+        .expect("fallback branch-order page should execute");
+
+    assert_eq!(
+        pushdown_ids_from_response(&index_page.items),
+        expected_ids,
+        "secondary IN branch-order top-N must follow index prefix order before primary key",
+    );
+    assert_eq!(
+        pushdown_ids_from_response(&index_page.items),
+        pushdown_ids_from_response(&fallback_page),
+        "secondary IN branch-order top-N must match materialized fallback ordering",
+    );
+    assert_eq!(
+        trace.expect("debug trace should be present").optimization(),
+        Some(ExecutionOptimization::SecondaryOrderTopNSeek),
+        "secondary IN branch-order top-N should use the secondary top-N route",
+    );
+}
+
+#[test]
 fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
     setup_pagination_test();
 

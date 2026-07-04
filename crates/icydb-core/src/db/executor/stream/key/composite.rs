@@ -27,6 +27,81 @@ fn row_witness_matches_key(witness: &RowKeyWitness, key: &DecodedDataStoreKey) -
 }
 
 ///
+/// ConcatOrderedKeyStream
+///
+/// Pull-based concatenation over already branch-ordered child streams.
+/// This is for secondary-prefix families where the branch prefix itself
+/// supplies the leading ORDER BY term, so merging by decoded primary key would
+/// destroy the requested index order.
+///
+
+pub(in crate::db::executor) struct ConcatOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    streams: Vec<S>,
+    current: usize,
+}
+
+impl<S> ConcatOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    /// Construct one concatenated ordered stream from branch-ordered children.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(streams: Vec<S>) -> Self {
+        Self {
+            streams,
+            current: 0,
+        }
+    }
+}
+
+impl<S> OrderedKeyStream for ConcatOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        while let Some(stream) = self.streams.get_mut(self.current) {
+            if let Some(key) = stream.next_key()? {
+                return Ok(Some(key));
+            }
+            self.current = self.current.saturating_add(1);
+        }
+
+        Ok(None)
+    }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        let mut total = 0usize;
+        for stream in &self.streams {
+            total = total.checked_add(stream.exact_key_count_hint()?)?;
+        }
+
+        Some(total)
+    }
+
+    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        let mut total = 0usize;
+        for stream in &self.streams {
+            total = total.checked_add(stream.cheap_access_candidate_count_hint()?)?;
+        }
+
+        Some(total)
+    }
+
+    #[cfg(test)]
+    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
+        let mut total = 0usize;
+        for stream in &self.streams {
+            total = total.checked_add(stream.exact_diagnostic_access_candidate_count()?)?;
+        }
+
+        Some(total)
+    }
+}
+
+///
 /// StreamSideState
 ///
 /// Per-side lookahead state for one ordered child stream.

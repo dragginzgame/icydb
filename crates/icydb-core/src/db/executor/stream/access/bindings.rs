@@ -109,14 +109,23 @@ fn validate_index_range_specs_consumed(
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::db::executor) enum IndexLeafOrderPolicy {
-    CanonicalKeyOrder,
-    PreservePhysicalLeafOrder,
+    CanonicalKey,
+    PreservePhysicalLeaf,
+    PreservePrefixBranch,
 }
 
 impl IndexLeafOrderPolicy {
     #[must_use]
     pub(in crate::db::executor) const fn preserves_leaf_index_order(self) -> bool {
-        matches!(self, Self::PreservePhysicalLeafOrder)
+        matches!(
+            self,
+            Self::PreservePhysicalLeaf | Self::PreservePrefixBranch
+        )
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn preserves_prefix_branch_order(self) -> bool {
+        matches!(self, Self::PreservePrefixBranch)
     }
 }
 
@@ -142,7 +151,7 @@ impl AccessStreamExecutionPolicy {
     pub(in crate::db::executor) const fn canonical_key_order(
         physical_fetch_hint: Option<usize>,
     ) -> Self {
-        Self::new(physical_fetch_hint, IndexLeafOrderPolicy::CanonicalKeyOrder)
+        Self::new(physical_fetch_hint, IndexLeafOrderPolicy::CanonicalKey)
     }
 
     #[must_use]

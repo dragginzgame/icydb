@@ -99,7 +99,7 @@ impl FastPathRouteHandler {
             Self::SecondaryPrefix => inputs.runtime().try_execute_secondary_index_order_stream(
                 inputs.plan(),
                 inputs.executable_access().clone(),
-                inputs.stream_bindings().index_prefix_specs.first(),
+                inputs.stream_bindings().index_prefix_specs,
                 inputs.stream_bindings().direction(),
                 route_plan.scan_hints.physical_fetch_hint,
                 index_predicate_execution,
@@ -125,7 +125,8 @@ pub(super) fn evaluate_fast_path(
     route_plan: &ExecutionPlan,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
-    let secondary_fast_path_spec_supported = inputs.stream_bindings().index_prefix_specs.len() <= 1;
+    let secondary_fast_path_spec_supported = inputs.stream_bindings().index_prefix_specs.len() <= 1
+        || route_plan.secondary_fast_path_eligible();
     // Guard fast-path spec arity up front so plan/runtime traversal drift
     // cannot silently consume the wrong spec in release builds.
     ensure_load_fast_path_spec_arity(

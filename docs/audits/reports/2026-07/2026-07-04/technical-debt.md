@@ -115,7 +115,7 @@ Dirty worktree:
   - `docs/design/0.196-sqlite-comparison-audit/implementation-results.json`
   - `docs/design/0.196-sqlite-comparison-audit/implementation-results.md`
   - `testing/integration/tests/sql_perf_matrix_audit.rs`
-  - `docs/audits/technical-debt/` (new audit artifacts from this task)
+  - `docs/audits/reports/2026-07/2026-07-04/` (new audit artifacts from this task)
 - The dirty test change adds grouped-aggregate route classification:
   `if sample.sql.contains(" GROUP BY ")` returns
   `materialized_order/materialized/grouped_aggregate_materialized`.
@@ -207,10 +207,14 @@ Relationship to 0.196 and 0.197:
 | `find docs/audits -maxdepth 3 -type d` | Pass | Confirmed no existing technical-debt audit convention. |
 | `find docs/audits -maxdepth 3 -type f -name '*debt*' -o -name '*audit*.md'` | Pass | No technical-debt convention found. |
 | `git rev-parse HEAD` | Pass | Final pre-report HEAD: `1f4fb54ac062bbdb8538b4888251b444e6f0ebcd`. |
-| `mkdir -p docs/audits/technical-debt` | Pass | Created requested audit directory. |
-| `jq empty docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json` | Pass | JSON syntax validated. |
-| `git diff --check -- docs/audits/technical-debt/icydb-technical-debt-audit-2026-07-04.md docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json` | Pass | No whitespace errors reported by git. |
-| `wc -l docs/audits/technical-debt/icydb-technical-debt-audit-2026-07-04.md docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json` | Pass | Final artifact counts: report 1,900 lines; ledger 1,003 lines; total 2,903 lines. |
+| `mkdir -p docs/audits/technical-debt` | Pass | Created the initial audit directory before the artifact layout was corrected. |
+| `mkdir -p docs/audits/reports/2026-07/2026-07-04` | Pass | Created the dated report directory following the existing convention. |
+| `git mv docs/audits/technical-debt/icydb-technical-debt-audit-2026-07-04.md docs/audits/reports/2026-07/2026-07-04/technical-debt.md` | Pass | Moved the markdown report into the dated report convention. |
+| `git mv docs/audits/technical-debt/icydb-technical-debt-ledger-2026-07-04.json docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json` | Pass | Moved the machine-readable ledger into the dated report convention. |
+| `rmdir docs/audits/technical-debt` | Pass | Removed the empty one-off audit directory. |
+| `jq empty docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json` | Pass | JSON syntax validated. |
+| `git diff --check -- docs/audits/reports/2026-07/2026-07-04/technical-debt.md docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json` | Pass | No whitespace errors reported by git. |
+| `wc -l docs/audits/reports/2026-07/2026-07-04/technical-debt.md docs/audits/reports/2026-07/2026-07-04/technical-debt-ledger.json` | Pass | Final artifact counts: report 1,904 lines; ledger 1,032 lines; total 2,936 lines. |
 | `git status --short` | Pass | Final status recorded modified pre-existing files plus new audit directory. |
 
 ## Debt taxonomy
@@ -1894,7 +1898,7 @@ What should be deleted?
 Audit artifact complexity delta:
 
 - Production files touched by this audit: 0.
-- New audit artifacts: 2 files, 2,903 lines total.
+- New audit artifacts: 2 files, 2,936 lines total.
 - Implementation shape: unchanged.
 - Perf delta: none measured.
 - Wasm-size delta: none measured.

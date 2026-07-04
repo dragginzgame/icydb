@@ -10,8 +10,8 @@ use crate::{
             FlatMergeSiblingSet,
             access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
             key::{
-                DistinctOrderedKeyStream, FlatMergeOrderedKeyStream, IntersectOrderedKeyStream,
-                KeyOrderComparator, MergeOrderedKeyStream,
+                ConcatOrderedKeyStream, DistinctOrderedKeyStream, FlatMergeOrderedKeyStream,
+                IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
             },
             reduce_non_empty_streams_pairwise,
         },
@@ -84,6 +84,7 @@ pub(in crate::db::executor) enum OrderedKeyStreamBox {
     IndexRange(IndexRangeKeyStream),
     Budgeted(BudgetedOrderedKeyStream<Box<Self>>),
     Distinct(DistinctOrderedKeyStream<Box<Self>>),
+    Concat(ConcatOrderedKeyStream<Self>),
     Merge(MergeOrderedKeyStream<Box<Self>, Box<Self>>),
     FlatMerge(FlatMergeOrderedKeyStream<Self>),
     Intersect(IntersectOrderedKeyStream<Box<Self>, Box<Self>>),
@@ -170,6 +171,21 @@ impl OrderedKeyStreamBox {
         ))
     }
 
+    /// Construct one ordered concatenation from already branch-ordered streams.
+    #[must_use]
+    pub(in crate::db::executor) fn concat_all(streams: Vec<Self>) -> Self {
+        match FlatMergeSiblingSet::from_vec(streams) {
+            FlatMergeSiblingSet::Empty => Self::empty(),
+            FlatMergeSiblingSet::Single(stream) => stream,
+            FlatMergeSiblingSet::Pair(left, right) => {
+                Self::Concat(ConcatOrderedKeyStream::new(vec![left, right]))
+            }
+            FlatMergeSiblingSet::Many(streams) => {
+                Self::Concat(ConcatOrderedKeyStream::new(streams))
+            }
+        }
+    }
+
     /// Construct one owned merge ordered key stream.
     #[must_use]
     fn merge(left: Self, right: Self, comparator: KeyOrderComparator) -> Self {
@@ -233,6 +249,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::IndexRange(stream) => stream.next_key(),
             Self::Budgeted(stream) => stream.next_key(),
             Self::Distinct(stream) => stream.next_key(),
+            Self::Concat(stream) => stream.next_key(),
             Self::Merge(stream) => stream.next_key(),
             Self::FlatMerge(stream) => stream.next_key(),
             Self::Intersect(stream) => stream.next_key(),
@@ -248,6 +265,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::IndexRange(stream) => stream.exact_key_count_hint(),
             Self::Budgeted(stream) => stream.exact_key_count_hint(),
             Self::Distinct(stream) => stream.exact_key_count_hint(),
+            Self::Concat(stream) => stream.exact_key_count_hint(),
             Self::Merge(stream) => stream.exact_key_count_hint(),
             Self::FlatMerge(stream) => stream.exact_key_count_hint(),
             Self::Intersect(stream) => stream.exact_key_count_hint(),
@@ -263,6 +281,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::IndexRange(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Budgeted(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Distinct(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Concat(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Merge(stream) => stream.cheap_access_candidate_count_hint(),
             Self::FlatMerge(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Intersect(stream) => stream.cheap_access_candidate_count_hint(),
@@ -279,6 +298,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::IndexRange(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::Budgeted(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::Distinct(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::Concat(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::Merge(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::FlatMerge(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::Intersect(stream) => stream.exact_diagnostic_access_candidate_count(),

@@ -46,7 +46,7 @@ pub(in crate::db::executor) enum FastStreamRouteRequest<'a, 'plan> {
     SecondaryIndex {
         plan: &'a AccessPlannedQuery,
         executable_access: &'a ExecutableAccessPlan<'plan, Value>,
-        index_prefix_spec: Option<&'a LoweredIndexPrefixSpec>,
+        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,

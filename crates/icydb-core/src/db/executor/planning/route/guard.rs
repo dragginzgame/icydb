@@ -85,15 +85,11 @@ pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
 /// This keeps contract/runtime spec boundaries explicit and drift-resistant as
 /// new fast paths are introduced.
 pub(in crate::db::executor) fn ensure_load_fast_path_spec_arity(
-    secondary_pushdown_eligible: bool,
-    index_prefix_spec_count: usize,
+    _secondary_pushdown_eligible: bool,
+    _index_prefix_spec_count: usize,
     index_range_pushdown_eligible: bool,
     index_range_spec_count: usize,
 ) -> Result<(), InternalError> {
-    RouteFastPathSpecContract::ensure_spec_at_most_one_if_enabled(
-        secondary_pushdown_eligible,
-        index_prefix_spec_count,
-    )?;
     RouteFastPathSpecContract::ensure_spec_at_most_one_if_enabled(
         index_range_pushdown_eligible,
         index_range_spec_count,

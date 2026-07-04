@@ -69,8 +69,10 @@ const MATERIALIZED_PREFIX_FAMILY_MAX_SCANNED_KEYS: usize = 1024;
 impl PrefixMergeResumePolicy {
     const fn from_index_leaf_order_policy(policy: IndexLeafOrderPolicy) -> Self {
         match policy {
-            IndexLeafOrderPolicy::CanonicalKeyOrder => Self::None,
-            IndexLeafOrderPolicy::PreservePhysicalLeafOrder => Self::PrimaryKeySuffix,
+            IndexLeafOrderPolicy::PreservePhysicalLeaf => Self::PrimaryKeySuffix,
+            IndexLeafOrderPolicy::CanonicalKey | IndexLeafOrderPolicy::PreservePrefixBranch => {
+                Self::None
+            }
         }
     }
 }
@@ -379,6 +381,19 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
         index_leaf_order_policy: IndexLeafOrderPolicy,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
+        validate_index_prefix_count(index_prefix_specs, value_count)?;
+        if index_leaf_order_policy.preserves_prefix_branch_order() {
+            return self.resolve_branch_ordered_index_prefix_streams(
+                MergedIndexPrefixStreamSpec::new(
+                    index,
+                    index_prefix_specs,
+                    continuation,
+                    index_fetch_hint,
+                    PrefixMergeResumePolicy::None,
+                ),
+            );
+        }
+
         self.resolve_index_prefix_family_stream(
             index,
             index_prefix_specs,
@@ -479,6 +494,43 @@ impl KeyAccessRuntime {
                     streams,
                     KeyOrderComparator::from_direction(request.continuation.direction()),
                 ))
+            }
+            PrefixSetExecutionShape::Materialized(_) => {
+                Err(InternalError::query_executor_invariant())
+            }
+        }
+    }
+
+    fn resolve_branch_ordered_index_prefix_streams(
+        &self,
+        request: MergedIndexPrefixStreamSpec<'_>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        if request.index_prefix_specs.is_empty() {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
+
+        let mut active_specs =
+            active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
+        if matches!(request.continuation.direction(), Direction::Desc) {
+            active_specs.reverse();
+        }
+
+        match PrefixSetExecutionShape::from_active_prefixes(
+            active_specs,
+            PrefixSetMergeSafety::OrderedMergeSafe,
+        ) {
+            PrefixSetExecutionShape::Empty => {
+                Ok(ordered_key_stream_from_materialized_keys(Vec::new()))
+            }
+            PrefixSetExecutionShape::Single(spec) => self.index_prefix_stream(request, spec, 1),
+            PrefixSetExecutionShape::OrderedMerge(active_specs) => {
+                let branch_count = active_specs.len();
+                let mut streams = Vec::with_capacity(branch_count);
+                for spec in active_specs {
+                    streams.push(self.index_prefix_stream(request, spec, branch_count)?);
+                }
+
+                Ok(OrderedKeyStreamBox::concat_all(streams))
             }
             PrefixSetExecutionShape::Materialized(_) => {
                 Err(InternalError::query_executor_invariant())
