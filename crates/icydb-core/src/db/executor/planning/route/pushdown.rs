@@ -36,6 +36,9 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
     let Some(order_contract) = validated_secondary_order_contract(planner_route_profile) else {
         return PushdownApplicability::NotApplicable;
     };
+    if order_contract.non_primary_key_terms().is_empty() {
+        return PushdownApplicability::NotApplicable;
+    }
 
     secondary_order_pushdown_applicability(access_shape_facts, order_contract)
 }

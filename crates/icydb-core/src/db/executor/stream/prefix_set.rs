@@ -7,12 +7,14 @@ pub(in crate::db::executor) enum PrefixSetExecutionShape<T> {
     Empty,
     Single(T),
     Materialized(Vec<T>),
+    OrderedConcat(Vec<T>),
     OrderedMerge(Vec<T>),
 }
 
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) enum PrefixSetMergeSafety {
     RequiresMaterialization,
+    OrderedConcatSafe,
     OrderedMergeSafe,
 }
 
@@ -28,6 +30,9 @@ impl<T> PrefixSetExecutionShape<T> {
                 Some(prefix) => Self::Single(prefix),
                 None => Self::Empty,
             },
+            _ if matches!(merge_safety, PrefixSetMergeSafety::OrderedConcatSafe) => {
+                Self::OrderedConcat(prefixes)
+            }
             _ if matches!(merge_safety, PrefixSetMergeSafety::OrderedMergeSafe) => {
                 Self::OrderedMerge(prefixes)
             }
@@ -73,6 +78,21 @@ mod tests {
         match shape {
             PrefixSetExecutionShape::OrderedMerge(prefixes) => assert_eq!(prefixes, vec![1, 2, 3]),
             _ => panic!("safe sibling prefixes should use ordered merge"),
+        }
+    }
+
+    #[test]
+    fn prefix_set_execution_shape_uses_ordered_concat_when_safe() {
+        let shape = PrefixSetExecutionShape::from_active_prefixes(
+            vec![1, 2, 3],
+            PrefixSetMergeSafety::OrderedConcatSafe,
+        );
+
+        match shape {
+            PrefixSetExecutionShape::OrderedConcat(prefixes) => {
+                assert_eq!(prefixes, vec![1, 2, 3]);
+            }
+            _ => panic!("safe branch-ordered sibling prefixes should use ordered concat"),
         }
     }
 

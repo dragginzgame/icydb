@@ -495,6 +495,9 @@ impl KeyAccessRuntime {
                     KeyOrderComparator::from_direction(request.continuation.direction()),
                 ))
             }
+            PrefixSetExecutionShape::OrderedConcat(_) => {
+                Err(InternalError::query_executor_invariant())
+            }
             PrefixSetExecutionShape::Materialized(_) => {
                 Err(InternalError::query_executor_invariant())
             }
@@ -511,19 +514,20 @@ impl KeyAccessRuntime {
 
         let mut active_specs =
             active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
+        sort_lowered_index_prefix_specs_by_raw_lower_key(&mut active_specs)?;
         if matches!(request.continuation.direction(), Direction::Desc) {
             active_specs.reverse();
         }
 
         match PrefixSetExecutionShape::from_active_prefixes(
             active_specs,
-            PrefixSetMergeSafety::OrderedMergeSafe,
+            PrefixSetMergeSafety::OrderedConcatSafe,
         ) {
             PrefixSetExecutionShape::Empty => {
                 Ok(ordered_key_stream_from_materialized_keys(Vec::new()))
             }
             PrefixSetExecutionShape::Single(spec) => self.index_prefix_stream(request, spec, 1),
-            PrefixSetExecutionShape::OrderedMerge(active_specs) => {
+            PrefixSetExecutionShape::OrderedConcat(active_specs) => {
                 let branch_count = active_specs.len();
                 let mut streams = Vec::with_capacity(branch_count);
                 for spec in active_specs {
@@ -531,6 +535,9 @@ impl KeyAccessRuntime {
                 }
 
                 Ok(OrderedKeyStreamBox::concat_all(streams))
+            }
+            PrefixSetExecutionShape::OrderedMerge(_) => {
+                Err(InternalError::query_executor_invariant())
             }
             PrefixSetExecutionShape::Materialized(_) => {
                 Err(InternalError::query_executor_invariant())
@@ -714,6 +721,24 @@ fn primary_key_suffix_resume_anchor_for_prefix(
         )?
         .to_raw()?,
     )
+}
+
+fn sort_lowered_index_prefix_specs_by_raw_lower_key(
+    specs: &mut Vec<&LoweredIndexPrefixSpec>,
+) -> Result<(), InternalError> {
+    let mut keyed_specs = Vec::with_capacity(specs.len());
+    for spec in specs.drain(..) {
+        let (lower, _upper) = spec.raw_bounds()?;
+        let Bound::Included(raw_key) = lower else {
+            return Err(InternalError::query_executor_invariant());
+        };
+        keyed_specs.push((raw_key.clone(), spec));
+    }
+
+    keyed_specs.sort_by(|left, right| left.0.cmp(&right.0));
+    specs.extend(keyed_specs.into_iter().map(|(_raw_key, spec)| spec));
+
+    Ok(())
 }
 
 fn lowered_prefix_start_key(spec: &LoweredIndexPrefixSpec) -> Result<IndexKey, InternalError> {

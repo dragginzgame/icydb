@@ -4,7 +4,10 @@ use std::{
     env,
     fmt::Write as _,
     fs,
+    io::Write as _,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
+    time::Instant,
 };
 
 use candid::CandidType;
@@ -29,6 +32,28 @@ const DEFAULT_TOP_N: usize = 20;
 const DEFAULT_RANDOM_SEED: u64 = 0x1cdb_0182_0000_0001;
 const SQL_PERF_MATRIX_WASM_PROFILE_ENV: &str = "ICYDB_SQL_PERF_MATRIX_WASM_PROFILE";
 const SQL_PERF_MATRIX_INSTALL_PROGRESS_ENV: &str = "ICYDB_SQL_PERF_MATRIX_INSTALL_PROGRESS";
+const SQL_PERF_SQLITE_OUTPUT_STEM_ENV: &str = "ICYDB_SQL_PERF_SQLITE_OUTPUT_STEM";
+const SQL_PERF_SQLITE_KEYS_ENV: &str = "ICYDB_SQL_PERF_SQLITE_KEYS";
+const SQL_PERF_SQLITE_STRICT_ENV: &str = "ICYDB_SQL_PERF_SQLITE_STRICT";
+const SQL_PERF_SQLITE3_ENV: &str = "ICYDB_SQLITE3";
+const SQL_PERF_SQLITE_TIMING_SAMPLES_ENV: &str = "ICYDB_SQL_PERF_SQLITE_TIMING_SAMPLES";
+const DEFAULT_SQL_PERF_SQLITE_TIMING_SAMPLE_COUNT: usize = 0;
+const DEFAULT_SQL_PERF_SQLITE_OUTPUT_STEM: &str =
+    "/tmp/icydb-sqlite-comparison/sql_perf_audit_sqlite_comparison";
+const SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS: &[&str] = &[
+    "user.select.pk.all.pk_asc.limit1",
+    "user.select.narrow.age_range.age_asc.limit3",
+    "user.select.narrow.lower_name_prefix.lower_name_asc.limit3",
+    "user.aggregate.count_active",
+    "user.aggregate.group_age_count",
+    "account.select.narrow.active_true.handle_asc.limit3",
+    "account.select.narrow.tier_gold_active.tier_handle_asc.limit3",
+    "blob.select.metadata.bucket_range.bucket_label_asc.limit3",
+    "blob.aggregate.count_bucket",
+    "token.collection_stage_id.branch_set.page_only.limit50",
+    "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
+    "token.collection_id.sparse_in.count",
+];
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlQueryPerfResult {
@@ -282,6 +307,90 @@ struct MatrixReport {
     random_case_count: usize,
     samples: Vec<MatrixSample>,
     failures: Vec<MatrixFailure>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct SqliteAuditComparisonReport {
+    sqlite_version: String,
+    sqlite_path: String,
+    canister_wasm_profile: String,
+    generated_scenario_count: usize,
+    compared_scenario_count: usize,
+    common_success_count: usize,
+    icydb_failure_count: usize,
+    signature_mismatch_count: usize,
+    sample_count: usize,
+    scenario_key_filter: Option<String>,
+    fairness_notes: Vec<String>,
+    scenarios: Vec<SqliteAuditComparisonScenario>,
+    failures: Vec<SqliteAuditComparisonFailure>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct SqliteAuditComparisonScenario {
+    key: String,
+    surface: String,
+    family: String,
+    sql: String,
+    route_family: String,
+    route_outcome: String,
+    route_reason: Option<String>,
+    limit_stop_after: MatrixLimitStopAfter,
+    icydb_signature: String,
+    sqlite_signature: String,
+    signatures_match: bool,
+    sqlite_explain_query_plan: Vec<String>,
+    sqlite_plan_summary: SqlitePlanSummary,
+    sqlite_plan_alignment: String,
+    icydb_total_local_instructions: u64,
+    icydb_execute_local_instructions: u64,
+    icydb_data_store_get_calls: u64,
+    icydb_index_store_range_scan_calls: u64,
+    icydb_index_store_entry_reads: u64,
+    sqlite_timing: SqliteTimingSummary,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct SqliteAuditComparisonFailure {
+    key: String,
+    surface: String,
+    family: String,
+    sql: String,
+    status: String,
+    icydb_code: u16,
+    icydb_diagnostic_code: u16,
+    icydb_diagnostic_label: String,
+    icydb_class: String,
+    icydb_origin: String,
+    sqlite_signature: String,
+    sqlite_explain_query_plan: Vec<String>,
+    sqlite_plan_summary: SqlitePlanSummary,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+struct SqlitePlanSummary {
+    features: BTreeSet<String>,
+    index_names: Vec<String>,
+}
+
+const SQLITE_PLAN_FEATURE_SCAN: &str = "scan";
+const SQLITE_PLAN_FEATURE_SEARCH: &str = "search";
+const SQLITE_PLAN_FEATURE_INDEX: &str = "index";
+const SQLITE_PLAN_FEATURE_COVERING_INDEX: &str = "covering_index";
+const SQLITE_PLAN_FEATURE_INTEGER_PRIMARY_KEY: &str = "integer_primary_key";
+const SQLITE_PLAN_FEATURE_TEMP_ORDER: &str = "temp_order";
+const SQLITE_PLAN_FEATURE_TEMP_GROUP: &str = "temp_group";
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct SqliteTimingSummary {
+    #[serde(rename = "samples_ns")]
+    samples: Vec<u128>,
+    #[serde(rename = "median_ns")]
+    median: u128,
+    #[serde(rename = "min_ns")]
+    min: u128,
+    #[serde(rename = "max_ns")]
+    max: u128,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -1378,6 +1487,958 @@ fn matrix_canister_build_options() -> CanisterBuildOptions {
         profile: matrix_canister_wasm_profile(),
         build_target: CanisterBuildTarget::Local,
         ..CanisterBuildOptions::default()
+    }
+}
+
+fn sqlite_audit_comparison_scenarios() -> Vec<MatrixScenario> {
+    let scenarios = deterministic_matrix();
+    let Some(requested_keys) = sqlite_audit_comparison_keys() else {
+        return scenarios
+            .into_iter()
+            .filter(sqlite_audit_scenario_is_compatible)
+            .collect();
+    };
+
+    sqlite_audit_comparison_scenarios_for_keys(scenarios, &requested_keys)
+}
+
+fn sqlite_audit_comparison_scenarios_for_keys(
+    scenarios: Vec<MatrixScenario>,
+    requested_keys: &[String],
+) -> Vec<MatrixScenario> {
+    let generated = scenarios.len();
+    let requested = requested_keys
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut found = BTreeSet::new();
+    let selected = scenarios
+        .into_iter()
+        .filter(|scenario| {
+            let keep = requested.contains(scenario.key.as_str());
+            if keep {
+                found.insert(scenario.key.clone());
+            }
+            keep
+        })
+        .collect::<Vec<_>>();
+    let missing = requested_keys
+        .iter()
+        .filter(|key| !found.contains(key.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "{SQL_PERF_SQLITE_KEYS_ENV} contained unknown scenario key(s) for {generated} generated scenarios: {}",
+        missing.join(", "),
+    );
+
+    selected
+}
+
+fn sqlite_audit_comparison_keys() -> Option<Vec<String>> {
+    env::var(SQL_PERF_SQLITE_KEYS_ENV).ok().map(|value| {
+        let keys = value
+            .split(',')
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(
+            !keys.is_empty(),
+            "{SQL_PERF_SQLITE_KEYS_ENV} should contain one or more comma-separated scenario keys"
+        );
+        keys
+    })
+}
+
+fn sqlite_audit_scenario_is_compatible(scenario: &MatrixScenario) -> bool {
+    if !scenario.sql.starts_with("SELECT") {
+        return false;
+    }
+
+    match scenario.surface {
+        MatrixSurface::HeapUser | MatrixSurface::JournaledUser => false,
+        MatrixSurface::Token => !scenario.key.contains(".full_entity."),
+        MatrixSurface::Blob => {
+            scenario.key.contains(".select.pk.")
+                || scenario.key.contains(".select.metadata.")
+                || scenario.key == "blob.aggregate.count_bucket"
+        }
+        MatrixSurface::Account => {
+            !scenario.key.contains(".select.wide.")
+                && !scenario.key.contains(".metadata.")
+                && !scenario.sql.contains("OCTET_LENGTH(")
+        }
+        MatrixSurface::User => {
+            !scenario.key.contains(".select.wide.")
+                && scenario.key != "user.aggregate.group_active_avg_age"
+                && !scenario.key.contains(".metadata.")
+        }
+    }
+}
+
+fn sqlite_timing_sample_count() -> usize {
+    env::var(SQL_PERF_SQLITE_TIMING_SAMPLES_ENV).map_or(
+        DEFAULT_SQL_PERF_SQLITE_TIMING_SAMPLE_COUNT,
+        |value| {
+            value
+                .parse::<usize>()
+                .expect("ICYDB_SQL_PERF_SQLITE_TIMING_SAMPLES should be a non-negative integer")
+        },
+    )
+}
+
+fn sqlite_strict_enabled() -> bool {
+    env::var(SQL_PERF_SQLITE_STRICT_ENV)
+        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+}
+
+fn sqlite3_path() -> PathBuf {
+    env::var(SQL_PERF_SQLITE3_ENV).map_or_else(|_| PathBuf::from("sqlite3"), PathBuf::from)
+}
+
+fn sqlite_version(sqlite_path: &Path) -> Result<String, String> {
+    let output = Command::new(sqlite_path)
+        .arg("--version")
+        .output()
+        .map_err(|err| format!("failed to run `{}`: {err}", sqlite_path.display()))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "`{}` --version failed with status {:?}: {}",
+            sqlite_path.display(),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn sqlite_audit_db_path() -> PathBuf {
+    env::temp_dir()
+        .join("icydb-sqlite-comparison")
+        .join(format!("sql-perf-audit-{}.sqlite3", std::process::id()))
+}
+
+fn reset_sqlite_audit_database(db_path: &Path) {
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent).unwrap_or_else(|err| {
+            panic!(
+                "failed to create SQLite audit comparison directory `{}`: {err}",
+                parent.display()
+            )
+        });
+    }
+
+    for path in [
+        db_path.to_path_buf(),
+        db_path.with_extension("sqlite3-wal"),
+        db_path.with_extension("sqlite3-shm"),
+    ] {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => panic!(
+                "failed to remove stale SQLite audit comparison file `{}`: {err}",
+                path.display()
+            ),
+        }
+    }
+}
+
+fn setup_sqlite_audit_database(sqlite_path: &Path, db_path: &Path) -> Result<(), String> {
+    reset_sqlite_audit_database(db_path);
+    sqlite_output(
+        sqlite_path,
+        db_path,
+        sqlite_audit_schema_and_seed().as_str(),
+    )
+    .map(|_| ())
+}
+
+fn sqlite_audit_schema_and_seed() -> String {
+    let mut script = String::new();
+    script.push_str(
+        "PRAGMA journal_mode=WAL;\n\
+         PRAGMA synchronous=NORMAL;\n\
+         PRAGMA case_sensitive_like=ON;\n\
+         CREATE TABLE PerfAuditUser (\n\
+           id INTEGER PRIMARY KEY,\n\
+           name TEXT NOT NULL,\n\
+           age INTEGER NOT NULL,\n\
+           age_nat INTEGER NOT NULL,\n\
+           rank INTEGER NOT NULL,\n\
+           active INTEGER NOT NULL CHECK(active IN (0, 1))\n\
+         ) STRICT;\n\
+         CREATE INDEX perf_audit_user_name ON PerfAuditUser(name);\n\
+         CREATE INDEX perf_audit_user_age_id ON PerfAuditUser(age, id);\n\
+         CREATE INDEX perf_audit_user_lower_name ON PerfAuditUser(LOWER(name));\n\
+         CREATE TABLE PerfAuditAccount (\n\
+           id INTEGER PRIMARY KEY,\n\
+           handle TEXT NOT NULL,\n\
+           tier TEXT NOT NULL,\n\
+           active INTEGER NOT NULL CHECK(active IN (0, 1)),\n\
+           score INTEGER NOT NULL\n\
+         ) STRICT;\n\
+         CREATE INDEX perf_audit_account_handle_active ON PerfAuditAccount(handle) WHERE active = 1;\n\
+         CREATE INDEX perf_audit_account_lower_handle_active ON PerfAuditAccount(LOWER(handle)) WHERE active = 1;\n\
+         CREATE INDEX perf_audit_account_tier_handle_active ON PerfAuditAccount(tier, handle) WHERE active = 1;\n\
+         CREATE INDEX perf_audit_account_tier_lower_handle_active ON PerfAuditAccount(tier, LOWER(handle)) WHERE active = 1;\n\
+         CREATE TABLE PerfAuditBlob (\n\
+           id INTEGER PRIMARY KEY,\n\
+           label TEXT NOT NULL,\n\
+           bucket INTEGER NOT NULL,\n\
+           thumbnail BLOB NOT NULL,\n\
+           chunk BLOB NOT NULL\n\
+         ) STRICT;\n\
+         CREATE INDEX perf_audit_blob_bucket_label_id ON PerfAuditBlob(bucket, label, id);\n\
+         CREATE INDEX perf_audit_blob_label ON PerfAuditBlob(label);\n\
+         CREATE TABLE PerfAuditToken (\n\
+           id TEXT PRIMARY KEY,\n\
+           collection_id TEXT NOT NULL,\n\
+           stage TEXT NOT NULL,\n\
+           title TEXT NOT NULL\n\
+         ) STRICT;\n\
+         CREATE INDEX perf_audit_token_collection_stage_id ON PerfAuditToken(collection_id, stage, id);\n",
+    );
+
+    append_sqlite_perf_audit_user_rows(&mut script);
+    append_sqlite_perf_audit_account_rows(&mut script);
+    append_sqlite_perf_audit_blob_rows(&mut script);
+    append_sqlite_perf_audit_token_rows(&mut script);
+    script
+}
+
+fn append_sqlite_perf_audit_user_rows(script: &mut String) {
+    for (id, name, age, age_nat, rank, active) in [
+        (1, "Alice", 31, 31, 28, true),
+        (2, "bob", 24, 24, 25, true),
+        (3, "Charlie", 43, 43, 43, false),
+        (4, "amber", 27, 26, 29, true),
+        (5, "Andrew", 31, 30, 30, true),
+        (6, "Zelda", 19, 19, 17, false),
+    ] {
+        writeln!(
+            script,
+            "INSERT INTO PerfAuditUser(id, name, age, age_nat, rank, active) VALUES ({id}, '{}', {age}, {age_nat}, {rank}, {});",
+            sqlite_quote(name),
+            i32::from(active),
+        )
+        .expect("write to string should succeed");
+    }
+}
+
+fn append_sqlite_perf_audit_account_rows(script: &mut String) {
+    for (id, handle, tier, active, score) in [
+        (1, "Bravo", "gold", true, 91),
+        (2, "alpha", "gold", true, 75),
+        (3, "bravo", "silver", true, 78),
+        (4, "Delta", "silver", false, 66),
+        (5, "brick", "gold", true, 88),
+        (6, "azure", "bronze", true, 63),
+    ] {
+        writeln!(
+            script,
+            "INSERT INTO PerfAuditAccount(id, handle, tier, active, score) VALUES ({id}, '{}', '{}', {}, {score});",
+            sqlite_quote(handle),
+            sqlite_quote(tier),
+            i32::from(active),
+        )
+        .expect("write to string should succeed");
+    }
+}
+
+fn append_sqlite_perf_audit_blob_rows(script: &mut String) {
+    for (id, label, bucket, thumbnail_seed, thumbnail_len, chunk_seed, chunk_len) in [
+        (1, "avatar-a", 10, 11, 1_024, 31, 16_384),
+        (2, "avatar-b", 10, 12, 2_048, 32, 32_768),
+        (3, "avatar-c", 10, 13, 4_096, 33, 65_536),
+        (4, "archive-a", 20, 14, 1_024, 34, 16_384),
+        (5, "archive-b", 20, 15, 2_048, 35, 32_768),
+        (6, "archive-c", 30, 16, 4_096, 36, 65_536),
+    ] {
+        writeln!(
+            script,
+            "INSERT INTO PerfAuditBlob(id, label, bucket, thumbnail, chunk) VALUES ({id}, '{}', {bucket}, X'{}', X'{}');",
+            sqlite_quote(label),
+            sqlite_perf_blob_hex(thumbnail_seed, thumbnail_len),
+            sqlite_perf_blob_hex(chunk_seed, chunk_len),
+        )
+        .expect("write to string should succeed");
+    }
+}
+
+fn append_sqlite_perf_audit_token_rows(script: &mut String) {
+    let mut append_token = |id: u128, collection_id: &str, stage: &str, title: &str| {
+        writeln!(
+            script,
+            "INSERT INTO PerfAuditToken(id, collection_id, stage, title) VALUES ('{}', '{}', '{}', '{}');",
+            icydb::types::Ulid::from_bytes(id.to_be_bytes()),
+            sqlite_quote(collection_id),
+            sqlite_quote(stage),
+            sqlite_quote(title),
+        )
+        .expect("write to string should succeed");
+    };
+
+    for (id, collection_id, stage, title) in [
+        (9_090, TOKEN_TARGET_COLLECTION, "Draft", "draft-090"),
+        (9_095, TOKEN_TARGET_COLLECTION, "Review", "review-095"),
+        (9_100, TOKEN_TARGET_COLLECTION, "Review", "review-100"),
+        (9_105, TOKEN_TARGET_COLLECTION, "Draft", "draft-105"),
+        (9_110, TOKEN_TARGET_COLLECTION, "Published", "published-110"),
+        (
+            9_115,
+            "01KV5N439P1111111111111111",
+            "Draft",
+            "other-draft-115",
+        ),
+        (9_120, TOKEN_TARGET_COLLECTION, "Draft", "draft-120"),
+        (9_125, TOKEN_TARGET_COLLECTION, "Review", "review-125"),
+        (9_130, TOKEN_TARGET_COLLECTION, "Draft", "draft-130"),
+        (9_135, TOKEN_TARGET_COLLECTION, "Review", "review-135"),
+        (9_140, TOKEN_TARGET_COLLECTION, "Queued", "queued-140"),
+        (
+            9_145,
+            "01KV5N439P1111111111111111",
+            "Review",
+            "other-review-145",
+        ),
+        (9_150, TOKEN_TARGET_COLLECTION, "Draft", "draft-150"),
+        (9_155, TOKEN_TARGET_COLLECTION, "Review", "review-155"),
+        (9_160, TOKEN_TARGET_COLLECTION, "Archived", "archived-160"),
+        (
+            9_165,
+            "01KV5N439P1111111111111111",
+            "Draft",
+            "other-draft-165",
+        ),
+        (9_170, TOKEN_TARGET_COLLECTION, "Draft", "draft-170"),
+        (9_175, TOKEN_TARGET_COLLECTION, "Review", "review-175"),
+        (9_180, TOKEN_TARGET_COLLECTION, "Rejected", "rejected-180"),
+        (
+            9_185,
+            "01KV5N439P1111111111111111",
+            "Review",
+            "other-review-185",
+        ),
+    ] {
+        append_token(id, collection_id, stage, title);
+    }
+
+    for offset in 0..240u128 {
+        let stage = match offset % 4 {
+            0 => "Draft",
+            1 => "Queued",
+            2 => "Review",
+            _ => "Published",
+        };
+        let title = format!("{}-pressure-{offset:03}", stage.to_ascii_lowercase());
+        append_token(
+            10_000 + offset,
+            TOKEN_TARGET_COLLECTION,
+            stage,
+            title.as_str(),
+        );
+    }
+}
+
+fn sqlite_perf_blob_hex(seed: u8, len: usize) -> String {
+    let mut out = String::with_capacity(len.saturating_mul(2));
+    for value in (0u8..=250)
+        .cycle()
+        .take(len)
+        .map(|offset| seed.wrapping_add(offset))
+    {
+        write!(out, "{value:02x}").expect("write to string should succeed");
+    }
+    out
+}
+
+fn sqlite_quote(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn sqlite_output(sqlite_path: &Path, db_path: &Path, sql: &str) -> Result<String, String> {
+    let mut child = Command::new(sqlite_path)
+        .arg("-batch")
+        .arg("-noheader")
+        .arg("-cmd")
+        .arg(".mode tabs")
+        .arg("-cmd")
+        .arg(".nullvalue NULL")
+        .arg(db_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("failed to run `{}`: {err}", sqlite_path.display()))?;
+    child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| format!("failed to open stdin for `{}`", sqlite_path.display()))?
+        .write_all(sql.as_bytes())
+        .map_err(|err| format!("failed to write SQL to `{}`: {err}", sqlite_path.display()))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|err| format!("failed to wait for `{}`: {err}", sqlite_path.display()))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "`{}` failed with status {:?}: {}",
+            sqlite_path.display(),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches(['\n', '\r'])
+        .replace("\r\n", "\n"))
+}
+
+fn sqlite_query_signature(sqlite_path: &Path, db_path: &Path, sql: &str) -> Result<String, String> {
+    sqlite_output(
+        sqlite_path,
+        db_path,
+        format!("PRAGMA case_sensitive_like=ON;\n{sql};").as_str(),
+    )
+}
+
+fn sqlite_explain_query_plan(
+    sqlite_path: &Path,
+    db_path: &Path,
+    sql: &str,
+) -> Result<Vec<String>, String> {
+    let output = sqlite_output(
+        sqlite_path,
+        db_path,
+        format!("PRAGMA case_sensitive_like=ON;\nEXPLAIN QUERY PLAN {sql};").as_str(),
+    )?;
+
+    Ok(output.lines().map(str::to_string).collect())
+}
+
+fn sqlite_plan_summary(rows: &[String]) -> SqlitePlanSummary {
+    let mut summary = SqlitePlanSummary::default();
+    for detail in rows.iter().map(|row| sqlite_plan_detail(row)) {
+        if detail.starts_with("SCAN ") {
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_SCAN.to_string());
+        }
+        if detail.starts_with("SEARCH ") {
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_SEARCH.to_string());
+        }
+        if detail.contains("USING COVERING INDEX ") {
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_COVERING_INDEX.to_string());
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_INDEX.to_string());
+        }
+        if detail.contains("USING INTEGER PRIMARY KEY") {
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_INTEGER_PRIMARY_KEY.to_string());
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_INDEX.to_string());
+        }
+        if detail.contains("USING INDEX ") {
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_INDEX.to_string());
+        }
+        if detail.contains("USE TEMP B-TREE") && detail.contains("ORDER BY") {
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_TEMP_ORDER.to_string());
+        }
+        if detail.contains("USE TEMP B-TREE") && detail.contains("GROUP BY") {
+            summary
+                .features
+                .insert(SQLITE_PLAN_FEATURE_TEMP_GROUP.to_string());
+        }
+
+        if let Some(index_name) = sqlite_plan_index_name(detail) {
+            summary.index_names.push(index_name);
+        }
+    }
+
+    summary.index_names.sort();
+    summary.index_names.dedup();
+    summary
+}
+
+fn sqlite_plan_has(summary: &SqlitePlanSummary, feature: &str) -> bool {
+    summary.features.contains(feature)
+}
+
+fn sqlite_plan_detail(row: &str) -> &str {
+    let mut detail = row.rsplit('\t').next().unwrap_or(row).trim();
+    while let Some(stripped) = detail
+        .strip_prefix("|--")
+        .or_else(|| detail.strip_prefix("`--"))
+    {
+        detail = stripped.trim_start();
+    }
+    detail
+}
+
+fn sqlite_plan_index_name(detail: &str) -> Option<String> {
+    for prefix in ["USING COVERING INDEX ", "USING INDEX "] {
+        if let Some(suffix) = detail.split_once(prefix).map(|(_, suffix)| suffix) {
+            return Some(
+                suffix
+                    .split([' ', '('])
+                    .next()
+                    .unwrap_or(suffix)
+                    .to_string(),
+            );
+        }
+    }
+
+    detail
+        .contains("USING INTEGER PRIMARY KEY")
+        .then(|| "INTEGER_PRIMARY_KEY".to_string())
+}
+
+fn sqlite_plan_alignment(sample: &MatrixSample, summary: &SqlitePlanSummary) -> String {
+    match sample.route_outcome.as_str() {
+        "pushed" if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) => {
+            "review_icydb_pushed_sqlite_temp_order".to_string()
+        }
+        "pushed"
+            if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_INDEX)
+                || !sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_SCAN) =>
+        {
+            "aligned_bounded_access".to_string()
+        }
+        "pushed" if sample.route_family == "primary_order" => "aligned_ordered_access".to_string(),
+        "pushed" => "review_icydb_pushed_sqlite_scan".to_string(),
+        "materialized" if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) => {
+            "aligned_materialized_order".to_string()
+        }
+        "materialized"
+            if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_INDEX)
+                && !sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) =>
+        {
+            "sqlite_index_order_icydb_materialized".to_string()
+        }
+        "materialized" => "aligned_scan_or_materialized".to_string(),
+        _ => "not_comparable".to_string(),
+    }
+}
+
+fn sqlite_time_query(
+    sqlite_path: &Path,
+    db_path: &Path,
+    sql: &str,
+    expected_signature: &str,
+    sample_count: usize,
+) -> Result<SqliteTimingSummary, String> {
+    if sample_count == 0 {
+        return Ok(SqliteTimingSummary {
+            samples: Vec::new(),
+            median: 0,
+            min: 0,
+            max: 0,
+        });
+    }
+
+    let mut samples = Vec::with_capacity(sample_count);
+    for _ in 0..sample_count {
+        let start = Instant::now();
+        let signature = sqlite_query_signature(sqlite_path, db_path, sql)?;
+        let elapsed = start.elapsed().as_nanos();
+        if signature != expected_signature {
+            return Err(format!(
+                "SQLite result signature changed between timing samples for `{sql}`: expected `{expected_signature}`, got `{signature}`"
+            ));
+        }
+        samples.push(elapsed);
+    }
+    Ok(SqliteTimingSummary::from_samples(samples))
+}
+
+fn sqlite_audit_comparison_for_scenario(
+    fixture: &StandaloneCanisterFixture,
+    sqlite_path: &Path,
+    db_path: &Path,
+    scenario: &MatrixScenario,
+    timing_sample_count: usize,
+) -> Result<SqliteAuditComparisonScenario, Box<SqliteAuditComparisonFailure>> {
+    let sqlite_signature = sqlite_query_signature(sqlite_path, db_path, scenario.sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!(
+                "SQLite query failed for comparison scenario `{}`: {err}",
+                scenario.key
+            )
+        });
+    let sqlite_explain_query_plan =
+        sqlite_explain_query_plan(sqlite_path, db_path, scenario.sql.as_str()).unwrap_or_else(
+            |err| {
+                panic!(
+                    "SQLite EXPLAIN QUERY PLAN failed for comparison scenario `{}`: {err}",
+                    scenario.key
+                )
+            },
+        );
+    let sqlite_plan_summary = sqlite_plan_summary(&sqlite_explain_query_plan);
+
+    let perf = match query_surface_with_perf(fixture, scenario) {
+        Ok(perf) => perf,
+        Err(err) => {
+            return Err(sqlite_audit_comparison_failure(
+                scenario,
+                err,
+                sqlite_signature,
+                sqlite_explain_query_plan,
+                sqlite_plan_summary,
+            ));
+        }
+    };
+    let sample = matrix_sample_from_perf(scenario, &perf);
+    let icydb_signature = sqlite_comparable_signature(&perf.result).unwrap_or_else(|| {
+        panic!(
+            "scenario `{}` did not produce a SQLite-comparable IcyDB result",
+            scenario.key
+        )
+    });
+    let sqlite_plan_alignment = sqlite_plan_alignment(&sample, &sqlite_plan_summary);
+    let sqlite_timing = sqlite_time_query(
+        sqlite_path,
+        db_path,
+        scenario.sql.as_str(),
+        sqlite_signature.as_str(),
+        timing_sample_count,
+    )
+    .unwrap_or_else(|err| {
+        panic!(
+            "SQLite timing failed for comparison scenario `{}`: {err}",
+            scenario.key
+        )
+    });
+
+    Ok(SqliteAuditComparisonScenario {
+        key: scenario.key.clone(),
+        surface: scenario.surface.label().to_string(),
+        family: scenario.family.clone(),
+        sql: scenario.sql.clone(),
+        route_family: sample.route_family,
+        route_outcome: sample.route_outcome,
+        route_reason: sample.route_reason,
+        limit_stop_after: sample.limit_stop_after,
+        icydb_signature: icydb_signature.clone(),
+        sqlite_signature: sqlite_signature.clone(),
+        signatures_match: icydb_signature == sqlite_signature,
+        sqlite_explain_query_plan,
+        sqlite_plan_summary,
+        sqlite_plan_alignment,
+        icydb_total_local_instructions: sample.total_local_instructions,
+        icydb_execute_local_instructions: sample.execute_local_instructions,
+        icydb_data_store_get_calls: sample.data_store_get_calls,
+        icydb_index_store_range_scan_calls: sample.index_store_range_scan_calls,
+        icydb_index_store_entry_reads: sample.index_store_entry_reads,
+        sqlite_timing,
+    })
+}
+
+fn sqlite_audit_comparison_failure(
+    scenario: &MatrixScenario,
+    err: Error,
+    sqlite_signature: String,
+    sqlite_explain_query_plan: Vec<String>,
+    sqlite_plan_summary: SqlitePlanSummary,
+) -> Box<SqliteAuditComparisonFailure> {
+    let diagnostic_code = err.diagnostic_code();
+    Box::new(SqliteAuditComparisonFailure {
+        key: scenario.key.clone(),
+        surface: scenario.surface.label().to_string(),
+        family: scenario.family.clone(),
+        sql: scenario.sql.clone(),
+        status: "icydb_failure".to_string(),
+        icydb_code: err.code().raw(),
+        icydb_diagnostic_code: diagnostic_code.error_code().raw(),
+        icydb_diagnostic_label: diagnostic_label(diagnostic_code).to_string(),
+        icydb_class: error_class_label(err.class()).to_string(),
+        icydb_origin: format!("{:?}", err.origin()),
+        sqlite_signature,
+        sqlite_explain_query_plan,
+        sqlite_plan_summary,
+    })
+}
+
+impl SqliteTimingSummary {
+    fn from_samples(mut samples: Vec<u128>) -> Self {
+        samples.sort_unstable();
+        let median = samples[samples.len() / 2];
+        let min = samples[0];
+        let max = samples[samples.len() - 1];
+
+        Self {
+            samples,
+            median,
+            min,
+            max,
+        }
+    }
+}
+
+fn sqlite_comparable_signature(result: &SqlQueryResult) -> Option<String> {
+    match result {
+        SqlQueryResult::Count { row_count, .. } => Some(row_count.to_string()),
+        SqlQueryResult::Projection(rows) => Some(rendered_rows_signature(&rows.rendered_rows())),
+        SqlQueryResult::Grouped(rows) => Some(rendered_rows_signature(&rows.rows)),
+        _ => None,
+    }
+}
+
+fn rendered_rows_signature(rows: &[Vec<String>]) -> String {
+    rows.iter()
+        .map(|row| row.join("\t"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn sqlite_audit_comparison_fairness_notes() -> Vec<String> {
+    vec![
+        "SQLite runs through the local sqlite3 CLI and is not using Internet Computer stable memory.".to_string(),
+        "IcyDB runs in the existing sql_perf audit canister and reports local instruction counters, not native wall-clock time.".to_string(),
+        "SQLite timings include CLI process startup and are diagnostic outlier signals, not headline benchmark claims.".to_string(),
+        "The SQLite fixture mirrors the main PerfAudit table data and indexes where SQLite can express the same shape.".to_string(),
+        "Only overlapping SELECT/COUNT/GROUP BY scenarios are compared; metadata and IcyDB-only SQL surfaces stay out of this harness.".to_string(),
+    ]
+}
+
+fn sqlite_audit_comparison_output_stem() -> PathBuf {
+    env::var(SQL_PERF_SQLITE_OUTPUT_STEM_ENV).map_or_else(
+        |_| PathBuf::from(DEFAULT_SQL_PERF_SQLITE_OUTPUT_STEM),
+        PathBuf::from,
+    )
+}
+
+fn write_sqlite_audit_comparison_reports(report: &SqliteAuditComparisonReport) {
+    let output_stem = sqlite_audit_comparison_output_stem();
+    if let Some(parent) = output_stem.parent() {
+        fs::create_dir_all(parent).unwrap_or_else(|err| {
+            panic!(
+                "failed to create SQLite audit comparison report directory `{}`: {err}",
+                parent.display()
+            )
+        });
+    }
+
+    let json_path = output_stem.with_extension("json");
+    let markdown_path = output_stem.with_extension("md");
+    let json = serde_json::to_string_pretty(report)
+        .expect("SQLite audit comparison report should serialize");
+    fs::write(&json_path, json).unwrap_or_else(|err| {
+        panic!(
+            "failed to write SQLite audit comparison JSON `{}`: {err}",
+            json_path.display()
+        )
+    });
+    fs::write(&markdown_path, sqlite_audit_comparison_markdown(report)).unwrap_or_else(|err| {
+        panic!(
+            "failed to write SQLite audit comparison Markdown `{}`: {err}",
+            markdown_path.display()
+        )
+    });
+}
+
+fn print_sqlite_audit_comparison_report(report: &SqliteAuditComparisonReport) {
+    if report.compared_scenario_count <= 50 {
+        println!("{}", sqlite_audit_comparison_markdown(report));
+        return;
+    }
+
+    let output_stem = sqlite_audit_comparison_output_stem();
+    println!(
+        "SQLite audit comparison: compared={}, common_success={}, icydb_failures={}, signature_mismatches={}, artifacts={}{{.json,.md}}",
+        report.compared_scenario_count,
+        report.common_success_count,
+        report.icydb_failure_count,
+        report.signature_mismatch_count,
+        output_stem.display(),
+    );
+}
+
+fn sqlite_audit_comparison_markdown(report: &SqliteAuditComparisonReport) -> String {
+    let mut out = String::new();
+    writeln!(out, "# SQL Perf Audit SQLite Comparison").expect("write to string should succeed");
+    writeln!(out).expect("write to string should succeed");
+    writeln!(out, "- SQLite version: {}", report.sqlite_version)
+        .expect("write to string should succeed");
+    writeln!(out, "- SQLite path: {}", report.sqlite_path).expect("write to string should succeed");
+    writeln!(
+        out,
+        "- Canister wasm profile: {}",
+        report.canister_wasm_profile
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        out,
+        "- Compared scenarios: {} of {} generated",
+        report.compared_scenario_count, report.generated_scenario_count
+    )
+    .expect("write to string should succeed");
+    writeln!(out, "- Common successes: {}", report.common_success_count)
+        .expect("write to string should succeed");
+    writeln!(out, "- IcyDB failures: {}", report.icydb_failure_count)
+        .expect("write to string should succeed");
+    writeln!(
+        out,
+        "- Signature mismatches: {}",
+        report.signature_mismatch_count
+    )
+    .expect("write to string should succeed");
+    writeln!(out, "- SQLite timing samples: {}", report.sample_count)
+        .expect("write to string should succeed");
+    writeln!(out).expect("write to string should succeed");
+    writeln!(out, "## Fairness Notes").expect("write to string should succeed");
+    for note in &report.fairness_notes {
+        writeln!(out, "- {note}").expect("write to string should succeed");
+    }
+    writeln!(out).expect("write to string should succeed");
+    append_sqlite_success_table(&mut out, &report.scenarios);
+    append_sqlite_failure_table(&mut out, &report.failures);
+    append_sqlite_explain_plans(&mut out, &report.scenarios, &report.failures);
+    out
+}
+
+fn append_sqlite_success_table(output: &mut String, scenarios: &[SqliteAuditComparisonScenario]) {
+    writeln!(output, "## Scenarios").expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Route | Outcome | Match | SQLite Plan | Alignment | IcyDB Total | IcyDB Execute | Gets | Ranges | Entries | SQLite Median ns |"
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
+    )
+    .expect("write to string should succeed");
+    for scenario in scenarios {
+        writeln!(
+            output,
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            scenario.key,
+            scenario.surface,
+            scenario.route_family,
+            scenario.route_outcome,
+            scenario.signatures_match,
+            sqlite_plan_summary_cell(&scenario.sqlite_plan_summary),
+            scenario.sqlite_plan_alignment,
+            scenario.icydb_total_local_instructions,
+            scenario.icydb_execute_local_instructions,
+            scenario.icydb_data_store_get_calls,
+            scenario.icydb_index_store_range_scan_calls,
+            scenario.icydb_index_store_entry_reads,
+            sqlite_timing_median_cell(&scenario.sqlite_timing),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_sqlite_failure_table(output: &mut String, failures: &[SqliteAuditComparisonFailure]) {
+    if failures.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## IcyDB Failures").expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Diagnostic | Class | Origin | SQLite Plan | SQL |"
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "| --- | --- | --- | --- | --- | --- | --- |")
+        .expect("write to string should succeed");
+    for failure in failures {
+        writeln!(
+            output,
+            "| {} | {} | {} ({}) | {} | {} | {} | `{}` |",
+            failure.key,
+            failure.surface,
+            failure.icydb_diagnostic_label,
+            failure.icydb_diagnostic_code,
+            failure.icydb_class,
+            failure.icydb_origin,
+            sqlite_plan_summary_cell(&failure.sqlite_plan_summary),
+            failure.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_sqlite_explain_plans(
+    output: &mut String,
+    scenarios: &[SqliteAuditComparisonScenario],
+    failures: &[SqliteAuditComparisonFailure],
+) {
+    writeln!(output, "## SQLite EXPLAIN QUERY PLAN").expect("write to string should succeed");
+    for scenario in scenarios {
+        writeln!(output).expect("write to string should succeed");
+        writeln!(output, "### {}", scenario.key).expect("write to string should succeed");
+        for row in &scenario.sqlite_explain_query_plan {
+            writeln!(output, "- `{}`", row.replace('`', "\\`"))
+                .expect("write to string should succeed");
+        }
+    }
+    for failure in failures {
+        writeln!(output).expect("write to string should succeed");
+        writeln!(output, "### {} [icydb_failure]", failure.key)
+            .expect("write to string should succeed");
+        for row in &failure.sqlite_explain_query_plan {
+            writeln!(output, "- `{}`", row.replace('`', "\\`"))
+                .expect("write to string should succeed");
+        }
+    }
+}
+
+fn sqlite_plan_summary_cell(summary: &SqlitePlanSummary) -> String {
+    let mut parts = Vec::new();
+    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_SCAN) {
+        parts.push("scan".to_string());
+    }
+    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_SEARCH) {
+        parts.push("search".to_string());
+    }
+    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_COVERING_INDEX) {
+        parts.push("covering-index".to_string());
+    } else if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_INDEX) {
+        parts.push("index".to_string());
+    }
+    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_ORDER) {
+        parts.push("temp-order".to_string());
+    }
+    if sqlite_plan_has(summary, SQLITE_PLAN_FEATURE_TEMP_GROUP) {
+        parts.push("temp-group".to_string());
+    }
+    if !summary.index_names.is_empty() {
+        parts.push(format!("indexes={}", summary.index_names.join("+")));
+    }
+
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+fn sqlite_timing_median_cell(timing: &SqliteTimingSummary) -> String {
+    if timing.samples.is_empty() {
+        "n/a".to_string()
+    } else {
+        timing.median.to_string()
     }
 }
 
@@ -4134,6 +5195,126 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
     assert_sparse_collection_in_route_hotspots(&scenarios_by_key);
 }
 
+#[test]
+fn sql_perf_sqlite_comparison_default_subset_is_broad_and_compatible() {
+    let deterministic = deterministic_matrix();
+    let scenarios_by_key = deterministic
+        .iter()
+        .map(|scenario| (scenario.key.as_str(), scenario))
+        .collect::<BTreeMap<_, _>>();
+    let selected = deterministic
+        .iter()
+        .filter(|scenario| sqlite_audit_scenario_is_compatible(scenario))
+        .collect::<Vec<_>>();
+    let selected_keys = selected
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<BTreeSet<_>>();
+
+    assert!(
+        selected.len() >= 1_000,
+        "SQLite audit comparison should cover the broad compatible matrix subset; got {}",
+        selected.len(),
+    );
+    for key in SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS {
+        assert!(
+            scenarios_by_key.contains_key(key),
+            "SQLite audit comparison required key should exist in deterministic matrix: {key}"
+        );
+        assert!(
+            selected_keys.contains(key),
+            "SQLite audit comparison compatible subset should include required key: {key}"
+        );
+    }
+    assert!(
+        selected
+            .iter()
+            .any(|scenario| scenario.surface == MatrixSurface::User)
+    );
+    assert!(
+        selected
+            .iter()
+            .any(|scenario| scenario.surface == MatrixSurface::Account)
+    );
+    assert!(
+        selected
+            .iter()
+            .any(|scenario| scenario.surface == MatrixSurface::Blob)
+    );
+    assert!(
+        selected
+            .iter()
+            .any(|scenario| scenario.surface == MatrixSurface::Token)
+    );
+    for incompatible in [
+        "user.select.wide.all.pk_asc.limit1",
+        "blob.select.payload.all.pk_asc.limit1",
+        "blob.select.lengths.all.pk_asc.limit1",
+        "token.collection_stage_id.branch_set.full_entity.limit50",
+        "user.metadata.describe",
+        "heap_user.select.pk.all.pk_asc.limit1",
+    ] {
+        assert!(
+            !selected_keys.contains(incompatible),
+            "SQLite audit comparison compatible subset should exclude incompatible key: {incompatible}"
+        );
+    }
+}
+
+#[test]
+fn sql_perf_sqlite_comparison_schema_seeds_audit_tables() {
+    let schema = sqlite_audit_schema_and_seed();
+
+    for required in [
+        "CREATE TABLE PerfAuditUser",
+        "CREATE TABLE PerfAuditAccount",
+        "CREATE TABLE PerfAuditBlob",
+        "CREATE TABLE PerfAuditToken",
+        "CREATE INDEX perf_audit_token_collection_stage_id",
+        "INSERT INTO PerfAuditUser",
+        "INSERT INTO PerfAuditAccount",
+        "INSERT INTO PerfAuditBlob",
+        "INSERT INTO PerfAuditToken",
+        TOKEN_TARGET_COLLECTION,
+        "draft-pressure-000",
+        "published-pressure-239",
+    ] {
+        assert!(
+            schema.contains(required),
+            "SQLite audit comparison schema should contain `{required}`"
+        );
+    }
+}
+
+#[test]
+fn sql_perf_sqlite_plan_summary_classifies_index_and_temp_sort() {
+    let rows = vec![
+        "4\t0\t0\t`--SEARCH PerfAuditUser USING COVERING INDEX perf_audit_user_age_id (age>?)"
+            .to_string(),
+        "18\t0\t0\t|--USE TEMP B-TREE FOR RIGHT PART OF ORDER BY".to_string(),
+    ];
+    let summary = sqlite_plan_summary(&rows);
+
+    assert!(!sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_SCAN));
+    assert!(sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_SEARCH));
+    assert!(sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_INDEX));
+    assert!(sqlite_plan_has(
+        &summary,
+        SQLITE_PLAN_FEATURE_COVERING_INDEX
+    ));
+    assert!(sqlite_plan_has(&summary, SQLITE_PLAN_FEATURE_TEMP_ORDER));
+    assert_eq!(summary.index_names, vec!["perf_audit_user_age_id"]);
+
+    let sample = MatrixSample {
+        route_outcome: "pushed".to_string(),
+        ..MatrixSample::default()
+    };
+    assert_eq!(
+        sqlite_plan_alignment(&sample, &summary),
+        "review_icydb_pushed_sqlite_temp_order"
+    );
+}
+
 fn assert_branch_route_hotspot_sql_shapes(
     scenarios_by_key: &BTreeMap<&str, (usize, &MatrixScenario)>,
 ) {
@@ -5516,6 +6697,103 @@ fn sql_perf_matrix_pocketic_startup_smoke() {
     eprintln!("sql_perf_matrix: fresh PocketIC instance started");
     let canister_id = pic.create_canister();
     eprintln!("sql_perf_matrix: created smoke canister {canister_id}");
+}
+
+#[test]
+#[ignore = "optional SQLite comparison; run manually with sqlite3 and PocketIC"]
+fn sql_perf_generated_matrix_compares_sqlite_reference_fixture() {
+    let sqlite_path = sqlite3_path();
+    let Ok(sqlite_version) = sqlite_version(&sqlite_path) else {
+        eprintln!(
+            "skipping SQLite audit comparison because `{}` is unavailable",
+            sqlite_path.display()
+        );
+        return;
+    };
+    let db_path = sqlite_audit_db_path();
+    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to seed SQLite audit comparison database `{}`: {err}",
+            db_path.display()
+        )
+    });
+
+    eprintln!("sql_perf_sqlite: installing sql_perf fixture canister");
+    let fixture = install_sql_perf_canister_fixture();
+    eprintln!("sql_perf_sqlite: resetting and loading IcyDB fixture rows");
+    reset_icydb_fixtures(&fixture);
+
+    let scenarios = sqlite_audit_comparison_scenarios();
+    let generated_scenario_count = deterministic_matrix().len();
+    let timing_sample_count = sqlite_timing_sample_count();
+    let mut comparisons = Vec::new();
+    let mut failures = Vec::new();
+    let verbose_progress = scenarios.len() <= 50;
+    for (index, scenario) in scenarios.iter().enumerate() {
+        if verbose_progress || index % 100 == 0 {
+            eprintln!(
+                "sql_perf_sqlite: comparing {}/{} {}",
+                index + 1,
+                scenarios.len(),
+                scenario.key,
+            );
+        }
+        match sqlite_audit_comparison_for_scenario(
+            &fixture,
+            &sqlite_path,
+            &db_path,
+            scenario,
+            timing_sample_count,
+        ) {
+            Ok(comparison) => comparisons.push(comparison),
+            Err(failure) => failures.push(*failure),
+        }
+    }
+    let signature_mismatch_count = comparisons
+        .iter()
+        .filter(|scenario| !scenario.signatures_match)
+        .count();
+
+    let report = SqliteAuditComparisonReport {
+        sqlite_version,
+        sqlite_path: sqlite_path.display().to_string(),
+        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
+        generated_scenario_count,
+        compared_scenario_count: scenarios.len(),
+        common_success_count: comparisons.len(),
+        icydb_failure_count: failures.len(),
+        signature_mismatch_count,
+        sample_count: timing_sample_count,
+        scenario_key_filter: env::var(SQL_PERF_SQLITE_KEYS_ENV).ok(),
+        fairness_notes: sqlite_audit_comparison_fairness_notes(),
+        scenarios: comparisons,
+        failures,
+    };
+
+    write_sqlite_audit_comparison_reports(&report);
+    print_sqlite_audit_comparison_report(&report);
+
+    let mismatches = report
+        .scenarios
+        .iter()
+        .filter(|scenario| !scenario.signatures_match)
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    if sqlite_strict_enabled() {
+        assert!(
+            report.failures.is_empty(),
+            "strict SQLite comparison should have no IcyDB failures: {:?}",
+            report
+                .failures
+                .iter()
+                .map(|failure| failure.key.as_str())
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            mismatches.is_empty(),
+            "strict SQLite comparison signatures should match IcyDB for overlapping audit scenarios: {mismatches:?}",
+        );
+    }
 }
 
 #[test]

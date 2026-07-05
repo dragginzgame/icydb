@@ -244,11 +244,17 @@ where
     }
 
     let component_indices: Arc<[usize]> = Arc::from(scan.component_indices.to_vec());
-    let active_specs = active_covering_prefix_specs(
+    let mut active_specs = active_covering_prefix_specs(
         index_prefix_specs,
         scan.predicate_execution,
         &mut resolve_store_for_index,
     )?;
+    if matches!(scan.merge_safety, PrefixSetMergeSafety::OrderedConcatSafe) {
+        sort_active_covering_prefix_specs_by_raw_lower_key(&mut active_specs)?;
+        if matches!(scan.direction, Direction::Desc) {
+            active_specs.reverse();
+        }
+    }
     match PrefixSetExecutionShape::from_active_prefixes(active_specs, scan.merge_safety) {
         PrefixSetExecutionShape::Empty => Ok(Vec::new()),
         PrefixSetExecutionShape::Single(active) => {
@@ -270,6 +276,14 @@ where
                 active_specs,
                 &scan,
                 component_indices.as_ref(),
+            )
+        }
+        PrefixSetExecutionShape::OrderedConcat(active_specs) => {
+            resolve_branch_ordered_covering_projection_components_for_prefix_set(
+                entity_tag,
+                active_specs,
+                &scan,
+                Arc::clone(&component_indices),
             )
         }
         PrefixSetExecutionShape::OrderedMerge(active_specs) => {
@@ -303,6 +317,64 @@ where
             stream.collect_limit(scan.limit)
         }
     }
+}
+
+fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
+    entity_tag: EntityTag,
+    active_specs: Vec<ActiveCoveringPrefixSpec<'_>>,
+    scan: &CoveringPrefixSetScan<'_>,
+    component_indices: Arc<[usize]>,
+) -> Result<CoveringProjectionComponentRows, InternalError> {
+    let mut rows = Vec::with_capacity(scan.limit.min(32));
+    let branch_count = active_specs.len();
+    let chunk_entries = covering_branch_stream_chunk_entries(Some(scan.limit), branch_count);
+
+    for active in active_specs {
+        if rows.len() >= scan.limit {
+            break;
+        }
+
+        let remaining = scan.limit.saturating_sub(rows.len());
+        let (lower, upper) = active.prefix.raw_bounds()?;
+        let mut stream = CoveringComponentStreamBox::prefix(
+            active.store,
+            entity_tag,
+            active.scan_contract,
+            lower.clone(),
+            upper.clone(),
+            scan.direction,
+            Some(remaining),
+            chunk_entries,
+            Arc::clone(&component_indices),
+            scan.predicate_execution,
+        );
+        while rows.len() < scan.limit {
+            let Some(row) = stream.next_row()? else {
+                break;
+            };
+            rows.push(row);
+        }
+    }
+
+    Ok(rows)
+}
+
+fn sort_active_covering_prefix_specs_by_raw_lower_key(
+    specs: &mut Vec<ActiveCoveringPrefixSpec<'_>>,
+) -> Result<(), InternalError> {
+    let mut keyed_specs = Vec::with_capacity(specs.len());
+    for spec in specs.drain(..) {
+        let (lower, _upper) = spec.prefix.raw_bounds()?;
+        let Bound::Included(raw_key) = lower else {
+            return Err(InternalError::query_executor_invariant());
+        };
+        keyed_specs.push((raw_key.clone(), spec));
+    }
+
+    keyed_specs.sort_by(|left, right| left.0.cmp(&right.0));
+    specs.extend(keyed_specs.into_iter().map(|(_raw_key, spec)| spec));
+
+    Ok(())
 }
 
 fn covering_branch_stream_chunk_entries(

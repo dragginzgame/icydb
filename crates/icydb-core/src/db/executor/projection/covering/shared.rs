@@ -158,13 +158,13 @@ where
             scan_window.limit,
             component_indices.as_slice(),
             request.index_predicate_execution,
-            if primary_key_order_scan_safe
-                || matches!(
-                    request.order_contract,
-                    CoveringProjectionOrder::IndexOrder(_)
-                )
-            {
+            if primary_key_order_scan_safe {
                 PrefixSetMergeSafety::OrderedMergeSafe
+            } else if matches!(
+                request.order_contract,
+                CoveringProjectionOrder::IndexOrder(_)
+            ) {
+                PrefixSetMergeSafety::OrderedConcatSafe
             } else {
                 PrefixSetMergeSafety::RequiresMaterialization
             },
@@ -193,6 +193,11 @@ where
 {
     if access_preserves_primary_key_order_for_covering_window(plan, order_contract) {
         return Ok((None, true));
+    }
+    // Child-prefix expansion proves primary-key suffix ordering; secondary
+    // index-order contracts must keep their branch prefix order instead.
+    if !matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_)) {
+        return Ok((None, false));
     }
 
     let Some(expansion) = index_prefix_child_expansion_hint_for_access_window(

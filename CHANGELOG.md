@@ -7,18 +7,22 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Harden ordered-read fast-path guard coverage by locking stream precedence
-  ownership and adding primary-order, equality-prefix, branch fallback, and
-  cursor-mutation regression tripwires.
-- Add an optional SQLite CLI comparison harness for the 0.196 audit line that
-  emits result signatures, fairness notes, and exploratory timing artifacts
-  without changing runtime behavior.
-- Install the `sqlite3` CLI through `install-dev` and have `update-dev` warn
-  without sudo when the optional SQLite comparison reference engine is missing.
-
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
+
+- `0.196.13` fixes SQL multi-lookup ordering for computed projections over
+  secondary `IN (...)` filters so primary-key ordered pages match SQLite result
+  signatures without changing cursor, persisted-format, or public API contracts.
+
+- `0.196.12` adds optional SQLite CLI comparison harnesses, including an
+  audit-matrix mirror of the main `PerfAudit*` tables with SQLite explain-plan
+  evidence, and wires `sqlite3` into `install-dev` while keeping `update-dev`
+  no-sudo.
+
+- `0.196.11` hardens ordered-read fast-path guard coverage by locking stream
+  precedence ownership and adding primary-order, equality-prefix, branch
+  fallback, and cursor-mutation regression tripwires.
 
 - `0.196.10` reduces SQL boolean predicate compile work by deriving only the
   requested truth branch for access predicates, trimming membership bind cost

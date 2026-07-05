@@ -1068,6 +1068,12 @@ fn assert_pk_suffix_multi_lookup_streams_in_primary_key_order() {
         "pk-suffix multi-lookup should preserve index leaf order for lazy merging",
     );
     assert!(
+        !route_plan
+            .index_leaf_order_policy()
+            .preserves_prefix_branch_order(),
+        "pure primary-key suffix multi-lookup must merge branches by primary key, not concatenate prefix branches",
+    );
+    assert!(
         load_index_multi_lookup_prefix_cardinality_preflight_shape_supported(&pk_suffix_plan),
         "multi-lookup with more than one exact prefix should admit prefix-cardinality preflight",
     );

@@ -180,6 +180,12 @@ const EXPLICIT_PK_SUFFIX_EXPECTED_MULTI_LOOKUP_ASC: [ExplicitPkSuffixExpectedRow
     ExplicitPkSuffixExpectedRow::id_only(9_430),
 ];
 #[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_EXPECTED_MULTI_LOOKUP_BUCKET_ASC: [ExplicitPkSuffixExpectedRow; 3] = [
+    ExplicitPkSuffixExpectedRow::id_only(9_420),
+    ExplicitPkSuffixExpectedRow::id_only(9_430),
+    ExplicitPkSuffixExpectedRow::id_only(9_405),
+];
+#[cfg(feature = "diagnostics")]
 const EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_DESC: [ExplicitPkSuffixExpectedRow; 3] = [
     ExplicitPkSuffixExpectedRow::id_only(9_410),
     ExplicitPkSuffixExpectedRow::id_only(9_430),
@@ -400,6 +406,126 @@ fn execute_sql_projection_explicit_primary_key_suffix_in_order_uses_lazy_multi_l
     assert!(
         attribution.index_store_entry_reads <= 6,
         "pk-suffix IN query should keep index reads bounded by active lookup branches, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_explicit_primary_key_suffix_in_secondary_order_preserves_branch_order() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_explicit_pk_suffix_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_430_u128, 10, "charlie"),
+            (9_410, 30, "delta"),
+            (9_420, 10, "bravo"),
+            (9_405, 20, "alpha"),
+        ],
+    );
+    let sql = "SELECT id FROM ExplicitPkSuffixIndexedSessionSqlEntity \
+               WHERE bucket IN (10, 20, 99) \
+               ORDER BY bucket ASC, id ASC \
+               LIMIT 3";
+    let descriptor =
+        lower_select_query_for_tests::<ExplicitPkSuffixIndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("pk-suffix secondary-order IN query should lower: {err}"))
+            .explain_execution()
+            .unwrap_or_else(|err| {
+                panic!("pk-suffix secondary-order IN query should explain_execution: {err}")
+            });
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexMultiLookup,
+        "pk-suffix secondary-order IN query should use multi-lookup access",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "pk-suffix secondary-order IN query should prove branch-ordered secondary access",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_none(),
+        "pk-suffix secondary-order IN query should not materialize-sort lookup branches",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "key-only pk-suffix secondary-order IN query should stay covering",
+    );
+    let covering_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("pk-suffix secondary-order IN query should emit covering read");
+    assert_eq!(
+        covering_node.node_properties().get("covering_order"),
+        Some(&Value::Text("index_asc".to_string())),
+        "pk-suffix secondary-order IN query should keep an index-order covering contract",
+    );
+
+    let projected_rows =
+        statement_projection_rows::<ExplicitPkSuffixIndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| {
+                panic!("pk-suffix secondary-order IN query should return projected rows: {err:?}")
+            });
+
+    assert_eq!(
+        projected_rows,
+        expected_explicit_pk_suffix_rows(&EXPLICIT_PK_SUFFIX_EXPECTED_MULTI_LOOKUP_BUCKET_ASC),
+        "pk-suffix secondary-order IN query should concatenate lookup branches by secondary prefix",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_computed_multi_lookup_primary_order_sorts_after_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_explicit_pk_suffix_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_430_u128, 10, "charlie"),
+            (9_410, 30, "delta"),
+            (9_420, 10, "bravo"),
+            (9_405, 20, "alpha"),
+        ],
+    );
+
+    let sql = "SELECT id, bucket + 1 AS bucket_plus_one \
+               FROM ExplicitPkSuffixIndexedSessionSqlEntity \
+               WHERE bucket IN (10, 20, 99) \
+               ORDER BY id ASC \
+               LIMIT 3";
+    let projected_rows =
+        statement_projection_rows::<ExplicitPkSuffixIndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| {
+                panic!("computed primary-order IN query should return projected rows: {err:?}")
+            });
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Ulid(Ulid::from_u128(9_405)),
+                Value::Decimal(crate::types::Decimal::from(21_u64)),
+            ],
+            vec![
+                Value::Ulid(Ulid::from_u128(9_420)),
+                Value::Decimal(crate::types::Decimal::from(11_u64)),
+            ],
+            vec![
+                Value::Ulid(Ulid::from_u128(9_430)),
+                Value::Decimal(crate::types::Decimal::from(11_u64)),
+            ],
+        ],
+        "computed retained-slot projection should apply primary-key order after secondary IN access",
     );
 }
 
