@@ -51,14 +51,14 @@ help:
 	@echo "  version          Show current version"
 	@echo "  tags             List available git tags"
 	@echo "  patch            Run release gate, then bump patch version files (0.0.x)"
-	@echo "  minor            Run release gate, then bump minor version files (0.x.0)"
-	@echo "  major            Run full release gate, then bump major version files (x.0.0)"
+	@echo "  minor            Confirm, run release gate, then bump minor version files (0.x.0)"
+	@echo "  major            Confirm, run full release gate, then bump major version files (x.0.0)"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Commit version files and create the release tag"
 	@echo "  release-push     Push the release commit and tags"
 	@echo "  release-patch    Human-owned one-shot patch release"
-	@echo "  release-minor    Human-owned one-shot minor release"
-	@echo "  release-major    Human-owned one-shot major release"
+	@echo "  release-minor    Confirm, bump, stage, commit, tag, and push a minor release"
+	@echo "  release-major    Confirm, bump, stage, commit, tag, and push a major release"
 	@echo "  release          CI-driven release (local target is no-op)"
 	@echo "  package          Build publishable crate tarballs"
 	@echo "  publish          Publish workspace crates to registry in dependency order"
@@ -118,7 +118,7 @@ install-hooks ensure-hooks:
 
 
 #
-# Version management (always format and test first)
+# Version management (guarded bumps confirm before running the release gate)
 #
 
 version:
@@ -130,10 +130,18 @@ tags:
 patch: ensure-clean fmt test-bump
 	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch
 
-minor: ensure-clean fmt test-bump
+minor:
+	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
+	@$(MAKE) ensure-clean
+	@$(MAKE) fmt
+	@$(MAKE) test-bump
 	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor
 
-major: ensure-clean fmt test
+major:
+	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
+	@$(MAKE) ensure-clean
+	@$(MAKE) fmt
+	@$(MAKE) test
 	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh major
 
 release: ensure-clean
