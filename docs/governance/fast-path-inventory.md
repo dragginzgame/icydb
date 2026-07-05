@@ -161,10 +161,23 @@ terminal request instead of reopening the old structural projection-and-count
 detour, and that the field-count widening stays behind one explicit
 non-nullability guard helper instead of scattered local conditionals.
 
+### 3. Stream fast-path precedence owner guard
+
+Guard:
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/executor/planning/route/tests/fast_path_guards.rs`
+
+This guard enforces the load-stream fast-path ownership boundary:
+- stream fast-path precedence must iterate through the shared route-owned
+  `try_first_verified_fast_path_hit(...)` runner
+- load runtime verification must consume the route-owned
+  `load_fast_path_route_eligible(...)` helper instead of rebuilding route
+  priority locally
+- the execution-attempt runtime must enter stream fast-path resolution through
+  the single `FastPathResolutionStrategy::for_route(...)` gate
+
 ## Remaining Unguarded Areas
 
 The current tripwires do not yet lock:
-- stream fast-path precedence helpers
 - grouped dedicated fast-path ownership
 - the bytes-terminal derivation exception
 

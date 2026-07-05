@@ -1,7 +1,7 @@
 //! Module: db::executor::planning::route::tests::fast_path_guards
-//! Covers structural ownership guards for terminal fast-path derivation.
+//! Covers structural ownership guards for route fast-path derivation.
 //! Does not own: production route or terminal execution behavior.
-//! Boundary: enforces that terminal fast-path eligibility stays route-owned.
+//! Boundary: enforces that fast-path eligibility and precedence stay route-owned.
 
 use crate::db::test_support::source_guard::{
     collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
@@ -76,6 +76,39 @@ fn terminal_fast_path_derivation_stays_route_owned() {
         assert_eq!(
             actual, allowed,
             "terminal fast-path derivation token `{token}` drifted outside the shared route owner boundary; update allowlist only for intentional boundary changes",
+        );
+    }
+}
+
+#[test]
+fn stream_fast_path_precedence_stays_route_owned() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db");
+    let cases = [
+        (
+            "try_first_verified_fast_path_hit(",
+            BTreeSet::from([
+                "src/db/executor/aggregate/fast_path.rs".to_string(),
+                "src/db/executor/pipeline/runtime/fast_path/strategy.rs".to_string(),
+            ]),
+        ),
+        (
+            "load_fast_path_route_eligible(",
+            BTreeSet::from([
+                "src/db/executor/explain/descriptor/shared/mod.rs".to_string(),
+                "src/db/executor/pipeline/runtime/fast_path/strategy.rs".to_string(),
+            ]),
+        ),
+        (
+            "FastPathResolutionStrategy::for_route(",
+            BTreeSet::from(["src/db/executor/pipeline/runtime/fast_path/mod.rs".to_string()]),
+        ),
+    ];
+
+    for (token, allowed) in cases {
+        let actual = runtime_token_hits(source_root.as_path(), token);
+        assert_eq!(
+            actual, allowed,
+            "stream fast-path precedence token `{token}` drifted outside the shared route owner boundary; update allowlist only for intentional boundary changes",
         );
     }
 }

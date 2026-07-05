@@ -527,6 +527,77 @@ fn primary_key_stream_resume_crosses_chunk_boundary_without_gaps() {
 }
 
 #[test]
+fn primary_key_ordered_stream_matches_materialized_full_scan_oracle() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_fixed_session_sql_entities(
+        &session,
+        &[
+            (10, "primary-oracle-10", 10),
+            (20, "primary-oracle-20", 20),
+            (30, "primary-oracle-30", 30),
+            (40, "primary-oracle-40", 40),
+        ],
+    );
+    let pushed_sql = "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 3";
+    let materialized_sql = "SELECT id FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 3";
+
+    let pushed_descriptor = lower_select_query_for_tests::<SessionSqlEntity>(&session, pushed_sql)
+        .expect("primary ordered stream SQL should lower")
+        .explain_execution()
+        .expect("primary ordered stream SQL should explain execution");
+    assert!(
+        explain_execution_find_first_node(
+            &pushed_descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "primary ordered stream should prove access-satisfied ordering",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &pushed_descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_none(),
+        "primary ordered stream must not use the materialized sort oracle path",
+    );
+
+    let materialized_descriptor =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, materialized_sql)
+            .expect("primary materialized oracle SQL should lower")
+            .explain_execution()
+            .expect("primary materialized oracle SQL should explain execution");
+    assert!(
+        explain_execution_find_first_node(
+            &materialized_descriptor,
+            ExplainExecutionNodeType::FullScan
+        )
+        .is_some(),
+        "primary materialized oracle should use a full scan",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &materialized_descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_some(),
+        "primary materialized oracle should retain the post-access sort",
+    );
+
+    let pushed_rows = statement_projection_rows::<SessionSqlEntity>(&session, pushed_sql)
+        .expect("primary ordered stream SQL should execute");
+    let materialized_rows =
+        statement_projection_rows::<SessionSqlEntity>(&session, materialized_sql)
+            .expect("primary materialized oracle SQL should execute");
+
+    assert_eq!(
+        pushed_rows, materialized_rows,
+        "primary ordered stream must match a materialized full-scan oracle with the same deterministic key order",
+    );
+}
+
+#[test]
 fn primary_key_cursor_resume_skips_deleted_boundary_and_unseen_rows() {
     reset_session_sql_store();
     let session = sql_session();

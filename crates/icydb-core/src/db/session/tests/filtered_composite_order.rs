@@ -129,6 +129,80 @@ fn execute_sql_projection_filtered_composite_order_only_matrix_returns_guarded_r
     }
 }
 
+#[test]
+fn filtered_composite_order_only_pushdown_matches_forced_full_scan_fallback() {
+    let cases = [
+        (
+            "ascending equality-prefix ordered suffix",
+            "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 3",
+        ),
+        (
+            "descending equality-prefix ordered suffix",
+            "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 3",
+        ),
+    ];
+
+    for (context, sql) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+        seed_filtered_composite_order_fixture(&session);
+
+        let pushed_query =
+            lower_select_query_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} should lower with indexes: {err:?}"));
+        let pushed_descriptor = session
+            .explain_query_execution_with_visible_indexes(&pushed_query)
+            .unwrap_or_else(|err| panic!("{context} should explain with indexes: {err:?}"));
+        assert_eq!(
+            pushed_descriptor.node_type(),
+            ExplainExecutionNodeType::IndexPrefixScan,
+            "{context} should use the equality-prefix index route before fallback",
+        );
+        let pushed_rows =
+            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} should execute with indexes: {err:?}"));
+
+        hide_indexed_session_indexes();
+
+        let fallback_query =
+            lower_select_query_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| {
+                    panic!("{context} should lower with hidden indexes: {err:?}")
+                });
+        let fallback_descriptor = session
+            .explain_query_execution_with_visible_indexes(&fallback_query)
+            .unwrap_or_else(|err| panic!("{context} should explain with hidden indexes: {err:?}"));
+        assert!(
+            explain_execution_find_first_node(
+                &fallback_descriptor,
+                ExplainExecutionNodeType::FullScan
+            )
+            .is_some(),
+            "{context} hidden-index route should fall back to a full scan:\n{}",
+            fallback_descriptor.render_text_tree(),
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &fallback_descriptor,
+                ExplainExecutionNodeType::OrderByMaterializedSort
+            )
+            .is_some(),
+            "{context} hidden-index route should retain materialized ordering:\n{}",
+            fallback_descriptor.render_text_tree(),
+        );
+        let fallback_rows =
+            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| {
+                    panic!("{context} should execute with hidden indexes: {err:?}")
+                });
+
+        assert_eq!(
+            pushed_rows, fallback_rows,
+            "{context} pushdown route must match forced full-scan fallback row identity and order",
+        );
+    }
+}
+
 #[cfg(feature = "diagnostics")]
 #[test]
 fn execute_sql_projection_filtered_composite_order_only_pushdown_keeps_reads_bounded() {

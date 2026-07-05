@@ -885,6 +885,25 @@ fn paged_branch_ids(
     page.iter().map(|row| row.id().key()).collect()
 }
 
+fn delete_branch_entity_by_id(session: &DbSession<SessionSqlCanister>, id: Ulid) {
+    let plan = Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(id)
+        .plan()
+        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .expect("branch cursor mutation delete plan should build");
+    let deleted_rows = session
+        .delete_executor::<BranchIndexedSessionSqlEntity>()
+        .execute(plan)
+        .unwrap_or_else(|err| panic!("branch cursor mutation delete should execute: {err:?}"));
+
+    assert_eq!(
+        deleted_rows.len(),
+        1,
+        "branch cursor mutation delete should remove exactly one row",
+    );
+}
+
 #[cfg(feature = "diagnostics")]
 fn response_branch_ids(
     rows: &crate::db::EntityResponse<BranchIndexedSessionSqlEntity>,
@@ -1366,52 +1385,64 @@ fn session_branch_set_sql_and_fluent_share_branch_route_identity() {
 #[test]
 fn session_branch_set_sql_index_route_matches_forced_full_scan_fallback() {
     let limit = BRANCH_LIMIT * 2;
-
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_branch_set_fixture(&session);
-    let sql = branch_target_sql("id", limit);
-    let ready_descriptor = branch_descriptor(sql.as_str());
-
-    assert_target_branch_route(&ready_descriptor);
-
-    let ready_rows =
-        statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
-            .unwrap_or_else(|err| panic!("branch-set indexed projection should execute: {err:?}"));
-
-    hide_indexed_session_indexes();
-
-    let fallback_descriptor = branch_descriptor(sql.as_str());
-    assert!(
-        !explain_execution_contains_node_type(
-            &fallback_descriptor,
-            ExplainExecutionNodeType::IndexBranchSet
+    let cases = [
+        ("branch target route", branch_target_sql("id", limit)),
+        (
+            "duplicate-literal branch target route",
+            branch_target_duplicate_literal_sql("id", limit),
         ),
-        "forced fallback must not reuse the branch-aware route:\n{}",
-        fallback_descriptor.render_text_tree(),
-    );
-    assert!(
-        explain_execution_contains_node_type(
-            &fallback_descriptor,
-            ExplainExecutionNodeType::FullScan
-        ),
-        "forced fallback should route through a full scan:\n{}",
-        fallback_descriptor.render_text_tree(),
-    );
+    ];
 
-    let fallback_rows =
-        statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
-            .unwrap_or_else(|err| panic!("branch-set fallback projection should execute: {err:?}"));
+    for (context, sql) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+        seed_branch_set_fixture(&session);
+        let ready_descriptor = branch_descriptor(sql.as_str());
 
-    assert_eq!(
-        ready_rows,
-        expected_branch_rows(limit),
-        "ready branch route should match the canonical filtered primary-key window",
-    );
-    assert_eq!(
-        fallback_rows, ready_rows,
-        "branch-aware index route and forced full-scan fallback should return identical rows",
-    );
+        assert_target_branch_route(&ready_descriptor);
+
+        let ready_rows =
+            statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+                .unwrap_or_else(|err| {
+                    panic!("{context} indexed projection should execute: {err:?}")
+                });
+
+        hide_indexed_session_indexes();
+
+        let fallback_descriptor = branch_descriptor(sql.as_str());
+        assert!(
+            !explain_execution_contains_node_type(
+                &fallback_descriptor,
+                ExplainExecutionNodeType::IndexBranchSet
+            ),
+            "{context} forced fallback must not reuse the branch-aware route:\n{}",
+            fallback_descriptor.render_text_tree(),
+        );
+        assert!(
+            explain_execution_contains_node_type(
+                &fallback_descriptor,
+                ExplainExecutionNodeType::FullScan
+            ),
+            "{context} forced fallback should route through a full scan:\n{}",
+            fallback_descriptor.render_text_tree(),
+        );
+
+        let fallback_rows =
+            statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+                .unwrap_or_else(|err| {
+                    panic!("{context} fallback projection should execute: {err:?}")
+                });
+
+        assert_eq!(
+            ready_rows,
+            expected_branch_rows(limit),
+            "{context} ready branch route should match the canonical filtered primary-key window",
+        );
+        assert_eq!(
+            fallback_rows, ready_rows,
+            "{context} branch-aware index route and forced full-scan fallback should return identical rows",
+        );
+    }
 }
 
 #[cfg(feature = "diagnostics")]
@@ -1504,6 +1535,60 @@ fn session_branch_set_sql_cursor_continuation_resumes_branch_streams_after_bound
             .skip(BRANCH_LIMIT)
             .collect::<Vec<_>>(),
         "second branch-set page should resume after the prior page boundary",
+    );
+}
+
+#[test]
+fn session_branch_set_sql_cursor_continuation_handles_deleted_boundary_and_unseen_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_sql("*", BRANCH_LIMIT);
+    let query =
+        lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("branch-set paged SQL should lower: {err:?}"));
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .unwrap_or_else(|err| panic!("first branch-set page should execute: {err:?}"))
+        .into_execution();
+    let first_ids = paged_branch_ids(&first);
+    assert_eq!(
+        first_ids,
+        expected_branch_ids(BRANCH_LIMIT),
+        "first branch-set page should establish the cursor boundary",
+    );
+
+    let cursor = crate::db::encode_cursor(
+        first
+            .continuation_cursor()
+            .expect("first branch-set page should emit a continuation cursor"),
+    );
+    delete_branch_entity_by_id(
+        &session,
+        *first_ids
+            .last()
+            .expect("first branch-set page should contain a boundary row"),
+    );
+    delete_branch_entity_by_id(
+        &session,
+        expected_branch_ids(BRANCH_LIMIT + 1)[BRANCH_LIMIT],
+    );
+
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+        .unwrap_or_else(|err| panic!("second branch-set page should execute: {err:?}"))
+        .into_execution();
+    let expected_after_mutation = expected_branch_ids(BRANCH_LIMIT * 2 + 1)
+        .into_iter()
+        .skip(BRANCH_LIMIT + 1)
+        .take(BRANCH_LIMIT)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        paged_branch_ids(&second),
+        expected_after_mutation,
+        "resumed branch-set cursor must not duplicate the deleted boundary row or return the deleted unseen row",
     );
 }
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Harden ordered-read fast-path guard coverage by locking stream precedence
+  ownership and adding primary-order, equality-prefix, branch fallback, and
+  cursor-mutation regression tripwires.
+
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
