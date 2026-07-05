@@ -3,10 +3,10 @@
 use std::num::NonZeroU32;
 
 use super::{
-    FilteredIndexedSessionSqlEntity, IndexedSessionSqlEntity, SessionSqlEntity,
-    indexed_sql_session, reset_indexed_session_sql_store, reset_session_sql_store,
-    seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
-    seed_session_sql_entities, sql_session,
+    FilteredIndexedSessionSqlEntity, IndexedSessionSqlEntity, SessionPrincipalKeyEntity,
+    SessionSqlEntity, indexed_sql_session, reset_indexed_session_sql_store,
+    reset_session_sql_store, seed_filtered_composite_indexed_session_sql_entities,
+    seed_indexed_session_sql_entities, seed_session_sql_entities, sql_session,
 };
 use crate::db::{
     QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionRejection,
@@ -196,10 +196,123 @@ fn public_read_fluent_admission_admits_primary_key_lookup_without_limit() {
 }
 
 #[test]
-fn default_fluent_try_entity_admits_primary_key_lookup_without_limit() {
+fn public_read_fluent_admission_admits_primary_key_filter_without_limit() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     let id = crate::types::Ulid::from_u128(18_802);
+
+    let query = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(id));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("primary-key filter admission should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKey);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(1));
+    assert_eq!(summary.returned_row_bound(), Some(1));
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_admits_primary_key_filter_with_residual_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(18_806);
+
+    let query = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(id),
+            crate::db::FieldRef::new("age").gt(30_u64),
+        ]));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("primary-key filter plus residual admission should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKey);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(1));
+    assert_eq!(summary.scan_bound_kind(), QueryBoundKind::Exact);
+    assert_eq!(summary.returned_row_bound(), Some(1));
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_admits_primary_key_in_filter_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_810);
+    let second_id = crate::types::Ulid::from_u128(18_811);
+    let third_id = crate::types::Ulid::from_u128(18_812);
+
+    let query = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list([second_id, first_id, second_id, third_id]));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("primary-key IN admission should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKeys);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(3));
+    assert_eq!(summary.scan_bound_kind(), QueryBoundKind::Exact);
+    assert_eq!(summary.returned_row_bound(), Some(3));
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_admits_primary_key_in_filter_with_residual_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_813);
+    let second_id = crate::types::Ulid::from_u128(18_814);
+    let third_id = crate::types::Ulid::from_u128(18_815);
+
+    let query = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").in_list([second_id, first_id, second_id, third_id]),
+            crate::db::FieldRef::new("age").gte(30_u64),
+        ]));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("primary-key IN filter plus residual admission should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKeys);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(3));
+    assert_eq!(summary.scan_bound_kind(), QueryBoundKind::Exact);
+    assert_eq!(summary.returned_row_bound(), Some(3));
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound
+    );
+}
+
+#[test]
+fn default_fluent_try_entity_admits_primary_key_lookup_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let id = crate::types::Ulid::from_u128(18_803);
     session
         .insert(IndexedSessionSqlEntity {
             id,
@@ -219,6 +332,478 @@ fn default_fluent_try_entity_admits_primary_key_lookup_without_limit() {
 
     assert_eq!(entity.id, id);
     assert_eq!(entity.name, "Sam");
+}
+
+#[test]
+fn default_fluent_try_entity_admits_primary_key_filter_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let id = crate::types::Ulid::from_u128(18_804);
+    session
+        .insert(IndexedSessionSqlEntity {
+            id,
+            name: "Sasha".to_string(),
+            age: 24,
+        })
+        .expect("test row should insert");
+
+    let entity = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(id))
+        .execute_rows()
+        .expect("primary-key filter should be admitted without explicit LIMIT")
+        .try_entity()
+        .expect("primary-key filter response should satisfy optional-entity cardinality")
+        .expect("inserted row should exist");
+
+    assert_eq!(entity.id, id);
+    assert_eq!(entity.name, "Sasha");
+}
+
+#[test]
+fn default_fluent_execute_rows_applies_residual_after_primary_key_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(18_816);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Sasha".to_string(),
+            age: 24,
+        })
+        .expect("test row should insert");
+
+    let rejected_by_residual = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(id),
+            crate::db::FieldRef::new("age").gt(30_u64),
+        ]))
+        .execute_rows()
+        .expect("primary-key filter with false residual should still be admitted");
+    let accepted_by_residual = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(id),
+            crate::db::FieldRef::new("age").gte(24_u64),
+        ]))
+        .execute_rows()
+        .expect("primary-key filter with true residual should still be admitted");
+
+    assert_eq!(
+        rejected_by_residual.count(),
+        0,
+        "primary-key exact access must not bypass a false residual predicate",
+    );
+    assert_eq!(accepted_by_residual.count(), 1);
+    assert_eq!(accepted_by_residual.entities()[0].name, "Sasha");
+}
+
+#[test]
+fn default_fluent_execute_rows_dedups_primary_key_in_filter_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_820);
+    let second_id = crate::types::Ulid::from_u128(18_821);
+    let third_id = crate::types::Ulid::from_u128(18_822);
+    for (id, name, age) in [
+        (first_id, "Sam", 30),
+        (second_id, "Sasha", 24),
+        (third_id, "Mira", 40),
+        (crate::types::Ulid::from_u128(18_823), "Quinn", 55),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    let response = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list([third_id, first_id, first_id, second_id]))
+        .execute_rows()
+        .expect("primary-key IN filter should be admitted without explicit LIMIT");
+    let mut ids: Vec<_> = response
+        .entities()
+        .into_iter()
+        .map(|entity| entity.id)
+        .collect();
+    ids.sort_unstable();
+
+    assert_eq!(ids, vec![first_id, second_id, third_id]);
+}
+
+#[test]
+fn default_fluent_execute_rows_applies_residual_after_primary_key_in_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_824);
+    let second_id = crate::types::Ulid::from_u128(18_825);
+    let third_id = crate::types::Ulid::from_u128(18_826);
+    let outside_id = crate::types::Ulid::from_u128(18_827);
+    for (id, name, age) in [
+        (first_id, "Sam", 30),
+        (second_id, "Sasha", 24),
+        (third_id, "Mira", 40),
+        (outside_id, "Quinn", 55),
+    ] {
+        session
+            .insert(SessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    let response = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").in_list([third_id, first_id, second_id, second_id]),
+            crate::db::FieldRef::new("age").gte(30_u64),
+        ]))
+        .execute_rows()
+        .expect("primary-key IN filter with residual should be admitted without explicit LIMIT");
+    let mut names: Vec<String> = response
+        .entities()
+        .into_iter()
+        .map(|entity| entity.name)
+        .collect();
+    names.sort();
+
+    assert_eq!(names, vec!["Mira".to_string(), "Sam".to_string()]);
+}
+
+#[test]
+fn public_read_sql_admits_primary_key_filter_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let id = crate::types::Ulid::from_u128(18_805);
+    session
+        .insert(IndexedSessionSqlEntity {
+            id,
+            name: "Mira".to_string(),
+            age: 40,
+        })
+        .expect("test row should insert");
+
+    let sql = format!("SELECT name FROM IndexedSessionSqlEntity WHERE id = '{id}'");
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            sql.as_str(),
+            &public_read_policy(10),
+        )
+        .expect("public read SQL primary-key filter should not need explicit LIMIT");
+    let SqlStatementResult::Projection {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("primary-key SQL filter should return projection rows");
+    };
+
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        rows,
+        vec![vec![crate::value::OutputValue::Text("Mira".to_string())]],
+    );
+}
+
+#[test]
+fn public_read_sql_applies_residual_after_primary_key_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(18_833);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Mira".to_string(),
+            age: 40,
+        })
+        .expect("test row should insert");
+
+    let sql = format!("SELECT name FROM SessionSqlEntity WHERE id = '{id}' AND age > 99");
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
+            sql.as_str(),
+            &public_read_policy(1),
+        )
+        .expect("public read SQL primary-key filter plus residual should not need explicit LIMIT");
+    let SqlStatementResult::Projection {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("primary-key SQL filter plus residual should return projection rows");
+    };
+
+    assert_eq!(row_count, 0);
+    assert!(
+        rows.is_empty(),
+        "SQL primary-key exact access must not bypass a false residual predicate",
+    );
+}
+
+#[test]
+fn public_read_sql_admits_primary_key_in_filter_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_830);
+    let second_id = crate::types::Ulid::from_u128(18_831);
+    let third_id = crate::types::Ulid::from_u128(18_832);
+    for (id, name, age) in [
+        (first_id, "Sam", 30),
+        (second_id, "Sasha", 24),
+        (third_id, "Mira", 40),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    let sql = format!(
+        "SELECT name FROM IndexedSessionSqlEntity WHERE id IN ('{third_id}', '{first_id}', '{first_id}')"
+    );
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            sql.as_str(),
+            &public_read_policy(2),
+        )
+        .expect("public read SQL primary-key IN filter should not need explicit LIMIT");
+    let SqlStatementResult::Projection {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("primary-key SQL IN filter should return projection rows");
+    };
+    let mut names = text_projection_values(rows, "primary-key SQL IN projection");
+    names.sort();
+
+    assert_eq!(row_count, 2);
+    assert_eq!(names, vec!["Mira".to_string(), "Sam".to_string()]);
+}
+
+#[test]
+fn public_read_sql_applies_residual_after_primary_key_in_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_834);
+    let second_id = crate::types::Ulid::from_u128(18_835);
+    let third_id = crate::types::Ulid::from_u128(18_836);
+    for (id, name, age) in [
+        (first_id, "Sam", 30),
+        (second_id, "Sasha", 24),
+        (third_id, "Mira", 40),
+    ] {
+        session
+            .insert(SessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    let sql = format!(
+        "SELECT name FROM SessionSqlEntity \
+         WHERE id IN ('{third_id}', '{first_id}', '{second_id}', '{second_id}') AND age >= 30"
+    );
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
+            sql.as_str(),
+            &public_read_policy(3),
+        )
+        .expect(
+            "public read SQL primary-key IN filter plus residual should not need explicit LIMIT",
+        );
+    let SqlStatementResult::Projection {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("primary-key SQL IN filter plus residual should return projection rows");
+    };
+    let mut names = text_projection_values(rows, "primary-key SQL IN residual projection");
+    names.sort();
+
+    assert_eq!(row_count, 2);
+    assert_eq!(names, vec!["Mira".to_string(), "Sam".to_string()]);
+}
+
+#[test]
+fn public_read_fluent_admission_admits_external_primary_key_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let pid = crate::types::Principal::from_slice(&[1, 9, 7]);
+
+    let filter_query = session
+        .load::<SessionPrincipalKeyEntity>()
+        .filter(crate::db::FieldRef::new("pid").eq(pid));
+    let filter_summary = session
+        .evaluate_query_read_admission_policy(filter_query.query(), &public_read_policy(10))
+        .expect("external primary-key filter admission should produce a summary");
+    let by_id_query = session
+        .load::<SessionPrincipalKeyEntity>()
+        .by_id(crate::types::Id::from_key(pid));
+    let by_id_summary = session
+        .evaluate_query_read_admission_policy(by_id_query.query(), &public_read_policy(10))
+        .expect("external by_id admission should produce a summary");
+
+    assert_eq!(filter_summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(filter_summary.rejection(), None);
+    assert_eq!(
+        filter_summary.selected_access(),
+        QueryAdmissionAccessKind::ByKey
+    );
+    assert_eq!(filter_summary.limit(), None);
+    assert_eq!(filter_summary.scan_bound(), Some(1));
+    assert_eq!(filter_summary.returned_row_bound(), Some(1));
+    assert_eq!(
+        filter_summary.selected_access(),
+        by_id_summary.selected_access()
+    );
+    assert_eq!(filter_summary.scan_bound(), by_id_summary.scan_bound());
+    assert_eq!(
+        filter_summary.returned_row_bound(),
+        by_id_summary.returned_row_bound(),
+    );
+}
+
+#[test]
+fn default_fluent_try_entity_matches_by_id_for_external_primary_key_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let pid = crate::types::Principal::from_slice(&[1, 9, 7, 1]);
+    let user_id = crate::types::Ulid::from_u128(19_701);
+    session
+        .insert(SessionPrincipalKeyEntity {
+            pid,
+            user_id,
+            label: "mapping".to_string(),
+        })
+        .expect("external primary-key row should insert");
+
+    let filter_entity = session
+        .load::<SessionPrincipalKeyEntity>()
+        .filter(crate::db::FieldRef::new("pid").eq(pid))
+        .execute_rows()
+        .expect("external primary-key filter should be admitted without explicit LIMIT")
+        .try_entity()
+        .expect("external primary-key filter should satisfy optional cardinality")
+        .expect("external primary-key filter should find the inserted row");
+    let by_id_entity = session
+        .load::<SessionPrincipalKeyEntity>()
+        .by_id(crate::types::Id::from_key(pid))
+        .execute_rows()
+        .expect("external by_id lookup should be admitted without explicit LIMIT")
+        .try_entity()
+        .expect("external by_id lookup should satisfy optional cardinality")
+        .expect("external by_id lookup should find the inserted row");
+
+    assert_eq!(filter_entity, by_id_entity);
+    assert_eq!(filter_entity.pid, pid);
+    assert_eq!(filter_entity.user_id, user_id);
+}
+
+#[test]
+fn public_read_fluent_admission_admits_external_primary_key_in_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_pid = crate::types::Principal::from_slice(&[1, 9, 7, 2]);
+    let second_pid = crate::types::Principal::from_slice(&[1, 9, 7, 3]);
+
+    let filter_query = session
+        .load::<SessionPrincipalKeyEntity>()
+        .filter(crate::db::FieldRef::new("pid").in_list([second_pid, first_pid, second_pid]));
+    let filter_summary = session
+        .evaluate_query_read_admission_policy(filter_query.query(), &public_read_policy(10))
+        .expect("external primary-key IN admission should produce a summary");
+    let by_ids_query = session.load::<SessionPrincipalKeyEntity>().by_ids([
+        crate::types::Id::from_key(second_pid),
+        crate::types::Id::from_key(first_pid),
+        crate::types::Id::from_key(second_pid),
+    ]);
+    let by_ids_summary = session
+        .evaluate_query_read_admission_policy(by_ids_query.query(), &public_read_policy(10))
+        .expect("external by_ids admission should produce a summary");
+
+    assert_eq!(filter_summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(filter_summary.rejection(), None);
+    assert_eq!(
+        filter_summary.selected_access(),
+        QueryAdmissionAccessKind::ByKeys
+    );
+    assert_eq!(filter_summary.limit(), None);
+    assert_eq!(filter_summary.scan_bound(), Some(2));
+    assert_eq!(filter_summary.returned_row_bound(), Some(2));
+    assert_eq!(
+        filter_summary.selected_access(),
+        by_ids_summary.selected_access()
+    );
+    assert_eq!(filter_summary.scan_bound(), by_ids_summary.scan_bound());
+    assert_eq!(
+        filter_summary.returned_row_bound(),
+        by_ids_summary.returned_row_bound(),
+    );
+}
+
+#[test]
+fn default_fluent_execute_rows_matches_by_ids_for_external_primary_key_in_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_pid = crate::types::Principal::from_slice(&[1, 9, 7, 4]);
+    let second_pid = crate::types::Principal::from_slice(&[1, 9, 7, 5]);
+    let third_pid = crate::types::Principal::from_slice(&[1, 9, 7, 6]);
+    for (pid, user_id, label) in [
+        (first_pid, crate::types::Ulid::from_u128(19_711), "first"),
+        (second_pid, crate::types::Ulid::from_u128(19_712), "second"),
+        (third_pid, crate::types::Ulid::from_u128(19_713), "third"),
+    ] {
+        session
+            .insert(SessionPrincipalKeyEntity {
+                pid,
+                user_id,
+                label: label.to_string(),
+            })
+            .expect("external primary-key row should insert");
+    }
+
+    let filter_response = session
+        .load::<SessionPrincipalKeyEntity>()
+        .filter(
+            crate::db::FieldRef::new("pid").in_list([second_pid, first_pid, second_pid, third_pid]),
+        )
+        .execute_rows()
+        .expect("external primary-key IN filter should be admitted without explicit LIMIT");
+    let by_ids_response = session
+        .load::<SessionPrincipalKeyEntity>()
+        .by_ids([
+            crate::types::Id::from_key(second_pid),
+            crate::types::Id::from_key(first_pid),
+            crate::types::Id::from_key(second_pid),
+            crate::types::Id::from_key(third_pid),
+        ])
+        .execute_rows()
+        .expect("external by_ids lookup should be admitted without explicit LIMIT");
+    let mut filter_labels: Vec<String> = filter_response
+        .entities()
+        .into_iter()
+        .map(|entity| entity.label)
+        .collect();
+    let mut by_ids_labels: Vec<String> = by_ids_response
+        .entities()
+        .into_iter()
+        .map(|entity| entity.label)
+        .collect();
+    filter_labels.sort();
+    by_ids_labels.sort();
+
+    assert_eq!(filter_labels, vec!["first", "second", "third"]);
+    assert_eq!(filter_labels, by_ids_labels);
 }
 
 #[test]
@@ -906,4 +1491,19 @@ fn assert_admission_summary_rejection(
         Some(reason),
         "{context}: admission rejection drifted",
     );
+}
+
+fn text_projection_values(rows: Vec<Vec<crate::value::OutputValue>>, context: &str) -> Vec<String> {
+    rows.into_iter()
+        .map(|mut row| {
+            assert!(
+                row.len() == 1,
+                "{context}: expected one projected column, got {row:?}",
+            );
+            match row.pop() {
+                Some(crate::value::OutputValue::Text(value)) => value,
+                value => panic!("{context}: expected text projection value, got {value:?}"),
+            }
+        })
+        .collect()
 }

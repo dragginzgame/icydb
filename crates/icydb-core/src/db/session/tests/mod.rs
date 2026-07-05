@@ -119,7 +119,7 @@ use crate::{
         EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, PersistedFieldSlotCodec,
         RuntimeValueDecode, RuntimeValueEncode,
     },
-    types::{Blob, Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
+    types::{Blob, Date, Duration, EntityTag, Float64, Id, Principal, Timestamp, Ulid},
     value::{OutputValue, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -1381,6 +1381,20 @@ struct IndexedSessionSqlEntity {
 }
 
 ///
+/// SessionPrincipalKeyEntity
+///
+/// External scalar primary-key fixture used to lock Principal-key lookup
+/// planning through the public session boundary.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionPrincipalKeyEntity {
+    pid: Principal,
+    user_id: Ulid,
+    label: String,
+}
+
+///
 /// FilteredIndexedSessionSqlEntity
 ///
 /// Filtered indexed SQL session fixture used to lock guarded order-only
@@ -2195,6 +2209,22 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+}
+
+crate::test_entity! {
+    ident = SessionPrincipalKeyEntity,
+    entity_name = "SessionPrincipalKeyEntity",
+    tag = EntityTag::new(0x1077),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = Principal,
+    primary_key = [pid],
+    fields = [
+        crate::test_field! { pid: Principal => FieldKind::Principal },
+        crate::test_field! { user_id: Ulid => FieldKind::Ulid },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]

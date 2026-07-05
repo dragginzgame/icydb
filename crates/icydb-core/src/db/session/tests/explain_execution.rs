@@ -259,6 +259,89 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 }
 
 #[test]
+fn session_explain_execution_primary_key_filter_canonicalization_route_facts_are_stable() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = Ulid::from_u128(19_701);
+    let second_id = Ulid::from_u128(19_702);
+    let third_id = Ulid::from_u128(19_703);
+
+    let by_key = session
+        .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
+        .filter(FieldRef::new("id").eq(first_id))
+        .explain_execution()
+        .expect("primary-key equality explain_execution should succeed");
+    assert_eq!(
+        by_key.node_type(),
+        ExplainExecutionNodeType::ByKeyLookup,
+        "primary-key equality filters should explain as direct ByKey access",
+    );
+    assert_eq!(
+        by_key.node_properties().get("acc_reason"),
+        Some(&Value::Text("planner_primary_key_lookup".to_string())),
+        "primary-key equality filters should expose the planner-owned lookup reason",
+    );
+    assert_eq!(
+        by_key.access_strategy(),
+        Some(&ExplainAccessPath::ByKey {
+            key: Value::Ulid(first_id),
+        }),
+        "primary-key equality filters should expose the exact key route",
+    );
+
+    let by_keys = session
+        .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
+        .filter(FieldRef::new("id").in_list([second_id, first_id, second_id, third_id]))
+        .explain_execution()
+        .expect("primary-key IN explain_execution should succeed");
+    assert_eq!(
+        by_keys.node_type(),
+        ExplainExecutionNodeType::ByKeysLookup,
+        "finite primary-key IN filters should explain as direct ByKeys access",
+    );
+    assert_eq!(
+        by_keys.node_properties().get("acc_reason"),
+        Some(&Value::Text("planner_key_set_access".to_string())),
+        "finite primary-key IN filters should expose the planner-owned key-set reason",
+    );
+    assert_eq!(
+        by_keys.access_strategy(),
+        Some(&ExplainAccessPath::ByKeys {
+            keys: vec![
+                Value::Ulid(first_id),
+                Value::Ulid(second_id),
+                Value::Ulid(third_id),
+            ],
+        }),
+        "finite primary-key IN filters should expose deduped canonical key order",
+    );
+
+    let by_key_with_residual = session
+        .load::<SessionSqlEntity>()
+        .trusted_read_unchecked()
+        .filter(FilterExpr::and(vec![
+            FieldRef::new("id").eq(first_id),
+            FieldRef::new("age").gt(30_u64),
+        ]))
+        .explain_execution()
+        .expect("primary-key equality plus residual explain_execution should succeed");
+    assert_eq!(
+        by_key_with_residual.node_type(),
+        ExplainExecutionNodeType::ByKeyLookup,
+        "residual predicates should not erase the exact primary-key access route",
+    );
+    assert!(
+        explain_execution_contains_node_type(
+            &by_key_with_residual,
+            ExplainExecutionNodeType::ResidualFilter,
+        ),
+        "primary-key exact access with a residual predicate should expose residual work",
+    );
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "execution-root matrix keeps the public route-family regressions together"
