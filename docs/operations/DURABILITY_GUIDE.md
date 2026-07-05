@@ -159,7 +159,7 @@ fold/rebuild design:
   partially recovered state.
 
 The future streaming recovery follow-up is tracked in
-`docs/design/0.191-durability-productization-format-policy/streaming-recovery-followup.md`.
+`docs/design/archive/0.191-durability-productization-format-policy/streaming-recovery-followup.md`.
 
 ## Quick Checklist
 

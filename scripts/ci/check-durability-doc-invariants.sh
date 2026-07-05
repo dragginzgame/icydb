@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
 status=0
+durability_design_dir="docs/design/archive/0.191-durability-productization-format-policy"
 
 require_file() {
   local file="$1"
@@ -35,8 +36,8 @@ require_file "docs/contracts/DURABILITY.md"
 require_file "docs/contracts/PERSISTED_FORMAT_POLICY.md"
 require_file "docs/contracts/PERSISTED_FORMAT_INVENTORY.md"
 require_file "docs/operations/DURABILITY_GUIDE.md"
-require_file "docs/design/0.191-durability-productization-format-policy/0.191-evidence.md"
-require_file "docs/design/0.191-durability-productization-format-policy/streaming-recovery-followup.md"
+require_file "$durability_design_dir/0.191-evidence.md"
+require_file "$durability_design_dir/streaming-recovery-followup.md"
 require_file "docs/changelog/0.191.md"
 
 require_pattern \
@@ -157,28 +158,28 @@ require_pattern \
   "operator guide checklist must keep backup/import non-claim"
 
 require_pattern \
-  "docs/design/0.191-durability-productization-format-policy/0.191-evidence.md" \
+  "$durability_design_dir/0.191-evidence.md" \
   "Persisted-format classification: no persisted-format change" \
   "0.191 evidence must classify documentation decisions as no persisted-format change"
 require_pattern \
-  "docs/design/0.191-durability-productization-format-policy/0.191-evidence.md" \
+  "$durability_design_dir/0.191-evidence.md" \
   "recovery_startup_rebuilds_mixed_index_shapes_host_floor" \
   "0.191 evidence must retain mixed-index recovery proof"
 require_pattern \
-  "docs/design/0.191-durability-productization-format-policy/0.191-evidence.md" \
+  "$durability_design_dir/0.191-evidence.md" \
   "sql_perf_journaled_upgrade_guarded_reentry_stays_bounded" \
   "0.191 evidence must retain PocketIC upgrade/reentry proof"
 require_pattern \
-  "docs/design/0.191-durability-productization-format-policy/0.191-evidence.md" \
+  "$durability_design_dir/0.191-evidence.md" \
   "^## Closeout Checklist$" \
   "0.191 evidence must retain closeout checklist"
 
 require_pattern \
-  "docs/design/0.191-durability-productization-format-policy/streaming-recovery-followup.md" \
+  "$durability_design_dir/streaming-recovery-followup.md" \
   "Streaming recovery must be an explicit recovery mode" \
   "streaming follow-up must retain explicit recovery-mode requirement"
 require_pattern \
-  "docs/design/0.191-durability-productization-format-policy/streaming-recovery-followup.md" \
+  "$durability_design_dir/streaming-recovery-followup.md" \
   "Progress bytes are persisted format" \
   "streaming follow-up must retain persisted progress classification"
 

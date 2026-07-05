@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.197.x] 🔧 - 2026-07-05 - Deterministic Optimizer Canonicalization
+
+Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
+
+- `0.197.0` starts deterministic optimizer canonicalization by locking exact
+  primary-key filters, finite `IN (...)` filters, residual predicates,
+  external primary keys, and EXPLAIN route facts to the same bounded
+  `ByKey`/`ByKeys` public-read proofs as explicit key APIs.
+
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
