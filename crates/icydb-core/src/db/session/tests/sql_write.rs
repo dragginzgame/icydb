@@ -1339,6 +1339,126 @@ fn execute_sql_statement_write_rejects_explicit_managed_timestamp_fields_matrix(
 }
 
 #[test]
+fn execute_sql_statement_insert_synthesizes_omitted_managed_timestamp_fields_matrix() {
+    for (sql, expected_id, expected_name, context) in [
+        (
+            "INSERT INTO SessionSqlManagedWriteEntity (id, name) VALUES (1, 'Ada') \
+             RETURNING id, name, created_at, updated_at",
+            1,
+            "Ada",
+            "named-column managed timestamp insert",
+        ),
+        (
+            "INSERT INTO SessionSqlManagedWriteEntity VALUES (2, 'Bea') \
+             RETURNING id, name, created_at, updated_at",
+            2,
+            "Bea",
+            "positional managed timestamp insert",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let rows = statement_projection_rows::<SessionSqlManagedWriteEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should synthesize managed fields: {err}"));
+
+        assert_eq!(rows.len(), 1, "{context} should return one inserted row");
+        assert_eq!(rows[0][0], Value::Nat64(expected_id));
+        assert_eq!(rows[0][1], Value::Text(expected_name.to_string()));
+        let created_at = match &rows[0][2] {
+            Value::Timestamp(value) => *value,
+            other => panic!("{context} should return created_at timestamp, got {other:?}"),
+        };
+        let updated_at = match &rows[0][3] {
+            Value::Timestamp(value) => *value,
+            other => panic!("{context} should return updated_at timestamp, got {other:?}"),
+        };
+        assert_ne!(
+            created_at,
+            Timestamp::EPOCH,
+            "{context} should not persist an epoch created_at",
+        );
+        assert_eq!(
+            created_at, updated_at,
+            "{context} should use one statement write timestamp for managed insert fields",
+        );
+
+        let persisted = statement_projection_rows::<SessionSqlManagedWriteEntity>(
+            &session,
+            "SELECT id, name, created_at, updated_at FROM SessionSqlManagedWriteEntity \
+             ORDER BY id ASC",
+        )
+        .unwrap_or_else(|err| panic!("{context} post-insert projection should succeed: {err}"));
+        assert_eq!(
+            persisted, rows,
+            "{context} should persist synthesized fields"
+        );
+    }
+}
+
+#[test]
+fn execute_sql_statement_insert_select_synthesizes_omitted_managed_timestamp_fields() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let source_rows = statement_projection_rows::<SessionSqlGeneratedKeyManagedWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlGeneratedKeyManagedWriteEntity (name) VALUES ('Ada') \
+         RETURNING id, name, created_at, updated_at",
+    )
+    .expect("managed generated-key source row setup should succeed");
+
+    let rows = statement_projection_rows::<SessionSqlGeneratedKeyManagedWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlGeneratedKeyManagedWriteEntity (name) \
+         SELECT name FROM SessionSqlGeneratedKeyManagedWriteEntity WHERE name = 'Ada' \
+         RETURNING id, name, created_at, updated_at",
+    )
+    .unwrap_or_else(|err| panic!("INSERT SELECT should synthesize omitted managed fields: {err}"));
+
+    assert_eq!(rows.len(), 1, "INSERT SELECT should return one row");
+    assert_ne!(
+        rows[0][0], source_rows[0][0],
+        "INSERT SELECT should synthesize a distinct generated primary key",
+    );
+    assert!(
+        matches!(rows[0][0], Value::Ulid(_)),
+        "INSERT SELECT should return a generated Ulid primary key",
+    );
+    assert_eq!(rows[0][1], Value::Text("Ada".to_string()));
+    let created_at = match &rows[0][2] {
+        Value::Timestamp(value) => *value,
+        other => panic!("INSERT SELECT should return created_at timestamp, got {other:?}"),
+    };
+    let updated_at = match &rows[0][3] {
+        Value::Timestamp(value) => *value,
+        other => panic!("INSERT SELECT should return updated_at timestamp, got {other:?}"),
+    };
+    assert_ne!(
+        created_at,
+        Timestamp::EPOCH,
+        "INSERT SELECT should not persist an epoch created_at",
+    );
+    assert_eq!(
+        created_at, updated_at,
+        "INSERT SELECT should use one statement write timestamp for managed insert fields",
+    );
+
+    let persisted = statement_projection_rows::<SessionSqlGeneratedKeyManagedWriteEntity>(
+        &session,
+        "SELECT id, name, created_at, updated_at FROM SessionSqlGeneratedKeyManagedWriteEntity \
+         ORDER BY name ASC, id ASC",
+    )
+    .expect("managed INSERT SELECT post-state projection should succeed");
+    assert_eq!(persisted.len(), 2);
+    assert!(
+        persisted
+            .iter()
+            .any(|persisted_row| persisted_row == &rows[0]),
+        "INSERT SELECT should persist the synthesized managed-field row",
+    );
+}
+
+#[test]
 fn execute_sql_statement_insert_rejects_explicit_generated_fields_matrix() {
     reset_session_sql_store();
     let session = sql_session();

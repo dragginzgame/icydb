@@ -196,7 +196,9 @@ struct SqliteMutationScenario {
     family: String,
     sql: String,
     mutation_signature_ordered: bool,
+    expected_mutation_signature: String,
     post_read_sql: String,
+    expected_post_signature: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -388,6 +390,8 @@ struct SqliteMutationDifferentialReport {
     sqlite_failure_count: usize,
     mutation_signature_mismatch_count: usize,
     post_state_mismatch_count: usize,
+    expected_mutation_mismatch_count: usize,
+    expected_post_state_mismatch_count: usize,
     fairness_notes: Vec<String>,
     scenarios: Vec<SqliteMutationComparisonScenario>,
     failures: Vec<SqliteMutationComparisonFailure>,
@@ -401,12 +405,16 @@ struct SqliteMutationComparisonScenario {
     sql: String,
     post_read_sql: String,
     mutation_signature_ordered: bool,
+    expected_mutation_signature: String,
     icydb_mutation_signature: String,
     sqlite_mutation_signature: String,
     mutation_signatures_match: bool,
+    expected_mutation_match: String,
+    expected_post_signature: String,
     icydb_post_signature: String,
     sqlite_post_signature: String,
     post_signatures_match: bool,
+    expected_post_state_match: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1637,7 +1645,8 @@ fn random_user_mutation_scenario(
 ) -> SqliteMutationScenario {
     let key_prefix = format!("mutation.random.{seed:016x}.{index:04}.user");
 
-    match index % 8 {
+    match index % 12 {
+        0 | 6 => insert_user_mutation_scenario(rng, index, users, &key_prefix),
         1 => update_user_by_name_mutation_scenario(rng, index, users, &key_prefix),
         2 if users.len() > 2 => delete_user_by_name_mutation_scenario(rng, users, &key_prefix),
         3 => update_user_by_compound_predicate_mutation_scenario(rng, users, &key_prefix),
@@ -1646,8 +1655,80 @@ fn random_user_mutation_scenario(
                 .unwrap_or_else(|| delete_user_by_pk_mutation_scenario(rng, users, &key_prefix))
         }
         5 if users.len() > 2 => delete_user_by_pk_mutation_scenario(rng, users, &key_prefix),
+        7 => update_user_by_range_predicate_mutation_scenario(rng, users, &key_prefix),
+        8 if users.len() > 2 => {
+            delete_user_by_range_predicate_mutation_scenario(rng, users, &key_prefix)
+                .unwrap_or_else(|| delete_user_by_pk_mutation_scenario(rng, users, &key_prefix))
+        }
         _ => update_user_by_pk_mutation_scenario(rng, index, users, &key_prefix),
     }
+}
+
+fn insert_user_mutation_scenario(
+    rng: &mut Lcg,
+    index: usize,
+    users: &mut Vec<MutationUserRow>,
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let id = next_mutation_user_id(users);
+    let name = format!("insert-user-{index:04}");
+    let age = *rng.choose(&[20, 24, 31, 37, 44, 52]);
+    let age_nat = u32::try_from(age).expect("mutation age should fit Nat32");
+    let rank = *rng.choose(&[17, 25, 28, 30, 43, 50]);
+    let active = *rng.choose(&["true", "false"]);
+    let inserted = MutationUserRow {
+        id,
+        name: name.clone(),
+        age,
+        age_nat,
+        rank,
+    };
+    users.push(inserted.clone());
+
+    user_mutation_scenario(
+        key_prefix,
+        "insert",
+        "mutation.insert",
+        format!(
+            "INSERT INTO PerfAuditUser (id, name, age, age_nat, rank, active) \
+             VALUES ({id}, '{}', {age}, {age_nat}, {rank}, {active}) \
+             RETURNING id, name, age, age_nat, rank",
+            sqlite_quote(&name),
+        ),
+        true,
+        user_mutation_row_signature(&inserted),
+        users,
+    )
+}
+
+fn user_mutation_scenario(
+    key_prefix: &str,
+    key_suffix: &str,
+    family: &str,
+    sql: String,
+    mutation_signature_ordered: bool,
+    expected_mutation_signature: String,
+    users: &[MutationUserRow],
+) -> SqliteMutationScenario {
+    SqliteMutationScenario {
+        key: format!("{key_prefix}.{key_suffix}"),
+        surface: MatrixSurface::User,
+        family: family.to_string(),
+        sql,
+        mutation_signature_ordered,
+        expected_mutation_signature,
+        post_read_sql: user_mutation_post_read_sql(),
+        expected_post_signature: user_mutation_post_signature(users),
+    }
+}
+
+fn next_mutation_user_id(users: &[MutationUserRow]) -> i32 {
+    users
+        .iter()
+        .map(|row| row.id)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
 }
 
 fn update_user_by_pk_mutation_scenario(
@@ -1659,18 +1740,20 @@ fn update_user_by_pk_mutation_scenario(
     let row_index = rng.index(users.len());
     let id = users[row_index].id;
     let set_clause = update_user_row_and_set_clause(rng, index, &mut users[row_index]);
+    let expected_mutation_signature = user_mutation_row_signature(&users[row_index]);
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.update_pk"),
-        surface: MatrixSurface::User,
-        family: "mutation.update_pk".to_string(),
-        sql: format!(
+    user_mutation_scenario(
+        key_prefix,
+        "update_pk",
+        "mutation.update_pk",
+        format!(
             "UPDATE PerfAuditUser SET {set_clause} \
              WHERE id = {id} RETURNING id, name, age, age_nat, rank"
         ),
-        mutation_signature_ordered: true,
-        post_read_sql: user_mutation_post_read_sql(),
-    }
+        true,
+        expected_mutation_signature,
+        users,
+    )
 }
 
 fn update_user_by_name_mutation_scenario(
@@ -1682,19 +1765,21 @@ fn update_user_by_name_mutation_scenario(
     let row_index = rng.index(users.len());
     let old_name = users[row_index].name.clone();
     let set_clause = update_user_row_and_set_clause(rng, index, &mut users[row_index]);
+    let expected_mutation_signature = user_mutation_row_signature(&users[row_index]);
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.update_name_predicate"),
-        surface: MatrixSurface::User,
-        family: "mutation.update_name_predicate".to_string(),
-        sql: format!(
+    user_mutation_scenario(
+        key_prefix,
+        "update_name_predicate",
+        "mutation.update_name_predicate",
+        format!(
             "UPDATE PerfAuditUser SET {set_clause} \
              WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
             sqlite_quote(&old_name),
         ),
-        mutation_signature_ordered: true,
-        post_read_sql: user_mutation_post_read_sql(),
-    }
+        true,
+        expected_mutation_signature,
+        users,
+    )
 }
 
 fn update_user_by_compound_predicate_mutation_scenario(
@@ -1709,26 +1794,66 @@ fn update_user_by_compound_predicate_mutation_scenario(
     let age_nat = u32::try_from(age).expect("mutation age should fit Nat32");
     let rank = *rng.choose(&[17, 25, 28, 30, 43, 50]);
 
-    for row in users
-        .iter_mut()
-        .filter(|row| row.age == old_age && row.rank == old_rank)
-    {
-        row.age = age;
-        row.age_nat = age_nat;
-        row.rank = rank;
-    }
+    let affected_rows = update_matching_rows(
+        users,
+        |row| row.age == old_age && row.rank == old_rank,
+        |row| {
+            row.age = age;
+            row.age_nat = age_nat;
+            row.rank = rank;
+        },
+    );
+    let expected_mutation_signature = user_mutation_rows_signature(&affected_rows, false);
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.update_compound_predicate"),
-        surface: MatrixSurface::User,
-        family: "mutation.update_compound_predicate".to_string(),
-        sql: format!(
+    user_mutation_scenario(
+        key_prefix,
+        "update_compound_predicate",
+        "mutation.update_compound_predicate",
+        format!(
             "UPDATE PerfAuditUser SET age = {age}, age_nat = {age_nat}, rank = {rank} \
              WHERE age = {old_age} AND rank = {old_rank} RETURNING id, name, age, age_nat, rank"
         ),
-        mutation_signature_ordered: false,
-        post_read_sql: user_mutation_post_read_sql(),
-    }
+        false,
+        expected_mutation_signature,
+        users,
+    )
+}
+
+fn update_user_by_range_predicate_mutation_scenario(
+    rng: &mut Lcg,
+    users: &mut [MutationUserRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let row_index = rng.index(users.len());
+    let old_age = users[row_index].age;
+    let high_age = old_age.saturating_add(1);
+    let age = *rng.choose(&[20, 24, 31, 37, 44, 52]);
+    let age_nat = u32::try_from(age).expect("mutation age should fit Nat32");
+    let rank = *rng.choose(&[17, 25, 28, 30, 43, 50]);
+
+    let affected_rows = update_matching_rows(
+        users,
+        |row| row.age >= old_age && row.age < high_age,
+        |row| {
+            row.age = age;
+            row.age_nat = age_nat;
+            row.rank = rank;
+        },
+    );
+    let expected_mutation_signature = user_mutation_rows_signature(&affected_rows, false);
+
+    user_mutation_scenario(
+        key_prefix,
+        "update_range_predicate",
+        "mutation.update_range_predicate",
+        format!(
+            "UPDATE PerfAuditUser SET age = {age}, age_nat = {age_nat}, rank = {rank} \
+             WHERE age >= {old_age} AND age < {high_age} RETURNING id, name, age, age_nat, rank"
+        ),
+        false,
+        expected_mutation_signature,
+        users,
+    )
 }
 
 fn update_user_row_and_set_clause(
@@ -1757,18 +1882,18 @@ fn delete_user_by_pk_mutation_scenario(
     key_prefix: &str,
 ) -> SqliteMutationScenario {
     let row_index = rng.index(users.len());
-    let id = users.remove(row_index).id;
+    let removed = users.remove(row_index);
+    let id = removed.id;
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.delete_pk"),
-        surface: MatrixSurface::User,
-        family: "mutation.delete_pk".to_string(),
-        sql: format!(
-            "DELETE FROM PerfAuditUser WHERE id = {id} RETURNING id, name, age, age_nat, rank"
-        ),
-        mutation_signature_ordered: true,
-        post_read_sql: user_mutation_post_read_sql(),
-    }
+    user_mutation_scenario(
+        key_prefix,
+        "delete_pk",
+        "mutation.delete_pk",
+        format!("DELETE FROM PerfAuditUser WHERE id = {id} RETURNING id, name, age, age_nat, rank"),
+        true,
+        user_mutation_row_signature(&removed),
+        users,
+    )
 }
 
 fn delete_user_by_name_mutation_scenario(
@@ -1777,19 +1902,21 @@ fn delete_user_by_name_mutation_scenario(
     key_prefix: &str,
 ) -> SqliteMutationScenario {
     let row_index = rng.index(users.len());
-    let name = users.remove(row_index).name;
+    let removed = users.remove(row_index);
+    let name = removed.name.clone();
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.delete_name_predicate"),
-        surface: MatrixSurface::User,
-        family: "mutation.delete_name_predicate".to_string(),
-        sql: format!(
+    user_mutation_scenario(
+        key_prefix,
+        "delete_name_predicate",
+        "mutation.delete_name_predicate",
+        format!(
             "DELETE FROM PerfAuditUser WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
             sqlite_quote(&name),
         ),
-        mutation_signature_ordered: true,
-        post_read_sql: user_mutation_post_read_sql(),
-    }
+        true,
+        user_mutation_row_signature(&removed),
+        users,
+    )
 }
 
 fn delete_user_by_compound_predicate_mutation_scenario(
@@ -1797,45 +1924,56 @@ fn delete_user_by_compound_predicate_mutation_scenario(
     users: &mut Vec<MutationUserRow>,
     key_prefix: &str,
 ) -> Option<SqliteMutationScenario> {
-    let row_index = random_deletable_user_compound_index(rng, users)?;
+    let row_index = random_deletable_index(rng, users, |row| {
+        matching_row_count(users, |candidate| {
+            candidate.age == row.age && candidate.rank == row.rank
+        })
+    })?;
     let old_age = users[row_index].age;
     let old_rank = users[row_index].rank;
-    users.retain(|row| row.age != old_age || row.rank != old_rank);
+    let removed_rows =
+        remove_matching_rows(users, |row| row.age == old_age && row.rank == old_rank);
+    let expected_mutation_signature = user_mutation_rows_signature(&removed_rows, false);
 
-    Some(SqliteMutationScenario {
-        key: format!("{key_prefix}.delete_compound_predicate"),
-        surface: MatrixSurface::User,
-        family: "mutation.delete_compound_predicate".to_string(),
-        sql: format!(
+    Some(user_mutation_scenario(
+        key_prefix,
+        "delete_compound_predicate",
+        "mutation.delete_compound_predicate",
+        format!(
             "DELETE FROM PerfAuditUser \
              WHERE age = {old_age} AND rank = {old_rank} RETURNING id, name, age, age_nat, rank"
         ),
-        mutation_signature_ordered: false,
-        post_read_sql: user_mutation_post_read_sql(),
-    })
+        false,
+        expected_mutation_signature,
+        users,
+    ))
 }
 
-fn random_deletable_user_compound_index(rng: &mut Lcg, users: &[MutationUserRow]) -> Option<usize> {
-    let candidates = users
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| {
-            user_compound_match_count(users, row.age, row.rank) <= users.len().saturating_sub(2)
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    if candidates.is_empty() {
-        return None;
-    }
+fn delete_user_by_range_predicate_mutation_scenario(
+    rng: &mut Lcg,
+    users: &mut Vec<MutationUserRow>,
+    key_prefix: &str,
+) -> Option<SqliteMutationScenario> {
+    let row_index = random_deletable_index(rng, users, |row| {
+        matching_row_count(users, |candidate| candidate.age == row.age)
+    })?;
+    let old_age = users[row_index].age;
+    let high_age = old_age.saturating_add(1);
+    let removed_rows = remove_matching_rows(users, |row| row.age >= old_age && row.age < high_age);
+    let expected_mutation_signature = user_mutation_rows_signature(&removed_rows, false);
 
-    candidates.get(rng.index(candidates.len())).copied()
-}
-
-fn user_compound_match_count(users: &[MutationUserRow], age: i32, rank: i32) -> usize {
-    users
-        .iter()
-        .filter(|row| row.age == age && row.rank == rank)
-        .count()
+    Some(user_mutation_scenario(
+        key_prefix,
+        "delete_range_predicate",
+        "mutation.delete_range_predicate",
+        format!(
+            "DELETE FROM PerfAuditUser \
+             WHERE age >= {old_age} AND age < {high_age} RETURNING id, name, age, age_nat, rank"
+        ),
+        false,
+        expected_mutation_signature,
+        users,
+    ))
 }
 
 fn random_account_mutation_scenario(
@@ -1846,7 +1984,8 @@ fn random_account_mutation_scenario(
 ) -> SqliteMutationScenario {
     let key_prefix = format!("mutation.random.{seed:016x}.{index:04}.account");
 
-    match index % 8 {
+    match index % 12 {
+        0 | 6 => insert_account_mutation_scenario(rng, index, accounts, &key_prefix),
         1 => update_account_by_handle_mutation_scenario(rng, index, accounts, &key_prefix),
         2 if accounts.len() > 2 => {
             delete_account_by_handle_mutation_scenario(rng, accounts, &key_prefix)
@@ -1861,8 +2000,81 @@ fn random_account_mutation_scenario(
         5 if accounts.len() > 2 => {
             delete_account_by_pk_mutation_scenario(rng, accounts, &key_prefix)
         }
+        7 => update_account_by_range_predicate_mutation_scenario(rng, accounts, &key_prefix),
+        8 if accounts.len() > 2 => {
+            delete_account_by_range_predicate_mutation_scenario(rng, accounts, &key_prefix)
+                .unwrap_or_else(|| {
+                    delete_account_by_pk_mutation_scenario(rng, accounts, &key_prefix)
+                })
+        }
         _ => update_account_by_pk_mutation_scenario(rng, index, accounts, &key_prefix),
     }
+}
+
+fn insert_account_mutation_scenario(
+    rng: &mut Lcg,
+    index: usize,
+    accounts: &mut Vec<MutationAccountRow>,
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let id = next_mutation_account_id(accounts);
+    let handle = format!("insert-handle-{index:04}");
+    let tier = rng.choose(&["bronze", "gold", "silver"]);
+    let score = *rng.choose(&[61, 70, 79, 88, 95]);
+    let active = *rng.choose(&["true", "false"]);
+    let inserted = MutationAccountRow {
+        id,
+        handle: handle.clone(),
+        tier: (*tier).to_string(),
+        score,
+    };
+    accounts.push(inserted.clone());
+
+    account_mutation_scenario(
+        key_prefix,
+        "insert",
+        "mutation.insert",
+        format!(
+            "INSERT INTO PerfAuditAccount (id, handle, tier, active, score) \
+             VALUES ({id}, '{}', '{}', {active}, {score}) \
+             RETURNING id, handle, tier, score",
+            sqlite_quote(&handle),
+            sqlite_quote(tier),
+        ),
+        true,
+        account_mutation_row_signature(&inserted),
+        accounts,
+    )
+}
+
+fn account_mutation_scenario(
+    key_prefix: &str,
+    key_suffix: &str,
+    family: &str,
+    sql: String,
+    mutation_signature_ordered: bool,
+    expected_mutation_signature: String,
+    accounts: &[MutationAccountRow],
+) -> SqliteMutationScenario {
+    SqliteMutationScenario {
+        key: format!("{key_prefix}.{key_suffix}"),
+        surface: MatrixSurface::Account,
+        family: family.to_string(),
+        sql,
+        mutation_signature_ordered,
+        expected_mutation_signature,
+        post_read_sql: account_mutation_post_read_sql(),
+        expected_post_signature: account_mutation_post_signature(accounts),
+    }
+}
+
+fn next_mutation_account_id(accounts: &[MutationAccountRow]) -> i32 {
+    accounts
+        .iter()
+        .map(|row| row.id)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
 }
 
 fn update_account_by_pk_mutation_scenario(
@@ -1874,18 +2086,20 @@ fn update_account_by_pk_mutation_scenario(
     let row_index = rng.index(accounts.len());
     let id = accounts[row_index].id;
     let set_clause = update_account_row_and_set_clause(rng, index, &mut accounts[row_index]);
+    let expected_mutation_signature = account_mutation_row_signature(&accounts[row_index]);
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.update_pk"),
-        surface: MatrixSurface::Account,
-        family: "mutation.update_pk".to_string(),
-        sql: format!(
+    account_mutation_scenario(
+        key_prefix,
+        "update_pk",
+        "mutation.update_pk",
+        format!(
             "UPDATE PerfAuditAccount SET {set_clause} \
              WHERE id = {id} RETURNING id, handle, tier, score"
         ),
-        mutation_signature_ordered: true,
-        post_read_sql: account_mutation_post_read_sql(),
-    }
+        true,
+        expected_mutation_signature,
+        accounts,
+    )
 }
 
 fn update_account_by_handle_mutation_scenario(
@@ -1897,19 +2111,21 @@ fn update_account_by_handle_mutation_scenario(
     let row_index = rng.index(accounts.len());
     let old_handle = accounts[row_index].handle.clone();
     let set_clause = update_account_row_and_set_clause(rng, index, &mut accounts[row_index]);
+    let expected_mutation_signature = account_mutation_row_signature(&accounts[row_index]);
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.update_handle_predicate"),
-        surface: MatrixSurface::Account,
-        family: "mutation.update_handle_predicate".to_string(),
-        sql: format!(
+    account_mutation_scenario(
+        key_prefix,
+        "update_handle_predicate",
+        "mutation.update_handle_predicate",
+        format!(
             "UPDATE PerfAuditAccount SET {set_clause} \
              WHERE handle = '{}' RETURNING id, handle, tier, score",
             sqlite_quote(&old_handle),
         ),
-        mutation_signature_ordered: true,
-        post_read_sql: account_mutation_post_read_sql(),
-    }
+        true,
+        expected_mutation_signature,
+        accounts,
+    )
 }
 
 fn update_account_by_compound_predicate_mutation_scenario(
@@ -1923,27 +2139,66 @@ fn update_account_by_compound_predicate_mutation_scenario(
     let score = *rng.choose(&[61, 70, 79, 88, 95]);
     let tier = rng.choose(&["bronze", "gold", "silver"]);
 
-    for row in accounts
-        .iter_mut()
-        .filter(|row| row.tier == old_tier && row.score == old_score)
-    {
-        row.score = score;
-        row.tier = (*tier).to_string();
-    }
+    let affected_rows = update_matching_rows(
+        accounts,
+        |row| row.tier == old_tier && row.score == old_score,
+        |row| {
+            row.score = score;
+            row.tier = (*tier).to_string();
+        },
+    );
+    let expected_mutation_signature = account_mutation_rows_signature(&affected_rows, false);
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.update_compound_predicate"),
-        surface: MatrixSurface::Account,
-        family: "mutation.update_compound_predicate".to_string(),
-        sql: format!(
+    account_mutation_scenario(
+        key_prefix,
+        "update_compound_predicate",
+        "mutation.update_compound_predicate",
+        format!(
             "UPDATE PerfAuditAccount SET score = {score}, tier = '{}' \
              WHERE tier = '{}' AND score = {old_score} RETURNING id, handle, tier, score",
             sqlite_quote(tier),
             sqlite_quote(&old_tier),
         ),
-        mutation_signature_ordered: false,
-        post_read_sql: account_mutation_post_read_sql(),
-    }
+        false,
+        expected_mutation_signature,
+        accounts,
+    )
+}
+
+fn update_account_by_range_predicate_mutation_scenario(
+    rng: &mut Lcg,
+    accounts: &mut [MutationAccountRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let row_index = rng.index(accounts.len());
+    let old_score = accounts[row_index].score;
+    let high_score = old_score.saturating_add(1);
+    let score = *rng.choose(&[61, 70, 79, 88, 95]);
+    let tier = rng.choose(&["bronze", "gold", "silver"]);
+
+    let affected_rows = update_matching_rows(
+        accounts,
+        |row| row.score >= old_score && row.score < high_score,
+        |row| {
+            row.score = score;
+            row.tier = (*tier).to_string();
+        },
+    );
+    let expected_mutation_signature = account_mutation_rows_signature(&affected_rows, false);
+
+    account_mutation_scenario(
+        key_prefix,
+        "update_range_predicate",
+        "mutation.update_range_predicate",
+        format!(
+            "UPDATE PerfAuditAccount SET score = {score}, tier = '{}' \
+             WHERE score >= {old_score} AND score < {high_score} RETURNING id, handle, tier, score",
+            sqlite_quote(tier),
+        ),
+        false,
+        expected_mutation_signature,
+        accounts,
+    )
 }
 
 fn update_account_row_and_set_clause(
@@ -1970,18 +2225,18 @@ fn delete_account_by_pk_mutation_scenario(
     key_prefix: &str,
 ) -> SqliteMutationScenario {
     let row_index = rng.index(accounts.len());
-    let id = accounts.remove(row_index).id;
+    let removed = accounts.remove(row_index);
+    let id = removed.id;
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.delete_pk"),
-        surface: MatrixSurface::Account,
-        family: "mutation.delete_pk".to_string(),
-        sql: format!(
-            "DELETE FROM PerfAuditAccount WHERE id = {id} RETURNING id, handle, tier, score"
-        ),
-        mutation_signature_ordered: true,
-        post_read_sql: account_mutation_post_read_sql(),
-    }
+    account_mutation_scenario(
+        key_prefix,
+        "delete_pk",
+        "mutation.delete_pk",
+        format!("DELETE FROM PerfAuditAccount WHERE id = {id} RETURNING id, handle, tier, score"),
+        true,
+        account_mutation_row_signature(&removed),
+        accounts,
+    )
 }
 
 fn delete_account_by_handle_mutation_scenario(
@@ -1990,19 +2245,21 @@ fn delete_account_by_handle_mutation_scenario(
     key_prefix: &str,
 ) -> SqliteMutationScenario {
     let row_index = rng.index(accounts.len());
-    let handle = accounts.remove(row_index).handle;
+    let removed = accounts.remove(row_index);
+    let handle = removed.handle.clone();
 
-    SqliteMutationScenario {
-        key: format!("{key_prefix}.delete_handle_predicate"),
-        surface: MatrixSurface::Account,
-        family: "mutation.delete_handle_predicate".to_string(),
-        sql: format!(
+    account_mutation_scenario(
+        key_prefix,
+        "delete_handle_predicate",
+        "mutation.delete_handle_predicate",
+        format!(
             "DELETE FROM PerfAuditAccount WHERE handle = '{}' RETURNING id, handle, tier, score",
             sqlite_quote(&handle),
         ),
-        mutation_signature_ordered: true,
-        post_read_sql: account_mutation_post_read_sql(),
-    }
+        true,
+        account_mutation_row_signature(&removed),
+        accounts,
+    )
 }
 
 fn delete_account_by_compound_predicate_mutation_scenario(
@@ -2010,36 +2267,104 @@ fn delete_account_by_compound_predicate_mutation_scenario(
     accounts: &mut Vec<MutationAccountRow>,
     key_prefix: &str,
 ) -> Option<SqliteMutationScenario> {
-    let row_index = random_deletable_account_compound_index(rng, accounts)?;
+    let row_index = random_deletable_index(rng, accounts, |row| {
+        matching_row_count(accounts, |candidate| {
+            candidate.tier == row.tier && candidate.score == row.score
+        })
+    })?;
     let old_tier = accounts[row_index].tier.clone();
     let old_score = accounts[row_index].score;
-    accounts.retain(|row| row.tier != old_tier || row.score != old_score);
+    let removed_rows = remove_matching_rows(accounts, |row| {
+        row.tier == old_tier && row.score == old_score
+    });
+    let expected_mutation_signature = account_mutation_rows_signature(&removed_rows, false);
 
-    Some(SqliteMutationScenario {
-        key: format!("{key_prefix}.delete_compound_predicate"),
-        surface: MatrixSurface::Account,
-        family: "mutation.delete_compound_predicate".to_string(),
-        sql: format!(
+    Some(account_mutation_scenario(
+        key_prefix,
+        "delete_compound_predicate",
+        "mutation.delete_compound_predicate",
+        format!(
             "DELETE FROM PerfAuditAccount \
              WHERE tier = '{}' AND score = {old_score} RETURNING id, handle, tier, score",
             sqlite_quote(&old_tier),
         ),
-        mutation_signature_ordered: false,
-        post_read_sql: account_mutation_post_read_sql(),
-    })
+        false,
+        expected_mutation_signature,
+        accounts,
+    ))
 }
 
-fn random_deletable_account_compound_index(
+fn delete_account_by_range_predicate_mutation_scenario(
     rng: &mut Lcg,
-    accounts: &[MutationAccountRow],
-) -> Option<usize> {
-    let candidates = accounts
+    accounts: &mut Vec<MutationAccountRow>,
+    key_prefix: &str,
+) -> Option<SqliteMutationScenario> {
+    let row_index = random_deletable_index(rng, accounts, |row| {
+        matching_row_count(accounts, |candidate| candidate.score == row.score)
+    })?;
+    let old_score = accounts[row_index].score;
+    let high_score = old_score.saturating_add(1);
+    let removed_rows = remove_matching_rows(accounts, |row| {
+        row.score >= old_score && row.score < high_score
+    });
+    let expected_mutation_signature = account_mutation_rows_signature(&removed_rows, false);
+
+    Some(account_mutation_scenario(
+        key_prefix,
+        "delete_range_predicate",
+        "mutation.delete_range_predicate",
+        format!(
+            "DELETE FROM PerfAuditAccount \
+             WHERE score >= {old_score} AND score < {high_score} RETURNING id, handle, tier, score"
+        ),
+        false,
+        expected_mutation_signature,
+        accounts,
+    ))
+}
+
+fn update_matching_rows<T, M, U>(rows: &mut [T], matches: M, mut update: U) -> Vec<T>
+where
+    T: Clone,
+    M: Fn(&T) -> bool,
+    U: FnMut(&mut T),
+{
+    let mut affected_rows = Vec::new();
+    for row in rows {
+        if matches(row) {
+            update(row);
+            affected_rows.push(row.clone());
+        }
+    }
+    affected_rows
+}
+
+fn remove_matching_rows<T, M>(rows: &mut Vec<T>, matches: M) -> Vec<T>
+where
+    M: Fn(&T) -> bool,
+{
+    let mut removed_rows = Vec::new();
+    let mut retained_rows = Vec::with_capacity(rows.len());
+    for row in rows.drain(..) {
+        if matches(&row) {
+            removed_rows.push(row);
+        } else {
+            retained_rows.push(row);
+        }
+    }
+    *rows = retained_rows;
+    removed_rows
+}
+
+fn random_deletable_index<T, M>(rng: &mut Lcg, rows: &[T], match_count: M) -> Option<usize>
+where
+    M: Fn(&T) -> usize,
+{
+    let max_removed_rows = rows.len().saturating_sub(2);
+    let candidates = rows
         .iter()
         .enumerate()
-        .filter(|(_, row)| {
-            account_compound_match_count(accounts, row.tier.as_str(), row.score)
-                <= accounts.len().saturating_sub(2)
-        })
+        .filter(|(_, row)| match_count(row) <= max_removed_rows)
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     if candidates.is_empty() {
@@ -2049,11 +2374,11 @@ fn random_deletable_account_compound_index(
     candidates.get(rng.index(candidates.len())).copied()
 }
 
-fn account_compound_match_count(accounts: &[MutationAccountRow], tier: &str, score: i32) -> usize {
-    accounts
-        .iter()
-        .filter(|row| row.tier == tier && row.score == score)
-        .count()
+fn matching_row_count<T, M>(rows: &[T], matches: M) -> usize
+where
+    M: Fn(&T) -> bool,
+{
+    rows.iter().filter(|row| matches(row)).count()
 }
 
 fn user_mutation_post_read_sql() -> String {
@@ -2062,6 +2387,64 @@ fn user_mutation_post_read_sql() -> String {
 
 fn account_mutation_post_read_sql() -> String {
     "SELECT id, handle, tier, score FROM PerfAuditAccount ORDER BY id ASC".to_string()
+}
+
+fn user_mutation_post_signature(users: &[MutationUserRow]) -> String {
+    let mut rows = users.iter().collect::<Vec<_>>();
+    rows.sort_by_key(|row| row.id);
+    let row_strings = rows
+        .into_iter()
+        .map(user_mutation_row_signature)
+        .collect::<Vec<_>>();
+    rendered_signature_from_strings(&row_strings)
+}
+
+fn account_mutation_post_signature(accounts: &[MutationAccountRow]) -> String {
+    let mut rows = accounts.iter().collect::<Vec<_>>();
+    rows.sort_by_key(|row| row.id);
+    let row_strings = rows
+        .into_iter()
+        .map(account_mutation_row_signature)
+        .collect::<Vec<_>>();
+    rendered_signature_from_strings(&row_strings)
+}
+
+fn user_mutation_rows_signature(rows: &[MutationUserRow], ordered: bool) -> String {
+    let rows = rows
+        .iter()
+        .map(user_mutation_row_signature)
+        .collect::<Vec<_>>();
+    rendered_mutation_rows_signature(rows, ordered)
+}
+
+fn account_mutation_rows_signature(rows: &[MutationAccountRow], ordered: bool) -> String {
+    let rows = rows
+        .iter()
+        .map(account_mutation_row_signature)
+        .collect::<Vec<_>>();
+    rendered_mutation_rows_signature(rows, ordered)
+}
+
+fn rendered_mutation_rows_signature(mut rows: Vec<String>, ordered: bool) -> String {
+    if !ordered {
+        rows.sort_unstable();
+    }
+    rendered_signature_from_strings(&rows)
+}
+
+fn rendered_signature_from_strings(rows: &[String]) -> String {
+    rows.join("\n")
+}
+
+fn user_mutation_row_signature(row: &MutationUserRow) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}",
+        row.id, row.name, row.age, row.age_nat, row.rank
+    )
+}
+
+fn account_mutation_row_signature(row: &MutationAccountRow) -> String {
+    format!("{}\t{}\t{}\t{}", row.id, row.handle, row.tier, row.score)
 }
 
 fn generated_matrix(mode: MatrixMode) -> Vec<MatrixScenario> {
@@ -2987,13 +3370,34 @@ fn sqlite_mutation_comparison_for_scenario(
         sql: scenario.sql.clone(),
         post_read_sql: scenario.post_read_sql.clone(),
         mutation_signature_ordered: scenario.mutation_signature_ordered,
+        expected_mutation_signature: scenario.expected_mutation_signature.clone(),
+        expected_mutation_match: expected_match_status(
+            icydb_mutation_signature.as_str(),
+            sqlite_mutation_signature.as_str(),
+            scenario.expected_mutation_signature.as_str(),
+        ),
         mutation_signatures_match: icydb_mutation_signature == sqlite_mutation_signature,
         icydb_mutation_signature,
         sqlite_mutation_signature,
+        expected_post_signature: scenario.expected_post_signature.clone(),
+        expected_post_state_match: expected_match_status(
+            icydb_post_signature.as_str(),
+            sqlite_post_signature.as_str(),
+            scenario.expected_post_signature.as_str(),
+        ),
         post_signatures_match: icydb_post_signature == sqlite_post_signature,
         icydb_post_signature,
         sqlite_post_signature,
     })
+}
+
+fn expected_match_status(icydb: &str, sqlite: &str, expected: &str) -> String {
+    match (icydb == expected, sqlite == expected) {
+        (true, true) => "both".to_string(),
+        (true, false) => "icydb_only".to_string(),
+        (false, true) => "sqlite_only".to_string(),
+        (false, false) => "neither".to_string(),
+    }
 }
 
 fn mutation_signature_for_comparison(signature: &str, scenario: &SqliteMutationScenario) -> String {
@@ -3139,7 +3543,8 @@ fn sqlite_mutation_differential_fairness_notes() -> Vec<String> {
     vec![
         "SQLite and IcyDB both run the same sequential mutation statements against freshly seeded audit fixtures.".to_string(),
         "The harness compares explicit RETURNING projections plus a deterministic post-state SELECT after each mutation.".to_string(),
-        "Mutation coverage is scoped to supported UPDATE/DELETE forms on PerfAuditUser and PerfAuditAccount; INSERT on managed-field audit entities needs a dedicated fixture before it can be compared fairly.".to_string(),
+        "Each scenario also carries a generated-model expected signature, so the report catches generator or seed drift in addition to IcyDB-vs-SQLite mismatches.".to_string(),
+        "Mutation coverage is scoped to supported INSERT/UPDATE/DELETE forms on PerfAuditUser and PerfAuditAccount; INSERT omits IcyDB managed timestamps and compares only shared SQLite-visible fields.".to_string(),
         "The scenarios mutate indexed and non-indexed fields, then check that state remains aligned; they are correctness evidence, not a write-performance benchmark.".to_string(),
     ]
 }
@@ -3300,7 +3705,7 @@ fn print_sqlite_mutation_differential_report(report: &SqliteMutationDifferential
 
     let output_stem = sqlite_mutation_differential_output_stem();
     println!(
-        "SQLite mutation differential: seed={}, generated={}, common_success={}, icydb_failures={}, sqlite_failures={}, mutation_mismatches={}, post_state_mismatches={}, artifacts={}{{.json,.md}}",
+        "SQLite mutation differential: seed={}, generated={}, common_success={}, icydb_failures={}, sqlite_failures={}, mutation_mismatches={}, post_state_mismatches={}, expected_mutation_mismatches={}, expected_post_state_mismatches={}, artifacts={}{{.json,.md}}",
         report.random_seed,
         report.generated_mutation_count,
         report.common_success_count,
@@ -3308,6 +3713,8 @@ fn print_sqlite_mutation_differential_report(report: &SqliteMutationDifferential
         report.sqlite_failure_count,
         report.mutation_signature_mismatch_count,
         report.post_state_mismatch_count,
+        report.expected_mutation_mismatch_count,
+        report.expected_post_state_mismatch_count,
         output_stem.display(),
     );
 }
@@ -3436,6 +3843,18 @@ fn sqlite_mutation_differential_markdown(report: &SqliteMutationDifferentialRepo
         report.post_state_mismatch_count
     )
     .expect("write to string should succeed");
+    writeln!(
+        out,
+        "- Expected mutation mismatches: {}",
+        report.expected_mutation_mismatch_count
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        out,
+        "- Expected post-state mismatches: {}",
+        report.expected_post_state_mismatch_count
+    )
+    .expect("write to string should succeed");
     writeln!(out).expect("write to string should succeed");
     writeln!(out, "## Fairness Notes").expect("write to string should succeed");
     for note in &report.fairness_notes {
@@ -3489,21 +3908,26 @@ fn append_sqlite_mutation_success_table(
     writeln!(output, "## Mutation Scenarios").expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Family | Returning Compare | Returning Match | Post-State Match | SQL |"
+        "| Scenario | Surface | Family | Returning Compare | Returning Match | Expected Returning | Post-State Match | Expected Post-State | SQL |"
     )
     .expect("write to string should succeed");
-    writeln!(output, "| --- | --- | --- | --- | --- | --- | --- |")
-        .expect("write to string should succeed");
+    writeln!(
+        output,
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    )
+    .expect("write to string should succeed");
     for scenario in scenarios {
         writeln!(
             output,
-            "| {} | {} | {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             scenario.key,
             scenario.surface,
             scenario.family,
             mutation_order_cell(scenario.mutation_signature_ordered),
             scenario.mutation_signatures_match,
+            scenario.expected_mutation_match,
             scenario.post_signatures_match,
+            scenario.expected_post_state_match,
             scenario.sql,
         )
         .expect("write to string should succeed");
@@ -6624,6 +7048,11 @@ fn sql_perf_sqlite_mutation_differential_random_sequence_is_seeded_and_bounded()
             .key
             .starts_with("mutation.random.1cdb019600000010.0000.")
     }));
+    assert_sqlite_mutation_sequence_covers_supported_shapes(&scenarios);
+    assert_sqlite_mutation_sequence_stays_on_comparable_surfaces(&scenarios);
+}
+
+fn assert_sqlite_mutation_sequence_covers_supported_shapes(scenarios: &[SqliteMutationScenario]) {
     assert!(
         scenarios
             .iter()
@@ -6645,10 +7074,16 @@ fn sql_perf_sqlite_mutation_differential_random_sequence_is_seeded_and_bounded()
             .any(|scenario| scenario.sql.starts_with("DELETE "))
     );
     assert!(
-        !scenarios
+        scenarios
             .iter()
             .any(|scenario| scenario.sql.starts_with("INSERT ")),
-        "managed-timestamp audit surfaces should not generate unsupported INSERT scenarios",
+        "mutation differential should include INSERT scenarios with omitted managed timestamps",
+    );
+    assert!(
+        scenarios
+            .iter()
+            .any(|scenario| scenario.family == "mutation.insert"),
+        "mutation differential should classify INSERT scenarios explicitly",
     );
     assert!(
         scenarios.iter().any(|scenario| matches!(
@@ -6662,6 +7097,12 @@ fn sql_perf_sqlite_mutation_differential_random_sequence_is_seeded_and_bounded()
             .iter()
             .any(|scenario| scenario.family == "mutation.update_compound_predicate"),
         "mutation differential should include compound non-primary-key predicate updates",
+    );
+    assert!(
+        scenarios
+            .iter()
+            .any(|scenario| scenario.family == "mutation.update_range_predicate"),
+        "mutation differential should include range non-primary-key predicate updates",
     );
     assert!(
         scenarios.iter().any(|scenario| matches!(
@@ -6679,11 +7120,22 @@ fn sql_perf_sqlite_mutation_differential_random_sequence_is_seeded_and_bounded()
     assert!(
         scenarios
             .iter()
+            .any(|scenario| scenario.family == "mutation.delete_range_predicate"),
+        "mutation differential should include range non-primary-key predicate deletes",
+    );
+    assert!(
+        scenarios
+            .iter()
             .any(|scenario| scenario.sql.contains("diff-user-")
                 || scenario.sql.contains("diff-handle-")),
         "mutation differential should include indexed text-field updates"
     );
-    for scenario in &scenarios {
+}
+
+fn assert_sqlite_mutation_sequence_stays_on_comparable_surfaces(
+    scenarios: &[SqliteMutationScenario],
+) {
+    for scenario in scenarios {
         assert!(
             matches!(
                 scenario.surface,
@@ -6700,6 +7152,16 @@ fn sql_perf_sqlite_mutation_differential_random_sequence_is_seeded_and_bounded()
         assert!(
             scenario.post_read_sql.starts_with("SELECT "),
             "mutation scenario should include a deterministic post-state read: {}",
+            scenario.key,
+        );
+        assert!(
+            !scenario.expected_mutation_signature.is_empty(),
+            "mutation scenario should include a generated expected RETURNING signature: {}",
+            scenario.key,
+        );
+        assert!(
+            !scenario.expected_post_signature.is_empty(),
+            "mutation scenario should include a generated expected post-state signature: {}",
             scenario.key,
         );
         assert!(
@@ -6723,6 +7185,8 @@ fn sql_perf_sqlite_mutation_differential_markdown_records_seed_and_mismatches() 
         sqlite_failure_count: 0,
         mutation_signature_mismatch_count: 0,
         post_state_mismatch_count: 0,
+        expected_mutation_mismatch_count: 0,
+        expected_post_state_mismatch_count: 0,
         fairness_notes: sqlite_mutation_differential_fairness_notes(),
         scenarios: vec![SqliteMutationComparisonScenario {
             key: "mutation.random.1cdb019600000010.0000.user.update_pk".to_string(),
@@ -6731,12 +7195,16 @@ fn sql_perf_sqlite_mutation_differential_markdown_records_seed_and_mismatches() 
             sql: "UPDATE PerfAuditUser SET age = 31 WHERE id = 1 RETURNING id, age".to_string(),
             post_read_sql: user_mutation_post_read_sql(),
             mutation_signature_ordered: true,
+            expected_mutation_signature: "1\t31".to_string(),
             icydb_mutation_signature: "1\t31".to_string(),
             sqlite_mutation_signature: "1\t31".to_string(),
             mutation_signatures_match: true,
+            expected_mutation_match: "both".to_string(),
+            expected_post_signature: "1\tAlice\t31\t31\t28".to_string(),
             icydb_post_signature: "1\tAlice\t31\t31\t28".to_string(),
             sqlite_post_signature: "1\tAlice\t31\t31\t28".to_string(),
             post_signatures_match: true,
+            expected_post_state_match: "both".to_string(),
         }],
         failures: Vec::new(),
     };
@@ -6748,6 +7216,8 @@ fn sql_perf_sqlite_mutation_differential_markdown_records_seed_and_mismatches() 
     assert!(markdown.contains("- Generated mutations: 1"));
     assert!(markdown.contains("- Mutation signature mismatches: 0"));
     assert!(markdown.contains("- Post-state mismatches: 0"));
+    assert!(markdown.contains("- Expected mutation mismatches: 0"));
+    assert!(markdown.contains("- Expected post-state mismatches: 0"));
     assert!(markdown.contains("mutation.random.1cdb019600000010.0000.user.update_pk"));
 }
 
@@ -8460,6 +8930,14 @@ fn sqlite_mutation_differential_report_for_scenarios(
         .iter()
         .filter(|scenario| !scenario.post_signatures_match)
         .count();
+    let expected_mutation_mismatch_count = comparisons
+        .iter()
+        .filter(|scenario| scenario.expected_mutation_match != "both")
+        .count();
+    let expected_post_state_mismatch_count = comparisons
+        .iter()
+        .filter(|scenario| scenario.expected_post_state_match != "both")
+        .count();
     let icydb_failure_count = failures
         .iter()
         .filter(|failure| failure.status.starts_with("icydb_"))
@@ -8480,6 +8958,8 @@ fn sqlite_mutation_differential_report_for_scenarios(
         sqlite_failure_count,
         mutation_signature_mismatch_count,
         post_state_mismatch_count,
+        expected_mutation_mismatch_count,
+        expected_post_state_mismatch_count,
         fairness_notes: sqlite_mutation_differential_fairness_notes(),
         scenarios: comparisons,
         failures,
@@ -8515,6 +8995,26 @@ fn assert_sqlite_mutation_differential_report_matches(report: &SqliteMutationDif
     assert!(
         post_state_mismatches.is_empty(),
         "SQLite mutation differential post-state signatures should match IcyDB: {post_state_mismatches:?}",
+    );
+    let expected_mutation_mismatches = report
+        .scenarios
+        .iter()
+        .filter(|scenario| scenario.expected_mutation_match != "both")
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        expected_mutation_mismatches.is_empty(),
+        "SQLite mutation differential RETURNING signatures should match the generated mutation model: {expected_mutation_mismatches:?}",
+    );
+    let expected_post_state_mismatches = report
+        .scenarios
+        .iter()
+        .filter(|scenario| scenario.expected_post_state_match != "both")
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        expected_post_state_mismatches.is_empty(),
+        "SQLite mutation differential post-state signatures should match the generated mutation model: {expected_post_state_mismatches:?}",
     );
 }
 

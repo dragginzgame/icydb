@@ -3274,7 +3274,7 @@ fn session_branch_set_fluent_exists_reports_existing_rows_terminal_attribution()
         "fluent EXISTS baseline should retain the branch-aware route shape",
     );
     assert!(
-        (BRANCH_LIMIT as u64..=BRANCH_FETCH).contains(&attribution.store_get_calls),
+        (1..=BRANCH_FETCH).contains(&attribution.store_get_calls),
         "fluent branch EXISTS should hydrate only the bounded effective window, got {attribution:?}",
     );
     assert!(

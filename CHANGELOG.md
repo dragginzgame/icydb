@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
+- `0.196.16` fixes SQL `INSERT` managed timestamp synthesis and broadens the
+  SQLite/IcyDB mutation differential to cover INSERT and range-predicate
+  mutations with generated-model expected signatures.
+
 - `0.196.15` adds seeded SQLite/IcyDB random SELECT and supported
   UPDATE/DELETE differential harnesses, and fixes variable-prefix secondary
   order admission so branch-local bounded reads cannot masquerade as global

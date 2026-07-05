@@ -1264,6 +1264,21 @@ struct SessionSqlManagedWriteEntity {
 }
 
 ///
+/// SessionSqlGeneratedKeyManagedWriteEntity
+///
+/// SQL write fixture used to lock `INSERT ... SELECT` synthesis when the
+/// primary key and lifecycle timestamps are all SQL-owned omitted fields.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlGeneratedKeyManagedWriteEntity {
+    id: Ulid,
+    name: String,
+    created_at: Timestamp,
+    updated_at: Timestamp,
+}
+
+///
 /// SessionSqlSignedWriteEntity
 ///
 /// Signed-key SQL write fixture used to lock numeric literal widening at the
@@ -1996,6 +2011,35 @@ crate::test_entity! {
     primary_key = [id],
     fields = [
         crate::test_field! { id: u64 => FieldKind::Nat64 },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! {
+            created_at: Timestamp => FieldKind::Timestamp,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_write_management(crate::model::field::FieldWriteManagement::CreatedAt),
+        },
+        crate::test_field! {
+            updated_at: Timestamp => FieldKind::Timestamp,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_write_management(crate::model::field::FieldWriteManagement::UpdatedAt),
+        },
+    ],
+    indexes = [],
+}
+
+crate::test_entity! {
+    ident = SessionSqlGeneratedKeyManagedWriteEntity,
+    entity_name = "SessionSqlGeneratedKeyManagedWriteEntity",
+    tag = EntityTag::new(0x1051),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! {
+            id: Ulid => FieldKind::Ulid,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_insert_generation(crate::model::field::FieldInsertGeneration::Ulid),
+        },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         crate::test_field! {
             created_at: Timestamp => FieldKind::Timestamp,

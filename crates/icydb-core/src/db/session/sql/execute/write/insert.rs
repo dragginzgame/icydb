@@ -24,7 +24,7 @@ use crate::{
         sql_shared::SqlSyntaxErrorKind,
     },
     metrics::sink::SqlWriteKind,
-    model::field::FieldInsertGeneration,
+    model::field::{FieldInsertGeneration, FieldWriteManagement},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, EntityValue},
     types::{Timestamp, Ulid},
@@ -62,6 +62,17 @@ fn sql_write_generated_field_value(generation: FieldInsertGeneration) -> Value {
     match generation {
         FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
         FieldInsertGeneration::Timestamp => Value::Timestamp(Timestamp::now()),
+    }
+}
+
+const fn sql_write_managed_field_value(
+    management: FieldWriteManagement,
+    context: SanitizeWriteContext,
+) -> Value {
+    match management {
+        FieldWriteManagement::CreatedAt | FieldWriteManagement::UpdatedAt => {
+            Value::Timestamp(context.now())
+        }
     }
 }
 
@@ -182,7 +193,7 @@ fn sql_insert_primary_key_values(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     columns: &[String],
     values: &[Value],
-    generated_fields: &[(&str, Value)],
+    synthesized_fields: &[(&str, Value)],
 ) -> Result<Vec<Value>, QueryError> {
     let mut key_values = Vec::with_capacity(descriptor.primary_key_names().len());
     for primary_key_name in descriptor.primary_key_names() {
@@ -192,7 +203,7 @@ fn sql_insert_primary_key_values(
             continue;
         }
 
-        if let Some((_, pk_value)) = generated_fields
+        if let Some((_, pk_value)) = synthesized_fields
             .iter()
             .find(|(field_name, _)| *field_name == *primary_key_name)
         {
@@ -213,11 +224,12 @@ impl<C: CanisterKind> DbSession<C> {
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         columns: &[String],
         values: &[Value],
+        write_context: SanitizeWriteContext,
     ) -> Result<(E::Key, StructuralPatch), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let mut generated_fields = Vec::new();
+        let mut synthesized_fields = Vec::new();
         for accepted_field in descriptor.fields() {
             if columns.iter().any(|column| column == accepted_field.name()) {
                 continue;
@@ -225,23 +237,29 @@ impl<C: CanisterKind> DbSession<C> {
 
             let policy = write_policy_for_accepted_field(accepted_field);
             if let Some(generation) = policy.insert_generation() {
-                generated_fields.push((
+                synthesized_fields.push((
                     accepted_field.name(),
                     sql_write_generated_field_value(generation),
                 ));
             }
+            if let Some(management) = policy.write_management() {
+                synthesized_fields.push((
+                    accepted_field.name(),
+                    sql_write_managed_field_value(management, write_context),
+                ));
+            }
         }
         let key_values =
-            sql_insert_primary_key_values(descriptor, columns, values, &generated_fields)?;
+            sql_insert_primary_key_values(descriptor, columns, values, &synthesized_fields)?;
         let key = sql_write_key_from_component_literals::<E>(descriptor, key_values.as_slice())?;
 
         let mut patch = StructuralPatch::new();
-        for (field_name, generated_value) in &generated_fields {
+        for (field_name, synthesized_value) in &synthesized_fields {
             patch = sql_write_patch_set_accepted_field(
                 descriptor,
                 patch,
                 field_name,
-                generated_value.clone(),
+                synthesized_value.clone(),
             )?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
@@ -265,6 +283,7 @@ impl<C: CanisterKind> DbSession<C> {
         source_query: &StructuralQuery,
         columns: &[String],
         candidate_bounds: SqlWriteCandidateBounds,
+        write_context: SanitizeWriteContext,
     ) -> Result<
         (
             crate::db::schema::SchemaInfo,
@@ -289,7 +308,7 @@ impl<C: CanisterKind> DbSession<C> {
                     ));
                 }
 
-                Self::sql_insert_patch_and_key::<E>(descriptor, columns, row)
+                Self::sql_insert_patch_and_key::<E>(descriptor, columns, row, write_context)
             },
         )?;
 
@@ -305,11 +324,13 @@ impl<C: CanisterKind> DbSession<C> {
         rows: &mut SqlWriteCandidateCollection<E::Key>,
         columns: &[String],
         values: &[Value],
+        write_context: SanitizeWriteContext,
     ) -> Result<(), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (key, patch) = Self::sql_insert_patch_and_key::<E>(descriptor, columns, values)?;
+        let (key, patch) =
+            Self::sql_insert_patch_and_key::<E>(descriptor, columns, values, write_context)?;
         rows.push(key, patch);
 
         Ok(())
@@ -388,6 +409,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 &mut collection,
                                 columns.as_slice(),
                                 tuple.as_slice(),
+                                write_context,
                             )?;
                         }
                     }
@@ -400,6 +422,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 source_query,
                                 columns.as_slice(),
                                 candidate_bounds,
+                                write_context,
                             )?;
                         save_schema_info = Some(schema_info);
                         collection = collected_rows;
