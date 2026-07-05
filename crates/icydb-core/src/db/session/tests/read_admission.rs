@@ -4,9 +4,10 @@ use std::num::NonZeroU32;
 
 use super::{
     FilteredIndexedSessionSqlEntity, IndexedSessionSqlEntity, SessionPrincipalKeyEntity,
-    SessionSqlEntity, indexed_sql_session, reset_indexed_session_sql_store,
-    reset_session_sql_store, seed_filtered_composite_indexed_session_sql_entities,
-    seed_indexed_session_sql_entities, seed_session_sql_entities, sql_session,
+    SessionSqlEntity, assert_query_plan_expr_unknown_field, indexed_sql_session,
+    reset_indexed_session_sql_store, reset_session_sql_store,
+    seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
+    seed_session_sql_entities, sql_session,
 };
 use crate::db::{
     QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionRejection,
@@ -250,6 +251,44 @@ fn public_read_fluent_admission_admits_primary_key_filter_with_residual_without_
 }
 
 #[test]
+fn public_read_fluent_admission_fails_invalid_residual_after_primary_key_filter() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let existing_id = crate::types::Ulid::from_u128(18_807);
+    let missing_id = crate::types::Ulid::from_u128(18_808);
+    session
+        .insert(SessionSqlEntity {
+            id: existing_id,
+            name: "Mira".to_string(),
+            age: 40,
+        })
+        .expect("test row should insert");
+
+    for (id, context) in [
+        (
+            existing_id,
+            "existing exact primary key plus invalid residual",
+        ),
+        (
+            missing_id,
+            "missing exact primary key plus invalid residual",
+        ),
+    ] {
+        let query = session
+            .load::<SessionSqlEntity>()
+            .filter(crate::db::FilterExpr::and(vec![
+                crate::db::FieldRef::new("id").eq(id),
+                crate::db::FieldRef::new("unknown_field").eq("x"),
+            ]));
+        let err = session
+            .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+            .expect_err("invalid residual fields must fail validation before admission");
+
+        assert_query_plan_expr_unknown_field(err, "unknown_field", context);
+    }
+}
+
+#[test]
 fn public_read_fluent_admission_admits_primary_key_in_filter_without_limit() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -271,6 +310,100 @@ fn public_read_fluent_admission_admits_primary_key_in_filter_without_limit() {
     assert_eq!(summary.scan_bound(), Some(3));
     assert_eq!(summary.scan_bound_kind(), QueryBoundKind::Exact);
     assert_eq!(summary.returned_row_bound(), Some(3));
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound
+    );
+}
+
+#[test]
+fn public_read_fluent_admission_canonicalizes_empty_primary_key_filters_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_817);
+    let second_id = crate::types::Ulid::from_u128(18_818);
+
+    for (query, context) in [
+        (
+            session
+                .load::<SessionSqlEntity>()
+                .filter(crate::db::FilterExpr::and(vec![
+                    crate::db::FieldRef::new("id").eq(first_id),
+                    crate::db::FieldRef::new("id").eq(second_id),
+                ])),
+            "contradictory primary-key equality filters",
+        ),
+        (
+            session.load::<SessionSqlEntity>().filter(
+                crate::db::FieldRef::new("id").in_list(std::iter::empty::<crate::types::Ulid>()),
+            ),
+            "empty primary-key IN filter",
+        ),
+        (
+            session
+                .load::<SessionSqlEntity>()
+                .filter(crate::db::FilterExpr::and(vec![
+                    crate::db::FieldRef::new("id").eq(first_id),
+                    crate::db::FieldRef::new("id").in_list([second_id]),
+                ])),
+            "primary-key equality excluded by IN filter",
+        ),
+    ] {
+        let summary = session
+            .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+            .unwrap_or_else(|err| panic!("{context}: admission should produce a summary: {err}"));
+
+        assert_eq!(
+            summary.decision(),
+            QueryAdmissionDecision::Admitted,
+            "{context}"
+        );
+        assert_eq!(summary.rejection(), None, "{context}");
+        assert_eq!(
+            summary.selected_access(),
+            QueryAdmissionAccessKind::ByKeys,
+            "{context}: proven-empty key filters should use empty ByKeys access",
+        );
+        assert_eq!(summary.limit(), None, "{context}");
+        assert_eq!(summary.scan_bound(), Some(0), "{context}");
+        assert_eq!(
+            summary.scan_bound_kind(),
+            QueryBoundKind::Exact,
+            "{context}"
+        );
+        assert_eq!(summary.returned_row_bound(), Some(0), "{context}");
+        assert_eq!(
+            summary.returned_row_bound_kind(),
+            QueryBoundKind::ConservativeUpperBound,
+            "{context}",
+        );
+    }
+}
+
+#[test]
+fn public_read_fluent_admission_narrows_primary_key_eq_and_in_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_819);
+    let second_id = crate::types::Ulid::from_u128(18_820);
+
+    let query = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(first_id),
+            crate::db::FieldRef::new("id").in_list([second_id, first_id, second_id]),
+        ]));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("primary-key equality intersected with IN should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKey);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(1));
+    assert_eq!(summary.scan_bound_kind(), QueryBoundKind::Exact);
+    assert_eq!(summary.returned_row_bound(), Some(1));
     assert_eq!(
         summary.returned_row_bound_kind(),
         QueryBoundKind::ConservativeUpperBound
@@ -397,6 +530,47 @@ fn default_fluent_execute_rows_applies_residual_after_primary_key_filter_without
     );
     assert_eq!(accepted_by_residual.count(), 1);
     assert_eq!(accepted_by_residual.entities()[0].name, "Sasha");
+}
+
+#[test]
+fn default_fluent_execute_rows_returns_empty_for_empty_primary_key_filters_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_828);
+    let second_id = crate::types::Ulid::from_u128(18_829);
+    session
+        .insert(SessionSqlEntity {
+            id: first_id,
+            name: "Sam".to_string(),
+            age: 30,
+        })
+        .expect("test row should insert");
+
+    let contradictory = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(first_id),
+            crate::db::FieldRef::new("id").eq(second_id),
+        ]))
+        .execute_rows()
+        .expect("contradictory primary-key filters should execute as bounded empty access");
+    let empty_in = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list(std::iter::empty::<crate::types::Ulid>()))
+        .execute_rows()
+        .expect("empty primary-key IN should execute as bounded empty access");
+    let narrowed_out = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(first_id),
+            crate::db::FieldRef::new("id").in_list([second_id]),
+        ]))
+        .execute_rows()
+        .expect("primary-key equality excluded by IN should execute as bounded empty access");
+
+    assert_eq!(contradictory.count(), 0);
+    assert_eq!(empty_in.count(), 0);
+    assert_eq!(narrowed_out.count(), 0);
 }
 
 #[test]

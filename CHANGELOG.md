@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.1` hardens deterministic primary-key canonicalization evidence with
+  direct external-key filter-vs-`by_id` EXPLAIN parity plus fail-closed
+  invalid-residual and empty-key guards.
+
 - `0.197.0` starts deterministic optimizer canonicalization by locking exact
   primary-key filters, finite `IN (...)` filters, residual predicates,
   external primary keys, and EXPLAIN route facts to the same bounded

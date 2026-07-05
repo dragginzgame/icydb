@@ -342,6 +342,60 @@ fn session_explain_execution_primary_key_filter_canonicalization_route_facts_are
 }
 
 #[test]
+fn session_explain_execution_external_primary_key_filter_and_by_id_use_same_access_path() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let pid = Principal::from_slice(&[1, 9, 7, 10]);
+    let expected_access = ExplainAccessPath::ByKey {
+        key: Value::Principal(pid),
+    };
+
+    let filter = session
+        .load::<SessionPrincipalKeyEntity>()
+        .trusted_read_unchecked()
+        .filter(FieldRef::new("pid").eq(pid))
+        .explain_execution()
+        .expect("external primary-key filter explain_execution should succeed");
+    let by_id = session
+        .load::<SessionPrincipalKeyEntity>()
+        .trusted_read_unchecked()
+        .by_id(Id::from_key(pid))
+        .explain_execution()
+        .expect("external by_id explain_execution should succeed");
+
+    assert_eq!(
+        filter.node_type(),
+        ExplainExecutionNodeType::ByKeyLookup,
+        "external primary-key equality filters should explain as direct ByKey access",
+    );
+    assert_eq!(
+        by_id.node_type(),
+        ExplainExecutionNodeType::ByKeyLookup,
+        "explicit external by_id lookups should explain as direct ByKey access",
+    );
+    assert_eq!(
+        filter.access_strategy(),
+        by_id.access_strategy(),
+        "filter(pid = value) and by_id(Id::from_key(value)) should use the same access path",
+    );
+    assert_eq!(
+        filter.access_strategy(),
+        Some(&expected_access),
+        "external primary-key equality filters should expose the same encoded key route as by_id",
+    );
+    assert_eq!(
+        filter.node_properties().get("acc_reason"),
+        Some(&Value::Text("planner_primary_key_lookup".to_string())),
+        "filter(pid = value) should show planner-owned primary-key canonicalization",
+    );
+    assert_eq!(
+        by_id.node_properties().get("acc_reason"),
+        Some(&Value::Text("intent_key_access_override".to_string())),
+        "by_id remains an explicit key-access intent even though the final access path matches",
+    );
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "execution-root matrix keeps the public route-family regressions together"
