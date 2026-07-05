@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
+- `0.196.17` hardens the SQLite mutation generator with a local expected-model
+  check and records a clean 40-case PocketIC-backed SQLite/IcyDB mutation
+  differential run.
+
 - `0.196.16` fixes SQL `INSERT` managed timestamp synthesis and broadens the
   SQLite/IcyDB mutation differential to cover INSERT and range-predicate
   mutations with generated-model expected signatures.

@@ -7173,6 +7173,63 @@ fn assert_sqlite_mutation_sequence_stays_on_comparable_surfaces(
 }
 
 #[test]
+fn sql_perf_sqlite_mutation_generator_expected_signatures_match_local_sqlite_when_available() {
+    let sqlite_path = sqlite3_path();
+    let Ok(_) = sqlite_version(&sqlite_path) else {
+        eprintln!(
+            "skipping SQLite mutation generator expected-signature check because `{}` is unavailable",
+            sqlite_path.display()
+        );
+        return;
+    };
+    let db_path = sqlite_audit_db_path();
+    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to seed SQLite mutation generator database `{}`: {err}",
+            db_path.display()
+        )
+    });
+
+    let scenarios = sqlite_mutation_differential_scenarios(
+        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_SEED,
+        DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_CASE_COUNT,
+    );
+
+    for scenario in &scenarios {
+        let raw_mutation_signature =
+            sqlite_query_signature(&sqlite_path, &db_path, scenario.sql.as_str()).unwrap_or_else(
+                |err| {
+                    panic!(
+                        "SQLite mutation scenario `{}` should execute: {err}",
+                        scenario.key
+                    )
+                },
+            );
+        let mutation_signature =
+            mutation_signature_for_comparison(raw_mutation_signature.as_str(), scenario);
+        assert_eq!(
+            mutation_signature, scenario.expected_mutation_signature,
+            "SQLite mutation scenario `{}` should match the generated RETURNING model",
+            scenario.key,
+        );
+
+        let post_signature =
+            sqlite_query_signature(&sqlite_path, &db_path, scenario.post_read_sql.as_str())
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "SQLite mutation post-state scenario `{}` should execute: {err}",
+                        scenario.key
+                    )
+                });
+        assert_eq!(
+            post_signature, scenario.expected_post_signature,
+            "SQLite mutation scenario `{}` should match the generated post-state model",
+            scenario.key,
+        );
+    }
+}
+
+#[test]
 fn sql_perf_sqlite_mutation_differential_markdown_records_seed_and_mismatches() {
     let report = SqliteMutationDifferentialReport {
         sqlite_version: "sqlite-test".to_string(),
