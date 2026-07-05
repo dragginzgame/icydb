@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
+- `0.196.19` adds coverage summaries and coverage gates to the SQLite
+  comparison artifacts so random SELECT and mutation differentials prove the
+  seeded runs still exercise required surfaces, routes, and write families.
+
 - `0.196.18` broadens the SQLite/IcyDB mutation differential with zero-row
   exact and range write scenarios, proving no-op mutations keep post-state
   signatures aligned.

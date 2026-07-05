@@ -357,6 +357,11 @@ struct SqliteAuditComparisonReport {
     signature_mismatch_count: usize,
     sample_count: usize,
     scenario_key_filter: Option<String>,
+    selected_surface_counts: BTreeMap<String, usize>,
+    selected_family_counts: BTreeMap<String, usize>,
+    successful_route_family_counts: BTreeMap<String, usize>,
+    successful_route_outcome_counts: BTreeMap<String, usize>,
+    successful_route_pair_counts: BTreeMap<String, usize>,
     fairness_notes: Vec<String>,
     scenarios: Vec<SqliteAuditComparisonScenario>,
     failures: Vec<SqliteAuditComparisonFailure>,
@@ -373,6 +378,11 @@ struct SqliteDifferentialReport {
     common_success_count: usize,
     icydb_failure_count: usize,
     signature_mismatch_count: usize,
+    selected_surface_counts: BTreeMap<String, usize>,
+    selected_family_counts: BTreeMap<String, usize>,
+    successful_route_family_counts: BTreeMap<String, usize>,
+    successful_route_outcome_counts: BTreeMap<String, usize>,
+    successful_route_pair_counts: BTreeMap<String, usize>,
     fairness_notes: Vec<String>,
     scenarios: Vec<SqliteAuditComparisonScenario>,
     failures: Vec<SqliteAuditComparisonFailure>,
@@ -392,6 +402,9 @@ struct SqliteMutationDifferentialReport {
     post_state_mismatch_count: usize,
     expected_mutation_mismatch_count: usize,
     expected_post_state_mismatch_count: usize,
+    generated_surface_counts: BTreeMap<String, usize>,
+    generated_family_counts: BTreeMap<String, usize>,
+    generated_returning_compare_counts: BTreeMap<String, usize>,
     fairness_notes: Vec<String>,
     scenarios: Vec<SqliteMutationComparisonScenario>,
     failures: Vec<SqliteMutationComparisonFailure>,
@@ -3676,6 +3689,100 @@ fn rendered_rows_signature(rows: &[Vec<String>]) -> String {
         .join("\n")
 }
 
+fn matrix_scenario_surface_counts(scenarios: &[MatrixScenario]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(&mut counts, scenario.surface.label());
+    }
+    counts
+}
+
+fn matrix_scenario_family_counts(scenarios: &[MatrixScenario]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(&mut counts, scenario.family.as_str());
+    }
+    counts
+}
+
+fn read_route_family_counts(
+    scenarios: &[SqliteAuditComparisonScenario],
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(&mut counts, scenario.route_family.as_str());
+    }
+    counts
+}
+
+fn read_route_outcome_counts(
+    scenarios: &[SqliteAuditComparisonScenario],
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(&mut counts, scenario.route_outcome.as_str());
+    }
+    counts
+}
+
+fn read_route_pair_counts(scenarios: &[SqliteAuditComparisonScenario]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(
+            &mut counts,
+            format!("{}/{}", scenario.route_family, scenario.route_outcome),
+        );
+    }
+    counts
+}
+
+fn mutation_scenario_surface_counts(
+    scenarios: &[SqliteMutationScenario],
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(&mut counts, scenario.surface.label());
+    }
+    counts
+}
+
+fn mutation_scenario_family_counts(
+    scenarios: &[SqliteMutationScenario],
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(&mut counts, scenario.family.as_str());
+    }
+    counts
+}
+
+fn mutation_returning_compare_counts(
+    scenarios: &[SqliteMutationScenario],
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for scenario in scenarios {
+        increment_count(
+            &mut counts,
+            mutation_order_cell(scenario.mutation_signature_ordered),
+        );
+    }
+    counts
+}
+
+fn increment_count(counts: &mut BTreeMap<String, usize>, key: impl Into<String>) {
+    counts
+        .entry(key.into())
+        .and_modify(|count| *count = count.saturating_add(1))
+        .or_insert(1);
+}
+
+fn count_map(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
+    entries
+        .iter()
+        .map(|(key, count)| ((*key).to_string(), *count))
+        .collect()
+}
+
 fn sqlite_audit_comparison_fairness_notes() -> Vec<String> {
     vec![
         "SQLite runs through the local sqlite3 CLI and is not using Internet Computer stable memory.".to_string(),
@@ -3914,6 +4021,36 @@ fn sqlite_audit_comparison_markdown(report: &SqliteAuditComparisonReport) -> Str
         writeln!(out, "- {note}").expect("write to string should succeed");
     }
     writeln!(out).expect("write to string should succeed");
+    append_count_table(
+        &mut out,
+        "Selected Surface Coverage",
+        "Surface",
+        &report.selected_surface_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Selected Family Coverage",
+        "Family",
+        &report.selected_family_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Successful Route Family Coverage",
+        "Route Family",
+        &report.successful_route_family_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Successful Route Outcome Coverage",
+        "Route Outcome",
+        &report.successful_route_outcome_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Successful Route Pair Coverage",
+        "Route Pair",
+        &report.successful_route_pair_counts,
+    );
     append_sqlite_success_table(&mut out, &report.scenarios);
     append_sqlite_failure_table(&mut out, &report.failures);
     append_sqlite_explain_plans(&mut out, &report.scenarios, &report.failures);
@@ -3956,6 +4093,36 @@ fn sqlite_differential_markdown(report: &SqliteDifferentialReport) -> String {
         writeln!(out, "- {note}").expect("write to string should succeed");
     }
     writeln!(out).expect("write to string should succeed");
+    append_count_table(
+        &mut out,
+        "Selected Surface Coverage",
+        "Surface",
+        &report.selected_surface_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Selected Family Coverage",
+        "Family",
+        &report.selected_family_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Successful Route Family Coverage",
+        "Route Family",
+        &report.successful_route_family_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Successful Route Outcome Coverage",
+        "Route Outcome",
+        &report.successful_route_outcome_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Successful Route Pair Coverage",
+        "Route Pair",
+        &report.successful_route_pair_counts,
+    );
     append_sqlite_success_table(&mut out, &report.scenarios);
     append_sqlite_failure_table(&mut out, &report.failures);
     append_sqlite_explain_plans(&mut out, &report.scenarios, &report.failures);
@@ -4019,9 +4186,47 @@ fn sqlite_mutation_differential_markdown(report: &SqliteMutationDifferentialRepo
         writeln!(out, "- {note}").expect("write to string should succeed");
     }
     writeln!(out).expect("write to string should succeed");
+    append_count_table(
+        &mut out,
+        "Generated Surface Coverage",
+        "Surface",
+        &report.generated_surface_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Generated Family Coverage",
+        "Family",
+        &report.generated_family_counts,
+    );
+    append_count_table(
+        &mut out,
+        "Generated Returning Compare Coverage",
+        "Returning Compare",
+        &report.generated_returning_compare_counts,
+    );
     append_sqlite_mutation_success_table(&mut out, &report.scenarios);
     append_sqlite_mutation_failure_table(&mut out, &report.failures);
     out
+}
+
+fn append_count_table(
+    output: &mut String,
+    title: &str,
+    label: &str,
+    counts: &BTreeMap<String, usize>,
+) {
+    if counts.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output, "| {label} | Count |").expect("write to string should succeed");
+    writeln!(output, "| --- | ---: |").expect("write to string should succeed");
+    for (key, count) in counts {
+        writeln!(output, "| {} | {} |", key.replace('|', "\\|"), count)
+            .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
 }
 
 fn append_sqlite_success_table(output: &mut String, scenarios: &[SqliteAuditComparisonScenario]) {
@@ -7149,6 +7354,11 @@ fn sql_perf_sqlite_differential_markdown_records_seed_and_strict_counts() {
         common_success_count: 1,
         icydb_failure_count: 0,
         signature_mismatch_count: 0,
+        selected_surface_counts: count_map(&[("user", 1)]),
+        selected_family_counts: count_map(&[("random.pk.pk_asc", 1)]),
+        successful_route_family_counts: count_map(&[("primary_order", 1)]),
+        successful_route_outcome_counts: count_map(&[("pushed", 1)]),
+        successful_route_pair_counts: count_map(&[("primary_order/pushed", 1)]),
         fairness_notes: sqlite_differential_fairness_notes(),
         scenarios: vec![SqliteAuditComparisonScenario {
             key: "random.1cdb01960000000f.0000.user".to_string(),
@@ -7187,6 +7397,10 @@ fn sql_perf_sqlite_differential_markdown_records_seed_and_strict_counts() {
     assert!(markdown.contains("- Compatible scenarios: 1 of 1 generated"));
     assert!(markdown.contains("- IcyDB failures: 0"));
     assert!(markdown.contains("- Signature mismatches: 0"));
+    assert!(markdown.contains("## Selected Surface Coverage"));
+    assert!(markdown.contains("| user | 1 |"));
+    assert!(markdown.contains("## Successful Route Pair Coverage"));
+    assert!(markdown.contains("| primary_order/pushed | 1 |"));
     assert!(markdown.contains("random.1cdb01960000000f.0000.user"));
 }
 
@@ -7468,6 +7682,9 @@ fn sql_perf_sqlite_mutation_differential_markdown_records_seed_and_mismatches() 
         post_state_mismatch_count: 0,
         expected_mutation_mismatch_count: 0,
         expected_post_state_mismatch_count: 0,
+        generated_surface_counts: count_map(&[("user", 1)]),
+        generated_family_counts: count_map(&[("mutation.update_pk", 1)]),
+        generated_returning_compare_counts: count_map(&[("ordered", 1)]),
         fairness_notes: sqlite_mutation_differential_fairness_notes(),
         scenarios: vec![SqliteMutationComparisonScenario {
             key: "mutation.random.1cdb019600000010.0000.user.update_pk".to_string(),
@@ -7499,6 +7716,10 @@ fn sql_perf_sqlite_mutation_differential_markdown_records_seed_and_mismatches() 
     assert!(markdown.contains("- Post-state mismatches: 0"));
     assert!(markdown.contains("- Expected mutation mismatches: 0"));
     assert!(markdown.contains("- Expected post-state mismatches: 0"));
+    assert!(markdown.contains("## Generated Surface Coverage"));
+    assert!(markdown.contains("| user | 1 |"));
+    assert!(markdown.contains("## Generated Returning Compare Coverage"));
+    assert!(markdown.contains("| ordered | 1 |"));
     assert!(markdown.contains("mutation.random.1cdb019600000010.0000.user.update_pk"));
 }
 
@@ -8994,6 +9215,11 @@ fn sql_perf_generated_matrix_compares_sqlite_reference_fixture() {
         .iter()
         .filter(|scenario| !scenario.signatures_match)
         .count();
+    let selected_surface_counts = matrix_scenario_surface_counts(&scenarios);
+    let selected_family_counts = matrix_scenario_family_counts(&scenarios);
+    let successful_route_family_counts = read_route_family_counts(&comparisons);
+    let successful_route_outcome_counts = read_route_outcome_counts(&comparisons);
+    let successful_route_pair_counts = read_route_pair_counts(&comparisons);
 
     let report = SqliteAuditComparisonReport {
         sqlite_version,
@@ -9006,6 +9232,11 @@ fn sql_perf_generated_matrix_compares_sqlite_reference_fixture() {
         signature_mismatch_count,
         sample_count: timing_sample_count,
         scenario_key_filter: env::var(SQL_PERF_SQLITE_KEYS_ENV).ok(),
+        selected_surface_counts,
+        selected_family_counts,
+        successful_route_family_counts,
+        successful_route_outcome_counts,
+        successful_route_pair_counts,
         fairness_notes: sqlite_audit_comparison_fairness_notes(),
         scenarios: comparisons,
         failures,
@@ -9089,6 +9320,11 @@ fn sql_perf_random_matrix_differential_compares_sqlite_reference_fixture() {
         .iter()
         .filter(|scenario| !scenario.signatures_match)
         .count();
+    let selected_surface_counts = matrix_scenario_surface_counts(&scenarios);
+    let selected_family_counts = matrix_scenario_family_counts(&scenarios);
+    let successful_route_family_counts = read_route_family_counts(&comparisons);
+    let successful_route_outcome_counts = read_route_outcome_counts(&comparisons);
+    let successful_route_pair_counts = read_route_pair_counts(&comparisons);
 
     let report = SqliteDifferentialReport {
         sqlite_version,
@@ -9100,6 +9336,11 @@ fn sql_perf_random_matrix_differential_compares_sqlite_reference_fixture() {
         common_success_count: comparisons.len(),
         icydb_failure_count: failures.len(),
         signature_mismatch_count,
+        selected_surface_counts,
+        selected_family_counts,
+        successful_route_family_counts,
+        successful_route_outcome_counts,
+        successful_route_pair_counts,
         fairness_notes: sqlite_differential_fairness_notes(),
         scenarios: comparisons,
         failures,
@@ -9127,6 +9368,7 @@ fn sql_perf_random_matrix_differential_compares_sqlite_reference_fixture() {
         mismatches.is_empty(),
         "SQLite random differential signatures should match IcyDB for overlapping audit scenarios: {mismatches:?}",
     );
+    assert_sqlite_differential_report_covers_required_shapes(&report);
 }
 
 #[test]
@@ -9241,6 +9483,9 @@ fn sqlite_mutation_differential_report_for_scenarios(
         post_state_mismatch_count,
         expected_mutation_mismatch_count,
         expected_post_state_mismatch_count,
+        generated_surface_counts: mutation_scenario_surface_counts(scenarios),
+        generated_family_counts: mutation_scenario_family_counts(scenarios),
+        generated_returning_compare_counts: mutation_returning_compare_counts(scenarios),
         fairness_notes: sqlite_mutation_differential_fairness_notes(),
         scenarios: comparisons,
         failures,
@@ -9248,6 +9493,10 @@ fn sqlite_mutation_differential_report_for_scenarios(
 }
 
 fn assert_sqlite_mutation_differential_report_matches(report: &SqliteMutationDifferentialReport) {
+    assert_eq!(
+        report.common_success_count, report.generated_mutation_count,
+        "SQLite mutation differential should compare every generated mutation",
+    );
     assert!(
         report.failures.is_empty(),
         "SQLite mutation differential should have no execution failures: {:?}",
@@ -9296,6 +9545,121 @@ fn assert_sqlite_mutation_differential_report_matches(report: &SqliteMutationDif
     assert!(
         expected_post_state_mismatches.is_empty(),
         "SQLite mutation differential post-state signatures should match the generated mutation model: {expected_post_state_mismatches:?}",
+    );
+    assert_sqlite_mutation_differential_report_covers_required_shapes(report);
+}
+
+fn assert_sqlite_differential_report_covers_required_shapes(report: &SqliteDifferentialReport) {
+    assert_count_present(
+        &report.selected_surface_counts,
+        "user",
+        "SQLite random differential should cover user reads",
+    );
+    assert_count_present(
+        &report.selected_surface_counts,
+        "account",
+        "SQLite random differential should cover account reads",
+    );
+    assert_count_present(
+        &report.selected_surface_counts,
+        "token",
+        "SQLite random differential should cover token reads",
+    );
+    assert_count_present(
+        &report.successful_route_pair_counts,
+        "primary_order/pushed",
+        "SQLite random differential should cover pushed primary-order reads",
+    );
+    assert_count_present(
+        &report.successful_route_pair_counts,
+        "secondary_order/eligible_but_not_pushed",
+        "SQLite random differential should cover secondary-order materialization candidates",
+    );
+    assert_count_present(
+        &report.successful_route_pair_counts,
+        "equality_prefix_ordered_suffix/pushed",
+        "SQLite random differential should cover equality-prefix ordered suffix reads",
+    );
+    assert_count_present(
+        &report.successful_route_pair_counts,
+        "not_ordered_or_not_paginated/unchanged_or_not_applicable",
+        "SQLite random differential should cover non-paginated/count overlap reads",
+    );
+    assert_count_with_prefix(
+        &report.selected_family_counts,
+        "random.route.branch_set.",
+        "SQLite random differential should cover branch-set token routes",
+    );
+    assert_count_with_prefix(
+        &report.selected_family_counts,
+        "random.route.sparse_in.",
+        "SQLite random differential should cover sparse IN token routes",
+    );
+}
+
+fn assert_sqlite_mutation_differential_report_covers_required_shapes(
+    report: &SqliteMutationDifferentialReport,
+) {
+    assert_count_present(
+        &report.generated_surface_counts,
+        "user",
+        "SQLite mutation differential should cover user writes",
+    );
+    assert_count_present(
+        &report.generated_surface_counts,
+        "account",
+        "SQLite mutation differential should cover account writes",
+    );
+    assert_count_present(
+        &report.generated_returning_compare_counts,
+        "ordered",
+        "SQLite mutation differential should cover ordered RETURNING comparison",
+    );
+    assert_count_present(
+        &report.generated_returning_compare_counts,
+        "row-set",
+        "SQLite mutation differential should cover row-set RETURNING comparison",
+    );
+    for family in [
+        "mutation.insert",
+        "mutation.update_pk",
+        "mutation.delete_pk",
+        "mutation.update_range_predicate",
+        "mutation.delete_range_predicate",
+        "mutation.update_no_match_range",
+        "mutation.delete_no_match_range",
+    ] {
+        assert_count_present(
+            &report.generated_family_counts,
+            family,
+            "SQLite mutation differential should cover the required write family",
+        );
+    }
+    assert_count_with_prefix(
+        &report.generated_family_counts,
+        "mutation.update_no_match_",
+        "SQLite mutation differential should cover zero-row updates",
+    );
+    assert_count_with_prefix(
+        &report.generated_family_counts,
+        "mutation.delete_no_match_",
+        "SQLite mutation differential should cover zero-row deletes",
+    );
+}
+
+fn assert_count_present(counts: &BTreeMap<String, usize>, key: &str, context: &str) {
+    assert!(
+        counts.get(key).copied().unwrap_or(0) > 0,
+        "{context}: missing `{key}` in {counts:?}",
+    );
+}
+
+fn assert_count_with_prefix(counts: &BTreeMap<String, usize>, prefix: &str, context: &str) {
+    assert!(
+        counts
+            .iter()
+            .any(|(key, count)| key.starts_with(prefix) && *count > 0),
+        "{context}: missing prefix `{prefix}` in {counts:?}",
     );
 }
 
