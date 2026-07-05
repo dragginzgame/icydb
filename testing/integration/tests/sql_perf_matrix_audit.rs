@@ -33,6 +33,7 @@ const DEFAULT_RANDOM_SEED: u64 = 0x1cdb_0182_0000_0001;
 const SQL_PERF_MATRIX_WASM_PROFILE_ENV: &str = "ICYDB_SQL_PERF_MATRIX_WASM_PROFILE";
 const SQL_PERF_MATRIX_INSTALL_PROGRESS_ENV: &str = "ICYDB_SQL_PERF_MATRIX_INSTALL_PROGRESS";
 const SQL_PERF_SQLITE_OUTPUT_STEM_ENV: &str = "ICYDB_SQL_PERF_SQLITE_OUTPUT_STEM";
+const SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM_ENV: &str = "ICYDB_SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM";
 const SQL_PERF_SQLITE_KEYS_ENV: &str = "ICYDB_SQL_PERF_SQLITE_KEYS";
 const SQL_PERF_SQLITE_STRICT_ENV: &str = "ICYDB_SQL_PERF_SQLITE_STRICT";
 const SQL_PERF_SQLITE3_ENV: &str = "ICYDB_SQLITE3";
@@ -47,6 +48,8 @@ const SQL_PERF_SQLITE_MUTATION_DIFF_CASES_ENV: &str = "ICYDB_SQL_PERF_SQLITE_MUT
 const DEFAULT_SQL_PERF_SQLITE_TIMING_SAMPLE_COUNT: usize = 0;
 const DEFAULT_SQL_PERF_SQLITE_OUTPUT_STEM: &str =
     "/tmp/icydb-sqlite-comparison/sql_perf_audit_sqlite_comparison";
+const DEFAULT_SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM: &str =
+    "/tmp/icydb-sqlite-comparison/sql_perf_required_sqlite_comparison";
 const DEFAULT_SQL_PERF_SQLITE_DIFF_OUTPUT_STEM: &str =
     "/tmp/icydb-sqlite-comparison/sql_perf_random_differential";
 const DEFAULT_SQL_PERF_SQLITE_MUTATION_DIFF_OUTPUT_STEM: &str =
@@ -2757,6 +2760,14 @@ fn sqlite_audit_comparison_scenarios() -> Vec<MatrixScenario> {
     sqlite_audit_comparison_scenarios_for_keys(scenarios, &requested_keys)
 }
 
+fn sqlite_required_audit_comparison_scenarios() -> Vec<MatrixScenario> {
+    let requested_keys = SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS
+        .iter()
+        .map(|key| (*key).to_string())
+        .collect::<Vec<_>>();
+    sqlite_audit_comparison_scenarios_for_keys(deterministic_matrix(), &requested_keys)
+}
+
 fn sqlite_differential_scenarios(seed: u64, case_count: usize) -> Vec<MatrixScenario> {
     random_matrix(seed, case_count)
         .into_iter()
@@ -3459,6 +3470,75 @@ fn sqlite_audit_comparison_for_scenario(
     })
 }
 
+struct SqliteAuditComparisonRun<'a> {
+    fixture: &'a StandaloneCanisterFixture,
+    sqlite_path: &'a Path,
+    db_path: &'a Path,
+    sqlite_version: String,
+    generated_scenario_count: usize,
+    timing_sample_count: usize,
+    scenario_key_filter: Option<String>,
+}
+
+fn sqlite_audit_comparison_report_for_scenarios(
+    run: SqliteAuditComparisonRun<'_>,
+    scenarios: &[MatrixScenario],
+) -> SqliteAuditComparisonReport {
+    let mut comparisons = Vec::new();
+    let mut failures = Vec::new();
+    let verbose_progress = scenarios.len() <= 50;
+    for (index, scenario) in scenarios.iter().enumerate() {
+        if verbose_progress || index % 100 == 0 {
+            eprintln!(
+                "sql_perf_sqlite: comparing {}/{} {}",
+                index + 1,
+                scenarios.len(),
+                scenario.key,
+            );
+        }
+        match sqlite_audit_comparison_for_scenario(
+            run.fixture,
+            run.sqlite_path,
+            run.db_path,
+            scenario,
+            run.timing_sample_count,
+        ) {
+            Ok(comparison) => comparisons.push(comparison),
+            Err(failure) => failures.push(*failure),
+        }
+    }
+    let signature_mismatch_count = comparisons
+        .iter()
+        .filter(|scenario| !scenario.signatures_match)
+        .count();
+    let selected_surface_counts = matrix_scenario_surface_counts(scenarios);
+    let selected_family_counts = matrix_scenario_family_counts(scenarios);
+    let successful_route_family_counts = read_route_family_counts(&comparisons);
+    let successful_route_outcome_counts = read_route_outcome_counts(&comparisons);
+    let successful_route_pair_counts = read_route_pair_counts(&comparisons);
+
+    SqliteAuditComparisonReport {
+        sqlite_version: run.sqlite_version,
+        sqlite_path: run.sqlite_path.display().to_string(),
+        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
+        generated_scenario_count: run.generated_scenario_count,
+        compared_scenario_count: scenarios.len(),
+        common_success_count: comparisons.len(),
+        icydb_failure_count: failures.len(),
+        signature_mismatch_count,
+        sample_count: run.timing_sample_count,
+        scenario_key_filter: run.scenario_key_filter,
+        selected_surface_counts,
+        selected_family_counts,
+        successful_route_family_counts,
+        successful_route_outcome_counts,
+        successful_route_pair_counts,
+        fairness_notes: sqlite_audit_comparison_fairness_notes(),
+        scenarios: comparisons,
+        failures,
+    }
+}
+
 fn sqlite_mutation_comparison_for_scenario(
     fixture: &StandaloneCanisterFixture,
     sqlite_path: &Path,
@@ -3821,6 +3901,13 @@ fn sqlite_audit_comparison_output_stem() -> PathBuf {
     )
 }
 
+fn sqlite_required_audit_comparison_output_stem() -> PathBuf {
+    env::var(SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM_ENV).map_or_else(
+        |_| PathBuf::from(DEFAULT_SQL_PERF_SQLITE_REQUIRED_OUTPUT_STEM),
+        PathBuf::from,
+    )
+}
+
 fn sqlite_differential_output_stem() -> PathBuf {
     env::var(SQL_PERF_SQLITE_DIFF_OUTPUT_STEM_ENV).map_or_else(
         |_| PathBuf::from(DEFAULT_SQL_PERF_SQLITE_DIFF_OUTPUT_STEM),
@@ -3836,7 +3923,20 @@ fn sqlite_mutation_differential_output_stem() -> PathBuf {
 }
 
 fn write_sqlite_audit_comparison_reports(report: &SqliteAuditComparisonReport) {
-    let output_stem = sqlite_audit_comparison_output_stem();
+    write_sqlite_audit_comparison_reports_at(report, sqlite_audit_comparison_output_stem());
+}
+
+fn write_sqlite_required_audit_comparison_reports(report: &SqliteAuditComparisonReport) {
+    write_sqlite_audit_comparison_reports_at(
+        report,
+        sqlite_required_audit_comparison_output_stem(),
+    );
+}
+
+fn write_sqlite_audit_comparison_reports_at(
+    report: &SqliteAuditComparisonReport,
+    output_stem: PathBuf,
+) {
     if let Some(parent) = output_stem.parent() {
         fs::create_dir_all(parent).unwrap_or_else(|err| {
             panic!(
@@ -9188,84 +9288,73 @@ fn sql_perf_generated_matrix_compares_sqlite_reference_fixture() {
     let scenarios = sqlite_audit_comparison_scenarios();
     let generated_scenario_count = deterministic_matrix().len();
     let timing_sample_count = sqlite_timing_sample_count();
-    let mut comparisons = Vec::new();
-    let mut failures = Vec::new();
-    let verbose_progress = scenarios.len() <= 50;
-    for (index, scenario) in scenarios.iter().enumerate() {
-        if verbose_progress || index % 100 == 0 {
-            eprintln!(
-                "sql_perf_sqlite: comparing {}/{} {}",
-                index + 1,
-                scenarios.len(),
-                scenario.key,
-            );
-        }
-        match sqlite_audit_comparison_for_scenario(
-            &fixture,
-            &sqlite_path,
-            &db_path,
-            scenario,
+    let report = sqlite_audit_comparison_report_for_scenarios(
+        SqliteAuditComparisonRun {
+            fixture: &fixture,
+            sqlite_path: &sqlite_path,
+            db_path: &db_path,
+            sqlite_version,
+            generated_scenario_count,
             timing_sample_count,
-        ) {
-            Ok(comparison) => comparisons.push(comparison),
-            Err(failure) => failures.push(*failure),
-        }
-    }
-    let signature_mismatch_count = comparisons
-        .iter()
-        .filter(|scenario| !scenario.signatures_match)
-        .count();
-    let selected_surface_counts = matrix_scenario_surface_counts(&scenarios);
-    let selected_family_counts = matrix_scenario_family_counts(&scenarios);
-    let successful_route_family_counts = read_route_family_counts(&comparisons);
-    let successful_route_outcome_counts = read_route_outcome_counts(&comparisons);
-    let successful_route_pair_counts = read_route_pair_counts(&comparisons);
-
-    let report = SqliteAuditComparisonReport {
-        sqlite_version,
-        sqlite_path: sqlite_path.display().to_string(),
-        canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
-        generated_scenario_count,
-        compared_scenario_count: scenarios.len(),
-        common_success_count: comparisons.len(),
-        icydb_failure_count: failures.len(),
-        signature_mismatch_count,
-        sample_count: timing_sample_count,
-        scenario_key_filter: env::var(SQL_PERF_SQLITE_KEYS_ENV).ok(),
-        selected_surface_counts,
-        selected_family_counts,
-        successful_route_family_counts,
-        successful_route_outcome_counts,
-        successful_route_pair_counts,
-        fairness_notes: sqlite_audit_comparison_fairness_notes(),
-        scenarios: comparisons,
-        failures,
-    };
+            scenario_key_filter: env::var(SQL_PERF_SQLITE_KEYS_ENV).ok(),
+        },
+        &scenarios,
+    );
 
     write_sqlite_audit_comparison_reports(&report);
     print_sqlite_audit_comparison_report(&report);
 
-    let mismatches = report
-        .scenarios
-        .iter()
-        .filter(|scenario| !scenario.signatures_match)
-        .map(|scenario| scenario.key.as_str())
-        .collect::<Vec<_>>();
     if sqlite_strict_enabled() {
-        assert!(
-            report.failures.is_empty(),
-            "strict SQLite comparison should have no IcyDB failures: {:?}",
-            report
-                .failures
-                .iter()
-                .map(|failure| failure.key.as_str())
-                .collect::<Vec<_>>(),
-        );
-        assert!(
-            mismatches.is_empty(),
-            "strict SQLite comparison signatures should match IcyDB for overlapping audit scenarios: {mismatches:?}",
-        );
+        assert_sqlite_audit_comparison_report_matches(&report, "strict SQLite comparison");
     }
+}
+
+#[test]
+#[ignore = "optional strict SQLite required-subset comparison; run manually with sqlite3 and PocketIC"]
+fn sql_perf_required_sqlite_comparison_subset_matches_reference_fixture() {
+    let sqlite_path = sqlite3_path();
+    let Ok(sqlite_version) = sqlite_version(&sqlite_path) else {
+        eprintln!(
+            "skipping SQLite required-subset comparison because `{}` is unavailable",
+            sqlite_path.display()
+        );
+        return;
+    };
+    let db_path = sqlite_audit_db_path();
+    setup_sqlite_audit_database(&sqlite_path, &db_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to seed SQLite required-subset comparison database `{}`: {err}",
+            db_path.display()
+        )
+    });
+
+    eprintln!("sql_perf_sqlite_required: installing sql_perf fixture canister");
+    let fixture = install_sql_perf_canister_fixture();
+    eprintln!("sql_perf_sqlite_required: resetting and loading IcyDB fixture rows");
+    reset_icydb_fixtures(&fixture);
+
+    let scenarios = sqlite_required_audit_comparison_scenarios();
+    let report = sqlite_audit_comparison_report_for_scenarios(
+        SqliteAuditComparisonRun {
+            fixture: &fixture,
+            sqlite_path: &sqlite_path,
+            db_path: &db_path,
+            sqlite_version,
+            generated_scenario_count: deterministic_matrix().len(),
+            timing_sample_count: 0,
+            scenario_key_filter: Some("required-compatible-subset".to_string()),
+        },
+        &scenarios,
+    );
+
+    write_sqlite_required_audit_comparison_reports(&report);
+    print_sqlite_audit_comparison_report(&report);
+    assert_eq!(
+        report.compared_scenario_count,
+        SQL_PERF_SQLITE_REQUIRED_COMPATIBLE_KEYS.len(),
+        "required SQLite comparison subset should compare every required key",
+    );
+    assert_sqlite_audit_comparison_report_matches(&report, "required SQLite comparison subset");
 }
 
 #[test]
@@ -9594,6 +9683,31 @@ fn assert_sqlite_differential_report_covers_required_shapes(report: &SqliteDiffe
         &report.selected_family_counts,
         "random.route.sparse_in.",
         "SQLite random differential should cover sparse IN token routes",
+    );
+}
+
+fn assert_sqlite_audit_comparison_report_matches(
+    report: &SqliteAuditComparisonReport,
+    label: &str,
+) {
+    assert!(
+        report.failures.is_empty(),
+        "{label} should have no IcyDB failures: {:?}",
+        report
+            .failures
+            .iter()
+            .map(|failure| failure.key.as_str())
+            .collect::<Vec<_>>(),
+    );
+    let mismatches = report
+        .scenarios
+        .iter()
+        .filter(|scenario| !scenario.signatures_match)
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        mismatches.is_empty(),
+        "{label} signatures should match IcyDB for overlapping audit scenarios: {mismatches:?}",
     );
 }
 

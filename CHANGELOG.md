@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🧪 Testing
+
+- The SQLite comparison harness now has an explicit ignored strict
+  required-subset gate over the checked-in compatible key list, so deterministic
+  SQLite/IcyDB correctness coverage and JSON/Markdown artifacts no longer
+  depend on manual env-variable wiring.
+
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
