@@ -485,6 +485,7 @@ pub(in crate::db) fn covering_index_projection_facts_with_primary_key_names<K>(
         order,
         order_terms.as_slice(),
         index_facts.prefix_len,
+        index_facts.variable_prefix,
         primary_key_names,
         index_facts.path_kind_is_range,
     )?;
@@ -530,6 +531,7 @@ fn covering_projection_order_contract(
     order: Option<&OrderSpec>,
     index_order_terms: &[&str],
     prefix_len: usize,
+    variable_prefix: bool,
     primary_key_names: &[&str],
     path_kind_is_range: bool,
 ) -> Option<CoveringProjectionOrder> {
@@ -551,13 +553,14 @@ fn covering_projection_order_contract(
         OrderDirection::Desc => Direction::Desc,
     };
     match order_contract.classify_index_match(index_order_terms, prefix_len) {
-        DeterministicSecondaryIndexOrderMatch::Suffix => {
+        DeterministicSecondaryIndexOrderMatch::Suffix if !variable_prefix => {
             Some(CoveringProjectionOrder::IndexOrder(direction))
         }
         DeterministicSecondaryIndexOrderMatch::Full if !path_kind_is_range => {
             Some(CoveringProjectionOrder::IndexOrder(direction))
         }
-        DeterministicSecondaryIndexOrderMatch::Full
+        DeterministicSecondaryIndexOrderMatch::Suffix
+        | DeterministicSecondaryIndexOrderMatch::Full
         | DeterministicSecondaryIndexOrderMatch::None => None,
     }
 }
@@ -625,6 +628,7 @@ fn primary_store_covering_plan(
         plan.scalar_plan().order.as_ref(),
         &[],
         0,
+        false,
         primary_key_names,
         false,
     )?;
@@ -722,6 +726,7 @@ struct IndexCoveringAccessFacts<'a> {
     coverable_component_exprs: Vec<Option<Expr>>,
     prefix_values: &'a [Value],
     prefix_len: usize,
+    variable_prefix: bool,
     path_kind_is_range: bool,
 }
 
@@ -734,6 +739,7 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: values,
             prefix_len: values.len(),
+            variable_prefix: false,
             path_kind_is_range: false,
         });
     }
@@ -744,6 +750,7 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: &[],
             prefix_len: 1,
+            variable_prefix: true,
             path_kind_is_range: false,
         });
     }
@@ -755,6 +762,7 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: spec.fixed_values(),
             prefix_len: spec.branch_prefix_len(),
+            variable_prefix: true,
             path_kind_is_range: false,
         });
     }
@@ -766,6 +774,7 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: spec.prefix_values(),
             prefix_len: spec.prefix_values().len(),
+            variable_prefix: false,
             path_kind_is_range: true,
         });
     }
@@ -804,6 +813,7 @@ fn prepare_covering_index_projection_plan<'a>(
         plan.scalar_plan().order.as_ref(),
         order_terms.as_slice(),
         index_facts.prefix_len,
+        index_facts.variable_prefix,
         primary_key_names,
         index_facts.path_kind_is_range,
     )?;

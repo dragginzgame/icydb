@@ -4,7 +4,7 @@
 //! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
 
 use crate::db::{
-    access::{AccessShapeFacts, SemanticIndexKeyItemsRef},
+    access::{AccessPathKind, AccessShapeFacts, SemanticIndexKeyItemsRef},
     direction::Direction,
     query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
 };
@@ -83,7 +83,6 @@ impl DeterministicSecondaryIndexOrderCompatibility {
 
     /// Return the shared full-vs-suffix-vs-none match classification.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn match_kind(&self) -> DeterministicSecondaryIndexOrderMatch {
         self.match_kind
     }
@@ -326,22 +325,6 @@ pub(in crate::db) fn deterministic_secondary_index_order_satisfied(
         .is_satisfied()
 }
 
-/// Return whether reduced key-item facts satisfy one deterministic scalar
-/// ORDER BY contract after the equality-bound prefix.
-#[must_use]
-pub(in crate::db) fn deterministic_secondary_index_key_items_order_satisfied(
-    order_contract: &DeterministicSecondaryOrderContract,
-    key_items: SemanticIndexKeyItemsRef<'_>,
-    prefix_len: usize,
-) -> bool {
-    deterministic_secondary_index_key_items_order_compatibility(
-        order_contract,
-        key_items,
-        prefix_len,
-    )
-    .is_satisfied()
-}
-
 /// Return whether accepted field-path index order terms satisfy one
 /// deterministic scalar ORDER BY contract after the equality-bound prefix.
 #[must_use]
@@ -366,6 +349,43 @@ fn prefix_order_contract_safe(access_shape_facts: &AccessShapeFacts) -> bool {
     details.is_unique() || details.slot_arity() > 0
 }
 
+fn variable_prefix_shape_requires_full_secondary_order(
+    access_shape_facts: &AccessShapeFacts,
+    order_contract: &DeterministicSecondaryOrderContract,
+) -> bool {
+    if order_contract.non_primary_key_terms().is_empty() {
+        return false;
+    }
+
+    access_shape_facts.single_path_facts().is_some_and(|path| {
+        matches!(
+            path.kind(),
+            AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
+        )
+    })
+}
+
+fn deterministic_secondary_index_key_items_order_satisfied_for_access_shape(
+    access_shape_facts: &AccessShapeFacts,
+    order_contract: &DeterministicSecondaryOrderContract,
+    key_items: SemanticIndexKeyItemsRef<'_>,
+    prefix_len: usize,
+) -> bool {
+    let compatibility = deterministic_secondary_index_key_items_order_compatibility(
+        order_contract,
+        key_items,
+        prefix_len,
+    );
+
+    match compatibility.match_kind() {
+        DeterministicSecondaryIndexOrderMatch::Full => true,
+        DeterministicSecondaryIndexOrderMatch::Suffix => {
+            !variable_prefix_shape_requires_full_secondary_order(access_shape_facts, order_contract)
+        }
+        DeterministicSecondaryIndexOrderMatch::None => false,
+    }
+}
+
 /// Return whether one deterministic scalar ORDER BY contract is satisfied by
 /// the final stream order of one access-capability shape.
 #[must_use]
@@ -379,7 +399,8 @@ pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
 
     if let Some(details) = access_shape_facts.single_path_index_prefix_details() {
         return prefix_order_contract_safe(access_shape_facts)
-            && deterministic_secondary_index_key_items_order_satisfied(
+            && deterministic_secondary_index_key_items_order_satisfied_for_access_shape(
+                access_shape_facts,
                 order_contract,
                 details.key_items(),
                 details.slot_arity(),
@@ -389,7 +410,8 @@ pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
     access_shape_facts
         .single_path_index_range_details()
         .is_some_and(|details| {
-            deterministic_secondary_index_key_items_order_satisfied(
+            deterministic_secondary_index_key_items_order_satisfied_for_access_shape(
+                access_shape_facts,
                 order_contract,
                 details.key_items(),
                 details.slot_arity(),

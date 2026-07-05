@@ -1284,6 +1284,15 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
     })
 }
 
+/// Execute one PerfAuditUser-only SQL mutation. This is intentionally limited
+/// to the audit canister so the SQLite differential harness can compare write
+/// semantics and post-state signatures.
+#[cfg(feature = "sql")]
+#[update]
+fn update_user_sql(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    db().execute_sql_update::<PerfAuditUser>(sql.as_str())
+}
+
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
 /// query call and report the per-run average instruction sample.
 #[cfg(feature = "sql")]
@@ -1825,6 +1834,14 @@ fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb
         result,
         attribution,
     })
+}
+
+/// Execute one PerfAuditAccount-only SQL mutation for the SQLite differential
+/// harness.
+#[cfg(feature = "sql")]
+#[update]
+fn update_account_sql(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    db().execute_sql_update::<PerfAuditAccount>(sql.as_str())
 }
 
 /// Execute the same PerfAuditAccount-only SQL query repeatedly inside one

@@ -11,9 +11,9 @@ use crate::db::{
         PushdownApplicability, SecondaryOrderPushdownRejection,
     },
     query::plan::{
-        AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
-        OrderDirection, PlannerRouteProfile,
-        access_satisfies_deterministic_secondary_order_contract,
+        AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
+        DeterministicSecondaryOrderContract, LogicalPushdownEligibility, OrderDirection,
+        PlannerRouteProfile, access_satisfies_deterministic_secondary_order_contract,
         deterministic_secondary_index_key_items_order_compatibility,
     },
 };
@@ -49,17 +49,38 @@ fn match_secondary_order_pushdown_core(
     index_name: &str,
     key_items: SemanticIndexKeyItemsRef<'_>,
     prefix_len: usize,
+    variable_prefix_requires_full_order: bool,
 ) -> PushdownApplicability {
     let compatibility = deterministic_secondary_index_key_items_order_compatibility(
         order_contract,
         key_items,
         prefix_len,
     );
-    if compatibility.is_satisfied() {
-        return PushdownApplicability::Eligible {
-            index: index_name.to_string(),
-            prefix_len,
-        };
+
+    match compatibility.match_kind() {
+        DeterministicSecondaryIndexOrderMatch::Full => {
+            return PushdownApplicability::Eligible {
+                index: index_name.to_string(),
+                prefix_len,
+            };
+        }
+        DeterministicSecondaryIndexOrderMatch::Suffix if !variable_prefix_requires_full_order => {
+            return PushdownApplicability::Eligible {
+                index: index_name.to_string(),
+                prefix_len,
+            };
+        }
+        DeterministicSecondaryIndexOrderMatch::Suffix => {
+            return PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::VariablePrefixSuffixOrderUnsupported {
+                    index: index_name.to_string(),
+                    prefix_len,
+                    expected_full: compatibility.index_terms().to_vec(),
+                    actual: order_contract.non_primary_key_terms().to_vec(),
+                },
+            );
+        }
+        DeterministicSecondaryIndexOrderMatch::None => {}
     }
 
     PushdownApplicability::Rejected(
@@ -71,6 +92,22 @@ fn match_secondary_order_pushdown_core(
             actual: order_contract.non_primary_key_terms().to_vec(),
         },
     )
+}
+
+fn variable_prefix_shape_requires_full_secondary_order(
+    access_shape_facts: &AccessShapeFacts,
+    order_contract: &DeterministicSecondaryOrderContract,
+) -> bool {
+    if order_contract.non_primary_key_terms().is_empty() {
+        return false;
+    }
+
+    access_shape_facts.single_path_facts().is_some_and(|path| {
+        matches!(
+            path.kind(),
+            AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
+        )
+    })
 }
 
 /// Derive secondary ORDER BY pushdown applicability from route-owned access
@@ -96,6 +133,8 @@ fn secondary_order_pushdown_applicability(
     if let Some(details) = access_shape_facts.single_path_index_prefix_details() {
         let index_name = details.name();
         let prefix_len = details.slot_arity();
+        let variable_prefix_requires_full_order =
+            variable_prefix_shape_requires_full_secondary_order(access_shape_facts, order_contract);
         if prefix_len > details.key_arity() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
@@ -109,6 +148,7 @@ fn secondary_order_pushdown_applicability(
             index_name,
             details.key_items(),
             prefix_len,
+            variable_prefix_requires_full_order,
         );
     }
 
@@ -128,6 +168,7 @@ fn secondary_order_pushdown_applicability(
             index_name,
             details.key_items(),
             prefix_len,
+            false,
         );
         return match applicability {
             PushdownApplicability::Eligible { .. } => applicability,

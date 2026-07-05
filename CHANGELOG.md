@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
+- `0.196.15` adds seeded SQLite/IcyDB random SELECT and supported
+  UPDATE/DELETE differential harnesses, and fixes variable-prefix secondary
+  order admission so branch-local bounded reads cannot masquerade as global
+  order proof.
+
 - `0.196.14` admits bounded SQL expression-order reads onto the materialized
   sort route when no expression-index access path can prove order, clearing the
   remaining SQLite comparison mismatches without changing cursor,

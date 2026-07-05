@@ -89,6 +89,12 @@ pub(in crate::db) enum SecondaryOrderPushdownRejection {
         expected_full: Vec<String>,
         actual: Vec<String>,
     },
+    VariablePrefixSuffixOrderUnsupported {
+        index: String,
+        prefix_len: usize,
+        expected_full: Vec<String>,
+        actual: Vec<String>,
+    },
 }
 
 impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownRejection {
@@ -115,6 +121,17 @@ impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownReje
                 index,
                 prefix_len,
                 expected_suffix,
+                expected_full,
+                actual,
+            },
+            SecondaryOrderPushdownRejection::VariablePrefixSuffixOrderUnsupported {
+                index,
+                prefix_len,
+                expected_full,
+                actual,
+            } => Self::VariablePrefixSuffixOrderUnsupported {
+                index,
+                prefix_len,
                 expected_full,
                 actual,
             },
@@ -161,6 +178,17 @@ impl SecondaryOrderPushdownRejection {
                 let _ = write!(
                     out,
                     "OrderFieldsDoNotMatchIndex(index={index},prefix_len={prefix_len},expected_suffix={expected_suffix:?},expected_full={expected_full:?},actual={actual:?})",
+                );
+            }
+            Self::VariablePrefixSuffixOrderUnsupported {
+                index,
+                prefix_len,
+                expected_full,
+                actual,
+            } => {
+                let _ = write!(
+                    out,
+                    "VariablePrefixSuffixOrderUnsupported(index={index},prefix_len={prefix_len},expected_full={expected_full:?},actual={actual:?})",
                 );
             }
         }

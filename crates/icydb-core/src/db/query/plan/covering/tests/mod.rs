@@ -177,6 +177,80 @@ fn covering_projection_facts_accepts_suffix_index_order() {
 }
 
 #[test]
+fn covering_projection_facts_rejects_suffix_order_after_variable_multi_lookup_prefix() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexMultiLookup {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                crate::model::index::IndexModel::generated(
+                    "idx",
+                    "tests::Entity",
+                    &INDEX_FIELDS_GROUP_RANK,
+                    false,
+                ),
+            ),
+            values: vec![Value::Nat64(7), Value::Nat64(9)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    let facts = super::covering_index_projection_facts(
+        &plan.access,
+        plan.scalar_plan().order.as_ref(),
+        "rank",
+        "id",
+    );
+
+    assert!(
+        facts.is_none(),
+        "suffix order after a variable IN prefix is not globally index-ordered",
+    );
+}
+
+#[test]
+fn covering_projection_facts_accepts_full_order_after_variable_multi_lookup_prefix() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexMultiLookup {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                crate::model::index::IndexModel::generated(
+                    "idx",
+                    "tests::Entity",
+                    &INDEX_FIELDS_GROUP_RANK,
+                    false,
+                ),
+            ),
+            values: vec![Value::Nat64(7), Value::Nat64(9)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    let facts = super::covering_index_projection_facts(
+        &plan.access,
+        plan.scalar_plan().order.as_ref(),
+        "rank",
+        "id",
+    )
+    .expect("full index order should remain covering-compatible");
+
+    assert_eq!(
+        facts.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+}
+
+#[test]
 fn covering_projection_facts_accepts_composite_primary_key_suffix_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {

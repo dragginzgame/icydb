@@ -941,6 +941,41 @@ fn route_secondary_order_pushdown_uses_shared_compatibility_fact_for_asc_desc_an
     });
 
     assert_shared_secondary_order_compatibility_matches_route_pushdown(&incompatible_plan, false);
+
+    let mut variable_prefix_suffix_plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexMultiLookup {
+            index: SemanticIndexAccessContract::model_only_from_generated_index(
+                ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            ),
+            values: vec![Value::Nat64(10), Value::Nat64(20)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    variable_prefix_suffix_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    assert_shared_secondary_order_compatibility_matches_route_pushdown(
+        &variable_prefix_suffix_plan,
+        false,
+    );
+
+    let mut variable_prefix_full_plan = variable_prefix_suffix_plan.clone();
+    variable_prefix_full_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    assert_shared_secondary_order_compatibility_matches_route_pushdown(
+        &variable_prefix_full_plan,
+        true,
+    );
 }
 
 fn multi_lookup_primary_key_order_plan(

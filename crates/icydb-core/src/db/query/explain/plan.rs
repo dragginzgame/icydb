@@ -399,6 +399,12 @@ pub enum SecondaryOrderPushdownRejection {
         expected_full: Vec<String>,
         actual: Vec<String>,
     },
+    VariablePrefixSuffixOrderUnsupported {
+        index: String,
+        prefix_len: usize,
+        expected_full: Vec<String>,
+        actual: Vec<String>,
+    },
 }
 
 ///

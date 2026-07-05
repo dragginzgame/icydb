@@ -30,6 +30,13 @@ use std::ops::Bound;
 const INDEX_FIELDS: [&str; 1] = ["tag"];
 const INDEX_MODEL: IndexModel =
     IndexModel::generated("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
+const COMPOSITE_INDEX_FIELDS: [&str; 2] = ["tag", "rank"];
+const COMPOSITE_INDEX_MODEL: IndexModel = IndexModel::generated(
+    "test::idx_tag_rank",
+    "test::IndexStore",
+    &COMPOSITE_INDEX_FIELDS,
+    false,
+);
 const EXPRESSION_INDEX_FIELDS: [&str; 1] = ["name"];
 const EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
@@ -133,6 +140,22 @@ fn load_index_prefix_plan(values: Vec<Value>, order: Option<OrderSpec>) -> Acces
     )
 }
 
+fn load_index_multi_lookup_plan(
+    index: IndexModel,
+    values: Vec<Value>,
+    order: Option<OrderSpec>,
+) -> AccessPlannedQuery {
+    load_plan(
+        AccessPlan::path(AccessPath::IndexMultiLookup {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                index,
+            ),
+            values,
+        }),
+        order,
+    )
+}
+
 fn load_index_range_plan(
     prefix: Vec<Value>,
     lower: Bound<Value>,
@@ -188,15 +211,12 @@ fn secondary_order_pushdown_core_cases() {
 
     let cases = vec![
         Case {
-            name: "eligible_pk_only_order",
+            name: "pk_only_order_is_not_secondary_pushdown",
             plan: load_index_prefix_plan(
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name().to_string(),
-                prefix_len: 1,
-            },
+            expected: PushdownApplicability::NotApplicable,
         },
         Case {
             name: "reject_non_index_order_field",
@@ -226,19 +246,14 @@ fn secondary_order_pushdown_core_cases() {
             expected: PushdownApplicability::NotApplicable,
         },
         Case {
-            name: "reject_index_range_access_explicitly",
+            name: "pk_only_index_range_is_not_secondary_pushdown",
             plan: load_index_range_plan(
                 vec![],
                 Bound::Included(Value::Text("a".to_string())),
                 Bound::Excluded(Value::Text("z".to_string())),
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name().to_string(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::NotApplicable,
         },
         Case {
             name: "accept_index_range_when_order_matches_range_field_plus_pk",
@@ -273,7 +288,7 @@ fn secondary_order_pushdown_core_cases() {
             },
         },
         Case {
-            name: "reject_composite_access_when_child_is_index_range",
+            name: "pk_only_composite_access_is_not_secondary_pushdown",
             plan: load_union_plan(
                 vec![
                     AccessPlan::path(AccessPath::index_range(
@@ -286,21 +301,48 @@ fn secondary_order_pushdown_core_cases() {
                 ],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name().to_string(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::NotApplicable,
         },
         Case {
-            name: "accept_descending_primary_key",
+            name: "descending_pk_only_order_is_not_secondary_pushdown",
             plan: load_index_prefix_plan(
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
+            expected: PushdownApplicability::NotApplicable,
+        },
+        Case {
+            name: "reject_variable_prefix_suffix_order",
+            plan: load_index_multi_lookup_plan(
+                COMPOSITE_INDEX_MODEL,
+                vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
+                Some(order_spec(&[
+                    ("rank", OrderDirection::Asc),
+                    ("id", OrderDirection::Asc),
+                ])),
+            ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::VariablePrefixSuffixOrderUnsupported {
+                    index: COMPOSITE_INDEX_MODEL.name().to_string(),
+                    prefix_len: 1,
+                    expected_full: vec!["tag".to_string(), "rank".to_string()],
+                    actual: vec!["rank".to_string()],
+                },
+            ),
+        },
+        Case {
+            name: "accept_variable_prefix_full_order",
+            plan: load_index_multi_lookup_plan(
+                COMPOSITE_INDEX_MODEL,
+                vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
+                Some(order_spec(&[
+                    ("tag", OrderDirection::Asc),
+                    ("rank", OrderDirection::Asc),
+                    ("id", OrderDirection::Asc),
+                ])),
+            ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name().to_string(),
+                index: COMPOSITE_INDEX_MODEL.name().to_string(),
                 prefix_len: 1,
             },
         },
@@ -367,7 +409,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             expected: PushdownApplicability::NotApplicable,
         },
         Case {
-            name: "access_path_index_range_unsupported",
+            name: "pk_only_index_range_access_not_secondary_pushdown",
             plan: load_index_range_plan(
                 vec![],
                 Bound::Included(Value::Text("a".to_string())),
@@ -379,12 +421,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     )],
                 }),
             ),
-            expected: PushdownApplicability::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name().to_string(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::NotApplicable,
         },
         Case {
             name: "access_path_index_range_supported_when_order_matches_suffix_plus_pk",
@@ -423,7 +460,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             },
         },
         Case {
-            name: "composite_access_path_contains_index_range_unsupported",
+            name: "pk_only_composite_access_path_not_secondary_pushdown",
             plan: load_intersection_plan(
                 vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(1))])),
@@ -441,12 +478,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     )],
                 }),
             ),
-            expected: PushdownApplicability::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name().to_string(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::NotApplicable,
         },
         Case {
             name: "invalid_index_prefix_bounds",
@@ -458,10 +490,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
                 }),
                 Some(OrderSpec {
-                    fields: vec![crate::db::query::plan::OrderTerm::field(
-                        "id",
-                        OrderDirection::Asc,
-                    )],
+                    fields: vec![
+                        crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+                    ],
                 }),
             ),
             expected: PushdownApplicability::Rejected(
@@ -569,33 +601,25 @@ fn secondary_order_pushdown_contract_cases() {
             expected: PushdownApplicability::NotApplicable,
         },
         Case {
-            name: "applicable_descending_direction_is_eligible",
+            name: "descending_pk_only_order_not_secondary_pushdown",
             plan: load_index_prefix_plan(
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
-            expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name().to_string(),
-                prefix_len: 1,
-            },
+            expected: PushdownApplicability::NotApplicable,
         },
         Case {
-            name: "applicable_index_range_explicit_rejection",
+            name: "pk_only_index_range_not_secondary_pushdown",
             plan: load_index_range_plan(
                 vec![],
                 Bound::Included(Value::Text("a".to_string())),
                 Bound::Excluded(Value::Text("z".to_string())),
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name().to_string(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::NotApplicable,
         },
         Case {
-            name: "applicable_composite_with_index_range_child_explicit_rejection",
+            name: "pk_only_composite_with_index_range_child_not_secondary_pushdown",
             plan: load_union_plan(
                 vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(2))])),
@@ -608,12 +632,7 @@ fn secondary_order_pushdown_contract_cases() {
                 ],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name().to_string(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::NotApplicable,
         },
     ];
 
