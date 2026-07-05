@@ -4,8 +4,8 @@ use std::num::NonZeroU32;
 
 use super::{
     FilteredIndexedSessionSqlEntity, IndexedSessionSqlEntity, SessionPrincipalKeyEntity,
-    SessionSqlEntity, assert_query_plan_expr_unknown_field, indexed_sql_session,
-    reset_indexed_session_sql_store, reset_session_sql_store,
+    SessionSqlEntity, assert_query_plan_expr_unknown_field, assert_sql_lowering_detail,
+    indexed_sql_session, reset_indexed_session_sql_store, reset_session_sql_store,
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, sql_session,
 };
@@ -14,7 +14,9 @@ use crate::db::{
     QueryAdmissionSummary, QueryBoundKind, QueryError, ResponseCardinalityExt, SqlStatementResult,
     query::admission::{GroupedAdmissionPolicy, QueryAdmissionPolicy},
 };
-use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryReadAdmissionCode};
+use icydb_diagnostic_code::{
+    DiagnosticCode, DiagnosticDetail, QueryReadAdmissionCode, SqlLoweringCode,
+};
 
 #[test]
 fn public_read_sql_rejects_missing_limit_before_execution() {
@@ -611,6 +613,55 @@ fn default_fluent_execute_rows_dedups_primary_key_in_filter_without_limit() {
 }
 
 #[test]
+fn default_fluent_execute_rows_orders_primary_key_in_filters_deterministically_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(18_837);
+    let second_id = crate::types::Ulid::from_u128(18_838);
+    let third_id = crate::types::Ulid::from_u128(18_839);
+    for (id, name, age) in [
+        (first_id, "first", 30),
+        (second_id, "second", 24),
+        (third_id, "third", 40),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    let unsorted_response = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list([third_id, first_id, first_id, second_id]))
+        .execute_rows()
+        .expect("unsorted primary-key IN filter should be admitted without explicit LIMIT");
+    let canonical_response = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list([first_id, second_id, third_id]))
+        .execute_rows()
+        .expect("canonical primary-key IN filter should be admitted without explicit LIMIT");
+    let unsorted_ids: Vec<_> = unsorted_response
+        .entities()
+        .into_iter()
+        .map(|entity| entity.id)
+        .collect();
+    let canonical_ids: Vec<_> = canonical_response
+        .entities()
+        .into_iter()
+        .map(|entity| entity.id)
+        .collect();
+
+    assert_eq!(unsorted_ids, vec![first_id, second_id, third_id]);
+    assert_eq!(
+        unsorted_ids, canonical_ids,
+        "primary-key IN result order must follow deterministic encoded key order, not input-list order",
+    );
+}
+
+#[test]
 fn default_fluent_execute_rows_applies_residual_after_primary_key_in_filter_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -717,6 +768,21 @@ fn public_read_sql_applies_residual_after_primary_key_filter_without_limit() {
         rows.is_empty(),
         "SQL primary-key exact access must not bypass a false residual predicate",
     );
+}
+
+#[test]
+fn public_read_sql_primary_key_parameter_shape_fails_before_admission() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity WHERE id = ?",
+            &public_read_policy(10),
+        )
+        .expect_err("SQL parameter placeholders are not a supported exact-key binding surface");
+
+    assert_sql_lowering_detail(err, SqlLoweringCode::ParameterPlacement);
 }
 
 #[test]

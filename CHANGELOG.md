@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.2` pins exact-key SQL cache and parameter boundaries, proving literal
+  primary-key values do not alias cached plans and deterministic `IN` ordering
+  remains stable.
+
 - `0.197.1` hardens deterministic primary-key canonicalization evidence with
   direct external-key filter-vs-`by_id` EXPLAIN parity plus fail-closed
   invalid-residual and empty-key guards.

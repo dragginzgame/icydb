@@ -9809,6 +9809,88 @@ fn sql_cache_key_version_keeps_query_and_update_surfaces_separate() {
 }
 
 #[test]
+fn primary_key_literal_sql_cache_identity_keeps_concrete_key_values_distinct() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = Ulid::from_u128(19_721);
+    let second_id = Ulid::from_u128(19_722);
+    for (id, name, age) in [(first_id, "first", 30), (second_id, "second", 40)] {
+        session
+            .insert(SessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+    let first_sql = format!("SELECT name FROM SessionSqlEntity WHERE id = '{first_id}'");
+    let second_sql = format!("SELECT name FROM SessionSqlEntity WHERE id = '{second_id}'");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "new SQL session should start with an empty compiled-command cache",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "new SQL session should start with an empty shared query-plan cache",
+    );
+    let first = session
+        .compile_sql_query::<SessionSqlEntity>(first_sql.as_str())
+        .expect("first literal primary-key SQL query should compile");
+    let second = session
+        .compile_sql_query::<SessionSqlEntity>(second_sql.as_str())
+        .expect("second literal primary-key SQL query should compile");
+    let first_repeat = session
+        .compile_sql_query::<SessionSqlEntity>(first_sql.as_str())
+        .expect("repeating the first literal primary-key SQL query should compile from cache");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "different literal primary-key values must occupy distinct compiled SQL cache entries",
+    );
+    assert_compiled_select_queries_remain_distinct_for_entity(
+        &first,
+        &second,
+        "different literal primary-key SQL values",
+    );
+    assert_compiled_select_query_matches_lowered_identity(
+        &first_repeat,
+        first_sql.as_str(),
+        "repeated literal primary-key SQL value",
+    );
+
+    assert_projection_rows(
+        session
+            .execute_compiled_sql::<SessionSqlEntity>(&first)
+            .expect("first literal primary-key SQL query should execute"),
+        ["name"],
+        vec![vec![OutputValue::Text("first".to_string())]],
+        "first literal primary-key SQL query",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first literal primary-key execution should populate one shared plan",
+    );
+    assert_projection_rows(
+        session
+            .execute_compiled_sql::<SessionSqlEntity>(&second)
+            .expect("second literal primary-key SQL query should execute"),
+        ["name"],
+        vec![vec![OutputValue::Text("second".to_string())]],
+        "second literal primary-key SQL query",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "different literal primary-key values must occupy distinct shared query-plan entries",
+    );
+}
+
+#[test]
 fn bounded_numeric_order_terms_use_the_normal_sql_surface_identity_and_cache_path() {
     for (sql, compile_context, identity_context) in [
         (
