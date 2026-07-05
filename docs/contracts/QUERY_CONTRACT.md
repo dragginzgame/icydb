@@ -180,24 +180,25 @@ version pinning or application-level snapshot mechanisms.
 
 ### 7. Performance Model
 
-Cursor continuation is currently applied in the post-access phase.
+Cursor semantics are stable, but cursor execution is route-dependent.
 
-Each page request:
+Each page request still observes the same canonical query shape, canonical
+ordering, residual filters, strict cursor boundary, and window slicing rules.
+When the selected access path proves that it already produces the requested
+canonical order, execution may seek or stream from that route and stop once the
+bounded page plus required lookahead is complete.
 
-- Executes the canonical access path.
-- Materializes candidate rows.
-- Applies filtering and ordering.
-- Applies cursor boundary.
-- Applies window slicing.
+When that proof is unavailable, IcyDB uses the correct materialize/filter/order/
+cursor/window path instead. That semantic fallback is allowed, but it is not a
+public-read admission bypass: a runtime fallback from a pushed or limit-stopped
+route must either be independently admitted by the same read policy or fail
+closed with the read-admission diagnostic.
 
-Cursor boundary conditions are not currently pushed down into index seek/range
-operations.
-
-This ensures correctness and determinism, but may result in full candidate-set
-evaluation for large result sets.
-
-Future versions may introduce access-path pushdown optimizations without
-changing pagination semantics.
+Diagnostics and performance artifacts may expose route facts such as pushed
+ordered reads, residual ordered scans, materialized order, unsupported access
+kinds, limit-stop attribution, and fallback reasons. These facts describe how a
+specific execution was performed; they do not weaken the cursor contract or
+make cursor tokens a stable public execution-plan interface.
 
 ### 8. Non-Goals
 

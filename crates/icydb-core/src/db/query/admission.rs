@@ -2069,6 +2069,31 @@ mod tests {
     }
 
     #[test]
+    fn public_read_evaluation_fails_closed_when_bounded_route_falls_back_to_materialized_order() {
+        let policy = public_read_policy();
+        let bounded = summary_for_index_prefix(Some(1), 0);
+        let admitted = policy.evaluate(bounded.clone());
+
+        assert_eq!(admitted.decision(), QueryAdmissionDecision::Admitted);
+        assert_eq!(admitted.returned_row_bound(), Some(1));
+
+        let returned_row_bound = bounded.returned_row_bound();
+        let returned_row_bound_kind = bounded.returned_row_bound_kind();
+        let fallback = bounded.with_materialization(QueryMaterializationSummary::sort(
+            returned_row_bound,
+            returned_row_bound_kind,
+        ));
+
+        let evaluated = policy.evaluate(fallback);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
+        assert_eq!(
+            evaluated.rejection(),
+            Some(QueryAdmissionRejection::SortRequiresMaterialization)
+        );
+    }
+
+    #[test]
     fn public_read_evaluation_rejects_grouped_query_without_group_budgets() {
         let policy = public_read_policy();
         let summary = grouped_summary_for_index_prefix(12, 4096, false);

@@ -1,0 +1,436 @@
+{
+  "audit": {
+    "date": "2026-07-05",
+    "repo_commit": "f793fce4558f7d4ebac76c7d9b92be48352c1f19",
+    "dirty_worktree": [
+      {
+        "path": "CHANGELOG.md",
+        "status": "M",
+        "classification": "expected_0_196_closeout_artifact"
+      },
+      {
+        "path": "docs/changelog/0.196.md",
+        "status": "M",
+        "classification": "expected_0_196_closeout_artifact"
+      },
+      {
+        "path": "docs/design/0.190-ic-reliability-followup/0.190-design.md",
+        "status": "D",
+        "classification": "unrelated_or_unclear_archive_move"
+      },
+      {
+        "path": "docs/design/0.190-ic-reliability-followup/0.190-evidence.md",
+        "status": "D",
+        "classification": "unrelated_or_unclear_archive_move"
+      },
+      {
+        "path": "docs/design/0.191-durability-productization-format-policy/",
+        "status": "D",
+        "classification": "unrelated_or_unclear_archive_move"
+      },
+      {
+        "path": "docs/design/0.192-mega-audit-3/audit-results.md",
+        "status": "D",
+        "classification": "unrelated_or_unclear_archive_move"
+      },
+      {
+        "path": "docs/design/0.192-query-admission-and-explain/0.192-design.md",
+        "status": "D",
+        "classification": "unrelated_or_unclear_archive_move"
+      },
+      {
+        "path": "docs/design/0.193-public-query-ergonomics-and-admission-evidence/0.193-design.md",
+        "status": "D",
+        "classification": "unrelated_or_unclear_archive_move"
+      },
+      {
+        "path": "docs/design/0.197-deterministic-optimizer-canonicalization/0.197-design.md",
+        "status": "M",
+        "classification": "unrelated_0_197_design_work"
+      },
+      {
+        "path": "docs/design/0.198/",
+        "status": "??",
+        "classification": "unrelated_0_198_design_work"
+      },
+      {
+        "path": "docs/design/archive/",
+        "status": "??",
+        "classification": "unrelated_or_unclear_archive_move"
+      }
+    ],
+    "verdict": "CLOSED_WITH_DOC_DEBT",
+    "commands_run": [
+      {
+        "command": "git status --short",
+        "result": "pass"
+      },
+      {
+        "command": "git rev-parse HEAD",
+        "result": "pass",
+        "output_summary": "f793fce4558f7d4ebac76c7d9b92be48352c1f19"
+      },
+      {
+        "command": "git diff --stat",
+        "result": "pass"
+      },
+      {
+        "command": "git diff -- docs/design/0.196-sqlite-comparison-audit docs/changelog/0.196.md CHANGELOG.md docs/contracts/QUERY_CONTRACT.md docs/contracts/CURSOR.md testing/integration/tests/sql_perf_matrix_audit.rs",
+        "result": "pass"
+      },
+      {
+        "command": "cargo fmt --check",
+        "result": "pass"
+      },
+      {
+        "command": "cargo test --workspace --all-features",
+        "result": "pass"
+      },
+      {
+        "command": "cargo clippy --workspace --all-features --all-targets -- -D warnings",
+        "result": "pass"
+      },
+      {
+        "command": "find docs/design/0.196-sqlite-comparison-audit -maxdepth 2 -type f | sort",
+        "result": "pass"
+      },
+      {
+        "command": "find docs/audits -maxdepth 3 -type f | sort",
+        "result": "pass"
+      },
+      {
+        "command": "ls -l /tmp/icydb-196-current-full/sql_perf_196_current_full_matrix.json /tmp/icydb-196-after-full/sql_perf_196_after_full_matrix.json /tmp/icydb-196-after-full/sql_perf_196_full_matrix_delta.json",
+        "result": "fail",
+        "failure_summary": "Early scratch artifacts were missing from /tmp."
+      },
+      {
+        "command": "jq aggregate queries over /tmp/icydb-196-line-delta-1966/sql_perf_196_0_to_196_6_delta.json",
+        "result": "pass"
+      },
+      {
+        "command": "sed inspection commands over design, result, contract, and test files",
+        "result": "pass"
+      },
+      {
+        "command": "rg inspection commands over cursor, admission, route, and matrix tests",
+        "result": "pass_with_one_nonblocking_path_typo"
+      }
+    ],
+    "matrix_artifacts_inspected": [
+      "/tmp/icydb-196-line-delta-1966/sql_perf_196_0_to_196_6_delta.json",
+      "/tmp/icydb-196-line-delta-1966/sql_perf_196_0_to_196_6_delta.md",
+      "/tmp/icydb-196-6-grouped-classifier-delta/sql_perf_196_6_grouped_classifier_delta.json",
+      "/tmp/icydb-196-6-grouped-classifier-delta/sql_perf_196_6_grouped_classifier_delta.md",
+      "docs/design/0.196-sqlite-comparison-audit/implementation-results.md",
+      "docs/design/0.196-sqlite-comparison-audit/implementation-results.json"
+    ],
+    "not_reproduced": [
+      "Full deterministic matrix was not rerun during this audit.",
+      "Original early before/after/delta scratch artifacts under /tmp/icydb-196-current-full and /tmp/icydb-196-after-full were missing.",
+      "Wasm-size artifacts were not reproduced."
+    ]
+  },
+  "summary": {
+    "can_0_196_close": true,
+    "safe_to_start_0_197": true,
+    "safe_to_start_0_198_design": true,
+    "top_blockers": [],
+    "top_followups": [
+      "Update QUERY_CONTRACT.md because it still says cursor continuation is purely post-access and not pushed into index seek/range operations.",
+      "Update CURSOR.md so its historical no-pushdown statement cannot be mistaken for current behavior.",
+      "Regenerate and archive durable full-matrix release artifacts outside /tmp before attaching closeout evidence to a release.",
+      "Add a direct public-read fallback fail-closed test if existing admission tests are not considered traceable enough.",
+      "Add a cursor edge-case matrix for first/last boundary, exact limit, limit plus lookahead, and final empty page across route families."
+    ],
+    "biggest_residual_risk": "Documentation drift: query/cursor contracts still describe cursor continuation as post-access only while 0.196 route evidence distinguishes pushed, residual, materialized, unsupported, and fallback shapes."
+  },
+  "gates": {
+    "hard_cut": {
+      "status": "pass",
+      "evidence": [
+        "No cursor token protocol change found.",
+        "No persisted-format change reported in implementation-results.md.",
+        "No public API compatibility shim found.",
+        "No legacy cursor decode fallback needed."
+      ],
+      "blocking_issues": []
+    },
+    "correctness": {
+      "status": "pass",
+      "evidence": [
+        "End-of-196 matrix delta: 0 result signature changes.",
+        "End-of-196 matrix delta: 0 cursor signature changes.",
+        "End-of-196 matrix delta: 0 new failures and 0 resolved failures.",
+        "Workspace tests passed."
+      ],
+      "blocking_issues": []
+    },
+    "performance": {
+      "status": "pass",
+      "evidence": [
+        "Original full delta reported 10 route-fact changes from eligible to pushed.",
+        "Original intended wins included lower data_store.get, index ranges, and index entries.",
+        "End-of-196 delta has no access-counter drift and no regression gate crossings."
+      ],
+      "blocking_issues": []
+    },
+    "artifacts": {
+      "status": "pass",
+      "evidence": [
+        "Committed implementation-results.md/json summaries exist.",
+        "Retained line-level delta JSON/Markdown exists under /tmp/icydb-196-line-delta-1966.",
+        "Early scratch full matrix artifacts were missing and should be regenerated for release attachment."
+      ],
+      "blocking_issues": []
+    },
+    "docs": {
+      "status": "fail",
+      "evidence": [
+        "QUERY_CONTRACT.md still says cursor continuation is post-access and not pushed into index seek/range operations.",
+        "CURSOR.md historical note still says no cursor pushdown in current implementation."
+      ],
+      "blocking_issues": []
+    },
+    "api_compatibility": {
+      "status": "pass",
+      "evidence": [
+        "No public query builder redesign found.",
+        "No cursor token shape change found.",
+        "No persisted format change found.",
+        "EXPLAIN/perf route facts are diagnostic attribution."
+      ],
+      "blocking_issues": []
+    }
+  },
+  "findings": [
+    {
+      "id": "196-CO-001",
+      "title": "Query contract still says cursor continuation is post-access only",
+      "category": "docs",
+      "severity": "Medium",
+      "blocking": false,
+      "confidence": "High",
+      "evidence": [
+        "docs/contracts/QUERY_CONTRACT.md performance model",
+        "docs/design/0.196-sqlite-comparison-audit/implementation-results.md"
+      ],
+      "recommended_fix": "Rewrite the query contract performance model to separate semantic cursor guarantees from route-dependent execution and to mention pushed/limit-stopped ordered reads as an optimization.",
+      "acceptance_criteria": [
+        "The query contract no longer states that cursor continuation is always post-access.",
+        "The contract states that public read admission cannot be bypassed by runtime fallback.",
+        "The contract preserves stable cursor semantics independent of route."
+      ],
+      "suggested_patch_prompt": "Update docs/contracts/QUERY_CONTRACT.md for 0.196: separate semantic cursor guarantees from route-dependent execution, document pushed/limit-stopped ordered reads as an optimization only, and state runtime fallback cannot bypass public read admission."
+    },
+    {
+      "id": "196-CO-002",
+      "title": "Cursor historical note can be mistaken for current implementation",
+      "category": "docs",
+      "severity": "Low",
+      "blocking": false,
+      "confidence": "High",
+      "evidence": [
+        "docs/contracts/CURSOR.md"
+      ],
+      "recommended_fix": "Add a post-0.196 note or archive marker explaining that the no-pushdown statement is historical.",
+      "acceptance_criteria": [
+        "Readers are pointed to current query contract/results for route-dependent execution facts.",
+        "The file no longer appears to state current no-pushdown behavior."
+      ],
+      "suggested_patch_prompt": "Add a post-0.196 note to docs/contracts/CURSOR.md explaining that the file is historical and that current route-dependent execution facts live in QUERY_CONTRACT.md and the 0.196 implementation results."
+    },
+    {
+      "id": "196-CO-003",
+      "title": "Original full-matrix raw artifacts were not durable",
+      "category": "artifacts",
+      "severity": "Medium",
+      "blocking": false,
+      "confidence": "High",
+      "evidence": [
+        "implementation-results.md records /tmp scratch paths",
+        "artifact existence checks failed for /tmp/icydb-196-current-full and /tmp/icydb-196-after-full",
+        "retained line-level delta artifacts still exist"
+      ],
+      "recommended_fix": "Regenerate and archive full deterministic matrix before/after/delta artifacts outside /tmp before release attachment.",
+      "acceptance_criteria": [
+        "Durable JSON/Markdown artifacts exist.",
+        "implementation-results.md/json point to durable paths or release attachments.",
+        "Artifacts include command/environment/dirty-worktree metadata."
+      ],
+      "suggested_patch_prompt": "Regenerate the 0.196 full deterministic matrix before/after/delta artifacts, archive them under a durable release/audit location, and update implementation-results.md/json with durable paths."
+    },
+    {
+      "id": "196-CO-004",
+      "title": "Public read fallback fail-closed behavior should get one direct named test",
+      "category": "tests",
+      "severity": "Medium",
+      "blocking": false,
+      "confidence": "Medium",
+      "evidence": [
+        "0.196 design fallback taxonomy",
+        "READ_ADMISSION.md",
+        "implementation-results.md validation list"
+      ],
+      "recommended_fix": "Add a direct test proving a pushdown-admitted public read cannot silently execute an unadmitted materialized fallback.",
+      "acceptance_criteria": [
+        "A test name directly references public read admission and fallback fail-closed behavior.",
+        "The test passes in the core test suite.",
+        "The test asserts independent fallback admission or read-boundary diagnostic failure."
+      ],
+      "suggested_patch_prompt": "Add a focused read-admission test proving a public read admitted by ordered pushdown/limit-stop cannot silently fall back to an unadmitted materialized route."
+    },
+    {
+      "id": "196-CO-005",
+      "title": "Cursor edge-case coverage is strong but not tabulated across every route family",
+      "category": "tests",
+      "severity": "Low",
+      "blocking": false,
+      "confidence": "Medium",
+      "evidence": [
+        "implementation-results.md cursor mutation test summary",
+        "branch_set.rs cursor continuation tests found by rg",
+        "0 result/cursor signature changes in matrix delta"
+      ],
+      "recommended_fix": "Add a compact route-family cursor edge-case matrix or tests for first/last boundary, exact limit, limit plus lookahead, and final empty page.",
+      "acceptance_criteria": [
+        "Primary-order pushed continuation covers the listed edge cases.",
+        "Secondary-order pushed continuation covers the listed edge cases.",
+        "Final empty page behavior is explicit."
+      ],
+      "suggested_patch_prompt": "Add cursor continuation edge-case tests for pushed primary and secondary ordered routes covering first/last boundary, exact limit, limit plus lookahead, equal keys, deleted boundary, and final empty page."
+    },
+    {
+      "id": "196-CO-006",
+      "title": "Harness classifier still has some SQL-string-derived logic",
+      "category": "harness",
+      "severity": "Low",
+      "blocking": false,
+      "confidence": "High",
+      "evidence": [
+        "testing/integration/tests/sql_perf_matrix_audit.rs sql_clause_usize_value",
+        "testing/integration/tests/sql_perf_matrix_audit.rs sql_order_by_clause",
+        "testing/integration/tests/sql_perf_matrix_audit.rs structured route fields"
+      ],
+      "recommended_fix": "Prefer structured scenario metadata over SQL string parsing in future harness cleanup.",
+      "acceptance_criteria": [
+        "Route classification remains stable if SQL text formatting changes.",
+        "Limit/order metadata is available from scenario structures where practical."
+      ],
+      "suggested_patch_prompt": "Refactor SQL perf matrix scenario metadata so route classification and limit extraction use structured scenario fields rather than SQL string fragments where possible."
+    },
+    {
+      "id": "196-CO-007",
+      "title": "Diagnostic DTO stability posture is implicit",
+      "category": "API",
+      "severity": "Low",
+      "blocking": false,
+      "confidence": "Medium",
+      "evidence": [
+        "implementation-results.md descriptor route class properties",
+        "testing/integration/tests/sql_perf_matrix_audit.rs route_family/route_outcome fields"
+      ],
+      "recommended_fix": "Document whether EXPLAIN/perf route-fact fields are stable public diagnostics, experimental, or audit-only.",
+      "acceptance_criteria": [
+        "Docs state stability posture for route_family, route_outcome, route_reason, and limit_stop_after.",
+        "Closeout evidence continues to use stable field names."
+      ],
+      "suggested_patch_prompt": "Document the stability posture of EXPLAIN/perf route-fact fields added in 0.196, including route_family, route_outcome, route_reason, and limit_stop_after."
+    }
+  ],
+  "performance": {
+    "generated_scenarios_before": 1756,
+    "generated_scenarios_after": 1756,
+    "executed_scenarios_before": 1675,
+    "executed_scenarios_after": 1675,
+    "common_successes": 1675,
+    "common_failures": 81,
+    "new_failures": [],
+    "resolved_failures": [],
+    "aggregate_total_instructions_before": 4814331699,
+    "aggregate_total_instructions_after": 4825263485,
+    "aggregate_total_instructions_delta": 10931786,
+    "aggregate_execute_instructions_before": 4206336771,
+    "aggregate_execute_instructions_after": 4213462530,
+    "aggregate_execute_instructions_delta": 7125759,
+    "aggregate_data_store_get_before": 79838,
+    "aggregate_data_store_get_after": 79838,
+    "aggregate_data_store_get_delta": 0,
+    "aggregate_index_ranges_before": 1523,
+    "aggregate_index_ranges_after": 1523,
+    "aggregate_index_ranges_delta": 0,
+    "aggregate_index_entries_before": 5221,
+    "aggregate_index_entries_after": 5221,
+    "aggregate_index_entries_delta": 0,
+    "rows_returned_before": 5319,
+    "rows_returned_after": 5319,
+    "rows_returned_delta": 0,
+    "result_signature_changes": 0,
+    "cursor_signature_changes": 0,
+    "route_fact_changes_after_0_196_0": 613,
+    "order_hint_changes_after_0_196_0": 1663,
+    "limit_stop_attribution_changes_after_0_196_0": 1675,
+    "top_improvements": [
+      {
+        "scenario": "journaled_user.select.wide.pk_range.name_asc.limit1",
+        "total_delta": -51975,
+        "execute_delta": -53231,
+        "access_counter_delta": 0
+      },
+      {
+        "scenario": "heap_user.select.wide.pk_range.name_asc.limit1",
+        "total_delta": -51607,
+        "execute_delta": -53278,
+        "access_counter_delta": 0
+      },
+      {
+        "scenario": "heap_user.select.wide.all.name_asc.limit10",
+        "total_delta": -44789,
+        "execute_delta": -46253,
+        "access_counter_delta": 0
+      }
+    ],
+    "top_regressions": [
+      {
+        "scenario": "heap_user.select.wide.name_range.name_asc.limit3",
+        "total_delta": 121049,
+        "delta_percent_bp": 55,
+        "access_counter_delta": 0
+      },
+      {
+        "scenario": "journaled_user.select.wide.name_range.name_asc.limit3",
+        "total_delta": 120959,
+        "delta_percent_bp": 55,
+        "access_counter_delta": 0
+      },
+      {
+        "scenario": "heap_user.select.narrow.pk_range.name_asc.limit1",
+        "total_delta": 112854,
+        "delta_percent_bp": 55,
+        "access_counter_delta": 0
+      }
+    ],
+    "original_pushdown_wins": [
+      {
+        "scenario": "blob.select.lengths.bucket_range.bucket_label_asc.limit3",
+        "total_delta": -979543,
+        "data_store_get_delta": -6,
+        "index_range_delta": -2,
+        "index_entry_delta": -11
+      },
+      {
+        "scenario": "blob.select.lengths.bucket_range.bucket_label_asc.limit1",
+        "total_delta": -826953,
+        "data_store_get_delta": -3,
+        "index_range_delta": -3,
+        "index_entry_delta": -14
+      },
+      {
+        "scenario": "user.select.text_expr.age_range.age_desc.limit1",
+        "total_delta": -509495,
+        "data_store_get_delta": -2,
+        "index_range_delta": -2,
+        "index_entry_delta": -7
+      }
+    ]
+  }
+}

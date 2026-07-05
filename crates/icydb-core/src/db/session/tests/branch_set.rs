@@ -1539,6 +1539,51 @@ fn session_branch_set_sql_cursor_continuation_resumes_branch_streams_after_bound
 }
 
 #[test]
+fn session_branch_set_sql_cursor_exact_pages_exhaust_without_final_cursor() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let limit = expected_branch_ids(usize::MAX).len() / 2;
+    let sql = branch_target_sql("*", limit);
+    let query =
+        lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("branch-set paged SQL should lower: {err:?}"));
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .unwrap_or_else(|err| panic!("first branch-set exact page should execute: {err:?}"))
+        .into_execution();
+    assert_eq!(
+        paged_branch_ids(&first),
+        expected_branch_ids(limit),
+        "first exact branch page should return the first ordered window",
+    );
+
+    let cursor = crate::db::encode_cursor(
+        first
+            .continuation_cursor()
+            .expect("first exact branch page should emit a continuation cursor"),
+    );
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+        .unwrap_or_else(|err| panic!("second branch-set exact page should execute: {err:?}"))
+        .into_execution();
+
+    assert_eq!(
+        paged_branch_ids(&second),
+        expected_branch_ids(limit * 2)
+            .into_iter()
+            .skip(limit)
+            .collect::<Vec<_>>(),
+        "second exact branch page should return the remaining ordered window",
+    );
+    assert!(
+        second.continuation_cursor().is_none(),
+        "exact branch windows should exhaust without advertising a final empty page",
+    );
+}
+
+#[test]
 fn session_branch_set_sql_cursor_continuation_handles_deleted_boundary_and_unseen_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

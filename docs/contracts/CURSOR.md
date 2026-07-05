@@ -8,6 +8,12 @@ Release tracking for cursor-related work lives in
 `docs/design/archive/0.9-referential-integrity/0.9-status.md` and
 `docs/design/archive/0.10-index-ordering/0.10-status.md`.
 
+Post-0.196 note: the "no cursor pushdown" statements below are historical
+checkpoint observations, not current normative behavior. 0.196 added
+route-dependent ordered-read and limit-stop execution evidence for routes that
+can prove the requested order and cursor boundary. The semantic cursor contract
+remains the one in `QUERY_CONTRACT.md`.
+
 ## Done
 
 - Completed a full cursor-pagination audit across planner, executor, and session/facade APIs.

@@ -30,6 +30,8 @@ Responsibilities:
 - canonical fast-path precedence order
 - route verification before runtime dispatch
 - fallback handoff when no fast path applies
+- ordered-read route facts and limit-stop ownership for pushed, residual,
+  materialized, unsupported, and fallback load routes
 
 Current route-level precedence families:
 - primary-key stream

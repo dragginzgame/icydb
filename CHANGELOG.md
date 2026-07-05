@@ -7,16 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🧪 Testing
-
-- The SQLite comparison harness now has an explicit ignored strict
-  required-subset gate over the checked-in compatible key list, so deterministic
-  SQLite/IcyDB correctness coverage and JSON/Markdown artifacts no longer
-  depend on manual env-variable wiring.
-
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
+
+- `0.196.21` closes the SQLite-informed ordered-read follow-up audit debt by
+  aligning query/cursor/read-admission contracts with pushed route facts and
+  adding focused read-admission and cursor exhaustion guards.
+
+- `0.196.20` adds a strict required-subset SQLite comparison gate with
+  dedicated JSON/Markdown artifacts so deterministic SQLite/IcyDB correctness
+  evidence no longer depends on manual scenario-key wiring.
 
 - `0.196.19` adds coverage summaries and coverage gates to the SQLite
   comparison artifacts so random SELECT and mutation differentials prove the

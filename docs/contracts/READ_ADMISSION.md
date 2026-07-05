@@ -35,6 +35,12 @@ The current lanes are:
 Estimates may be reported by diagnostics, but estimates do not authorize
 `PublicRead` execution.
 
+If `PublicRead` admission depends on a route-proven pushed or limit-stopped
+read, runtime must not silently degrade to an unadmitted materialized or
+post-access route. The fallback route must either be independently admitted by
+the same policy, or execution must fail closed with the shared read-admission
+diagnostic before doing the broader work.
+
 ## Read Surface Inventory
 
 | Surface | Lane | Guard | Query execution authority |
