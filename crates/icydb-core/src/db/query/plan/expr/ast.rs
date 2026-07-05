@@ -397,21 +397,6 @@ pub(in crate::db) fn render_supported_order_expr(expr: &Expr) -> Option<String> 
     render_supported_order_expr_with_parent(expr, None)
 }
 
-/// Return whether one admitted `ORDER BY` expression must still satisfy the
-/// current index-backed expression-order contract.
-#[must_use]
-pub(in crate::db) const fn supported_order_expr_requires_index_satisfied_access(
-    expr: &Expr,
-) -> bool {
-    matches!(
-        expr,
-        Expr::FunctionCall {
-            function,
-            args,
-        } if function.is_casefold_transform() && matches!(args.as_slice(), [Expr::Field(_)])
-    )
-}
-
 #[cfg(test)]
 fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<String> {
     match supported_order_function_shape(function)? {

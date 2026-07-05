@@ -405,14 +405,6 @@ impl Function {
         }
     }
 
-    /// Return whether this canonical scalar function is one of the admitted
-    /// text casefold transforms that preserve shared LOWER/UPPER wrapper
-    /// semantics across planner expression surfaces.
-    #[must_use]
-    pub(in crate::db::query::plan::expr) const fn is_casefold_transform(self) -> bool {
-        matches!(self, Self::Lower | Self::Upper)
-    }
-
     /// Return the finer unary text transform kind once scalar-evaluation
     /// dispatch has already proven this function belongs to that family.
     #[must_use]

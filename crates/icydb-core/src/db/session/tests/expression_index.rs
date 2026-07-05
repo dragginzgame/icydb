@@ -568,19 +568,36 @@ fn session_explain_execution_expression_key_only_covering_route_matrix_stays_on_
 }
 
 #[test]
-fn session_sql_expression_order_without_matching_index_stays_fail_closed() {
+fn session_sql_expression_order_without_matching_index_materializes_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+    seed_session_sql_entities(&session, &[("bravo", 20), ("Alpha", 30), ("charlie", 40)]);
+
+    let sql = "SELECT name FROM SessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
+    let projection_rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        .expect("unindexed expression-order SQL projection should materialize");
+    let entity_rows = execute_scalar_select_for_tests::<SessionSqlEntity>(
         &session,
         "SELECT id, name FROM SessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
     )
-    .expect_err("expression order without one matching index should fail closed");
+    .expect("unindexed expression-order scalar load should materialize");
+    let entity_names = entity_rows
+        .iter()
+        .map(|row| row.entity_ref().name.clone())
+        .collect::<Vec<_>>();
 
     assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::QueryPlan,
-        "expression-order failures should preserve the fail-closed planning boundary",
+        projection_rows,
+        vec![
+            vec![Value::Text("Alpha".to_string())],
+            vec![Value::Text("bravo".to_string())],
+        ],
+        "unindexed expression-order projection should sort by evaluated LOWER(name), then id",
+    );
+    assert_eq!(
+        entity_names,
+        vec!["Alpha".to_string(), "bravo".to_string()],
+        "unindexed expression-order scalar load should share the materialized order",
     );
 }

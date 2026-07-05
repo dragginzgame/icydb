@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.196.md](docs/changelog/0.196.md)
 
+- `0.196.14` admits bounded SQL expression-order reads onto the materialized
+  sort route when no expression-index access path can prove order, clearing the
+  remaining SQLite comparison mismatches without changing cursor,
+  persisted-format, or public API contracts.
+
 - `0.196.13` fixes SQL multi-lookup ordering for computed projections over
   secondary `IN (...)` filters so primary-key ordered pages match SQLite result
   signatures without changing cursor, persisted-format, or public API contracts.

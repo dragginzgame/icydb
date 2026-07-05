@@ -90,7 +90,6 @@ pub(in crate::db) use aggregate_input::{
 pub(in crate::db) use ast::Alias;
 pub(in crate::db) use ast::{
     BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
-    supported_order_expr_requires_index_satisfied_access,
 };
 #[cfg(test)]
 pub(in crate::db) use ast::{

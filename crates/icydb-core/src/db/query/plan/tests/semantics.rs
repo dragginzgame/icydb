@@ -1273,7 +1273,7 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
 }
 
 #[test]
-fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
+fn plan_accepts_materialized_expression_order_without_access_satisfied_index_contract() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let mut plan: AccessPlannedQuery = AccessPlannedQuery {
@@ -1306,16 +1306,8 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
     };
     plan.finalize_planner_route_profile_for_model(model);
 
-    let err = validate_query_semantics(schema, model, &plan)
-        .expect_err("expression order must fail closed when access does not satisfy ordering");
-    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
-        inner.as_ref(),
-        PlanPolicyError::Policy(inner)
-            if matches!(
-                inner.as_ref(),
-                PolicyPlanError::ExpressionOrderRequiresIndexSatisfiedAccess
-            )
-    ));
+    validate_query_semantics(schema, model, &plan)
+        .expect("materialized expression order should validate when access cannot satisfy order");
 }
 
 #[test]

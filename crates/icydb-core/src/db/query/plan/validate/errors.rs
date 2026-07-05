@@ -164,9 +164,6 @@ pub enum PolicyPlanError {
 
     /// Pagination requires an explicit ordering.
     UnorderedPagination,
-
-    /// Expression ORDER BY currently requires access-satisfied ordering.
-    ExpressionOrderRequiresIndexSatisfiedAccess,
 }
 
 impl PolicyPlanError {
@@ -198,11 +195,6 @@ impl PolicyPlanError {
     /// Construct one unordered-pagination policy error.
     pub(in crate::db::query) const fn unordered_pagination() -> Self {
         Self::UnorderedPagination
-    }
-
-    /// Construct one expression-order-requires-index-access policy error.
-    pub(in crate::db::query) const fn expression_order_requires_index_satisfied_access() -> Self {
-        Self::ExpressionOrderRequiresIndexSatisfiedAccess
     }
 }
 

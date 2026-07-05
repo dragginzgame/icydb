@@ -165,16 +165,6 @@ impl<K> AccessPlan<K> {
         matches!(self, Self::Path(path) if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty()))
     }
 
-    /// Return true when this plan is one singleton primary-key lookup shape.
-    #[must_use]
-    pub(in crate::db) fn is_singleton_or_empty_primary_key_access(&self) -> bool {
-        let Some(path) = self.as_path() else {
-            return false;
-        };
-
-        path.as_by_key().is_some() || path.as_by_keys().is_some_and(|keys| keys.len() <= 1)
-    }
-
     /// Borrow reduced index-prefix access details when this is a single
     /// `IndexPrefix` path.
     #[must_use]

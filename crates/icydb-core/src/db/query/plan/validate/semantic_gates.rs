@@ -8,10 +8,8 @@ use crate::{
         access::validate_access_structure_model as validate_access_structure_model_shared,
         query::plan::{
             AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
-            access_satisfies_deterministic_secondary_order_contract,
-            expr::supported_order_expr_requires_index_satisfied_access,
             validate::{
-                GroupPlanError, PlanError, PolicyPlanError,
+                GroupPlanError, PlanError,
                 grouped::{
                     validate_group_cursor_constraints, validate_group_policy,
                     validate_group_structure, validate_projection_expr_types,
@@ -135,53 +133,10 @@ where
         if require_primary_key_tie_break {
             validate_primary_key_tie_break(schema, order)?;
         }
-        validate_expression_order_support(model, plan, order)?;
     }
 
     validate_access_fn(schema, model, plan)?;
     validate_plan_shape(&plan.logical)?;
 
     Ok(())
-}
-
-fn validate_expression_order_support(
-    _model: &EntityModel,
-    plan: &AccessPlannedQuery,
-    order: &OrderSpec,
-) -> Result<(), PlanError> {
-    let expressions_requiring_index_support = order
-        .fields
-        .iter()
-        .map(crate::db::query::plan::OrderTerm::expr)
-        .any(supported_order_expr_requires_index_satisfied_access);
-
-    if !expressions_requiring_index_support {
-        return Ok(());
-    }
-
-    if plan.access.is_singleton_or_empty_primary_key_access() || plan.access.is_explicit_empty() {
-        return Ok(());
-    }
-
-    let access_shape_facts = plan.access_shape_facts();
-    let planner_route_profile = plan.planner_route_profile();
-    let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
-    let secondary_contract_active = logical_pushdown_eligibility.secondary_order_allowed()
-        && !logical_pushdown_eligibility.requires_full_materialization();
-    let secondary_pushdown_eligible = planner_route_profile
-        .secondary_order_contract()
-        .is_some_and(|order_contract| {
-            access_satisfies_deterministic_secondary_order_contract(
-                &access_shape_facts,
-                order_contract,
-            )
-        });
-
-    if secondary_contract_active && secondary_pushdown_eligible {
-        return Ok(());
-    }
-
-    Err(PlanError::from(
-        PolicyPlanError::expression_order_requires_index_satisfied_access(),
-    ))
 }

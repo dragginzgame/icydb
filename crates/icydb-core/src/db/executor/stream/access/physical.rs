@@ -495,10 +495,8 @@ impl KeyAccessRuntime {
                     KeyOrderComparator::from_direction(request.continuation.direction()),
                 ))
             }
-            PrefixSetExecutionShape::OrderedConcat(_) => {
-                Err(InternalError::query_executor_invariant())
-            }
-            PrefixSetExecutionShape::Materialized(_) => {
+            PrefixSetExecutionShape::OrderedConcat(_)
+            | PrefixSetExecutionShape::Materialized(_) => {
                 Err(InternalError::query_executor_invariant())
             }
         }
@@ -536,10 +534,7 @@ impl KeyAccessRuntime {
 
                 Ok(OrderedKeyStreamBox::concat_all(streams))
             }
-            PrefixSetExecutionShape::OrderedMerge(_) => {
-                Err(InternalError::query_executor_invariant())
-            }
-            PrefixSetExecutionShape::Materialized(_) => {
+            PrefixSetExecutionShape::OrderedMerge(_) | PrefixSetExecutionShape::Materialized(_) => {
                 Err(InternalError::query_executor_invariant())
             }
         }
