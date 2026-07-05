@@ -75,12 +75,12 @@ impl Principal {
     }
 
     #[must_use]
-    pub fn as_slice(&self) -> &[u8] {
+    pub const fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
 
     /// Borrow this principal's validated stored bytes without allocating.
-    pub fn stored_bytes(&self) -> Result<&[u8], PrincipalEncodeError> {
+    pub const fn stored_bytes(&self) -> Result<&[u8], PrincipalEncodeError> {
         let bytes = self.as_slice();
         let len = bytes.len();
         if len > Self::MAX_LENGTH_IN_BYTES as usize {

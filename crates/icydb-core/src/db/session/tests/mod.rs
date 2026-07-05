@@ -44,6 +44,8 @@ mod sql_projection;
 mod sql_scalar;
 mod sql_surface;
 mod sql_write;
+#[cfg(feature = "sql")]
+mod sqlite_comparison;
 mod storage_backend_perf;
 mod temporal;
 mod verbose_route_choice;

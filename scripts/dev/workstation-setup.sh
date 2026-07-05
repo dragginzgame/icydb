@@ -33,6 +33,7 @@ DEV_SYSTEM_PACKAGES=(
   binaryen
   wabt
   jq
+  sqlite3
 )
 
 CARGO_WORKSTATION_TOOLS=(
@@ -76,6 +77,15 @@ install_system_packages() {
 
   "${sudo_cmd[@]}" apt-get update
   "${sudo_cmd[@]}" apt-get install -y "${DEV_SYSTEM_PACKAGES[@]}"
+}
+
+report_update_system_package_status() {
+  if command -v sqlite3 >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "sqlite3 not found; the optional SQLite comparison harness will skip." >&2
+  echo "Run 'make install-dev' or install sqlite3 manually to enable it." >&2
 }
 
 install_actionlint() {
@@ -168,6 +178,8 @@ run_update_checks() {
 
 if [[ "$MODE" == "install" ]]; then
   install_system_packages
+else
+  report_update_system_package_status
 fi
 ensure_rustup
 install_tooling

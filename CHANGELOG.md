@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Harden ordered-read fast-path guard coverage by locking stream precedence
   ownership and adding primary-order, equality-prefix, branch fallback, and
   cursor-mutation regression tripwires.
+- Add an optional SQLite CLI comparison harness for the 0.196 audit line that
+  emits result signatures, fairness notes, and exploratory timing artifacts
+  without changing runtime behavior.
+- Install the `sqlite3` CLI through `install-dev` and have `update-dev` warn
+  without sudo when the optional SQLite comparison reference engine is missing.
 
 ## [0.196.x] 📊 - 2026-07-04 - SQLite Comparison Audit And Ordered Read Pushdown
 
