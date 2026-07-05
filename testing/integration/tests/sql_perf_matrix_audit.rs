@@ -1645,7 +1645,7 @@ fn random_user_mutation_scenario(
 ) -> SqliteMutationScenario {
     let key_prefix = format!("mutation.random.{seed:016x}.{index:04}.user");
 
-    match index % 12 {
+    match index % 16 {
         0 | 6 => insert_user_mutation_scenario(rng, index, users, &key_prefix),
         1 => update_user_by_name_mutation_scenario(rng, index, users, &key_prefix),
         2 if users.len() > 2 => delete_user_by_name_mutation_scenario(rng, users, &key_prefix),
@@ -1660,6 +1660,10 @@ fn random_user_mutation_scenario(
             delete_user_by_range_predicate_mutation_scenario(rng, users, &key_prefix)
                 .unwrap_or_else(|| delete_user_by_pk_mutation_scenario(rng, users, &key_prefix))
         }
+        12 => update_user_no_match_name_mutation_scenario(index, users, &key_prefix),
+        13 => delete_user_no_match_name_mutation_scenario(index, users, &key_prefix),
+        14 => update_user_no_match_range_mutation_scenario(users, &key_prefix),
+        15 => delete_user_no_match_range_mutation_scenario(users, &key_prefix),
         _ => update_user_by_pk_mutation_scenario(rng, index, users, &key_prefix),
     }
 }
@@ -1856,6 +1860,81 @@ fn update_user_by_range_predicate_mutation_scenario(
     )
 }
 
+fn update_user_no_match_name_mutation_scenario(
+    index: usize,
+    users: &[MutationUserRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let name = format!("missing-user-{index:04}");
+    user_mutation_scenario(
+        key_prefix,
+        "update_no_match_name",
+        "mutation.update_no_match_name",
+        format!(
+            "UPDATE PerfAuditUser SET age = 52, age_nat = 52, rank = 17 \
+             WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
+            sqlite_quote(&name),
+        ),
+        true,
+        String::new(),
+        users,
+    )
+}
+
+fn delete_user_no_match_name_mutation_scenario(
+    index: usize,
+    users: &[MutationUserRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let name = format!("missing-user-{index:04}");
+    user_mutation_scenario(
+        key_prefix,
+        "delete_no_match_name",
+        "mutation.delete_no_match_name",
+        format!(
+            "DELETE FROM PerfAuditUser WHERE name = '{}' RETURNING id, name, age, age_nat, rank",
+            sqlite_quote(&name),
+        ),
+        true,
+        String::new(),
+        users,
+    )
+}
+
+fn update_user_no_match_range_mutation_scenario(
+    users: &[MutationUserRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    user_mutation_scenario(
+        key_prefix,
+        "update_no_match_range",
+        "mutation.update_no_match_range",
+        "UPDATE PerfAuditUser SET age = 52, age_nat = 52, rank = 17 \
+         WHERE age >= 5000 AND age < 5001 RETURNING id, name, age, age_nat, rank"
+            .to_string(),
+        false,
+        String::new(),
+        users,
+    )
+}
+
+fn delete_user_no_match_range_mutation_scenario(
+    users: &[MutationUserRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    user_mutation_scenario(
+        key_prefix,
+        "delete_no_match_range",
+        "mutation.delete_no_match_range",
+        "DELETE FROM PerfAuditUser WHERE age >= 5000 AND age < 5001 \
+         RETURNING id, name, age, age_nat, rank"
+            .to_string(),
+        false,
+        String::new(),
+        users,
+    )
+}
+
 fn update_user_row_and_set_clause(
     rng: &mut Lcg,
     index: usize,
@@ -1984,7 +2063,7 @@ fn random_account_mutation_scenario(
 ) -> SqliteMutationScenario {
     let key_prefix = format!("mutation.random.{seed:016x}.{index:04}.account");
 
-    match index % 12 {
+    match index % 16 {
         0 | 6 => insert_account_mutation_scenario(rng, index, accounts, &key_prefix),
         1 => update_account_by_handle_mutation_scenario(rng, index, accounts, &key_prefix),
         2 if accounts.len() > 2 => {
@@ -2007,6 +2086,10 @@ fn random_account_mutation_scenario(
                     delete_account_by_pk_mutation_scenario(rng, accounts, &key_prefix)
                 })
         }
+        12 => update_account_no_match_handle_mutation_scenario(index, accounts, &key_prefix),
+        13 => delete_account_no_match_handle_mutation_scenario(index, accounts, &key_prefix),
+        14 => update_account_no_match_range_mutation_scenario(accounts, &key_prefix),
+        15 => delete_account_no_match_range_mutation_scenario(accounts, &key_prefix),
         _ => update_account_by_pk_mutation_scenario(rng, index, accounts, &key_prefix),
     }
 }
@@ -2197,6 +2280,81 @@ fn update_account_by_range_predicate_mutation_scenario(
         ),
         false,
         expected_mutation_signature,
+        accounts,
+    )
+}
+
+fn update_account_no_match_handle_mutation_scenario(
+    index: usize,
+    accounts: &[MutationAccountRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let handle = format!("missing-handle-{index:04}");
+    account_mutation_scenario(
+        key_prefix,
+        "update_no_match_handle",
+        "mutation.update_no_match_handle",
+        format!(
+            "UPDATE PerfAuditAccount SET score = 95, tier = 'gold' \
+             WHERE handle = '{}' RETURNING id, handle, tier, score",
+            sqlite_quote(&handle),
+        ),
+        true,
+        String::new(),
+        accounts,
+    )
+}
+
+fn delete_account_no_match_handle_mutation_scenario(
+    index: usize,
+    accounts: &[MutationAccountRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    let handle = format!("missing-handle-{index:04}");
+    account_mutation_scenario(
+        key_prefix,
+        "delete_no_match_handle",
+        "mutation.delete_no_match_handle",
+        format!(
+            "DELETE FROM PerfAuditAccount WHERE handle = '{}' RETURNING id, handle, tier, score",
+            sqlite_quote(&handle),
+        ),
+        true,
+        String::new(),
+        accounts,
+    )
+}
+
+fn update_account_no_match_range_mutation_scenario(
+    accounts: &[MutationAccountRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    account_mutation_scenario(
+        key_prefix,
+        "update_no_match_range",
+        "mutation.update_no_match_range",
+        "UPDATE PerfAuditAccount SET score = 95, tier = 'gold' \
+         WHERE score >= 5000 AND score < 5001 RETURNING id, handle, tier, score"
+            .to_string(),
+        false,
+        String::new(),
+        accounts,
+    )
+}
+
+fn delete_account_no_match_range_mutation_scenario(
+    accounts: &[MutationAccountRow],
+    key_prefix: &str,
+) -> SqliteMutationScenario {
+    account_mutation_scenario(
+        key_prefix,
+        "delete_no_match_range",
+        "mutation.delete_no_match_range",
+        "DELETE FROM PerfAuditAccount WHERE score >= 5000 AND score < 5001 \
+         RETURNING id, handle, tier, score"
+            .to_string(),
+        false,
+        String::new(),
         accounts,
     )
 }
@@ -7053,6 +7211,13 @@ fn sql_perf_sqlite_mutation_differential_random_sequence_is_seeded_and_bounded()
 }
 
 fn assert_sqlite_mutation_sequence_covers_supported_shapes(scenarios: &[SqliteMutationScenario]) {
+    assert_sqlite_mutation_sequence_covers_surfaces_and_verbs(scenarios);
+    assert_sqlite_mutation_sequence_covers_matched_predicates(scenarios);
+    assert_sqlite_mutation_sequence_covers_indexed_field_updates(scenarios);
+    assert_sqlite_mutation_sequence_covers_no_match_predicates(scenarios);
+}
+
+fn assert_sqlite_mutation_sequence_covers_surfaces_and_verbs(scenarios: &[SqliteMutationScenario]) {
     assert!(
         scenarios
             .iter()
@@ -7085,6 +7250,9 @@ fn assert_sqlite_mutation_sequence_covers_supported_shapes(scenarios: &[SqliteMu
             .any(|scenario| scenario.family == "mutation.insert"),
         "mutation differential should classify INSERT scenarios explicitly",
     );
+}
+
+fn assert_sqlite_mutation_sequence_covers_matched_predicates(scenarios: &[SqliteMutationScenario]) {
     assert!(
         scenarios.iter().any(|scenario| matches!(
             scenario.family.as_str(),
@@ -7123,12 +7291,62 @@ fn assert_sqlite_mutation_sequence_covers_supported_shapes(scenarios: &[SqliteMu
             .any(|scenario| scenario.family == "mutation.delete_range_predicate"),
         "mutation differential should include range non-primary-key predicate deletes",
     );
+}
+
+fn assert_sqlite_mutation_sequence_covers_indexed_field_updates(
+    scenarios: &[SqliteMutationScenario],
+) {
     assert!(
         scenarios
             .iter()
             .any(|scenario| scenario.sql.contains("diff-user-")
                 || scenario.sql.contains("diff-handle-")),
         "mutation differential should include indexed text-field updates"
+    );
+}
+
+fn assert_sqlite_mutation_sequence_covers_no_match_predicates(
+    scenarios: &[SqliteMutationScenario],
+) {
+    assert!(
+        scenarios.iter().any(|scenario| matches!(
+            scenario.family.as_str(),
+            "mutation.update_no_match_name" | "mutation.update_no_match_handle"
+        )),
+        "mutation differential should include zero-row exact-predicate updates",
+    );
+    assert!(
+        scenarios.iter().any(|scenario| matches!(
+            scenario.family.as_str(),
+            "mutation.delete_no_match_name" | "mutation.delete_no_match_handle"
+        )),
+        "mutation differential should include zero-row exact-predicate deletes",
+    );
+    assert!(
+        scenarios
+            .iter()
+            .any(|scenario| scenario.family == "mutation.update_no_match_range"),
+        "mutation differential should include zero-row range updates",
+    );
+    assert!(
+        scenarios
+            .iter()
+            .any(|scenario| scenario.family == "mutation.delete_no_match_range"),
+        "mutation differential should include zero-row range deletes",
+    );
+    assert!(
+        scenarios.iter().any(|scenario| {
+            scenario.expected_mutation_signature.is_empty()
+                && scenario.family.starts_with("mutation.update_no_match")
+        }),
+        "zero-row update scenarios should expect an empty RETURNING signature",
+    );
+    assert!(
+        scenarios.iter().any(|scenario| {
+            scenario.expected_mutation_signature.is_empty()
+                && scenario.family.starts_with("mutation.delete_no_match")
+        }),
+        "zero-row delete scenarios should expect an empty RETURNING signature",
     );
 }
 
@@ -7155,7 +7373,8 @@ fn assert_sqlite_mutation_sequence_stays_on_comparable_surfaces(
             scenario.key,
         );
         assert!(
-            !scenario.expected_mutation_signature.is_empty(),
+            mutation_scenario_is_no_match(scenario)
+                || !scenario.expected_mutation_signature.is_empty(),
             "mutation scenario should include a generated expected RETURNING signature: {}",
             scenario.key,
         );
@@ -7170,6 +7389,11 @@ fn assert_sqlite_mutation_sequence_stays_on_comparable_surfaces(
             scenario.key,
         );
     }
+}
+
+fn mutation_scenario_is_no_match(scenario: &SqliteMutationScenario) -> bool {
+    scenario.family.starts_with("mutation.update_no_match")
+        || scenario.family.starts_with("mutation.delete_no_match")
 }
 
 #[test]
