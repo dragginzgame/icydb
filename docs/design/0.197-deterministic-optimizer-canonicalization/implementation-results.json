@@ -19,7 +19,8 @@
       "status": "covered",
       "evidence": [
         "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_admits_primary_key_filter_without_limit",
-        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_try_entity_admits_primary_key_filter_without_limit"
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_try_entity_admits_primary_key_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_filter_expr_admits_signed_primary_key_filter_without_limit"
       ]
     },
     {
@@ -68,10 +69,11 @@
     },
     {
       "area": "sql_parameters",
-      "status": "unsupported_by_current_sql_parameter_contract",
+      "status": "documented_out_of_scope_current_sql_contract",
       "evidence": [
         "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_primary_key_parameter_shape_fails_before_admission",
-        "crates/icydb-core/src/db/sql/lowering/tests/mod.rs::prepare_sql_statement_rejects_parameters_before_lowering"
+        "crates/icydb-core/src/db/sql/lowering/tests/mod.rs::prepare_sql_statement_rejects_parameters_before_lowering",
+        "docs/contracts/SQL_SUBSET.md"
       ]
     },
     {
@@ -104,6 +106,15 @@
       ]
     },
     {
+      "area": "empty_exact_key_route_proof",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/query/plan/planner/tests/mod.rs::planner_excluding_primary_key_eq_and_in_child_routes_to_empty_access",
+        "crates/icydb-core/src/db/query/plan/planner/tests/mod.rs::planner_disjoint_primary_key_in_children_route_to_empty_access",
+        "crates/icydb-core/src/db/query/plan/planner/tests/mod.rs::planner_intersects_primary_key_in_children_before_secondary_candidates"
+      ]
+    },
+    {
       "area": "non_canonical_shapes",
       "status": "covered",
       "evidence": [
@@ -132,7 +143,7 @@
   ],
   "missing_closeout_artifacts": [
     "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.json",
-    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.json",
+    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.json",
     "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.md",
     "fresh full deterministic SQL matrix before JSON/Markdown",
     "fresh full deterministic SQL matrix after JSON/Markdown"
@@ -140,11 +151,44 @@
   "focused_matrix_manifest": {
     "markdown": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.md",
     "json": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.json",
-    "measured_artifacts_captured": false
+    "measured_artifacts_captured": true,
+    "current_after_json": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.json",
+    "current_after_markdown": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.md",
+    "current_capture": {
+      "scenario_count": 33,
+      "measured_admitted_rows": 20,
+      "public_policy_rejected_not_measured_rows": 3,
+      "external_contract_not_measured_rows": 2,
+      "not_found_rows": 1,
+      "aggregate_data_store_get": 24,
+      "aggregate_total_instructions": 13622028
+    },
+    "saved_delta_gate": "testing/integration/tests/pk_canonicalization_focused_artifact.rs::pk_canonicalization_focused_delta_covers_manifest",
+    "saved_before_after_generator": "testing/integration/tests/pk_canonicalization_focused_artifact.rs::pk_canonicalization_focused_delta_writes_from_saved_before_after_artifacts"
+  },
+  "focused_pocket_ic_capture": {
+    "command": "env IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR=/home/adam/projects/icydb/.cache cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact pk_canonicalization_focused_current_artifact_writes_from_pocketic -- --ignored --nocapture",
+    "status": "passed_outside_sandbox",
+    "artifacts_produced": [
+      "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.json",
+      "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.md"
+    ],
+    "performance_closeout_claimed": false,
+    "notes": "Current route/status/counter evidence only; no same-machine before artifact or focused delta exists yet."
+  },
+  "pocket_ic_measurement_attempt": {
+    "command": "env IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR=/home/adam/projects/icydb/.cache cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_audit_harness_reports_instruction_samples -- --ignored --nocapture",
+    "status": "passed_on_retry_outside_sandbox",
+    "pocket_ic_bin": "/home/adam/projects/icydb/.cache/pocket-ic-server-14.0.0/pocket-ic",
+    "first_attempt": "PocketIC server process panicked while binding 127.0.0.1:0 under the sandbox, then the test harness hung until interrupted.",
+    "retry": "PocketIC listened on a loopback port outside the sandbox and sql_perf_audit_harness_reports_instruction_samples passed with 1 test.",
+    "artifacts_produced": false,
+    "notes": "This proves the SQL perf harness can run, but it does not produce the required 0.197 focused before/after delta or full deterministic matrix artifacts."
   },
   "recommended_next_slices": [
-    "Add a focused 0.197 exact-key matrix runner or artifact helper that consumes the focused manifest.",
-    "Record focused current results for every required manifest scenario.",
-    "Run the fresh full deterministic SQL matrix after focused artifacts can classify exact-key route and status deltas."
+    "Capture or reconstruct the same-machine focused 0.197 before artifact if a performance delta is still required.",
+    "Generate the focused delta from saved before/current captures and run the saved-artifact gate.",
+    "Run the fresh full deterministic SQL matrix after focused artifacts can classify exact-key route and status deltas.",
+    "Re-run full workspace validation in an environment with PocketIC configured."
   ]
 }

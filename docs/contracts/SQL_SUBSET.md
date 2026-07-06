@@ -114,6 +114,30 @@ places `NULL` before present values and `DESC` reverses that comparator, so
 `NULL` sorts after present values. Later `ORDER BY` terms remain tie-breakers
 inside equal nullable groups.
 
+#### Exact Primary-Key Reads
+
+Strict scalar primary-key equality in SQL is an exact-key read when the accepted
+runtime schema proves the field is the entity's scalar primary key and the
+literal value has the exact primary-key type.
+
+Supported exact-key SQL forms include:
+
+- `WHERE pk = literal`;
+- commuted literal equality, `WHERE literal = pk`;
+- finite literal primary-key `IN (...)` lists within public read-admission
+  policy.
+
+These forms may be admitted by the public read gate without fake `LIMIT`
+ceremony because the planner can select `ByKey`, `ByKeys`, or `Empty` access.
+Invalid exact-key-looking shapes fail closed instead of falling back to a scan.
+That includes wrong literal types, malformed `IN` lists, over-budget key-list
+inputs, and invalid residual predicates.
+
+SQL placeholder parameters are not part of the current public SQL subset. A
+shape such as `WHERE pk = ?` is rejected before primary-key canonicalization.
+If SQL parameters are added later, parameter binding must preserve the same
+accepted-schema key encoding, cache-safety, and fail-closed contracts.
+
 ### `EXPLAIN`
 
 Supported shapes:

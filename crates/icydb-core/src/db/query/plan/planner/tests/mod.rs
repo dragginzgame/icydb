@@ -817,6 +817,112 @@ fn planner_conflicting_primary_key_children_outrank_broader_secondary_range_cand
 }
 
 #[test]
+fn planner_excluding_primary_key_eq_and_in_child_routes_to_empty_access() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::eq("id".to_string(), Value::Ulid(Ulid::from_u128(77))),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(88)),
+                Value::Ulid(Ulid::from_u128(99)),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt("score".to_string(), 10u64.into()),
+    ]);
+
+    let (plan, reason) = plan_access_selection_for_raw_predicate_with_order(
+        &PLANNER_RANGE_RANKING_MODEL,
+        schema,
+        Some(&predicate),
+        None,
+    )
+    .expect("excluded primary-key eq plus IN predicate should plan")
+    .into_access_and_non_index_reason();
+
+    assert_eq!(
+        plan,
+        AccessPlan::by_keys(Vec::new()),
+        "primary-key eq plus an excluding finite primary-key set should prove an empty access route instead of fetching the singleton and relying on residual filtering",
+    );
+    assert_eq!(
+        reason,
+        Some(PlannedNonIndexAccessReason::ConflictingPrimaryKeyChildrenAccessPreferred),
+        "empty exact-key intersections should preserve the conflicting-primary-key family winner reason",
+    );
+}
+
+#[test]
+fn planner_intersects_primary_key_in_children_before_secondary_candidates() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let selected_id = Value::Ulid(Ulid::from_u128(88));
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![Value::Ulid(Ulid::from_u128(77)), selected_id.clone()]),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![selected_id.clone(), Value::Ulid(Ulid::from_u128(99))]),
+            CoercionId::Strict,
+        )),
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt("score".to_string(), 10u64.into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RANGE_RANKING_MODEL, schema, Some(&predicate))
+        .expect("overlapping finite primary-key sets should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::by_key(selected_id),
+        "overlapping finite primary-key sets should narrow to their exact-key intersection before broader secondary candidates are considered",
+    );
+}
+
+#[test]
+fn planner_disjoint_primary_key_in_children_route_to_empty_access() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(77)),
+                Value::Ulid(Ulid::from_u128(88)),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(99)),
+                Value::Ulid(Ulid::from_u128(100)),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt("score".to_string(), 10u64.into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RANGE_RANKING_MODEL, schema, Some(&predicate))
+        .expect("disjoint finite primary-key sets should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::by_keys(Vec::new()),
+        "disjoint finite primary-key sets should prove an empty access route before broader secondary candidates are considered",
+    );
+}
+
+#[test]
 fn planner_primary_key_range_subset_survives_mixed_and_children() {
     let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_ORDER_MODEL);
     let predicate = Predicate::And(vec![

@@ -183,7 +183,7 @@ should branch on the diagnostic detail, not rendered text.
 
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |
-| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Add `limit(...)`, use `by_id(...)` / bounded `by_ids(...)` for exact primary-key reads, or use a grouped query with `grouped_limits(...)` when the grouped shape itself supplies the bound. |
+| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Add `limit(...)`, spell the read as strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)`, or use a grouped query with `grouped_limits(...)` when the grouped shape itself supplies the bound. |
 | Ordinary read with `LIMIT 1` but no route-proven index access | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Add an index for the filter/order, tighten the predicate, or move the broad scan behind a controller/admin trusted path. |
 | Ordinary read whose selected route cannot prove an index-backed access path | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | Add a matching index or change the query to use an indexed predicate/order. |
 | Ordinary read whose selected plan cannot prove a scan bound | `QueryReadAdmissionCode::ScanBoundUnavailable` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
@@ -221,8 +221,8 @@ let err = db()
 
 Fix it by adding a finite row bound, or by using grouped execution with
 explicit grouped budgets when the query is genuinely grouped. For exact
-primary-key reads, prefer the key API so admission can consume the selected
-`ByKey` proof:
+primary-key reads, strict primary-key filters and the explicit key APIs both
+produce selected exact-key proofs when the accepted schema can prove the shape:
 
 ```rust
 let users = db()
@@ -234,6 +234,11 @@ let users = db()
     .execute_rows()?;
 
 let user = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("id").eq(user_id))
+    .try_one()?;
+
+let same_user = db()
     .load::<User>()
     .by_id(icydb::Id::<User>::from_key(user_id))
     .try_one()?;

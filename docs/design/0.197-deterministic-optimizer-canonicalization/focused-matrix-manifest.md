@@ -14,6 +14,7 @@ Required measured artifacts:
 
 - `sql_perf_197_pk_canonicalization_before.json`
 - `sql_perf_197_pk_canonicalization_after.json`
+- `sql_perf_197_pk_canonicalization_delta.json`
 - `sql_perf_197_pk_canonicalization_delta.md`
 
 Required full-matrix artifacts for final line closeout:
@@ -37,10 +38,11 @@ Every focused scenario row should record:
 - before/after error code, if failed
 - before/after total, planner, execute, and store instruction counts
 - before/after `data_store.get`, index ranges, rows decoded, rows returned
-- canonicalization result: `ByKey`, `ByKeys`, `Empty`,
+- before/after deterministic result signatures
+- canonicalization result: `ByKey`, `ByKeys`, `Empty`, `NotApplied`,
   `ValidationFailure`, or `UnsupportedByContract`
 - raw and deduplicated key counts
-- result signature and whether it changed
+- whether the result signature changed
 - expected behavior change
 - explanation for any status, result, or route change
 
@@ -82,6 +84,9 @@ Every focused scenario row should record:
 | `pk.noncanonical.partial_composite` | fluent | stable | composite | partial composite primary-key equality | `public_read_fluent_admission_rejects_partial_composite_primary_key_as_full_scan` | Missing |
 | `pk.noncanonical.expression_wrapped` | SQL | stable | generated | expression-wrapped primary-key compare | `sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key` | Missing |
 
+The noncanonical scenarios are valid non-application cases and should report
+`NotApplied`, not validation failure, unless the query is otherwise invalid.
+
 ## Closeout Gate
 
 The focused 0.197 artifact gate should fail if:
@@ -103,3 +108,26 @@ The current source tree has strong semantic coverage for these scenarios, but
 the measured focused matrix artifacts do not exist yet. Therefore `.11` may
 record coverage and closeout requirements, but final 0.197 performance closeout
 must wait for fresh focused and full-matrix artifacts.
+
+The saved-artifact gate lives in
+`testing/integration/tests/pk_canonicalization_focused_artifact.rs`. Run the
+ignored generator after focused before/after capture with:
+
+```text
+ICYDB_197_PK_FOCUSED_BEFORE_JSON=<path-to-before-json> \
+ICYDB_197_PK_FOCUSED_AFTER_JSON=<path-to-after-json> \
+ICYDB_197_PK_FOCUSED_DELTA_OUT=<path-to-delta-json> \
+cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact \
+  pk_canonicalization_focused_delta_writes_from_saved_before_after_artifacts -- --ignored
+```
+
+The generator writes both `<path-to-delta-json>` and the matching `.md` file,
+then immediately applies the manifest gate to the generated delta.
+
+Run the ignored delta gate directly after capture with:
+
+```text
+ICYDB_197_PK_FOCUSED_DELTA_JSON=<path-to-delta-json> \
+cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact \
+  pk_canonicalization_focused_delta_covers_manifest -- --ignored
+```

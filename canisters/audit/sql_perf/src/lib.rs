@@ -81,6 +81,29 @@ struct FluentQueryPerfResult {
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
+struct FocusedPkPerfRow {
+    scenario_key: String,
+    terminal: String,
+    selected_access: String,
+    admission_result: String,
+    error_code: Option<String>,
+    total_instructions: u64,
+    planner_instructions: u64,
+    execute_instructions: u64,
+    store_instructions: u64,
+    data_store_get: u64,
+    index_ranges: u64,
+    rows_decoded: u64,
+    rows_returned: u64,
+    result_signature: String,
+    canonicalization_result: String,
+    raw_key_count: u32,
+    deduplicated_key_count: u32,
+    explanation: String,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
 struct StorageWritePerfResult {
     first_insert_local_instructions: u64,
     steady_insert_avg_local_instructions: u64,
@@ -2023,6 +2046,738 @@ fn query_token_fluent_loop_with_perf(
     runs: u32,
 ) -> Result<FluentQueryPerfResult, icydb::Error> {
     query_fluent_scenario_loop("token", scenario.as_str(), runs)
+}
+
+macro_rules! focused_fluent_row {
+    (
+        $scenario_key:expr,
+        $terminal:expr,
+        $canonicalization_result:expr,
+        $raw_key_count:expr,
+        $deduplicated_key_count:expr,
+        $explanation:expr,
+        $query:expr
+    ) => {{
+        let selected_access = match ($query).trusted_read_unchecked().explain_execution() {
+            Ok(explain) => focused_access_label(format!("{:?}", explain.node_type()).as_str()),
+            Err(err) => {
+                let err: icydb::Error = err.into();
+                format!("ExplainError({})", focused_error_code(&err))
+            }
+        };
+        let public_result = ($query).execute_rows();
+        match public_result {
+            Ok(rows) => {
+                let result_signature = focused_rows_signature(&rows);
+                let rows_returned = rows.count();
+                let attributed = db().execute_query_result_with_attribution(($query).query());
+                match attributed {
+                    Ok((_result, attribution)) => focused_fluent_success_row(
+                        $scenario_key,
+                        $terminal,
+                        selected_access.as_str(),
+                        $canonicalization_result,
+                        $raw_key_count,
+                        $deduplicated_key_count,
+                        result_signature,
+                        rows_returned,
+                        &attribution,
+                        $explanation,
+                    ),
+                    Err(err) => focused_error_row(
+                        $scenario_key,
+                        $terminal,
+                        selected_access.as_str(),
+                        "execution_error",
+                        Some(focused_error_code(&err)),
+                        $canonicalization_result,
+                        $raw_key_count,
+                        $deduplicated_key_count,
+                        $explanation,
+                    ),
+                }
+            }
+            Err(err) => {
+                let err: icydb::Error = err.into();
+                focused_error_row(
+                    $scenario_key,
+                    $terminal,
+                    selected_access.as_str(),
+                    "rejected",
+                    Some(focused_error_code(&err)),
+                    $canonicalization_result,
+                    $raw_key_count,
+                    $deduplicated_key_count,
+                    $explanation,
+                )
+            }
+        }
+    }};
+}
+
+/// Capture one focused exact-key canonicalization scenario for the 0.197
+/// closeout artifact. This is audit-only plumbing: each row either records a
+/// measured PocketIC query execution or an explicit fail-closed/contract-only
+/// boundary row, but it does not alter planner or executor behavior.
+#[cfg(feature = "sql")]
+#[allow(clippy::too_many_lines)]
+#[update]
+fn capture_pk_canonicalization_focused_scenario(
+    scenario: String,
+) -> Result<FocusedPkPerfRow, icydb::Error> {
+    match scenario.as_str() {
+        "pk.scalar.generated.filter.existing.try_one" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "try_one",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current exact primary-key filter over PerfAuditUser",
+            db().load::<PerfAuditUser>().filter_eq("id", 1_i32)
+        )),
+        "pk.scalar.generated.filter.missing.try_one" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "try_one",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current missing exact primary-key filter over PerfAuditHeapUser",
+            db().load::<PerfAuditHeapUser>().filter_eq("id", 99_999_i32)
+        )),
+        "pk.scalar.generated.by_id.existing.try_one" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "try_one",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current explicit by_id baseline over PerfAuditUser",
+            db().load::<PerfAuditUser>().by_id(Id::from_key(1_i32))
+        )),
+        "pk.scalar.external.filter.existing.try_one" => Ok(focused_contract_row(
+            scenario.as_str(),
+            "try_one",
+            "ByKey",
+            "ByKey",
+            1,
+            1,
+            "contract-backed external Principal primary-key filter; core session tests provide measured semantic coverage",
+        )),
+        "pk.scalar.external.by_id.existing.try_one" => Ok(focused_contract_row(
+            scenario.as_str(),
+            "try_one",
+            "ByKey",
+            "ByKey",
+            1,
+            1,
+            "contract-backed external Principal explicit by_id baseline; core session tests provide measured semantic coverage",
+        )),
+        "pk.sql.literal.generated.existing" => Ok(focused_sql_user_row(
+            scenario.as_str(),
+            "projection",
+            "ByKey",
+            1,
+            1,
+            "SELECT id, name FROM PerfAuditUser WHERE id = 1",
+            "measured current SQL literal primary-key equality",
+        )),
+        "pk.sql.literal.generated.commuted" => Ok(focused_sql_user_row(
+            scenario.as_str(),
+            "projection",
+            "ByKey",
+            1,
+            1,
+            "SELECT id, name FROM PerfAuditUser WHERE 1 = id",
+            "measured current SQL commuted literal primary-key equality",
+        )),
+        "pk.sql.parameter.unsupported" => Ok(focused_sql_user_row(
+            scenario.as_str(),
+            "projection",
+            "UnsupportedByContract",
+            0,
+            0,
+            "SELECT id, name FROM PerfAuditUser WHERE id = ?",
+            "measured current SQL placeholder fail-closed boundary",
+        )),
+        "pk.sql.literal.generated.wrong_type" => Ok(focused_sql_user_row(
+            scenario.as_str(),
+            "projection",
+            "ValidationFailure",
+            1,
+            0,
+            "SELECT id, name FROM PerfAuditUser WHERE id = 'not-an-int'",
+            "measured current SQL wrong-type primary-key literal failure",
+        )),
+        "pk.in.fluent.empty" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "Empty",
+            0_u32,
+            0_u32,
+            "measured current empty primary-key IN filter",
+            db().load::<PerfAuditUser>()
+                .filter_in("id", Vec::<i32>::new())
+        )),
+        "pk.in.fluent.one" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current one-value primary-key IN filter",
+            db().load::<PerfAuditUser>().filter_in("id", [1_i32])
+        )),
+        "pk.in.fluent.duplicates" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKeys",
+            3_u32,
+            2_u32,
+            "measured current duplicate primary-key IN filter",
+            db().load::<PerfAuditUser>()
+                .filter_in("id", [2_i32, 1_i32, 2_i32])
+        )),
+        "pk.in.fluent.multiple_mixed" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKeys",
+            3_u32,
+            2_u32,
+            "measured current mixed existing/missing primary-key IN filter",
+            db().load::<PerfAuditUser>()
+                .filter_in("id", [1_i32, 99_999_i32, 1_i32])
+        )),
+        "pk.in.fluent.raw_terms_over_budget" => Ok(focused_error_row(
+            scenario.as_str(),
+            "rows",
+            "ByKeys",
+            "public_policy_rejected_not_measured",
+            Some("E204".to_string()),
+            "ByKeys",
+            1_025_u32,
+            1_u32,
+            "contract-backed public-read raw primary-key IN input cap; default execution lane is intentionally not used for this policy row",
+        )),
+        "pk.in.fluent.deduped_over_budget" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKeys",
+            1_025_u32,
+            1_025_u32,
+            "measured current deduplicated primary-key IN public-read cap failure",
+            db().load::<PerfAuditUser>()
+                .filter_in("id", 10_000_i32..11_025_i32)
+        )),
+        "pk.in.fluent.by_ids.raw_terms_over_budget" => Ok(focused_error_row(
+            scenario.as_str(),
+            "rows",
+            "ByKey",
+            "public_policy_rejected_not_measured",
+            Some("E204".to_string()),
+            "ByKey",
+            1_025_u32,
+            1_u32,
+            "contract-backed public-read duplicate-heavy by_ids raw input cap; default execution lane is intentionally not used for this policy row",
+        )),
+        "pk.in.sql.duplicates.order_asc" => Ok(focused_sql_user_row(
+            scenario.as_str(),
+            "projection",
+            "ByKeys",
+            3,
+            2,
+            "SELECT id FROM PerfAuditUser WHERE id IN (2, 1, 2) ORDER BY id ASC",
+            "measured current SQL duplicate primary-key IN deterministic order",
+        )),
+        "pk.in.sql.payload_over_budget" => Ok(focused_error_row(
+            scenario.as_str(),
+            "projection",
+            "ByKeys",
+            "public_policy_rejected_not_measured",
+            Some("E204".to_string()),
+            "ByKeys",
+            1_025,
+            1_025,
+            "contract-backed public-read SQL primary-key IN payload cap; default execution lane is intentionally not used for this policy row",
+        )),
+        "pk.residual.eq.true" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current primary-key equality with true residual",
+            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+                FieldRef::new("id").eq(1_i32),
+                FieldRef::new("active").eq(true),
+            ]))
+        )),
+        "pk.residual.eq.false" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current primary-key equality with false residual",
+            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+                FieldRef::new("id").eq(1_i32),
+                FieldRef::new("active").eq(false),
+            ]))
+        )),
+        "pk.residual.eq.invalid_existing" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ValidationFailure",
+            1_u32,
+            1_u32,
+            "measured current invalid residual on existing primary key fails closed",
+            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+                FieldRef::new("id").eq(1_i32),
+                FieldRef::new("missing").eq(1_i32),
+            ]))
+        )),
+        "pk.residual.eq.invalid_missing" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ValidationFailure",
+            1_u32,
+            1_u32,
+            "measured current invalid residual on missing primary key fails closed",
+            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+                FieldRef::new("id").eq(99_999_i32),
+                FieldRef::new("missing").eq(1_i32),
+            ]))
+        )),
+        "pk.empty.contradictory_eq" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "Empty",
+            2_u32,
+            0_u32,
+            "measured current contradictory primary-key equality filter",
+            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+                FieldRef::new("id").eq(1_i32),
+                FieldRef::new("id").eq(2_i32),
+            ]))
+        )),
+        "pk.empty.eq_and_excluding_in" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "Empty",
+            3_u32,
+            0_u32,
+            "measured current primary-key equality excluded by IN filter",
+            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+                FieldRef::new("id").eq(1_i32),
+                FieldRef::new("id").in_list([2_i32, 3_i32]),
+            ]))
+        )),
+        "pk.empty.count" => Ok(focused_empty_count_row(scenario.as_str())),
+        "pk.empty.require_one" => Ok(focused_empty_require_one_row(scenario.as_str())),
+        "pk.store.heap.existing" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current heap-store exact primary-key filter",
+            db().load::<PerfAuditHeapUser>().filter_eq("id", 1_i32)
+        )),
+        "pk.store.journaled.existing" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "ByKey",
+            1_u32,
+            1_u32,
+            "measured current journaled-store exact primary-key filter",
+            db().load::<PerfAuditJournaledUser>().filter_eq("id", 1_i32)
+        )),
+        "pk.store.heap.deleted" => {
+            let _ = db()
+                .delete::<PerfAuditHeapUser>()
+                .by_id(Id::from_key(2_i32))
+                .execute();
+            Ok(focused_fluent_row!(
+                scenario.as_str(),
+                "rows",
+                "ByKey",
+                1_u32,
+                1_u32,
+                "measured current heap-store deleted exact-key lookup",
+                db().load::<PerfAuditHeapUser>().filter_eq("id", 2_i32)
+            ))
+        }
+        "pk.store.journaled.deleted" => {
+            let _ = db()
+                .delete::<PerfAuditJournaledUser>()
+                .by_id(Id::from_key(2_i32))
+                .execute();
+            Ok(focused_fluent_row!(
+                scenario.as_str(),
+                "rows",
+                "ByKey",
+                1_u32,
+                1_u32,
+                "measured current journaled-store deleted exact-key lookup",
+                db().load::<PerfAuditJournaledUser>().filter_eq("id", 2_i32)
+            ))
+        }
+        "pk.noncanonical.unique_secondary" => Ok(focused_fluent_row!(
+            scenario.as_str(),
+            "rows",
+            "NotApplied",
+            0_u32,
+            0_u32,
+            "measured current secondary-field equality remains off primary-key access",
+            db().load::<PerfAuditUser>().filter_eq("name", "Alice")
+        )),
+        "pk.noncanonical.partial_composite" => Ok(focused_error_row(
+            scenario.as_str(),
+            "rows",
+            "Unsupported",
+            "unsupported_by_fixture",
+            None,
+            "NotApplied",
+            0,
+            0,
+            "contract-only row: sql_perf fixture has no composite-primary-key entity",
+        )),
+        "pk.noncanonical.expression_wrapped" => Ok(focused_sql_user_row(
+            scenario.as_str(),
+            "projection",
+            "NotApplied",
+            0,
+            0,
+            "SELECT id FROM PerfAuditUser WHERE id + 0 = 1",
+            "measured current expression-wrapped primary-key SQL boundary",
+        )),
+        _ => Err(query_validate_error()),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn focused_access_label(node_type: &str) -> String {
+    match node_type {
+        "ByKeyLookup" => "ByKey",
+        "ByKeysLookup" => "ByKeys",
+        "FullScan" => "FullScan",
+        "IndexPrefixScan" => "IndexPrefix",
+        "IndexRangeScan" => "IndexRange",
+        "IndexMultiLookup" => "IndexMultiLookup",
+        "IndexBranchSet" => "IndexBranchSet",
+        "Union" => "Union",
+        "Intersection" => "Intersection",
+        other => other,
+    }
+    .to_string()
+}
+
+#[cfg(feature = "sql")]
+fn focused_error_code(err: &icydb::Error) -> String {
+    format!("E{}", err.code().raw())
+}
+
+#[cfg(feature = "sql")]
+fn focused_rows_signature<E>(rows: &icydb::db::response::Response<E>) -> String
+where
+    E: EntityFor<PerfAuditCanister>,
+{
+    let ids = rows
+        .ids()
+        .map(|id| format!("{id:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    format!("rows|{}|{}|{}", E::MODEL.name(), rows.count(), ids)
+}
+
+#[cfg(feature = "sql")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "artifact row builder keeps the emitted schema explicit at call sites"
+)]
+fn focused_fluent_success_row(
+    scenario_key: &str,
+    terminal: &str,
+    selected_access: &str,
+    canonicalization_result: &str,
+    raw_key_count: u32,
+    deduplicated_key_count: u32,
+    result_signature: String,
+    rows_returned: u32,
+    attribution: &QueryExecutionAttribution,
+    explanation: &str,
+) -> FocusedPkPerfRow {
+    let direct_data_row = attribution.direct_data_row.unwrap_or_default();
+    FocusedPkPerfRow {
+        scenario_key: scenario_key.to_string(),
+        terminal: terminal.to_string(),
+        selected_access: selected_access.to_string(),
+        admission_result: "admitted".to_string(),
+        error_code: None,
+        total_instructions: attribution.total_local_instructions,
+        planner_instructions: attribution
+            .compile_plan_build_local_instructions
+            .saturating_add(attribution.plan_lookup_local_instructions)
+            .saturating_add(attribution.route_plan_local_instructions),
+        execute_instructions: attribution.execute_local_instructions,
+        store_instructions: direct_data_row.store_get_local_instructions,
+        data_store_get: attribution.store_get_calls,
+        index_ranges: attribution.index_store_range_scan_calls,
+        rows_decoded: attribution.store_get_calls,
+        rows_returned: u64::from(rows_returned),
+        result_signature,
+        canonicalization_result: canonicalization_result.to_string(),
+        raw_key_count,
+        deduplicated_key_count,
+        explanation: explanation.to_string(),
+    }
+}
+
+#[cfg(feature = "sql")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "artifact row builder keeps fail-closed scenario metadata explicit"
+)]
+fn focused_error_row(
+    scenario_key: &str,
+    terminal: &str,
+    selected_access: &str,
+    admission_result: &str,
+    error_code: Option<String>,
+    canonicalization_result: &str,
+    raw_key_count: u32,
+    deduplicated_key_count: u32,
+    explanation: &str,
+) -> FocusedPkPerfRow {
+    FocusedPkPerfRow {
+        scenario_key: scenario_key.to_string(),
+        terminal: terminal.to_string(),
+        selected_access: selected_access.to_string(),
+        admission_result: admission_result.to_string(),
+        error_code,
+        total_instructions: 0,
+        planner_instructions: 0,
+        execute_instructions: 0,
+        store_instructions: 0,
+        data_store_get: 0,
+        index_ranges: 0,
+        rows_decoded: 0,
+        rows_returned: 0,
+        result_signature: "error".to_string(),
+        canonicalization_result: canonicalization_result.to_string(),
+        raw_key_count,
+        deduplicated_key_count,
+        explanation: explanation.to_string(),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn focused_contract_row(
+    scenario_key: &str,
+    terminal: &str,
+    selected_access: &str,
+    canonicalization_result: &str,
+    raw_key_count: u32,
+    deduplicated_key_count: u32,
+    explanation: &str,
+) -> FocusedPkPerfRow {
+    FocusedPkPerfRow {
+        scenario_key: scenario_key.to_string(),
+        terminal: terminal.to_string(),
+        selected_access: selected_access.to_string(),
+        admission_result: "contract_backed_not_measured".to_string(),
+        error_code: None,
+        total_instructions: 0,
+        planner_instructions: 0,
+        execute_instructions: 0,
+        store_instructions: 0,
+        data_store_get: 0,
+        index_ranges: 0,
+        rows_decoded: 0,
+        rows_returned: 1,
+        result_signature: "contract_backed_not_measured".to_string(),
+        canonicalization_result: canonicalization_result.to_string(),
+        raw_key_count,
+        deduplicated_key_count,
+        explanation: explanation.to_string(),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn focused_sql_user_row(
+    scenario_key: &str,
+    terminal: &str,
+    canonicalization_result: &str,
+    raw_key_count: u32,
+    deduplicated_key_count: u32,
+    sql: &str,
+    explanation: &str,
+) -> FocusedPkPerfRow {
+    match db().execute_sql_query_with_attribution::<PerfAuditUser>(sql) {
+        Ok((result, attribution)) => FocusedPkPerfRow {
+            scenario_key: scenario_key.to_string(),
+            terminal: terminal.to_string(),
+            selected_access: canonicalization_result.to_string(),
+            admission_result: "admitted".to_string(),
+            error_code: None,
+            total_instructions: attribution.total_local_instructions,
+            planner_instructions: attribution
+                .execution
+                .planner_local_instructions
+                .saturating_add(attribution.execution.planner_plan_build_local_instructions),
+            execute_instructions: attribution.execute_local_instructions,
+            store_instructions: attribution.execution.store_local_instructions,
+            data_store_get: attribution.store_get_calls,
+            index_ranges: attribution.index_store_range_scan_calls,
+            rows_decoded: attribution.store_get_calls,
+            rows_returned: u64::from(focused_sql_row_count(&result)),
+            result_signature: focused_sql_result_signature(&result),
+            canonicalization_result: canonicalization_result.to_string(),
+            raw_key_count,
+            deduplicated_key_count,
+            explanation: explanation.to_string(),
+        },
+        Err(err) => focused_error_row(
+            scenario_key,
+            terminal,
+            canonicalization_result,
+            "rejected",
+            Some(focused_error_code(&err)),
+            canonicalization_result,
+            raw_key_count,
+            deduplicated_key_count,
+            explanation,
+        ),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn focused_sql_row_count(result: &SqlQueryResult) -> u32 {
+    match result {
+        SqlQueryResult::Count { row_count, .. } => *row_count,
+        SqlQueryResult::Projection(rows) => rows.row_count,
+        SqlQueryResult::Grouped(rows) => rows.row_count,
+        SqlQueryResult::Explain { .. } | SqlQueryResult::Ddl { .. } => 1,
+        SqlQueryResult::Describe(description) => {
+            u32::try_from(description.fields().len()).unwrap_or(u32::MAX)
+        }
+        SqlQueryResult::ShowIndexes { indexes, .. } => {
+            u32::try_from(indexes.len()).unwrap_or(u32::MAX)
+        }
+        SqlQueryResult::ShowColumns { columns, .. } => {
+            u32::try_from(columns.len()).unwrap_or(u32::MAX)
+        }
+        SqlQueryResult::ShowEntities { entities, .. } => {
+            u32::try_from(entities.len()).unwrap_or(u32::MAX)
+        }
+        SqlQueryResult::ShowStores { stores, .. } => {
+            u32::try_from(stores.len()).unwrap_or(u32::MAX)
+        }
+        SqlQueryResult::ShowMemory { memory } => u32::try_from(memory.len()).unwrap_or(u32::MAX),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn focused_sql_result_signature(result: &SqlQueryResult) -> String {
+    match result {
+        SqlQueryResult::Count { entity, row_count } => format!("count|{entity}|{row_count}"),
+        SqlQueryResult::Projection(rows) => format!(
+            "projection|{}|{}|{}",
+            rows.entity,
+            rows.row_count,
+            rows.rendered_rows()
+                .into_iter()
+                .map(|row| row.join(","))
+                .collect::<Vec<_>>()
+                .join(";")
+        ),
+        other => format!("{:?}", other.render_lines()),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn focused_empty_count_row(scenario_key: &str) -> FocusedPkPerfRow {
+    let session = db();
+    let query = session
+        .load::<PerfAuditUser>()
+        .filter_in("id", Vec::<i32>::new());
+    match query.count_with_attribution() {
+        Ok((count, attribution)) => FocusedPkPerfRow {
+            scenario_key: scenario_key.to_string(),
+            terminal: "count".to_string(),
+            selected_access: "Empty".to_string(),
+            admission_result: "admitted".to_string(),
+            error_code: None,
+            total_instructions: attribution.total_local_instructions,
+            planner_instructions: attribution.compile_local_instructions,
+            execute_instructions: attribution.execute_local_instructions,
+            store_instructions: 0,
+            data_store_get: attribution.store_get_calls,
+            index_ranges: attribution.index_store_range_scan_calls,
+            rows_decoded: attribution.store_get_calls,
+            rows_returned: 0,
+            result_signature: format!("count|PerfAuditUser|{count}"),
+            canonicalization_result: "Empty".to_string(),
+            raw_key_count: 0,
+            deduplicated_key_count: 0,
+            explanation: "measured current empty primary-key count terminal".to_string(),
+        },
+        Err(err) => focused_error_row(
+            scenario_key,
+            "count",
+            "Empty",
+            "rejected",
+            Some(focused_error_code(&err)),
+            "Empty",
+            0,
+            0,
+            "empty primary-key count terminal failed",
+        ),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn focused_empty_require_one_row(scenario_key: &str) -> FocusedPkPerfRow {
+    let session = db();
+    let query = session
+        .load::<PerfAuditUser>()
+        .filter_in("id", Vec::<i32>::new());
+    let attributed = db().execute_query_result_with_attribution(query.query());
+    let mut row = match attributed {
+        Ok((_result, attribution)) => focused_fluent_success_row(
+            scenario_key,
+            "require_one",
+            "Empty",
+            "Empty",
+            0,
+            0,
+            "rows|PerfAuditUser|0|".to_string(),
+            0,
+            &attribution,
+            "measured current empty primary-key require_one terminal",
+        ),
+        Err(err) => focused_error_row(
+            scenario_key,
+            "require_one",
+            "Empty",
+            "execution_error",
+            Some(focused_error_code(&err)),
+            "Empty",
+            0,
+            0,
+            "empty primary-key require_one attribution failed",
+        ),
+    };
+    let terminal_result = db()
+        .load::<PerfAuditUser>()
+        .filter_in("id", Vec::<i32>::new())
+        .execute_rows()
+        .and_then(|rows| rows.require_one());
+    if let Err(err) = terminal_result {
+        row.admission_result = "not_found".to_string();
+        row.error_code = Some(focused_error_code(&err));
+        row.result_signature = "not_found|PerfAuditUser".to_string();
+    }
+    row
 }
 
 /// Build the deterministic user fixture batch used by the perf audit.

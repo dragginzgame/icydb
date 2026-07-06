@@ -20,8 +20,9 @@ use crate::{
     },
     error::InternalError,
     model::entity::EntityModel,
-    value::Value,
+    value::{Value, canonicalize_value_set},
 };
+use std::cmp::Ordering;
 
 #[expect(
     clippy::too_many_lines,
@@ -324,52 +325,92 @@ fn has_explicit_empty_child_access(children: &[AccessPlan<Value>]) -> bool {
     children.iter().any(AccessPlan::is_explicit_empty)
 }
 
-// Conjunctive child planning can already discover singleton primary-key access
-// routes from direct `id = ?` / singleton `id IN (?)` clauses. That route is a
-// stronger planner-visible candidate than any broader secondary index scan, so
-// keep one owner-local reducer for this family-level preference.
+// Conjunctive child planning can already discover exact primary-key access
+// routes from direct `id = ?` and finite `id IN (...)` clauses. Their
+// intersection is a stronger planner-visible candidate than any broader
+// secondary index scan, so keep one owner-local reducer for this family-level
+// preference.
 fn primary_key_child_access_candidate(
     children: &[AccessPlan<Value>],
 ) -> Option<(PlannedAccessSelection, bool)> {
-    let mut chosen_key: Option<&Value> = None;
+    let mut intersection: Option<Vec<Value>> = None;
 
     for child in children {
-        let Some(path) = child.as_path() else {
+        let Some(mut child_keys) = exact_primary_key_values_from_child_access(child) else {
             continue;
         };
-        let Some(candidate_key) = path.as_by_key().or_else(|| match path.as_by_keys() {
-            Some([key]) => Some(key),
-            Some([..]) | None => None,
-        }) else {
-            continue;
-        };
+        canonicalize_value_set(&mut child_keys);
+        if child_keys.is_empty() {
+            return Some(primary_key_children_empty_selection());
+        }
 
-        match chosen_key {
-            None => chosen_key = Some(candidate_key),
-            Some(existing) if existing != candidate_key => {
-                return Some((
-                    PlannedAccessSelection::new(
-                        AccessPlan::by_keys(Vec::new()),
-                        Some(
-                            PlannedNonIndexAccessReason::ConflictingPrimaryKeyChildrenAccessPreferred,
-                        ),
-                    ),
-                    true,
-                ));
+        match &mut intersection {
+            None => intersection = Some(child_keys),
+            Some(current_keys) => {
+                *current_keys = intersect_canonical_value_sets(current_keys, child_keys.as_slice());
+                if current_keys.is_empty() {
+                    return Some(primary_key_children_empty_selection());
+                }
             }
-            Some(_) => {}
         }
     }
 
-    chosen_key.cloned().map(|key| {
-        (
-            PlannedAccessSelection::new(
-                AccessPlan::by_key(key),
-                Some(PlannedNonIndexAccessReason::SingletonPrimaryKeyChildAccessPreferred),
-            ),
-            false,
-        )
-    })
+    intersection.map(|keys| primary_key_children_selection_for_keys(keys, false))
+}
+
+fn exact_primary_key_values_from_child_access(child: &AccessPlan<Value>) -> Option<Vec<Value>> {
+    let path = child.as_path()?;
+    if let Some(key) = path.as_by_key() {
+        return Some(vec![key.clone()]);
+    }
+
+    path.as_by_keys().map(<[Value]>::to_vec)
+}
+
+fn primary_key_children_empty_selection() -> (PlannedAccessSelection, bool) {
+    primary_key_children_selection_for_keys(Vec::new(), true)
+}
+
+fn primary_key_children_selection_for_keys(
+    keys: Vec<Value>,
+    conflicting_children: bool,
+) -> (PlannedAccessSelection, bool) {
+    let reason = if conflicting_children {
+        PlannedNonIndexAccessReason::ConflictingPrimaryKeyChildrenAccessPreferred
+    } else if keys.len() == 1 {
+        PlannedNonIndexAccessReason::SingletonPrimaryKeyChildAccessPreferred
+    } else {
+        PlannedNonIndexAccessReason::PlannerKeySetAccess
+    };
+    let access = match keys.as_slice() {
+        [key] => AccessPlan::by_key(key.clone()),
+        _ => AccessPlan::by_keys(keys),
+    };
+
+    (
+        PlannedAccessSelection::new(access, Some(reason)),
+        conflicting_children,
+    )
+}
+
+fn intersect_canonical_value_sets(left: &[Value], right: &[Value]) -> Vec<Value> {
+    let mut out = Vec::with_capacity(left.len().min(right.len()));
+    let mut left_idx = 0usize;
+    let mut right_idx = 0usize;
+
+    while left_idx < left.len() && right_idx < right.len() {
+        match Value::canonical_cmp(&left[left_idx], &right[right_idx]) {
+            Ordering::Less => left_idx += 1,
+            Ordering::Greater => right_idx += 1,
+            Ordering::Equal => {
+                out.push(left[left_idx].clone());
+                left_idx += 1;
+                right_idx += 1;
+            }
+        }
+    }
+
+    out
 }
 
 // Map one planner-selected non-index access shape onto the bounded winner

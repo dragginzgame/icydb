@@ -19,6 +19,30 @@ contracts, but they must not invent new eligibility rules locally.
 
 ## Current Inventory
 
+### 0. Exact primary-key canonicalization
+
+Owner:
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/query/plan/planner/compare.rs`
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/query/plan/planner/predicate.rs`
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/access/canonical.rs`
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/query/admission.rs`
+
+Responsibilities:
+- derive strict scalar primary-key `ByKey`, finite primary-key `ByKeys`, and
+  contradictory exact-key `Empty` access from accepted runtime schema metadata
+- keep explicit `by_id(...)` / `by_ids(...)`, fluent filters, SQL literals,
+  admission, cache identity, and EXPLAIN route facts aligned on the same
+  planner-selected access proof
+- fail closed for wrong types, invalid residuals, over-budget key-list inputs,
+  partial composite keys, expression-wrapped keys, and unsupported SQL
+  parameter placeholders
+
+Current admitted exact-key families:
+- strict scalar primary-key equality
+- commuted SQL literal primary-key equality
+- finite scalar primary-key `IN (...)`
+- contradictory exact-primary-key intersections that prove empty access
+
 ### 1. Route stream fast-path precedence
 
 Owner:

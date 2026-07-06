@@ -5,11 +5,11 @@ use std::num::NonZeroU32;
 use super::{
     FilteredIndexedSessionSqlEntity, HeapSessionSqlEntity, IndexedSessionSqlEntity,
     JournaledSessionSqlEntity, SessionPrincipalKeyEntity, SessionSqlCompositeWriteEntity,
-    SessionSqlEntity, SessionSqlWriteEntity, SessionUniquePrefixOffsetEntity,
-    assert_query_plan_expr_unknown_field, assert_query_plan_predicate_invalid_field,
-    assert_sql_lowering_detail, heap_sql_session, indexed_sql_session, journaled_sql_session,
-    reset_heap_session_sql_store, reset_indexed_session_sql_store,
-    reset_journaled_session_sql_store, reset_session_sql_store,
+    SessionSqlEntity, SessionSqlSignedWriteEntity, SessionSqlWriteEntity,
+    SessionUniquePrefixOffsetEntity, assert_query_plan_expr_unknown_field,
+    assert_query_plan_predicate_invalid_field, assert_sql_lowering_detail, heap_sql_session,
+    indexed_sql_session, journaled_sql_session, reset_heap_session_sql_store,
+    reset_indexed_session_sql_store, reset_journaled_session_sql_store, reset_session_sql_store,
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, seed_unique_prefix_offset_session_entities, sql_session,
 };
@@ -683,6 +683,34 @@ fn default_fluent_try_entity_admits_primary_key_filter_without_limit() {
 
     assert_eq!(entity.id, id);
     assert_eq!(entity.name, "Sasha");
+}
+
+#[test]
+fn default_fluent_filter_expr_admits_signed_primary_key_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlSignedWriteEntity { id: 197, delta: 11 })
+        .expect("signed primary-key row should insert");
+
+    let query = session
+        .load::<SessionSqlSignedWriteEntity>()
+        .filter(crate::db::FilterExpr::eq("id", 197_i64));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("signed primary-key filter admission should produce a summary");
+
+    assert_primary_key_exact_admission_summary(&summary, "signed primary-key filter");
+
+    let entity = query
+        .execute_rows()
+        .expect("signed primary-key filter should execute as bounded exact-key access")
+        .try_entity()
+        .expect("signed primary-key filter should satisfy optional cardinality")
+        .expect("signed primary-key filter should find the inserted row");
+
+    assert_eq!(entity.id, 197);
+    assert_eq!(entity.delta, 11);
 }
 
 #[test]

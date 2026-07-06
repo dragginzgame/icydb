@@ -40,7 +40,7 @@ pub(super) fn plan_compare(
     // keys are addressed through full-key values at typed/structural
     // boundaries; partial component predicates must not masquerade as ByKey.
     let primary_key_name = schema.scalar_primary_key_name();
-    if cmp.coercion.id == CoercionId::Strict
+    if primary_key_exact_coercion_supports_access(cmp.coercion.id)
         && primary_key_name.is_some_and(|name| cmp.field == name)
         && let Some(field_type) = primary_key_name.and_then(|name| schema.field(name))
         && let Some(path) = plan_pk_compare(field_type, &cmp.value, cmp.op)
@@ -137,6 +137,12 @@ pub(super) fn plan_compare(
 // text semantics. Other coercions still require residual filter evaluation.
 const fn coercion_supports_index_lookup(coercion: CoercionId) -> bool {
     matches!(coercion, CoercionId::Strict | CoercionId::TextCasefold)
+}
+
+// Primary-key exact access may accept numeric widening only after the accepted
+// schema literal gate proves the canonical value already matches the key type.
+const fn primary_key_exact_coercion_supports_access(coercion: CoercionId) -> bool {
+    matches!(coercion, CoercionId::Strict | CoercionId::NumericWiden)
 }
 
 // Ordered compare access has one tighter field-type contract on top of the

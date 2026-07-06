@@ -1,0 +1,524 @@
+{
+  "audit": {
+    "date": "2026-07-06",
+    "repo_commit": "b7309b5ec0f16cb8bbe6a917ca754bc98316ea90",
+    "dirty_worktree": [
+      {
+        "path": "CHANGELOG.md",
+        "classification": "expected 0.197 closeout artifact",
+        "notes": "Uncommitted 0.197 changelog slice."
+      },
+      {
+        "path": "docs/changelog/0.197.md",
+        "classification": "expected 0.197 closeout artifact",
+        "notes": "Uncommitted detailed 0.197 changelog slice."
+      },
+      {
+        "path": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.json",
+        "classification": "expected 0.197 closeout artifact",
+        "notes": "Focused primary-key canonicalization manifest update."
+      },
+      {
+        "path": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.md",
+        "classification": "expected 0.197 closeout artifact",
+        "notes": "Human-readable focused manifest update."
+      },
+      {
+        "path": "docs/design/0.197-deterministic-optimizer-canonicalization/implementation-results.json",
+        "classification": "expected 0.197 closeout artifact",
+        "notes": "Implementation-results ledger update."
+      },
+      {
+        "path": "docs/design/0.197-deterministic-optimizer-canonicalization/implementation-results.md",
+        "classification": "expected 0.197 closeout artifact",
+        "notes": "Implementation-results ledger update."
+      },
+      {
+        "path": "testing/integration/tests/pk_canonicalization_focused_artifact.rs",
+        "classification": "expected 0.197 implementation/test change",
+        "notes": "Untracked focused artifact harness."
+      }
+    ],
+    "verdict": "PARTIAL_CLOSEOUT",
+    "commands_run": [
+      {
+        "command": "git status --short",
+        "status": "passed",
+        "notes": "Captured dirty worktree."
+      },
+      {
+        "command": "git rev-parse HEAD",
+        "status": "passed",
+        "notes": "b7309b5ec0f16cb8bbe6a917ca754bc98316ea90"
+      },
+      {
+        "command": "git diff --stat",
+        "status": "passed",
+        "notes": "Tracked doc/artifact diffs found; untracked harness absent from stat."
+      },
+      {
+        "command": "git diff -- docs/design/0.197-deterministic-optimizer-canonicalization docs/changelog/0.197.md CHANGELOG.md docs/contracts/READ_ADMISSION.md docs/contracts/QUERY_CONTRACT.md docs/contracts/SQL_SUBSET.md docs/contracts/CURSOR.md",
+        "status": "passed",
+        "notes": "0.197 docs/changelog/artifact diffs only; no contract diffs."
+      },
+      {
+        "command": "cargo fmt --check",
+        "status": "passed",
+        "notes": "Formatting clean."
+      },
+      {
+        "command": "cargo test --workspace --all-features",
+        "status": "failed_environmental",
+        "notes": "PocketIC-dependent integration tests failed because /tmp/pocket-ic-server-14.0.0/pocket-ic was missing."
+      },
+      {
+        "command": "cargo clippy --workspace --all-features --all-targets -- -D warnings",
+        "status": "passed",
+        "notes": "Clippy clean."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features read_admission",
+        "status": "passed",
+        "notes": "82 passed."
+      },
+      {
+        "command": "cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact",
+        "status": "passed",
+        "notes": "1 passed; 2 ignored real-artifact tests."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features session_explain_execution_external_primary_key_filter_and_by_id_use_same_access_path session_explain_execution_primary_key_filter_canonicalization_route_facts_are_stable",
+        "status": "failed_command_syntax",
+        "notes": "Cargo accepts one positional test filter."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features session_explain_execution_primary_key",
+        "status": "passed",
+        "notes": "Focused explain tests passed."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features primary_key_literal_sql_cache_identity_keeps_concrete_key_values_distinct structural_query_cache_key_treats_equivalent_in_list_permutations_as_identical structural_query_cache_key_treats_duplicate_in_list_literals_as_identical structural_query_cache_key_distinguishes_strict_from_text_casefold_coercion",
+        "status": "failed_command_syntax",
+        "notes": "Cargo accepts one positional test filter."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features cache_key",
+        "status": "passed",
+        "notes": "39 passed."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features primary_key_literal_sql_cache_identity",
+        "status": "passed",
+        "notes": "Literal SQL cache identity test passed."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features expression_wrapped_primary_key",
+        "status": "passed",
+        "notes": "Expression-wrapped PK exact-key shape did not canonicalize."
+      },
+      {
+        "command": "cargo test -p icydb-core --all-features external_primary_key_filter_and_by_id",
+        "status": "passed",
+        "notes": "Original motivating route parity passed."
+      },
+      {
+        "command": "find docs/design/0.197-deterministic-optimizer-canonicalization -maxdepth 1 -type f -printf '%f\\n' | sort",
+        "status": "passed",
+        "notes": "No committed real before/after/delta performance artifacts found."
+      },
+      {
+        "command": "find /tmp -maxdepth 1 -type f -name 'icydb-197-focused-*' -printf '%f\\n' | sort",
+        "status": "passed",
+        "notes": "Local focused artifacts found."
+      },
+      {
+        "command": "ls -l /tmp/icydb-197-focused-before.json /tmp/icydb-197-focused-after.json /tmp/icydb-197-focused-delta.json /tmp/icydb-197-focused-delta.md",
+        "status": "passed",
+        "notes": "Local focused artifact sizes captured."
+      },
+      {
+        "command": "sed -n '1,80p' /tmp/icydb-197-focused-delta.md",
+        "status": "passed",
+        "notes": "Confirmed synthetic focused artifact content."
+      },
+      {
+        "command": "head -40 /tmp/icydb-197-focused-delta.json",
+        "status": "passed",
+        "notes": "Confirmed synthetic measurements."
+      },
+      {
+        "command": "rg \"0.197|ByKey|ByKeys|primary-key|exact-key|limit|read intent|cursor|persisted-format|parameter\" -n docs/contracts/QUERY_CONTRACT.md docs/contracts/SQL_SUBSET.md docs/contracts/CURSOR.md docs/governance/fast-path-inventory.md docs/design/0.198-read-intent-ergonomics/0.198-design.md docs/audits/technical-debt/icydb-technical-debt-audit-2026-07-04.md",
+        "status": "failed_missing_optional_paths",
+        "notes": "Expected 0.198/technical-debt paths did not exist; the actual 0.198 design was found separately."
+      },
+      {
+        "command": "mkdir -p docs/audits/0.197-closeout",
+        "status": "passed",
+        "notes": "Created audit output directory."
+      },
+      {
+        "command": "jq . docs/audits/0.197-closeout/icydb-0.197-closeout-audit-2026-07-06.json",
+        "status": "passed",
+        "notes": "JSON parses."
+      },
+      {
+        "command": "git diff --check",
+        "status": "passed",
+        "notes": "No whitespace errors."
+      },
+      {
+        "command": "git status --short",
+        "status": "passed",
+        "notes": "Final status captured after report creation."
+      }
+    ],
+    "matrix_artifacts_inspected": [
+      {
+        "path": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.json",
+        "classification": "manifest"
+      },
+      {
+        "path": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.md",
+        "classification": "manifest"
+      },
+      {
+        "path": "/tmp/icydb-197-focused-before.json",
+        "classification": "synthetic local scratch artifact"
+      },
+      {
+        "path": "/tmp/icydb-197-focused-after.json",
+        "classification": "synthetic local scratch artifact"
+      },
+      {
+        "path": "/tmp/icydb-197-focused-delta.json",
+        "classification": "synthetic local scratch artifact"
+      },
+      {
+        "path": "/tmp/icydb-197-focused-delta.md",
+        "classification": "synthetic local scratch artifact"
+      }
+    ]
+  },
+  "summary": {
+    "can_0_197_close": false,
+    "safe_to_start_0_198_design": true,
+    "safe_to_start_0_198_implementation": false,
+    "top_blockers": [
+      "Real 0.197 focused before/after/delta performance artifacts are missing.",
+      "Fresh full deterministic SQL matrix before/after evidence is missing.",
+      "The design-required PrimaryKeyCanonicalization artifact is implicit rather than first-class.",
+      "Empty zero-IO proof is incomplete for contradictory exact-key shapes such as pk = a AND pk IN (b).",
+      "SQL parameter exact-key canonicalization is design-required but currently unsupported."
+    ],
+    "top_followups": [
+      "Update READ_ADMISSION.md to document exact primary-key filter admission.",
+      "Add or document canonicalization disabled/failure diagnostics.",
+      "Link final closeout artifacts from design and changelog.",
+      "Add exact-primary-key canonicalization to the fast-path inventory.",
+      "Re-run workspace tests with PocketIC configured."
+    ],
+    "biggest_residual_risk": "Exact-key proof ownership is spread across selected access, access snapshots, input-resource summaries, admission, explain, and cache keys instead of one planner-owned artifact.",
+    "performance_claim_level": "none"
+  },
+  "gates": {
+    "scope": {
+      "status": "pass",
+      "evidence": [
+        "No cost-based optimizer, persisted-format, cursor-token, generated-model runtime fallback, or 0.198 API implementation found.",
+        "Exact-key and finite primary-key-set behavior stayed within 0.197 scope."
+      ],
+      "blocking_issues": []
+    },
+    "canonicalization_artifact": {
+      "status": "fail",
+      "evidence": [
+        "No explicit PrimaryKeyCanonicalization enum or direct equivalent found.",
+        "AccessPlan, AccessChoiceExplainSnapshot, PrimaryKeyInputResourceSummary, and admission together carry the proof facts."
+      ],
+      "blocking_issues": [
+        "Strict design closeout requires a first-class artifact or an amended design that names the implemented artifact model."
+      ]
+    },
+    "accepted_schema_authority": {
+      "status": "pass",
+      "evidence": [
+        "plan_compare uses SchemaInfo::scalar_primary_key_name() and accepted field metadata.",
+        "Strict type checks and shared access canonicalization are used for explicit and predicate-derived key access."
+      ],
+      "blocking_issues": []
+    },
+    "validation_fail_closed": {
+      "status": "pass",
+      "evidence": [
+        "Read-admission tests cover wrong type, invalid residual, over-budget raw and deduplicated inputs, expression-wrapped PK, secondary unique, and partial composite cases.",
+        "SQL parameters fail before admission under current contract."
+      ],
+      "blocking_issues": []
+    },
+    "by_key": {
+      "status": "pass",
+      "evidence": [
+        "filter(pk = value) and by_id parity tests pass.",
+        "Public read admission accepts exact-key filters without fake limits."
+      ],
+      "blocking_issues": []
+    },
+    "by_keys": {
+      "status": "pass",
+      "evidence": [
+        "Finite primary-key IN and explicit by_ids resource-budget tests pass.",
+        "Deduplication and deterministic structural cache-key tests pass."
+      ],
+      "blocking_issues": []
+    },
+    "empty": {
+      "status": "unknown",
+      "evidence": [
+        "Semantic empty tests exist for contradictory exact-key predicates and empty key sets.",
+        "No complete zero-IO proof was found for all contradictory exact-key shapes."
+      ],
+      "blocking_issues": [
+        "Add zero data-store get/index range/row decode tests for Empty, or amend the 0.197 scope."
+      ]
+    },
+    "sql_fluent_parity": {
+      "status": "unknown",
+      "evidence": [
+        "SQL literal and fluent exact-key forms are covered.",
+        "SQL parameters are rejected by current contract."
+      ],
+      "blocking_issues": [
+        "Resolve design mismatch for WHERE pk = ? proof cases."
+      ]
+    },
+    "cache_parameter_safety": {
+      "status": "unknown",
+      "evidence": [
+        "cache_key tests pass for structural duplicate/permutation/strictness cases.",
+        "Literal SQL cache identity test passes.",
+        "Parameterized SQL cache proof is unavailable because parameters are unsupported."
+      ],
+      "blocking_issues": [
+        "Implement or explicitly defer SQL parameter exact-key cache proof."
+      ]
+    },
+    "read_admission": {
+      "status": "pass",
+      "evidence": [
+        "Admission consumes selected access and PrimaryKeyInputResourceSummary.",
+        "ByKey and ByKeys public read tests pass."
+      ],
+      "blocking_issues": []
+    },
+    "explain_diagnostics": {
+      "status": "unknown",
+      "evidence": [
+        "Selected-access and key-resource facts are present.",
+        "Canonicalization attempted/applied/disabled/failure fields are not present as a single contract."
+      ],
+      "blocking_issues": []
+    },
+    "api_compatibility": {
+      "status": "pass",
+      "evidence": [
+        "No cursor-token or persisted-format changes found.",
+        "Exact-key admission behavior change is intentional and pre-1.0."
+      ],
+      "blocking_issues": []
+    },
+    "hard_cut": {
+      "status": "pass",
+      "evidence": [
+        "No legacy compatibility shim or compatibility flag preserving old exact-key missing-limit behavior found.",
+        "No dual-read compatibility path found."
+      ],
+      "blocking_issues": []
+    },
+    "performance_behavior_evidence": {
+      "status": "fail",
+      "evidence": [
+        "Only synthetic local focused artifacts found.",
+        "No fresh full deterministic SQL matrix artifacts found."
+      ],
+      "blocking_issues": [
+        "Performance closeout cannot be claimed."
+      ]
+    },
+    "0_198_boundary": {
+      "status": "pass",
+      "evidence": [
+        "No read-intent terminal or policy API implementation found.",
+        "0.198 design remains separate at docs/design/0.198/0.198-design.md."
+      ],
+      "blocking_issues": []
+    },
+    "docs_changelog": {
+      "status": "unknown",
+      "evidence": [
+        "implementation-results.md accurately reports partial closeout.",
+        "READ_ADMISSION.md still implies by_id is preferred for exact primary-key admission."
+      ],
+      "blocking_issues": []
+    }
+  },
+  "findings": [
+    {
+      "id": "197-CO-001",
+      "title": "Real focused and full-matrix performance artifacts are missing",
+      "category": "performance",
+      "severity": "High",
+      "blocking": true,
+      "confidence": "High",
+      "evidence": [
+        "implementation-results.md says focused before/after/delta artifacts are missing.",
+        "Design directory contains only design, manifest, and implementation-results files.",
+        "/tmp focused artifacts are synthetic."
+      ],
+      "recommended_fix": "Run the real focused capture and full deterministic matrix if making any performance claim.",
+      "acceptance_criteria": [
+        "Committed or linked focused before JSON.",
+        "Committed or linked focused after JSON.",
+        "Focused delta JSON and Markdown.",
+        "Full matrix before/after/delta artifacts, or explicit correctness-only closeout."
+      ],
+      "suggested_patch_prompt": "Create and run the real 0.197 focused primary-key canonicalization capture, produce before/after/delta JSON and Markdown artifacts, and update implementation-results without claiming full-matrix performance unless the full deterministic SQL matrix is also captured."
+    },
+    {
+      "id": "197-CO-002",
+      "title": "Canonicalization proof is implicit rather than the explicit design artifact",
+      "category": "canonicalization",
+      "severity": "High",
+      "blocking": true,
+      "confidence": "High",
+      "evidence": [
+        "No PrimaryKeyCanonicalization enum found.",
+        "Proof facts are spread across AccessPlan, AccessChoiceExplainSnapshot, PrimaryKeyInputResourceSummary, access canonicalization, and admission."
+      ],
+      "recommended_fix": "Add a first-class planner-owned artifact or amend the design to declare the selected-access artifact model and add missing diagnostics.",
+      "acceptance_criteria": [
+        "One planner-owned artifact or documented equivalent owns exact-key proof.",
+        "Admission, EXPLAIN, cache, and execution consume the same artifact.",
+        "Invalid cases do not become generic scan fallbacks."
+      ],
+      "suggested_patch_prompt": "Tighten 0.197 proof ownership by introducing or documenting a single planner-owned exact-primary-key canonicalization artifact and updating admission/explain/cache tests to prove all consumers use it."
+    },
+    {
+      "id": "197-CO-003",
+      "title": "Empty zero-IO proof is incomplete",
+      "category": "correctness",
+      "severity": "High",
+      "blocking": true,
+      "confidence": "Medium",
+      "evidence": [
+        "Empty semantic tests exist.",
+        "No complete zero data-store get/index range/row decode tests found for all contradictory exact-key shapes."
+      ],
+      "recommended_fix": "Add zero-IO Empty tests and adjust planning so excluded exact-key intersections select Empty rather than fetching then filtering.",
+      "acceptance_criteria": [
+        "pk = a AND pk = b reports Empty with zero IO.",
+        "pk = a AND pk IN (b) reports Empty with zero IO.",
+        "pk IN () reports Empty with zero IO."
+      ],
+      "suggested_patch_prompt": "Add zero-IO Empty proof tests for contradictory exact-primary-key predicates and adjust planning so excluded exact-key intersections select Empty rather than fetching a key then filtering it out."
+    },
+    {
+      "id": "197-CO-004",
+      "title": "SQL parameter exact-key canonicalization is not implemented",
+      "category": "SQL-fluent parity",
+      "severity": "Medium",
+      "blocking": true,
+      "confidence": "High",
+      "evidence": [
+        "public_read_sql_primary_key_parameter_shape_fails_before_admission expects parameter placeholders to fail.",
+        "0.197 design still lists WHERE pk = ? parity and cache tests."
+      ],
+      "recommended_fix": "Implement SQL parameter exact-key canonicalization or amend 0.197 to defer SQL parameters.",
+      "acceptance_criteria": [
+        "If implemented, key A/key B reuse the same cached parameterized shape and return the right rows.",
+        "If deferred, design and closeout remove SQL parameter proof cases from 0.197."
+      ],
+      "suggested_patch_prompt": "Resolve the 0.197 SQL parameter contract mismatch by either implementing exact-primary-key parameter binding/cache proof or amending the 0.197 design and results to defer SQL parameter canonicalization."
+    },
+    {
+      "id": "197-CO-005",
+      "title": "Read-admission docs still imply exact-key filters should use key APIs",
+      "category": "docs",
+      "severity": "Low",
+      "blocking": false,
+      "confidence": "High",
+      "evidence": [
+        "READ_ADMISSION.md still recommends key APIs for exact primary-key admission.",
+        "QUERY_CONTRACT.md is closer to the new behavior."
+      ],
+      "recommended_fix": "Update READ_ADMISSION.md and SQL_SUBSET.md for exact-key filter admission and finite primary-key IN behavior.",
+      "acceptance_criteria": [
+        "Docs state strict exact PK filters are admitted without fake limits.",
+        "Docs state invalid exact-key-looking inputs fail closed.",
+        "Docs state SQL parameters remain unsupported if not implemented."
+      ],
+      "suggested_patch_prompt": "Update read-admission and SQL subset docs for 0.197 exact-primary-key canonicalization: strict PK filters and finite PK IN are bounded, invalid inputs fail closed, SQL parameters remain unsupported if not implemented."
+    },
+    {
+      "id": "197-CO-006",
+      "title": "Broad workspace tests did not complete locally",
+      "category": "tests",
+      "severity": "Medium",
+      "blocking": false,
+      "confidence": "High",
+      "evidence": [
+        "cargo test --workspace --all-features failed because the PocketIC server binary was missing."
+      ],
+      "recommended_fix": "Re-run all-features workspace tests with POCKET_IC_BIN configured or in CI.",
+      "acceptance_criteria": [
+        "cargo test --workspace --all-features passes in a configured environment.",
+        "If excluded, the PocketIC-dependent suite is explicitly documented as environment-gated."
+      ],
+      "suggested_patch_prompt": "Re-run full all-features workspace tests in an environment with PocketIC configured and update 0.197 implementation-results with the exact command output summary."
+    },
+    {
+      "id": "197-CO-007",
+      "title": "The focused artifact harness is untracked",
+      "category": "artifacts",
+      "severity": "Medium",
+      "blocking": true,
+      "confidence": "High",
+      "evidence": [
+        "testing/integration/tests/pk_canonicalization_focused_artifact.rs is untracked.",
+        "The focused artifact smoke test passes."
+      ],
+      "recommended_fix": "Track the harness if it is intended to be part of the 0.197 evidence workflow.",
+      "acceptance_criteria": [
+        "Harness file is tracked.",
+        "Ignored real-artifact tests have documented commands."
+      ],
+      "suggested_patch_prompt": "Track the 0.197 focused canonicalization artifact harness and document the ignored real-capture workflow in implementation-results."
+    },
+    {
+      "id": "197-CO-008",
+      "title": "Fast-path inventory lacks the 0.197 proof-owner detail",
+      "category": "docs",
+      "severity": "Low",
+      "blocking": false,
+      "confidence": "Medium",
+      "evidence": [
+        "fast-path-inventory.md does not fully map exact-primary-key canonicalization proof ownership."
+      ],
+      "recommended_fix": "Add exact-primary-key canonicalization owner, guards, fail-closed cases, and test references to the fast-path inventory.",
+      "acceptance_criteria": [
+        "Fast-path inventory includes a 0.197 exact-PK canonicalization row.",
+        "The row links planner, admission, execution, diagnostics, and tests."
+      ],
+      "suggested_patch_prompt": "Update the fast-path inventory with the 0.197 exact-primary-key canonicalization path, its guards, fail-closed cases, and test references."
+    }
+  ],
+  "performance": {
+    "focused_scenarios_before": null,
+    "focused_scenarios_after": null,
+    "focused_common_successes": null,
+    "newly_admitted_exact_key_shapes": [],
+    "new_failures": [],
+    "non_key_selected_access_changes": [],
+    "top_improvements": [],
+    "top_regressions": []
+  }
+}

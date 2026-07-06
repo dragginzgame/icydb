@@ -6,6 +6,7 @@
   "required_artifacts": {
     "focused_before_json": "sql_perf_197_pk_canonicalization_before.json",
     "focused_after_json": "sql_perf_197_pk_canonicalization_after.json",
+    "focused_delta_json": "sql_perf_197_pk_canonicalization_delta.json",
     "focused_delta_markdown": "sql_perf_197_pk_canonicalization_delta.md",
     "full_matrix_before": "fresh full deterministic SQL matrix before JSON/Markdown",
     "full_matrix_after": "fresh full deterministic SQL matrix after JSON/Markdown",
@@ -40,6 +41,8 @@
     "after_rows_decoded",
     "before_rows_returned",
     "after_rows_returned",
+    "before_result_signature",
+    "after_result_signature",
     "canonicalization_result",
     "raw_key_count",
     "deduplicated_key_count",
@@ -56,8 +59,18 @@
       "query_shape": "filter(id = existing).try_one()",
       "expected_canonicalization_result": "ByKey",
       "expected_behavior_change": true,
+      "semantic_evidence": ["default_fluent_try_entity_admits_primary_key_filter_without_limit"]
+    },
+    {
+      "scenario_key": "pk.scalar.generated.filter.missing.try_one",
+      "surface": "fluent",
+      "store": "heap_and_journaled",
+      "primary_key_kind": "generated",
+      "query_shape": "filter(id = missing).try_one()",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
       "semantic_evidence": [
-        "default_fluent_try_entity_admits_primary_key_filter_without_limit"
+        "default_fluent_try_entity_returns_none_for_missing_heap_and_journaled_primary_key_filters"
       ]
     },
     {
@@ -68,9 +81,7 @@
       "query_shape": "by_id(existing).try_one()",
       "expected_canonicalization_result": "ByKey",
       "expected_behavior_change": false,
-      "semantic_evidence": [
-        "default_fluent_try_entity_admits_primary_key_lookup_without_limit"
-      ]
+      "semantic_evidence": ["default_fluent_try_entity_admits_primary_key_lookup_without_limit"]
     },
     {
       "scenario_key": "pk.scalar.external.filter.existing.try_one",
@@ -85,6 +96,18 @@
       ]
     },
     {
+      "scenario_key": "pk.scalar.external.by_id.existing.try_one",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "external",
+      "query_shape": "by_id(Id::from_key(pid)).try_one()",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": false,
+      "semantic_evidence": [
+        "default_fluent_try_entity_matches_by_id_for_external_primary_key_filter_without_limit"
+      ]
+    },
+    {
       "scenario_key": "pk.sql.literal.generated.existing",
       "surface": "sql",
       "store": "stable",
@@ -92,9 +115,17 @@
       "query_shape": "WHERE id = literal",
       "expected_canonicalization_result": "ByKey",
       "expected_behavior_change": true,
-      "semantic_evidence": [
-        "public_read_sql_admits_primary_key_filter_without_limit"
-      ]
+      "semantic_evidence": ["public_read_sql_admits_primary_key_filter_without_limit"]
+    },
+    {
+      "scenario_key": "pk.sql.literal.generated.commuted",
+      "surface": "sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "WHERE literal = id",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": ["public_read_sql_admits_commuted_primary_key_filter_without_limit"]
     },
     {
       "scenario_key": "pk.sql.parameter.unsupported",
@@ -110,6 +141,41 @@
       ]
     },
     {
+      "scenario_key": "pk.sql.literal.generated.wrong_type",
+      "surface": "sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "WHERE id = wrong_type",
+      "expected_canonicalization_result": "ValidationFailure",
+      "expected_behavior_change": false,
+      "semantic_evidence": ["public_read_sql_primary_key_wrong_type_literal_fails_before_admission"]
+    },
+    {
+      "scenario_key": "pk.in.fluent.empty",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "filter(id IN ())",
+      "expected_canonicalization_result": "Empty",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "public_read_fluent_admission_canonicalizes_empty_primary_key_filters_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.in.fluent.one",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "filter(id IN (a))",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "typed_by_ids_matches_by_id_access",
+        "public_read_fluent_admission_admits_primary_key_in_filter_without_limit"
+      ]
+    },
+    {
       "scenario_key": "pk.in.fluent.duplicates",
       "surface": "fluent",
       "store": "stable",
@@ -122,6 +188,36 @@
       ]
     },
     {
+      "scenario_key": "pk.in.fluent.multiple_mixed",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "filter(id IN (existing, missing, existing))",
+      "expected_canonicalization_result": "ByKeys",
+      "expected_behavior_change": true,
+      "semantic_evidence": ["default_fluent_execute_rows_dedups_primary_key_in_filter_without_limit"]
+    },
+    {
+      "scenario_key": "pk.in.fluent.raw_terms_over_budget",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "duplicate-heavy IN above raw input cap",
+      "expected_canonicalization_result": "ByKeys",
+      "expected_behavior_change": true,
+      "semantic_evidence": ["public_read_fluent_rejects_primary_key_in_input_terms_above_policy"]
+    },
+    {
+      "scenario_key": "pk.in.fluent.deduped_over_budget",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "deduped key count above row cap",
+      "expected_canonicalization_result": "ByKeys",
+      "expected_behavior_change": true,
+      "semantic_evidence": ["public_read_fluent_rejects_primary_key_in_deduped_count_above_policy"]
+    },
+    {
       "scenario_key": "pk.in.fluent.by_ids.raw_terms_over_budget",
       "surface": "fluent",
       "store": "stable",
@@ -132,6 +228,38 @@
       "semantic_evidence": [
         "public_read_fluent_by_ids_rejects_duplicate_raw_input_terms_above_policy",
         "typed_by_ids_matches_by_id_access"
+      ]
+    },
+    {
+      "scenario_key": "pk.in.sql.duplicates.order_asc",
+      "surface": "sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "SQL IN duplicates ordered by primary key",
+      "expected_canonicalization_result": "ByKeys",
+      "expected_behavior_change": true,
+      "semantic_evidence": ["public_read_sql_primary_key_in_filter_orders_deterministically_without_limit"]
+    },
+    {
+      "scenario_key": "pk.in.sql.payload_over_budget",
+      "surface": "sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "SQL IN encoded payload above cap",
+      "expected_canonicalization_result": "ByKeys",
+      "expected_behavior_change": true,
+      "semantic_evidence": ["public_read_sql_rejects_primary_key_in_payload_bytes_above_policy"]
+    },
+    {
+      "scenario_key": "pk.residual.eq.true",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "id = value AND residual_true",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_execute_rows_applies_residual_after_primary_key_filter_without_limit"
       ]
     },
     {
@@ -148,6 +276,26 @@
       ]
     },
     {
+      "scenario_key": "pk.residual.eq.invalid_existing",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "id = existing AND unknown_field = x",
+      "expected_canonicalization_result": "ValidationFailure",
+      "expected_behavior_change": false,
+      "semantic_evidence": ["public_read_fluent_admission_fails_invalid_residual_after_primary_key_filter"]
+    },
+    {
+      "scenario_key": "pk.residual.eq.invalid_missing",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "id = missing AND unknown_field = x",
+      "expected_canonicalization_result": "ValidationFailure",
+      "expected_behavior_change": false,
+      "semantic_evidence": ["public_read_fluent_admission_fails_invalid_residual_after_primary_key_filter"]
+    },
+    {
       "scenario_key": "pk.empty.contradictory_eq",
       "surface": "fluent",
       "store": "stable",
@@ -157,6 +305,64 @@
       "expected_behavior_change": true,
       "semantic_evidence": [
         "default_fluent_execute_rows_returns_empty_for_empty_primary_key_filters_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.empty.eq_and_excluding_in",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "id = a AND id IN (b)",
+      "expected_canonicalization_result": "Empty",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "public_read_fluent_admission_narrows_primary_key_eq_and_in_filter_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.empty.count",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "empty exact-key count terminal",
+      "expected_canonicalization_result": "Empty",
+      "expected_behavior_change": true,
+      "semantic_evidence": ["default_fluent_count_returns_zero_for_empty_primary_key_filters_without_limit"]
+    },
+    {
+      "scenario_key": "pk.empty.require_one",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "empty exact-key required-one terminal",
+      "expected_canonicalization_result": "Empty",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_require_one_reports_not_found_for_empty_primary_key_filters_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.store.heap.existing",
+      "surface": "fluent",
+      "store": "heap",
+      "primary_key_kind": "generated",
+      "query_shape": "heap id = existing",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "public_read_fluent_admission_admits_heap_and_journaled_primary_key_filters_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.store.journaled.existing",
+      "surface": "fluent",
+      "store": "journaled",
+      "primary_key_kind": "generated",
+      "query_shape": "journaled id = existing",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "public_read_fluent_admission_admits_heap_and_journaled_primary_key_filters_without_limit"
       ]
     },
     {
@@ -172,16 +378,38 @@
       ]
     },
     {
+      "scenario_key": "pk.store.journaled.deleted",
+      "surface": "fluent",
+      "store": "journaled",
+      "primary_key_kind": "generated",
+      "query_shape": "deleted journaled id = value",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_try_entity_returns_none_for_deleted_heap_and_journaled_primary_key_filters"
+      ]
+    },
+    {
       "scenario_key": "pk.noncanonical.unique_secondary",
       "surface": "fluent",
       "store": "stable",
       "primary_key_kind": "generated",
       "query_shape": "unique secondary equality",
-      "expected_canonicalization_result": "ValidationFailure",
+      "expected_canonicalization_result": "NotApplied",
       "expected_behavior_change": false,
       "semantic_evidence": [
         "public_read_fluent_admission_keeps_unique_secondary_equality_off_primary_key_access"
       ]
+    },
+    {
+      "scenario_key": "pk.noncanonical.partial_composite",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "composite",
+      "query_shape": "partial composite primary-key equality",
+      "expected_canonicalization_result": "NotApplied",
+      "expected_behavior_change": false,
+      "semantic_evidence": ["public_read_fluent_admission_rejects_partial_composite_primary_key_as_full_scan"]
     },
     {
       "scenario_key": "pk.noncanonical.expression_wrapped",
@@ -189,11 +417,9 @@
       "store": "stable",
       "primary_key_kind": "generated",
       "query_shape": "expression-wrapped primary-key compare",
-      "expected_canonicalization_result": "ValidationFailure",
+      "expected_canonicalization_result": "NotApplied",
       "expected_behavior_change": false,
-      "semantic_evidence": [
-        "sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key"
-      ]
+      "semantic_evidence": ["sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key"]
     }
   ],
   "closeout_gate_failures": [
