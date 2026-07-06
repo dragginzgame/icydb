@@ -21,6 +21,24 @@ window.
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` | Public endpoints with giant limits or caller-selected batch sizes |
 | Trusted maintenance scan | `trusted_read_unchecked().execute_rows()` or trusted execution helpers | Public endpoints with giant limits |
 
+## When Admission Rejects A Read
+
+`PublicQueryRequiresLimit` does not mean "pick a bigger number." It means the
+public endpoint has not supplied a bounded intent that IcyDB can admit.
+
+Classify the endpoint promise before changing code:
+
+- public list: use request-owned `PageRequest` cursor paging;
+- complete result: use `collect_complete()` only when the set is expected to
+  stay small;
+- exact aggregate: use `count_exact()` or `sum_exact(field)`;
+- exact key read: use `by_id(...)`, `by_ids(...)`, or canonicalized
+  primary-key equality;
+- bounded row window: keep `limit(N).execute_rows()` only when a partial row
+  window is the actual API contract;
+- trusted maintenance: keep the endpoint controller/admin-gated and use
+  `trusted_read_unchecked().admin_batch(...)` or another trusted helper.
+
 ## Exact Lookup
 
 Exact lookup should be proved by key access, not by a raw limit.

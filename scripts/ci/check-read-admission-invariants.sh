@@ -67,6 +67,7 @@ else
     "execute_sql_query_with_perf_attribution" \
     "Which API should I use?" \
     "docs/guides/read-intent.md" \
+    "Choose the endpoint's read intent first" \
     "\`PageRequest\`" \
     "\`collect_complete()\`" \
     "\`count_exact()\`" \
@@ -125,6 +126,7 @@ if [[ ! -f "$READ_INTENT_GUIDE" ]]; then
 else
   for required_read_intent_phrase in \
     "IcyDB public reads should describe the endpoint promise" \
+    "\`PublicQueryRequiresLimit\` does not mean \"pick a bigger number.\"" \
     "PageRequest" \
     "AdminBatchRequest" \
     "collect_complete()" \
