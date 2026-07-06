@@ -325,7 +325,34 @@ fn typed_by_ids_matches_by_id_access() {
         .expect("by_ids plan")
         .into_inner();
 
-    assert_eq!(by_id, by_ids);
+    assert_eq!(
+        by_id.logical, by_ids.logical,
+        "one-key by_ids should keep the same logical plan as by_id",
+    );
+    assert_eq!(
+        by_id.access, by_ids.access,
+        "one-key by_ids should normalize onto the same ByKey access route as by_id",
+    );
+    assert_eq!(
+        by_id.projection_selection, by_ids.projection_selection,
+        "one-key by_ids should keep the same projection contract as by_id",
+    );
+    assert_eq!(
+        by_id.access_choice().chosen_reason,
+        by_ids.access_choice().chosen_reason,
+        "one-key by_ids should keep the same explicit key-access override reason as by_id",
+    );
+    assert_eq!(
+        by_id.access_choice().primary_key_input_resource(),
+        None,
+        "single-key by_id has no raw list input to account",
+    );
+    let by_ids_input = by_ids
+        .access_choice()
+        .primary_key_input_resource()
+        .expect("one-key by_ids should preserve raw list input resource facts");
+    assert_eq!(by_ids_input.raw_term_count(), 1);
+    assert_eq!(by_ids_input.estimated_payload_bytes(), 16);
 }
 
 #[test]

@@ -1,0 +1,209 @@
+{
+  "line": "0.197",
+  "date": "2026-07-06",
+  "status": "scenario_contract_recorded",
+  "measured_artifacts_captured": false,
+  "required_artifacts": {
+    "focused_before_json": "sql_perf_197_pk_canonicalization_before.json",
+    "focused_after_json": "sql_perf_197_pk_canonicalization_after.json",
+    "focused_delta_markdown": "sql_perf_197_pk_canonicalization_delta.md",
+    "full_matrix_before": "fresh full deterministic SQL matrix before JSON/Markdown",
+    "full_matrix_after": "fresh full deterministic SQL matrix after JSON/Markdown",
+    "full_matrix_delta": "full union-key delta JSON/Markdown"
+  },
+  "required_fields": [
+    "scenario_key",
+    "surface",
+    "store",
+    "primary_key_kind",
+    "query_shape",
+    "terminal",
+    "before_selected_access",
+    "after_selected_access",
+    "before_admission_result",
+    "after_admission_result",
+    "before_error_code",
+    "after_error_code",
+    "before_total_instructions",
+    "after_total_instructions",
+    "before_planner_instructions",
+    "after_planner_instructions",
+    "before_execute_instructions",
+    "after_execute_instructions",
+    "before_store_instructions",
+    "after_store_instructions",
+    "before_data_store_get",
+    "after_data_store_get",
+    "before_index_ranges",
+    "after_index_ranges",
+    "before_rows_decoded",
+    "after_rows_decoded",
+    "before_rows_returned",
+    "after_rows_returned",
+    "canonicalization_result",
+    "raw_key_count",
+    "deduplicated_key_count",
+    "result_signature_changed",
+    "expected_behavior_change",
+    "explanation"
+  ],
+  "scenarios": [
+    {
+      "scenario_key": "pk.scalar.generated.filter.existing.try_one",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "filter(id = existing).try_one()",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_try_entity_admits_primary_key_filter_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.scalar.generated.by_id.existing.try_one",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "by_id(existing).try_one()",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": false,
+      "semantic_evidence": [
+        "default_fluent_try_entity_admits_primary_key_lookup_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.scalar.external.filter.existing.try_one",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "external",
+      "query_shape": "filter(pid = existing).try_one()",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_try_entity_matches_by_id_for_external_primary_key_filter_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.sql.literal.generated.existing",
+      "surface": "sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "WHERE id = literal",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "public_read_sql_admits_primary_key_filter_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.sql.parameter.unsupported",
+      "surface": "sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "WHERE id = ?",
+      "expected_canonicalization_result": "UnsupportedByContract",
+      "expected_behavior_change": false,
+      "semantic_evidence": [
+        "public_read_sql_primary_key_parameter_shape_fails_before_admission",
+        "prepare_sql_statement_rejects_parameters_before_lowering"
+      ]
+    },
+    {
+      "scenario_key": "pk.in.fluent.duplicates",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "filter(id IN (b, a, b))",
+      "expected_canonicalization_result": "ByKeys",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_execute_rows_orders_primary_key_in_filters_deterministically_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.in.fluent.by_ids.raw_terms_over_budget",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "duplicate-heavy by_ids(...) above raw input cap",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "public_read_fluent_by_ids_rejects_duplicate_raw_input_terms_above_policy",
+        "typed_by_ids_matches_by_id_access"
+      ]
+    },
+    {
+      "scenario_key": "pk.residual.eq.false",
+      "surface": "fluent_and_sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "id = value AND residual_false",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_execute_rows_applies_residual_after_primary_key_filter_without_limit",
+        "public_read_sql_applies_residual_after_primary_key_filter_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.empty.contradictory_eq",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "id = a AND id = b",
+      "expected_canonicalization_result": "Empty",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_execute_rows_returns_empty_for_empty_primary_key_filters_without_limit"
+      ]
+    },
+    {
+      "scenario_key": "pk.store.heap.deleted",
+      "surface": "fluent",
+      "store": "heap",
+      "primary_key_kind": "generated",
+      "query_shape": "deleted heap id = value",
+      "expected_canonicalization_result": "ByKey",
+      "expected_behavior_change": true,
+      "semantic_evidence": [
+        "default_fluent_try_entity_returns_none_for_deleted_heap_and_journaled_primary_key_filters"
+      ]
+    },
+    {
+      "scenario_key": "pk.noncanonical.unique_secondary",
+      "surface": "fluent",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "unique secondary equality",
+      "expected_canonicalization_result": "ValidationFailure",
+      "expected_behavior_change": false,
+      "semantic_evidence": [
+        "public_read_fluent_admission_keeps_unique_secondary_equality_off_primary_key_access"
+      ]
+    },
+    {
+      "scenario_key": "pk.noncanonical.expression_wrapped",
+      "surface": "sql",
+      "store": "stable",
+      "primary_key_kind": "generated",
+      "query_shape": "expression-wrapped primary-key compare",
+      "expected_canonicalization_result": "ValidationFailure",
+      "expected_behavior_change": false,
+      "semantic_evidence": [
+        "sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key"
+      ]
+    }
+  ],
+  "closeout_gate_failures": [
+    "missing_required_scenario_key",
+    "missing_route_or_access_facts",
+    "missing_instruction_totals",
+    "expected_exact_key_scenario_not_by_key_by_keys_or_empty",
+    "invalid_or_over_budget_shape_fell_back_to_scan",
+    "unexplained_result_signature_change",
+    "focused_target_missing_before_or_after_data",
+    "performance_claim_without_access_counter_evidence"
+  ]
+}

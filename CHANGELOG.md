@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.11` records the in-progress exact-key evidence ledger and focused
+  scenario manifest, keeping performance closeout explicitly blocked on fresh
+  focused and full-matrix artifacts.
+
 - `0.197.10` removes duplicate typed-key conversion from the `by_ids(...)`
   admission guard by projecting the exact-key access path and raw input-resource
   facts together.

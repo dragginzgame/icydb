@@ -1,0 +1,150 @@
+{
+  "line": "0.197",
+  "title": "Deterministic Optimizer Canonicalization",
+  "date": "2026-07-06",
+  "commit_inspected": "3faf7b7655aabc8175b9bc2e10933b5f92883443",
+  "status": "partial_correctness_closeout",
+  "performance_closeout_claimed": false,
+  "scope": {
+    "persisted_format_changed": false,
+    "cursor_token_format_changed": false,
+    "recovery_changed": false,
+    "cost_based_optimizer_added": false,
+    "read_intent_api_added": false,
+    "generated_model_runtime_fallback_added": false
+  },
+  "covered_evidence": [
+    {
+      "area": "fluent_scalar_primary_key_equality",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_admits_primary_key_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_try_entity_admits_primary_key_filter_without_limit"
+      ]
+    },
+    {
+      "area": "explicit_by_id_parity",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_admits_primary_key_lookup_without_limit",
+        "crates/icydb-core/src/db/session/tests/explain_execution.rs::session_explain_execution_external_primary_key_filter_and_by_id_use_same_access_path"
+      ]
+    },
+    {
+      "area": "external_primary_key_equality",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_admits_external_primary_key_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_try_entity_matches_by_id_for_external_primary_key_filter_without_limit"
+      ]
+    },
+    {
+      "area": "finite_primary_key_in",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_admits_primary_key_in_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_execute_rows_dedups_primary_key_in_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_admits_primary_key_in_filter_without_limit"
+      ]
+    },
+    {
+      "area": "primary_key_input_resource_policy",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_rejects_primary_key_in_deduped_count_above_policy",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_rejects_primary_key_in_input_terms_above_policy",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_by_ids_rejects_duplicate_raw_input_terms_above_policy",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_rejects_primary_key_in_payload_bytes_above_policy"
+      ]
+    },
+    {
+      "area": "sql_literal_and_commuted_primary_key_equality",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_admits_primary_key_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_admits_commuted_primary_key_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::sql_explain_commuted_primary_key_filter_canonicalizes_to_exact_key"
+      ]
+    },
+    {
+      "area": "sql_parameters",
+      "status": "unsupported_by_current_sql_parameter_contract",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_primary_key_parameter_shape_fails_before_admission",
+        "crates/icydb-core/src/db/sql/lowering/tests/mod.rs::prepare_sql_statement_rejects_parameters_before_lowering"
+      ]
+    },
+    {
+      "area": "wrong_type_primary_key_literals",
+      "status": "covered_fail_closed",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_primary_key_wrong_type_literal_fails_before_admission",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_commuted_primary_key_wrong_type_literal_fails_before_admission"
+      ]
+    },
+    {
+      "area": "residual_filters",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_fails_invalid_residual_after_primary_key_filter",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_execute_rows_applies_residual_after_primary_key_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_applies_residual_after_primary_key_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_execute_rows_applies_residual_after_primary_key_in_filter_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_sql_applies_residual_after_primary_key_in_filter_without_limit"
+      ]
+    },
+    {
+      "area": "empty_exact_key_semantics",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_canonicalizes_empty_primary_key_filters_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_execute_rows_returns_empty_for_empty_primary_key_filters_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_count_returns_zero_for_empty_primary_key_filters_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_require_one_reports_not_found_for_empty_primary_key_filters_without_limit"
+      ]
+    },
+    {
+      "area": "non_canonical_shapes",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_keeps_unique_secondary_equality_off_primary_key_access",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_rejects_partial_composite_primary_key_as_full_scan",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key"
+      ]
+    },
+    {
+      "area": "store_states",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::public_read_fluent_admission_admits_heap_and_journaled_primary_key_filters_without_limit",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_try_entity_returns_none_for_missing_heap_and_journaled_primary_key_filters",
+        "crates/icydb-core/src/db/session/tests/read_admission.rs::default_fluent_try_entity_returns_none_for_deleted_heap_and_journaled_primary_key_filters"
+      ]
+    },
+    {
+      "area": "explain_route_facts",
+      "status": "covered",
+      "evidence": [
+        "crates/icydb-core/src/db/session/tests/explain_execution.rs::session_explain_execution_primary_key_filter_canonicalization_route_facts_are_stable",
+        "crates/icydb-core/src/db/session/tests/explain_execution.rs::session_explain_execution_external_primary_key_filter_and_by_id_use_same_access_path"
+      ]
+    }
+  ],
+  "missing_closeout_artifacts": [
+    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.json",
+    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.json",
+    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.md",
+    "fresh full deterministic SQL matrix before JSON/Markdown",
+    "fresh full deterministic SQL matrix after JSON/Markdown"
+  ],
+  "focused_matrix_manifest": {
+    "markdown": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.md",
+    "json": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.json",
+    "measured_artifacts_captured": false
+  },
+  "recommended_next_slices": [
+    "Add a focused 0.197 exact-key matrix runner or artifact helper that consumes the focused manifest.",
+    "Record focused current results for every required manifest scenario.",
+    "Run the fresh full deterministic SQL matrix after focused artifacts can classify exact-key route and status deltas."
+  ]
+}
