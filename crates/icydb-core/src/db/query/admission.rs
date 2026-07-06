@@ -21,8 +21,8 @@ use icydb_diagnostic_code::{
     Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorCode, ErrorOrigin, QueryReadAdmissionCode,
 };
 
-const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;
-const DEFAULT_BOUNDED_READ_RESPONSE_BYTES: u32 = 128 * 1024;
+pub(in crate::db::query) const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;
+pub(in crate::db::query) const DEFAULT_BOUNDED_READ_RESPONSE_BYTES: u32 = 128 * 1024;
 const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;
 const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;
 const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;

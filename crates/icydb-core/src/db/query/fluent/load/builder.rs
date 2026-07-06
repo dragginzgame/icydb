@@ -202,13 +202,7 @@ where
         self.map_query(|query| query.offset(offset))
     }
 
-    /// Attach an opaque cursor token for continuation pagination.
-    ///
-    /// Cursor-mode invariants are checked before planning/execution:
-    /// - explicit `order_term(...)` is required
-    /// - explicit `limit(...)` is required
-    #[must_use]
-    pub fn cursor(mut self, token: impl Into<String>) -> Self {
+    pub(super) fn with_cursor_token(mut self, token: impl Into<String>) -> Self {
         self.cursor_token = Some(token.into());
         self
     }

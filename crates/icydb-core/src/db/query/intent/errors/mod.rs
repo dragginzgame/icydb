@@ -455,6 +455,20 @@ pub enum IntentError {
 
     GroupedRequiresDirectExecute,
 
+    RawLimitBeforePageTerminal,
+
+    CursorBeforePageTerminal,
+
+    RawLimitBeforeExistsTerminal,
+
+    RawLimitBeforeCountExactTerminal,
+
+    RawLimitBeforeSumExactTerminal,
+
+    RawLimitBeforeCollectCompleteTerminal,
+
+    CompleteReadTooManyRows,
+
     HavingRequiresGroupBy,
 
     HavingReferencesUnknownAggregate,
@@ -511,6 +525,41 @@ impl IntentError {
     /// Construct one grouped-requires-direct-execute intent error.
     pub(in crate::db::query) const fn grouped_requires_direct_execute() -> Self {
         Self::GroupedRequiresDirectExecute
+    }
+
+    /// Construct one raw-limit-before-page-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_page_terminal() -> Self {
+        Self::RawLimitBeforePageTerminal
+    }
+
+    /// Construct one cursor-before-page-terminal intent error.
+    pub(in crate::db::query) const fn cursor_before_page_terminal() -> Self {
+        Self::CursorBeforePageTerminal
+    }
+
+    /// Construct one raw-limit-before-exists-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_exists_terminal() -> Self {
+        Self::RawLimitBeforeExistsTerminal
+    }
+
+    /// Construct one raw-limit-before-count-exact-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_count_exact_terminal() -> Self {
+        Self::RawLimitBeforeCountExactTerminal
+    }
+
+    /// Construct one raw-limit-before-sum-exact-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_sum_exact_terminal() -> Self {
+        Self::RawLimitBeforeSumExactTerminal
+    }
+
+    /// Construct one raw-limit-before-collect-complete-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_collect_complete_terminal() -> Self {
+        Self::RawLimitBeforeCollectCompleteTerminal
+    }
+
+    /// Construct one complete-read-over-cap intent error.
+    pub(in crate::db::query) const fn complete_read_too_many_rows() -> Self {
+        Self::CompleteReadTooManyRows
     }
 
     /// Construct one HAVING-requires-GROUP-BY intent error.

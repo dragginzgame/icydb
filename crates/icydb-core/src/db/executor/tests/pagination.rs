@@ -2205,16 +2205,15 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
         .collect::<Vec<_>>();
 
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
-        let mut paged_query = session
+        let request = cursor_token.map_or_else(
+            || crate::db::PageRequest::first(3),
+            |token| crate::db::PageRequest::next(3, token),
+        );
+        let execution = session
             .load::<SimpleEntity>()
             .trusted_read_unchecked()
             .order_term(crate::db::desc("id"))
-            .limit(3);
-        if let Some(token) = cursor_token {
-            paged_query = paged_query.cursor(token);
-        }
-        let execution = paged_query
-            .execute_paged()
+            .execute_paged(request)
             .expect("paged DESC execute should succeed");
 
         (
@@ -2257,18 +2256,17 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
         .collect::<Vec<_>>();
 
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
-        let mut paged_query = session
+        let request = cursor_token.map_or_else(
+            || crate::db::PageRequest::first(2),
+            |token| crate::db::PageRequest::next(2, token),
+        );
+        let execution = session
             .load::<PushdownParityEntity>()
             .trusted_read_unchecked()
             .filter(group_seven.clone())
             .order_term(crate::db::desc("rank"))
             .order_term(crate::db::desc("id"))
-            .limit(2);
-        if let Some(token) = cursor_token {
-            paged_query = paged_query.cursor(token);
-        }
-        let execution = paged_query
-            .execute_paged()
+            .execute_paged(request)
             .expect("paged DESC secondary-index execute should succeed");
 
         (
@@ -2313,18 +2311,17 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
         .collect::<Vec<_>>();
 
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
-        let mut paged_query = session
+        let request = cursor_token.map_or_else(
+            || crate::db::PageRequest::first(2),
+            |token| crate::db::PageRequest::next(2, token),
+        );
+        let execution = session
             .load::<UniqueIndexRangeEntity>()
             .trusted_read_unchecked()
             .filter(range_predicate.clone())
             .order_term(crate::db::desc("code"))
             .order_term(crate::db::desc("id"))
-            .limit(2);
-        if let Some(token) = cursor_token {
-            paged_query = paged_query.cursor(token);
-        }
-        let execution = paged_query
-            .execute_paged()
+            .execute_paged(request)
             .expect("paged DESC index-range execute should succeed");
 
         (

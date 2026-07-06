@@ -792,6 +792,11 @@ impl<E: EntityKind> Query<E> {
         self.inner.load_spec()
     }
 
+    #[must_use]
+    pub(in crate::db::query) fn with_load_limit(&self, limit: u32) -> Self {
+        Self::from_inner(self.inner.clone().limit(limit))
+    }
+
     /// Add one typed filter expression, implicitly AND-ing with any existing filter.
     #[must_use]
     pub fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {

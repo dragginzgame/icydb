@@ -397,8 +397,7 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
         .filter(FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
-        .execute_paged()
+        .execute_paged(crate::db::PageRequest::first(2))
         .expect("scalar convergence first fluent page should execute");
     assert_eq!(
         paged_key_age_rows(&sql_first),
@@ -427,9 +426,7 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
         .filter(FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
-        .cursor(cursor)
-        .execute_paged()
+        .execute_paged(crate::db::PageRequest::next(2, cursor))
         .expect("scalar convergence second fluent page should execute");
     assert_eq!(
         paged_key_age_rows(&sql_second),

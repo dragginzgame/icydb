@@ -12,12 +12,15 @@
 //! dispatch. Adding a new terminal means adding a new descriptor type and one
 //! direct `TerminalStrategyDriver` implementation for that descriptor.
 
+use std::num::NonZeroU32;
+
 #[cfg(feature = "diagnostics")]
 use crate::db::FluentTerminalExecutionAttribution;
 use crate::{
     db::{
         DbSession, PersistedRow, Query,
         query::{
+            admission::QueryAdmissionPolicy,
             api::ResponseCardinalityExt,
             builder::{
                 AvgBySlotTerminal, AvgDistinctBySlotTerminal, CountDistinctBySlotTerminal,
@@ -30,8 +33,12 @@ use crate::{
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             fluent::load::{FluentLoadQuery, LoadQueryResult},
-            intent::QueryError,
+            intent::{IntentError, QueryError},
             plan::AggregateKind,
+            read_intent::{
+                COMPLETE_SMALL_EXECUTION_LIMIT, COMPLETE_SMALL_MAX_ROWS,
+                PUBLIC_PAGE_MAX_RESPONSE_BYTES,
+            },
         },
         response::EntityResponse,
     },
@@ -245,6 +252,10 @@ fn output_values_with_ids<E: PersistedRow>(
         .collect()
 }
 
+fn non_zero_u32(value: u32) -> Result<NonZeroU32, QueryError> {
+    NonZeroU32::new(value).ok_or_else(QueryError::invariant)
+}
+
 impl<E> FluentLoadQuery<'_, E>
 where
     E: PersistedRow,
@@ -361,6 +372,26 @@ where
         self.with_non_paged(|session, query| strategy.explain(session, query))
     }
 
+    fn ensure_exists_intent_owns_limit(&self) -> Result<(), QueryError> {
+        self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_exists_terminal())
+    }
+
+    fn ensure_count_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
+        self.ensure_semantic_terminal_owns_limit(
+            IntentError::raw_limit_before_count_exact_terminal(),
+        )
+    }
+
+    fn ensure_sum_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
+        self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_sum_exact_terminal())
+    }
+
+    fn ensure_collect_complete_intent_owns_limit(&self) -> Result<(), QueryError> {
+        self.ensure_semantic_terminal_owns_limit(
+            IntentError::raw_limit_before_collect_complete_terminal(),
+        )
+    }
+
     // ------------------------------------------------------------------
     // Execution terminals — semantic only
     // ------------------------------------------------------------------
@@ -386,6 +417,8 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_exists_intent_owns_limit()?;
+
         self.execute_terminal(ExistsRowsTerminal::new())
     }
 
@@ -399,6 +432,8 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_exists_intent_owns_limit()?;
+
         self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_exists_rows_terminal_with_attribution(
                 query,
@@ -412,7 +447,41 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_exists_intent_owns_limit()?;
+
         self.explain_terminal(&ExistsRowsTerminal::new())
+    }
+
+    /// Execute and return all matching rows if the complete result fits in
+    /// the default public-read small-set cap.
+    ///
+    /// This semantic terminal rejects a prior raw `limit(...)`. It owns an
+    /// internal lookahead limit so it can distinguish a complete small set
+    /// from a silently truncated row window.
+    pub fn collect_complete(&self) -> Result<Vec<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_collect_complete_intent_owns_limit()?;
+        self.ensure_non_paged_mode_ready()?;
+
+        let query = self.query().with_load_limit(COMPLETE_SMALL_EXECUTION_LIMIT);
+        let policy = QueryAdmissionPolicy::public_read(
+            non_zero_u32(COMPLETE_SMALL_EXECUTION_LIMIT)?,
+            non_zero_u32(PUBLIC_PAGE_MAX_RESPONSE_BYTES)?,
+        );
+
+        self.session
+            .ensure_query_read_admission_policy(&query, &policy)?;
+
+        let response = self.session.execute_scalar_query_rows(&query)?;
+        if response.count() > COMPLETE_SMALL_MAX_ROWS {
+            return Err(QueryError::intent(
+                IntentError::complete_read_too_many_rows(),
+            ));
+        }
+
+        Ok(response.entities())
     }
 
     /// Explain scalar `not_exists()` routing without executing the terminal.
@@ -465,6 +534,20 @@ where
         self.execute_terminal(CountRowsTerminal::new())
     }
 
+    /// Execute and return the exact number of matching rows.
+    ///
+    /// Unlike `count()`, this semantic aggregate rejects a prior raw
+    /// `limit(...)` so exact counts cannot accidentally mean "count the first
+    /// N rows."
+    pub fn count_exact(&self) -> Result<u32, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_count_exact_intent_owns_limit()?;
+
+        self.execute_terminal(CountRowsTerminal::new())
+    }
+
     /// Execute and return the number of matching rows with terminal attribution.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
@@ -474,6 +557,25 @@ where
     where
         E: EntityValue,
     {
+        self.with_admitted_non_paged(|session, query| {
+            session.execute_fluent_count_rows_terminal_with_attribution(
+                query,
+                CountRowsTerminal::new(),
+            )
+        })
+    }
+
+    /// Execute and return the exact number of matching rows with terminal attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn count_exact_with_attribution(
+        &self,
+    ) -> Result<(u32, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_count_exact_intent_owns_limit()?;
+
         self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_count_rows_terminal_with_attribution(
                 query,
@@ -591,6 +693,22 @@ where
     where
         E: EntityValue,
     {
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.execute_terminal(SumBySlotTerminal::new(target_slot))
+    }
+
+    /// Execute and return the exact sum of `field` over matching rows.
+    ///
+    /// Unlike `sum_by(...)`, this semantic aggregate rejects a prior raw
+    /// `limit(...)` so exact sums cannot accidentally mean "sum the first N
+    /// rows."
+    pub fn sum_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_sum_exact_intent_owns_limit()?;
+
         let target_slot = self.resolve_non_paged_slot(field)?;
 
         self.execute_terminal(SumBySlotTerminal::new(target_slot))

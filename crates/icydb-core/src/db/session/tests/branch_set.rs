@@ -1041,16 +1041,16 @@ fn execute_fluent_sparse_collection_page(
         .load::<BranchIndexedSessionSqlEntity>()
         .trusted_read_unchecked()
         .filter(sparse_collection_filter_expr())
-        .order_term(crate::db::asc("id"))
-        .limit(u32::try_from(limit).expect("sparse collection test limit should fit into u32"));
-    let query = if let Some(cursor) = cursor {
-        query.cursor(cursor)
-    } else {
-        query
-    };
+        .order_term(crate::db::asc("id"));
+    let page_limit =
+        u32::try_from(limit).expect("sparse collection test limit should fit into u32");
+    let request = cursor.map_or_else(
+        || crate::db::PageRequest::first(page_limit),
+        |cursor| crate::db::PageRequest::next(page_limit, cursor),
+    );
 
     query
-        .execute_paged()
+        .execute_paged(request)
         .unwrap_or_else(|err| panic!("sparse collection fluent page should execute: {err:?}"))
 }
 
@@ -3303,7 +3303,6 @@ fn session_branch_set_fluent_exists_reports_existing_rows_terminal_attribution()
         .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
         .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
         .order_term(crate::db::asc("id"))
-        .limit(u32::try_from(BRANCH_LIMIT).expect("branch test limit should fit into u32"))
         .exists_with_attribution()
         .unwrap_or_else(|err| panic!("covered branch fluent EXISTS should execute: {err:?}"));
 

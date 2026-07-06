@@ -62,9 +62,15 @@ no `sql.public_read` key.
 
 ## Which API should I use?
 
+For migration examples and endpoint-intent guidance, see
+[`docs/guides/read-intent.md`](../guides/read-intent.md).
+
 | You want to... | Use | Notes |
 | --- | --- | --- |
 | serve normal users | ordinary typed/fluent execution | Default bounded admission rejects unsafe public read shapes before row execution. |
+| check whether any row exists | `exists()` / `not_exists()` without a raw `limit(...)` | Existence is a semantic terminal. It owns its bounded route and rejects a prior raw row cap as caller-intent ambiguity. |
+| return every row in a small bounded set | `collect_complete()` without a raw `limit(...)` | Complete small-set collection owns an internal lookahead limit and fails instead of silently truncating when the set exceeds the public-read cap. |
+| return an exact count or sum | `count_exact()` / `sum_exact(field)` without a raw `limit(...)` | Exact aggregates use aggregate execution over the admitted shape. Use `count()` / `sum_by(...)` only when aggregating the effective row window is the intended contract. |
 | run controller diagnostics | trusted/admin execution | Caller authorization and an explicit resource policy are required before calling trusted helpers. |
 | explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
 | paginate public results | cursor-paged ordinary execution | Prefer cursor pagination; non-zero `OFFSET` is rejected by the public lane. |
@@ -121,6 +127,28 @@ let user = db()
     .load::<User>()
     .by_id(icydb::Id::<User>::from_key(user_id))
     .try_one()?;
+
+let exists = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").eq("sam"))
+    .exists()?;
+
+let exact_count = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("id").eq(user_id))
+    .count_exact()?;
+
+let exact_sum = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("id").eq(user_id))
+    .sum_exact("age")?;
+
+let small_users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .collect_complete()?;
 ```
 
 If the rejected query is intentional maintenance work, keep it off arbitrary
@@ -181,6 +209,19 @@ Read-admission errors keep a stable diagnostic identity through
 The human-facing message may become more helpful over time, but endpoint logic
 should branch on the diagnostic detail, not rendered text.
 
+0.198 read-intent errors use `DiagnosticCode::QueryIntent` when the query
+builder shape is ambiguous before read admission runs. For example,
+`limit(n).exists()` is rejected because `exists()` owns the bounded existence
+route; use `exists()` without a raw row-window cap, or use `execute_rows()` when
+the low-level bounded row window is the actual endpoint contract.
+`limit(n).execute_paged(PageRequest::...)` is rejected because `PageRequest`
+owns page size and cursor continuation. `limit(n).collect_complete()` is
+rejected because complete reads must not silently cap or truncate the result.
+`limit(n).count_exact()` is rejected for the same reason: exact aggregates must
+not mean "aggregate the first N rows." `limit(n).sum_exact(field)` is rejected
+on the same contract. Use `count()` or `sum_by(...)` only when the endpoint
+deliberately aggregates the effective bounded row window.
+
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |
 | Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Add `limit(...)`, spell the read as strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)`, or use a grouped query with `grouped_limits(...)` when the grouped shape itself supplies the bound. |
@@ -206,7 +247,8 @@ should branch on the diagnostic detail, not rendered text.
 The snippets below use `User` and field names as placeholders. They are meant
 to be copied into canister-owned code and adapted to the model's real indexed
 fields. Ordinary examples intentionally stay on `execute()`, `execute_rows()`,
-or `execute_paged()` so they exercise the default bounded public-read lane.
+or `execute_paged(PageRequest::...)` so they exercise the default bounded
+public-read lane.
 
 ### Missing returned-row bound
 
@@ -335,8 +377,7 @@ let page = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .limit(10)
-    .execute_paged()?;
+    .execute_paged(icydb::db::PageRequest::first(10))?;
 ```
 
 ### Materialized sort or materialization budget

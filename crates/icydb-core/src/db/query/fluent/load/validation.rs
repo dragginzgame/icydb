@@ -66,4 +66,29 @@ where
             .map_err(IntentError::from)
             .map_err(QueryError::intent)
     }
+
+    pub(super) fn ensure_semantic_terminal_owns_limit(
+        &self,
+        err: IntentError,
+    ) -> Result<(), QueryError> {
+        if self
+            .query
+            .load_spec()
+            .is_some_and(|spec| spec.limit().is_some())
+        {
+            return Err(QueryError::intent(err));
+        }
+
+        Ok(())
+    }
+
+    pub(super) const fn ensure_page_request_owns_cursor(&self) -> Result<(), QueryError> {
+        if self.cursor_token.is_some() {
+            return Err(QueryError::intent(
+                IntentError::cursor_before_page_terminal(),
+            ));
+        }
+
+        Ok(())
+    }
 }

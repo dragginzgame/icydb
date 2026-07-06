@@ -209,6 +209,76 @@ fn query_intent_constructor_keeps_intent_boundary() {
 }
 
 #[test]
+fn raw_limit_before_exists_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_exists_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeExistsTerminal)
+    );
+}
+
+#[test]
+fn raw_limit_before_page_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_page_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforePageTerminal)
+    );
+}
+
+#[test]
+fn cursor_before_page_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::cursor_before_page_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::CursorBeforePageTerminal)
+    );
+}
+
+#[test]
+fn raw_limit_before_count_exact_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_count_exact_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeCountExactTerminal)
+    );
+}
+
+#[test]
+fn raw_limit_before_sum_exact_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_sum_exact_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeSumExactTerminal)
+    );
+}
+
+#[test]
+fn raw_limit_before_collect_complete_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_collect_complete_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeCollectCompleteTerminal)
+    );
+}
+
+#[test]
+fn complete_read_too_many_rows_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::complete_read_too_many_rows());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::CompleteReadTooManyRows)
+    );
+}
+
+#[test]
 fn having_requires_group_by_constructor_keeps_intent_boundary() {
     let err = IntentError::having_requires_group_by();
 

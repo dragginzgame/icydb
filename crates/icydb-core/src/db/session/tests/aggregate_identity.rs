@@ -116,7 +116,6 @@ fn session_aggregate_ranked_rows_are_invariant_to_insertion_order() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines)]
 fn session_aggregate_identity_terminals_match_execute() {
     reset_session_sql_store();
     let session = sql_session();
@@ -151,27 +150,6 @@ fn session_aggregate_identity_terminals_match_execute() {
             .expect("session aggregate count should succeed"),
         expected.count(),
         "session aggregate count should match execute() cardinality",
-    );
-    assert_eq!(
-        load_window()
-            .exists()
-            .expect("session aggregate exists should succeed"),
-        !expected.is_empty(),
-        "session aggregate exists should match execute() emptiness",
-    );
-    assert_eq!(
-        load_window()
-            .not_exists()
-            .expect("session aggregate not_exists should succeed"),
-        expected.is_empty(),
-        "session aggregate not_exists should match execute() emptiness",
-    );
-    assert_eq!(
-        load_window()
-            .is_empty()
-            .expect("session aggregate is_empty should succeed"),
-        expected.is_empty(),
-        "session aggregate is_empty should match execute() emptiness",
     );
     assert_eq!(
         load_window()

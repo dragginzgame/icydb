@@ -1,0 +1,96 @@
+//! Module: query::read_intent
+//! Responsibility: hardcoded read-intent caps for public semantic terminals.
+//! Does not own: planner proof, executor routing, or public policy builders.
+//! Boundary: one internal authority for 0.198 engine-owned read-intent limits.
+
+use crate::db::query::admission::{
+    DEFAULT_BOUNDED_READ_MAX_ROWS, DEFAULT_BOUNDED_READ_RESPONSE_BYTES,
+};
+
+pub(in crate::db::query) const PUBLIC_PAGE_DEFAULT_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
+pub(in crate::db::query) const PUBLIC_PAGE_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
+pub(in crate::db::query) const PUBLIC_PAGE_MAX_RESPONSE_BYTES: u32 =
+    DEFAULT_BOUNDED_READ_RESPONSE_BYTES;
+
+pub(in crate::db::query) const COMPLETE_SMALL_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
+pub(in crate::db::query) const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;
+pub(in crate::db::query) const COMPLETE_SMALL_EXECUTION_LIMIT: u32 =
+    COMPLETE_SMALL_MAX_ROWS + COMPLETE_SMALL_LOOKAHEAD_ROWS;
+
+/// Request-owned public page shape.
+///
+/// The requested limit is a caller preference, not a custom policy. IcyDB
+/// clamps it to the engine-owned public page cap before admission/execution.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PageRequest {
+    limit: Option<u32>,
+    cursor: Option<String>,
+}
+
+impl PageRequest {
+    /// Build a first-page request using the default public page size.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            limit: None,
+            cursor: None,
+        }
+    }
+
+    /// Build a first-page request with one requested page size.
+    #[must_use]
+    pub const fn first(limit: u32) -> Self {
+        Self {
+            limit: Some(limit),
+            cursor: None,
+        }
+    }
+
+    /// Build a continuation request with one requested page size and cursor.
+    #[must_use]
+    pub fn next(limit: u32, cursor: impl Into<String>) -> Self {
+        Self {
+            limit: Some(limit),
+            cursor: Some(cursor.into()),
+        }
+    }
+
+    /// Return this request with a requested page size.
+    #[must_use]
+    pub const fn with_limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// Return this request with an opaque continuation cursor.
+    #[must_use]
+    pub fn with_cursor(mut self, cursor: impl Into<String>) -> Self {
+        self.cursor = Some(cursor.into());
+        self
+    }
+
+    /// Return the caller-requested page size, if supplied.
+    #[must_use]
+    pub const fn limit(&self) -> Option<u32> {
+        self.limit
+    }
+
+    /// Return the opaque continuation cursor, if supplied.
+    #[must_use]
+    pub fn cursor(&self) -> Option<&str> {
+        self.cursor.as_deref()
+    }
+
+    pub(in crate::db::query) const fn effective_limit(&self) -> u32 {
+        match self.limit {
+            Some(0) => 1,
+            Some(limit) if limit > PUBLIC_PAGE_MAX_ROWS => PUBLIC_PAGE_MAX_ROWS,
+            Some(limit) => limit,
+            None => PUBLIC_PAGE_DEFAULT_ROWS,
+        }
+    }
+
+    pub(in crate::db::query) fn into_cursor(self) -> Option<String> {
+        self.cursor
+    }
+}

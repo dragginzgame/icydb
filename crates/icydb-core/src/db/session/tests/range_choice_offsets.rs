@@ -274,8 +274,7 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
         .order_term(crate::db::asc("alpha"))
         .order_term(crate::db::asc("id"))
         .offset(1)
-        .limit(2)
-        .execute_paged()
+        .execute_paged(crate::db::PageRequest::first(2))
         .expect("ascending order-only offset paged window should execute");
     let asc_paged_alpha = asc_paged
         .iter()
@@ -458,8 +457,7 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
         .offset(1)
-        .limit(2)
-        .execute_paged()
+        .execute_paged(crate::db::PageRequest::first(2))
         .expect("composite order-only offset paged window should execute");
     let paged_handles = paged
         .iter()

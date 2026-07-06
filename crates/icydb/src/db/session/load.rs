@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, Row,
+        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, PageRequest, Row,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
             QueryTracePlan, ValueProjectionExpr,
@@ -64,13 +64,6 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.inner = self.inner.offset(offset);
-        self
-    }
-
-    /// Attach an opaque cursor token for continuation pagination.
-    #[must_use]
-    pub fn cursor(mut self, token: impl Into<String>) -> Self {
-        self.inner = self.inner.cursor(token);
         self
     }
 
@@ -133,25 +126,26 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     // ------------------------------------------------------------------
     impl_session_materialization_methods!();
 
-    /// Enter typed cursor-pagination mode for this query.
+    /// Enter typed cursor-pagination mode for this request-owned page.
     ///
-    /// Cursor pagination requires explicit ordering and limit, and disallows offset.
+    /// Cursor pagination requires explicit ordering and disallows a prior raw
+    /// `limit(...)`; `PageRequest` owns the page size and cursor.
     /// Continuation is best-effort and forward-only over live state:
     /// deterministic per request under canonical ordering, with no
     /// snapshot/version pinned across requests.
-    pub fn page(self) -> Result<PagedLoadQuery<'a, E>, Error> {
+    pub fn page(self, request: PageRequest) -> Result<PagedLoadQuery<'a, E>, Error> {
         Ok(PagedLoadQuery {
-            inner: self.inner.page()?,
+            inner: self.inner.page(request)?,
         })
     }
 
     /// Execute as cursor pagination through the default bounded read-admission
     /// gate, returning entities plus an opaque continuation token.
-    pub fn execute_paged(self) -> Result<PagedResponse<E>, Error>
+    pub fn execute_paged(self, request: PageRequest) -> Result<PagedResponse<E>, Error>
     where
         E: Entity,
     {
-        self.page()?.execute()
+        self.page(request)?.execute()
     }
 
     /// Execute as cursor pagination without the default bounded read-admission gate.
@@ -159,11 +153,11 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// This is for trusted maintenance/admin code that has its own caller
     /// authorization and resource policy. Application-facing reads should use
     /// `execute_paged`.
-    pub fn execute_paged_trusted(self) -> Result<PagedResponse<E>, Error>
+    pub fn execute_paged_trusted(self, request: PageRequest) -> Result<PagedResponse<E>, Error>
     where
         E: Entity,
     {
-        self.page()?.execute_trusted()
+        self.page(request)?.execute_trusted()
     }
 
     /// Execute as a scalar row load through the default bounded read-admission
@@ -254,6 +248,43 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         E: Entity,
     {
         Ok(self.inner.not_exists()?)
+    }
+
+    /// Return all matching rows if the complete result fits in the default
+    /// public-read small-set cap.
+    ///
+    /// This semantic terminal rejects a prior raw `limit(...)`; use
+    /// `execute_rows()` when returning a bounded row window is the endpoint
+    /// contract.
+    pub fn collect_complete(&self) -> Result<Vec<E>, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.collect_complete()?)
+    }
+
+    /// Return the exact number of matching rows.
+    ///
+    /// This semantic aggregate rejects a prior raw `limit(...)`; use
+    /// `count()` when the endpoint deliberately counts the effective bounded
+    /// row window.
+    pub fn count_exact(&self) -> Result<u32, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.count_exact()?)
+    }
+
+    /// Return the exact row count with terminal diagnostics attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn count_exact_with_attribution(
+        &self,
+    ) -> Result<(u32, crate::db::FluentTerminalExecutionAttribution), Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.count_exact_with_attribution()?)
     }
 
     /// Explain scalar `not_exists()` routing without executing the terminal.
@@ -385,6 +416,18 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         E: Entity,
     {
         Ok(self.inner.sum_by(field)?)
+    }
+
+    /// Return the exact sum of `field` over matching rows.
+    ///
+    /// This semantic aggregate rejects a prior raw `limit(...)`; use
+    /// `sum_by(...)` when the endpoint deliberately sums the effective
+    /// bounded row window.
+    pub fn sum_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.sum_exact(field)?)
     }
 
     /// Explain scalar `sum_by(field)` routing without executing the terminal.
@@ -807,13 +850,6 @@ impl<E: Entity> PagedLoadQuery<'_, E> {
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
-    }
-
-    /// Attach an opaque continuation cursor token for the next page.
-    #[must_use]
-    pub fn cursor(mut self, token: impl Into<String>) -> Self {
-        self.inner = self.inner.cursor(token);
-        self
     }
 
     /// Execute in cursor-pagination mode through the default bounded

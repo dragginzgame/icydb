@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.198.x] ⚠️ - 2026-07-06 - Read Intent Ergonomics
+
+Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
+
+- `0.198.0` hard-cuts public read ergonomics to semantic intents by
+  introducing request-owned paging, complete-small-set collection, and exact
+  aggregate terminals, while rejecting raw row-window limits before terminals
+  that own their own bounds.
+
 ## [0.197.x] 🔧 - 2026-07-05 - Deterministic Optimizer Canonicalization
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)

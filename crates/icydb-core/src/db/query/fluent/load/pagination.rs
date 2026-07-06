@@ -7,7 +7,10 @@ use crate::{
     db::{
         PagedLoadExecution, PagedLoadExecutionWithTrace, PersistedRow,
         query::fluent::load::FluentLoadQuery,
-        query::intent::{Query, QueryError},
+        query::{
+            intent::{IntentError, Query, QueryError},
+            read_intent::PageRequest,
+        },
     },
     traits::{EntityKind, EntityValue},
 };
@@ -30,30 +33,41 @@ impl<'a, E> FluentLoadQuery<'a, E>
 where
     E: PersistedRow,
 {
-    /// Enter typed cursor-pagination mode for this query.
+    /// Enter typed cursor-pagination mode for this request-owned page.
     ///
     /// Cursor pagination requires:
     /// - explicit `order_term(...)`
-    /// - explicit `limit(...)`
+    /// - no prior raw `limit(...)`
     ///
     /// Requests are deterministic under canonical ordering, but continuation is
     /// best-effort and forward-only over live state.
     /// No snapshot/version is pinned across requests, so concurrent writes may
     /// shift page boundaries.
-    pub fn page(self) -> Result<PagedLoadQuery<'a, E>, QueryError> {
-        self.ensure_paged_mode_ready()?;
+    pub fn page(self, request: PageRequest) -> Result<PagedLoadQuery<'a, E>, QueryError> {
+        self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_page_terminal())?;
+        self.ensure_page_request_owns_cursor()?;
 
-        Ok(PagedLoadQuery { inner: self })
+        let limit = request.effective_limit();
+        let cursor = request.into_cursor();
+        let mut inner = self.map_query(|query| query.with_load_limit(limit));
+        if let Some(cursor) = cursor {
+            inner = inner.with_cursor_token(cursor);
+        }
+
+        inner.ensure_paged_mode_ready()?;
+
+        Ok(PagedLoadQuery { inner })
     }
 
     /// Execute this query as cursor pagination and return items + next cursor.
     ///
-    /// The returned cursor token is opaque and must be passed back via `.cursor(...)`.
-    pub fn execute_paged(self) -> Result<PagedLoadExecution<E>, QueryError>
+    /// The returned cursor token is opaque and must be passed back through
+    /// `PageRequest`.
+    pub fn execute_paged(self, request: PageRequest) -> Result<PagedLoadExecution<E>, QueryError>
     where
         E: PersistedRow + EntityValue,
     {
-        self.page()?.execute()
+        self.page(request)?.execute()
     }
 
     /// Execute cursor pagination without the default bounded read-admission gate.
@@ -61,11 +75,14 @@ where
     /// This is for trusted maintenance/admin code that has its own caller
     /// authorization and resource policy. Application-facing reads should use
     /// `execute_paged`.
-    pub fn execute_paged_trusted(self) -> Result<PagedLoadExecution<E>, QueryError>
+    pub fn execute_paged_trusted(
+        self,
+        request: PageRequest,
+    ) -> Result<PagedLoadExecution<E>, QueryError>
     where
         E: PersistedRow + EntityValue,
     {
-        self.page()?.execute_trusted()
+        self.page(request)?.execute_trusted()
     }
 }
 
@@ -80,17 +97,6 @@ where
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
-    }
-
-    // ------------------------------------------------------------------
-    // Cursor continuation
-    // ------------------------------------------------------------------
-
-    /// Attach an opaque continuation token for the next page.
-    #[must_use]
-    pub fn cursor(mut self, token: impl Into<String>) -> Self {
-        self.inner = self.inner.cursor(token);
-        self
     }
 
     // ------------------------------------------------------------------

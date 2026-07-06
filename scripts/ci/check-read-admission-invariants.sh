@@ -12,6 +12,7 @@ require_rg "read-admission invariant checks"
 status=0
 
 DOC="docs/contracts/READ_ADMISSION.md"
+READ_INTENT_GUIDE="docs/guides/read-intent.md"
 README_DOC="README.md"
 INSTALLING_DOC="INSTALLING.md"
 FOUNDATIONS_DOC="docs/FOUNDATIONS.md"
@@ -26,6 +27,7 @@ PUBLIC_FACADE_SESSION="crates/icydb/src/db/session/mod.rs"
 PUBLIC_FACADE_LOAD="crates/icydb/src/db/session/load.rs"
 PUBLIC_FACADE_SESSION_MACROS="crates/icydb/src/db/session/macros.rs"
 ADMISSION_SOURCE="crates/icydb-core/src/db/query/admission.rs"
+READ_INTENT_SOURCE="crates/icydb-core/src/db/query/read_intent.rs"
 DIAGNOSTIC_CODES="crates/icydb-diagnostic-code/src/lib.rs"
 
 extract_rust_enum_variants() {
@@ -64,6 +66,11 @@ else
     "must not expose caller-controlled SQL through \`execute_sql_query\`" \
     "execute_sql_query_with_perf_attribution" \
     "Which API should I use?" \
+    "docs/guides/read-intent.md" \
+    "\`PageRequest\`" \
+    "\`collect_complete()\`" \
+    "\`count_exact()\`" \
+    "\`sum_exact(field)\`" \
     "Common Rejections And Fixes" \
     "Regression Guard" \
     "\`execute().into_grouped()\`" \
@@ -110,6 +117,26 @@ else
       status=1
     fi
   done <<< "$generated_query_names"
+fi
+
+if [[ ! -f "$READ_INTENT_GUIDE" ]]; then
+  echo "[ERROR] Missing read-intent guide: $READ_INTENT_GUIDE" >&2
+  status=1
+else
+  for required_read_intent_phrase in \
+    "IcyDB public reads should describe the endpoint promise" \
+    "PageRequest" \
+    "collect_complete()" \
+    "count_exact()" \
+    "sum_exact(field)" \
+    "\`limit(...)\` only when the endpoint is deliberately returning" \
+    "Do not mechanically replace every \`limit(N).execute_rows()\`"
+  do
+    if ! rg -F --quiet "$required_read_intent_phrase" "$READ_INTENT_GUIDE"; then
+      echo "[ERROR] Read-intent guide is missing required phrase: $required_read_intent_phrase" >&2
+      status=1
+    fi
+  done
 fi
 
 declare -A required_read_admission_links=(
@@ -198,6 +225,51 @@ else
       status=1
     fi
   fi
+fi
+
+if [[ ! -f "$READ_INTENT_SOURCE" ]]; then
+  echo "[ERROR] Missing read-intent cap authority: $READ_INTENT_SOURCE" >&2
+  status=1
+else
+  for required_read_intent_constant in \
+    "const PUBLIC_PAGE_DEFAULT_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
+    "const PUBLIC_PAGE_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
+    "const PUBLIC_PAGE_MAX_RESPONSE_BYTES: u32 =" \
+    "const COMPLETE_SMALL_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
+    "const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;" \
+    "const COMPLETE_SMALL_EXECUTION_LIMIT: u32 ="
+  do
+    if ! rg -F --quiet "$required_read_intent_constant" "$READ_INTENT_SOURCE"; then
+      echo "[ERROR] Read-intent cap authority drifted or split: $required_read_intent_constant" >&2
+      status=1
+    fi
+  done
+
+  for forbidden_read_intent_pattern in \
+    "ReadPolicy" \
+    "PolicyBuilder" \
+    "with_max_rows" \
+    "with_max_response_bytes" \
+    "custom_policy"
+  do
+    if rg -F --quiet "$forbidden_read_intent_pattern" "$READ_INTENT_SOURCE"; then
+      echo "[ERROR] Read-intent source must not introduce public custom policy surface: $forbidden_read_intent_pattern" >&2
+      status=1
+    fi
+  done
+fi
+
+high_raw_limit_hits="$(
+  rg -n --color=never '\.limit\((1000|1_000|10000|10_000)\)' \
+    README.md INSTALLING.md docs/contracts docs/guides crates/icydb/src crates/icydb-core/src \
+    2>/dev/null \
+    | rg -v '^docs/contracts/READ_ADMISSION\.md:' || true
+)"
+if [[ -n "$high_raw_limit_hits" ]]; then
+  echo "[ERROR] Raw high-limit examples must not appear as recommended docs/API patterns." >&2
+  echo "[ERROR] Use PageRequest, collect_complete(), exact aggregates, or mark the example as a rejection in READ_ADMISSION.md." >&2
+  printf '%s\n' "$high_raw_limit_hits" >&2
+  status=1
 fi
 
 if [[ ! -d "$PUBLIC_FACADE" ]]; then

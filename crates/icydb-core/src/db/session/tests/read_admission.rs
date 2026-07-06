@@ -16,10 +16,13 @@ use super::{
 use crate::db::{
     QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionRejection,
     QueryAdmissionSummary, QueryBoundKind, QueryError, ResponseCardinalityExt, SqlStatementResult,
-    query::admission::{GroupedAdmissionPolicy, QueryAdmissionPolicy},
+    query::{
+        admission::{GroupedAdmissionPolicy, QueryAdmissionPolicy},
+        intent::IntentError,
+    },
 };
 use icydb_diagnostic_code::{
-    DiagnosticCode, DiagnosticDetail, QueryReadAdmissionCode, SqlLoweringCode,
+    DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryReadAdmissionCode, SqlLoweringCode,
 };
 
 #[test]
@@ -949,6 +952,107 @@ fn default_fluent_count_returns_zero_for_empty_primary_key_filters_without_limit
     assert_eq!(contradictory, 0);
     assert_eq!(empty_in, 0);
     assert_eq!(narrowed_out, 0);
+}
+
+#[test]
+fn default_fluent_count_exact_counts_primary_key_filters_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(19_756);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Sam".to_string(),
+            age: 30,
+        })
+        .expect("test row should insert");
+
+    let existing = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(id))
+        .count_exact()
+        .expect("primary-key exact count should not require a raw limit");
+    let missing = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(crate::types::Ulid::from_u128(19_757)))
+        .count_exact()
+        .expect("missing primary-key exact count should still be bounded");
+
+    assert_eq!(existing, 1);
+    assert_eq!(missing, 0);
+}
+
+#[test]
+fn default_fluent_sum_exact_sums_primary_key_filters_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(19_758);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Sam".to_string(),
+            age: 30,
+        })
+        .expect("test row should insert");
+
+    let existing = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(id))
+        .sum_exact("age")
+        .expect("primary-key exact sum should not require a raw limit");
+    let missing = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(crate::types::Ulid::from_u128(19_759)))
+        .sum_exact("age")
+        .expect("missing primary-key exact sum should still be bounded");
+
+    assert_eq!(existing, Some(crate::types::Decimal::from(30_u64)));
+    assert_eq!(missing, None);
+}
+
+#[test]
+fn default_fluent_collect_complete_returns_indexed_small_set_without_raw_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let names: Vec<String> = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .collect_complete()
+        .expect("collect_complete() should return admitted complete small sets")
+        .into_iter()
+        .map(|entity| entity.name)
+        .collect();
+
+    assert_eq!(names, ["Sam".to_string(), "Sasha".to_string()]);
+}
+
+#[test]
+fn default_fluent_collect_complete_rejects_over_cap_sets_instead_of_truncating() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    for offset in 0_u64..=100 {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: crate::types::Ulid::from_u128(20_000 + u128::from(offset)),
+                name: format!("S{offset:03}"),
+                age: offset,
+            })
+            .expect("test row should insert");
+    }
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .collect_complete()
+        .expect_err("collect_complete() should fail when lookahead proves truncation");
+
+    assert_complete_read_too_many_rows(err, "default fluent collect_complete over cap");
 }
 
 #[test]
@@ -1960,6 +2064,152 @@ fn default_fluent_terminal_rejects_unindexed_full_scan() {
 }
 
 #[test]
+fn default_fluent_exists_rejects_prior_raw_limit_before_admission() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .exists()
+        .expect_err("exists() should own existence bounds instead of accepting raw limits");
+
+    assert_raw_limit_before_exists_terminal(err, "default fluent exists raw limit");
+}
+
+#[test]
+fn default_fluent_not_exists_rejects_prior_raw_limit_before_admission() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .not_exists()
+        .expect_err("not_exists() should share the exists raw-limit intent gate");
+
+    assert_raw_limit_before_exists_terminal(err, "default fluent not_exists raw limit");
+}
+
+#[test]
+fn default_fluent_explain_exists_rejects_prior_raw_limit_before_planning() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .explain_exists()
+        .expect_err("explain_exists() should report the same raw-limit intent conflict");
+
+    assert_raw_limit_before_exists_terminal(err, "default fluent explain_exists raw limit");
+}
+
+#[test]
+fn default_fluent_page_request_rejects_prior_raw_limit_before_admission() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .execute_paged(crate::db::PageRequest::first(2))
+        .expect_err("PageRequest should own page size instead of accepting raw limits");
+
+    assert_raw_limit_before_page_terminal(err, "default fluent page raw limit");
+}
+
+#[test]
+fn default_fluent_page_request_clamps_requested_limit_to_public_cap() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    for offset in 0_u64..=100 {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: crate::types::Ulid::from_u128(21_000 + u128::from(offset)),
+                name: format!("S{offset:03}"),
+                age: offset,
+            })
+            .expect("test row should insert");
+    }
+
+    let page = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .execute_paged(crate::db::PageRequest::first(1_000))
+        .expect("PageRequest should clamp oversized public page limits");
+
+    assert_eq!(
+        page.response().count(),
+        100,
+        "oversized page request should clamp to the default public page cap",
+    );
+    assert!(
+        page.continuation_cursor().is_some(),
+        "clamped public page should expose continuation when more rows exist",
+    );
+}
+
+#[test]
+fn default_fluent_page_request_uses_request_cursor_for_continuation() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Soren", 31)]);
+
+    let first_page = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .execute_paged(crate::db::PageRequest::first(2))
+        .expect("first PageRequest page should execute");
+    let first_names = first_page
+        .response()
+        .iter()
+        .map(|row| row.entity_ref().name.as_str())
+        .collect::<Vec<_>>();
+    let cursor = crate::db::encode_cursor(
+        first_page
+            .continuation_cursor()
+            .expect("first PageRequest page should emit a continuation cursor"),
+    );
+
+    let second_page = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .execute_paged(crate::db::PageRequest::next(2, cursor))
+        .expect("second PageRequest page should execute");
+    let second_names = second_page
+        .response()
+        .iter()
+        .map(|row| row.entity_ref().name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(first_names, ["Sam", "Sasha"]);
+    assert_eq!(second_names, ["Soren"]);
+    assert!(second_page.continuation_cursor().is_none());
+}
+
+#[test]
 fn default_fluent_execute_admits_indexed_bounded_query() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -1975,6 +2225,117 @@ fn default_fluent_execute_admits_indexed_bounded_query() {
         .expect("default fluent execute should admit indexed bounded reads");
 
     assert_eq!(response.count(), 2);
+}
+
+#[test]
+fn default_fluent_execute_rows_keeps_low_level_raw_limit_window() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let response = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .execute_rows()
+        .expect("execute_rows() remains the low-level bounded row-window terminal");
+
+    assert_eq!(response.count(), 2);
+}
+
+#[test]
+fn default_fluent_count_keeps_low_level_raw_limit_window() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let count = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .count()
+        .expect("count() keeps the existing effective-window aggregate contract");
+
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn default_fluent_count_exact_rejects_prior_raw_limit_before_admission() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .count_exact()
+        .expect_err("count_exact() should reject raw row-window limits");
+
+    assert_raw_limit_before_count_exact_terminal(err, "default fluent count_exact raw limit");
+}
+
+#[test]
+fn default_fluent_sum_by_keeps_low_level_raw_limit_window() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let sum = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .sum_by("age")
+        .expect("sum_by() keeps the existing effective-window aggregate contract");
+
+    assert_eq!(sum, Some(crate::types::Decimal::from(54_u64)));
+}
+
+#[test]
+fn default_fluent_sum_exact_rejects_prior_raw_limit_before_admission() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .sum_exact("age")
+        .expect_err("sum_exact() should reject raw row-window limits");
+
+    assert_raw_limit_before_sum_exact_terminal(err, "default fluent sum_exact raw limit");
+}
+
+#[test]
+fn default_fluent_collect_complete_rejects_prior_raw_limit_before_admission() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .collect_complete()
+        .expect_err("collect_complete() should reject raw row-window limits");
+
+    assert_raw_limit_before_collect_complete_terminal(
+        err,
+        "default fluent collect_complete raw limit",
+    );
 }
 
 #[test]
@@ -2481,6 +2842,132 @@ fn assert_query_not_found(err: QueryError, context: &str) {
             kind: icydb_diagnostic_code::QueryErrorKind::NotFound,
         }),
         "{context}: diagnostic detail drifted",
+    );
+}
+
+fn assert_raw_limit_before_exists_terminal(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeExistsTerminal),
+        "{context}: intent error variant drifted",
+    );
+}
+
+fn assert_raw_limit_before_page_terminal(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforePageTerminal),
+        "{context}: intent error variant drifted",
+    );
+}
+
+fn assert_raw_limit_before_count_exact_terminal(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeCountExactTerminal),
+        "{context}: intent error variant drifted",
+    );
+}
+
+fn assert_raw_limit_before_sum_exact_terminal(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeSumExactTerminal),
+        "{context}: intent error variant drifted",
+    );
+}
+
+fn assert_raw_limit_before_collect_complete_terminal(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeCollectCompleteTerminal),
+        "{context}: intent error variant drifted",
+    );
+}
+
+fn assert_complete_read_too_many_rows(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::CompleteReadTooManyRows),
+        "{context}: intent error variant drifted",
     );
 }
 
