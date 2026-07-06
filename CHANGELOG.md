@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.7` pins finite primary-key `IN (...)` public-read row-budget safety by
+  rejecting SQL and fluent exact-key sets whose deduplicated key count exceeds
+  the endpoint returned-row policy.
+
 - `0.197.6` admits finite primary-key `IN (...)` reads with non-key ordering
   when the exact key set bounds materialized sorting, while preserving
   fail-closed rejection for underbounded materialized-order fallbacks.

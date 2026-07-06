@@ -323,6 +323,32 @@ fn public_read_fluent_admission_admits_primary_key_in_filter_without_limit() {
 }
 
 #[test]
+fn public_read_fluent_rejects_primary_key_in_deduped_count_above_policy() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_780);
+    let second_id = crate::types::Ulid::from_u128(19_781);
+    let third_id = crate::types::Ulid::from_u128(19_782);
+
+    let query = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list([third_id, first_id, second_id, second_id]));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(2))
+        .expect("primary-key IN admission should produce a summary before policy rejection");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Rejected);
+    assert_eq!(
+        summary.rejection(),
+        Some(QueryAdmissionRejection::ReturnedRowBoundExceedsPolicy)
+    );
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKeys);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(3));
+    assert_eq!(summary.returned_row_bound(), Some(3));
+}
+
+#[test]
 fn public_read_fluent_admission_canonicalizes_empty_primary_key_filters_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1306,6 +1332,32 @@ fn public_read_sql_admits_primary_key_in_filter_without_limit() {
 
     assert_eq!(row_count, 2);
     assert_eq!(names, vec!["Mira".to_string(), "Sam".to_string()]);
+}
+
+#[test]
+fn public_read_sql_rejects_primary_key_in_deduped_count_above_policy() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_783);
+    let second_id = crate::types::Ulid::from_u128(19_784);
+    let third_id = crate::types::Ulid::from_u128(19_785);
+
+    let sql = format!(
+        "SELECT name FROM IndexedSessionSqlEntity \
+         WHERE id IN ('{third_id}', '{first_id}', '{second_id}', '{second_id}')"
+    );
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            sql.as_str(),
+            &public_read_policy(2),
+        )
+        .expect_err("public read SQL should reject deduped primary-key IN count above policy");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy,
+        "primary-key SQL IN deduped count above returned-row policy",
+    );
 }
 
 #[test]
