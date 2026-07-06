@@ -3,11 +3,15 @@
 use std::num::NonZeroU32;
 
 use super::{
-    FilteredIndexedSessionSqlEntity, IndexedSessionSqlEntity, SessionPrincipalKeyEntity,
-    SessionSqlEntity, assert_query_plan_expr_unknown_field, assert_sql_lowering_detail,
-    indexed_sql_session, reset_indexed_session_sql_store, reset_session_sql_store,
+    FilteredIndexedSessionSqlEntity, HeapSessionSqlEntity, IndexedSessionSqlEntity,
+    JournaledSessionSqlEntity, SessionPrincipalKeyEntity, SessionSqlCompositeWriteEntity,
+    SessionSqlEntity, SessionSqlWriteEntity, SessionUniquePrefixOffsetEntity,
+    assert_query_plan_expr_unknown_field, assert_query_plan_predicate_invalid_field,
+    assert_sql_lowering_detail, heap_sql_session, indexed_sql_session, journaled_sql_session,
+    reset_heap_session_sql_store, reset_indexed_session_sql_store,
+    reset_journaled_session_sql_store, reset_session_sql_store,
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
-    seed_session_sql_entities, sql_session,
+    seed_session_sql_entities, seed_unique_prefix_offset_session_entities, sql_session,
 };
 use crate::db::{
     QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionRejection,
@@ -413,6 +417,79 @@ fn public_read_fluent_admission_narrows_primary_key_eq_and_in_filter_without_lim
 }
 
 #[test]
+fn public_read_fluent_admission_keeps_unique_secondary_equality_off_primary_key_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_unique_prefix_offset_session_entities(
+        &session,
+        &[
+            (19_720, "gold", "amber", "A"),
+            (19_721, "gold", "bravo", "B"),
+            (19_722, "silver", "charlie", "C"),
+        ],
+    );
+
+    let query =
+        session
+            .load::<SessionUniquePrefixOffsetEntity>()
+            .filter(crate::db::FilterExpr::and(vec![
+                crate::db::FieldRef::new("tier").eq("gold"),
+                crate::db::FieldRef::new("handle").eq("amber"),
+            ]));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("unique secondary equality admission should produce a summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Rejected);
+    assert_eq!(
+        summary.rejection(),
+        Some(QueryAdmissionRejection::PublicQueryRequiresLimit),
+    );
+    assert!(
+        summary.selected_access().is_secondary_index(),
+        "unique secondary equality should remain a secondary-index access path even when public read admission requires a limit",
+    );
+    assert_ne!(
+        summary.selected_access(),
+        QueryAdmissionAccessKind::ByKey,
+        "unique secondary equality must not masquerade as scalar primary-key access",
+    );
+    assert_ne!(
+        summary.selected_access(),
+        QueryAdmissionAccessKind::ByKeys,
+        "unique secondary equality must not masquerade as primary-key set access",
+    );
+    assert_eq!(summary.limit(), None);
+}
+
+#[test]
+fn public_read_fluent_admission_rejects_partial_composite_primary_key_as_full_scan() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let query = session
+        .load::<SessionSqlCompositeWriteEntity>()
+        .filter(crate::db::FieldRef::new("tenant_id").eq(7_u64))
+        .order_term(crate::db::asc("tenant_id"))
+        .order_term(crate::db::asc("local_id"))
+        .limit(1);
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .expect("partial composite primary-key admission should produce a summary");
+
+    assert_admission_summary_rejection(
+        &summary,
+        QueryAdmissionRejection::UnboundedFullScanRejected,
+        "partial composite primary-key filter",
+    );
+    assert_eq!(
+        summary.selected_access(),
+        QueryAdmissionAccessKind::FullScan,
+        "a single composite primary-key component must not lower to ByKey access",
+    );
+}
+
+#[test]
 fn public_read_fluent_admission_admits_primary_key_in_filter_with_residual_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -493,6 +570,123 @@ fn default_fluent_try_entity_admits_primary_key_filter_without_limit() {
 
     assert_eq!(entity.id, id);
     assert_eq!(entity.name, "Sasha");
+}
+
+#[test]
+fn public_read_fluent_admission_admits_heap_and_journaled_primary_key_filters_without_limit() {
+    reset_heap_session_sql_store();
+    let heap_session = heap_sql_session();
+    let heap_query = heap_session
+        .load::<HeapSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(2_u64));
+    let heap_summary = heap_session
+        .evaluate_query_read_admission_policy(heap_query.query(), &public_read_policy(10))
+        .expect("heap primary-key filter admission should produce a summary");
+
+    assert_primary_key_exact_admission_summary(&heap_summary, "heap primary-key filter");
+
+    reset_journaled_session_sql_store();
+    let journaled_session = journaled_sql_session();
+    let journaled_query = journaled_session
+        .load::<JournaledSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(2_u64));
+    let journaled_summary = journaled_session
+        .evaluate_query_read_admission_policy(journaled_query.query(), &public_read_policy(10))
+        .expect("journaled primary-key filter admission should produce a summary");
+
+    assert_primary_key_exact_admission_summary(&journaled_summary, "journaled primary-key filter");
+}
+
+#[test]
+fn default_fluent_try_entity_returns_none_for_missing_heap_and_journaled_primary_key_filters() {
+    reset_heap_session_sql_store();
+    let heap_session = heap_sql_session();
+    let heap_entity = heap_session
+        .load::<HeapSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(99_u64))
+        .execute_rows()
+        .expect("missing heap primary-key filter should execute as bounded exact-key access")
+        .try_entity()
+        .expect("missing heap primary-key filter should satisfy optional cardinality");
+
+    assert!(
+        heap_entity.is_none(),
+        "missing heap exact-key filter should return no row",
+    );
+
+    reset_journaled_session_sql_store();
+    let journaled_session = journaled_sql_session();
+    let journaled_entity = journaled_session
+        .load::<JournaledSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(99_u64))
+        .execute_rows()
+        .expect("missing journaled primary-key filter should execute as bounded exact-key access")
+        .try_entity()
+        .expect("missing journaled primary-key filter should satisfy optional cardinality");
+
+    assert!(
+        journaled_entity.is_none(),
+        "missing journaled exact-key filter should return no row",
+    );
+}
+
+#[test]
+fn default_fluent_try_entity_returns_none_for_deleted_heap_and_journaled_primary_key_filters() {
+    reset_heap_session_sql_store();
+    let heap_session = heap_sql_session();
+    heap_session
+        .insert(HeapSessionSqlEntity {
+            id: 2,
+            name: "Beryl".to_string(),
+            age: 30,
+        })
+        .expect("heap row should insert before deletion");
+    let heap_deleted = heap_session
+        .delete::<HeapSessionSqlEntity>()
+        .by_id(crate::types::Id::from_key(2_u64))
+        .execute()
+        .expect("heap row should delete by primary key");
+    let heap_entity = heap_session
+        .load::<HeapSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(2_u64))
+        .execute_rows()
+        .expect("deleted heap primary-key filter should execute as bounded exact-key access")
+        .try_entity()
+        .expect("deleted heap primary-key filter should satisfy optional cardinality");
+
+    assert_eq!(heap_deleted, 1);
+    assert!(
+        heap_entity.is_none(),
+        "deleted heap exact-key filter should not return a stale row",
+    );
+
+    reset_journaled_session_sql_store();
+    let journaled_session = journaled_sql_session();
+    journaled_session
+        .insert(JournaledSessionSqlEntity {
+            id: 2,
+            name: "Beryl".to_string(),
+            age: 30,
+        })
+        .expect("journaled row should insert before deletion");
+    let journaled_deleted = journaled_session
+        .delete::<JournaledSessionSqlEntity>()
+        .by_id(crate::types::Id::from_key(2_u64))
+        .execute()
+        .expect("journaled row should delete by primary key");
+    let journaled_entity = journaled_session
+        .load::<JournaledSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(2_u64))
+        .execute_rows()
+        .expect("deleted journaled primary-key filter should execute as bounded exact-key access")
+        .try_entity()
+        .expect("deleted journaled primary-key filter should satisfy optional cardinality");
+
+    assert_eq!(journaled_deleted, 1);
+    assert!(
+        journaled_entity.is_none(),
+        "deleted journaled exact-key filter should not return a stale row",
+    );
 }
 
 #[test]
@@ -783,6 +977,43 @@ fn public_read_sql_primary_key_parameter_shape_fails_before_admission() {
         .expect_err("SQL parameter placeholders are not a supported exact-key binding surface");
 
     assert_sql_lowering_detail(err, SqlLoweringCode::ParameterPlacement);
+}
+
+#[test]
+fn public_read_sql_primary_key_wrong_type_literal_fails_before_admission() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity WHERE id = 'not-a-ulid' LIMIT 1",
+            &public_read_policy(10),
+        )
+        .expect_err("wrong-type primary-key literal should fail validation before admission");
+
+    assert_query_plan_predicate_invalid_field(err, "id", "wrong-type SQL primary-key literal");
+}
+
+#[cfg(feature = "sql-explain")]
+#[test]
+fn sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let result = session
+        .execute_sql_query::<SessionSqlWriteEntity>(
+            "EXPLAIN EXECUTION SELECT name FROM SessionSqlWriteEntity \
+             WHERE id + 0 = 1 ORDER BY id ASC LIMIT 1",
+        )
+        .expect("expression-wrapped primary-key explain should build");
+    let SqlStatementResult::Explain(explain) = result else {
+        panic!("EXPLAIN EXECUTION should return explain text");
+    };
+
+    assert!(
+        !explain.contains("ByKeyLookup") && !explain.contains("planner_primary_key_lookup"),
+        "expression-wrapped primary-key predicates must not explain as exact-key canonicalization: {explain}",
+    );
 }
 
 #[test]
@@ -1730,6 +1961,41 @@ fn assert_admission_summary_rejection(
         summary.rejection(),
         Some(reason),
         "{context}: admission rejection drifted",
+    );
+}
+
+fn assert_primary_key_exact_admission_summary(summary: &QueryAdmissionSummary, context: &str) {
+    assert_eq!(
+        summary.decision(),
+        QueryAdmissionDecision::Admitted,
+        "{context}: primary-key exact filter should be admitted",
+    );
+    assert_eq!(summary.rejection(), None, "{context}");
+    assert_eq!(
+        summary.selected_access(),
+        QueryAdmissionAccessKind::ByKey,
+        "{context}: primary-key equality filter should canonicalize to ByKey",
+    );
+    assert_eq!(summary.limit(), None, "{context}");
+    assert_eq!(
+        summary.scan_bound(),
+        Some(1),
+        "{context}: exact-key access should scan at most one row",
+    );
+    assert_eq!(
+        summary.scan_bound_kind(),
+        QueryBoundKind::Exact,
+        "{context}: exact-key access should have an exact scan bound",
+    );
+    assert_eq!(
+        summary.returned_row_bound(),
+        Some(1),
+        "{context}: exact-key access should return at most one row",
+    );
+    assert_eq!(
+        summary.returned_row_bound_kind(),
+        QueryBoundKind::ConservativeUpperBound,
+        "{context}",
     );
 }
 

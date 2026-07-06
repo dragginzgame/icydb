@@ -12,7 +12,6 @@ pub(super) fn normalize_where_bool_expr(expr: Expr) -> Expr {
 }
 
 pub(super) fn normalize_scalar_where_bool_expr(expr: Expr) -> Expr {
-    let expr = rewrite_affine_numeric_compare_expr(expr);
     let expr = fold_literal_only_where_expr(expr);
     let expr = simplify_bool_expr_constants(expr);
 

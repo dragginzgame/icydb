@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.3` extends deterministic exact-key canonicalization evidence across
+  heap and journaled store states and blocks non-canonical primary-key shapes
+  from deriving exact-key access.
+
 - `0.197.2` pins exact-key SQL cache and parameter boundaries, proving literal
   primary-key values do not alias cached plans and deterministic `IN` ordering
   remains stable.
