@@ -1,7 +1,7 @@
 use icydb_core::{
     db::{
         AdminBatchRequest, FluentLoadQuery, PageRequest, PagedLoadExecution, PersistedRow,
-        QueryError,
+        QueryError, ReadIntentKind,
     },
     traits::EntityValue,
 };
@@ -56,6 +56,10 @@ where
     let _: u32 = query.count_exact()?;
     let _ = query.sum_exact("amount")?;
     Ok(())
+}
+
+fn read_intent_kind_export_compiles() {
+    let _: ReadIntentKind = ReadIntentKind::ExactAggregate;
 }
 
 fn main() {}

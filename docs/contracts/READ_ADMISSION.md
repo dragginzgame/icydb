@@ -78,6 +78,11 @@ For migration examples and endpoint-intent guidance, see
 | run a broad maintenance scan | trusted execution | Keep it controller/admin-only and apply a maintenance resource policy. |
 | expose arbitrary SQL publicly | do not | Generated SQL remains controller-gated; caller-facing SQL must be application-owned and tightly allowlisted. |
 
+Diagnostics-only terminal attribution exposes `ReadIntentKind` so perf and
+observability tools can distinguish bounded row-window terminals from semantic
+read intents such as existence checks and exact aggregates. This field is
+reporting metadata only; it does not configure admission or grant access.
+
 ## Generated SQL Query Surface
 
 The generated `icydb_query` endpoint is deliberately not a public read lane.

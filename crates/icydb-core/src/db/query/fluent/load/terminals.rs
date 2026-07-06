@@ -16,6 +16,8 @@ use std::num::NonZeroU32;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::FluentTerminalExecutionAttribution;
+#[cfg(feature = "diagnostics")]
+use crate::db::query::read_intent::ReadIntentKind;
 use crate::{
     db::{
         DbSession, PersistedRow, Query,
@@ -434,12 +436,17 @@ where
     {
         self.ensure_exists_intent_owns_limit()?;
 
-        self.with_admitted_non_paged(|session, query| {
+        let (exists, attribution) = self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_exists_rows_terminal_with_attribution(
                 query,
                 ExistsRowsTerminal::new(),
             )
-        })
+        })?;
+
+        Ok((
+            exists,
+            attribution.with_read_intent(ReadIntentKind::ExistenceCheck),
+        ))
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -557,12 +564,17 @@ where
     where
         E: EntityValue,
     {
-        self.with_admitted_non_paged(|session, query| {
+        let (count, attribution) = self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_count_rows_terminal_with_attribution(
                 query,
                 CountRowsTerminal::new(),
             )
-        })
+        })?;
+
+        Ok((
+            count,
+            attribution.with_read_intent(ReadIntentKind::BoundedRowWindow),
+        ))
     }
 
     /// Execute and return the exact number of matching rows with terminal attribution.
@@ -576,12 +588,17 @@ where
     {
         self.ensure_count_exact_intent_owns_limit()?;
 
-        self.with_admitted_non_paged(|session, query| {
+        let (count, attribution) = self.with_admitted_non_paged(|session, query| {
             session.execute_fluent_count_rows_terminal_with_attribution(
                 query,
                 CountRowsTerminal::new(),
             )
-        })
+        })?;
+
+        Ok((
+            count,
+            attribution.with_read_intent(ReadIntentKind::ExactAggregate),
+        ))
     }
 
     /// Execute and return the total persisted payload bytes for the effective

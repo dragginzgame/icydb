@@ -97,6 +97,10 @@ let err = db()
 Use `execute_rows()` only when returning a bounded row window is the endpoint
 contract.
 
+Diagnostics-only terminal attribution reports `ReadIntentKind::ExistenceCheck`
+for attributed existence terminals, which helps perf and observability tools
+separate existence checks from low-level row-window reads.
+
 ## Exact Aggregates
 
 Use exact aggregate terminals when the endpoint promises an exact answer.
@@ -115,6 +119,10 @@ let total = db()
 
 `count_exact()` and `sum_exact(field)` reject prior raw `limit(...)`. Exact
 aggregates must not mean "aggregate the first N rows."
+
+Diagnostics-only terminal attribution reports `ReadIntentKind::ExactAggregate`
+for attributed exact count terminals and `ReadIntentKind::BoundedRowWindow` for
+the lower-level bounded count terminal.
 
 Use the older aggregate terminals only when the window is explicitly part of
 the endpoint promise:

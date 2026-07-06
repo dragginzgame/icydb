@@ -6,6 +6,8 @@
 use crate::db::query::admission::{
     DEFAULT_BOUNDED_READ_MAX_ROWS, DEFAULT_BOUNDED_READ_RESPONSE_BYTES,
 };
+use candid::CandidType;
+use serde::Deserialize;
 
 pub(in crate::db::query) const PUBLIC_PAGE_DEFAULT_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
 pub(in crate::db::query) const PUBLIC_PAGE_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
@@ -17,6 +19,35 @@ pub(in crate::db::query) const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;
 pub(in crate::db::query) const COMPLETE_SMALL_EXECUTION_LIMIT: u32 =
     COMPLETE_SMALL_MAX_ROWS + COMPLETE_SMALL_LOOKAHEAD_ROWS;
 pub(in crate::db::query) const ADMIN_BATCH_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
+
+/// Semantic read intent selected by a caller-facing terminal.
+///
+/// This is diagnostic metadata only. It does not grant access, choose planner
+/// routes, or configure admission policy.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum ReadIntentKind {
+    /// No semantic read intent was attached to this diagnostic payload.
+    #[default]
+    Unspecified,
+
+    /// Low-level execution over the effective bounded row window.
+    BoundedRowWindow,
+
+    /// Boolean existence check.
+    ExistenceCheck,
+
+    /// Request-owned public cursor page.
+    PublicPage,
+
+    /// Complete small-set read that fails instead of silently truncating.
+    CompleteSmallSet,
+
+    /// Exact count or sum aggregate.
+    ExactAggregate,
+
+    /// Trusted/admin cursor batch with engine-owned batch size.
+    TrustedAdminBatch,
+}
 
 /// Request-owned public page shape.
 ///

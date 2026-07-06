@@ -2294,6 +2294,11 @@ fn session_branch_set_fluent_sparse_in_count_uses_prefix_cardinality() {
         count, 16,
         "fluent sparse collection COUNT should include only the existing collection prefix",
     );
+    assert_eq!(
+        attribution.read_intent,
+        crate::db::ReadIntentKind::BoundedRowWindow,
+        "low-level fluent COUNT attribution should report bounded row-window intent",
+    );
     assert_fluent_prefix_cardinality_terminal(&attribution, "fluent sparse collection COUNT");
 }
 
@@ -2340,6 +2345,11 @@ fn session_branch_set_fluent_sparse_in_exists_uses_prefix_cardinality() {
     assert!(
         exists,
         "fluent sparse collection EXISTS should find the existing collection prefix",
+    );
+    assert_eq!(
+        attribution.read_intent,
+        crate::db::ReadIntentKind::ExistenceCheck,
+        "fluent EXISTS attribution should report existence-check intent",
     );
     assert_fluent_prefix_cardinality_terminal(&attribution, "fluent sparse collection EXISTS");
 }
@@ -3262,6 +3272,11 @@ fn session_branch_set_fluent_count_covered_predicate_reports_prefix_cardinality(
         "fluent covered COUNT should match the full branch predicate result",
     );
     assert_eq!(
+        attribution.read_intent,
+        crate::db::ReadIntentKind::BoundedRowWindow,
+        "low-level fluent COUNT attribution should report bounded row-window intent",
+    );
+    assert_eq!(
         attribution.store_get_calls, 0,
         "fluent synchronized branch COUNT should use exact prefix cardinality without row probes",
     );
@@ -3285,6 +3300,25 @@ fn session_branch_set_fluent_count_covered_predicate_reports_prefix_cardinality(
         scalar_aggregate.rows_ingested, 0,
         "fluent metadata COUNT should not ingest rows through the buffered reducer",
     );
+
+    let (exact_count, exact_attribution) = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .trusted_read_unchecked()
+        .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
+        .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
+        .count_exact_with_attribution()
+        .unwrap_or_else(|err| panic!("covered branch fluent exact COUNT should execute: {err:?}"));
+
+    assert_eq!(
+        exact_count, count,
+        "exact fluent COUNT should match the low-level count result",
+    );
+    assert_eq!(
+        exact_attribution.read_intent,
+        crate::db::ReadIntentKind::ExactAggregate,
+        "count_exact attribution should report exact aggregate intent",
+    );
+    assert_fluent_prefix_cardinality_terminal(&exact_attribution, "fluent covered exact COUNT");
 }
 
 #[cfg(feature = "diagnostics")]
@@ -3309,6 +3343,11 @@ fn session_branch_set_fluent_exists_reports_existing_rows_terminal_attribution()
     assert!(
         exists,
         "fluent EXISTS should find a row for the branch predicate",
+    );
+    assert_eq!(
+        attribution.read_intent,
+        crate::db::ReadIntentKind::ExistenceCheck,
+        "fluent EXISTS attribution should report existence-check intent",
     );
     let descriptor = query
         .explain_execution()
