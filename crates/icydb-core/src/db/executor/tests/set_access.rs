@@ -44,6 +44,24 @@ fn id_in_predicate(ids: &[u128]) -> Predicate {
     ))
 }
 
+fn ulid_values(ids: &[u128]) -> Vec<Value> {
+    ids.iter()
+        .copied()
+        .map(|id| Value::Ulid(Ulid::from_u128(id)))
+        .collect()
+}
+
+fn assert_by_keys_access(access: &ExplainAccessPath, expected_ids: &[u128], context: &str) {
+    let expected = ulid_values(expected_ids);
+    match access {
+        ExplainAccessPath::ByKeys { keys } => assert_eq!(
+            keys, &expected,
+            "{context}: exact-key AND predicates should narrow to canonical key-set access",
+        ),
+        other => panic!("{context}: expected narrowed ByKeys access, got {other:?}"),
+    }
+}
+
 #[test]
 fn load_by_ids_dedups_duplicate_input_ids() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -211,9 +229,10 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
         .order_term(crate::db::asc("id"))
         .explain()
         .expect("intersection explain should build");
-    assert!(
-        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
-        "AND predicate over key sets should plan as intersection access",
+    assert_by_keys_access(
+        explain.access(),
+        &[1213, 1214],
+        "overlapping ASC exact-key conjunction",
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
@@ -239,7 +258,7 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
 }
 
 #[test]
-fn load_intersection_explain_execution_projects_recursive_access_children() {
+fn load_intersection_explain_execution_projects_narrowed_key_access() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -263,25 +282,20 @@ fn load_intersection_explain_execution_projects_recursive_access_children() {
 
     assert_eq!(
         descriptor.node_type(),
-        ExplainExecutionNodeType::Intersection,
-        "AND predicate over PK sets should project intersection root access node",
+        ExplainExecutionNodeType::ByKeysLookup,
+        "AND predicate over exact PK sets should project narrowed key-set lookup",
+    );
+    let Some(access) = descriptor.access_strategy() else {
+        panic!("narrowed exact-key descriptor should retain access projection");
+    };
+    assert_by_keys_access(
+        access,
+        &[2213, 2214],
+        "overlapping exact-key execution descriptor",
     );
     assert!(
-        matches!(
-            descriptor.access_strategy(),
-            Some(ExplainAccessPath::Intersection(_))
-        ),
-        "intersection descriptor root should retain intersection access projection",
-    );
-    assert!(
-        explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::ByKeysLookup),
-        "intersection descriptor should include recursive key-set access children",
-    );
-    let descriptor_json = descriptor.render_json_canonical();
-    assert!(
-        descriptor_json.contains("\"type\":\"Intersection\"")
-            && descriptor_json.contains("\"children\":["),
-        "intersection execution descriptor json should preserve recursive access shape",
+        !explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::Intersection),
+        "narrowed exact-key descriptor should not retain a stale intersection execution node",
     );
 }
 
@@ -307,9 +321,10 @@ fn load_intersection_desc_keeps_overlap_in_desc_order() {
         .order_term(crate::db::desc("id"))
         .explain()
         .expect("intersection DESC explain should build");
-    assert!(
-        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
-        "AND predicate over key sets should plan as intersection access",
+    assert_by_keys_access(
+        explain.access(),
+        &[1223, 1224],
+        "overlapping DESC exact-key conjunction",
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
@@ -356,10 +371,7 @@ fn load_intersection_no_overlap_returns_empty() {
         .order_term(crate::db::asc("id"))
         .explain()
         .expect("intersection no-overlap explain should build");
-    assert!(
-        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
-        "disjoint AND key predicates should still plan as intersection access",
-    );
+    assert_by_keys_access(explain.access(), &[], "disjoint exact-key conjunction");
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -400,9 +412,10 @@ fn load_intersection_suppresses_duplicate_keys() {
         .order_term(crate::db::asc("id"))
         .explain()
         .expect("intersection duplicate explain should build");
-    assert!(
-        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
-        "duplicate AND key predicates should still plan as intersection access",
+    assert_by_keys_access(
+        explain.access(),
+        &[1241, 1243],
+        "duplicate exact-key conjunction",
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
@@ -523,9 +536,10 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
         .limit(2)
         .explain()
         .expect("intersection pagination explain should build");
-    assert!(
-        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
-        "overlapping AND predicate should plan as intersection access",
+    assert_by_keys_access(
+        explain.access(),
+        &[1264, 1265, 1266, 1267, 1268],
+        "paged DESC exact-key conjunction",
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);

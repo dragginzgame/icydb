@@ -177,8 +177,9 @@ fn pk_canonicalization_focused_current_artifact_writes_from_pocketic() {
             Value::Object(current_row_for_scenario(scenario, &captured))
         })
         .collect::<Vec<_>>();
-    let artifact = focused_current_artifact(rows);
     let output_path = focused_current_output_path();
+    let artifact_kind = focused_capture_artifact_kind(output_path.as_path());
+    let artifact = focused_current_artifact(rows, &artifact_kind);
     let markdown_path = output_path.with_extension("md");
 
     write_json(output_path.as_path(), &artifact);
@@ -518,16 +519,39 @@ fn build_focused_delta(manifest: &FocusedManifest, before: &Value, after: &Value
     Value::Object(delta)
 }
 
-fn focused_current_artifact(rows: Vec<Value>) -> Value {
+fn focused_capture_artifact_kind(path: &Path) -> String {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if file_name.contains("_before") {
+        return "sql_perf_197_pk_canonicalization_before".to_string();
+    }
+    if file_name.contains("_after") {
+        return "sql_perf_197_pk_canonicalization_after".to_string();
+    }
+
+    "sql_perf_197_pk_canonicalization_current".to_string()
+}
+
+fn focused_capture_generated_from(artifact_kind: &str) -> &'static str {
+    match artifact_kind {
+        "sql_perf_197_pk_canonicalization_before" => "pocketic_baseline_capture",
+        "sql_perf_197_pk_canonicalization_after" => "pocketic_current_capture",
+        _ => "pocketic_capture",
+    }
+}
+
+fn focused_current_artifact(rows: Vec<Value>, artifact_kind: &str) -> Value {
     let mut artifact = Map::new();
     artifact.insert("line".to_string(), Value::String("0.197".to_string()));
     artifact.insert(
         "artifact".to_string(),
-        Value::String("sql_perf_197_pk_canonicalization_after".to_string()),
+        Value::String(artifact_kind.to_string()),
     );
     artifact.insert(
         "generated_from".to_string(),
-        Value::String("pocketic_current_capture".to_string()),
+        Value::String(focused_capture_generated_from(artifact_kind).to_string()),
     );
     artifact.insert(
         "scenario_count".to_string(),
@@ -873,6 +897,15 @@ fn focused_delta_markdown(delta: &Value) -> String {
 
 fn focused_current_markdown(artifact: &Value) -> String {
     let rows = focused_delta_rows(artifact);
+    let title = match artifact.get("artifact").and_then(Value::as_str) {
+        Some("sql_perf_197_pk_canonicalization_before") => {
+            "0.197 Focused Primary-Key Canonicalization Before Baseline"
+        }
+        Some("sql_perf_197_pk_canonicalization_after") => {
+            "0.197 Focused Primary-Key Canonicalization Current Capture"
+        }
+        _ => "0.197 Focused Primary-Key Canonicalization Capture",
+    };
     let counter_measured = rows
         .iter()
         .filter(|row| {
@@ -903,11 +936,7 @@ fn focused_current_markdown(artifact: &Value) -> String {
         .count();
     let mut markdown = String::new();
 
-    writeln!(
-        markdown,
-        "# 0.197 Focused Primary-Key Canonicalization Current Capture\n"
-    )
-    .expect("writing markdown to String should not fail");
+    writeln!(markdown, "# {title}\n").expect("writing markdown to String should not fail");
     writeln!(markdown, "- Scenario rows: {}", rows.len())
         .expect("writing markdown to String should not fail");
     writeln!(markdown, "- Counter-measured rows: {counter_measured}")

@@ -2048,6 +2048,7 @@ fn query_token_fluent_loop_with_perf(
     query_fluent_scenario_loop("token", scenario.as_str(), runs)
 }
 
+#[cfg(feature = "sql")]
 macro_rules! focused_fluent_row {
     (
         $scenario_key:expr,

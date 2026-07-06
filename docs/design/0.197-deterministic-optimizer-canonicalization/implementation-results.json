@@ -142,9 +142,6 @@
     }
   ],
   "missing_closeout_artifacts": [
-    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.json",
-    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.json",
-    "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.md",
     "fresh full deterministic SQL matrix before JSON/Markdown",
     "fresh full deterministic SQL matrix after JSON/Markdown"
   ],
@@ -152,10 +149,24 @@
     "markdown": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.md",
     "json": "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.json",
     "measured_artifacts_captured": true,
+    "baseline_before_json": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.json",
+    "baseline_before_markdown": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.md",
     "current_after_json": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.json",
     "current_after_markdown": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.md",
+    "focused_delta_json": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.json",
+    "focused_delta_markdown": "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.md",
+    "baseline_capture": {
+      "scenario_count": 33,
+      "counter_measured_rows": 8,
+      "measured_admitted_rows": 7,
+      "contract_not_measured_rows": 5,
+      "non_admitted_fail_closed_rows": 26,
+      "aggregate_data_store_get": 5,
+      "aggregate_total_instructions": 7199468
+    },
     "current_capture": {
       "scenario_count": 33,
+      "counter_measured_rows": 21,
       "measured_admitted_rows": 20,
       "public_policy_rejected_not_measured_rows": 3,
       "external_contract_not_measured_rows": 2,
@@ -163,8 +174,32 @@
       "aggregate_data_store_get": 24,
       "aggregate_total_instructions": 13622028
     },
+    "focused_delta": {
+      "scenario_count": 33,
+      "result_signature_changes": 13,
+      "selected_access_changes": 13,
+      "newly_admitted_exact_key_shapes": 13,
+      "expected_behavior_change_scenarios": 24,
+      "before_aggregate_data_store_get": 5,
+      "after_aggregate_data_store_get": 24,
+      "before_aggregate_total_instructions": 7199468,
+      "after_aggregate_total_instructions": 13622028,
+      "performance_closeout_claimed": false,
+      "notes": "Focused delta is behavior/admission evidence; many baseline rows failed admission before execution, so aggregate instruction totals are not a broad speedup comparison."
+    },
     "saved_delta_gate": "testing/integration/tests/pk_canonicalization_focused_artifact.rs::pk_canonicalization_focused_delta_covers_manifest",
     "saved_before_after_generator": "testing/integration/tests/pk_canonicalization_focused_artifact.rs::pk_canonicalization_focused_delta_writes_from_saved_before_after_artifacts"
+  },
+  "focused_baseline_capture": {
+    "baseline_commit": "709d1b682",
+    "baseline_version": "0.196.21",
+    "command": "env IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR=/home/adam/projects/icydb/.cache ICYDB_197_PK_FOCUSED_CURRENT_OUT=/home/adam/projects/icydb/docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.json cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact pk_canonicalization_focused_current_artifact_writes_from_pocketic -- --ignored --nocapture",
+    "status": "passed_outside_sandbox",
+    "artifacts_produced": [
+      "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.json",
+      "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.md"
+    ],
+    "notes": "Captured from a temporary 0.196.21 worktree with only the measurement harness backported."
   },
   "focused_pocket_ic_capture": {
     "command": "env IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR=/home/adam/projects/icydb/.cache cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact pk_canonicalization_focused_current_artifact_writes_from_pocketic -- --ignored --nocapture",
@@ -174,7 +209,19 @@
       "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.md"
     ],
     "performance_closeout_claimed": false,
-    "notes": "Current route/status/counter evidence only; no same-machine before artifact or focused delta exists yet."
+    "notes": "Current route/status/counter evidence. Focused before/delta artifacts now exist, but broad performance closeout still requires the full deterministic SQL matrix."
+  },
+  "focused_delta_generation": {
+    "command": "env ICYDB_197_PK_FOCUSED_BEFORE_JSON=/home/adam/projects/icydb/docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_before.json ICYDB_197_PK_FOCUSED_AFTER_JSON=/home/adam/projects/icydb/docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_after.json cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact pk_canonicalization_focused_delta_writes_from_saved_before_after_artifacts -- --ignored --nocapture",
+    "status": "passed",
+    "artifacts_produced": [
+      "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.json",
+      "docs/design/0.197-deterministic-optimizer-canonicalization/sql_perf_197_pk_canonicalization_delta.md"
+    ],
+    "saved_delta_gate": {
+      "command": "cargo test -p icydb-testing-integration --test pk_canonicalization_focused_artifact pk_canonicalization_focused_delta_covers_manifest -- --ignored --nocapture",
+      "status": "passed"
+    }
   },
   "pocket_ic_measurement_attempt": {
     "command": "env IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR=/home/adam/projects/icydb/.cache cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_audit_harness_reports_instruction_samples -- --ignored --nocapture",
@@ -183,12 +230,11 @@
     "first_attempt": "PocketIC server process panicked while binding 127.0.0.1:0 under the sandbox, then the test harness hung until interrupted.",
     "retry": "PocketIC listened on a loopback port outside the sandbox and sql_perf_audit_harness_reports_instruction_samples passed with 1 test.",
     "artifacts_produced": false,
-    "notes": "This proves the SQL perf harness can run, but it does not produce the required 0.197 focused before/after delta or full deterministic matrix artifacts."
+    "notes": "This proves the SQL perf harness can run, but it does not produce full deterministic matrix artifacts."
   },
   "recommended_next_slices": [
-    "Capture or reconstruct the same-machine focused 0.197 before artifact if a performance delta is still required.",
-    "Generate the focused delta from saved before/current captures and run the saved-artifact gate.",
     "Run the fresh full deterministic SQL matrix after focused artifacts can classify exact-key route and status deltas.",
-    "Re-run full workspace validation in an environment with PocketIC configured."
+    "Re-run full workspace validation in an environment with PocketIC configured.",
+    "Prepare final 0.197 closeout wording only after broad matrix deltas are classified."
   ]
 }

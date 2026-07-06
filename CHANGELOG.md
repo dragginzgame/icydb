@@ -11,10 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
-- `0.197.12` records the focused PocketIC exact-key artifact, adds saved
-  before/after delta helpers and manifest gates, and folds the closeout
-  correctness/documentation follow-ups into the deterministic primary-key
-  canonicalization line without claiming a before/after performance closeout.
+- `0.197.12` records focused PocketIC before/after exact-key artifacts and
+  delta gates, and folds the closeout correctness/documentation follow-ups
+  into the deterministic primary-key canonicalization line without claiming a
+  broad full-matrix performance closeout.
 
 - `0.197.11` records the in-progress exact-key evidence ledger and focused
   scenario manifest, keeping performance closeout explicitly blocked on fresh
