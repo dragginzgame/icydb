@@ -549,4 +549,6 @@ define_error_code_registry! {
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PublicQueryOffsetRejected });
     QUERY_READ_RETURNED_ROW_BOUND_EXCEEDS_POLICY = 203 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy });
+    QUERY_READ_PRIMARY_KEY_INPUT_EXCEEDS_POLICY = 204 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy });
 }

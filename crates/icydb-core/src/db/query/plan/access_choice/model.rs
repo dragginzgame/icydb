@@ -21,6 +21,7 @@ pub(in crate::db) struct AccessChoiceExplainSnapshot {
     pub(in crate::db) candidates: Vec<AccessChoiceCandidateExplainSummary>,
     pub(in crate::db) alternatives: Vec<String>,
     pub(in crate::db) rejected: Vec<String>,
+    pub(in crate::db) primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
 }
 
 impl AccessChoiceExplainSnapshot {
@@ -33,6 +34,7 @@ impl AccessChoiceExplainSnapshot {
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
+            primary_key_input_resource: None,
         }
     }
 
@@ -45,6 +47,7 @@ impl AccessChoiceExplainSnapshot {
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
+            primary_key_input_resource: None,
         }
     }
 
@@ -98,6 +101,7 @@ impl AccessChoiceExplainSnapshot {
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
+            primary_key_input_resource: None,
         }
     }
 
@@ -105,6 +109,62 @@ impl AccessChoiceExplainSnapshot {
     #[must_use]
     pub(in crate::db) const fn chosen_reason(&self) -> AccessChoiceSelectedReason {
         self.chosen_reason
+    }
+
+    /// Return planner-owned primary-key literal resource facts, when the
+    /// selected access route came from a primary-key predicate.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_input_resource(
+        &self,
+    ) -> Option<PrimaryKeyInputResourceSummary> {
+        self.primary_key_input_resource
+    }
+
+    /// Attach primary-key literal resource facts to this planner snapshot.
+    #[must_use]
+    pub(in crate::db) const fn with_primary_key_input_resource(
+        mut self,
+        resource: PrimaryKeyInputResourceSummary,
+    ) -> Self {
+        self.primary_key_input_resource = Some(resource);
+        self
+    }
+}
+
+///
+/// PrimaryKeyInputResourceSummary
+///
+/// Planner-owned resource facts for primary-key predicate literal inputs.
+/// The deduplicated access path remains semantic authority for row bounds;
+/// this summary lets admission also cap pre-execution key-list work.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PrimaryKeyInputResourceSummary {
+    raw_term_count: u32,
+    estimated_payload_bytes: u32,
+}
+
+impl PrimaryKeyInputResourceSummary {
+    /// Build one primary-key literal resource summary.
+    #[must_use]
+    pub(in crate::db) const fn new(raw_term_count: u32, estimated_payload_bytes: u32) -> Self {
+        Self {
+            raw_term_count,
+            estimated_payload_bytes,
+        }
+    }
+
+    /// Return the number of input key terms at the planner predicate boundary.
+    #[must_use]
+    pub(in crate::db) const fn raw_term_count(self) -> u32 {
+        self.raw_term_count
+    }
+
+    /// Return the conservative estimated key-literal payload bytes.
+    #[must_use]
+    pub(in crate::db) const fn estimated_payload_bytes(self) -> u32 {
+        self.estimated_payload_bytes
     }
 }
 

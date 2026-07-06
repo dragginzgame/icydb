@@ -423,6 +423,7 @@ pub enum QueryReadAdmissionCode {
     UnsupportedStatementForQueryLane,
     PublicQueryOffsetRejected,
     ReturnedRowBoundExceedsPolicy,
+    PrimaryKeyInputExceedsPolicy,
 }
 
 impl fmt::Debug for QueryReadAdmissionCode {
@@ -933,7 +934,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 203);
+        assert_eq!(last, 204);
     }
 
     #[test]
@@ -965,7 +966,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 204, u16::MAX] {
+        for raw in [0, 205, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

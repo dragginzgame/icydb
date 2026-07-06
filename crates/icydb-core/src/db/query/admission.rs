@@ -11,8 +11,8 @@ use crate::{
     db::{
         access::IndexBranchSetOrderedSuffix,
         query::plan::{
-            AccessPlanProjection, AccessPlannedQuery, GroupPlan, QueryMode, ResidualFilterShape,
-            ScalarPlan, project_access_plan,
+            AccessPlanProjection, AccessPlannedQuery, GroupPlan, PrimaryKeyInputResourceSummary,
+            QueryMode, ResidualFilterShape, ScalarPlan, project_access_plan,
         },
     },
     value::Value,
@@ -26,9 +26,14 @@ const DEFAULT_BOUNDED_READ_RESPONSE_BYTES: u32 = 128 * 1024;
 const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;
 const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;
 const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;
+const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_TERMS: u32 = 1024;
+const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_BYTES: u32 = 64 * 1024;
 
-fn non_zero_default(value: u32) -> NonZeroU32 {
-    NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN)
+const fn non_zero_default(value: u32) -> NonZeroU32 {
+    match NonZeroU32::new(value) {
+        Some(value) => value,
+        None => NonZeroU32::MIN,
+    }
 }
 
 /// Query execution lane selected by the public or internal caller surface.
@@ -375,7 +380,7 @@ impl GroupedAdmissionPolicy {
     /// via `grouped_limits(...)`; this policy defines the maximum values those
     /// limits may carry on the default read path.
     #[must_use]
-    pub(in crate::db) fn default_bounded_read() -> Self {
+    pub(in crate::db) const fn default_bounded_read() -> Self {
         Self::bounded(
             non_zero_default(DEFAULT_BOUNDED_READ_MAX_GROUPS),
             non_zero_default(DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES),
@@ -464,6 +469,8 @@ pub(in crate::db) struct QueryAdmissionPolicy {
     max_returned_rows: Option<NonZeroU32>,
     max_scanned_rows: Option<NonZeroU64>,
     max_response_bytes: Option<NonZeroU32>,
+    max_primary_key_input_terms: Option<NonZeroU32>,
+    max_primary_key_input_bytes: Option<NonZeroU32>,
     index_requirement: IndexRequirement,
     offset_policy: OffsetPolicy,
     full_scan_policy: FullScanPolicy,
@@ -486,6 +493,12 @@ impl QueryAdmissionPolicy {
             max_returned_rows: Some(max_returned_rows),
             max_scanned_rows: None,
             max_response_bytes: Some(max_response_bytes),
+            max_primary_key_input_terms: Some(non_zero_default(
+                DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_TERMS,
+            )),
+            max_primary_key_input_bytes: Some(non_zero_default(
+                DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_BYTES,
+            )),
             index_requirement: IndexRequirement::Required,
             offset_policy: OffsetPolicy::RejectNonZero,
             full_scan_policy: FullScanPolicy::Reject,
@@ -503,7 +516,7 @@ impl QueryAdmissionPolicy {
     /// need a broader read must use an explicitly trusted execution method or
     /// evaluate their own policy before executing.
     #[must_use]
-    pub(in crate::db) fn default_bounded_read() -> Self {
+    pub(in crate::db) const fn default_bounded_read() -> Self {
         Self::public_read(
             non_zero_default(DEFAULT_BOUNDED_READ_MAX_ROWS),
             non_zero_default(DEFAULT_BOUNDED_READ_RESPONSE_BYTES),
@@ -538,6 +551,8 @@ impl QueryAdmissionPolicy {
             max_returned_rows: Some(max_returned_rows),
             max_scanned_rows: Some(max_scanned_rows),
             max_response_bytes: Some(max_response_bytes),
+            max_primary_key_input_terms: None,
+            max_primary_key_input_bytes: None,
             index_requirement: IndexRequirement::Optional,
             offset_policy: OffsetPolicy::Allow,
             full_scan_policy: FullScanPolicy::Allow,
@@ -557,6 +572,8 @@ impl QueryAdmissionPolicy {
             max_returned_rows: None,
             max_scanned_rows: None,
             max_response_bytes: None,
+            max_primary_key_input_terms: None,
+            max_primary_key_input_bytes: None,
             index_requirement: IndexRequirement::Optional,
             offset_policy: OffsetPolicy::Allow,
             full_scan_policy: FullScanPolicy::Allow,
@@ -646,6 +663,19 @@ impl QueryAdmissionPolicy {
             || (self.max_returned_rows.is_some() && self.max_response_bytes.is_some())
     }
 
+    /// Return this policy with explicit primary-key input work caps.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn with_primary_key_input_caps(
+        mut self,
+        max_terms: NonZeroU32,
+        max_bytes: NonZeroU32,
+    ) -> Self {
+        self.max_primary_key_input_terms = Some(max_terms);
+        self.max_primary_key_input_bytes = Some(max_bytes);
+        self
+    }
+
     /// Apply this policy to one already-summarized plan.
     #[must_use]
     pub(in crate::db) fn evaluate(
@@ -703,6 +733,10 @@ impl QueryAdmissionPolicy {
         }
 
         if let Some(rejection) = self.scan_bound_rejection(summary) {
+            return Some(rejection);
+        }
+
+        if let Some(rejection) = self.primary_key_input_rejection(summary) {
             return Some(rejection);
         }
 
@@ -786,6 +820,29 @@ impl QueryAdmissionPolicy {
 
         if scan_bound > max_scanned_rows.get() {
             return Some(QueryAdmissionRejection::ScanBoundExceedsPolicy);
+        }
+
+        None
+    }
+
+    const fn primary_key_input_rejection(
+        &self,
+        summary: &QueryAdmissionSummary,
+    ) -> Option<QueryAdmissionRejection> {
+        if let (Some(bound), Some(max)) = (
+            summary.primary_key_input_terms(),
+            self.max_primary_key_input_terms,
+        ) && bound > max.get()
+        {
+            return Some(QueryAdmissionRejection::PrimaryKeyInputExceedsPolicy);
+        }
+
+        if let (Some(bound), Some(max)) = (
+            summary.primary_key_input_payload_bytes(),
+            self.max_primary_key_input_bytes,
+        ) && bound > max.get()
+        {
+            return Some(QueryAdmissionRejection::PrimaryKeyInputExceedsPolicy);
         }
 
         None
@@ -925,6 +982,8 @@ pub enum QueryAdmissionRejection {
     PublicQueryOffsetRejected,
     /// The returned-row bound exceeds the selected policy.
     ReturnedRowBoundExceedsPolicy,
+    /// Primary-key predicate input work exceeds the selected policy.
+    PrimaryKeyInputExceedsPolicy,
 }
 
 impl QueryAdmissionRejection {
@@ -948,6 +1007,7 @@ impl QueryAdmissionRejection {
             Self::UnsupportedStatementForQueryLane => "unsupported_statement_for_query_lane",
             Self::PublicQueryOffsetRejected => "public_query_offset_rejected",
             Self::ReturnedRowBoundExceedsPolicy => "returned_row_bound_exceeds_policy",
+            Self::PrimaryKeyInputExceedsPolicy => "primary_key_input_exceeds_policy",
         }
     }
 
@@ -984,6 +1044,9 @@ impl QueryAdmissionRejection {
             Self::PublicQueryOffsetRejected => QueryReadAdmissionCode::PublicQueryOffsetRejected,
             Self::ReturnedRowBoundExceedsPolicy => {
                 QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy
+            }
+            Self::PrimaryKeyInputExceedsPolicy => {
+                QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy
             }
         }
     }
@@ -1023,6 +1086,8 @@ pub struct QueryAdmissionSummary {
     returned_row_bound_kind: QueryBoundKind,
     response_byte_bound: Option<u32>,
     response_byte_bound_kind: QueryBoundKind,
+    primary_key_input_terms: Option<u32>,
+    primary_key_input_payload_bytes: Option<u32>,
     residual_filter: QueryAdmissionResidualFilter,
     ordering: QueryAdmissionOrdering,
     grouped: Option<QueryAdmissionGroupedSummary>,
@@ -1051,6 +1116,8 @@ impl QueryAdmissionSummary {
             returned_row_bound_kind: QueryBoundKind::Unavailable,
             response_byte_bound: None,
             response_byte_bound_kind: QueryBoundKind::Unavailable,
+            primary_key_input_terms: None,
+            primary_key_input_payload_bytes: None,
             residual_filter: QueryAdmissionResidualFilter::Absent,
             ordering: QueryAdmissionOrdering::None,
             grouped: None,
@@ -1080,6 +1147,8 @@ impl QueryAdmissionSummary {
             returned_row_bound_kind: QueryBoundKind::Unavailable,
             response_byte_bound: None,
             response_byte_bound_kind: QueryBoundKind::Unavailable,
+            primary_key_input_terms: None,
+            primary_key_input_payload_bytes: None,
             residual_filter: QueryAdmissionResidualFilter::Absent,
             ordering: QueryAdmissionOrdering::None,
             grouped: None,
@@ -1100,6 +1169,7 @@ impl QueryAdmissionSummary {
             (returned_row_bound, returned_row_bound_kind) =
                 returned_row_bound_from_exact_access(&access);
         }
+        let primary_key_input_resource = plan.access_choice().primary_key_input_resource();
         let scan_bound_kind = access.scan_bound_kind();
         Self {
             lane,
@@ -1115,6 +1185,10 @@ impl QueryAdmissionSummary {
             returned_row_bound_kind,
             response_byte_bound: None,
             response_byte_bound_kind: QueryBoundKind::Unavailable,
+            primary_key_input_terms: primary_key_input_resource
+                .map(PrimaryKeyInputResourceSummary::raw_term_count),
+            primary_key_input_payload_bytes: primary_key_input_resource
+                .map(PrimaryKeyInputResourceSummary::estimated_payload_bytes),
             residual_filter: admission_residual_filter(plan.residual_filter_shape()),
             ordering: admission_ordering(plan),
             grouped,
@@ -1213,6 +1287,19 @@ impl QueryAdmissionSummary {
         self.response_byte_bound_kind
     }
 
+    /// Return primary-key predicate input terms when the selected exact-key
+    /// route carries planner-owned resource facts.
+    #[must_use]
+    pub const fn primary_key_input_terms(&self) -> Option<u32> {
+        self.primary_key_input_terms
+    }
+
+    /// Return estimated primary-key predicate input payload bytes when known.
+    #[must_use]
+    pub const fn primary_key_input_payload_bytes(&self) -> Option<u32> {
+        self.primary_key_input_payload_bytes
+    }
+
     /// Return post-access residual filter facts.
     #[must_use]
     pub const fn residual_filter(&self) -> QueryAdmissionResidualFilter {
@@ -1288,6 +1375,16 @@ impl QueryAdmissionSummary {
             &mut out,
             "response_byte_bound_kind",
             self.response_byte_bound_kind().as_str(),
+        );
+        push_text_option_u32(
+            &mut out,
+            "primary_key_input_terms",
+            self.primary_key_input_terms(),
+        );
+        push_text_option_u32(
+            &mut out,
+            "primary_key_input_payload_bytes",
+            self.primary_key_input_payload_bytes(),
         );
         push_text_field(&mut out, "residual_filter", self.residual_filter().as_str());
         push_text_field(&mut out, "ordering", self.ordering().as_str());

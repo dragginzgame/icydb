@@ -55,7 +55,7 @@ fn same_score_competing_candidate_scan_count_for_tests() -> u64 {
 
 pub(in crate::db) use self::model::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
-    AccessChoiceSelectedReason,
+    AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
 };
 
 fn semantic_candidate_indexes_from_generated_model_only(
@@ -220,6 +220,7 @@ fn project_access_choice_explain_snapshot_from_authority(
         candidates,
         alternatives,
         rejected,
+        primary_key_input_resource: None,
     }
 }
 
@@ -237,6 +238,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
+            primary_key_input_resource: None,
         };
     }
     if access
@@ -249,6 +251,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
+            primary_key_input_resource: None,
         };
     }
     if access.as_primary_key_range_path().is_some() {
@@ -257,6 +260,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
+            primary_key_input_resource: None,
         };
     }
     if access.is_single_full_scan() {
@@ -265,6 +269,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
+            primary_key_input_resource: None,
         };
     }
 

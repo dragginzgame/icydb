@@ -11,8 +11,9 @@ use crate::{
             intent::{QueryError, QueryModel},
             plan::{
                 AccessPlannedQuery, AccessPlanningInputs, LogicalPlan, LogicalPlanningInputs,
-                OrderSpec, PlannedAccessSelection, PlannedNonIndexAccessReason, VisibleIndexes,
-                build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
+                OrderSpec, PlannedAccessSelection, PlannedNonIndexAccessReason,
+                PrimaryKeyInputResourceSummary, VisibleIndexes, build_logical_plan,
+                fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
                 predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
@@ -46,6 +47,7 @@ pub(in crate::db) struct PreparedScalarPlanningState<'a> {
     schema_info: SchemaInfo,
     access_inputs: AccessPlanningInputs<'a>,
     normalized_predicate: Option<Predicate>,
+    primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
 }
 
 impl<'a> PreparedScalarPlanningState<'a> {
@@ -55,11 +57,13 @@ impl<'a> PreparedScalarPlanningState<'a> {
         schema_info: SchemaInfo,
         access_inputs: AccessPlanningInputs<'a>,
         normalized_predicate: Option<Predicate>,
+        primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
     ) -> Self {
         Self {
             schema_info,
             access_inputs,
             normalized_predicate,
+            primary_key_input_resource,
         }
     }
 
@@ -163,6 +167,7 @@ where
         schema_info,
         access_inputs,
         normalized_predicate,
+        primary_key_input_resource,
     } = planning_state;
     let access_order = access_inputs.order();
     let key_access_override = access_inputs.into_key_access_override();
@@ -233,6 +238,7 @@ where
             None,
         );
     }
+    attach_primary_key_input_resource_if_exact_access(&mut plan, primary_key_input_resource);
     simplify_limit_one_page_for_by_key_access(&mut plan);
 
     // Phase 4: freeze the planner-owned route profile before validation so
@@ -489,6 +495,8 @@ where
     // and miss-path planning reuse the same explicit key-access override
     // materialization.
     let access_inputs = query.planning_access_inputs();
+    let primary_key_input_resource =
+        primary_key_input_resource_from_predicate(&schema_info, access_inputs.predicate());
     let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
         &schema_info,
         access_inputs.predicate(),
@@ -498,6 +506,7 @@ where
         schema_info,
         access_inputs,
         normalized_predicate,
+        primary_key_input_resource,
     ))
 }
 
@@ -555,6 +564,145 @@ fn validate_plan_semantics(
     }
 
     Ok(())
+}
+
+fn attach_primary_key_input_resource_if_exact_access(
+    plan: &mut AccessPlannedQuery,
+    resource: Option<PrimaryKeyInputResourceSummary>,
+) {
+    let Some(resource) = resource else {
+        return;
+    };
+    if ExactPrimaryKeyAccess::from_access(&plan.access).is_none() {
+        return;
+    }
+
+    plan.access_choice = plan
+        .access_choice
+        .clone()
+        .with_primary_key_input_resource(resource);
+}
+
+fn primary_key_input_resource_from_predicate(
+    schema_info: &SchemaInfo,
+    predicate: Option<&Predicate>,
+) -> Option<PrimaryKeyInputResourceSummary> {
+    let primary_key_name = scalar_primary_key_name(schema_info)?;
+    let mut resource = PrimaryKeyInputResourceAccumulator::default();
+    collect_primary_key_in_resource(predicate?, primary_key_name, &mut resource);
+
+    resource.into_summary()
+}
+
+fn collect_primary_key_in_resource(
+    predicate: &Predicate,
+    primary_key_name: &str,
+    resource: &mut PrimaryKeyInputResourceAccumulator,
+) {
+    match predicate {
+        Predicate::Compare(cmp) if cmp.field == primary_key_name && cmp.op == CompareOp::In => {
+            if let Value::List(values) = &cmp.value {
+                resource.add_values(values);
+            }
+        }
+        Predicate::And(children) => {
+            for child in children {
+                collect_primary_key_in_resource(child, primary_key_name, resource);
+            }
+        }
+        Predicate::Or(_)
+        | Predicate::Not(_)
+        | Predicate::Compare(_)
+        | Predicate::CompareFields(_)
+        | Predicate::IsMissing { .. }
+        | Predicate::IsEmpty { .. }
+        | Predicate::IsNotEmpty { .. }
+        | Predicate::TextContains { .. }
+        | Predicate::TextContainsCi { .. }
+        | Predicate::IsNull { .. }
+        | Predicate::IsNotNull { .. }
+        | Predicate::True
+        | Predicate::False => {}
+    }
+}
+
+#[derive(Default)]
+struct PrimaryKeyInputResourceAccumulator {
+    raw_term_count: u32,
+    estimated_payload_bytes: u32,
+}
+
+impl PrimaryKeyInputResourceAccumulator {
+    fn add_values(&mut self, values: &[Value]) {
+        self.raw_term_count = self
+            .raw_term_count
+            .saturating_add(u32::try_from(values.len()).unwrap_or(u32::MAX));
+        self.estimated_payload_bytes = self
+            .estimated_payload_bytes
+            .saturating_add(estimate_value_list_payload_bytes(values));
+    }
+
+    const fn into_summary(self) -> Option<PrimaryKeyInputResourceSummary> {
+        if self.raw_term_count == 0 {
+            return None;
+        }
+
+        Some(PrimaryKeyInputResourceSummary::new(
+            self.raw_term_count,
+            self.estimated_payload_bytes,
+        ))
+    }
+}
+
+fn estimate_value_list_payload_bytes(values: &[Value]) -> u32 {
+    values.iter().fold(0u32, |total, value| {
+        total.saturating_add(estimate_value_payload_bytes(value))
+    })
+}
+
+fn estimate_value_payload_bytes(value: &Value) -> u32 {
+    match value {
+        Value::Account(_) => crate::types::Account::STORED_SIZE,
+        Value::Blob(bytes) => byte_len_u32(bytes.len()),
+        Value::Bool(_) => 1,
+        Value::Date(_) | Value::Float32(_) => 4,
+        Value::Decimal(_) => 20,
+        Value::Duration(_)
+        | Value::Float64(_)
+        | Value::Int64(_)
+        | Value::Nat64(_)
+        | Value::Timestamp(_) => 8,
+        Value::Enum(value) => estimate_enum_payload_bytes(value),
+        Value::Int128(_) | Value::Nat128(_) | Value::Ulid(_) => 16,
+        Value::IntBig(value) => byte_len_u32(value.to_leb128().len()),
+        Value::List(values) => estimate_value_list_payload_bytes(values),
+        Value::Map(entries) => entries.iter().fold(0u32, |total, (key, value)| {
+            total
+                .saturating_add(estimate_value_payload_bytes(key))
+                .saturating_add(estimate_value_payload_bytes(value))
+        }),
+        Value::NatBig(value) => byte_len_u32(value.to_leb128().len()),
+        Value::Null | Value::Unit => 0,
+        Value::Principal(value) => byte_len_u32(value.as_slice().len()),
+        Value::Subaccount(_) => 32,
+        Value::Text(value) => byte_len_u32(value.len()),
+    }
+}
+
+fn estimate_enum_payload_bytes(value: &crate::value::ValueEnum) -> u32 {
+    let mut bytes = byte_len_u32(value.variant().len());
+    if let Some(path) = value.path() {
+        bytes = bytes.saturating_add(byte_len_u32(path.len()));
+    }
+    if let Some(payload) = value.payload() {
+        bytes = bytes.saturating_add(estimate_value_payload_bytes(payload));
+    }
+
+    bytes
+}
+
+fn byte_len_u32(len: usize) -> u32 {
+    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 // Drop one normalized primary-key predicate when access planning already

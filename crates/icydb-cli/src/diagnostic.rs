@@ -323,6 +323,9 @@ const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'s
         QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy => {
             "the returned-row bound exceeds this endpoint's read budget"
         }
+        QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy => {
+            "primary-key input literals exceed this endpoint's read budget"
+        }
     }
 }
 
@@ -369,6 +372,9 @@ const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'stat
         }
         QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy => {
             "lower LIMIT or split the query into smaller cursor-paged reads"
+        }
+        QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy => {
+            "reduce the primary-key IN list or move the read behind a trusted admin endpoint"
         }
     }
 }
@@ -962,6 +968,10 @@ mod tests {
                 icydb::diagnostic::QueryReadAdmissionCode::SortRequiresMaterialization,
                 "E_QUERY_READ_ADMISSION: query read admission rejected: this read requires materializing rows for ORDER BY; fix: order by the selected index order, remove the sort, or keep the query on a trusted admin path",
             ),
+            (
+                icydb::diagnostic::QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy,
+                "E_QUERY_READ_ADMISSION: query read admission rejected: primary-key input literals exceed this endpoint's read budget; fix: reduce the primary-key IN list or move the read behind a trusted admin endpoint",
+            ),
         ];
 
         for (reason, expected) in cases {
@@ -994,6 +1004,7 @@ mod tests {
             icydb::diagnostic::QueryReadAdmissionCode::UnsupportedStatementForQueryLane,
             icydb::diagnostic::QueryReadAdmissionCode::PublicQueryOffsetRejected,
             icydb::diagnostic::QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy,
+            icydb::diagnostic::QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy,
         ];
 
         for reason in reasons {

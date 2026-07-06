@@ -106,6 +106,16 @@ fn write_admission_json(admission: &QueryAdmissionSummary, out: &mut String) {
         "response_byte_bound_kind",
         admission.response_byte_bound_kind().as_str(),
     );
+    write_optional_u32(
+        &mut object,
+        "primary_key_input_terms",
+        admission.primary_key_input_terms(),
+    );
+    write_optional_u32(
+        &mut object,
+        "primary_key_input_payload_bytes",
+        admission.primary_key_input_payload_bytes(),
+    );
     object.field_str("residual_filter", admission.residual_filter().as_str());
     object.field_str("ordering", admission.ordering().as_str());
     object.field_with("materialization", |out| {

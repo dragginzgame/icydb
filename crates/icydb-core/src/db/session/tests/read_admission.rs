@@ -349,6 +349,62 @@ fn public_read_fluent_rejects_primary_key_in_deduped_count_above_policy() {
 }
 
 #[test]
+fn public_read_fluent_rejects_primary_key_in_input_terms_above_policy() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_783);
+    let second_id = crate::types::Ulid::from_u128(19_784);
+    let third_id = crate::types::Ulid::from_u128(19_785);
+
+    let query = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list([third_id, first_id, second_id]));
+    let summary = session
+        .evaluate_query_read_admission_policy(
+            query.query(),
+            &public_read_policy_with_primary_key_input_caps(10, 2, 128),
+        )
+        .expect("primary-key IN admission should produce a summary before input rejection");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Rejected);
+    assert_eq!(
+        summary.rejection(),
+        Some(QueryAdmissionRejection::PrimaryKeyInputExceedsPolicy)
+    );
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKeys);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(3));
+    assert_eq!(summary.returned_row_bound(), Some(3));
+    assert_eq!(summary.primary_key_input_terms(), Some(3));
+    assert_eq!(summary.primary_key_input_payload_bytes(), Some(48));
+}
+
+#[test]
+fn public_read_sql_rejects_primary_key_in_payload_bytes_above_policy() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_786);
+    let second_id = crate::types::Ulid::from_u128(19_787);
+    let third_id = crate::types::Ulid::from_u128(19_788);
+    let sql = format!(
+        "SELECT name FROM IndexedSessionSqlEntity WHERE id IN ('{first_id}', '{second_id}', '{third_id}')"
+    );
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            &sql,
+            &public_read_policy_with_primary_key_input_caps(10, 10, 32),
+        )
+        .expect_err("SQL primary-key IN payload budget should reject before execution");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy,
+        "primary-key input payload cap",
+    );
+}
+
+#[test]
 fn public_read_fluent_admission_canonicalizes_empty_primary_key_filters_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2305,6 +2361,19 @@ const fn public_read_policy_with_response_bytes(
     QueryAdmissionPolicy::public_read(
         NonZeroU32::new(max_rows).expect("test max rows should be non-zero"),
         NonZeroU32::new(max_response_bytes).expect("test byte cap should be non-zero"),
+    )
+}
+
+const fn public_read_policy_with_primary_key_input_caps(
+    max_rows: u32,
+    max_primary_key_input_terms: u32,
+    max_primary_key_input_bytes: u32,
+) -> QueryAdmissionPolicy {
+    public_read_policy(max_rows).with_primary_key_input_caps(
+        NonZeroU32::new(max_primary_key_input_terms)
+            .expect("test primary-key input term cap should be non-zero"),
+        NonZeroU32::new(max_primary_key_input_bytes)
+            .expect("test primary-key input byte cap should be non-zero"),
     )
 }
 

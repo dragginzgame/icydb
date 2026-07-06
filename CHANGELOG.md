@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.8` adds public-read admission caps for exact primary-key `IN (...)`
+  input work, rejecting over-budget key-list terms or payloads before
+  execution.
+
 - `0.197.7` pins finite primary-key `IN (...)` public-read row-budget safety by
   rejecting SQL and fluent exact-key sets whose deduplicated key count exceeds
   the endpoint returned-row policy.
