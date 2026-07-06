@@ -1261,6 +1261,62 @@ fn public_read_sql_admits_primary_key_in_filter_without_limit() {
 }
 
 #[test]
+fn public_read_sql_primary_key_in_filter_orders_deterministically_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_750);
+    let second_id = crate::types::Ulid::from_u128(19_751);
+    let third_id = crate::types::Ulid::from_u128(19_752);
+    for (id, name, age) in [
+        (first_id, "first", 30),
+        (second_id, "second", 24),
+        (third_id, "third", 40),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    for (direction, expected) in [
+        ("ASC", vec!["first", "second", "third"]),
+        ("DESC", vec!["third", "second", "first"]),
+    ] {
+        let unsorted_sql = format!(
+            "SELECT name FROM IndexedSessionSqlEntity \
+             WHERE id IN ('{third_id}', '{first_id}', '{first_id}', '{second_id}') \
+             ORDER BY id {direction}"
+        );
+        let canonical_sql = format!(
+            "SELECT name FROM IndexedSessionSqlEntity \
+             WHERE id IN ('{first_id}', '{second_id}', '{third_id}') \
+             ORDER BY id {direction}"
+        );
+        let unsorted_names = public_read_sql_text_projection_values::<IndexedSessionSqlEntity>(
+            &session,
+            unsorted_sql.as_str(),
+            3,
+            "unsorted primary-key SQL IN ordered projection",
+        );
+        let canonical_names = public_read_sql_text_projection_values::<IndexedSessionSqlEntity>(
+            &session,
+            canonical_sql.as_str(),
+            3,
+            "canonical primary-key SQL IN ordered projection",
+        );
+
+        assert_eq!(unsorted_names, expected, "ORDER BY id {direction}");
+        assert_eq!(
+            unsorted_names, canonical_names,
+            "primary-key SQL IN result order must be independent of input-list order and duplicates",
+        );
+    }
+}
+
+#[test]
 fn public_read_sql_applies_residual_after_primary_key_in_filter_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2229,4 +2285,29 @@ fn text_projection_values(rows: Vec<Vec<crate::value::OutputValue>>, context: &s
             }
         })
         .collect()
+}
+
+fn public_read_sql_text_projection_values<E>(
+    session: &crate::db::DbSession<super::SessionSqlCanister>,
+    sql: &str,
+    max_rows: u32,
+    context: &str,
+) -> Vec<String>
+where
+    E: crate::db::PersistedRow<Canister = super::SessionSqlCanister> + crate::traits::EntityValue,
+{
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<E>(sql, &public_read_policy(max_rows))
+        .unwrap_or_else(|err| {
+            panic!("{context}: SQL should execute as bounded public read: {err}")
+        });
+    let SqlStatementResult::Projection {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("{context}: SQL should return projection rows");
+    };
+    assert_eq!(row_count as usize, rows.len(), "{context}");
+
+    text_projection_values(rows, context)
 }
