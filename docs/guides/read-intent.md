@@ -18,10 +18,8 @@ window.
 | Complete small set | `collect_complete()` | `limit(N).execute_rows()` when the endpoint promises all matches |
 | Bounded row window | `limit(N).execute_rows()` / `limit(N).execute()` | A complete-result API that silently truncates |
 | Cursor page | `order_term(...).execute_paged(PageRequest::first(N))` | `limit(N).execute_paged(...)` or non-zero `offset(...)` for public pages |
+| Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` | Public endpoints with giant limits or caller-selected batch sizes |
 | Trusted maintenance scan | `trusted_read_unchecked().execute_rows()` or trusted execution helpers | Public endpoints with giant limits |
-
-`admin_batch(...)` remains a 0.198 design target. Do not document it as an
-available endpoint API until it lands.
 
 ## Exact Lookup
 
@@ -189,6 +187,30 @@ let rows = db()
     .execute_rows()?;
 ```
 
+Use `admin_batch(...)` when trusted maintenance code needs cursor-batched
+processing with an engine-owned batch size:
+
+```rust
+let batch = db()
+    .load::<LedgerEntry>()
+    .order_term(icydb::asc("id"))
+    .trusted_read_unchecked()
+    .admin_batch(icydb::db::AdminBatchRequest::new())?;
+```
+
+Continue the batch with the returned cursor:
+
+```rust
+let batch = db()
+    .load::<LedgerEntry>()
+    .order_term(icydb::asc("id"))
+    .trusted_read_unchecked()
+    .admin_batch(icydb::db::AdminBatchRequest::next(cursor))?;
+```
+
+`admin_batch(...)` rejects prior raw `limit(...)`; IcyDB owns the batch size.
+It also rejects calls that did not first opt into `trusted_read_unchecked()`.
+
 Do not use trusted reads to make arbitrary public endpoints pass admission.
 
 ## Migration Checklist
@@ -203,7 +225,8 @@ For every raw high-limit call site, classify intent first:
 - public list: use deterministic cursor paging;
 - complete small set: use `collect_complete()` or redesign the endpoint as a
   page;
-- maintenance/admin: keep it trusted and controller-gated.
+- maintenance/admin batch: use `trusted_read_unchecked().admin_batch(...)`;
+- maintenance/admin broad read: keep it trusted and controller-gated.
 
 Do not mechanically replace every `limit(N).execute_rows()` with an exact or
 complete terminal. The right terminal depends on the endpoint promise.

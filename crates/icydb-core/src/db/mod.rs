@@ -159,7 +159,7 @@ pub use query::{
         PlannedQuery, Query, QueryError, QueryExecutionError, RequiredAccessPath,
     },
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
-    read_intent::PageRequest,
+    read_intent::{AdminBatchRequest, PageRequest},
     trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
 };
 pub use registry::{

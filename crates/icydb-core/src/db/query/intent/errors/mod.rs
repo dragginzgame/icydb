@@ -467,6 +467,10 @@ pub enum IntentError {
 
     RawLimitBeforeCollectCompleteTerminal,
 
+    RawLimitBeforeAdminBatchTerminal,
+
+    AdminBatchRequiresTrustedRead,
+
     CompleteReadTooManyRows,
 
     HavingRequiresGroupBy,
@@ -555,6 +559,16 @@ impl IntentError {
     /// Construct one raw-limit-before-collect-complete-terminal intent error.
     pub(in crate::db::query) const fn raw_limit_before_collect_complete_terminal() -> Self {
         Self::RawLimitBeforeCollectCompleteTerminal
+    }
+
+    /// Construct one raw-limit-before-admin-batch-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_admin_batch_terminal() -> Self {
+        Self::RawLimitBeforeAdminBatchTerminal
+    }
+
+    /// Construct one admin-batch-requires-trusted-read intent error.
+    pub(in crate::db::query) const fn admin_batch_requires_trusted_read() -> Self {
+        Self::AdminBatchRequiresTrustedRead
     }
 
     /// Construct one complete-read-over-cap intent error.

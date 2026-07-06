@@ -16,6 +16,7 @@ pub(in crate::db::query) const COMPLETE_SMALL_MAX_ROWS: u32 = DEFAULT_BOUNDED_RE
 pub(in crate::db::query) const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;
 pub(in crate::db::query) const COMPLETE_SMALL_EXECUTION_LIMIT: u32 =
     COMPLETE_SMALL_MAX_ROWS + COMPLETE_SMALL_LOOKAHEAD_ROWS;
+pub(in crate::db::query) const ADMIN_BATCH_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
 
 /// Request-owned public page shape.
 ///
@@ -88,6 +89,48 @@ impl PageRequest {
             Some(limit) => limit,
             None => PUBLIC_PAGE_DEFAULT_ROWS,
         }
+    }
+
+    pub(in crate::db::query) fn into_cursor(self) -> Option<String> {
+        self.cursor
+    }
+}
+
+/// Request-owned trusted/admin batch continuation shape.
+///
+/// The batch size is engine-owned. Callers may only supply an opaque cursor
+/// for continuation, and the terminal remains gated to trusted read lanes.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AdminBatchRequest {
+    cursor: Option<String>,
+}
+
+impl AdminBatchRequest {
+    /// Build a first-batch request.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { cursor: None }
+    }
+
+    /// Build a continuation request with an opaque cursor.
+    #[must_use]
+    pub fn next(cursor: impl Into<String>) -> Self {
+        Self {
+            cursor: Some(cursor.into()),
+        }
+    }
+
+    /// Return this request with an opaque continuation cursor.
+    #[must_use]
+    pub fn with_cursor(mut self, cursor: impl Into<String>) -> Self {
+        self.cursor = Some(cursor.into());
+        self
+    }
+
+    /// Return the opaque continuation cursor, if supplied.
+    #[must_use]
+    pub fn cursor(&self) -> Option<&str> {
+        self.cursor.as_deref()
     }
 
     pub(in crate::db::query) fn into_cursor(self) -> Option<String> {

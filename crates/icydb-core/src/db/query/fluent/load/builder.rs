@@ -217,6 +217,10 @@ where
         self
     }
 
+    pub(super) const fn trusted_read_unchecked_enabled(&self) -> bool {
+        self.trusted_read_unchecked
+    }
+
     pub(super) fn ensure_default_read_admission(&self) -> Result<(), QueryError> {
         if self.trusted_read_unchecked {
             return Ok(());

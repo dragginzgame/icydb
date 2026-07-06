@@ -126,6 +126,7 @@ else
   for required_read_intent_phrase in \
     "IcyDB public reads should describe the endpoint promise" \
     "PageRequest" \
+    "AdminBatchRequest" \
     "collect_complete()" \
     "count_exact()" \
     "sum_exact(field)" \
@@ -237,7 +238,8 @@ else
     "const PUBLIC_PAGE_MAX_RESPONSE_BYTES: u32 =" \
     "const COMPLETE_SMALL_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
     "const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;" \
-    "const COMPLETE_SMALL_EXECUTION_LIMIT: u32 ="
+    "const COMPLETE_SMALL_EXECUTION_LIMIT: u32 =" \
+    "const ADMIN_BATCH_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;"
   do
     if ! rg -F --quiet "$required_read_intent_constant" "$READ_INTENT_SOURCE"; then
       echo "[ERROR] Read-intent cap authority drifted or split: $required_read_intent_constant" >&2

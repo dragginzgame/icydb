@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.1` adds trusted-only `admin_batch(AdminBatchRequest)` cursor batches
+  with an engine-owned batch size, rejecting public-lane calls and prior raw
+  row-window limits.
+
 - `0.198.0` hard-cuts public read ergonomics to semantic intents by
   introducing request-owned paging, complete-small-set collection, and exact
   aggregate terminals, while rejecting raw row-window limits before terminals

@@ -9,7 +9,7 @@ use crate::{
         query::fluent::load::FluentLoadQuery,
         query::{
             intent::{IntentError, Query, QueryError},
-            read_intent::PageRequest,
+            read_intent::{ADMIN_BATCH_ROWS, AdminBatchRequest, PageRequest},
         },
     },
     traits::{EntityKind, EntityValue},
@@ -83,6 +83,41 @@ where
         E: PersistedRow + EntityValue,
     {
         self.page(request)?.execute_trusted()
+    }
+
+    /// Execute a trusted/admin cursor batch with an engine-owned batch size.
+    ///
+    /// This terminal is intentionally unavailable on the normal public read
+    /// lane. Callers must opt into `trusted_read_unchecked()` before invoking
+    /// it, and a prior raw `limit(...)` is rejected because the batch size is
+    /// owned by IcyDB.
+    pub fn admin_batch(
+        self,
+        request: AdminBatchRequest,
+    ) -> Result<PagedLoadExecution<E>, QueryError>
+    where
+        E: PersistedRow + EntityValue,
+    {
+        self.ensure_semantic_terminal_owns_limit(
+            IntentError::raw_limit_before_admin_batch_terminal(),
+        )?;
+        self.ensure_page_request_owns_cursor()?;
+
+        if !self.trusted_read_unchecked_enabled() {
+            return Err(QueryError::intent(
+                IntentError::admin_batch_requires_trusted_read(),
+            ));
+        }
+
+        let cursor = request.into_cursor();
+        let mut inner = self.map_query(|query| query.with_load_limit(ADMIN_BATCH_ROWS));
+        if let Some(cursor) = cursor {
+            inner = inner.with_cursor_token(cursor);
+        }
+
+        inner.ensure_paged_mode_ready()?;
+
+        PagedLoadQuery { inner }.execute_trusted()
     }
 }
 

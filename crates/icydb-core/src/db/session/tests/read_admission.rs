@@ -2210,6 +2210,88 @@ fn default_fluent_page_request_uses_request_cursor_for_continuation() {
 }
 
 #[test]
+fn default_fluent_admin_batch_requires_trusted_read_unchecked() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .admin_batch(crate::db::AdminBatchRequest::new())
+        .expect_err("admin_batch should be unavailable on the public read lane");
+
+    assert_admin_batch_requires_trusted_read(err, "default fluent admin_batch");
+}
+
+#[test]
+fn trusted_fluent_admin_batch_rejects_prior_raw_limit_before_planning() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24)]);
+
+    let err = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .limit(1)
+        .trusted_read_unchecked()
+        .admin_batch(crate::db::AdminBatchRequest::new())
+        .expect_err("admin_batch should own the trusted batch size");
+
+    assert_raw_limit_before_admin_batch_terminal(err, "trusted fluent admin_batch raw limit");
+}
+
+#[test]
+fn trusted_fluent_admin_batch_uses_hardcoded_batch_and_cursor_continuation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    for offset in 0_u64..=100 {
+        session
+            .insert(SessionSqlEntity {
+                id: crate::types::Ulid::from_u128(31_000 + u128::from(offset)),
+                name: format!("Admin{offset:03}"),
+                age: offset,
+            })
+            .expect("admin batch fixture row should insert");
+    }
+
+    let first_batch = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("id"))
+        .trusted_read_unchecked()
+        .admin_batch(crate::db::AdminBatchRequest::new())
+        .expect("trusted admin batch should execute");
+    let cursor = crate::db::encode_cursor(
+        first_batch
+            .continuation_cursor()
+            .expect("first admin batch should emit a continuation cursor"),
+    );
+
+    let second_batch = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("id"))
+        .trusted_read_unchecked()
+        .admin_batch(crate::db::AdminBatchRequest::next(cursor))
+        .expect("trusted admin batch continuation should execute");
+
+    assert_eq!(
+        first_batch.response().count(),
+        100,
+        "trusted admin batch should use the engine-owned batch size",
+    );
+    assert_eq!(
+        second_batch.response().count(),
+        1,
+        "admin batch continuation should resume after the first batch",
+    );
+    assert!(second_batch.continuation_cursor().is_none());
+}
+
+#[test]
 fn default_fluent_execute_admits_indexed_bounded_query() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -2946,6 +3028,48 @@ fn assert_raw_limit_before_collect_complete_terminal(err: QueryError, context: &
     std::assert_matches!(
         err,
         QueryError::Intent(IntentError::RawLimitBeforeCollectCompleteTerminal),
+        "{context}: intent error variant drifted",
+    );
+}
+
+fn assert_raw_limit_before_admin_batch_terminal(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeAdminBatchTerminal),
+        "{context}: intent error variant drifted",
+    );
+}
+
+fn assert_admin_batch_requires_trusted_read(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryIntent,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: QueryErrorKind::Intent,
+        }),
+        "{context}: diagnostic detail drifted",
+    );
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::AdminBatchRequiresTrustedRead),
         "{context}: intent error variant drifted",
     );
 }

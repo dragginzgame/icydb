@@ -71,6 +71,7 @@ For migration examples and endpoint-intent guidance, see
 | check whether any row exists | `exists()` / `not_exists()` without a raw `limit(...)` | Existence is a semantic terminal. It owns its bounded route and rejects a prior raw row cap as caller-intent ambiguity. |
 | return every row in a small bounded set | `collect_complete()` without a raw `limit(...)` | Complete small-set collection owns an internal lookahead limit and fails instead of silently truncating when the set exceeds the public-read cap. |
 | return an exact count or sum | `count_exact()` / `sum_exact(field)` without a raw `limit(...)` | Exact aggregates use aggregate execution over the admitted shape. Use `count()` / `sum_by(...)` only when aggregating the effective row window is the intended contract. |
+| process a trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::...)` | Admin batches are trusted-only, cursor-batched, and use an engine-owned batch size. They are not public list shortcuts. |
 | run controller diagnostics | trusted/admin execution | Caller authorization and an explicit resource policy are required before calling trusted helpers. |
 | explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
 | paginate public results | cursor-paged ordinary execution | Prefer cursor pagination; non-zero `OFFSET` is rejected by the public lane. |
@@ -220,7 +221,9 @@ rejected because complete reads must not silently cap or truncate the result.
 `limit(n).count_exact()` is rejected for the same reason: exact aggregates must
 not mean "aggregate the first N rows." `limit(n).sum_exact(field)` is rejected
 on the same contract. Use `count()` or `sum_by(...)` only when the endpoint
-deliberately aggregates the effective bounded row window.
+deliberately aggregates the effective bounded row window. `admin_batch(...)`
+requires `trusted_read_unchecked()` and rejects prior raw `limit(...)`; trusted
+batch size is engine-owned.
 
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |

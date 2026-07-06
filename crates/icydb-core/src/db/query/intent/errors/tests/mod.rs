@@ -269,6 +269,26 @@ fn raw_limit_before_collect_complete_terminal_constructor_keeps_intent_boundary(
 }
 
 #[test]
+fn raw_limit_before_admin_batch_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_admin_batch_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeAdminBatchTerminal)
+    );
+}
+
+#[test]
+fn admin_batch_requires_trusted_read_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::admin_batch_requires_trusted_read());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::AdminBatchRequiresTrustedRead)
+    );
+}
+
+#[test]
 fn complete_read_too_many_rows_constructor_keeps_intent_boundary() {
     let err = QueryError::intent(IntentError::complete_read_too_many_rows());
 

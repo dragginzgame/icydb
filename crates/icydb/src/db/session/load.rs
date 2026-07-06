@@ -6,7 +6,8 @@
 
 use crate::{
     db::{
-        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, PageRequest, Row,
+        AdminBatchRequest, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
+        PageRequest, Row,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
             QueryTracePlan, ValueProjectionExpr,
@@ -158,6 +159,22 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         E: Entity,
     {
         self.page(request)?.execute_trusted()
+    }
+
+    /// Execute a trusted/admin cursor batch with an engine-owned batch size.
+    ///
+    /// This terminal is only for reads that have already opted into
+    /// `trusted_read_unchecked()`. Application-facing list endpoints should
+    /// use `execute_paged(PageRequest::...)`.
+    pub fn admin_batch(self, request: AdminBatchRequest) -> Result<PagedResponse<E>, Error>
+    where
+        E: Entity,
+    {
+        let execution = self.inner.admin_batch(request)?;
+        let (response, continuation_cursor) = execution.into_response_and_cursor();
+        let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
+
+        Ok(PagedResponse::new(response.entities(), next_cursor))
     }
 
     /// Execute as a scalar row load through the default bounded read-admission

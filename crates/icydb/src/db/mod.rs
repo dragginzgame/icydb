@@ -26,14 +26,14 @@ pub use session::{
 
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{
-    DataStoreSnapshot, EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription,
-    EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
-    EntityRelationStrength, EntitySchemaCheckDescription, EntitySchemaDescription,
-    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
-    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-    IndexStoreSnapshot, MemoryCatalogDescription, PageRequest, QueryAdmissionAccessKind,
-    QueryAdmissionDecision, QueryAdmissionGroupedSummary, QueryAdmissionLane,
-    QueryAdmissionOrdering, QueryAdmissionPlanShape, QueryAdmissionRejection,
+    AdminBatchRequest, DataStoreSnapshot, EntityCatalogCounts, EntityCatalogDescription,
+    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
+    EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
+    ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+    ExplainExecutionOrderingSource, IndexStoreSnapshot, MemoryCatalogDescription, PageRequest,
+    QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionGroupedSummary,
+    QueryAdmissionLane, QueryAdmissionOrdering, QueryAdmissionPlanShape, QueryAdmissionRejection,
     QueryAdmissionResidualFilter, QueryAdmissionSummary, QueryBoundKind,
     QueryMaterializationSummary, QueryTracePlan, Row, SchemaStoreSnapshot, StorageReport,
     StoreCatalogDescription, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
