@@ -770,6 +770,95 @@ fn default_fluent_execute_rows_returns_empty_for_empty_primary_key_filters_witho
 }
 
 #[test]
+fn default_fluent_count_returns_zero_for_empty_primary_key_filters_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_750);
+    let second_id = crate::types::Ulid::from_u128(19_751);
+    session
+        .insert(SessionSqlEntity {
+            id: first_id,
+            name: "Sam".to_string(),
+            age: 30,
+        })
+        .expect("test row should insert");
+
+    let contradictory = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(first_id),
+            crate::db::FieldRef::new("id").eq(second_id),
+        ]))
+        .count()
+        .expect("contradictory primary-key filters should count as bounded empty access");
+    let empty_in = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list(std::iter::empty::<crate::types::Ulid>()))
+        .count()
+        .expect("empty primary-key IN should count as bounded empty access");
+    let narrowed_out = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("id").eq(first_id),
+            crate::db::FieldRef::new("id").in_list([second_id]),
+        ]))
+        .count()
+        .expect("primary-key equality excluded by IN should count as bounded empty access");
+
+    assert_eq!(contradictory, 0);
+    assert_eq!(empty_in, 0);
+    assert_eq!(narrowed_out, 0);
+}
+
+#[test]
+fn default_fluent_require_one_reports_not_found_for_empty_primary_key_filters_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_752);
+    let second_id = crate::types::Ulid::from_u128(19_753);
+    session
+        .insert(SessionSqlEntity {
+            id: first_id,
+            name: "Sam".to_string(),
+            age: 30,
+        })
+        .expect("test row should insert");
+
+    for (query, context) in [
+        (
+            session
+                .load::<SessionSqlEntity>()
+                .filter(crate::db::FilterExpr::and(vec![
+                    crate::db::FieldRef::new("id").eq(first_id),
+                    crate::db::FieldRef::new("id").eq(second_id),
+                ])),
+            "contradictory primary-key equality filters",
+        ),
+        (
+            session.load::<SessionSqlEntity>().filter(
+                crate::db::FieldRef::new("id").in_list(std::iter::empty::<crate::types::Ulid>()),
+            ),
+            "empty primary-key IN filter",
+        ),
+        (
+            session
+                .load::<SessionSqlEntity>()
+                .filter(crate::db::FilterExpr::and(vec![
+                    crate::db::FieldRef::new("id").eq(first_id),
+                    crate::db::FieldRef::new("id").in_list([second_id]),
+                ])),
+            "primary-key equality excluded by IN filter",
+        ),
+    ] {
+        let err = query
+            .require_one()
+            .expect_err("required-one over proven-empty exact-key access should report not found");
+
+        assert_query_not_found(err, context);
+    }
+}
+
+#[test]
 fn default_fluent_execute_rows_dedups_primary_key_in_filter_without_limit() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -931,6 +1020,40 @@ fn public_read_sql_admits_primary_key_filter_without_limit() {
 }
 
 #[test]
+fn public_read_sql_admits_commuted_primary_key_filter_without_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let id = crate::types::Ulid::from_u128(19_740);
+    session
+        .insert(IndexedSessionSqlEntity {
+            id,
+            name: "Mira".to_string(),
+            age: 40,
+        })
+        .expect("test row should insert");
+
+    let sql = format!("SELECT name FROM IndexedSessionSqlEntity WHERE '{id}' = id");
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
+            sql.as_str(),
+            &public_read_policy(10),
+        )
+        .expect("commuted SQL primary-key filter should not need explicit LIMIT");
+    let SqlStatementResult::Projection {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("commuted primary-key SQL filter should return projection rows");
+    };
+
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        rows,
+        vec![vec![crate::value::OutputValue::Text("Mira".to_string())]],
+    );
+}
+
+#[test]
 fn public_read_sql_applies_residual_after_primary_key_filter_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -965,6 +1088,40 @@ fn public_read_sql_applies_residual_after_primary_key_filter_without_limit() {
 }
 
 #[test]
+fn public_read_sql_applies_residual_after_commuted_primary_key_filter_without_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(19_741);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Mira".to_string(),
+            age: 40,
+        })
+        .expect("test row should insert");
+
+    let sql = format!("SELECT name FROM SessionSqlEntity WHERE '{id}' = id AND age > 99");
+    let result = session
+        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
+            sql.as_str(),
+            &public_read_policy(1),
+        )
+        .expect("commuted SQL primary-key filter plus residual should not need explicit LIMIT");
+    let SqlStatementResult::Projection {
+        row_count, rows, ..
+    } = result
+    else {
+        panic!("commuted primary-key SQL filter plus residual should return projection rows");
+    };
+
+    assert_eq!(row_count, 0);
+    assert!(
+        rows.is_empty(),
+        "commuted SQL primary-key exact access must not bypass a false residual predicate",
+    );
+}
+
+#[test]
 fn public_read_sql_primary_key_parameter_shape_fails_before_admission() {
     reset_session_sql_store();
     let session = sql_session();
@@ -994,6 +1151,27 @@ fn public_read_sql_primary_key_wrong_type_literal_fails_before_admission() {
     assert_query_plan_predicate_invalid_field(err, "id", "wrong-type SQL primary-key literal");
 }
 
+#[test]
+fn public_read_sql_commuted_primary_key_wrong_type_literal_fails_before_admission() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity WHERE 'not-a-ulid' = id LIMIT 1",
+            &public_read_policy(10),
+        )
+        .expect_err(
+            "commuted wrong-type primary-key literal should fail validation before admission",
+        );
+
+    assert_query_plan_predicate_invalid_field(
+        err,
+        "id",
+        "commuted wrong-type SQL primary-key literal",
+    );
+}
+
 #[cfg(feature = "sql-explain")]
 #[test]
 fn sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key() {
@@ -1013,6 +1191,29 @@ fn sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key
     assert!(
         !explain.contains("ByKeyLookup") && !explain.contains("planner_primary_key_lookup"),
         "expression-wrapped primary-key predicates must not explain as exact-key canonicalization: {explain}",
+    );
+}
+
+#[cfg(feature = "sql-explain")]
+#[test]
+fn sql_explain_commuted_primary_key_filter_canonicalizes_to_exact_key() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(19_742);
+
+    let result = session
+        .execute_sql_query::<SessionSqlEntity>(
+            format!("EXPLAIN EXECUTION SELECT name FROM SessionSqlEntity WHERE '{id}' = id")
+                .as_str(),
+        )
+        .expect("commuted primary-key explain should build");
+    let SqlStatementResult::Explain(explain) = result else {
+        panic!("EXPLAIN EXECUTION should return explain text");
+    };
+
+    assert!(
+        explain.contains("ByKeyLookup") && explain.contains("planner_primary_key_lookup"),
+        "commuted primary-key predicates should explain as exact-key canonicalization: {explain}",
     );
 }
 
@@ -1943,6 +2144,22 @@ fn assert_read_admission_rejection(err: QueryError, reason: QueryReadAdmissionCo
     assert_eq!(
         diagnostic.detail(),
         Some(&DiagnosticDetail::QueryReadAdmission { reason }),
+        "{context}: diagnostic detail drifted",
+    );
+}
+
+fn assert_query_not_found(err: QueryError, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryNotFound,
+        "{context}: diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::QueryKind {
+            kind: icydb_diagnostic_code::QueryErrorKind::NotFound,
+        }),
         "{context}: diagnostic detail drifted",
     );
 }

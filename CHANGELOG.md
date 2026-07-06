@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.5` pins proven-empty exact-key terminal behavior so bounded empty
+  primary-key filters return count zero and required-one not-found diagnostics.
+
+- `0.197.4` pins commuted SQL primary-key equality to the deterministic
+  exact-key contract, including residual filtering, wrong-type failure, and
+  EXPLAIN route evidence.
+
 - `0.197.3` extends deterministic exact-key canonicalization evidence across
   heap and journaled store states and blocks non-canonical primary-key shapes
   from deriving exact-key access.
