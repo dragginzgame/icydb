@@ -2641,36 +2641,42 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
 }
 
 #[test]
-fn compile_sql_command_select_where_affine_numeric_compare_matches_canonical_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Decimal(crate::types::Decimal::from(20_u64)),
-            CoercionId::NumericWiden,
-        )),
-    );
-
+fn compile_sql_command_select_where_affine_numeric_compare_keeps_expression_authority() {
     let sql_query = compile_sql_lower_query_command(
         "SELECT * FROM SqlLowerEntity WHERE age + 1 >= 21",
         "affine numeric WHERE SQL query",
     );
-    let mut sql_plan = sql_query
+    let plan = sql_query
         .plan()
         .expect("affine numeric WHERE SQL plan should build")
         .into_inner();
-    let mut fluent_plan = fluent_query
-        .plan()
-        .expect("canonical fluent WHERE plan should build")
-        .into_inner();
-    sql_plan.scalar_plan_mut().filter_expr = None;
-    sql_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
-    fluent_plan.scalar_plan_mut().filter_expr = None;
-    fluent_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
 
-    assert_eq!(
-        sql_plan, fluent_plan,
-        "simple field-plus-literal WHERE compares should still normalize onto the same canonical predicate intent once semantic filter ownership is ignored",
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Gte,
+                left,
+                right,
+            }) if matches!(
+                left.as_ref(),
+                Expr::Binary {
+                    op: BinaryOp::Add,
+                    left,
+                    right,
+                } if left.as_ref() == &Expr::Field(FieldId::new("age"))
+                    && right.as_ref() == &Expr::Literal(Value::Int64(1))
+            ) && right.as_ref() == &Expr::Literal(Value::Int64(21))
+        ),
+        "affine scalar SELECT filters should keep the expression-owned semantic filter instead of reducing it to field predicate authority",
+    );
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "affine scalar SELECT filters must not derive a canonical predicate/access contract",
+    );
+    assert!(
+        !plan.scalar_plan().predicate_covers_filter_expr,
+        "without a derived predicate, the visible affine filter expression remains residual semantic work",
     );
 }
 
