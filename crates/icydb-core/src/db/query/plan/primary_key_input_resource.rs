@@ -5,7 +5,6 @@
 
 use crate::{
     db::query::plan::PrimaryKeyInputResourceSummary,
-    traits::KeyValueCodec,
     value::{Value, ValueEnum},
 };
 
@@ -18,29 +17,6 @@ pub(in crate::db::query) fn primary_key_input_resource_from_value_list(
         u32::try_from(values.len()).unwrap_or(u32::MAX),
         values.iter(),
     )
-}
-
-/// Build resource facts for one raw typed key list before access canonicalization.
-#[must_use]
-pub(in crate::db::query) fn primary_key_input_resource_from_typed_keys<K>(
-    keys: &[K],
-) -> Option<PrimaryKeyInputResourceSummary>
-where
-    K: KeyValueCodec,
-{
-    let raw_term_count = u32::try_from(keys.len()).unwrap_or(u32::MAX);
-    if raw_term_count == 0 {
-        return None;
-    }
-
-    let estimated_payload_bytes = keys.iter().fold(0u32, |total, key| {
-        total.saturating_add(estimate_value_payload_bytes(&key.to_key_value()))
-    });
-
-    Some(PrimaryKeyInputResourceSummary::new(
-        raw_term_count,
-        estimated_payload_bytes,
-    ))
 }
 
 fn primary_key_input_resource_from_value_iter<'a, I>(

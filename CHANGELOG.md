@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.10` removes duplicate typed-key conversion from the `by_ids(...)`
+  admission guard by projecting the exact-key access path and raw input-resource
+  facts together.
+
 - `0.197.9` extends primary-key key-list input caps to explicit typed
   `by_ids(...)` reads, so duplicate-heavy key lists cannot bypass public-read
   resource policy after deduplication.
