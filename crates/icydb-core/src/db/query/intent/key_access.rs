@@ -5,6 +5,7 @@
 
 use crate::{
     db::access::{AccessPlan, normalize_access_plan_value},
+    db::query::plan::{PrimaryKeyInputResourceSummary, primary_key_input_resource_from_typed_keys},
     traits::KeyValueCodec,
     value::Value,
 };
@@ -66,4 +67,17 @@ where
 
     // Phase 2: canonicalize the access shape via the shared access boundary.
     normalize_access_plan_value(plan)
+}
+
+/// Build raw input-work facts for many-key access before deduplication.
+pub(in crate::db::query) fn key_access_input_resource<K>(
+    access: &KeyAccess<K>,
+) -> Option<PrimaryKeyInputResourceSummary>
+where
+    K: KeyValueCodec,
+{
+    match access {
+        KeyAccess::Single(_) => None,
+        KeyAccess::Many(keys) => primary_key_input_resource_from_typed_keys(keys),
+    }
 }

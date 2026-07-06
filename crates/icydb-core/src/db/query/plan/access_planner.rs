@@ -9,8 +9,8 @@ use crate::{
         access::AccessPlan,
         predicate::{Predicate, normalize, normalize_enum_literals},
         query::plan::{
-            OrderSpec, PlannedAccessSelection, PlannerError, VisibleIndexes,
-            canonicalize_order_spec_for_grouping, plan_access_selection_with_order,
+            OrderSpec, PlannedAccessSelection, PlannerError, PrimaryKeyInputResourceSummary,
+            VisibleIndexes, canonicalize_order_spec_for_grouping, plan_access_selection_with_order,
             plan_access_selection_with_order_and_accepted_semantic_indexes,
         },
         query::predicate::reject_unsupported_query_features,
@@ -34,6 +34,7 @@ pub(in crate::db::query) struct AccessPlanningInputs<'a> {
     predicate: Option<&'a Predicate>,
     order: Option<&'a OrderSpec>,
     key_access_override: Option<AccessPlan<Value>>,
+    key_access_input_resource: Option<PrimaryKeyInputResourceSummary>,
 }
 
 impl<'a> AccessPlanningInputs<'a> {
@@ -43,11 +44,13 @@ impl<'a> AccessPlanningInputs<'a> {
         predicate: Option<&'a Predicate>,
         order: Option<&'a OrderSpec>,
         key_access_override: Option<AccessPlan<Value>>,
+        key_access_input_resource: Option<PrimaryKeyInputResourceSummary>,
     ) -> Self {
         Self {
             predicate,
             order,
             key_access_override,
+            key_access_input_resource,
         }
     }
 
@@ -61,6 +64,14 @@ impl<'a> AccessPlanningInputs<'a> {
     #[must_use]
     pub(in crate::db::query) const fn order(&self) -> Option<&'a OrderSpec> {
         self.order
+    }
+
+    /// Return raw key-list resource facts for explicit key-access overrides.
+    #[must_use]
+    pub(in crate::db::query) const fn key_access_input_resource(
+        &self,
+    ) -> Option<PrimaryKeyInputResourceSummary> {
+        self.key_access_input_resource
     }
 
     /// Return whether explicit key access was projected from query intent.

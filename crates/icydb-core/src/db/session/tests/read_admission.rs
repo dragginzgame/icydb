@@ -380,6 +380,37 @@ fn public_read_fluent_rejects_primary_key_in_input_terms_above_policy() {
 }
 
 #[test]
+fn public_read_fluent_by_ids_rejects_duplicate_raw_input_terms_above_policy() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let id = crate::types::Ulid::from_u128(19_789);
+
+    let query = session.load::<IndexedSessionSqlEntity>().by_ids([
+        crate::types::Id::from_key(id),
+        crate::types::Id::from_key(id),
+        crate::types::Id::from_key(id),
+    ]);
+    let summary = session
+        .evaluate_query_read_admission_policy(
+            query.query(),
+            &public_read_policy_with_primary_key_input_caps(10, 2, 128),
+        )
+        .expect("typed by_ids admission should produce a summary before input rejection");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Rejected);
+    assert_eq!(
+        summary.rejection(),
+        Some(QueryAdmissionRejection::PrimaryKeyInputExceedsPolicy)
+    );
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKey);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(1));
+    assert_eq!(summary.returned_row_bound(), Some(1));
+    assert_eq!(summary.primary_key_input_terms(), Some(3));
+    assert_eq!(summary.primary_key_input_payload_bytes(), Some(48));
+}
+
+#[test]
 fn public_read_sql_rejects_primary_key_in_payload_bytes_above_policy() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

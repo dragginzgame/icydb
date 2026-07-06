@@ -15,7 +15,8 @@ use crate::{
                 PrimaryKeyInputResourceSummary, VisibleIndexes, build_logical_plan,
                 fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,
+                predicate_is_constant_false, primary_key_input_resource_from_value_list,
+                rerank_access_plan_by_residual_burden_with_indexes,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
                 validate_group_query_semantics, validate_query_semantics,
             },
@@ -495,8 +496,9 @@ where
     // and miss-path planning reuse the same explicit key-access override
     // materialization.
     let access_inputs = query.planning_access_inputs();
-    let primary_key_input_resource =
-        primary_key_input_resource_from_predicate(&schema_info, access_inputs.predicate());
+    let primary_key_input_resource = access_inputs.key_access_input_resource().or_else(|| {
+        primary_key_input_resource_from_predicate(&schema_info, access_inputs.predicate())
+    });
     let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
         &schema_info,
         access_inputs.predicate(),
@@ -634,12 +636,13 @@ struct PrimaryKeyInputResourceAccumulator {
 
 impl PrimaryKeyInputResourceAccumulator {
     fn add_values(&mut self, values: &[Value]) {
-        self.raw_term_count = self
-            .raw_term_count
-            .saturating_add(u32::try_from(values.len()).unwrap_or(u32::MAX));
+        let Some(summary) = primary_key_input_resource_from_value_list(values) else {
+            return;
+        };
+        self.raw_term_count = self.raw_term_count.saturating_add(summary.raw_term_count());
         self.estimated_payload_bytes = self
             .estimated_payload_bytes
-            .saturating_add(estimate_value_list_payload_bytes(values));
+            .saturating_add(summary.estimated_payload_bytes());
     }
 
     const fn into_summary(self) -> Option<PrimaryKeyInputResourceSummary> {
@@ -652,57 +655,6 @@ impl PrimaryKeyInputResourceAccumulator {
             self.estimated_payload_bytes,
         ))
     }
-}
-
-fn estimate_value_list_payload_bytes(values: &[Value]) -> u32 {
-    values.iter().fold(0u32, |total, value| {
-        total.saturating_add(estimate_value_payload_bytes(value))
-    })
-}
-
-fn estimate_value_payload_bytes(value: &Value) -> u32 {
-    match value {
-        Value::Account(_) => crate::types::Account::STORED_SIZE,
-        Value::Blob(bytes) => byte_len_u32(bytes.len()),
-        Value::Bool(_) => 1,
-        Value::Date(_) | Value::Float32(_) => 4,
-        Value::Decimal(_) => 20,
-        Value::Duration(_)
-        | Value::Float64(_)
-        | Value::Int64(_)
-        | Value::Nat64(_)
-        | Value::Timestamp(_) => 8,
-        Value::Enum(value) => estimate_enum_payload_bytes(value),
-        Value::Int128(_) | Value::Nat128(_) | Value::Ulid(_) => 16,
-        Value::IntBig(value) => byte_len_u32(value.to_leb128().len()),
-        Value::List(values) => estimate_value_list_payload_bytes(values),
-        Value::Map(entries) => entries.iter().fold(0u32, |total, (key, value)| {
-            total
-                .saturating_add(estimate_value_payload_bytes(key))
-                .saturating_add(estimate_value_payload_bytes(value))
-        }),
-        Value::NatBig(value) => byte_len_u32(value.to_leb128().len()),
-        Value::Null | Value::Unit => 0,
-        Value::Principal(value) => byte_len_u32(value.as_slice().len()),
-        Value::Subaccount(_) => 32,
-        Value::Text(value) => byte_len_u32(value.len()),
-    }
-}
-
-fn estimate_enum_payload_bytes(value: &crate::value::ValueEnum) -> u32 {
-    let mut bytes = byte_len_u32(value.variant().len());
-    if let Some(path) = value.path() {
-        bytes = bytes.saturating_add(byte_len_u32(path.len()));
-    }
-    if let Some(payload) = value.payload() {
-        bytes = bytes.saturating_add(estimate_value_payload_bytes(payload));
-    }
-
-    bytes
-}
-
-fn byte_len_u32(len: usize) -> u32 {
-    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 // Drop one normalized primary-key predicate when access planning already

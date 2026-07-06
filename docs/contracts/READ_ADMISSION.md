@@ -194,7 +194,7 @@ should branch on the diagnostic detail, not rendered text.
 | Ordinary read whose materialized row bound exceeds the public budget | `QueryReadAdmissionCode::MaterializationExceedsBudget` | Reduce the materialized row bound or use an index-backed order that avoids materialization. |
 | Ordinary read whose response may exceed the endpoint byte budget | `QueryReadAdmissionCode::ProjectionResponseMayExceedLimit` | Lower the row bound, return narrower projections, or split the read into smaller cursor-paged requests. |
 | Ordinary read whose returned-row bound exceeds the public row budget | `QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy` | Lower `LIMIT` or split the query into smaller cursor-paged reads. |
-| Ordinary exact primary-key `IN (...)` read whose key-list input work exceeds the public budget | `QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy` | Reduce the primary-key list or move the broad key-set read behind a trusted admin endpoint. |
+| Ordinary exact primary-key `IN (...)` or typed `by_ids(...)` read whose key-list input work exceeds the public budget | `QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy` | Reduce the primary-key list or move the broad key-set read behind a trusted admin endpoint. |
 | Grouped read without query-owned group and memory limits | `QueryReadAdmissionCode::GroupedQueryRequiresLimits` | Add `grouped_limits(max_groups, max_group_bytes)` and keep `DISTINCT` aggregate state inside policy. |
 | Grouped read whose query-owned limits exceed the public policy | `QueryReadAdmissionCode::GroupedQueryExceedsBudget` | Lower `grouped_limits(...)`, reduce grouped `DISTINCT` state, or move the report behind a trusted/admin endpoint. |
 | EXPLAIN or diagnostic lane asked to execute rows | `QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute` | Use EXPLAIN for diagnostics only, then execute through an admitted ordinary or explicit trusted path. |
@@ -383,9 +383,10 @@ let err = db()
 Fix it by reducing the row bound, using smaller cursor pages, or returning a
 narrower application-shaped response after the admitted read:
 
-For exact primary-key `IN (...)` reads, the returned-row bound is still the
-deduplicated key count, but public read admission also caps key-list input work.
-Large key lists or large variable-width key payloads can reject with
+For exact primary-key `IN (...)` and typed `by_ids(...)` reads, the returned-row
+bound is still the deduplicated key count, but public read admission also caps
+key-list input work before deduplication. Large key lists, duplicate-heavy key
+lists, or large variable-width key payloads can reject with
 `PrimaryKeyInputExceedsPolicy` even when the deduplicated returned-row count is
 small.
 

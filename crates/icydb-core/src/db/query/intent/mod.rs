@@ -23,6 +23,7 @@ pub(in crate::db) use cache_key::StructuralQueryCacheKey;
 pub use errors::{IntentError, QueryError, QueryExecutionError};
 pub(in crate::db::query) use key_access::{
     KeyAccess, KeyAccessKind, KeyAccessState, build_access_plan_from_keys,
+    key_access_input_resource,
 };
 pub(in crate::db::query) use model::QueryModel;
 pub use query::PlannedQuery;

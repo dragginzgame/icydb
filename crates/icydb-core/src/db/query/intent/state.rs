@@ -6,7 +6,7 @@
 use crate::db::{
     predicate::Predicate,
     query::{
-        intent::{KeyAccessState, build_access_plan_from_keys},
+        intent::{KeyAccessState, build_access_plan_from_keys, key_access_input_resource},
         plan::{
             AccessPlanningInputs, DeleteSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
             LogicalPlanningInputs, OrderSpec, QueryMode,
@@ -578,6 +578,10 @@ impl<K: crate::traits::KeyValueCodec> QueryIntent<K> {
     #[must_use]
     pub(in crate::db::query::intent) fn planning_access_inputs(&self) -> AccessPlanningInputs<'_> {
         let scalar = self.scalar();
+        let key_access_input_resource = scalar
+            .key_access
+            .as_ref()
+            .and_then(|state| key_access_input_resource(&state.access));
         let key_access_override = scalar
             .key_access
             .as_ref()
@@ -590,6 +594,7 @@ impl<K: crate::traits::KeyValueCodec> QueryIntent<K> {
                 .and_then(NormalizedFilter::predicate_subset),
             scalar.order.as_ref(),
             key_access_override,
+            key_access_input_resource,
         )
     }
 }
