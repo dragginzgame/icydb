@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.197.md](docs/changelog/0.197.md)
 
+- `0.197.6` admits finite primary-key `IN (...)` reads with non-key ordering
+  when the exact key set bounds materialized sorting, while preserving
+  fail-closed rejection for underbounded materialized-order fallbacks.
+
 - `0.197.5` extends SQL finite primary-key `IN (...)` exact-key evidence to
   explicit primary-key ordering, proving duplicate and unsorted input lists
   produce deterministic ASC/DESC result signatures.

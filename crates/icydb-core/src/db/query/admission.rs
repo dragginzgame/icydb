@@ -795,7 +795,10 @@ impl QueryAdmissionPolicy {
         &self,
         summary: &QueryAdmissionSummary,
     ) -> Option<QueryAdmissionRejection> {
-        if !self.allow_materialized_sort() && summary.materialization().materialized_sort() {
+        if !self.allow_materialized_sort()
+            && summary.materialization().materialized_sort()
+            && !primary_key_materialized_sort_has_exact_candidate_bound(summary)
+        {
             return Some(QueryAdmissionRejection::SortRequiresMaterialization);
         }
 
@@ -807,6 +810,35 @@ impl QueryAdmissionPolicy {
         } else {
             None
         }
+    }
+}
+
+fn primary_key_materialized_sort_has_exact_candidate_bound(
+    summary: &QueryAdmissionSummary,
+) -> bool {
+    if !matches!(
+        summary.selected_access(),
+        QueryAdmissionAccessKind::ByKey | QueryAdmissionAccessKind::ByKeys
+    ) {
+        return false;
+    }
+    if !matches!(summary.scan_bound_kind(), QueryBoundKind::Exact) {
+        return false;
+    }
+    if !summary
+        .materialization()
+        .row_bound_kind()
+        .admits_public_read()
+    {
+        return false;
+    }
+
+    match (
+        summary.scan_bound(),
+        summary.materialization().materialized_rows(),
+    ) {
+        (Some(scan_bound), Some(materialized_rows)) => u64::from(materialized_rows) == scan_bound,
+        _ => false,
     }
 }
 
@@ -2052,6 +2084,58 @@ mod tests {
     fn public_read_evaluation_rejects_unresolved_order_materialized_sort() {
         let policy = public_read_policy();
         let summary = summary_for_index_prefix(Some(5), 0);
+        let returned_row_bound = summary.returned_row_bound();
+        let returned_row_bound_kind = summary.returned_row_bound_kind();
+        let summary = summary.with_materialization(QueryMaterializationSummary::sort(
+            returned_row_bound,
+            returned_row_bound_kind,
+        ));
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
+        assert_eq!(
+            evaluated.rejection(),
+            Some(QueryAdmissionRejection::SortRequiresMaterialization)
+        );
+    }
+
+    #[test]
+    fn public_read_evaluation_admits_exact_key_set_materialized_sort() {
+        let policy = public_read_policy();
+        let summary = summary_for_path(
+            AccessPath::ByKeys(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
+            None,
+            0,
+        );
+        let returned_row_bound = summary.returned_row_bound();
+        let returned_row_bound_kind = summary.returned_row_bound_kind();
+        let summary = summary.with_materialization(QueryMaterializationSummary::sort(
+            returned_row_bound,
+            returned_row_bound_kind,
+        ));
+
+        let evaluated = policy.evaluate(summary);
+
+        assert_eq!(evaluated.decision(), QueryAdmissionDecision::Admitted);
+        assert_eq!(evaluated.rejection(), None);
+        assert_eq!(
+            evaluated.selected_access(),
+            QueryAdmissionAccessKind::ByKeys
+        );
+        assert_eq!(evaluated.scan_bound(), Some(3));
+        assert_eq!(evaluated.returned_row_bound(), Some(3));
+        assert!(evaluated.materialization().materialized_sort());
+    }
+
+    #[test]
+    fn public_read_evaluation_rejects_underbounded_key_set_materialized_sort() {
+        let policy = public_read_policy();
+        let summary = summary_for_path(
+            AccessPath::ByKeys(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
+            Some(1),
+            0,
+        );
         let returned_row_bound = summary.returned_row_bound();
         let returned_row_bound_kind = summary.returned_row_bound_kind();
         let summary = summary.with_materialization(QueryMaterializationSummary::sort(

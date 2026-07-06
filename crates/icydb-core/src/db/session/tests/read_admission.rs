@@ -945,6 +945,54 @@ fn default_fluent_execute_rows_orders_primary_key_in_filters_deterministically_w
 }
 
 #[test]
+fn default_fluent_primary_key_in_filter_materializes_finite_non_key_order() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_760);
+    let second_id = crate::types::Ulid::from_u128(19_761);
+    let third_id = crate::types::Ulid::from_u128(19_762);
+    for (id, name, age) in [
+        (first_id, "first", 30),
+        (second_id, "second", 24),
+        (third_id, "third", 40),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    let query = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").in_list([third_id, first_id, first_id, second_id]))
+        .order_term(crate::db::desc("age"))
+        .order_term(crate::db::asc("id"));
+    let summary = session
+        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(3))
+        .expect("finite primary-key IN plus non-key order should produce an admission summary");
+
+    assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
+    assert_eq!(summary.rejection(), None);
+    assert_eq!(summary.selected_access(), QueryAdmissionAccessKind::ByKeys);
+    assert_eq!(summary.limit(), None);
+    assert_eq!(summary.scan_bound(), Some(3));
+    assert_eq!(summary.returned_row_bound(), Some(3));
+
+    let names: Vec<String> = query
+        .execute_rows()
+        .expect("finite primary-key IN plus non-key order should execute without explicit LIMIT")
+        .entities()
+        .into_iter()
+        .map(|entity| entity.name)
+        .collect();
+
+    assert_eq!(names, vec!["third", "first", "second"]);
+}
+
+#[test]
 fn default_fluent_execute_rows_applies_residual_after_primary_key_in_filter_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1314,6 +1362,42 @@ fn public_read_sql_primary_key_in_filter_orders_deterministically_without_limit(
             "primary-key SQL IN result order must be independent of input-list order and duplicates",
         );
     }
+}
+
+#[test]
+fn public_read_sql_primary_key_in_filter_materializes_finite_non_key_order() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let first_id = crate::types::Ulid::from_u128(19_770);
+    let second_id = crate::types::Ulid::from_u128(19_771);
+    let third_id = crate::types::Ulid::from_u128(19_772);
+    for (id, name, age) in [
+        (first_id, "first", 30),
+        (second_id, "second", 24),
+        (third_id, "third", 40),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("test row should insert");
+    }
+
+    let sql = format!(
+        "SELECT name FROM IndexedSessionSqlEntity \
+         WHERE id IN ('{third_id}', '{first_id}', '{first_id}', '{second_id}') \
+         ORDER BY age DESC, id ASC"
+    );
+    let names = public_read_sql_text_projection_values::<IndexedSessionSqlEntity>(
+        &session,
+        sql.as_str(),
+        3,
+        "finite primary-key SQL IN plus non-key ordered projection",
+    );
+
+    assert_eq!(names, vec!["third", "first", "second"]);
 }
 
 #[test]
