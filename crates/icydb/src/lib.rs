@@ -54,8 +54,19 @@
 //! caller authorization before entering IcyDB. Trusted read helpers are for
 //! controller/admin or maintenance code with a separate resource policy.
 //!
+//! Prefer semantic read intents for caller-facing APIs:
+//! - exact rows use primary-key access plus `try_one()` / `one()`;
+//! - public lists use request-owned `PageRequest` cursor pagination;
+//! - complete small sets use `collect_complete()`;
+//! - exact aggregates use `count_exact()` or `sum_exact(field)`;
+//! - trusted maintenance batches use `trusted_read_unchecked().admin_batch(...)`.
+//!
+//! Generated SQL endpoints are controller-gated admin surfaces. They are not
+//! generated public read endpoint templates.
+//!
 //! The operational lane contract lives in
 //! `docs/contracts/READ_ADMISSION.md`.
+//! Endpoint migration recipes live in `docs/guides/read-intent.md`.
 //!
 //! ## Preludes
 //!

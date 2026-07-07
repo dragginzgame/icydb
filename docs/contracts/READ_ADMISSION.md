@@ -91,9 +91,24 @@ read-intent terminals. `explain_exists()` reports `ExistenceCheck`, while
 `ExactAggregate`. Ordinary low-level aggregate explains remain
 `Unspecified`.
 
+Public endpoint review checklist:
+
+- caller authorization happens before the query enters IcyDB;
+- the return type makes the promise visible: page, complete set, optional row,
+  exact aggregate, or trusted admin batch;
+- public list endpoints use `PageRequest` cursor pagination, not generated SQL wrappers or giant raw limits;
+- complete-result endpoints use `collect_complete()` and fail when too many
+  rows exist instead of truncating;
+- exact aggregate endpoints use `count_exact()` or `sum_exact(field)`;
+- trusted maintenance scans are controller/admin-gated and use trusted read
+  helpers such as `trusted_read_unchecked().admin_batch(...)`.
+
 ## Generated SQL Query Surface
 
 The generated `icydb_query` endpoint is deliberately not a public read lane.
+Generated SQL endpoints are controller-gated admin surfaces, not public
+list/count/complete endpoint templates. Hand-written public read endpoint templates
+live in [`docs/guides/read-intent.md`](../guides/read-intent.md).
 
 Required properties:
 

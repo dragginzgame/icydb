@@ -60,6 +60,7 @@ else
     "controller-gated" \
     "does not generate non-controller public SQL read endpoints" \
     "no \`sql.public_read\` key" \
+    "Hand-written public read endpoint templates" \
     "\`DbSession::execute_query\`" \
     "\`DbSession::execute_query_trusted::<E>\`" \
     "\`trusted_read_unchecked()\`" \
@@ -68,6 +69,8 @@ else
     "Which API should I use?" \
     "docs/guides/read-intent.md" \
     "Choose the endpoint's read intent first" \
+    "Public endpoint review checklist:" \
+    "generated SQL wrappers" \
     "\`PageRequest\`" \
     "\`collect_complete()\`" \
     "\`count_exact()\`" \
@@ -129,6 +132,12 @@ else
   for required_read_intent_phrase in \
     "IcyDB public reads should describe the endpoint promise" \
     "\`PublicQueryRequiresLimit\` does not mean \"pick a bigger number.\"" \
+    "Public Endpoint Templates" \
+    "Migration Recipes" \
+    "Generated SQL Boundary" \
+    "Endpoint review checklist:" \
+    "Generated SQL endpoints are not substitutes for hand-written public read endpoints." \
+    "Do not expose \`icydb_query\`" \
     "PageRequest" \
     "AdminBatchRequest" \
     "collect_complete()" \
@@ -191,6 +200,20 @@ if ! rg -F --quiet "Ordinary typed/fluent reads through \`DbSession::execute_que
   "$PUBLIC_CRATE_LIB"
 then
   echo "[ERROR] Public crate docs must mention ordinary typed/fluent default read admission." >&2
+  status=1
+fi
+
+if ! rg -F --quiet "Endpoint migration recipes live in \`docs/guides/read-intent.md\`." \
+  "$PUBLIC_CRATE_LIB"
+then
+  echo "[ERROR] Public crate docs must point to read-intent migration recipes." >&2
+  status=1
+fi
+
+if ! rg -F --quiet "Generated SQL endpoints are controller-gated admin surfaces." \
+  "$PUBLIC_CRATE_LIB"
+then
+  echo "[ERROR] Public crate docs must keep the generated SQL admin-surface boundary." >&2
   status=1
 fi
 

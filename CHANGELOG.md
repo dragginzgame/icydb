@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.6` adds read-intent migration recipes, public endpoint templates, and
+  generated-SQL boundary guidance so caller-facing reads use semantic
+  typed/fluent endpoints instead of controller-gated SQL surfaces.
+
 - `0.198.5` extends read-intent observability across complete-small-set
   attribution and semantic aggregate EXPLAIN helpers while preserving existing
   admission, cursor, and lookahead behavior.

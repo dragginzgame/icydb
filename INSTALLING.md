@@ -47,10 +47,14 @@ the workspace. Readonly SQL is enabled by default; pass `--no-readonly` only for
 canisters that should not expose `__icydb_query`.
 
 Readonly SQL is a generated controller-gated admin surface, not a generated
-public read endpoint. Caller-facing reads should use ordinary typed/fluent
+public read endpoint. Do not expose `icydb_query` or a thin wrapper around it
+to arbitrary callers. Caller-facing reads should use ordinary typed/fluent
 execution so the default bounded read-admission gate applies after the endpoint
 has performed caller authorization. See
 [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
+Hand-written public read endpoint migration recipes and templates for pages,
+complete small sets, and exact aggregates are in
+[docs/guides/read-intent.md](docs/guides/read-intent.md).
 
 Example generated endpoint config:
 

@@ -234,6 +234,11 @@ explicit primary-key or bounded update policy. `__icydb_query` admits
 operational introspection (`EXPLAIN`, `DESCRIBE`, and `SHOW`) by build target:
 local builds default on, IC builds default off. The default generated canister
 surface does not expose SQL `UPDATE`.
+Generated SQL endpoints are controller-gated admin surfaces, not public read
+endpoint templates. Caller-facing list/count/complete reads should be
+hand-written typed/fluent endpoints using the read-intent migration recipes and
+endpoint templates in
+[docs/guides/read-intent.md](docs/guides/read-intent.md).
 
 Out of scope by design: joins, subqueries, CTEs, quoted identifiers, window
 functions, cursor pagination in scalar SQL, and broad unbounded pattern

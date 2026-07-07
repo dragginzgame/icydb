@@ -39,6 +39,214 @@ Classify the endpoint promise before changing code:
 - trusted maintenance: keep the endpoint controller/admin-gated and use
   `trusted_read_unchecked().admin_batch(...)` or another trusted helper.
 
+## Migration Recipes
+
+Treat each migration as an endpoint-contract review, not a search-and-replace.
+The same old `limit(N).execute_rows()` shape can mean several different things.
+
+Exact lookup:
+
+```rust
+// Before: bounded row window spelling.
+let user = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("id").eq(user_id))
+    .limit(1)
+    .try_one()?;
+
+// After: exact-key spelling.
+let user = db()
+    .load::<User>()
+    .by_id(icydb::Id::<User>::from_key(user_id))
+    .try_one()?;
+```
+
+Public list:
+
+```rust
+// Before: a row cap that can look like a complete list.
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("country").eq(country))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .limit(100)
+    .execute_rows()?;
+
+// After: request-owned cursor page.
+let users = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("country").eq(country))
+    .order_term(icydb::asc("username"))
+    .order_term(icydb::asc("id"))
+    .execute_paged(icydb::db::PageRequest::first(25))?;
+```
+
+Complete small set:
+
+```rust
+// Before: silent truncation if there are more than N matching rows.
+let members = db()
+    .load::<Member>()
+    .filter(icydb::FieldRef::new("team_id").eq(team_id))
+    .order_term(icydb::asc("id"))
+    .limit(100)
+    .execute_rows()?;
+
+// After: complete or fail with TooManyRows.
+let members = db()
+    .load::<Member>()
+    .filter(icydb::FieldRef::new("team_id").eq(team_id))
+    .order_term(icydb::asc("id"))
+    .collect_complete()?;
+```
+
+Exact aggregate:
+
+```rust
+// Before: count of a bounded row window.
+let active = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("active").eq(true))
+    .limit(100)
+    .count()?;
+
+// After: exact count over the admitted shape.
+let active = db()
+    .load::<User>()
+    .filter(icydb::FieldRef::new("active").eq(true))
+    .count_exact()?;
+```
+
+Trusted maintenance:
+
+```rust
+// Before: easy to copy into a public endpoint by accident.
+let rows = db()
+    .load::<LedgerEntry>()
+    .order_term(icydb::asc("id"))
+    .limit(500)
+    .execute_rows()?;
+
+// After: visibly trusted and cursor-batched.
+let rows = db()
+    .load::<LedgerEntry>()
+    .order_term(icydb::asc("id"))
+    .trusted_read_unchecked()
+    .admin_batch(icydb::db::AdminBatchRequest::new())?;
+```
+
+## Generated SQL Boundary
+
+Generated SQL endpoints are controller-gated operational infrastructure. They
+are useful for diagnostics, local maintenance, DDL, fixture flows, and
+administrator-owned SQL. They are not the public read abstraction for
+application users.
+
+Do not expose `icydb_query` or a wrapper around it to arbitrary callers.
+Also do not:
+
+- add a generated public SQL config key;
+- use generated readonly SQL as the implementation of a public list endpoint;
+- treat SQL `LIMIT` as the public endpoint contract when the endpoint promises
+  a complete set, exact aggregate, or cursor page.
+
+Do:
+
+- keep generated SQL behind controller/admin authorization;
+- use typed/fluent public endpoints for caller-facing exact rows, pages,
+  complete small sets, and exact aggregates;
+- use application-owned SQL allowlists only when the canister author controls
+  the query shape and still applies caller authorization first;
+- document whether a public endpoint returns a page, a complete set, an exact
+  aggregate, an exact key, or a trusted admin batch.
+
+## Public Endpoint Templates
+
+Generated SQL endpoints are not substitutes for hand-written public read endpoints.
+`icydb_query` is a controller-gated admin surface. For caller-facing queries,
+write typed/fluent endpoints that state the endpoint promise directly.
+
+Exact row:
+
+```rust
+#[ic_cdk::query]
+fn get_user(user_id: UserKey) -> Result<Option<User>, icydb::Error> {
+    db()
+        .load::<User>()
+        .by_id(icydb::Id::<User>::from_key(user_id))
+        .try_one()
+}
+```
+
+Public page:
+
+```rust
+#[ic_cdk::query]
+fn list_users(prefix: String, cursor: Option<String>) -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
+    let request = cursor.map_or_else(
+        || icydb::db::PageRequest::first(25),
+        |cursor| icydb::db::PageRequest::next(25, cursor),
+    );
+
+    db()
+        .load::<User>()
+        .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
+        .order_term(icydb::asc("username"))
+        .order_term(icydb::asc("id"))
+        .execute_paged(request)
+}
+```
+
+Complete small set:
+
+```rust
+#[ic_cdk::query]
+fn matching_users(prefix: String) -> Result<Vec<User>, icydb::Error> {
+    db()
+        .load::<User>()
+        .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
+        .order_term(icydb::asc("username"))
+        .order_term(icydb::asc("id"))
+        .collect_complete()
+}
+```
+
+Exact aggregate:
+
+```rust
+#[ic_cdk::query]
+fn count_users(country: String) -> Result<u32, icydb::Error> {
+    db()
+        .load::<User>()
+        .filter(icydb::FieldRef::new("country").eq(country))
+        .count_exact()
+}
+```
+
+Trusted maintenance batch:
+
+```rust
+#[ic_cdk::query]
+fn admin_user_batch(cursor: Option<String>) -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
+    ensure_controller()?;
+
+    let request = cursor.map_or_else(
+        icydb::db::AdminBatchRequest::new,
+        icydb::db::AdminBatchRequest::next,
+    );
+
+    db()
+        .load::<User>()
+        .order_term(icydb::asc("id"))
+        .trusted_read_unchecked()
+        .admin_batch(request)
+}
+```
+
+These shapes are application endpoints. They are intentionally separate from
+generated controller-gated SQL diagnostics and from any future codegen work.
+
 ## Exact Lookup
 
 Exact lookup should be proved by key access, not by a raw limit.
@@ -269,3 +477,17 @@ For every raw high-limit call site, classify intent first:
 
 Do not mechanically replace every `limit(N).execute_rows()` with an exact or
 complete terminal. The right terminal depends on the endpoint promise.
+
+Endpoint review checklist:
+
+- Does the function perform caller authorization before entering IcyDB?
+- Does the return type expose whether the result is a page, a complete set, an
+  optional row, an aggregate, or an admin batch?
+- Does the query have deterministic ordering before cursor pagination or
+  complete collection?
+- Does a complete endpoint fail when too many rows exist instead of silently
+  truncating?
+- Does a broad maintenance endpoint stay controller/admin-gated and use a
+  trusted read lane?
+- Does generated SQL stay operational and controller-gated instead of becoming
+  a public read gateway?
