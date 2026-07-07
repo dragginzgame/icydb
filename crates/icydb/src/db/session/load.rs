@@ -405,12 +405,32 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.min()?)
     }
 
+    /// Return the exact minimum identifier under deterministic response ordering.
+    ///
+    /// This semantic aggregate rejects a prior raw `limit(...)`; use `min()`
+    /// when the endpoint deliberately selects from the effective bounded row
+    /// window.
+    pub fn min_exact(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.min_exact()?)
+    }
+
     /// Explain scalar `min()` routing without executing the terminal.
     pub fn explain_min(&self) -> Result<ExplainAggregateTerminalPlan, Error>
     where
         E: Entity,
     {
         Ok(self.inner.explain_min()?)
+    }
+
+    /// Explain exact `min_exact()` routing without executing the terminal.
+    pub fn explain_min_exact(&self) -> Result<ExplainAggregateTerminalPlan, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_min_exact()?)
     }
 
     /// Return the identifier with the minimum `field` value.
@@ -421,12 +441,47 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.min_by(field)?)
     }
 
+    /// Return the identifier with the exact minimum `field` value.
+    ///
+    /// This semantic aggregate rejects a prior raw `limit(...)`; use
+    /// `min_by(field)` when the endpoint deliberately selects from the
+    /// effective bounded row window.
+    pub fn min_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.min_exact_by(field)?)
+    }
+
+    /// Explain exact `min_exact_by(field)` routing without executing the terminal.
+    pub fn explain_min_exact_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_min_exact_by(field)?)
+    }
+
     /// Return the maximum identifier under deterministic response ordering.
     pub fn max(&self) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
     {
         Ok(self.inner.max()?)
+    }
+
+    /// Return the exact maximum identifier under deterministic response ordering.
+    ///
+    /// This semantic aggregate rejects a prior raw `limit(...)`; use `max()`
+    /// when the endpoint deliberately selects from the effective bounded row
+    /// window.
+    pub fn max_exact(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.max_exact()?)
     }
 
     /// Explain scalar `max()` routing without executing the terminal.
@@ -437,12 +492,43 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_max()?)
     }
 
+    /// Explain exact `max_exact()` routing without executing the terminal.
+    pub fn explain_max_exact(&self) -> Result<ExplainAggregateTerminalPlan, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_max_exact()?)
+    }
+
     /// Return the identifier with the maximum `field` value.
     pub fn max_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
     {
         Ok(self.inner.max_by(field)?)
+    }
+
+    /// Return the identifier with the exact maximum `field` value.
+    ///
+    /// This semantic aggregate rejects a prior raw `limit(...)`; use
+    /// `max_by(field)` when the endpoint deliberately selects from the
+    /// effective bounded row window.
+    pub fn max_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.max_exact_by(field)?)
+    }
+
+    /// Explain exact `max_exact_by(field)` routing without executing the terminal.
+    pub fn explain_max_exact_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_max_exact_by(field)?)
     }
 
     /// Return the `nth` identifier by deterministic `(field asc, id asc)` ordering.
@@ -522,6 +608,18 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.avg_by(field)?)
     }
 
+    /// Return the exact average of `field` over matching rows.
+    ///
+    /// This semantic aggregate rejects a prior raw `limit(...)`; use
+    /// `avg_by(field)` when the endpoint deliberately averages the effective
+    /// bounded row window.
+    pub fn avg_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.avg_exact(field)?)
+    }
+
     /// Explain scalar `avg_by(field)` routing without executing the terminal.
     pub fn explain_avg_by(
         &self,
@@ -531,6 +629,17 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         E: Entity,
     {
         Ok(self.inner.explain_avg_by(field)?)
+    }
+
+    /// Explain exact `avg_exact(field)` routing without executing the terminal.
+    pub fn explain_avg_exact(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_avg_exact(field)?)
     }
 
     /// Return the average of distinct `field` values.

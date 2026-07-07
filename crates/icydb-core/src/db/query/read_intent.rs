@@ -42,7 +42,7 @@ pub enum ReadIntentKind {
     /// Complete small-set read that fails instead of silently truncating.
     CompleteSmallSet,
 
-    /// Exact count or sum aggregate.
+    /// Exact aggregate terminal such as count, sum, min, max, or average.
     ExactAggregate,
 
     /// Trusted/admin cursor batch with engine-owned batch size.

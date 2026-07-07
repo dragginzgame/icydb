@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.7` completes the exact aggregate read-intent vocabulary with min,
+  max, and average helpers, updates EXPLAIN/read-admission docs, and records
+  the 0.198 supplemental status boundary without adding custom read policies.
+
 - `0.198.6` adds read-intent migration recipes, public endpoint templates, and
   generated-SQL boundary guidance so caller-facing reads use semantic
   typed/fluent endpoints instead of controller-gated SQL surfaces.

@@ -13,7 +13,7 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.198.6`
+Current workspace version: `0.198.7`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
 public `icydb` crate path. Repository development, formatting, Clippy, tests,
@@ -44,7 +44,7 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.198.6" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.198.7" }
 ```
 
 The default crate feature set is typed/fluent-only. Enable SQL explicitly when
@@ -52,7 +52,7 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.198.6", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.198.7", features = ["sql"] }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add
@@ -137,13 +137,13 @@ Use the runtime prelude from canister code:
 ```rust
 use icydb::prelude::*;
 
-pub fn top_users() -> Result<Vec<User>, icydb::Error> {
+pub fn top_users_page() -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
     db!()
         .load::<User>()
         .filter_eq("active", true)
         .order_desc("score")
-        .limit(10)
-        .entities()
+        .order_term(asc("id"))
+        .execute_paged(icydb::db::PageRequest::first(10))
 }
 
 pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
@@ -164,6 +164,11 @@ non-zero offsets, materialized sorts, missing row bounds, or grouped reads
 without query-owned hard limits. Broad maintenance scans belong on explicit
 trusted/admin paths after controller authorization. See
 [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
+Caller-facing reads should use semantic read-intent terminals where possible:
+`PageRequest` for public pages, `collect_complete()` for complete small sets,
+`count_exact()` / `sum_exact(...)` / `min_exact(...)` / `max_exact(...)` /
+`avg_exact(...)` for exact aggregates, and raw `limit(...)` only when the API
+contract is deliberately a bounded row window.
 
 Use atomic batch helpers when a same-entity batch must be all-or-nothing:
 

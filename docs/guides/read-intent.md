@@ -14,7 +14,7 @@ window.
 | One exact row | `by_id(...).try_one()` or canonicalized primary-key equality with `try_one()` | `limit(1).execute_rows()` |
 | Existence | `exists()` / `not_exists()` | `limit(1).execute_rows()?.is_empty()` or `limit(1).exists()` |
 | Exact count | `count_exact()` | `limit(N).count()` unless the limited window is intended |
-| Exact sum | `sum_exact(field)` | `limit(N).sum_by(field)` unless the limited window is intended |
+| Exact sum/min/max/average | `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, `avg_exact(field)` | `limit(N).sum_by(field)` / `limit(N).min_by(field)` / `limit(N).avg_by(field)` unless the limited window is intended |
 | Complete small set | `collect_complete()` | `limit(N).execute_rows()` when the endpoint promises all matches |
 | Bounded row window | `limit(N).execute_rows()` / `limit(N).execute()` | A complete-result API that silently truncates |
 | Cursor page | `order_term(...).execute_paged(PageRequest::first(N))` | `limit(N).execute_paged(...)` or non-zero `offset(...)` for public pages |
@@ -31,7 +31,9 @@ Classify the endpoint promise before changing code:
 - public list: use request-owned `PageRequest` cursor paging;
 - complete result: use `collect_complete()` only when the set is expected to
   stay small;
-- exact aggregate: use `count_exact()` or `sum_exact(field)`;
+- exact aggregate: use `count_exact()`, `sum_exact(field)`,
+  `min_exact()`, `min_exact_by(field)`, `max_exact()`,
+  `max_exact_by(field)`, or `avg_exact(field)`;
 - exact key read: use `by_id(...)`, `by_ids(...)`, or canonicalized
   primary-key equality;
 - bounded row window: keep `limit(N).execute_rows()` only when a partial row
@@ -325,16 +327,28 @@ let total = db()
     .load::<LedgerEntry>()
     .filter(icydb::FieldRef::new("account_id").eq(account_id))
     .sum_exact("amount")?;
+
+let oldest = db()
+    .load::<LedgerEntry>()
+    .filter(icydb::FieldRef::new("account_id").eq(account_id))
+    .min_exact_by("created_at")?;
+
+let average = db()
+    .load::<LedgerEntry>()
+    .filter(icydb::FieldRef::new("account_id").eq(account_id))
+    .avg_exact("amount")?;
 ```
 
-`count_exact()` and `sum_exact(field)` reject prior raw `limit(...)`. Exact
-aggregates must not mean "aggregate the first N rows."
+Exact aggregate terminals reject prior raw `limit(...)`. Exact aggregates must
+not mean "aggregate the first N rows."
 
 Diagnostics-only terminal attribution reports `ReadIntentKind::ExactAggregate`
 for attributed exact count terminals and `ReadIntentKind::BoundedRowWindow` for
 the lower-level bounded count terminal.
-`explain_count_exact()` and `explain_sum_exact(field)` report exact-aggregate
-read-intent metadata without executing the terminal.
+`explain_count_exact()`, `explain_sum_exact(field)`, `explain_min_exact()`,
+`explain_min_exact_by(field)`, `explain_max_exact()`,
+`explain_max_exact_by(field)`, and `explain_avg_exact(field)` report
+exact-aggregate read-intent metadata without executing the terminal.
 
 Use the older aggregate terminals only when the window is explicitly part of
 the endpoint promise:
@@ -411,7 +425,9 @@ If the set is not known to be small, choose one of:
 
 - exact key reads for exact lookup;
 - `exists()` for boolean existence;
-- `count_exact()` or `sum_exact(field)` for supported exact aggregates;
+- `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`,
+  `max_exact()`, `max_exact_by(field)`, or `avg_exact(field)` for supported
+  exact aggregates;
 - cursor paging for public list endpoints;
 - explicit trusted maintenance reads for controller/admin-only workflows.
 
@@ -468,7 +484,9 @@ For every raw high-limit call site, classify intent first:
   equality with `try_one()`;
 - existence: use `exists()` / `not_exists()`;
 - exact count: use `count_exact()`;
-- exact sum: use `sum_exact(field)`;
+- exact sum/min/max/average: use `sum_exact(field)`, `min_exact()`,
+  `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, or
+  `avg_exact(field)`;
 - public list: use deterministic cursor paging;
 - complete small set: use `collect_complete()` or redesign the endpoint as a
   page;

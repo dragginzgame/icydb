@@ -465,6 +465,12 @@ pub enum IntentError {
 
     RawLimitBeforeSumExactTerminal,
 
+    RawLimitBeforeMinExactTerminal,
+
+    RawLimitBeforeMaxExactTerminal,
+
+    RawLimitBeforeAvgExactTerminal,
+
     RawLimitBeforeCollectCompleteTerminal,
 
     RawLimitBeforeAdminBatchTerminal,
@@ -554,6 +560,21 @@ impl IntentError {
     /// Construct one raw-limit-before-sum-exact-terminal intent error.
     pub(in crate::db::query) const fn raw_limit_before_sum_exact_terminal() -> Self {
         Self::RawLimitBeforeSumExactTerminal
+    }
+
+    /// Construct one raw-limit-before-min-exact-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_min_exact_terminal() -> Self {
+        Self::RawLimitBeforeMinExactTerminal
+    }
+
+    /// Construct one raw-limit-before-max-exact-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_max_exact_terminal() -> Self {
+        Self::RawLimitBeforeMaxExactTerminal
+    }
+
+    /// Construct one raw-limit-before-avg-exact-terminal intent error.
+    pub(in crate::db::query) const fn raw_limit_before_avg_exact_terminal() -> Self {
+        Self::RawLimitBeforeAvgExactTerminal
     }
 
     /// Construct one raw-limit-before-collect-complete-terminal intent error.

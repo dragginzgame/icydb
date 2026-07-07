@@ -259,6 +259,36 @@ fn raw_limit_before_sum_exact_terminal_constructor_keeps_intent_boundary() {
 }
 
 #[test]
+fn raw_limit_before_min_exact_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_min_exact_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeMinExactTerminal)
+    );
+}
+
+#[test]
+fn raw_limit_before_max_exact_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_max_exact_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeMaxExactTerminal)
+    );
+}
+
+#[test]
+fn raw_limit_before_avg_exact_terminal_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::raw_limit_before_avg_exact_terminal());
+
+    std::assert_matches!(
+        err,
+        QueryError::Intent(IntentError::RawLimitBeforeAvgExactTerminal)
+    );
+}
+
+#[test]
 fn raw_limit_before_collect_complete_terminal_constructor_keeps_intent_boundary() {
     let err = QueryError::intent(IntentError::raw_limit_before_collect_complete_terminal());
 

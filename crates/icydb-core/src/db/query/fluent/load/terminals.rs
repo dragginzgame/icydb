@@ -393,13 +393,37 @@ where
     }
 
     fn ensure_count_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_semantic_terminal_owns_limit(
+        self.ensure_exact_aggregate_intent_owns_limit(
             IntentError::raw_limit_before_count_exact_terminal(),
         )
     }
 
     fn ensure_sum_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_sum_exact_terminal())
+        self.ensure_exact_aggregate_intent_owns_limit(
+            IntentError::raw_limit_before_sum_exact_terminal(),
+        )
+    }
+
+    fn ensure_min_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
+        self.ensure_exact_aggregate_intent_owns_limit(
+            IntentError::raw_limit_before_min_exact_terminal(),
+        )
+    }
+
+    fn ensure_max_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
+        self.ensure_exact_aggregate_intent_owns_limit(
+            IntentError::raw_limit_before_max_exact_terminal(),
+        )
+    }
+
+    fn ensure_avg_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
+        self.ensure_exact_aggregate_intent_owns_limit(
+            IntentError::raw_limit_before_avg_exact_terminal(),
+        )
+    }
+
+    fn ensure_exact_aggregate_intent_owns_limit(&self, err: IntentError) -> Result<(), QueryError> {
+        self.ensure_semantic_terminal_owns_limit(err)
     }
 
     fn ensure_collect_complete_intent_owns_limit(&self) -> Result<(), QueryError> {
@@ -699,12 +723,37 @@ where
         self.execute_terminal(MinIdTerminal::new())
     }
 
+    /// Execute and return the exact smallest matching identifier.
+    ///
+    /// Unlike `min()`, this semantic aggregate rejects a prior raw
+    /// `limit(...)` so exact minimum selection cannot accidentally mean
+    /// "minimum over the first N rows."
+    pub fn min_exact(&self) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_min_exact_intent_owns_limit()?;
+
+        self.execute_terminal(MinIdTerminal::new())
+    }
+
     /// Explain scalar `min()` routing without executing the terminal.
     pub fn explain_min(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
     {
         self.explain_terminal(&MinIdTerminal::new())
+    }
+
+    /// Explain exact `min_exact()` routing without executing the terminal.
+    pub fn explain_min_exact(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_min_exact_intent_owns_limit()?;
+
+        self.explain_terminal(&MinIdTerminal::new())
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -719,11 +768,57 @@ where
         self.execute_terminal(MinIdBySlotTerminal::new(target_slot))
     }
 
+    /// Execute and return the id of the row with the exact minimum `field` value.
+    ///
+    /// Ties are deterministic: equal field values resolve by primary key ascending.
+    /// A prior raw `limit(...)` is rejected because the terminal owns the exact
+    /// aggregate intent.
+    pub fn min_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_min_exact_intent_owns_limit()?;
+
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.execute_terminal(MinIdBySlotTerminal::new(target_slot))
+    }
+
+    /// Explain exact `min_exact_by(field)` routing without executing the terminal.
+    pub fn explain_min_exact_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_min_exact_intent_owns_limit()?;
+
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.explain_terminal(&MinIdBySlotTerminal::new(target_slot))
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+    }
+
     /// Execute and return the largest matching identifier, if any.
     pub fn max(&self) -> Result<Option<Id<E>>, QueryError>
     where
         E: EntityValue,
     {
+        self.execute_terminal(MaxIdTerminal::new())
+    }
+
+    /// Execute and return the exact largest matching identifier.
+    ///
+    /// Unlike `max()`, this semantic aggregate rejects a prior raw
+    /// `limit(...)` so exact maximum selection cannot accidentally mean
+    /// "maximum over the first N rows."
+    pub fn max_exact(&self) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_max_exact_intent_owns_limit()?;
+
         self.execute_terminal(MaxIdTerminal::new())
     }
 
@@ -733,6 +828,17 @@ where
         E: EntityValue,
     {
         self.explain_terminal(&MaxIdTerminal::new())
+    }
+
+    /// Explain exact `max_exact()` routing without executing the terminal.
+    pub fn explain_max_exact(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_max_exact_intent_owns_limit()?;
+
+        self.explain_terminal(&MaxIdTerminal::new())
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -745,6 +851,38 @@ where
         let target_slot = self.resolve_non_paged_slot(field)?;
 
         self.execute_terminal(MaxIdBySlotTerminal::new(target_slot))
+    }
+
+    /// Execute and return the id of the row with the exact maximum `field` value.
+    ///
+    /// Ties are deterministic: equal field values resolve by primary key ascending.
+    /// A prior raw `limit(...)` is rejected because the terminal owns the exact
+    /// aggregate intent.
+    pub fn max_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_max_exact_intent_owns_limit()?;
+
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.execute_terminal(MaxIdBySlotTerminal::new(target_slot))
+    }
+
+    /// Explain exact `max_exact_by(field)` routing without executing the terminal.
+    pub fn explain_max_exact_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_max_exact_intent_owns_limit()?;
+
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.explain_terminal(&MaxIdBySlotTerminal::new(target_slot))
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
     }
 
     /// Execute and return the id at zero-based ordinal `nth` when rows are
@@ -846,6 +984,22 @@ where
         self.execute_terminal(AvgBySlotTerminal::new(target_slot))
     }
 
+    /// Execute and return the exact average of `field` over matching rows.
+    ///
+    /// Unlike `avg_by(...)`, this semantic aggregate rejects a prior raw
+    /// `limit(...)` so exact averages cannot accidentally mean "average the
+    /// first N rows."
+    pub fn avg_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_avg_exact_intent_owns_limit()?;
+
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.execute_terminal(AvgBySlotTerminal::new(target_slot))
+    }
+
     /// Explain scalar `avg_by(field)` routing without executing the terminal.
     pub fn explain_avg_by(
         &self,
@@ -857,6 +1011,22 @@ where
         let target_slot = self.resolve_non_paged_slot(field)?;
 
         self.explain_terminal(&AvgBySlotTerminal::new(target_slot))
+    }
+
+    /// Explain exact `avg_exact(field)` routing without executing the terminal.
+    pub fn explain_avg_exact(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_avg_exact_intent_owns_limit()?;
+
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.explain_terminal(&AvgBySlotTerminal::new(target_slot))
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
     }
 
     /// Execute and return the average of distinct `field` values.

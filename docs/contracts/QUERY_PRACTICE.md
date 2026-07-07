@@ -313,6 +313,11 @@ Evaluation must never panic.
 
 `limit` and `offset` without `order_by(...)` are rejected by design.
 Use `order_by(...)` fields that produce a total order for stable pagination.
+For caller-facing read APIs, prefer the semantic read-intent terminals in
+[`docs/guides/read-intent.md`](../guides/read-intent.md): `PageRequest` for
+public pages, `collect_complete()` for complete small sets, and exact
+aggregate helpers for exact answers. Raw `limit(...)` remains the low-level
+bounded row-window primitive.
 
 Rationale:
 * Unordered pagination is non-deterministic.

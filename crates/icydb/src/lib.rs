@@ -58,7 +58,8 @@
 //! - exact rows use primary-key access plus `try_one()` / `one()`;
 //! - public lists use request-owned `PageRequest` cursor pagination;
 //! - complete small sets use `collect_complete()`;
-//! - exact aggregates use `count_exact()` or `sum_exact(field)`;
+//! - exact aggregates use semantic helpers such as `count_exact()`,
+//!   `sum_exact(field)`, `min_exact_by(field)`, or `avg_exact(field)`;
 //! - trusted maintenance batches use `trusted_read_unchecked().admin_batch(...)`.
 //!
 //! Generated SQL endpoints are controller-gated admin surfaces. They are not

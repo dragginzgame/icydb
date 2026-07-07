@@ -70,7 +70,7 @@ For migration examples and endpoint-intent guidance, see
 | serve normal users | ordinary typed/fluent execution | Default bounded admission rejects unsafe public read shapes before row execution. |
 | check whether any row exists | `exists()` / `not_exists()` without a raw `limit(...)` | Existence is a semantic terminal. It owns its bounded route and rejects a prior raw row cap as caller-intent ambiguity. |
 | return every row in a small bounded set | `collect_complete()` without a raw `limit(...)` | Complete small-set collection owns an internal lookahead limit and fails instead of silently truncating when the set exceeds the public-read cap. |
-| return an exact count or sum | `count_exact()` / `sum_exact(field)` without a raw `limit(...)` | Exact aggregates use aggregate execution over the admitted shape. Use `count()` / `sum_by(...)` only when aggregating the effective row window is the intended contract. |
+| return an exact aggregate | `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, or `avg_exact(field)` without a raw `limit(...)` | Exact aggregates use aggregate execution over the admitted shape. Use `count()`, `sum_by(...)`, `min_by(...)`, `max_by(...)`, or `avg_by(...)` only when aggregating the effective row window is the intended contract. |
 | process a trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::...)` | Admin batches are trusted-only, cursor-batched, and use an engine-owned batch size. They are not public list shortcuts. |
 | run controller diagnostics | trusted/admin execution | Caller authorization and an explicit resource policy are required before calling trusted helpers. |
 | explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
@@ -87,9 +87,10 @@ access.
 
 Semantic aggregate EXPLAIN helpers expose the same metadata for supported
 read-intent terminals. `explain_exists()` reports `ExistenceCheck`, while
-`explain_count_exact()` and `explain_sum_exact(field)` report
-`ExactAggregate`. Ordinary low-level aggregate explains remain
-`Unspecified`.
+`explain_count_exact()`, `explain_sum_exact(field)`, `explain_min_exact()`,
+`explain_min_exact_by(field)`, `explain_max_exact()`,
+`explain_max_exact_by(field)`, and `explain_avg_exact(field)` report
+`ExactAggregate`. Ordinary low-level aggregate explains remain `Unspecified`.
 
 Public endpoint review checklist:
 
@@ -99,7 +100,9 @@ Public endpoint review checklist:
 - public list endpoints use `PageRequest` cursor pagination, not generated SQL wrappers or giant raw limits;
 - complete-result endpoints use `collect_complete()` and fail when too many
   rows exist instead of truncating;
-- exact aggregate endpoints use `count_exact()` or `sum_exact(field)`;
+- exact aggregate endpoints use semantic exact helpers such as
+  `count_exact()`, `sum_exact(field)`, `min_exact_by(field)`, or
+  `avg_exact(field)`;
 - trusted maintenance scans are controller/admin-gated and use trusted read
   helpers such as `trusted_read_unchecked().admin_batch(...)`.
 
@@ -247,15 +250,18 @@ the low-level bounded row window is the actual endpoint contract.
 owns page size and cursor continuation. `limit(n).collect_complete()` is
 rejected because complete reads must not silently cap or truncate the result.
 `limit(n).count_exact()` is rejected for the same reason: exact aggregates must
-not mean "aggregate the first N rows." `limit(n).sum_exact(field)` is rejected
-on the same contract. Use `count()` or `sum_by(...)` only when the endpoint
-deliberately aggregates the effective bounded row window. `admin_batch(...)`
-requires `trusted_read_unchecked()` and rejects prior raw `limit(...)`; trusted
-batch size is engine-owned.
+not mean "aggregate the first N rows." `limit(n).sum_exact(field)`,
+`limit(n).min_exact()`, `limit(n).min_exact_by(field)`,
+`limit(n).max_exact()`, `limit(n).max_exact_by(field)`, and
+`limit(n).avg_exact(field)` are rejected on the same contract. Use `count()`,
+`sum_by(...)`, `min_by(...)`, `max_by(...)`, or `avg_by(...)` only when the
+endpoint deliberately aggregates the effective bounded row window.
+`admin_batch(...)` requires `trusted_read_unchecked()` and rejects prior raw
+`limit(...)`; trusted batch size is engine-owned.
 
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |
-| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Choose the endpoint's read intent first: use request-owned `PageRequest` paging for public lists, `collect_complete()` for complete small sets, `count_exact()` / `sum_exact(field)` for exact aggregates, strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)` for exact key reads, or grouped `grouped_limits(...)` when the grouped shape itself supplies the bound. Keep raw `limit(...)` only for endpoints that deliberately return a bounded row window. |
+| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Choose the endpoint's read intent first: use request-owned `PageRequest` paging for public lists, `collect_complete()` for complete small sets, semantic `*_exact` helpers for exact aggregates, strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)` for exact key reads, or grouped `grouped_limits(...)` when the grouped shape itself supplies the bound. Keep raw `limit(...)` only for endpoints that deliberately return a bounded row window. |
 | Ordinary read with `LIMIT 1` but no route-proven index access | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Add an index for the filter/order, tighten the predicate, or move the broad scan behind a controller/admin trusted path. |
 | Ordinary read whose selected route cannot prove an index-backed access path | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | Add a matching index or change the query to use an indexed predicate/order. |
 | Ordinary read whose selected plan cannot prove a scan bound | `QueryReadAdmissionCode::ScanBoundUnavailable` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
