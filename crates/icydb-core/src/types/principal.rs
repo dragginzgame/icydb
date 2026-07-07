@@ -75,6 +75,9 @@ impl Principal {
     }
 
     #[must_use]
+    // This cannot be const across the supported `candid` dependency range:
+    // older compatible `ic_principal` releases expose non-const byte access.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
