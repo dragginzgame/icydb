@@ -129,15 +129,30 @@ if [[ ! -f "$READ_INTENT_GUIDE" ]]; then
   echo "[ERROR] Missing read-intent guide: $READ_INTENT_GUIDE" >&2
   status=1
 else
-  for required_read_intent_phrase in \
-    "IcyDB public reads should describe the endpoint promise" \
-    "\`PublicQueryRequiresLimit\` does not mean \"pick a bigger number.\"" \
-    "Public Endpoint Templates" \
-    "Migration Recipes" \
-    "Generated SQL Boundary" \
-    "Endpoint review checklist:" \
-    "Generated SQL endpoints are not substitutes for hand-written public read endpoints." \
-    "Do not expose \`icydb_query\`" \
+  for required_read_intent_section in \
+    "^# Read Intent Guide$" \
+    "^## Current Map$" \
+    "^## When Admission Rejects A Read$" \
+    "^## Migration Recipes$" \
+    "^## Generated SQL Boundary$" \
+    "^## Public Endpoint Templates$" \
+    "^## Exact Lookup$" \
+    "^## Existence$" \
+    "^## Exact Aggregates$" \
+    "^## Public Pages$" \
+    "^## Complete Small Sets$" \
+    "^## Trusted Reads$" \
+    "^## Migration Checklist$"
+  do
+    if ! rg --quiet "$required_read_intent_section" "$READ_INTENT_GUIDE"; then
+      echo "[ERROR] Read-intent guide is missing required section anchor: $required_read_intent_section" >&2
+      status=1
+    fi
+  done
+
+  for required_read_intent_token in \
+    "PublicQueryRequiresLimit" \
+    "bounded_window(...)" \
     "PageRequest" \
     "AdminBatchRequest" \
     "collect_complete()" \
@@ -146,11 +161,27 @@ else
     "explain_count_exact()" \
     "explain_sum_exact(field)" \
     "ReadIntentKind::CompleteSmallSet" \
-    "\`limit(...)\` only when the endpoint is deliberately returning" \
-    "Do not mechanically replace every \`limit(N).execute_rows()\`"
+    "icydb_query" \
+    "Endpoint review checklist:" \
+    "partial row window"
   do
-    if ! rg -F --quiet "$required_read_intent_phrase" "$READ_INTENT_GUIDE"; then
-      echo "[ERROR] Read-intent guide is missing required phrase: $required_read_intent_phrase" >&2
+    if ! rg -F --quiet "$required_read_intent_token" "$READ_INTENT_GUIDE"; then
+      echo "[ERROR] Read-intent guide is missing required concept/API token: $required_read_intent_token" >&2
+      status=1
+    fi
+  done
+
+  declare -A required_read_intent_concepts=(
+    ["bounded_window is the bounded-row-window primitive"]="bounded row window: use .*bounded_window\\(N\\)\\.execute_rows\\(\\)"
+    ["bounded_window migration is not mechanical"]="Do not mechanically replace every .*bounded_window\\(N\\)\\.execute_rows\\(\\)"
+    ["generated SQL is not a public endpoint substitute"]="Generated SQL endpoints.*not substitutes.*public read endpoints"
+    ["generated SQL wrapper warning"]="Do not expose .*icydb_query"
+  )
+
+  for required_read_intent_concept in "${!required_read_intent_concepts[@]}"; do
+    required_read_intent_pattern="${required_read_intent_concepts[$required_read_intent_concept]}"
+    if ! rg --quiet "$required_read_intent_pattern" "$READ_INTENT_GUIDE"; then
+      echo "[ERROR] Read-intent guide is missing required concept: $required_read_intent_concept" >&2
       status=1
     fi
   done
