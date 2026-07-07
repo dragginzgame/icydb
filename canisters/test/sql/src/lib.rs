@@ -4,7 +4,7 @@
 
 use ic_cdk::update;
 use icydb::types::{Decimal, Float32, Float64, Timestamp, Ulid};
-use icydb::{db::MutationMode, value::InputValue};
+use icydb::{ErrorKind, ErrorOrigin, QueryErrorKind, db::MutationMode, value::InputValue};
 use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 
 icydb::start!();
@@ -65,7 +65,11 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
         .load::<SqlTestNumericTypes>()
         .trusted_read_unchecked()
         .filter_eq("label", "alpha")
-        .entity()?;
+        .try_one()?
+        .ok_or(icydb::Error::from_kind(
+            ErrorKind::Query(QueryErrorKind::NotFound),
+            ErrorOrigin::Response,
+        ))?;
     let group_name = "x".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
     let patch = db().structural_patch::<SqlTestNumericTypes, _, _>([(
         "group_name",

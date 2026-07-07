@@ -47,47 +47,90 @@ extract_rust_enum_variants() {
   ' "$source_file"
 }
 
+require_file_literal() {
+  local owner="$1"
+  local label="$2"
+  local literal="$3"
+
+  if ! rg -F --quiet "$literal" "$owner"; then
+    echo "[ERROR] $owner is missing required $label: $literal" >&2
+    status=1
+  fi
+}
+
+require_file_pattern() {
+  local owner="$1"
+  local label="$2"
+  local pattern="$3"
+
+  if ! rg --quiet "$pattern" "$owner"; then
+    echo "[ERROR] $owner is missing required concept: $label" >&2
+    status=1
+  fi
+}
+
 if [[ ! -f "$DOC" ]]; then
   echo "[ERROR] Missing read-admission contract: $DOC" >&2
   status=1
 else
-  for required_phrase in \
-    "Read Surface Inventory" \
+  for required_contract_section in \
+    "^## Core Rule$" \
+    "^## Read Surface Inventory$" \
+    "^## Which API should I use\\?$" \
+    "^## Generated SQL Query Surface$" \
+    "^## Public Endpoint Guidance$" \
+    "^## Common Rejections And Fixes$" \
+    "^## Regression Guard$"
+  do
+    require_file_pattern "$DOC" "section anchor $required_contract_section" "$required_contract_section"
+  done
+
+  for required_contract_token in \
     "\`PublicRead\`" \
     "\`AdminAdHoc\`" \
     "\`DiagnosticExplain\`" \
     "generated \`icydb_query\`" \
-    "controller-gated" \
-    "does not generate non-controller public SQL read endpoints" \
-    "no \`sql.public_read\` key" \
-    "Hand-written public read endpoint templates" \
     "\`DbSession::execute_query\`" \
     "\`DbSession::execute_query_trusted::<E>\`" \
     "\`trusted_read_unchecked()\`" \
-    "must not expose caller-controlled SQL through \`execute_sql_query\`" \
+    "\`execute_sql_query\`" \
     "execute_sql_query_with_perf_attribution" \
-    "Which API should I use?" \
     "docs/guides/read-intent.md" \
-    "Choose the endpoint's read intent first" \
-    "Public endpoint review checklist:" \
-    "generated SQL wrappers" \
     "\`PageRequest\`" \
     "\`collect_complete()\`" \
     "\`count_exact()\`" \
     "\`sum_exact(field)\`" \
     "\`explain_count_exact()\`" \
     "\`explain_sum_exact(field)\`" \
-    "Common Rejections And Fixes" \
-    "Regression Guard" \
-    "\`execute().into_grouped()\`" \
+    "\`execute().into_grouped()\`"
+  do
+    require_file_literal "$DOC" "API/lane token" "$required_contract_token"
+  done
+
+  for required_budget_literal in \
     "maximum returned rows: 100" \
     "maximum plan-level response bytes: 128 KiB" \
     "100 groups, 64 KiB per group, and 1024 distinct entries"
   do
-    if ! rg -F --quiet "$required_phrase" "$DOC"; then
-      echo "[ERROR] Read-admission contract is missing required phrase: $required_phrase" >&2
-      status=1
-    fi
+    require_file_literal "$DOC" "budget literal" "$required_budget_literal"
+  done
+
+  declare -A required_contract_concepts=(
+    ["generated icydb_query remains controller gated"]="generated .*icydb_query.*controller-gated"
+    ["caller-controlled SQL is not public-safe"]="caller-controlled SQL.*execute_sql_query"
+    ["generated SQL has no public-read config"]="sql\\.public_read"
+    ["generated non-controller public SQL endpoints remain forbidden"]="non-controller.*generated SQL query endpoint"
+    ["read-intent guidance is discoverable"]="read-intent\\.md"
+    ["public list guidance uses PageRequest"]="public list endpoints use .*PageRequest"
+    ["complete-result guidance uses collect_complete"]="complete-result endpoints use .*collect_complete"
+    ["exact aggregate guidance uses exact helpers"]="exact aggregate.*count_exact"
+  )
+
+  for required_contract_concept in "${!required_contract_concepts[@]}"; do
+    require_file_pattern \
+      "$DOC" \
+      "$required_contract_concept" \
+      "${required_contract_concepts[$required_contract_concept]}"
   done
 
   if [[ ! -f "$DIAGNOSTIC_CODES" ]]; then
@@ -173,8 +216,8 @@ else
 
   declare -A required_read_intent_concepts=(
     ["bounded_window is the bounded-row-window primitive"]="bounded row window: use .*bounded_window\\(N\\)\\.execute_rows\\(\\)"
-    ["bounded_window migration is not mechanical"]="Do not mechanically replace every .*bounded_window\\(N\\)\\.execute_rows\\(\\)"
-    ["generated SQL is not a public endpoint substitute"]="Generated SQL endpoints.*not substitutes.*public read endpoints"
+    ["bounded_window migration is not mechanical"]="mechanically replace .*bounded_window\\(N\\)\\.execute_rows\\(\\)"
+    ["generated SQL is not a public endpoint substitute"]="Generated SQL endpoints.*public read endpoints"
     ["generated SQL wrapper warning"]="Do not expose .*icydb_query"
   )
 
@@ -210,43 +253,33 @@ for link_owner in "${!required_read_admission_links[@]}"; do
   fi
 done
 
-if ! rg -F --quiet "Ordinary typed/fluent reads are bounded by default" "$README_DOC"; then
-  echo "[ERROR] README query guidance must mention the default bounded read-admission gate." >&2
-  status=1
-fi
+require_file_pattern \
+  "$README_DOC" \
+  "typed/fluent reads mention bounded admission" \
+  "typed/fluent reads.*bounded"
 
-if ! rg -F --quiet "\`execute_sql_query\` is the trusted/admin SQL lane" "$README_DOC"; then
-  echo "[ERROR] README SQL guidance must warn that execute_sql_query is the trusted/admin lane." >&2
-  status=1
-fi
+require_file_pattern \
+  "$README_DOC" \
+  "execute_sql_query is documented as trusted/admin" \
+  "execute_sql_query.*trusted/admin"
 
-if ! rg -F --quiet "Readonly SQL is a generated controller-gated admin surface" \
-  "$INSTALLING_DOC"
-then
-  echo "[ERROR] Installing docs must clarify generated readonly SQL lane ownership." >&2
-  status=1
-fi
+require_file_pattern \
+  "$INSTALLING_DOC" \
+  "readonly SQL is generated controller-gated admin surface" \
+  "Readonly SQL.*controller-gated.*admin"
 
-if ! rg -F --quiet "Ordinary typed/fluent reads through \`DbSession::execute_query\`" \
-  "$PUBLIC_CRATE_LIB"
-then
-  echo "[ERROR] Public crate docs must mention ordinary typed/fluent default read admission." >&2
-  status=1
-fi
+require_file_literal "$PUBLIC_CRATE_LIB" "public read API token" "DbSession::execute_query"
+require_file_pattern \
+  "$PUBLIC_CRATE_LIB" \
+  "public crate docs mention bounded read admission" \
+  "default bounded read-admission gate"
 
-if ! rg -F --quiet "Endpoint migration recipes live in \`docs/guides/read-intent.md\`." \
-  "$PUBLIC_CRATE_LIB"
-then
-  echo "[ERROR] Public crate docs must point to read-intent migration recipes." >&2
-  status=1
-fi
+require_file_literal "$PUBLIC_CRATE_LIB" "read-intent guide link" "docs/guides/read-intent.md"
 
-if ! rg -F --quiet "Generated SQL endpoints are controller-gated admin surfaces." \
-  "$PUBLIC_CRATE_LIB"
-then
-  echo "[ERROR] Public crate docs must keep the generated SQL admin-surface boundary." >&2
-  status=1
-fi
+require_file_pattern \
+  "$PUBLIC_CRATE_LIB" \
+  "generated SQL remains controller-gated admin surface" \
+  "Generated SQL endpoints.*controller-gated.*admin"
 
 if [[ ! -f "$ADMISSION_SOURCE" ]]; then
   echo "[ERROR] Missing read-admission source owner: $ADMISSION_SOURCE" >&2
@@ -356,43 +389,36 @@ else
     fi
   done
 
-  declare -A required_public_facade_phrases=(
-    ["$PUBLIC_FACADE_SESSION"]="Execute an ordinary typed/fluent query through the default bounded"
-    ["$PUBLIC_FACADE_SESSION_MACROS"]="Scalar queries return \`QueryResponse::Rows\`; grouped queries return"
-    ["$PUBLIC_FACADE_LOAD"]="Grouped queries return grouped rows through \`execute().into_grouped()\`"
+  declare -A required_public_facade_tokens=(
+    ["$PUBLIC_FACADE_SESSION"]="caller-controlled SQL"
+    ["$PUBLIC_FACADE_SESSION_MACROS"]="QueryResponse::Grouped"
+    ["$PUBLIC_FACADE_LOAD"]="execute().into_grouped()"
   )
 
-  for public_facade_file in "${!required_public_facade_phrases[@]}"; do
-    required_phrase="${required_public_facade_phrases[$public_facade_file]}"
+  for public_facade_file in "${!required_public_facade_tokens[@]}"; do
+    required_token="${required_public_facade_tokens[$public_facade_file]}"
     if [[ ! -f "$public_facade_file" ]]; then
       echo "[ERROR] Missing public facade read-admission source: $public_facade_file" >&2
       status=1
       continue
     fi
-    if ! rg -F --quiet "$required_phrase" "$public_facade_file"; then
-      echo "[ERROR] Public facade read-admission docs are missing required phrase: $required_phrase" >&2
-      status=1
-    fi
+    require_file_literal "$public_facade_file" "read-admission doc token" "$required_token"
   done
 
-  if ! rg -F --quiet "Execute in cursor-pagination mode through the default bounded" \
-    "$PUBLIC_FACADE_LOAD"
-  then
-    echo "[ERROR] Public facade cursor pagination docs must mention the default bounded read-admission gate." >&2
-    status=1
-  fi
+  require_file_pattern \
+    "$PUBLIC_FACADE_LOAD" \
+    "cursor pagination mentions default bounded admission" \
+    "cursor-pagination mode.*default bounded"
 
-  if ! rg -F --quiet "This helper does not make caller-controlled SQL public-safe" \
-    "$PUBLIC_FACADE_SESSION"
-  then
-    echo "[ERROR] Public SQL helper docs must keep the trusted/admin lane warning." >&2
-    status=1
-  fi
+  require_file_pattern \
+    "$PUBLIC_FACADE_SESSION" \
+    "SQL helper warns about caller-controlled SQL" \
+    "caller-controlled SQL.*public-safe"
 
-  if ! rg -F --quiet "generated controller-gated SQL surfaces" "$PUBLIC_FACADE_SESSION"; then
-    echo "[ERROR] Public SQL attribution helper docs must keep generated controller-gated lane wording." >&2
-    status=1
-  fi
+  require_file_pattern \
+    "$PUBLIC_FACADE_SESSION" \
+    "SQL attribution helper keeps generated controller-gated lane wording" \
+    "generated controller-gated SQL surfaces"
 fi
 
 if [[ ! -f "$GENERATED_SQL" ]]; then
