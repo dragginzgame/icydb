@@ -17,7 +17,8 @@ partial row window.
 | Exact sum/min/max/average | `sum_exact(field)`, `min_id_exact()`, `min_exact_by(field)`, `max_id_exact()`, `max_exact_by(field)`, `avg_exact(field)` | aggregating a partial row window |
 | Complete small set | `collect_complete()` | `partial_window(N).execute_rows()` when the endpoint promises all matches |
 | Partial row window | `partial_window(N).execute_rows()` / `partial_window(N).execute()` | A complete-result API that silently truncates |
-| Cursor page | `order_term(...).page(PageRequest::first(N))?.execute()` | partial windows or SQL `OFFSET` for public pages |
+| First cursor page | `order_term(...).page(N)?` | partial windows or SQL `OFFSET` for public pages |
+| Next cursor page | `order_term(...).next_page(N, cursor)?` | optional cursor arguments or SQL `OFFSET` for public pages |
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` | Public endpoints with giant limits or caller-selected batch sizes |
 | Trusted maintenance scan | `trusted_read_unchecked().execute_rows()` or `trusted_read_unchecked().admin_batch(...)` | Public endpoints with giant limits |
 
@@ -28,7 +29,8 @@ public endpoint has not supplied a bounded intent that IcyDB can admit.
 
 Classify the endpoint promise before changing code:
 
-- public list: use request-owned `PageRequest` cursor paging;
+- public list: use `page(limit)` for the first cursor page and
+  `next_page(limit, cursor)` for continuation;
 - complete result: use `collect_complete()` only when the set is expected to
   stay small;
 - exact aggregate: use `count_exact()`, `sum_exact(field)`,
@@ -76,14 +78,13 @@ let users = db()
     .partial_window(100)
     .execute_rows()?;
 
-// After: request-owned cursor page.
+// After: public cursor page.
 let users = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("country").eq(country))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .page(icydb::db::PageRequest::first(25))?
-    .execute()?;
+    .page(25)?;
 ```
 
 Complete small set:
@@ -189,18 +190,16 @@ Public page:
 ```rust
 #[ic_cdk::query]
 fn list_users(prefix: String, cursor: Option<String>) -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
-    let request = cursor.map_or_else(
-        || icydb::db::PageRequest::first(25),
-        |cursor| icydb::db::PageRequest::next(25, cursor),
-    );
-
-    db()
+    let query = db()
         .load::<User>()
         .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
         .order_term(icydb::asc("username"))
-        .order_term(icydb::asc("id"))
-        .page(request)?
-        .execute()
+        .order_term(icydb::asc("id"));
+
+    match cursor {
+        Some(cursor) => query.next_page(25, cursor),
+        None => query.page(25),
+    }
 }
 ```
 
@@ -355,9 +354,10 @@ exact-aggregate read-intent metadata without executing the terminal.
 
 ## Public Pages
 
-Use `PageRequest` for public page size and cursor continuation.
-`partial_window(...)` is rejected before request-owned page terminals because
-page size belongs to the request, not to the low-level row-window modifier.
+Use `page(limit)` for the first public page and `next_page(limit, cursor)` for
+continuation. `partial_window(...)` is rejected before page terminals because
+page size belongs to the cursor-page intent, not to the low-level row-window
+modifier.
 
 ```rust
 let page = db()
@@ -365,8 +365,7 @@ let page = db()
     .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .page(icydb::db::PageRequest::first(25))?
-    .execute()?;
+    .page(25)?;
 ```
 
 For public endpoints:
@@ -384,8 +383,7 @@ let page = db()
     .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .page(icydb::db::PageRequest::next(25, cursor))?
-    .execute()?;
+    .next_page(25, cursor)?;
 ```
 
 ## Complete Small Sets

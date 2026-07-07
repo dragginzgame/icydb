@@ -2205,18 +2205,16 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
         .collect::<Vec<_>>();
 
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
-        let request = cursor_token.map_or_else(
-            || crate::db::PageRequest::first(3),
-            |token| crate::db::PageRequest::next(3, token),
-        );
-        let execution = session
+        let load = session
             .load::<SimpleEntity>()
             .trusted_read_unchecked()
-            .order_term(crate::db::desc("id"))
-            .page(request)
-            .expect("paged DESC query should enter page mode")
-            .execute()
-            .expect("paged DESC execute should succeed");
+            .order_term(crate::db::desc("id"));
+        let execution = match cursor_token {
+            Some(token) => load
+                .next_page(3, token)
+                .expect("paged DESC next_page should succeed"),
+            None => load.page(3).expect("paged DESC page should succeed"),
+        };
 
         (
             execution
@@ -2258,20 +2256,20 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
         .collect::<Vec<_>>();
 
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
-        let request = cursor_token.map_or_else(
-            || crate::db::PageRequest::first(2),
-            |token| crate::db::PageRequest::next(2, token),
-        );
-        let execution = session
+        let load = session
             .load::<PushdownParityEntity>()
             .trusted_read_unchecked()
             .filter(group_seven.clone())
             .order_term(crate::db::desc("rank"))
-            .order_term(crate::db::desc("id"))
-            .page(request)
-            .expect("paged DESC secondary-index query should enter page mode")
-            .execute()
-            .expect("paged DESC secondary-index execute should succeed");
+            .order_term(crate::db::desc("id"));
+        let execution = match cursor_token {
+            Some(token) => load
+                .next_page(2, token)
+                .expect("paged DESC secondary-index next_page should succeed"),
+            None => load
+                .page(2)
+                .expect("paged DESC secondary-index page should succeed"),
+        };
 
         (
             execution
@@ -2315,20 +2313,20 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
         .collect::<Vec<_>>();
 
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
-        let request = cursor_token.map_or_else(
-            || crate::db::PageRequest::first(2),
-            |token| crate::db::PageRequest::next(2, token),
-        );
-        let execution = session
+        let load = session
             .load::<UniqueIndexRangeEntity>()
             .trusted_read_unchecked()
             .filter(range_predicate.clone())
             .order_term(crate::db::desc("code"))
-            .order_term(crate::db::desc("id"))
-            .page(request)
-            .expect("paged DESC index-range query should enter page mode")
-            .execute()
-            .expect("paged DESC index-range execute should succeed");
+            .order_term(crate::db::desc("id"));
+        let execution = match cursor_token {
+            Some(token) => load
+                .next_page(2, token)
+                .expect("paged DESC index-range next_page should succeed"),
+            None => load
+                .page(2)
+                .expect("paged DESC index-range page should succeed"),
+        };
 
         (
             execution

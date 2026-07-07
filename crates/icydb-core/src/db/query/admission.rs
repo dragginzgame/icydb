@@ -950,7 +950,7 @@ impl QueryMaterializationSummary {
 /// Stable read-admission rejection reason.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QueryAdmissionRejection {
-    /// Public reads require an explicit LIMIT.
+    /// Public reads require a bounded read intent.
     PublicQueryRequiresLimit,
     /// Public reads require a proven index-backed access path.
     PublicQueryRequiresIndex,

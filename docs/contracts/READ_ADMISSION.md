@@ -101,7 +101,7 @@ Public endpoint review checklist:
 - caller authorization happens before the query enters IcyDB;
 - the return type makes the promise visible: page, complete set, optional row,
   exact aggregate, or trusted admin batch;
-- public list endpoints use `PageRequest` cursor pagination, not generated SQL wrappers or giant row-window caps;
+- public list endpoints use `page(limit)` / `next_page(limit, cursor)` cursor pagination, not generated SQL wrappers or giant row-window caps;
 - complete-result endpoints use `collect_complete()` and fail when too many
   rows exist instead of truncating;
 - exact aggregate endpoints use semantic exact helpers such as
@@ -257,7 +257,7 @@ batch size is engine-owned.
 
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |
-| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Choose the endpoint's read intent first: use request-owned `PageRequest` paging for public lists, `collect_complete()` for complete small sets, semantic `*_exact` helpers for exact aggregates, strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)` for exact key reads, or grouped `grouped_limits(...)` when the grouped shape itself supplies the bound. Use `partial_window(...)` only for endpoints that deliberately return a partial row window. |
+| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Choose the endpoint's read intent first: use `page(limit)` / `next_page(limit, cursor)` for public lists, `collect_complete()` for complete small sets, semantic `*_exact` helpers for exact aggregates, strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)` for exact key reads, or grouped `grouped_limits(...)` when the grouped shape itself supplies the bound. Use `partial_window(...)` only for endpoints that deliberately return a partial row window. |
 | Ordinary read with `LIMIT 1` but no route-proven index access | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Add an index for the filter/order, tighten the predicate, or move the broad scan behind a controller/admin trusted path. |
 | Ordinary read whose selected route cannot prove an index-backed access path | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | Add a matching index or change the query to use an indexed predicate/order. |
 | Ordinary read whose selected plan cannot prove a scan bound | `QueryReadAdmissionCode::ScanBoundUnavailable` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
@@ -280,8 +280,8 @@ batch size is engine-owned.
 The snippets below use `User` and field names as placeholders. They are meant
 to be copied into canister-owned code and adapted to the model's real indexed
 fields. Ordinary examples intentionally stay on `execute()`, `execute_rows()`,
-or `page(PageRequest::...)?.execute()` so they exercise the default bounded
-public-read lane.
+or `page(limit)` / `next_page(limit, cursor)` so they exercise the default
+bounded public-read lane.
 
 ### Missing returned-row bound
 
@@ -407,8 +407,7 @@ let page = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .page(icydb::db::PageRequest::first(10))?
-    .execute()?;
+    .page(10)?;
 ```
 
 ### Materialized sort or materialization budget

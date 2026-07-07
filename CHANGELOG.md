@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.13` hard-cuts public fluent paging to terminal `page(limit)?` /
+  `next_page(limit, cursor)?`, keeps `PageRequest` and `PagedLoadQuery`
+  internal, and updates docs, diagnostics, and invariants to the final
+  read-intent vocabulary.
+
 - `0.198.12` hard-cuts fluent load row-window escape hatches across facade
   and core fluent APIs by routing partial reads through
   `PartialWindowLoadQuery`, hiding direct prebuilt-query execution, and

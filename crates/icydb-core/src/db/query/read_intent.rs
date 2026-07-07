@@ -49,29 +49,20 @@ pub enum ReadIntentKind {
     TrustedAdminBatch,
 }
 
-/// Request-owned public page shape.
+/// Internal public-page request shape.
 ///
 /// The requested limit is a caller preference, not a custom policy. IcyDB
 /// clamps it to the engine-owned public page cap before admission/execution.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct PageRequest {
+pub(in crate::db::query) struct PageRequest {
     limit: Option<u32>,
     cursor: Option<String>,
 }
 
 impl PageRequest {
-    /// Build a first-page request using the default public page size.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            limit: None,
-            cursor: None,
-        }
-    }
-
     /// Build a first-page request with one requested page size.
     #[must_use]
-    pub const fn first(limit: u32) -> Self {
+    pub(in crate::db::query) const fn first(limit: u32) -> Self {
         Self {
             limit: Some(limit),
             cursor: None,
@@ -80,37 +71,11 @@ impl PageRequest {
 
     /// Build a continuation request with one requested page size and cursor.
     #[must_use]
-    pub fn next(limit: u32, cursor: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn next(limit: u32, cursor: impl Into<String>) -> Self {
         Self {
             limit: Some(limit),
             cursor: Some(cursor.into()),
         }
-    }
-
-    /// Return this request with a requested page size.
-    #[must_use]
-    pub const fn with_limit(mut self, limit: u32) -> Self {
-        self.limit = Some(limit);
-        self
-    }
-
-    /// Return this request with an opaque continuation cursor.
-    #[must_use]
-    pub fn with_cursor(mut self, cursor: impl Into<String>) -> Self {
-        self.cursor = Some(cursor.into());
-        self
-    }
-
-    /// Return the caller-requested page size, if supplied.
-    #[must_use]
-    pub const fn limit(&self) -> Option<u32> {
-        self.limit
-    }
-
-    /// Return the opaque continuation cursor, if supplied.
-    #[must_use]
-    pub fn cursor(&self) -> Option<&str> {
-        self.cursor.as_deref()
     }
 
     pub(in crate::db::query) const fn effective_limit(&self) -> u32 {

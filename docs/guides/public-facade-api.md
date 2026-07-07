@@ -29,7 +29,7 @@ IcyDB chooses explicit read intent instead:
 | Common database style | IcyDB style | Reason |
 | --- | --- | --- |
 | `LIMIT 1` for lookup | `by_id(id).try_one()` | Exact lookup should be proved by key shape, not by truncating a result set. |
-| `SELECT * ... LIMIT n` for lists | `page(PageRequest::first(n))?.execute()` | Public list endpoints should be cursor pages with request-owned continuation. |
+| `SELECT * ... LIMIT n` for lists | `page(n)?` / `next_page(n, cursor)?` | Public list endpoints should be cursor pages with explicit first-page and continuation calls. |
 | `all()` for collections | `collect_complete()` | Complete reads should either return the whole small set or fail instead of silently truncating. |
 | `count()` after materialization | `count_exact()` | Exact aggregates should not accidentally mean "over the first N rows." |
 | Large admin `LIMIT` scans | `trusted_read_unchecked().admin_batch(...)` | Maintenance scans need a visibly trusted lane and engine-owned batch sizing. |
@@ -50,7 +50,8 @@ Use the method that names the endpoint promise:
 | Exact row by primary key | `load::<E>().by_id(id).try_one()` |
 | Exact rows by primary keys | `load::<E>().by_ids(ids).execute_rows()` |
 | Existence | `load::<E>().exists()` / `load::<E>().not_exists()` |
-| Public page | `load::<E>().order_term(...).page(PageRequest::first(n))?.execute()` |
+| Public first page | `load::<E>().order_term(...).page(n)?` |
+| Public next page | `load::<E>().order_term(...).next_page(n, cursor)?` |
 | Complete small set | `load::<E>().collect_complete()` |
 | Deliberate partial row window | `load::<E>().partial_window(n).execute_rows()` |
 | Exact aggregate | `count_exact()`, `sum_exact(field)`, `min_id_exact()`, `min_exact_by(field)`, `max_id_exact()`, `max_exact_by(field)`, `avg_exact(field)` |
@@ -58,7 +59,7 @@ Use the method that names the endpoint promise:
 
 Load queries do not expose public `.limit(...)`, `.one()`, or `.all()`
 aliases. They also do not expose fluent `.offset(...)`; caller-facing list
-endpoints use cursor paging through `PageRequest`. Use `partial_window(...)`
+endpoints use `page(limit)` and `next_page(limit, cursor)`. Use `partial_window(...)`
 only when returning a partial row window is the endpoint contract. Delete
 queries use `max_affected(...)` for mutation safety caps so affected-row bounds
 do not share read-limit vocabulary.
@@ -109,12 +110,17 @@ db.load::<User>()
     .execute_rows()
 
 // Public cursor page.
-db.load::<User>()
+let first_page = db.load::<User>()
     .filter_eq("status", "active")
     .order_desc("created_at")
     .order_asc("id")
-    .page(PageRequest::first(50))?
-    .execute()
+    .page(50)?;
+
+let next_page = db.load::<User>()
+    .filter_eq("status", "active")
+    .order_desc("created_at")
+    .order_asc("id")
+    .next_page(50, cursor)?;
 
 // Complete small set.
 db.load::<Role>()
@@ -137,11 +143,8 @@ db.load::<Event>()
     .partial_window(100)
     .execute_rows()
 
-// Trusted maintenance batch.
-db.load::<Event>()
-    .order_asc("id")
-    .trusted_read_unchecked()
-    .admin_batch(AdminBatchRequest::new())
+// Trusted maintenance batches are Tier 2; do not use them as ordinary
+// caller-facing endpoint recipes.
 ```
 
 Most endpoint code should not call `execute()` directly. Prefer a terminal that
@@ -225,8 +228,8 @@ expose semantic terminals such as `page(...)`, `collect_complete()`,
 Use these commands to execute a load query.
 
 ```rust
-.page(request)?
-.execute()
+.page(limit)?
+.next_page(limit, cursor)?
 
 .try_one()
 .exists()
@@ -242,29 +245,14 @@ Use these commands to execute a load query.
 .avg_exact(field)
 ```
 
-Use `execute_rows()` for exact ID sets or deliberate partial windows when the
-endpoint contract is row-shaped. Use `execute()` for advanced callers that
-intentionally inspect `QueryResponse<E>`.
+`page(limit)` and `next_page(limit, cursor)` execute the public page terminal
+directly. Use `execute_rows()` for exact ID sets or deliberate partial windows
+when the endpoint contract is row-shaped. Use `execute()` for advanced callers
+that intentionally inspect `QueryResponse<E>`.
 
 ```rust
 .execute_rows()
 .execute()
-```
-
-### Paging Requests
-
-`PageRequest` is for caller-facing cursor pages. IcyDB clamps requested page
-sizes to the public page cap before admission and execution.
-
-```rust
-PageRequest::new()
-PageRequest::first(limit)
-PageRequest::next(limit, cursor)
-
-request.with_limit(limit)
-request.with_cursor(cursor)
-request.limit()
-request.cursor()
 ```
 
 ### Delete API

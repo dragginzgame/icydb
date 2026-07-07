@@ -276,7 +276,7 @@ fn query_read_admission_text(reason: QueryReadAdmissionCode) -> String {
 const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'static str {
     match reason {
         QueryReadAdmissionCode::PublicQueryRequiresLimit => {
-            "public read queries require an explicit LIMIT"
+            "public read queries require a bounded read intent"
         }
         QueryReadAdmissionCode::PublicQueryRequiresIndex => {
             "public read queries require an index-backed access path"
@@ -332,7 +332,7 @@ const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'s
 const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'static str {
     match reason {
         QueryReadAdmissionCode::PublicQueryRequiresLimit => {
-            "add a finite LIMIT or use an aggregate/grouped shape with explicit budgets"
+            "use page(...), next_page(...), collect_complete(), an exact aggregate, exact primary-key access, grouped_limits(...), or partial_window(...) for deliberate partial rows"
         }
         QueryReadAdmissionCode::PublicQueryRequiresIndex
         | QueryReadAdmissionCode::UnboundedFullScanRejected
@@ -945,7 +945,7 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries require an explicit LIMIT; fix: add a finite LIMIT or use an aggregate/grouped shape with explicit budgets",
+            "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries require a bounded read intent; fix: use page(...), next_page(...), collect_complete(), an exact aggregate, exact primary-key access, grouped_limits(...), or partial_window(...) for deliberate partial rows",
         );
     }
 

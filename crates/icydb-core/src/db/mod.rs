@@ -152,14 +152,14 @@ pub use query::{
     expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
     fluent::{
         delete::FluentDeleteQuery,
-        load::{FluentLoadQuery, LoadQueryResult, PagedLoadQuery, PartialWindowLoadQuery},
+        load::{FluentLoadQuery, LoadQueryResult, PartialWindowLoadQuery},
     },
     intent::{
         AccessRequirementError, AccessRequirementViolation, CompiledQuery, IntentError,
         PlannedQuery, Query, QueryError, QueryExecutionError, RequiredAccessPath,
     },
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
-    read_intent::{AdminBatchRequest, PageRequest, ReadIntentKind},
+    read_intent::{AdminBatchRequest, ReadIntentKind},
     trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
 };
 pub use registry::{

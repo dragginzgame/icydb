@@ -56,7 +56,7 @@
 //!
 //! Prefer semantic read intents for caller-facing APIs:
 //! - exact rows use primary-key access plus `try_one()`;
-//! - public lists use request-owned `PageRequest` cursor pagination;
+//! - public lists use `page(limit)` / `next_page(limit, cursor)` cursor pagination;
 //! - complete small sets use `collect_complete()`;
 //! - exact aggregates use semantic helpers such as `count_exact()`,
 //!   `sum_exact(field)`, `min_exact_by(field)`, or `avg_exact(field)`;

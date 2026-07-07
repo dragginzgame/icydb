@@ -477,7 +477,7 @@ where
     /// Execute and return all matching rows if the complete result fits in
     /// the default public-read small-set cap.
     ///
-    /// This semantic terminal rejects a prior raw `limit(...)`. It owns an
+    /// This semantic terminal rejects a prior row-window cap. It owns an
     /// internal lookahead limit so it can distinguish a complete small set
     /// from a silently truncated row window.
     pub fn collect_complete(&self) -> Result<Vec<E>, QueryError>
@@ -747,7 +747,7 @@ where
     /// Execute and return the id of the row with the exact minimum `field` value.
     ///
     /// Ties are deterministic: equal field values resolve by primary key ascending.
-    /// A prior raw `limit(...)` is rejected because the terminal owns the exact
+    /// A prior row-window cap is rejected because the terminal owns the exact
     /// aggregate intent.
     pub fn min_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, QueryError>
     where
@@ -786,8 +786,8 @@ where
 
     /// Execute and return the exact largest matching identifier.
     ///
-    /// Unlike `max()`, this semantic aggregate rejects a prior raw
-    /// `limit(...)` so exact maximum selection cannot accidentally mean
+    /// Unlike `max()`, this semantic aggregate rejects a prior row-window cap
+    /// so exact maximum selection cannot accidentally mean
     /// "maximum over the first N rows."
     pub fn max_id_exact(&self) -> Result<Option<Id<E>>, QueryError>
     where
@@ -832,7 +832,7 @@ where
     /// Execute and return the id of the row with the exact maximum `field` value.
     ///
     /// Ties are deterministic: equal field values resolve by primary key ascending.
-    /// A prior raw `limit(...)` is rejected because the terminal owns the exact
+    /// A prior row-window cap is rejected because the terminal owns the exact
     /// aggregate intent.
     pub fn max_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, QueryError>
     where

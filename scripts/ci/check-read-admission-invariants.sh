@@ -96,7 +96,8 @@ else
     "\`execute_sql_query\`" \
     "execute_sql_query_with_perf_attribution" \
     "docs/guides/read-intent.md" \
-    "\`PageRequest\`" \
+    "\`page(limit)\`" \
+    "\`next_page(limit, cursor)\`" \
     "\`collect_complete()\`" \
     "\`count_exact()\`" \
     "\`sum_exact(field)\`" \
@@ -121,7 +122,7 @@ else
     ["generated SQL has no public-read config"]="sql\\.public_read"
     ["generated non-controller public SQL endpoints remain forbidden"]="non-controller.*generated SQL query endpoint"
     ["read-intent guidance is discoverable"]="read-intent\\.md"
-    ["public list guidance uses PageRequest"]="public list endpoints use .*PageRequest"
+    ["public list guidance uses cursor page terminals"]="public list endpoints use .*page\\(limit\\).*next_page\\(limit, cursor\\)"
     ["complete-result guidance uses collect_complete"]="complete-result endpoints use .*collect_complete"
     ["exact aggregate guidance uses exact helpers"]="exact aggregate.*count_exact"
   )
@@ -196,7 +197,8 @@ else
   for required_read_intent_token in \
     "PublicQueryRequiresLimit" \
     "partial_window(...)" \
-    "PageRequest" \
+    "page(limit)" \
+    "next_page(limit, cursor)" \
     "AdminBatchRequest" \
     "collect_complete()" \
     "count_exact()" \
@@ -363,7 +365,7 @@ high_raw_limit_hits="$(
 )"
 if [[ -n "$high_raw_limit_hits" ]]; then
   echo "[ERROR] Raw high-limit examples must not appear as recommended docs/API patterns." >&2
-  echo "[ERROR] Use PageRequest, collect_complete(), exact aggregates, or mark the example as a rejection in READ_ADMISSION.md." >&2
+  echo "[ERROR] Use page(limit) / next_page(limit, cursor), collect_complete(), exact aggregates, or mark the example as a rejection in READ_ADMISSION.md." >&2
   printf '%s\n' "$high_raw_limit_hits" >&2
   status=1
 fi
@@ -408,7 +410,7 @@ else
   require_file_pattern \
     "$PUBLIC_FACADE_LOAD" \
     "cursor pagination mentions default bounded admission" \
-    "cursor-pagination mode.*default bounded"
+    "Cursor pagination runs through the default bounded read-admission lane"
 
   require_file_pattern \
     "$PUBLIC_FACADE_SESSION" \

@@ -7,7 +7,6 @@
 use crate::{
     db::{
         AdminBatchRequest, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
-        PageRequest,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
             QueryTracePlan,
@@ -128,38 +127,56 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     // ------------------------------------------------------------------
     impl_session_materialization_methods!();
 
-    /// Enter typed cursor-pagination mode for this request-owned page.
+    /// Execute the first typed cursor page with the requested page size.
     ///
-    /// Cursor pagination requires explicit ordering and disallows a prior raw
-    /// `limit(...)`; `PageRequest` owns the page size and cursor.
+    /// Cursor pagination requires explicit ordering and disallows a prior
+    /// `partial_window(...)`. IcyDB clamps the requested page size to the
+    /// engine-owned public page cap.
+    /// Cursor pagination runs through the default bounded read-admission lane.
     /// Continuation is best-effort and forward-only over live state:
     /// deterministic per request under canonical ordering, with no
     /// snapshot/version pinned across requests.
-    pub fn page(self, request: PageRequest) -> Result<PagedLoadQuery<'a, E>, Error> {
-        Ok(PagedLoadQuery {
-            inner: self.inner.page(request)?,
-        })
+    pub fn page(self, limit: u32) -> Result<PagedResponse<E>, Error> {
+        Ok(Self::paged_response_from_execution(self.inner.page(limit)?))
+    }
+
+    /// Execute the next typed cursor page from a previous continuation cursor.
+    ///
+    /// This is the continuation counterpart to `page(limit)`. The cursor is an
+    /// opaque token returned by the previous page response.
+    pub fn next_page(
+        self,
+        limit: u32,
+        cursor: impl Into<String>,
+    ) -> Result<PagedResponse<E>, Error> {
+        Ok(Self::paged_response_from_execution(
+            self.inner.next_page(limit, cursor)?,
+        ))
     }
 
     /// Execute a trusted/admin cursor batch with an engine-owned batch size.
     ///
     /// This terminal is only for reads that have already opted into
     /// `trusted_read_unchecked()`. Application-facing list endpoints should
-    /// use `page(PageRequest::...)`.
+    /// use `page(limit)` / `next_page(limit, cursor)`.
     pub fn admin_batch(self, request: AdminBatchRequest) -> Result<PagedResponse<E>, Error>
     where
         E: Entity,
     {
-        let execution = self.inner.admin_batch(request)?;
+        Ok(Self::paged_response_from_execution(
+            self.inner.admin_batch(request)?,
+        ))
+    }
+
+    fn paged_response_from_execution(execution: core::db::PagedLoadExecution<E>) -> PagedResponse<E>
+    where
+        E: Entity,
+    {
         let read_intent = execution.read_intent();
         let (response, continuation_cursor) = execution.into_response_and_cursor();
         let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
 
-        Ok(PagedResponse::new(
-            response.entities(),
-            next_cursor,
-            read_intent,
-        ))
+        PagedResponse::new(response.entities(), next_cursor, read_intent)
     }
 
     /// Execute as a scalar row load through the default bounded read-admission
@@ -508,7 +525,8 @@ impl<E: Entity> PartialWindowLoadQuery<'_, E> {
     ///
     /// Use this only for controller/admin maintenance code that owns its
     /// authorization and resource policy. Caller-facing list endpoints should
-    /// use `page(PageRequest::...)` instead of trusted partial windows.
+    /// use `page(limit)` / `next_page(limit, cursor)` instead of trusted
+    /// partial windows.
     #[must_use]
     pub fn trusted_read_unchecked(mut self) -> Self {
         self.inner = self.inner.trusted_read_unchecked();
@@ -590,45 +608,5 @@ impl<E: Entity> PartialWindowLoadQuery<'_, E> {
         E: Entity,
     {
         Ok(self.inner.explain_execution_verbose()?)
-    }
-}
-
-///
-/// PagedLoadQuery
-///
-/// Facade wrapper for cursor-pagination mode over typed load queries.
-/// Returns typed entity items plus an opaque continuation cursor.
-///
-
-pub struct PagedLoadQuery<'a, E: Entity> {
-    pub(crate) inner: core::db::PagedLoadQuery<'a, E>,
-}
-
-impl<E: Entity> PagedLoadQuery<'_, E> {
-    #[must_use]
-    pub const fn query(&self) -> &Query<E> {
-        self.inner.query()
-    }
-
-    /// Execute in cursor-pagination mode through the default bounded
-    /// read-admission gate.
-    ///
-    /// Continuation is best-effort and forward-only over live state:
-    /// deterministic per request under canonical ordering, with no
-    /// snapshot/version pinned across requests.
-    pub fn execute(self) -> Result<PagedResponse<E>, Error>
-    where
-        E: Entity,
-    {
-        let execution = self.inner.execute()?;
-        let read_intent = execution.read_intent();
-        let (response, continuation_cursor) = execution.into_response_and_cursor();
-        let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
-
-        Ok(PagedResponse::new(
-            response.entities(),
-            next_cursor,
-            read_intent,
-        ))
     }
 }

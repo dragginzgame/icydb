@@ -2307,7 +2307,7 @@ fn default_fluent_explain_exists_rejects_prior_raw_limit_before_planning() {
 }
 
 #[test]
-fn default_fluent_page_request_rejects_prior_raw_limit_before_admission() {
+fn default_fluent_page_rejects_prior_raw_limit_before_admission() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
@@ -2318,15 +2318,14 @@ fn default_fluent_page_request_rejects_prior_raw_limit_before_admission() {
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .limit(1)
-        .page(crate::db::PageRequest::first(2))
-        .and_then(crate::db::PagedLoadQuery::execute)
-        .expect_err("PageRequest should own page size instead of accepting raw limits");
+        .page(2)
+        .expect_err("page() should own page size instead of accepting raw limits");
 
     assert_raw_limit_before_page_terminal(err, "default fluent page raw limit");
 }
 
 #[test]
-fn default_fluent_page_request_clamps_requested_limit_to_public_cap() {
+fn default_fluent_page_clamps_requested_limit_to_public_cap() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     for offset in 0_u64..=100 {
@@ -2344,10 +2343,8 @@ fn default_fluent_page_request_clamps_requested_limit_to_public_cap() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .page(crate::db::PageRequest::first(1_000))
-        .expect("oversized public page query should enter page mode")
-        .execute()
-        .expect("PageRequest should clamp oversized public page limits");
+        .page(1_000)
+        .expect("page() should clamp oversized public page limits");
 
     assert_eq!(
         page.response().count(),
@@ -2366,7 +2363,7 @@ fn default_fluent_page_request_clamps_requested_limit_to_public_cap() {
 }
 
 #[test]
-fn default_fluent_page_request_uses_request_cursor_for_continuation() {
+fn default_fluent_page_uses_cursor_for_continuation() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Soren", 31)]);
@@ -2376,10 +2373,8 @@ fn default_fluent_page_request_uses_request_cursor_for_continuation() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .page(crate::db::PageRequest::first(2))
-        .expect("first PageRequest query should enter page mode")
-        .execute()
-        .expect("first PageRequest page should execute");
+        .page(2)
+        .expect("first page should execute");
     let first_names = first_page
         .response()
         .iter()
@@ -2388,7 +2383,7 @@ fn default_fluent_page_request_uses_request_cursor_for_continuation() {
     let cursor = crate::db::encode_cursor(
         first_page
             .continuation_cursor()
-            .expect("first PageRequest page should emit a continuation cursor"),
+            .expect("first page should emit a continuation cursor"),
     );
 
     let second_page = session
@@ -2396,10 +2391,8 @@ fn default_fluent_page_request_uses_request_cursor_for_continuation() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .page(crate::db::PageRequest::next(2, cursor))
-        .expect("second PageRequest query should enter page mode")
-        .execute()
-        .expect("second PageRequest page should execute");
+        .next_page(2, cursor)
+        .expect("second page should execute");
     let second_names = second_page
         .response()
         .iter()

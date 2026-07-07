@@ -314,9 +314,9 @@ Evaluation must never panic.
 `limit` and `offset` without `order_by(...)` are rejected by design.
 Use `order_by(...)` fields that produce a total order for stable pagination.
 For caller-facing read APIs, prefer the semantic read-intent terminals in
-[`docs/guides/read-intent.md`](../guides/read-intent.md): `PageRequest` for
-public pages, `collect_complete()` for complete small sets, and exact
-aggregate helpers for exact answers. `limit(...)` remains the low-level
+[`docs/guides/read-intent.md`](../guides/read-intent.md): `page(limit)` /
+`next_page(limit, cursor)` for public pages, `collect_complete()` for complete
+small sets, and exact aggregate helpers for exact answers. `limit(...)` remains the low-level
 `icydb-core::db::Query` partial row-window primitive for engine, SQL, tests,
 and hidden direct-query tooling; public facade load queries use
 `partial_window(...)` for deliberately partial row windows.

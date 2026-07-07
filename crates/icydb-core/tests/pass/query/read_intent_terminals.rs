@@ -1,26 +1,33 @@
 use icydb_core::{
     db::{
-        AdminBatchRequest, FluentLoadQuery, PageRequest, PagedLoadExecution, PersistedRow,
-        QueryError, ReadIntentKind,
+        AdminBatchRequest, FluentLoadQuery, PagedLoadExecution, PersistedRow, QueryError,
+        ReadIntentKind,
     },
     traits::EntityValue,
 };
 
-fn page_request_terminals_compile<E>(
+fn page_terminals_compile<E>(
     query: FluentLoadQuery<'_, E>,
 ) -> Result<PagedLoadExecution<E>, QueryError>
 where
     E: PersistedRow + EntityValue,
 {
-    query.page(PageRequest::first(10))?.execute()
+    query.page(10)
 }
 
-fn page_request_builder_compiles<E>(query: FluentLoadQuery<'_, E>) -> Result<(), QueryError>
+fn page_limit_terminal_compiles<E>(query: FluentLoadQuery<'_, E>) -> Result<(), QueryError>
 where
     E: PersistedRow + EntityValue,
 {
-    let _ = query.page(PageRequest::new())?;
+    let _ = query.page(10)?;
     Ok(())
+}
+
+fn next_page_compiles<E>(query: FluentLoadQuery<'_, E>) -> Result<PagedLoadExecution<E>, QueryError>
+where
+    E: PersistedRow + EntityValue,
+{
+    query.next_page(10, "opaque-cursor")
 }
 
 fn admin_batch_first_compiles<E>(

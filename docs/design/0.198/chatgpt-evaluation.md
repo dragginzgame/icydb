@@ -1,3 +1,8 @@
+Historical raw review note. This file records external feedback as received and
+is not the current 0.198 API authority. The implemented paging surface is
+documented in `0.198-supplemental-status.md` and the public guides; public
+fluent pages now use `page(limit)?` / `next_page(limit, cursor)?`.
+
 Yes. The direction is good — intent-first is the right public API model for IcyDB — but this facade is still too broad and slightly inconsistent. The main improvement is not to add more helpers; it is to make the public API smaller, more tiered, and more opinionated.
 
 My verdict: keep the model, tighten the surface. The document already states the correct philosophy: IcyDB should expose exact row, public page, complete small set, exact aggregate, and trusted maintenance batch as separate endpoint promises, not blur them behind limit, one, or all.

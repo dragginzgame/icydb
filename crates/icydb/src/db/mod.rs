@@ -16,8 +16,8 @@ pub use response::{
     ProjectionRows, Response, RowProjectionOutput,
 };
 pub use session::{
-    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, PartialWindowLoadQuery,
-    SessionDeleteQuery, StructuralPatch,
+    DbSession, FluentLoadQuery, MutationMode, PartialWindowLoadQuery, SessionDeleteQuery,
+    StructuralPatch,
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]
@@ -32,7 +32,7 @@ pub use icydb_core::db::{
     EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
     EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
     ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource, IndexStoreSnapshot, MemoryCatalogDescription, PageRequest,
+    ExplainExecutionOrderingSource, IndexStoreSnapshot, MemoryCatalogDescription,
     QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionGroupedSummary,
     QueryAdmissionLane, QueryAdmissionOrdering, QueryAdmissionPlanShape, QueryAdmissionRejection,
     QueryAdmissionResidualFilter, QueryAdmissionSummary, QueryBoundKind,

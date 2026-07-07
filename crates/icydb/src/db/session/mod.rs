@@ -30,7 +30,7 @@ use icydb_core as core;
 
 // re-exports
 pub use delete::SessionDeleteQuery;
-pub use load::{FluentLoadQuery, PagedLoadQuery, PartialWindowLoadQuery};
+pub use load::{FluentLoadQuery, PartialWindowLoadQuery};
 
 ///
 /// MutationMode

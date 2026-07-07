@@ -208,8 +208,8 @@ where
     /// Apply a low-level row offset inside core planner/session tests and SQL
     /// lowering.
     ///
-    /// Public fluent callers should use cursor continuation through
-    /// `PageRequest` rather than offset pagination.
+    /// Public fluent callers should use `page(limit)` /
+    /// `next_page(limit, cursor)` rather than offset pagination.
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn offset(self, offset: u32) -> Self {

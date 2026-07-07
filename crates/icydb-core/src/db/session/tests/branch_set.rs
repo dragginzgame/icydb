@@ -1044,16 +1044,14 @@ fn execute_fluent_sparse_collection_page(
         .order_term(crate::db::asc("id"));
     let page_limit =
         u32::try_from(limit).expect("sparse collection test limit should fit into u32");
-    let request = cursor.map_or_else(
-        || crate::db::PageRequest::first(page_limit),
-        |cursor| crate::db::PageRequest::next(page_limit, cursor),
-    );
-
-    query
-        .page(request)
-        .expect("sparse collection fluent query should enter page mode")
-        .execute()
-        .unwrap_or_else(|err| panic!("sparse collection fluent page should execute: {err:?}"))
+    match cursor {
+        Some(cursor) => query.next_page(page_limit, cursor).unwrap_or_else(|err| {
+            panic!("sparse collection fluent next page should execute: {err:?}")
+        }),
+        None => query
+            .page(page_limit)
+            .unwrap_or_else(|err| panic!("sparse collection fluent page should execute: {err:?}")),
+    }
 }
 
 #[cfg(feature = "diagnostics")]
