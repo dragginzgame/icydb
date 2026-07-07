@@ -153,12 +153,9 @@ Use these commands to execute a load query.
 ```rust
 .execute()
 .execute_rows()
-.execute_trusted()
-.execute_rows_trusted()
 
 .page(request)?
 .execute()
-.execute_trusted()
 .admin_batch(request)
 
 .try_one()
@@ -174,6 +171,10 @@ Use these commands to execute a load query.
 .sum_exact(field)
 .avg_exact(field)
 ```
+
+Trusted maintenance code first enters the trusted lane with
+`trusted_read_unchecked()` and then uses the normal terminal spelling. Prefer
+`admin_batch(request)` for broad maintenance scans.
 
 Feature-gated diagnostics helpers:
 
@@ -384,7 +385,6 @@ These commands execute prebuilt `Query<E>` values rather than a fluent load.
 
 ```rust
 db.execute_query(query)
-db.execute_query_trusted(query)
 ```
 
 Feature-gated diagnostics helper:

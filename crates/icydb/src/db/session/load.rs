@@ -184,18 +184,6 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(Response::from_core(self.inner.execute_rows()?))
     }
 
-    /// Execute as a scalar row load without the default bounded read-admission gate.
-    ///
-    /// This is for trusted maintenance/admin code that has its own caller
-    /// authorization and resource policy. Application-facing reads should use
-    /// `execute_rows`.
-    pub fn execute_rows_trusted(&self) -> Result<Response<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(Response::from_core(self.inner.execute_rows_trusted()?))
-    }
-
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, Error> {
         Ok(self.inner.plan_hash_hex()?)
@@ -535,27 +523,6 @@ impl<E: Entity> PagedLoadQuery<'_, E> {
         E: Entity,
     {
         let execution = self.inner.execute()?;
-        let read_intent = execution.read_intent();
-        let (response, continuation_cursor) = execution.into_response_and_cursor();
-        let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
-
-        Ok(PagedResponse::new(
-            response.entities(),
-            next_cursor,
-            read_intent,
-        ))
-    }
-
-    /// Execute in cursor-pagination mode without the default bounded read-admission gate.
-    ///
-    /// This is for trusted maintenance/admin code that has its own caller
-    /// authorization and resource policy. Application-facing reads should use
-    /// `execute`.
-    pub fn execute_trusted(self) -> Result<PagedResponse<E>, Error>
-    where
-        E: Entity,
-    {
-        let execution = self.inner.execute_trusted()?;
         let read_intent = execution.read_intent();
         let (response, continuation_cursor) = execution.into_response_and_cursor();
         let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);

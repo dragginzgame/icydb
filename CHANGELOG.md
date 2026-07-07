@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.10` hard-cuts fluent load trusted execution to one lane marker by
+  removing `_trusted` terminal spellings and the direct `DbSession` trusted
+  query escape hatch so trusted maintenance code uses
+  `trusted_read_unchecked()` followed by the normal terminal.
+
 - `0.198.9` hard-cuts the final read-intent facade naming by replacing the
   interim `bounded_window(...)` spelling with `partial_window(...)`, removing
   duplicate `execute_paged(...)` aliases, and dropping stale compile-fail

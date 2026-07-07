@@ -2705,7 +2705,7 @@ fn default_fluent_collect_complete_rejects_prior_raw_limit_before_admission() {
 }
 
 #[test]
-fn trusted_fluent_execute_keeps_existing_unbounded_behavior() {
+fn trusted_read_unchecked_execute_keeps_existing_unbounded_behavior() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
@@ -2714,8 +2714,9 @@ fn trusted_fluent_execute_keeps_existing_unbounded_behavior() {
         .load::<SessionSqlEntity>()
         .order_term(crate::db::asc("age"))
         .limit(1)
-        .execute_trusted()
-        .expect("trusted fluent execute should keep existing behavior");
+        .trusted_read_unchecked()
+        .execute()
+        .expect("trusted_read_unchecked fluent execute should keep existing behavior");
 
     assert_eq!(response.count(), 1);
 }

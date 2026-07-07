@@ -13,10 +13,10 @@ make its lane explicit.
 Ordinary typed/fluent read execution is bounded by default. The normal
 `DbSession::execute_query`, `FluentLoadQuery::execute`, `execute_rows`,
 cursor-paged `execute`, and fluent terminal execution methods use the built-in
-default bounded-read policy. Trusted maintenance/admin code that has already
-enforced caller authorization and its own resource policy must choose an
-explicit `*_trusted` execution method or mark the fluent query with
-`trusted_read_unchecked()` when it needs to bypass those default bounds.
+default bounded-read policy. Trusted maintenance/admin fluent code that has
+already enforced caller authorization and its own resource policy must mark the
+query with `trusted_read_unchecked()` before executing the normal fluent
+terminal.
 
 The current lanes are:
 
@@ -47,7 +47,7 @@ diagnostic before doing the broader work.
 | --- | --- | --- | --- |
 | `DbSession::execute_sql_query::<E>` | `AdminAdHoc` by caller contract | caller-owned | Trusted single-entity SQL query helper. It is not public-safe by itself. |
 | `DbSession::execute_query::<E>` / `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, non-zero offset, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound. |
-| `DbSession::execute_query_trusted::<E>` / `FluentLoadQuery::*_trusted` execution methods / `trusted_read_unchecked()` | trusted caller contract | caller-owned | Explicit bypass for maintenance/admin code with its own authorization and resource policy. It is not public-safe by itself. |
+| `trusted_read_unchecked()` fluent lane | trusted caller contract | caller-owned | Explicit bypass for maintenance/admin fluent code with its own authorization and resource policy. It is not public-safe by itself. Fluent load queries use normal terminal names after entering the trusted lane. |
 | generated `icydb_query` | `AdminAdHoc` | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
 | generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission and schema authority. |
 | generated `icydb_update` | not a read-admission lane | controller-gated | SQL write endpoint, governed by explicit write policy. |
@@ -72,7 +72,7 @@ For migration examples and endpoint-intent guidance, see
 | return every row in a small bounded set | `collect_complete()` without `partial_window(...)` | Complete small-set collection owns an internal lookahead limit and fails instead of silently truncating when the set exceeds the public-read cap. |
 | return an exact aggregate | `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, or `avg_exact(field)` without `partial_window(...)` | Exact aggregates use aggregate execution over the admitted shape. Public partial-window aggregate aliases are not exposed. |
 | process a trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::...)` | Admin batches are trusted-only, cursor-batched, and use an engine-owned batch size. They are not public list shortcuts. |
-| run controller diagnostics | trusted/admin execution | Caller authorization and an explicit resource policy are required before calling trusted helpers. |
+| run controller diagnostics | generated/admin diagnostic surfaces | Caller authorization and an explicit resource policy are required before running broad diagnostics. |
 | explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
 | paginate public results | cursor-paged ordinary execution | Prefer cursor pagination; non-zero `OFFSET` is rejected by the public lane. |
 | run a broad maintenance scan | trusted execution | Keep it controller/admin-only and apply a maintenance resource policy. |
@@ -208,10 +208,9 @@ The default typed/fluent policy is intentionally conservative:
 - grouped reads require query-owned `grouped_limits(...)` and must fit within
   100 groups, 64 KiB per group, and 1024 distinct entries.
 
-Use the `*_trusted` execution methods, or `trusted_read_unchecked()` for a
-terminal chain, only for controller/admin paths or maintenance code that has
-its own bounded execution policy. Do not expose trusted execution directly to
-arbitrary callers.
+Use `trusted_read_unchecked()` only for controller/admin paths or maintenance
+code that has its own bounded execution policy. Do not expose trusted execution
+directly to arbitrary callers.
 
 Typed/fluent grouped reads need two explicit budgets before they are suitable
 for `PublicRead` admission:

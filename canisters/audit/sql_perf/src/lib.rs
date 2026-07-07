@@ -1292,7 +1292,8 @@ fn query_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icyd
         .load::<PerfAuditUser>()
         .order_asc("id")
         .partial_window(1)
-        .execute_trusted()?;
+        .trusted_read_unchecked()
+        .execute()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);
 
@@ -1437,7 +1438,8 @@ where
         .filter(FieldRef::new("id").eq(read_back_id))
         .order_asc("id")
         .partial_window(1)
-        .execute_trusted()?;
+        .trusted_read_unchecked()
+        .execute()?;
     let write_then_read_back_local_instructions =
         ic_cdk::api::performance_counter(1).saturating_sub(start);
     let read_back_rows = summarize_fluent_outcome(&response).row_count;
@@ -1677,7 +1679,8 @@ fn query_heap_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult,
         .load::<PerfAuditHeapUser>()
         .order_asc("id")
         .partial_window(1)
-        .execute_trusted()?;
+        .trusted_read_unchecked()
+        .execute()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);
 
@@ -1763,7 +1766,8 @@ fn query_journaled_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfRe
         .load::<PerfAuditJournaledUser>()
         .order_asc("id")
         .partial_window(1)
-        .execute_trusted()?;
+        .trusted_read_unchecked()
+        .execute()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);
 
@@ -1784,7 +1788,8 @@ fn measure_journaled_reentry_perf() -> Result<FluentTotalOnlyPerfResult, icydb::
         .load::<PerfAuditJournaledUser>()
         .order_asc("id")
         .partial_window(1)
-        .execute_trusted()?;
+        .trusted_read_unchecked()
+        .execute()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);
 

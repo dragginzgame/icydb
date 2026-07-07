@@ -695,29 +695,13 @@ impl<C: CanisterKind> DbSession<C> {
     /// read-admission gate.
     ///
     /// This is the public endpoint path for caller-facing reads after the
-    /// endpoint has performed its own caller authorization. Use
-    /// `execute_query_trusted` only for controller/admin paths with a separate
-    /// resource policy.
+    /// endpoint has performed its own caller authorization.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
         self.inner.ensure_default_query_read_admission(query)?;
 
-        Ok(Self::query_response_from_core(
-            self.inner.execute_query_result(query)?,
-        ))
-    }
-
-    /// Execute one typed/fluent query without the default bounded read-admission gate.
-    ///
-    /// This is for trusted maintenance/admin code that has its own caller
-    /// authorization and resource policy. Application-facing reads should use
-    /// `execute_query`.
-    pub fn execute_query_trusted<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
         Ok(Self::query_response_from_core(
             self.inner.execute_query_result(query)?,
         ))

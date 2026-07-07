@@ -288,36 +288,12 @@ where
         self.with_admitted_non_paged(DbSession::execute_query_result)
     }
 
-    /// Execute this query without the default bounded read-admission gate.
-    ///
-    /// This is for trusted maintenance/admin code that has its own caller
-    /// authorization and resource policy. Application-facing reads should use
-    /// `execute`.
-    pub fn execute_trusted(&self) -> Result<LoadQueryResult<E>, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.with_non_paged(DbSession::execute_query_result)
-    }
-
     /// Execute this query through the scalar rows-only session boundary.
     pub fn execute_rows(&self) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityValue,
     {
         self.with_admitted_non_paged(DbSession::execute_scalar_query_rows)
-    }
-
-    /// Execute scalar rows without the default bounded read-admission gate.
-    ///
-    /// This is for trusted maintenance/admin code that has its own caller
-    /// authorization and resource policy. Application-facing reads should use
-    /// `execute_rows`.
-    pub fn execute_rows_trusted(&self) -> Result<EntityResponse<E>, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.with_non_paged(DbSession::execute_scalar_query_rows)
     }
 
     fn with_admitted_non_paged<T>(

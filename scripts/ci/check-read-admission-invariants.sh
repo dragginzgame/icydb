@@ -91,7 +91,7 @@ else
     "\`DiagnosticExplain\`" \
     "generated \`icydb_query\`" \
     "\`DbSession::execute_query\`" \
-    "\`DbSession::execute_query_trusted::<E>\`" \
+    "\`trusted_read_unchecked()\` fluent lane" \
     "\`trusted_read_unchecked()\`" \
     "\`execute_sql_query\`" \
     "execute_sql_query_with_perf_attribution" \

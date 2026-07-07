@@ -19,7 +19,7 @@ partial row window.
 | Partial row window | `partial_window(N).execute_rows()` / `partial_window(N).execute()` | A complete-result API that silently truncates |
 | Cursor page | `order_term(...).page(PageRequest::first(N))?.execute()` | `partial_window(N).page(...)` or non-zero `offset(...)` for public pages |
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` | Public endpoints with giant limits or caller-selected batch sizes |
-| Trusted maintenance scan | `trusted_read_unchecked().execute_rows()` or trusted execution helpers | Public endpoints with giant limits |
+| Trusted maintenance scan | `trusted_read_unchecked().execute_rows()` or `trusted_read_unchecked().admin_batch(...)` | Public endpoints with giant limits |
 
 ## When Admission Rejects A Read
 
@@ -39,7 +39,7 @@ Classify the endpoint promise before changing code:
 - partial row window: use `partial_window(N).execute_rows()` only when a
   partial row window is the actual API contract;
 - trusted maintenance: keep the endpoint controller/admin-gated and use
-  `trusted_read_unchecked().admin_batch(...)` or another trusted helper.
+  `trusted_read_unchecked().admin_batch(...)`.
 
 ## Migration Recipes
 
