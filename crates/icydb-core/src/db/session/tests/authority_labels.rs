@@ -3,9 +3,9 @@ use super::*;
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "this matrix test locks several related authority-label removals on one shared surface contract"
+    reason = "this matrix test locks several related covering-route surfaces on one shared contract"
 )]
-fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
+fn secondary_route_surfaces_preserve_current_covering_contract_matrix() {
     let explain_cases = [
         (
             "secondary hybrid covering explain",
@@ -76,17 +76,6 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
                 "{context} should keep its required route token: {surface}",
             );
         }
-        assert!(
-            !surface.contains("authority_decision")
-                && !surface.contains("authority_reason")
-                && !surface.contains("index_state"),
-            "{context} should stay off the removed authority-label surface: {surface}",
-        );
-        assert!(
-            !surface.contains("witness_validated")
-                && !surface.contains("storage_existence_witness"),
-            "{context} must not surface legacy authority labels: {surface}",
-        );
     }
 
     for (context, seed_rows, sql, expect_covering) in descriptor_cases {
@@ -138,19 +127,6 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
                 "{context} should stay off the covering-read route",
             );
         }
-
-        let descriptor_json = descriptor.render_json_canonical();
-        assert!(
-            !descriptor_json.contains("authority_decision")
-                && !descriptor_json.contains("authority_reason")
-                && !descriptor_json.contains("index_state"),
-            "{context} should stay off the removed authority-label json surface: {descriptor_json}",
-        );
-        assert!(
-            !descriptor_json.contains("witness_validated")
-                && !descriptor_json.contains("storage_existence_witness"),
-            "{context} must not surface legacy authority labels in descriptor json: {descriptor_json}",
-        );
     }
 }
 

@@ -72,6 +72,13 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     // Query refinement
     // ------------------------------------------------------------------
 
+    /// Bound the number of rows affected by this delete.
+    #[must_use]
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.inner = self.inner.limit(limit);
+        self
+    }
+
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, Error> {
         Ok(self.inner.plan_hash_hex()?)
@@ -196,6 +203,13 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     // ------------------------------------------------------------------
     // Query refinement
     // ------------------------------------------------------------------
+
+    /// Bound the number of rows affected by this delete.
+    #[must_use]
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.inner = self.inner.limit(limit);
+        self
+    }
 
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, Error> {

@@ -10,8 +10,25 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - Do not start or stop the local ICP network; the user manages its lifecycle elsewhere.
 - Use absolute filesystem paths in final file references.
-- Before `1.0.0`, hard-cut internal protocols/formats to the latest version; do not keep compatibility fallbacks.
+- Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
 - For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.
+
+## Pre-1.0 Hard Cuts
+
+- Before `1.0.0`, removed or renamed surfaces are hard-cut. Do not add aliases,
+  shims, compatibility wrappers, legacy fallback paths, dual dispatch,
+  backwards-compatibility layers, or legacy feature support unless the user
+  explicitly asks.
+- Internal protocols, persisted/runtime formats, generated API shapes, cursor
+  formats, and schema/catalog representations should move directly to the
+  latest current form. Either decode/execute the current form or fail with a
+  typed error; do not silently reconstruct, translate, or tolerate old forms.
+- Do not add anti-resurrection tests for removed legacy behavior, old aliases,
+  or retired feature spellings. Current behavior tests should cover the
+  maintained surface only.
+- When deleting stale code, remove the old path completely and update active
+  docs, examples, diagnostics, and fixtures to the current surface instead of
+  preserving compatibility breadcrumbs.
 
 ## IcyDB Architecture Rules
 

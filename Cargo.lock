@@ -1204,6 +1204,7 @@ dependencies = [
  "icydb-utils",
  "remain",
  "serde",
+ "trybuild",
 ]
 
 [[package]]

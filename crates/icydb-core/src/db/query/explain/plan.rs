@@ -687,8 +687,6 @@ pub struct ExplainResidualSummaryV1 {
     pub access_bound_predicate_count: usize,
     /// Number of residual predicate terms for the selected access route.
     pub residual_predicate_count: usize,
-    /// Deprecated JSON compatibility mirror of `residual_predicate_count`.
-    pub predicate_terms: usize,
 }
 
 impl ExplainResidualSummaryV1 {
@@ -706,7 +704,6 @@ impl ExplainResidualSummaryV1 {
                 has_residual_predicate: candidate.residual_predicate_terms > 0,
                 access_bound_predicate_count: access_bound_predicate_count(selected_access),
                 residual_predicate_count: candidate.residual_predicate_terms,
-                predicate_terms: candidate.residual_predicate_terms,
             },
             None => Self {
                 burden_class: AccessChoiceResidualBurden::None.label(),
@@ -714,7 +711,6 @@ impl ExplainResidualSummaryV1 {
                 has_residual_predicate: false,
                 access_bound_predicate_count: access_bound_predicate_count(selected_access),
                 residual_predicate_count: 0,
-                predicate_terms: 0,
             },
         }
     }
@@ -1290,7 +1286,6 @@ fn write_access_decision_json(decision: &ExplainAccessDecisionV1, out: &mut Stri
             "residual_predicate_count",
             decision.residual.residual_predicate_count as u64,
         );
-        residual.field_u64("predicate_terms", decision.residual.predicate_terms as u64);
         residual.finish();
     });
     object.finish();

@@ -156,19 +156,13 @@ pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
 }
 ```
 
-Ordinary typed/fluent reads are bounded by default. `execute`, `execute_rows`,
-cursor-paged execution, and terminal helpers such as `entities()` apply the
-default read-admission gate, so caller-facing endpoints still enforce caller
-authorization first and then receive a typed error for unsafe full scans,
-non-zero offsets, materialized sorts, missing row bounds, or grouped reads
-without query-owned hard limits. Broad maintenance scans belong on explicit
-trusted/admin paths after controller authorization. See
-[docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
-Caller-facing reads should use semantic read-intent terminals where possible:
-`PageRequest` for public pages, `collect_complete()` for complete small sets,
-`count_exact()` / `sum_exact(...)` / `min_exact(...)` / `max_exact(...)` /
-`avg_exact(...)` for exact aggregates, and raw `limit(...)` only when the API
-contract is deliberately a bounded row window.
+Ordinary typed/fluent reads are bounded by default. Caller-facing endpoints
+still enforce caller authorization first and then receive typed errors for
+unsafe read shapes. Broad maintenance scans belong on explicit trusted/admin
+paths after controller authorization. See the
+[public facade API reference](docs/guides/public-facade-api.md) for the current
+command vocabulary and [READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
+for the full admission contract.
 
 Use atomic batch helpers when a same-entity batch must be all-or-nothing:
 
@@ -288,6 +282,8 @@ usage, IC test prerequisites, and wasm report commands live in
 - [SECURITY.md](SECURITY.md)
 - [CHANGELOG.md](CHANGELOG.md)
 - [docs/operations/DURABILITY_GUIDE.md](docs/operations/DURABILITY_GUIDE.md)
+- [docs/guides/public-facade-api.md](docs/guides/public-facade-api.md)
+- [docs/guides/read-intent.md](docs/guides/read-intent.md)
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
 - [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)

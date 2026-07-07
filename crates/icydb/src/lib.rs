@@ -55,7 +55,7 @@
 //! controller/admin or maintenance code with a separate resource policy.
 //!
 //! Prefer semantic read intents for caller-facing APIs:
-//! - exact rows use primary-key access plus `try_one()` / `one()`;
+//! - exact rows use primary-key access plus `try_one()`;
 //! - public lists use request-owned `PageRequest` cursor pagination;
 //! - complete small sets use `collect_complete()`;
 //! - exact aggregates use semantic helpers such as `count_exact()`,

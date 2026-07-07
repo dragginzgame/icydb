@@ -47,8 +47,8 @@ impl ProjectionRows {
         self.rows.as_slice()
     }
 
-    /// Render row values into the legacy display strings used by shell output
-    /// and tests that intentionally assert presentation.
+    /// Render row values into the display strings used by shell output and
+    /// tests that intentionally assert presentation.
     #[must_use]
     pub fn rendered_rows(&self) -> Vec<Vec<String>> {
         render_rows(self.rows.as_slice())

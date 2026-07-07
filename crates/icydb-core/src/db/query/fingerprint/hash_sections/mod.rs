@@ -139,8 +139,8 @@ pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>)
 /// Hash one scalar semantic filter component into the shared identity stream.
 ///
 /// Canonical scalar `filter_expr` owns semantic identity when present; the
-/// older predicate hash remains the fallback only for plans that still have no
-/// planner-owned scalar filter expression.
+/// predicate hash is used only for plans that still have no planner-owned
+/// scalar filter expression.
 ///
 pub(super) fn hash_scalar_semantic_filter(
     hasher: &mut Sha256,

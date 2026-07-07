@@ -465,7 +465,7 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
 
 #[cfg(feature = "diagnostics")]
 impl SqlExecutePhaseAttribution {
-    /// Build execute-phase attribution from legacy execute and store totals.
+    /// Build execute-phase attribution from aggregate execute and store totals.
     #[must_use]
     pub(in crate::db) const fn from_execute_total_and_store_total(
         execute_local_instructions: u64,

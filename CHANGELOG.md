@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.8` hard-cuts the public load facade to semantic read-intent
+  terminals by replacing load `.limit(...)` with `bounded_window(...)`,
+  removing legacy bounded-window helper aliases, and adding compile guards for
+  the simplified API.
+
 - `0.198.7` completes the exact aggregate read-intent vocabulary with min,
   max, and average helpers, updates EXPLAIN/read-admission docs, and records
   the 0.198 supplemental status boundary without adding custom read policies.

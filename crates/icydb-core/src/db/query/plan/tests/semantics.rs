@@ -438,7 +438,7 @@ fn finalized_static_contract_carries_explicit_expression_only_residual_filter_st
             plan.predicate_pushdown_reason_label(),
         ),
         ("none".to_string(), "fallback", "no_predicate_subset"),
-        "expression-only filters should keep the legacy compact label while carrying an explicit planner-owned fallback reason",
+        "expression-only filters should keep the compact label while carrying an explicit planner-owned fallback reason",
     );
 }
 

@@ -195,7 +195,7 @@ fn append_predicate_keeps_predicate_only_authority_without_filter_expr() {
     );
     assert!(
         !filter.predicate_subset_covers_expr(),
-        "the legacy visible-expression projection should remain false when no expression is visible",
+        "predicate-only filters should not report expression-subset coverage",
     );
 }
 

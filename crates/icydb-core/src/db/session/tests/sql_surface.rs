@@ -4391,48 +4391,6 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
             ..
         } if entity_name == "SessionSqlEntity" && column_name == "score"
     );
-
-    let legacy_nat_statement =
-        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 0")
-            .expect("legacy nat spelling should parse as unresolved DDL intent");
-    let err = bind_sql_ddl_statement(
-        &legacy_nat_statement,
-        &accepted_before,
-        &schema,
-        SessionSqlStore::PATH,
-    )
-    .expect_err("legacy nat spelling should no longer bind as a column type");
-    std::assert_matches!(
-        err,
-        SqlDdlBindError::UnsupportedAlterTableAddColumnType {
-            entity_name,
-            column_name,
-            column_type,
-        } if entity_name == "SessionSqlEntity"
-            && column_name == "score"
-            && column_type == "nat"
-    );
-
-    let legacy_int_statement =
-        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN delta int DEFAULT 0")
-            .expect("legacy int spelling should parse as unresolved DDL intent");
-    let err = bind_sql_ddl_statement(
-        &legacy_int_statement,
-        &accepted_before,
-        &schema,
-        SessionSqlStore::PATH,
-    )
-    .expect_err("legacy int spelling should no longer bind as a column type");
-    std::assert_matches!(
-        err,
-        SqlDdlBindError::UnsupportedAlterTableAddColumnType {
-            entity_name,
-            column_name,
-            column_type,
-        } if entity_name == "SessionSqlEntity"
-            && column_name == "delta"
-            && column_type == "int"
-    );
 }
 
 #[test]
@@ -5624,38 +5582,6 @@ fn execute_sql_ddl_publication_rechecks_bound_accepted_identity() {
             "race-lost DDL must not replace the live accepted schema",
         );
     });
-}
-
-#[test]
-fn execute_sql_ddl_rejects_legacy_numeric_add_column_without_publication() {
-    reset_session_sql_store();
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    let session = sql_session();
-
-    for sql in [
-        "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 0",
-        "ALTER TABLE SessionSqlEntity ADD COLUMN delta int DEFAULT 0",
-    ] {
-        assert!(
-            session.execute_sql_ddl::<SessionSqlEntity>(sql).is_err(),
-            "legacy broad numeric DDL spelling should stay outside the SQL DDL surface: {sql}",
-        );
-    }
-
-    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
-        let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
-            .expect("schema store lookup should stay readable after rejected DDL");
-        assert!(
-            latest.as_ref().is_none_or(|snapshot| snapshot
-                .fields()
-                .iter()
-                .all(|field| !matches!(field.name(), "score" | "delta"))),
-            "rejected legacy broad numeric DDL must not publish accepted field metadata",
-        );
-    });
-
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
 
 #[test]

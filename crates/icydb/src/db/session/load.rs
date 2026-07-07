@@ -7,10 +7,10 @@
 use crate::{
     db::{
         AdminBatchRequest, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
-        PageRequest, Row,
+        PageRequest,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
-            QueryTracePlan, ValueProjectionExpr,
+            QueryTracePlan,
         },
         response::{PagedResponse, QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
@@ -18,12 +18,10 @@ use crate::{
     error::Error,
     traits::{Entity, SingletonEntity},
     types::{Decimal, Id},
-    value::{InputValue, OutputValue},
+    value::InputValue,
 };
 
 use icydb_core as core;
-
-type MinMaxIds<E> = Option<(Id<E>, Id<E>)>;
 
 ///
 /// FluentLoadQuery
@@ -65,6 +63,19 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.inner = self.inner.offset(offset);
+        self
+    }
+
+    /// Return a deliberately partial bounded row window.
+    ///
+    /// This is the hard-cut replacement for raw public read `.limit(...)` on
+    /// load queries. Use it only when the endpoint contract is "the first N
+    /// rows under this order." Use `execute_paged(...)` for public pages,
+    /// `collect_complete()` for complete small sets, and exact aggregate
+    /// helpers for semantic aggregates.
+    #[must_use]
+    pub fn bounded_window(mut self, limit: u32) -> Self {
+        self.inner = self.inner.limit(limit);
         self
     }
 
@@ -275,7 +286,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// Return all matching rows if the complete result fits in the default
     /// public-read small-set cap.
     ///
-    /// This semantic terminal rejects a prior raw `limit(...)`; use
+    /// This semantic terminal rejects a prior `bounded_window(...)`; use
     /// `execute_rows()` when returning a bounded row window is the endpoint
     /// contract.
     pub fn collect_complete(&self) -> Result<Vec<E>, Error>
@@ -300,9 +311,8 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the exact number of matching rows.
     ///
-    /// This semantic aggregate rejects a prior raw `limit(...)`; use
-    /// `count()` when the endpoint deliberately counts the effective bounded
-    /// row window.
+    /// This semantic aggregate rejects a prior bounded row window because an
+    /// exact count must not mean "count the first N rows."
     pub fn count_exact(&self) -> Result<u32, Error>
     where
         E: Entity,
@@ -370,59 +380,15 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_execution_verbose()?)
     }
 
-    /// Return total persisted payload bytes for the effective result window.
-    pub fn bytes(&self) -> Result<u64, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.bytes()?)
-    }
-
-    /// Return total serialized bytes for one projected field over the effective result window.
-    pub fn bytes_by(&self, field: impl AsRef<str>) -> Result<u64, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.bytes_by(field)?)
-    }
-
-    /// Explain `bytes_by(field)` routing without executing the terminal.
-    pub fn explain_bytes_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_bytes_by(field)?)
-    }
-
-    /// Return the minimum identifier under deterministic response ordering.
-    pub fn min(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.min()?)
-    }
-
     /// Return the exact minimum identifier under deterministic response ordering.
     ///
-    /// This semantic aggregate rejects a prior raw `limit(...)`; use `min()`
-    /// when the endpoint deliberately selects from the effective bounded row
-    /// window.
+    /// This semantic aggregate rejects a prior bounded row window because an
+    /// exact minimum must not mean "minimum over the first N rows."
     pub fn min_exact(&self) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
     {
         Ok(self.inner.min_exact()?)
-    }
-
-    /// Explain scalar `min()` routing without executing the terminal.
-    pub fn explain_min(&self) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_min()?)
     }
 
     /// Explain exact `min_exact()` routing without executing the terminal.
@@ -433,19 +399,10 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_min_exact()?)
     }
 
-    /// Return the identifier with the minimum `field` value.
-    pub fn min_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.min_by(field)?)
-    }
-
     /// Return the identifier with the exact minimum `field` value.
     ///
-    /// This semantic aggregate rejects a prior raw `limit(...)`; use
-    /// `min_by(field)` when the endpoint deliberately selects from the
-    /// effective bounded row window.
+    /// This semantic aggregate rejects a prior bounded row window because an
+    /// exact minimum must not mean "minimum over the first N rows."
     pub fn min_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
@@ -464,32 +421,15 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_min_exact_by(field)?)
     }
 
-    /// Return the maximum identifier under deterministic response ordering.
-    pub fn max(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.max()?)
-    }
-
     /// Return the exact maximum identifier under deterministic response ordering.
     ///
-    /// This semantic aggregate rejects a prior raw `limit(...)`; use `max()`
-    /// when the endpoint deliberately selects from the effective bounded row
-    /// window.
+    /// This semantic aggregate rejects a prior bounded row window because an
+    /// exact maximum must not mean "maximum over the first N rows."
     pub fn max_exact(&self) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
     {
         Ok(self.inner.max_exact()?)
-    }
-
-    /// Explain scalar `max()` routing without executing the terminal.
-    pub fn explain_max(&self) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_max()?)
     }
 
     /// Explain exact `max_exact()` routing without executing the terminal.
@@ -500,19 +440,10 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_max_exact()?)
     }
 
-    /// Return the identifier with the maximum `field` value.
-    pub fn max_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.max_by(field)?)
-    }
-
     /// Return the identifier with the exact maximum `field` value.
     ///
-    /// This semantic aggregate rejects a prior raw `limit(...)`; use
-    /// `max_by(field)` when the endpoint deliberately selects from the
-    /// effective bounded row window.
+    /// This semantic aggregate rejects a prior bounded row window because an
+    /// exact maximum must not mean "maximum over the first N rows."
     pub fn max_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
@@ -531,27 +462,10 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_max_exact_by(field)?)
     }
 
-    /// Return the `nth` identifier by deterministic `(field asc, id asc)` ordering.
-    pub fn nth_by(&self, field: impl AsRef<str>, nth: usize) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.nth_by(field, nth)?)
-    }
-
-    /// Return the sum of `field` over matching rows.
-    pub fn sum_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.sum_by(field)?)
-    }
-
     /// Return the exact sum of `field` over matching rows.
     ///
-    /// This semantic aggregate rejects a prior raw `limit(...)`; use
-    /// `sum_by(...)` when the endpoint deliberately sums the effective
-    /// bounded row window.
+    /// This semantic aggregate rejects a prior bounded row window because an
+    /// exact sum must not mean "sum the first N rows."
     pub fn sum_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
     where
         E: Entity,
@@ -570,65 +484,15 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_sum_exact(field)?)
     }
 
-    /// Explain scalar `sum_by(field)` routing without executing the terminal.
-    pub fn explain_sum_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_sum_by(field)?)
-    }
-
-    /// Return the sum of distinct `field` values.
-    pub fn sum_distinct_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.sum_distinct_by(field)?)
-    }
-
-    /// Explain scalar `sum(distinct field)` routing without executing the terminal.
-    pub fn explain_sum_distinct_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_sum_distinct_by(field)?)
-    }
-
-    /// Return the average of `field` over matching rows.
-    pub fn avg_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.avg_by(field)?)
-    }
-
     /// Return the exact average of `field` over matching rows.
     ///
-    /// This semantic aggregate rejects a prior raw `limit(...)`; use
-    /// `avg_by(field)` when the endpoint deliberately averages the effective
-    /// bounded row window.
+    /// This semantic aggregate rejects a prior bounded row window because an
+    /// exact average must not mean "average the first N rows."
     pub fn avg_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
     where
         E: Entity,
     {
         Ok(self.inner.avg_exact(field)?)
-    }
-
-    /// Explain scalar `avg_by(field)` routing without executing the terminal.
-    pub fn explain_avg_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_avg_by(field)?)
     }
 
     /// Explain exact `avg_exact(field)` routing without executing the terminal.
@@ -642,347 +506,13 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.explain_avg_exact(field)?)
     }
 
-    /// Return the average of distinct `field` values.
-    pub fn avg_distinct_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.avg_distinct_by(field)?)
-    }
-
-    /// Explain scalar `avg(distinct field)` routing without executing the terminal.
-    pub fn explain_avg_distinct_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_avg_distinct_by(field)?)
-    }
-
-    /// Return the median identifier by deterministic `(field asc, id asc)` ordering.
-    pub fn median_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.median_by(field)?)
-    }
-
-    /// Return the distinct value count for `field` over the effective result window.
-    pub fn count_distinct_by(&self, field: impl AsRef<str>) -> Result<u32, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.count_distinct_by(field)?)
-    }
-
-    /// Explain `count_distinct_by(field)` routing without executing the terminal.
-    pub fn explain_count_distinct_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_count_distinct_by(field)?)
-    }
-
-    /// Return both `(min_by(field), max_by(field))` in one terminal.
-    pub fn min_max_by(&self, field: impl AsRef<str>) -> Result<MinMaxIds<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.min_max_by(field)?)
-    }
-
-    /// Return projected field values for the effective result window.
-    pub fn values_by(&self, field: impl AsRef<str>) -> Result<Vec<OutputValue>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.values_by(field)?)
-    }
-
-    /// Execute and return projected values for one shared bounded projection
-    /// over the effective response window.
-    pub fn project_values<P>(&self, projection: &P) -> Result<Vec<OutputValue>, Error>
-    where
-        E: Entity,
-        P: ValueProjectionExpr,
-    {
-        Ok(self.inner.project_values(projection)?)
-    }
-
-    /// Explain `project_values(projection)` routing without executing it.
-    pub fn explain_project_values<P>(
-        &self,
-        projection: &P,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-        P: ValueProjectionExpr,
-    {
-        Ok(self.inner.explain_project_values(projection)?)
-    }
-
-    /// Explain `values_by(field)` routing without executing the terminal.
-    pub fn explain_values_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_values_by(field)?)
-    }
-
-    /// Return the first `k` rows from the effective result window.
-    pub fn take(&self, take_count: u32) -> Result<Response<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(Response::from_core(self.inner.take(take_count)?))
-    }
-
-    /// Return the top `k` rows by deterministic `(field desc, id asc)` ordering.
-    pub fn top_k_by(&self, field: impl AsRef<str>, take_count: u32) -> Result<Response<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(Response::from_core(self.inner.top_k_by(field, take_count)?))
-    }
-
-    /// Return the bottom `k` rows by deterministic `(field asc, id asc)` ordering.
-    pub fn bottom_k_by(&self, field: impl AsRef<str>, take_count: u32) -> Result<Response<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(Response::from_core(
-            self.inner.bottom_k_by(field, take_count)?,
-        ))
-    }
-
-    /// Return projected values for the top `k` rows by `field`.
-    pub fn top_k_by_values(
-        &self,
-        field: impl AsRef<str>,
-        take_count: u32,
-    ) -> Result<Vec<OutputValue>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.top_k_by_values(field, take_count)?)
-    }
-
-    /// Return projected values for the bottom `k` rows by `field`.
-    pub fn bottom_k_by_values(
-        &self,
-        field: impl AsRef<str>,
-        take_count: u32,
-    ) -> Result<Vec<OutputValue>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.bottom_k_by_values(field, take_count)?)
-    }
-
-    /// Return projected id/value pairs for the top `k` rows by `field`.
-    pub fn top_k_by_with_ids(
-        &self,
-        field: impl AsRef<str>,
-        take_count: u32,
-    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.top_k_by_with_ids(field, take_count)?)
-    }
-
-    /// Return projected id/value pairs for the bottom `k` rows by `field`.
-    pub fn bottom_k_by_with_ids(
-        &self,
-        field: impl AsRef<str>,
-        take_count: u32,
-    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.bottom_k_by_with_ids(field, take_count)?)
-    }
-
-    /// Return distinct projected field values for the effective result window.
-    ///
-    /// Value order preserves first observation in effective response order.
-    pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<OutputValue>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.distinct_values_by(field)?)
-    }
-
-    /// Explain `distinct_values_by(field)` routing without executing the terminal.
-    pub fn explain_distinct_values_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_distinct_values_by(field)?)
-    }
-
-    /// Return projected field values paired with row ids for the effective result window.
-    pub fn values_by_with_ids(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.values_by_with_ids(field)?)
-    }
-
-    /// Execute and return projected id/value pairs for one shared text
-    /// projection over the effective response window.
-    pub fn project_values_with_ids<P>(
-        &self,
-        projection: &P,
-    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
-    where
-        E: Entity,
-        P: ValueProjectionExpr,
-    {
-        Ok(self.inner.project_values_with_ids(projection)?)
-    }
-
-    /// Explain `values_by_with_ids(field)` routing without executing the terminal.
-    pub fn explain_values_by_with_ids(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_values_by_with_ids(field)?)
-    }
-
-    /// Return the first projected field value in effective response order.
-    pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<OutputValue>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.first_value_by(field)?)
-    }
-
-    /// Execute and return the first projected value for one shared text
-    /// projection in effective response order, if any.
-    pub fn project_first_value<P>(&self, projection: &P) -> Result<Option<OutputValue>, Error>
-    where
-        E: Entity,
-        P: ValueProjectionExpr,
-    {
-        Ok(self.inner.project_first_value(projection)?)
-    }
-
-    /// Explain `first_value_by(field)` routing without executing the terminal.
-    pub fn explain_first_value_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_first_value_by(field)?)
-    }
-
-    /// Return the last projected field value in effective response order.
-    pub fn last_value_by(&self, field: impl AsRef<str>) -> Result<Option<OutputValue>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.last_value_by(field)?)
-    }
-
-    /// Execute and return the last projected value for one shared text
-    /// projection in effective response order, if any.
-    pub fn project_last_value<P>(&self, projection: &P) -> Result<Option<OutputValue>, Error>
-    where
-        E: Entity,
-        P: ValueProjectionExpr,
-    {
-        Ok(self.inner.project_last_value(projection)?)
-    }
-
-    /// Explain `last_value_by(field)` routing without executing the terminal.
-    pub fn explain_last_value_by(
-        &self,
-        field: impl AsRef<str>,
-    ) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_last_value_by(field)?)
-    }
-
-    /// Return the first matching identifier in response order.
-    pub fn first(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.first()?)
-    }
-
-    /// Explain scalar `first()` routing without executing the terminal.
-    pub fn explain_first(&self) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_first()?)
-    }
-
-    /// Return the last matching identifier in response order.
-    pub fn last(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.last()?)
-    }
-
-    /// Explain scalar `last()` routing without executing the terminal.
-    pub fn explain_last(&self) -> Result<ExplainAggregateTerminalPlan, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_last()?)
-    }
-
-    // ------------------------------------------------------------------
-    // Convenience aliases (semantic sugar)
-    // ------------------------------------------------------------------
-
-    /// Materialize exactly one entity.
-    pub fn one(&self) -> Result<E, Error>
-    where
-        E: Entity,
-    {
-        self.entity()
-    }
-
     /// Materialize zero or one entity, failing when more than one row matches.
     pub fn try_one(&self) -> Result<Option<E>, Error>
     where
         E: Entity,
     {
-        self.try_entity()
-    }
-
-    /// Materialize all entities.
-    pub fn all(&self) -> Result<Vec<E>, Error>
-    where
-        E: Entity,
-    {
-        self.entities()
+        icydb_core::db::ResponseCardinalityExt::try_entity(self.inner.execute_rows()?)
+            .map_err(Into::into)
     }
 }
 

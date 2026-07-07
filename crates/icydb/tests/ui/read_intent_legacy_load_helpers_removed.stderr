@@ -1,0 +1,38 @@
+error[E0599]: `FluentLoadQuery<'_, E>` is not an iterator
+ --> tests/ui/read_intent_legacy_load_helpers_removed.rs:7:19
+  |
+7 |     let _ = query.count();
+  |                   ^^^^^ `FluentLoadQuery<'_, E>` is not an iterator
+  |
+ ::: src/db/session/load.rs
+  |
+  | pub struct FluentLoadQuery<'a, E: Entity> {
+  | ----------------------------------------- doesn't satisfy `FluentLoadQuery<'_, E>: Iterator`
+  |
+  = note: the following trait bounds were not satisfied:
+          `FluentLoadQuery<'_, E>: Iterator`
+          which is required by `&mut FluentLoadQuery<'_, E>: Iterator`
+
+error[E0599]: no method named `sum_by` found for struct `FluentLoadQuery<'a, E>` in the current scope
+ --> tests/ui/read_intent_legacy_load_helpers_removed.rs:8:19
+  |
+8 |     let _ = query.sum_by("amount");
+  |                   ^^^^^^ method not found in `FluentLoadQuery<'_, E>`
+
+error[E0599]: no method named `values_by` found for struct `FluentLoadQuery<'a, E>` in the current scope
+ --> tests/ui/read_intent_legacy_load_helpers_removed.rs:9:19
+  |
+9 |     let _ = query.values_by("amount");
+  |                   ^^^^^^^^^ method not found in `FluentLoadQuery<'_, E>`
+
+error[E0599]: no method named `top_k_by` found for struct `FluentLoadQuery<'a, E>` in the current scope
+  --> tests/ui/read_intent_legacy_load_helpers_removed.rs:10:19
+   |
+10 |     let _ = query.top_k_by("amount", 10);
+   |                   ^^^^^^^^ method not found in `FluentLoadQuery<'_, E>`
+
+error[E0599]: no method named `all` found for struct `FluentLoadQuery<'a, E>` in the current scope
+  --> tests/ui/read_intent_legacy_load_helpers_removed.rs:11:19
+   |
+11 |     let _ = query.all();
+   |                   ^^^ method not found in `FluentLoadQuery<'_, E>`

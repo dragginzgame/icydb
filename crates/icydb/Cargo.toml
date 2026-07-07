@@ -29,5 +29,8 @@ icydb-utils = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
 
+[dev-dependencies]
+trybuild = { workspace = true }
+
 [lints]
 workspace = true

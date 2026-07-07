@@ -3,21 +3,21 @@
 IcyDB public reads should describe the endpoint promise, not the arbitrary row
 cap that happens to satisfy admission.
 
-Use semantic terminals when the endpoint wants a semantic answer. Use raw
-`limit(...)` only when the endpoint is deliberately returning a bounded row
-window.
+Use semantic terminals when the endpoint wants a semantic answer. Use
+`bounded_window(...)` only when the endpoint is deliberately returning a
+partial row window.
 
 ## Current Map
 
 | Endpoint promise | Use | Do not use |
 | --- | --- | --- |
-| One exact row | `by_id(...).try_one()` or canonicalized primary-key equality with `try_one()` | `limit(1).execute_rows()` |
-| Existence | `exists()` / `not_exists()` | `limit(1).execute_rows()?.is_empty()` or `limit(1).exists()` |
-| Exact count | `count_exact()` | `limit(N).count()` unless the limited window is intended |
-| Exact sum/min/max/average | `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, `avg_exact(field)` | `limit(N).sum_by(field)` / `limit(N).min_by(field)` / `limit(N).avg_by(field)` unless the limited window is intended |
-| Complete small set | `collect_complete()` | `limit(N).execute_rows()` when the endpoint promises all matches |
-| Bounded row window | `limit(N).execute_rows()` / `limit(N).execute()` | A complete-result API that silently truncates |
-| Cursor page | `order_term(...).execute_paged(PageRequest::first(N))` | `limit(N).execute_paged(...)` or non-zero `offset(...)` for public pages |
+| One exact row | `by_id(...).try_one()` or canonicalized primary-key equality with `try_one()` | `bounded_window(1).execute_rows()` |
+| Existence | `exists()` / `not_exists()` | `bounded_window(1).execute_rows()?.is_empty()` or `bounded_window(1).exists()` |
+| Exact count | `count_exact()` | bounded-window row materialization plus `Response::count()` |
+| Exact sum/min/max/average | `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, `avg_exact(field)` | aggregating a partial bounded row window |
+| Complete small set | `collect_complete()` | `bounded_window(N).execute_rows()` when the endpoint promises all matches |
+| Bounded row window | `bounded_window(N).execute_rows()` / `bounded_window(N).execute()` | A complete-result API that silently truncates |
+| Cursor page | `order_term(...).execute_paged(PageRequest::first(N))` | `bounded_window(N).execute_paged(...)` or non-zero `offset(...)` for public pages |
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` | Public endpoints with giant limits or caller-selected batch sizes |
 | Trusted maintenance scan | `trusted_read_unchecked().execute_rows()` or trusted execution helpers | Public endpoints with giant limits |
 
@@ -36,15 +36,15 @@ Classify the endpoint promise before changing code:
   `max_exact_by(field)`, or `avg_exact(field)`;
 - exact key read: use `by_id(...)`, `by_ids(...)`, or canonicalized
   primary-key equality;
-- bounded row window: keep `limit(N).execute_rows()` only when a partial row
-  window is the actual API contract;
+- bounded row window: use `bounded_window(N).execute_rows()` only when a
+  partial row window is the actual API contract;
 - trusted maintenance: keep the endpoint controller/admin-gated and use
   `trusted_read_unchecked().admin_batch(...)` or another trusted helper.
 
 ## Migration Recipes
 
 Treat each migration as an endpoint-contract review, not a search-and-replace.
-The same old `limit(N).execute_rows()` shape can mean several different things.
+The same bounded row-window shape can mean several different things.
 
 Exact lookup:
 
@@ -53,7 +53,7 @@ Exact lookup:
 let user = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
-    .limit(1)
+    .bounded_window(1)
     .try_one()?;
 
 // After: exact-key spelling.
@@ -72,7 +72,7 @@ let users = db()
     .filter(icydb::FieldRef::new("country").eq(country))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .limit(100)
+    .bounded_window(100)
     .execute_rows()?;
 
 // After: request-owned cursor page.
@@ -92,7 +92,7 @@ let members = db()
     .load::<Member>()
     .filter(icydb::FieldRef::new("team_id").eq(team_id))
     .order_term(icydb::asc("id"))
-    .limit(100)
+    .bounded_window(100)
     .execute_rows()?;
 
 // After: complete or fail with TooManyRows.
@@ -106,14 +106,15 @@ let members = db()
 Exact aggregate:
 
 ```rust
-// Before: count of a bounded row window.
+// Anti-pattern: row count of a partial bounded window.
 let active = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("active").eq(true))
-    .limit(100)
-    .count()?;
+    .bounded_window(100)
+    .execute_rows()?
+    .count();
 
-// After: exact count over the admitted shape.
+// Preferred: exact count over the admitted shape.
 let active = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("active").eq(true))
@@ -127,7 +128,7 @@ Trusted maintenance:
 let rows = db()
     .load::<LedgerEntry>()
     .order_term(icydb::asc("id"))
-    .limit(500)
+    .bounded_window(500)
     .execute_rows()?;
 
 // After: visibly trusted and cursor-batched.
@@ -251,7 +252,7 @@ generated controller-gated SQL diagnostics and from any future codegen work.
 
 ## Exact Lookup
 
-Exact lookup should be proved by key access, not by a raw limit.
+Exact lookup should be proved by key access, not by a bounded row window.
 
 ```rust
 let user = db()
@@ -276,7 +277,7 @@ Avoid:
 let user = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
-    .limit(1)
+    .bounded_window(1)
     .try_one()?;
 ```
 
@@ -293,14 +294,14 @@ let exists = db()
     .exists()?;
 ```
 
-`exists()` owns the existence intent. A prior raw `limit(...)` is rejected
+`exists()` owns the existence intent. A prior `bounded_window(...)` is rejected
 because it makes the caller contract ambiguous.
 
 ```rust
 let err = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("email").eq(email))
-    .limit(1)
+    .bounded_window(1)
     .exists();
 ```
 
@@ -339,35 +340,21 @@ let average = db()
     .avg_exact("amount")?;
 ```
 
-Exact aggregate terminals reject prior raw `limit(...)`. Exact aggregates must
-not mean "aggregate the first N rows."
+Exact aggregate terminals reject prior `bounded_window(...)`. Exact aggregates
+must not mean "aggregate the first N rows."
 
 Diagnostics-only terminal attribution reports `ReadIntentKind::ExactAggregate`
-for attributed exact count terminals and `ReadIntentKind::BoundedRowWindow` for
-the lower-level bounded count terminal.
+for attributed exact aggregate terminals.
 `explain_count_exact()`, `explain_sum_exact(field)`, `explain_min_exact()`,
 `explain_min_exact_by(field)`, `explain_max_exact()`,
 `explain_max_exact_by(field)`, and `explain_avg_exact(field)` report
 exact-aggregate read-intent metadata without executing the terminal.
 
-Use the older aggregate terminals only when the window is explicitly part of
-the endpoint promise:
-
-```rust
-let page_total = db()
-    .load::<LedgerEntry>()
-    .filter(icydb::FieldRef::new("account_id").eq(account_id))
-    .order_term(icydb::asc("created_at"))
-    .order_term(icydb::asc("id"))
-    .limit(25)
-    .sum_by("amount")?;
-```
-
 ## Public Pages
 
-Use `PageRequest` for public page size and cursor continuation. Raw
-`limit(...)` is rejected before request-owned page terminals because page size
-belongs to the request, not to the low-level row-window modifier.
+Use `PageRequest` for public page size and cursor continuation.
+`bounded_window(...)` is rejected before request-owned page terminals because
+page size belongs to the request, not to the low-level row-window modifier.
 
 ```rust
 let page = db()
@@ -398,7 +385,7 @@ let page = db()
 
 ## Complete Small Sets
 
-Do not use `limit(N).execute_rows()` for endpoints that claim to return all
+Do not use `bounded_window(N).execute_rows()` for endpoints that claim to return all
 matching rows. That returns a bounded window, not a complete set.
 
 Use `collect_complete()` when the endpoint promises every matching row and the
@@ -413,7 +400,7 @@ let users = db()
     .collect_complete()?;
 ```
 
-`collect_complete()` rejects a prior raw `limit(...)`. It internally executes
+`collect_complete()` rejects a prior `bounded_window(...)`. It internally executes
 with one lookahead row so it can fail when the set is too large instead of
 silently truncating the response.
 
@@ -440,7 +427,7 @@ maintenance code that owns its own authorization and resource policy.
 let rows = db()
     .load::<LedgerEntry>()
     .order_term(icydb::asc("id"))
-    .limit(100)
+    .bounded_window(100)
     .trusted_read_unchecked()
     .execute_rows()?;
 ```
@@ -466,7 +453,7 @@ let batch = db()
     .admin_batch(icydb::db::AdminBatchRequest::next(cursor))?;
 ```
 
-`admin_batch(...)` rejects prior raw `limit(...)`; IcyDB owns the batch size.
+`admin_batch(...)` rejects prior `bounded_window(...)`; IcyDB owns the batch size.
 It also rejects calls that did not first opt into `trusted_read_unchecked()`.
 
 Paged responses report diagnostic read-intent metadata. Public page terminals
@@ -493,7 +480,7 @@ For every raw high-limit call site, classify intent first:
 - maintenance/admin batch: use `trusted_read_unchecked().admin_batch(...)`;
 - maintenance/admin broad read: keep it trusted and controller-gated.
 
-Do not mechanically replace every `limit(N).execute_rows()` with an exact or
+Do not mechanically replace every `bounded_window(N).execute_rows()` with an exact or
 complete terminal. The right terminal depends on the endpoint promise.
 
 Endpoint review checklist:
