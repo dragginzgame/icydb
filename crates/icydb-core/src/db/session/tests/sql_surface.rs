@@ -1952,7 +1952,9 @@ fn fluent_paged_load_reads_old_rows_after_nullable_additive_schema_transition() 
         .load::<SessionNullableSqlEntity>()
         .trusted_read_unchecked()
         .order_term(asc("id"))
-        .execute_paged(crate::db::PageRequest::first(1))
+        .page(crate::db::PageRequest::first(1))
+        .expect("fluent paged load should enter page mode")
+        .execute()
         .expect(
             "fluent paged load should accept old row after nullable append-only schema transition",
         )

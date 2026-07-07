@@ -24,11 +24,9 @@ This file maps each UI test to exactly one architecture rule.
 | `db/logical_plan_not_reexported.rs` | Internal planner symbol `LogicalPlan` must not be re-exported at `db` root. |
 | `db/registry_module_private.rs` | `db::registry` internals are not imported directly. |
 | `db/response/cardinality_methods_require_extension_trait.rs` | Cardinality helpers require explicit `ResponseCardinalityExt` import. |
-| `db/response_alias_removed.rs` | Removed alias `db::Response` must stay absent. |
 | `db/response_module_private.rs` | `db::response` module stays private; callers use root response types. |
 | `db/session_module_private.rs` | `db::session` module internals are private; callers use `db::DbSession`. |
 | `db/store_module_private.rs` | `db::data` store internals are not public API. |
-| `db/trace_module_absent.rs` | Removed `db::trace` path must remain absent after trace move to diagnostics. |
 | `query/grouped/handoff_module_private.rs` | Grouped handoff internals are not publicly importable. |
 | `query/logical_plan_private.rs` | Query logical plan internals are not public via deep paths. |
 | `query/plan_module_private.rs` | Query plan internals remain private; only root re-exports are public. |

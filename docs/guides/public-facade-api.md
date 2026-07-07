@@ -29,7 +29,7 @@ IcyDB chooses explicit read intent instead:
 | Common database style | IcyDB style | Reason |
 | --- | --- | --- |
 | `LIMIT 1` for lookup | `by_id(id).try_one()` | Exact lookup should be proved by key shape, not by truncating a result set. |
-| `SELECT * ... LIMIT n` for lists | `execute_paged(PageRequest::first(n))` | Public list endpoints should be cursor pages with request-owned continuation. |
+| `SELECT * ... LIMIT n` for lists | `page(PageRequest::first(n))?.execute()` | Public list endpoints should be cursor pages with request-owned continuation. |
 | `all()` for collections | `collect_complete()` | Complete reads should either return the whole small set or fail instead of silently truncating. |
 | `count()` after materialization | `count_exact()` | Exact aggregates should not accidentally mean "over the first N rows." |
 | Large admin `LIMIT` scans | `trusted_read_unchecked().admin_batch(...)` | Maintenance scans need a visibly trusted lane and engine-owned batch sizing. |
@@ -50,14 +50,14 @@ Use the method that names the endpoint promise:
 | Exact row by primary key | `load::<E>().by_id(id).try_one()` |
 | Exact rows by primary keys | `load::<E>().by_ids(ids).execute_rows()` |
 | Existence | `load::<E>().exists()` / `load::<E>().not_exists()` |
-| Public page | `load::<E>().order_term(...).execute_paged(PageRequest::first(n))` |
+| Public page | `load::<E>().order_term(...).page(PageRequest::first(n))?.execute()` |
 | Complete small set | `load::<E>().collect_complete()` |
-| Deliberate partial row window | `load::<E>().bounded_window(n).execute_rows()` |
+| Deliberate partial row window | `load::<E>().partial_window(n).execute_rows()` |
 | Exact aggregate | `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, `avg_exact(field)` |
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` |
 
 Load queries do not expose public `.limit(...)`, `.one()`, or `.all()`
-aliases. Use `bounded_window(...)` only when returning a partial row window is
+aliases. Use `partial_window(...)` only when returning a partial row window is
 the endpoint contract. `limit(...)` remains on delete queries, where it bounds
 affected rows rather than read materialization.
 
@@ -132,7 +132,7 @@ These commands refine `db.load::<E>()` and
 .order_terms(terms)
 
 .offset(n)
-.bounded_window(n)
+.partial_window(n)
 
 .group_by(field)?
 .aggregate(expr)
@@ -157,8 +157,8 @@ Use these commands to execute a load query.
 .execute_rows_trusted()
 
 .page(request)?
-.execute_paged(request)
-.execute_paged_trusted(request)
+.execute()
+.execute_trusted()
 .admin_batch(request)
 
 .try_one()

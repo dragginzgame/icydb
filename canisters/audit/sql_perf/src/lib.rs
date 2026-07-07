@@ -725,7 +725,7 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .order_asc("id")
-                .bounded_window(1);
+                .partial_window(1);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -735,7 +735,7 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .order_asc("id")
-                .bounded_window(2);
+                .partial_window(2);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -746,7 +746,7 @@ fn run_user_fluent_scenario_once(
                 .load::<PerfAuditUser>()
                 .order_asc("age")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -757,7 +757,7 @@ fn run_user_fluent_scenario_once(
                 .load::<PerfAuditUser>()
                 .order_asc("age")
                 .order_asc("id")
-                .bounded_window(2);
+                .partial_window(2);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -769,7 +769,7 @@ fn run_user_fluent_scenario_once(
                 .filter_eq("active", true)
                 .order_asc("age")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -781,7 +781,7 @@ fn run_user_fluent_scenario_once(
                 .filter_eq_field("age", "age_nat")
                 .order_asc("age")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -793,7 +793,7 @@ fn run_user_fluent_scenario_once(
                 .filter_between_fields("rank", "age", "age")
                 .order_asc("age")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -805,7 +805,7 @@ fn run_user_fluent_scenario_once(
                 .filter_in("rank", [17_i32, 28_i32, 30_i32])
                 .order_asc("age")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -817,7 +817,7 @@ fn run_user_fluent_scenario_once(
                 .group_by("age")?
                 .aggregate(count())
                 .order_asc("age")
-                .bounded_window(10);
+                .partial_window(10);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -839,7 +839,7 @@ fn run_account_fluent_scenario_once(
                 .filter_eq("active", true)
                 .order_asc("handle")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -852,7 +852,7 @@ fn run_account_fluent_scenario_once(
                 .filter_eq("tier", "gold")
                 .order_asc("handle")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -864,7 +864,7 @@ fn run_account_fluent_scenario_once(
                 .filter_gte("score", 75_u64)
                 .order_asc("score")
                 .order_asc("id")
-                .bounded_window(3);
+                .partial_window(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -886,7 +886,7 @@ fn run_token_fluent_scenario_once(
                 .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
                 .filter_in("stage", ["Draft", "Review"])
                 .order_asc("id")
-                .bounded_window(50);
+                .partial_window(50);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -898,7 +898,7 @@ fn run_token_fluent_scenario_once(
                 .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
                 .filter_in("stage", ["Draft", "Draft", "Review"])
                 .order_asc("id")
-                .bounded_window(50);
+                .partial_window(50);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -923,7 +923,7 @@ fn run_token_fluent_scenario_once(
                     ],
                 )
                 .order_asc("id")
-                .bounded_window(50);
+                .partial_window(50);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -934,7 +934,7 @@ fn run_token_fluent_scenario_once(
                 .load::<PerfAuditToken>()
                 .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
                 .order_asc("id")
-                .bounded_window(300);
+                .partial_window(300);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -954,7 +954,7 @@ fn run_journaled_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditJournaledUser>()
                 .order_asc("id")
-                .bounded_window(1);
+                .partial_window(1);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -974,7 +974,7 @@ fn run_heap_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditHeapUser>()
                 .order_asc("id")
-                .bounded_window(1);
+                .partial_window(1);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -1291,7 +1291,7 @@ fn query_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icyd
     let response = db()
         .load::<PerfAuditUser>()
         .order_asc("id")
-        .bounded_window(1)
+        .partial_window(1)
         .execute_trusted()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);
@@ -1436,7 +1436,7 @@ where
         .load::<E>()
         .filter(FieldRef::new("id").eq(read_back_id))
         .order_asc("id")
-        .bounded_window(1)
+        .partial_window(1)
         .execute_trusted()?;
     let write_then_read_back_local_instructions =
         ic_cdk::api::performance_counter(1).saturating_sub(start);
@@ -1676,7 +1676,7 @@ fn query_heap_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult,
     let response = db()
         .load::<PerfAuditHeapUser>()
         .order_asc("id")
-        .bounded_window(1)
+        .partial_window(1)
         .execute_trusted()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);
@@ -1762,7 +1762,7 @@ fn query_journaled_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfRe
     let response = db()
         .load::<PerfAuditJournaledUser>()
         .order_asc("id")
-        .bounded_window(1)
+        .partial_window(1)
         .execute_trusted()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);
@@ -1783,7 +1783,7 @@ fn measure_journaled_reentry_perf() -> Result<FluentTotalOnlyPerfResult, icydb::
     let response = db()
         .load::<PerfAuditJournaledUser>()
         .order_asc("id")
-        .bounded_window(1)
+        .partial_window(1)
         .execute_trusted()?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let outcome = summarize_fluent_outcome(&response);

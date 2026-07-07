@@ -1,5 +1,0 @@
-error[E0599]: no method named `limit` found for struct `FluentLoadQuery<'a, E>` in the current scope
- --> tests/ui/read_intent_load_limit_removed.rs:7:19
-  |
-7 |     let _ = query.limit(1);
-  |                   ^^^^^ method not found in `FluentLoadQuery<'_, E>`

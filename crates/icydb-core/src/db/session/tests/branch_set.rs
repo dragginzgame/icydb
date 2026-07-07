@@ -1050,7 +1050,9 @@ fn execute_fluent_sparse_collection_page(
     );
 
     query
-        .execute_paged(request)
+        .page(request)
+        .expect("sparse collection fluent query should enter page mode")
+        .execute()
         .unwrap_or_else(|err| panic!("sparse collection fluent page should execute: {err:?}"))
 }
 

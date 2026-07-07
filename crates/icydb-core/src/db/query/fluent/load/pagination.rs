@@ -59,32 +59,6 @@ where
         Ok(PagedLoadQuery { inner })
     }
 
-    /// Execute this query as cursor pagination and return items + next cursor.
-    ///
-    /// The returned cursor token is opaque and must be passed back through
-    /// `PageRequest`.
-    pub fn execute_paged(self, request: PageRequest) -> Result<PagedLoadExecution<E>, QueryError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        self.page(request)?.execute()
-    }
-
-    /// Execute cursor pagination without the default bounded read-admission gate.
-    ///
-    /// This is for trusted maintenance/admin code that has its own caller
-    /// authorization and resource policy. Application-facing reads should use
-    /// `execute_paged`.
-    pub fn execute_paged_trusted(
-        self,
-        request: PageRequest,
-    ) -> Result<PagedLoadExecution<E>, QueryError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        self.page(request)?.execute_trusted()
-    }
-
     /// Execute a trusted/admin cursor batch with an engine-owned batch size.
     ///
     /// This terminal is intentionally unavailable on the normal public read

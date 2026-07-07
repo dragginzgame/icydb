@@ -12,7 +12,7 @@ fn page_request_terminals_compile<E>(
 where
     E: PersistedRow + EntityValue,
 {
-    query.execute_paged(PageRequest::first(10))
+    query.page(PageRequest::first(10))?.execute()
 }
 
 fn page_request_builder_compiles<E>(query: FluentLoadQuery<'_, E>) -> Result<(), QueryError>

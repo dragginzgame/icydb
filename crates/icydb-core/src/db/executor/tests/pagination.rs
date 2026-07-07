@@ -2213,7 +2213,9 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
             .load::<SimpleEntity>()
             .trusted_read_unchecked()
             .order_term(crate::db::desc("id"))
-            .execute_paged(request)
+            .page(request)
+            .expect("paged DESC query should enter page mode")
+            .execute()
             .expect("paged DESC execute should succeed");
 
         (
@@ -2266,7 +2268,9 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
             .filter(group_seven.clone())
             .order_term(crate::db::desc("rank"))
             .order_term(crate::db::desc("id"))
-            .execute_paged(request)
+            .page(request)
+            .expect("paged DESC secondary-index query should enter page mode")
+            .execute()
             .expect("paged DESC secondary-index execute should succeed");
 
         (
@@ -2321,7 +2325,9 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
             .filter(range_predicate.clone())
             .order_term(crate::db::desc("code"))
             .order_term(crate::db::desc("id"))
-            .execute_paged(request)
+            .page(request)
+            .expect("paged DESC index-range query should enter page mode")
+            .execute()
             .expect("paged DESC index-range execute should succeed");
 
         (

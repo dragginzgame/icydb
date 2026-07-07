@@ -68,9 +68,9 @@ For migration examples and endpoint-intent guidance, see
 | You want to... | Use | Notes |
 | --- | --- | --- |
 | serve normal users | ordinary typed/fluent execution | Default bounded admission rejects unsafe public read shapes before row execution. |
-| check whether any row exists | `exists()` / `not_exists()` without `bounded_window(...)` | Existence is a semantic terminal. It owns its bounded route and rejects a prior row-window cap as caller-intent ambiguity. |
-| return every row in a small bounded set | `collect_complete()` without `bounded_window(...)` | Complete small-set collection owns an internal lookahead limit and fails instead of silently truncating when the set exceeds the public-read cap. |
-| return an exact aggregate | `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, or `avg_exact(field)` without `bounded_window(...)` | Exact aggregates use aggregate execution over the admitted shape. Public bounded-window aggregate aliases are not exposed. |
+| check whether any row exists | `exists()` / `not_exists()` without `partial_window(...)` | Existence is a semantic terminal. It owns its bounded route and rejects a prior row-window cap as caller-intent ambiguity. |
+| return every row in a small bounded set | `collect_complete()` without `partial_window(...)` | Complete small-set collection owns an internal lookahead limit and fails instead of silently truncating when the set exceeds the public-read cap. |
+| return an exact aggregate | `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, or `avg_exact(field)` without `partial_window(...)` | Exact aggregates use aggregate execution over the admitted shape. Public partial-window aggregate aliases are not exposed. |
 | process a trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::...)` | Admin batches are trusted-only, cursor-batched, and use an engine-owned batch size. They are not public list shortcuts. |
 | run controller diagnostics | trusted/admin execution | Caller authorization and an explicit resource policy are required before calling trusted helpers. |
 | explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
@@ -141,7 +141,7 @@ Example default behavior:
 let err = db()
     .load::<User>()
     .order_term(icydb::asc("age"))
-    .bounded_window(1)
+    .partial_window(1)
     .execute_rows();
 
 // Admitted when the selected route is index-backed and the result is bounded.
@@ -150,7 +150,7 @@ let users = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .execute_rows()?;
 
 // Also admitted: exact selected primary-key access proves at most one row, so
@@ -190,7 +190,7 @@ caller paths and use an explicit trusted API after caller authorization:
 let users = db()
     .load::<User>()
     .order_term(icydb::asc("age"))
-    .bounded_window(1)
+    .partial_window(1)
     .trusted_read_unchecked()
     .execute_rows()?;
 ```
@@ -243,24 +243,24 @@ should branch on the diagnostic detail, not rendered text.
 
 0.198 read-intent errors use `DiagnosticCode::QueryIntent` when the query
 builder shape is ambiguous before read admission runs. For example,
-`bounded_window(n).exists()` is rejected because `exists()` owns the bounded
+`partial_window(n).exists()` is rejected because `exists()` owns the bounded
 existence route; use `exists()` without a row-window cap, or use
-`execute_rows()` when the low-level bounded row window is the actual endpoint
-contract. `bounded_window(n).execute_paged(PageRequest::...)` is rejected
-because `PageRequest` owns page size and cursor continuation.
-`bounded_window(n).collect_complete()` is rejected because complete reads must
-not silently cap or truncate the result. `bounded_window(n).count_exact()` is
+`execute_rows()` when the low-level partial row window is the actual endpoint
+contract. `partial_window(n).page(PageRequest::...)` is rejected because
+`PageRequest` owns page size and cursor continuation.
+`partial_window(n).collect_complete()` is rejected because complete reads must
+not silently cap or truncate the result. `partial_window(n).count_exact()` is
 rejected for the same reason: exact aggregates must not mean "aggregate the
-first N rows." `bounded_window(n).sum_exact(field)`,
-`bounded_window(n).min_exact()`, `bounded_window(n).min_exact_by(field)`,
-`bounded_window(n).max_exact()`, `bounded_window(n).max_exact_by(field)`, and
-`bounded_window(n).avg_exact(field)` are rejected on the same contract.
+first N rows." `partial_window(n).sum_exact(field)`,
+`partial_window(n).min_exact()`, `partial_window(n).min_exact_by(field)`,
+`partial_window(n).max_exact()`, `partial_window(n).max_exact_by(field)`, and
+`partial_window(n).avg_exact(field)` are rejected on the same contract.
 `admin_batch(...)` requires `trusted_read_unchecked()` and rejects prior
-`bounded_window(...)`; trusted batch size is engine-owned.
+`partial_window(...)`; trusted batch size is engine-owned.
 
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |
-| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Choose the endpoint's read intent first: use request-owned `PageRequest` paging for public lists, `collect_complete()` for complete small sets, semantic `*_exact` helpers for exact aggregates, strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)` for exact key reads, or grouped `grouped_limits(...)` when the grouped shape itself supplies the bound. Use `bounded_window(...)` only for endpoints that deliberately return a partial row window. |
+| Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Choose the endpoint's read intent first: use request-owned `PageRequest` paging for public lists, `collect_complete()` for complete small sets, semantic `*_exact` helpers for exact aggregates, strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)` for exact key reads, or grouped `grouped_limits(...)` when the grouped shape itself supplies the bound. Use `partial_window(...)` only for endpoints that deliberately return a partial row window. |
 | Ordinary read with `LIMIT 1` but no route-proven index access | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Add an index for the filter/order, tighten the predicate, or move the broad scan behind a controller/admin trusted path. |
 | Ordinary read whose selected route cannot prove an index-backed access path | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | Add a matching index or change the query to use an indexed predicate/order. |
 | Ordinary read whose selected plan cannot prove a scan bound | `QueryReadAdmissionCode::ScanBoundUnavailable` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
@@ -283,7 +283,7 @@ first N rows." `bounded_window(n).sum_exact(field)`,
 The snippets below use `User` and field names as placeholders. They are meant
 to be copied into canister-owned code and adapted to the model's real indexed
 fields. Ordinary examples intentionally stay on `execute()`, `execute_rows()`,
-or `execute_paged(PageRequest::...)` so they exercise the default bounded
+or `page(PageRequest::...)?.execute()` so they exercise the default bounded
 public-read lane.
 
 ### Missing returned-row bound
@@ -308,7 +308,7 @@ let users = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .execute_rows()?;
 
 let user = db()
@@ -333,7 +333,7 @@ let same_user = db()
 let err = db()
     .load::<User>()
     .order_term(icydb::asc("age"))
-    .bounded_window(1)
+    .partial_window(1)
     .execute_rows();
 ```
 
@@ -346,7 +346,7 @@ let users = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .execute_rows()?;
 ```
 
@@ -358,7 +358,7 @@ require_controller()?;
 let users = db()
     .load::<User>()
     .order_term(icydb::asc("age"))
-    .bounded_window(1)
+    .partial_window(1)
     .trusted_read_unchecked()
     .execute_rows()?;
 ```
@@ -373,7 +373,7 @@ let err = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("s"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(1_000)
+    .partial_window(1_000)
     .execute_rows();
 ```
 
@@ -386,7 +386,7 @@ let users = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(25)
+    .partial_window(25)
     .execute_rows()?;
 ```
 
@@ -400,7 +400,7 @@ let err = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .offset(10)
     .execute_rows();
 ```
@@ -413,7 +413,8 @@ let page = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .execute_paged(icydb::db::PageRequest::first(10))?;
+    .page(icydb::db::PageRequest::first(10))?
+    .execute()?;
 ```
 
 ### Materialized sort or materialization budget
@@ -428,7 +429,7 @@ let err = db()
     .filter(icydb::FieldRef::new("tier").eq("gold"))
     .order_term(icydb::asc("age"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .execute_rows();
 ```
 
@@ -442,7 +443,7 @@ let users = db()
     .order_term(icydb::asc("tier"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .execute_rows()?;
 ```
 
@@ -458,7 +459,7 @@ let err = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(1_000)
+    .partial_window(1_000)
     .execute_rows();
 ```
 
@@ -478,7 +479,7 @@ let users = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(25)
+    .partial_window(25)
     .execute_rows()?;
 ```
 
@@ -547,7 +548,7 @@ let groups = db()
 let explain = db()
     .load::<User>()
     .order_term(icydb::asc("age"))
-    .bounded_window(1)
+    .partial_window(1)
     .explain_execution_verbose()?;
 ```
 
@@ -561,7 +562,7 @@ let users = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .execute_rows()?;
 ```
 
@@ -611,7 +612,7 @@ fn public_users_by_prefix(prefix: String) -> Result<Vec<User>, icydb::Error> {
         .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
         .order_term(icydb::asc("username"))
         .order_term(icydb::asc("id"))
-        .bounded_window(25)
+        .partial_window(25)
         .execute_rows()?
         .entities())
 }
@@ -632,7 +633,7 @@ does not authorize execution and does not bypass guarded recovery.
 let explain = db()
     .load::<User>()
     .order_term(icydb::asc("age"))
-    .bounded_window(1)
+    .partial_window(1)
     .explain_execution_verbose()?;
 ```
 
@@ -646,7 +647,7 @@ let users = db()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .bounded_window(10)
+    .partial_window(10)
     .execute_rows()?;
 ```
 

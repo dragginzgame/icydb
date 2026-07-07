@@ -2318,7 +2318,8 @@ fn default_fluent_page_request_rejects_prior_raw_limit_before_admission() {
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .limit(1)
-        .execute_paged(crate::db::PageRequest::first(2))
+        .page(crate::db::PageRequest::first(2))
+        .and_then(crate::db::PagedLoadQuery::execute)
         .expect_err("PageRequest should own page size instead of accepting raw limits");
 
     assert_raw_limit_before_page_terminal(err, "default fluent page raw limit");
@@ -2343,7 +2344,9 @@ fn default_fluent_page_request_clamps_requested_limit_to_public_cap() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .execute_paged(crate::db::PageRequest::first(1_000))
+        .page(crate::db::PageRequest::first(1_000))
+        .expect("oversized public page query should enter page mode")
+        .execute()
         .expect("PageRequest should clamp oversized public page limits");
 
     assert_eq!(
@@ -2373,7 +2376,9 @@ fn default_fluent_page_request_uses_request_cursor_for_continuation() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .execute_paged(crate::db::PageRequest::first(2))
+        .page(crate::db::PageRequest::first(2))
+        .expect("first PageRequest query should enter page mode")
+        .execute()
         .expect("first PageRequest page should execute");
     let first_names = first_page
         .response()
@@ -2391,7 +2396,9 @@ fn default_fluent_page_request_uses_request_cursor_for_continuation() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .execute_paged(crate::db::PageRequest::next(2, cursor))
+        .page(crate::db::PageRequest::next(2, cursor))
+        .expect("second PageRequest query should enter page mode")
+        .execute()
         .expect("second PageRequest page should execute");
     let second_names = second_page
         .response()

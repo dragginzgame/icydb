@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.9` hard-cuts the final read-intent facade naming by replacing the
+  interim `bounded_window(...)` spelling with `partial_window(...)`, removing
+  duplicate `execute_paged(...)` aliases, and dropping stale compile-fail
+  resurrection guards.
+
 - `0.198.8` hard-cuts the public load facade to semantic read-intent
   terminals by replacing load `.limit(...)` with `bounded_window(...)`,
   removing legacy bounded-window helper aliases, and adding compile guards for

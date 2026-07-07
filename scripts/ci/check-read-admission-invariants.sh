@@ -195,7 +195,7 @@ else
 
   for required_read_intent_token in \
     "PublicQueryRequiresLimit" \
-    "bounded_window(...)" \
+    "partial_window(...)" \
     "PageRequest" \
     "AdminBatchRequest" \
     "collect_complete()" \
@@ -215,8 +215,8 @@ else
   done
 
   declare -A required_read_intent_concepts=(
-    ["bounded_window is the bounded-row-window primitive"]="bounded row window: use .*bounded_window\\(N\\)\\.execute_rows\\(\\)"
-    ["bounded_window migration is not mechanical"]="mechanically replace .*bounded_window\\(N\\)\\.execute_rows\\(\\)"
+    ["partial_window is the partial-row-window primitive"]="partial row window: use .*partial_window\\(N\\)\\.execute_rows\\(\\)"
+    ["partial_window migration is not mechanical"]="mechanically replace .*partial_window\\(N\\)\\.execute_rows\\(\\)"
     ["generated SQL is not a public endpoint substitute"]="Generated SQL endpoints.*public read endpoints"
     ["generated SQL wrapper warning"]="Do not expose .*icydb_query"
   )

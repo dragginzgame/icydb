@@ -317,8 +317,8 @@ For caller-facing read APIs, prefer the semantic read-intent terminals in
 [`docs/guides/read-intent.md`](../guides/read-intent.md): `PageRequest` for
 public pages, `collect_complete()` for complete small sets, and exact
 aggregate helpers for exact answers. `limit(...)` remains the low-level
-`icydb-core::db::Query` bounded row-window primitive; public facade load
-queries use `bounded_window(...)` for deliberately partial row windows.
+`icydb-core::db::Query` partial row-window primitive; public facade load
+queries use `partial_window(...)` for deliberately partial row windows.
 
 Rationale:
 * Unordered pagination is non-deterministic.

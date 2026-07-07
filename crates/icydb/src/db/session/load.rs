@@ -66,15 +66,15 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         self
     }
 
-    /// Return a deliberately partial bounded row window.
+    /// Return a deliberately partial row window.
     ///
     /// This is the hard-cut replacement for raw public read `.limit(...)` on
     /// load queries. Use it only when the endpoint contract is "the first N
-    /// rows under this order." Use `execute_paged(...)` for public pages,
+    /// rows under this order." Use `page(...)` for public pages,
     /// `collect_complete()` for complete small sets, and exact aggregate
     /// helpers for semantic aggregates.
     #[must_use]
-    pub fn bounded_window(mut self, limit: u32) -> Self {
+    pub fn partial_window(mut self, limit: u32) -> Self {
         self.inner = self.inner.limit(limit);
         self
     }
@@ -84,7 +84,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// Use this only for controller/admin maintenance code that has its own
     /// authorization and resource policy. Application-facing reads should stay
     /// on the normal bounded execution path through `execute`, `execute_rows`,
-    /// `execute_paged`, or terminal helpers.
+    /// `page(...)`, or terminal helpers.
     #[must_use]
     pub fn trusted_read_unchecked(mut self) -> Self {
         self.inner = self.inner.trusted_read_unchecked();
@@ -151,32 +151,11 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         })
     }
 
-    /// Execute as cursor pagination through the default bounded read-admission
-    /// gate, returning entities plus an opaque continuation token.
-    pub fn execute_paged(self, request: PageRequest) -> Result<PagedResponse<E>, Error>
-    where
-        E: Entity,
-    {
-        self.page(request)?.execute()
-    }
-
-    /// Execute as cursor pagination without the default bounded read-admission gate.
-    ///
-    /// This is for trusted maintenance/admin code that has its own caller
-    /// authorization and resource policy. Application-facing reads should use
-    /// `execute_paged`.
-    pub fn execute_paged_trusted(self, request: PageRequest) -> Result<PagedResponse<E>, Error>
-    where
-        E: Entity,
-    {
-        self.page(request)?.execute_trusted()
-    }
-
     /// Execute a trusted/admin cursor batch with an engine-owned batch size.
     ///
     /// This terminal is only for reads that have already opted into
     /// `trusted_read_unchecked()`. Application-facing list endpoints should
-    /// use `execute_paged(PageRequest::...)`.
+    /// use `page(PageRequest::...)`.
     pub fn admin_batch(self, request: AdminBatchRequest) -> Result<PagedResponse<E>, Error>
     where
         E: Entity,
@@ -286,8 +265,8 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// Return all matching rows if the complete result fits in the default
     /// public-read small-set cap.
     ///
-    /// This semantic terminal rejects a prior `bounded_window(...)`; use
-    /// `execute_rows()` when returning a bounded row window is the endpoint
+    /// This semantic terminal rejects a prior `partial_window(...)`; use
+    /// `execute_rows()` when returning a partial row window is the endpoint
     /// contract.
     pub fn collect_complete(&self) -> Result<Vec<E>, Error>
     where
@@ -311,7 +290,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the exact number of matching rows.
     ///
-    /// This semantic aggregate rejects a prior bounded row window because an
+    /// This semantic aggregate rejects a prior partial row window because an
     /// exact count must not mean "count the first N rows."
     pub fn count_exact(&self) -> Result<u32, Error>
     where
@@ -382,7 +361,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the exact minimum identifier under deterministic response ordering.
     ///
-    /// This semantic aggregate rejects a prior bounded row window because an
+    /// This semantic aggregate rejects a prior partial row window because an
     /// exact minimum must not mean "minimum over the first N rows."
     pub fn min_exact(&self) -> Result<Option<Id<E>>, Error>
     where
@@ -401,7 +380,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the identifier with the exact minimum `field` value.
     ///
-    /// This semantic aggregate rejects a prior bounded row window because an
+    /// This semantic aggregate rejects a prior partial row window because an
     /// exact minimum must not mean "minimum over the first N rows."
     pub fn min_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
     where
@@ -423,7 +402,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the exact maximum identifier under deterministic response ordering.
     ///
-    /// This semantic aggregate rejects a prior bounded row window because an
+    /// This semantic aggregate rejects a prior partial row window because an
     /// exact maximum must not mean "maximum over the first N rows."
     pub fn max_exact(&self) -> Result<Option<Id<E>>, Error>
     where
@@ -442,7 +421,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the identifier with the exact maximum `field` value.
     ///
-    /// This semantic aggregate rejects a prior bounded row window because an
+    /// This semantic aggregate rejects a prior partial row window because an
     /// exact maximum must not mean "maximum over the first N rows."
     pub fn max_exact_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, Error>
     where
@@ -464,7 +443,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the exact sum of `field` over matching rows.
     ///
-    /// This semantic aggregate rejects a prior bounded row window because an
+    /// This semantic aggregate rejects a prior partial row window because an
     /// exact sum must not mean "sum the first N rows."
     pub fn sum_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
     where
@@ -486,7 +465,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return the exact average of `field` over matching rows.
     ///
-    /// This semantic aggregate rejects a prior bounded row window because an
+    /// This semantic aggregate rejects a prior partial row window because an
     /// exact average must not mean "average the first N rows."
     pub fn avg_exact(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, Error>
     where

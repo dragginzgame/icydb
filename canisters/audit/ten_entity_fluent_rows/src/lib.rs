@@ -12,7 +12,7 @@ fn query_ten_entity_fluent_rows() -> Result<u32, icydb::Error> {
     let rows = db()
         .load::<TenSimpleEntity01>()
         .order_term(asc("id"))
-        .bounded_window(1)
+        .partial_window(1)
         .execute_rows()?;
 
     Ok(rows.count())

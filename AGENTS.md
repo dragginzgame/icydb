@@ -23,9 +23,10 @@ Keep this file small. Open detailed governance docs only when the task needs the
   formats, and schema/catalog representations should move directly to the
   latest current form. Either decode/execute the current form or fail with a
   typed error; do not silently reconstruct, translate, or tolerate old forms.
-- Do not add anti-resurrection tests for removed legacy behavior, old aliases,
-  or retired feature spellings. Current behavior tests should cover the
-  maintained surface only.
+- Before `1.0.0`, do not add, keep, or maintain anti-resurrection tests for
+  removed legacy behavior, old aliases, retired feature spellings, or deleted
+  compatibility paths. Delete tests whose only purpose is proving the old path
+  stays gone; keep or add tests for the maintained current surface instead.
 - When deleting stale code, remove the old path completely and update active
   docs, examples, diagnostics, and fixtures to the current surface instead of
   preserving compatibility breadcrumbs.

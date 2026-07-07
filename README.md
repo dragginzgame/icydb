@@ -143,7 +143,8 @@ pub fn top_users_page() -> Result<icydb::db::PagedResponse<User>, icydb::Error> 
         .filter_eq("active", true)
         .order_desc("score")
         .order_term(asc("id"))
-        .execute_paged(icydb::db::PageRequest::first(10))
+        .page(icydb::db::PageRequest::first(10))?
+        .execute()
 }
 
 pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {

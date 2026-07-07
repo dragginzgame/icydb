@@ -1089,7 +1089,9 @@ fn fluent_paged_load_resumes_composite_primary_key_rows_without_duplicates() {
         .load::<SessionSqlCompositeWriteEntity>()
         .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
-        .execute_paged(crate::db::PageRequest::first(2))
+        .page(crate::db::PageRequest::first(2))
+        .expect("first composite-key query should enter page mode")
+        .execute()
         .expect("first composite-key page should execute");
     assert_eq!(
         first_page.response().ids().collect::<Vec<_>>(),
@@ -1106,7 +1108,9 @@ fn fluent_paged_load_resumes_composite_primary_key_rows_without_duplicates() {
         .load::<SessionSqlCompositeWriteEntity>()
         .trusted_read_unchecked()
         .order_term(crate::db::asc("age"))
-        .execute_paged(crate::db::PageRequest::next(2, cursor))
+        .page(crate::db::PageRequest::next(2, cursor))
+        .expect("second composite-key query should enter page mode")
+        .execute()
         .expect("second composite-key page should resume after the first page");
     assert_eq!(
         second_page.response().ids().collect::<Vec<_>>(),
