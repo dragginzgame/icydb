@@ -54,9 +54,9 @@ where
     let _: bool = query.exists()?;
     let _: Vec<E> = query.collect_complete()?;
     let _: u32 = query.count_exact()?;
-    let _ = query.min_exact()?;
+    let _ = query.min_id_exact()?;
     let _ = query.min_exact_by("amount")?;
-    let _ = query.max_exact()?;
+    let _ = query.max_id_exact()?;
     let _ = query.max_exact_by("amount")?;
     let _ = query.sum_exact("amount")?;
     let _ = query.avg_exact("amount")?;

@@ -301,7 +301,7 @@ fn encode_scalar_payload_envelope(
 
 // Compute the encoded scalar payload size before writing the slot envelope so
 // the hot scalar writer can reserve exactly once for fixed-width values.
-const fn scalar_value_payload_len(value: ScalarValueRef<'_>) -> usize {
+fn scalar_value_payload_len(value: ScalarValueRef<'_>) -> usize {
     match value {
         ScalarValueRef::Blob(bytes) => bytes.len(),
         ScalarValueRef::Bool(_) => 1,

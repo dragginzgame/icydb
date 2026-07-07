@@ -1420,7 +1420,7 @@ where
             .delete::<E>()
             .filter(FieldRef::new("id").eq(id))
             .order_term(asc("id"))
-            .limit(1)
+            .max_affected(1)
             .execute()?;
         steady_delete_total =
             steady_delete_total.saturating_add(ic_cdk::api::performance_counter(1) - start);

@@ -193,7 +193,7 @@ crate::test_entity! {
 ///
 /// SingletonUnitEntity
 ///
-/// Executor-lifecycle singleton fixture used to keep runtime `only()` load
+/// Executor-lifecycle singleton fixture used to keep runtime `singleton()` load
 /// behavior covered on the current executor harness.
 ///
 

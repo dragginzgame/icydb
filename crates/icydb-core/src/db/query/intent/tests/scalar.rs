@@ -369,10 +369,10 @@ fn explicit_key_access_override_keeps_generic_planner_owned_reason() {
         .plan()
         .expect("by_ids plan")
         .into_inner();
-    let only = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
-        .only()
+    let singleton = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
+        .singleton()
         .plan()
-        .expect("only plan")
+        .expect("singleton plan")
         .into_inner();
 
     assert_eq!(
@@ -386,9 +386,9 @@ fn explicit_key_access_override_keeps_generic_planner_owned_reason() {
         "explicit by_ids access should share the same generic override reason so one-key by_ids stays identical to by_id",
     );
     assert_eq!(
-        only.access_choice().chosen_reason.code(),
+        singleton.access_choice().chosen_reason.code(),
         "intent_key_access_override",
-        "only() should keep the same generic override reason because it is also an explicit fluent key-access override",
+        "singleton() should keep the same generic override reason because it is also an explicit fluent key-access override",
     );
 }
 
@@ -549,9 +549,9 @@ fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
 }
 
 #[test]
-fn singleton_only_uses_default_key() {
+fn singleton_uses_default_key() {
     let plan = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
-        .only()
+        .singleton()
         .plan()
         .expect("singleton plan")
         .into_inner();

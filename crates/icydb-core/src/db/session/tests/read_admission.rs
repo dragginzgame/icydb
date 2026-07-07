@@ -1009,7 +1009,7 @@ fn default_fluent_exact_aggregate_explain_reports_read_intent() {
     let min_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
-        .explain_min_exact()
+        .explain_min_id_exact()
         .expect("exact min explain should not require a raw limit");
     let min_by_plan = session
         .load::<SessionSqlEntity>()
@@ -1019,7 +1019,7 @@ fn default_fluent_exact_aggregate_explain_reports_read_intent() {
     let max_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
-        .explain_max_exact()
+        .explain_max_id_exact()
         .expect("exact max explain should not require a raw limit");
     let max_by_plan = session
         .load::<SessionSqlEntity>()
@@ -1125,7 +1125,7 @@ fn default_fluent_min_max_avg_exact_use_primary_key_filters_without_limit() {
     let existing_min = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
-        .min_exact()
+        .min_id_exact()
         .expect("primary-key exact min should not require a raw limit");
     let existing_min_by = session
         .load::<SessionSqlEntity>()
@@ -1135,7 +1135,7 @@ fn default_fluent_min_max_avg_exact_use_primary_key_filters_without_limit() {
     let existing_max = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
-        .max_exact()
+        .max_id_exact()
         .expect("primary-key exact max should not require a raw limit");
     let existing_max_by = session
         .load::<SessionSqlEntity>()
@@ -1150,12 +1150,12 @@ fn default_fluent_min_max_avg_exact_use_primary_key_filters_without_limit() {
     let missing_min = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(missing_id))
-        .min_exact()
+        .min_id_exact()
         .expect("missing primary-key exact min should still be bounded");
     let missing_max = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(missing_id))
-        .max_exact()
+        .max_id_exact()
         .expect("missing primary-key exact max should still be bounded");
     let missing_avg = session
         .load::<SessionSqlEntity>()
@@ -2612,7 +2612,7 @@ fn default_fluent_sum_exact_rejects_prior_raw_limit_before_admission() {
 }
 
 #[test]
-fn default_fluent_min_exact_rejects_prior_raw_limit_before_admission() {
+fn default_fluent_min_id_exact_rejects_prior_raw_limit_before_admission() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
@@ -2623,8 +2623,8 @@ fn default_fluent_min_exact_rejects_prior_raw_limit_before_admission() {
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .limit(1)
-        .min_exact()
-        .expect_err("min_exact() should reject raw row-window limits");
+        .min_id_exact()
+        .expect_err("min_id_exact() should reject raw row-window limits");
     let min_by_err = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
@@ -2634,12 +2634,12 @@ fn default_fluent_min_exact_rejects_prior_raw_limit_before_admission() {
         .min_exact_by("age")
         .expect_err("min_exact_by() should reject raw row-window limits");
 
-    assert_raw_limit_before_min_exact_terminal(min_err, "default fluent min_exact raw limit");
-    assert_raw_limit_before_min_exact_terminal(min_by_err, "default fluent min_exact_by raw limit");
+    assert_raw_limit_before_exact_min_terminal(min_err, "default fluent min_id_exact raw limit");
+    assert_raw_limit_before_exact_min_terminal(min_by_err, "default fluent min_exact_by raw limit");
 }
 
 #[test]
-fn default_fluent_max_exact_rejects_prior_raw_limit_before_admission() {
+fn default_fluent_max_id_exact_rejects_prior_raw_limit_before_admission() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
@@ -2650,8 +2650,8 @@ fn default_fluent_max_exact_rejects_prior_raw_limit_before_admission() {
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .limit(1)
-        .max_exact()
-        .expect_err("max_exact() should reject raw row-window limits");
+        .max_id_exact()
+        .expect_err("max_id_exact() should reject raw row-window limits");
     let max_by_err = session
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
@@ -2661,8 +2661,8 @@ fn default_fluent_max_exact_rejects_prior_raw_limit_before_admission() {
         .max_exact_by("age")
         .expect_err("max_exact_by() should reject raw row-window limits");
 
-    assert_raw_limit_before_max_exact_terminal(max_err, "default fluent max_exact raw limit");
-    assert_raw_limit_before_max_exact_terminal(max_by_err, "default fluent max_exact_by raw limit");
+    assert_raw_limit_before_exact_max_terminal(max_err, "default fluent max_id_exact raw limit");
+    assert_raw_limit_before_exact_max_terminal(max_by_err, "default fluent max_exact_by raw limit");
 }
 
 #[test]
@@ -3296,7 +3296,7 @@ fn assert_raw_limit_before_sum_exact_terminal(err: QueryError, context: &str) {
     );
 }
 
-fn assert_raw_limit_before_min_exact_terminal(err: QueryError, context: &str) {
+fn assert_raw_limit_before_exact_min_terminal(err: QueryError, context: &str) {
     let diagnostic = err.diagnostic();
     assert_eq!(
         diagnostic.code(),
@@ -3317,7 +3317,7 @@ fn assert_raw_limit_before_min_exact_terminal(err: QueryError, context: &str) {
     );
 }
 
-fn assert_raw_limit_before_max_exact_terminal(err: QueryError, context: &str) {
+fn assert_raw_limit_before_exact_max_terminal(err: QueryError, context: &str) {
     let diagnostic = err.diagnostic();
     assert_eq!(
         diagnostic.code(),

@@ -274,7 +274,7 @@ where
 {
     /// Constrain this query to the singleton entity row.
     #[must_use]
-    pub fn only(self) -> Self {
-        self.map_query(Query::only)
+    pub fn singleton(self) -> Self {
+        self.map_query(Query::singleton)
     }
 }

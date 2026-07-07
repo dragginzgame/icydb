@@ -22,7 +22,7 @@ fn singleton_only_round_trips_through_runtime_load() {
         .expect("singleton save should succeed");
 
     let plan = Query::<SingletonUnitEntity>::new(MissingRowPolicy::Ignore)
-        .only()
+        .singleton()
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("singleton load plan should build");
@@ -31,7 +31,7 @@ fn singleton_only_round_trips_through_runtime_load() {
     assert_eq!(
         response.len(),
         1,
-        "singleton only() should match exactly one row",
+        "singleton() should match exactly one singleton row",
     );
     assert_eq!(
         response.as_slice()[0].entity_ref(),

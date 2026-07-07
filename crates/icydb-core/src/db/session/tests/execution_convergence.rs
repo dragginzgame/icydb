@@ -60,7 +60,7 @@ fn delete_fixed_session_sql_entity(session: &DbSession<SessionSqlCanister>, id: 
         .delete::<SessionSqlEntity>()
         .filter(FieldRef::new("id").eq(Ulid::from_u128(id)))
         .order_term(crate::db::asc("id"))
-        .limit(1)
+        .max_affected(1)
         .execute()
         .unwrap_or_else(|err| panic!("fixed cursor mutation delete should succeed: {err}"));
     assert_eq!(
@@ -1222,7 +1222,7 @@ fn delete_target_keys_match_scalar_execution_keys_for_same_predicate() {
         .filter(FieldRef::new("age").lt(30_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
+        .max_affected(2)
         .execute_rows()
         .expect("delete convergence fluent delete rows should execute")
         .ids()

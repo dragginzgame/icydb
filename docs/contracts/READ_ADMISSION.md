@@ -70,7 +70,7 @@ For migration examples and endpoint-intent guidance, see
 | serve normal users | ordinary typed/fluent execution | Default bounded admission rejects unsafe public read shapes before row execution. |
 | check whether any row exists | `exists()` / `not_exists()` without `partial_window(...)` | Existence is a semantic terminal. It owns its bounded route and rejects a prior row-window cap as caller-intent ambiguity. |
 | return every row in a small bounded set | `collect_complete()` without `partial_window(...)` | Complete small-set collection owns an internal lookahead limit and fails instead of silently truncating when the set exceeds the public-read cap. |
-| return an exact aggregate | `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, or `avg_exact(field)` without `partial_window(...)` | Exact aggregates use aggregate execution over the admitted shape. Public partial-window aggregate aliases are not exposed. |
+| return an exact aggregate | `count_exact()`, `sum_exact(field)`, `min_id_exact()`, `min_exact_by(field)`, `max_id_exact()`, `max_exact_by(field)`, or `avg_exact(field)` without `partial_window(...)` | Exact aggregates use aggregate execution over the admitted shape. Public partial-window aggregate aliases are not exposed. |
 | process a trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::...)` | Admin batches are trusted-only, cursor-batched, and use an engine-owned batch size. They are not public list shortcuts. |
 | run controller diagnostics | generated/admin diagnostic surfaces | Caller authorization and an explicit resource policy are required before running broad diagnostics. |
 | explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
@@ -87,8 +87,8 @@ access.
 
 Semantic aggregate EXPLAIN helpers expose the same metadata for supported
 read-intent terminals. `explain_exists()` reports `ExistenceCheck`, while
-`explain_count_exact()`, `explain_sum_exact(field)`, `explain_min_exact()`,
-`explain_min_exact_by(field)`, `explain_max_exact()`,
+`explain_count_exact()`, `explain_sum_exact(field)`, `explain_min_id_exact()`,
+`explain_min_exact_by(field)`, `explain_max_id_exact()`,
 `explain_max_exact_by(field)`, and `explain_avg_exact(field)` report
 `ExactAggregate`. Ordinary low-level aggregate explains remain `Unspecified`.
 
@@ -101,7 +101,8 @@ Public endpoint review checklist:
 - complete-result endpoints use `collect_complete()` and fail when too many
   rows exist instead of truncating;
 - exact aggregate endpoints use semantic exact helpers such as
-  `count_exact()`, `sum_exact(field)`, `min_exact_by(field)`, or
+  `count_exact()`, `sum_exact(field)`, `min_id_exact()`,
+  `min_exact_by(field)`, `max_id_exact()`, `max_exact_by(field)`, or
   `avg_exact(field)`;
 - trusted maintenance scans are controller/admin-gated and use trusted read
   helpers such as `trusted_read_unchecked().admin_batch(...)`.
@@ -251,8 +252,8 @@ contract. `partial_window(n).page(PageRequest::...)` is rejected because
 not silently cap or truncate the result. `partial_window(n).count_exact()` is
 rejected for the same reason: exact aggregates must not mean "aggregate the
 first N rows." `partial_window(n).sum_exact(field)`,
-`partial_window(n).min_exact()`, `partial_window(n).min_exact_by(field)`,
-`partial_window(n).max_exact()`, `partial_window(n).max_exact_by(field)`, and
+`partial_window(n).min_id_exact()`, `partial_window(n).min_exact_by(field)`,
+`partial_window(n).max_id_exact()`, `partial_window(n).max_exact_by(field)`, and
 `partial_window(n).avg_exact(field)` are rejected on the same contract.
 `admin_batch(...)` requires `trusted_read_unchecked()` and rejects prior
 `partial_window(...)`; trusted batch size is engine-owned.

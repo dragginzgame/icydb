@@ -72,10 +72,10 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     // Query refinement
     // ------------------------------------------------------------------
 
-    /// Bound the number of rows affected by this delete.
+    /// Set the maximum number of rows this delete may affect.
     #[must_use]
-    pub fn limit(mut self, limit: u32) -> Self {
-        self.inner = self.inner.limit(limit);
+    pub fn max_affected(mut self, limit: u32) -> Self {
+        self.inner = self.inner.max_affected(limit);
         self
     }
 
@@ -175,11 +175,11 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
 impl<E: Entity + SingletonEntity> SessionDeleteQuery<'_, E> {
     /// Delete the singleton entity.
     #[must_use]
-    pub fn only(mut self) -> Self
+    pub fn singleton(mut self) -> Self
     where
         E::Key: Default,
     {
-        self.inner = self.inner.only();
+        self.inner = self.inner.singleton();
         self
     }
 }
@@ -204,10 +204,10 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     // Query refinement
     // ------------------------------------------------------------------
 
-    /// Bound the number of rows affected by this delete.
+    /// Set the maximum number of rows this delete may affect.
     #[must_use]
-    pub fn limit(mut self, limit: u32) -> Self {
-        self.inner = self.inner.limit(limit);
+    pub fn max_affected(mut self, limit: u32) -> Self {
+        self.inner = self.inner.max_affected(limit);
         self
     }
 
@@ -286,11 +286,11 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
 impl<E: Entity + SingletonEntity> SessionDeleteReturningQuery<'_, E> {
     /// Delete the singleton entity and return deleted rows.
     #[must_use]
-    pub fn only(mut self) -> Self
+    pub fn singleton(mut self) -> Self
     where
         E::Key: Default,
     {
-        self.inner = self.inner.only();
+        self.inner = self.inner.singleton();
         self
     }
 }

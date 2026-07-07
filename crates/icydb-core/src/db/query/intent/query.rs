@@ -1079,7 +1079,7 @@ where
     E::Key: Default,
 {
     /// Set the access path to the singleton primary key.
-    pub(in crate::db) fn only(self) -> Self {
+    pub(in crate::db) fn singleton(self) -> Self {
         let Self { inner, .. } = self;
 
         Self::from_inner(inner.only(E::Key::default().to_key_value()))

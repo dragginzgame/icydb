@@ -116,9 +116,9 @@ where
         self.map_query(|query| query.order_terms(terms))
     }
 
-    /// Bound the number of rows affected by this delete.
+    /// Set the maximum number of rows this delete may affect.
     #[must_use]
-    pub fn limit(self, limit: u32) -> Self {
+    pub fn max_affected(self, limit: u32) -> Self {
         self.map_query(|query| query.limit(limit))
     }
 
@@ -220,7 +220,7 @@ where
 {
     /// Delete the singleton entity.
     #[must_use]
-    pub fn only(self) -> Self {
-        self.map_query(Query::only)
+    pub fn singleton(self) -> Self {
+        self.map_query(Query::singleton)
     }
 }

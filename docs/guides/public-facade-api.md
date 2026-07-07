@@ -53,24 +53,38 @@ Use the method that names the endpoint promise:
 | Public page | `load::<E>().order_term(...).page(PageRequest::first(n))?.execute()` |
 | Complete small set | `load::<E>().collect_complete()` |
 | Deliberate partial row window | `load::<E>().partial_window(n).execute_rows()` |
-| Exact aggregate | `count_exact()`, `sum_exact(field)`, `min_exact()`, `min_exact_by(field)`, `max_exact()`, `max_exact_by(field)`, `avg_exact(field)` |
+| Exact aggregate | `count_exact()`, `sum_exact(field)`, `min_id_exact()`, `min_exact_by(field)`, `max_id_exact()`, `max_exact_by(field)`, `avg_exact(field)` |
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` |
 
 Load queries do not expose public `.limit(...)`, `.one()`, or `.all()`
 aliases. Use `partial_window(...)` only when returning a partial row window is
-the endpoint contract. `limit(...)` remains on delete queries, where it bounds
-affected rows rather than read materialization.
+the endpoint contract. Delete queries use `max_affected(...)` for mutation
+safety caps so affected-row bounds do not share read-limit vocabulary.
 
-## Session Commands
+## API Tiers
+
+The facade has four audiences. Keep normal endpoint code in Tier 1 unless the
+endpoint is deliberately admin, diagnostic, SQL-backed, or generated.
+
+| Tier | Audience | Use for |
+| --- | --- | --- |
+| Tier 1: Normal endpoint API | Ordinary app endpoints | Intent-first typed/fluent reads, typed writes, bounded deletes, and schema-aware structural mutation. |
+| Tier 2: Trusted/admin API | Controller-gated maintenance | Broad maintenance reads and operational SQL after caller authorization. |
+| Tier 3: Diagnostics API | Debugging and observability | Planning, EXPLAIN, trace, attribution, catalog, storage, and metrics inspection. |
+| Tier 4: Internal/generated API | Generated code and policy wrappers | Validated SQL policy helpers and low-level query/response adapters. Listed for audit, not for normal endpoint code. |
+
+## Tier 1: Normal Endpoint API
+
+These are the commands ordinary caller-facing endpoints should reach for first.
+
+### Session Entry
 
 `DbSession<C>` is the canister-local facade returned by generated `db!()` /
-`db()` helpers.
+`db()` helpers. Normal endpoint code usually starts from `db.load::<E>()`,
+`db.delete::<E>()`, or a typed write command.
 
 ```rust
 DbSession::new(core_session)
-
-db.debug()
-db.metrics_sink(sink)
 
 db.load::<E>()
 db.load_with_consistency::<E>(policy)
@@ -79,7 +93,50 @@ db.delete::<E>()
 db.delete_with_consistency::<E>(policy)
 ```
 
-## Load Query Shape
+### Common Read Recipes
+
+```rust
+// Exact lookup.
+db.load::<User>()
+    .by_id(user_id)
+    .try_one()
+
+// Exact ID set.
+db.load::<User>()
+    .by_ids(user_ids)
+    .execute_rows()
+
+// Public cursor page.
+db.load::<User>()
+    .filter_eq("status", "active")
+    .order_desc("created_at")
+    .order_asc("id")
+    .page(PageRequest::first(50))?
+    .execute()
+
+// Complete small set.
+db.load::<Role>()
+    .filter_eq("project_id", project_id)
+    .collect_complete()
+
+// Exact aggregate.
+db.load::<User>()
+    .filter_eq("status", "active")
+    .count_exact()
+
+// Deliberate partial row window.
+db.load::<Event>()
+    .order_desc("created_at")
+    .partial_window(100)
+    .execute_rows()
+```
+
+Most endpoint code should not call `execute()` directly. Prefer a terminal that
+states the endpoint promise: `try_one`, `page`, `collect_complete`, an exact
+aggregate helper, `exists`, or `not_exists`. Use `execute()` when the caller
+intentionally handles the full `QueryResponse<E>` shape.
+
+### Load Query Shape
 
 These commands refine `db.load::<E>()` and
 `db.load_with_consistency::<E>(...)`.
@@ -140,23 +197,19 @@ These commands refine `db.load::<E>()` and
 .having_group(field, op, value)?
 .having_aggregate(aggregate_index, op, value)?
 
-.trusted_read_unchecked()
-.only()
+.singleton()
 ```
 
-`only()` is available for `SingletonEntity` types.
+`singleton()` is only for `SingletonEntity` types. It is not a generic one-row
+terminal. For normal one-row reads, use `.by_id(id).try_one()`.
 
-## Load Terminals
+### Load Terminals
 
 Use these commands to execute a load query.
 
 ```rust
-.execute()
-.execute_rows()
-
 .page(request)?
 .execute()
-.admin_batch(request)
 
 .try_one()
 .exists()
@@ -164,27 +217,24 @@ Use these commands to execute a load query.
 .collect_complete()
 
 .count_exact()
-.min_exact()
+.min_id_exact()
 .min_exact_by(field)
-.max_exact()
+.max_id_exact()
 .max_exact_by(field)
 .sum_exact(field)
 .avg_exact(field)
 ```
 
-Trusted maintenance code first enters the trusted lane with
-`trusted_read_unchecked()` and then uses the normal terminal spelling. Prefer
-`admin_batch(request)` for broad maintenance scans.
-
-Feature-gated diagnostics helpers:
+Use `execute_rows()` for exact ID sets or deliberate partial windows when the
+endpoint contract is row-shaped. Use `execute()` for advanced callers that
+intentionally inspect `QueryResponse<E>`.
 
 ```rust
-.exists_with_attribution()
-.collect_complete_with_attribution()
-.count_exact_with_attribution()
+.execute_rows()
+.execute()
 ```
 
-## Paging Requests
+### Paging Requests
 
 `PageRequest` is for caller-facing cursor pages. IcyDB clamps requested page
 sizes to the public page cap before admission and execution.
@@ -200,56 +250,7 @@ request.limit()
 request.cursor()
 ```
 
-`AdminBatchRequest` is for trusted maintenance scans. The batch size is
-engine-owned; callers may only provide continuation cursors.
-
-```rust
-AdminBatchRequest::new()
-AdminBatchRequest::next(cursor)
-
-request.with_cursor(cursor)
-request.cursor()
-```
-
-## Explain And Planning
-
-These commands inspect a load or delete query without changing rows.
-
-```rust
-.query()
-.plan_hash_hex()
-.trace()
-.planned()
-.plan()
-.explain()
-```
-
-Load queries also expose read-terminal explain commands:
-
-```rust
-.explain_exists()
-.explain_not_exists()
-.explain_count_exact()
-.explain_min_exact()
-.explain_min_exact_by(field)
-.explain_max_exact()
-.explain_max_exact_by(field)
-.explain_sum_exact(field)
-.explain_avg_exact(field)
-
-.explain_execution()
-.explain_execution_text()
-.explain_execution_json()
-.explain_execution_verbose()
-```
-
-Session-level query inspection:
-
-```rust
-db.trace_query(query)
-```
-
-## Delete Commands
+### Delete API
 
 These commands refine `db.delete::<E>()` and
 `db.delete_with_consistency::<E>(...)`.
@@ -301,10 +302,10 @@ These commands refine `db.delete::<E>()` and
 .order_desc(expr)
 .order_terms(terms)
 
-.limit(n)
+.max_affected(n)
 .returning_all()
 .returning(fields)
-.only()
+.singleton()
 
 .execute()
 .is_empty()
@@ -315,10 +316,13 @@ These commands refine `db.delete::<E>()` and
 
 `returning_all()` and `returning(fields)` switch to
 `SessionDeleteReturningQuery`; that returning query keeps the same shape,
-planning, and `limit(...)` commands, but `execute()` returns
+planning, and `max_affected(...)` commands, but `execute()` returns
 `RowProjectionOutput`.
 
-## Write Commands
+`max_affected(n)` is a mutation safety cap. It is not a read materialization
+limit and is intentionally named differently from read-intent terminals.
+
+### Write API
 
 Typed writes live directly on `DbSession<C>`.
 
@@ -348,7 +352,7 @@ Use the `*_many_atomic` helpers when the same-entity batch must be
 all-or-nothing. The `*_many_non_atomic` helpers are explicit fail-fast,
 prefix-commit APIs.
 
-## Structural Mutation
+### Structural Mutation
 
 Structural mutation is the dynamic field-name write ingress. Build field
 patches through the session so names resolve through the accepted schema.
@@ -362,11 +366,106 @@ db.mutate_structural::<E>(key, patch, MutationMode::Update)
 db.mutate_structural::<E>(key, patch, MutationMode::Replace)
 ```
 
-## Catalog And Storage
+## Tier 2: Trusted/Admin API
+
+Trusted/admin code must first enforce caller authorization outside IcyDB. The
+database facade then makes the trusted lane visible in code review.
+
+```rust
+db.load::<E>()
+    .trusted_read_unchecked()
+    .admin_batch(AdminBatchRequest::new())
+
+db.load::<E>()
+    .trusted_read_unchecked()
+    .execute_rows()
+```
+
+`AdminBatchRequest` is for trusted maintenance scans. The batch size is
+engine-owned; callers may only provide continuation cursors.
+
+```rust
+AdminBatchRequest::new()
+AdminBatchRequest::next(cursor)
+
+request.with_cursor(cursor)
+request.cursor()
+```
+
+SQL session commands are available with the `sql` feature. They are
+trusted/admin surfaces unless wrapped by an application-owned policy.
+
+```rust
+db.execute_sql_query::<E>(sql)
+db.execute_sql_update::<E>(sql)
+db.execute_sql_ddl::<E>(sql)
+```
+
+Do not expose caller-controlled SQL through these helpers in ordinary public
+endpoints. Prefer typed/fluent read-intent APIs or an application-owned SQL
+allowlist that maps user input to fixed validated statements.
+
+## Tier 3: Diagnostics API
+
+Diagnostics inspect planning, route choice, admission, storage, and catalog
+state. They do not authorize broad row execution.
+
+### Query Diagnostics
+
+These commands inspect a load or delete query without changing rows.
+
+```rust
+.query()
+.plan_hash_hex()
+.trace()
+.planned()
+.plan()
+.explain()
+```
+
+Load queries also expose read-terminal explain commands:
+
+```rust
+.explain_exists()
+.explain_not_exists()
+.explain_count_exact()
+.explain_min_id_exact()
+.explain_min_exact_by(field)
+.explain_max_id_exact()
+.explain_max_exact_by(field)
+.explain_sum_exact(field)
+.explain_avg_exact(field)
+
+.explain_execution()
+.explain_execution_text()
+.explain_execution_json()
+.explain_execution_verbose()
+```
+
+Session-level query inspection:
+
+```rust
+db.trace_query(query)
+```
+
+Feature-gated diagnostics helpers:
+
+```rust
+.exists_with_attribution()
+.collect_complete_with_attribution()
+.count_exact_with_attribution()
+
+db.execute_query_result_with_attribution(query)
+```
+
+### Catalog And Storage Diagnostics
 
 Catalog helpers read the accepted runtime schema/catalog state.
 
 ```rust
+db.debug()
+db.metrics_sink(sink)
+
 db.show_indexes::<E>()
 db.show_columns::<E>()
 db.show_entities()
@@ -379,32 +478,25 @@ db.try_describe_entity::<E>()
 db.storage_report(name_to_path)
 ```
 
-## Direct Query Execution
+## Tier 4: Internal/Generated API
+
+This section is listed for audit completeness. These methods are not the normal
+developer-facing facade and should not be taught as endpoint recipes.
+
+### Direct Query Execution
 
 These commands execute prebuilt `Query<E>` values rather than a fluent load.
+Use them only when a caller intentionally owns query construction.
 
 ```rust
 db.execute_query(query)
 ```
 
-Feature-gated diagnostics helper:
+### Generated/Policy SQL Helpers
 
-```rust
-db.execute_query_result_with_attribution(query)
-```
-
-## SQL Commands
-
-SQL session commands are available with the `sql` feature. They are
-trusted/admin surfaces unless wrapped by an application-owned policy.
-
-```rust
-db.execute_sql_query::<E>(sql)
-db.execute_sql_update::<E>(sql)
-db.execute_sql_ddl::<E>(sql)
-```
-
-Hidden generated/policy helpers:
+These helpers are used by generated SQL policy wrappers and validated
+application-owned SQL ingress. Do not call them directly from ordinary endpoint
+code unless that endpoint owns the policy boundary explicitly.
 
 ```rust
 db.execute_sql_query_with_perf_attribution::<E>(sql)
@@ -421,7 +513,13 @@ db.execute_validated_sql_public_bounded_delete::<E>(plan)
 db.execute_sql_public_bounded_delete::<E>(sql)
 ```
 
-## Query Responses
+## Response Types Appendix
+
+Most endpoint code should use terminal return types directly. This appendix
+lists response narrowing helpers for advanced callers and generated/policy
+boundaries.
+
+### Query Responses
 
 `execute()` returns `QueryResponse<E>`, which must be narrowed to scalar rows
 or grouped rows when the caller expects a concrete shape.

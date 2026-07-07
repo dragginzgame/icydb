@@ -704,7 +704,7 @@ where
     /// Unlike `min()`, this semantic aggregate rejects a prior raw
     /// `limit(...)` so exact minimum selection cannot accidentally mean
     /// "minimum over the first N rows."
-    pub fn min_exact(&self) -> Result<Option<Id<E>>, QueryError>
+    pub fn min_id_exact(&self) -> Result<Option<Id<E>>, QueryError>
     where
         E: EntityValue,
     {
@@ -721,8 +721,8 @@ where
         self.explain_terminal(&MinIdTerminal::new())
     }
 
-    /// Explain exact `min_exact()` routing without executing the terminal.
-    pub fn explain_min_exact(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    /// Explain exact `min_id_exact()` routing without executing the terminal.
+    pub fn explain_min_id_exact(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
     {
@@ -789,7 +789,7 @@ where
     /// Unlike `max()`, this semantic aggregate rejects a prior raw
     /// `limit(...)` so exact maximum selection cannot accidentally mean
     /// "maximum over the first N rows."
-    pub fn max_exact(&self) -> Result<Option<Id<E>>, QueryError>
+    pub fn max_id_exact(&self) -> Result<Option<Id<E>>, QueryError>
     where
         E: EntityValue,
     {
@@ -806,8 +806,8 @@ where
         self.explain_terminal(&MaxIdTerminal::new())
     }
 
-    /// Explain exact `max_exact()` routing without executing the terminal.
-    pub fn explain_max_exact(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    /// Explain exact `max_id_exact()` routing without executing the terminal.
+    pub fn explain_max_id_exact(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
     {

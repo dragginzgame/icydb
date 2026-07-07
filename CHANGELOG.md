@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.11` hard-cuts the remaining read-intent facade vocabulary by
+  renaming delete affected-row caps, ID extrema, and singleton access,
+  tiers the public facade reference, and fixes current principal byte-access
+  compatibility.
+
 - `0.198.10` hard-cuts fluent load trusted execution to one lane marker by
   removing `_trusted` terminal spellings and the direct `DbSession` trusted
   query escape hatch so trusted maintenance code uses

@@ -351,19 +351,19 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     ///
     /// This semantic aggregate rejects a prior partial row window because an
     /// exact minimum must not mean "minimum over the first N rows."
-    pub fn min_exact(&self) -> Result<Option<Id<E>>, Error>
+    pub fn min_id_exact(&self) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
     {
-        Ok(self.inner.min_exact()?)
+        Ok(self.inner.min_id_exact()?)
     }
 
-    /// Explain exact `min_exact()` routing without executing the terminal.
-    pub fn explain_min_exact(&self) -> Result<ExplainAggregateTerminalPlan, Error>
+    /// Explain exact `min_id_exact()` routing without executing the terminal.
+    pub fn explain_min_id_exact(&self) -> Result<ExplainAggregateTerminalPlan, Error>
     where
         E: Entity,
     {
-        Ok(self.inner.explain_min_exact()?)
+        Ok(self.inner.explain_min_id_exact()?)
     }
 
     /// Return the identifier with the exact minimum `field` value.
@@ -392,19 +392,19 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     ///
     /// This semantic aggregate rejects a prior partial row window because an
     /// exact maximum must not mean "maximum over the first N rows."
-    pub fn max_exact(&self) -> Result<Option<Id<E>>, Error>
+    pub fn max_id_exact(&self) -> Result<Option<Id<E>>, Error>
     where
         E: Entity,
     {
-        Ok(self.inner.max_exact()?)
+        Ok(self.inner.max_id_exact()?)
     }
 
-    /// Explain exact `max_exact()` routing without executing the terminal.
-    pub fn explain_max_exact(&self) -> Result<ExplainAggregateTerminalPlan, Error>
+    /// Explain exact `max_id_exact()` routing without executing the terminal.
+    pub fn explain_max_id_exact(&self) -> Result<ExplainAggregateTerminalPlan, Error>
     where
         E: Entity,
     {
-        Ok(self.inner.explain_max_exact()?)
+        Ok(self.inner.explain_max_id_exact()?)
     }
 
     /// Return the identifier with the exact maximum `field` value.
@@ -486,11 +486,11 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 impl<E: Entity + SingletonEntity> FluentLoadQuery<'_, E> {
     /// Load the singleton entity.
     #[must_use]
-    pub fn only(mut self) -> Self
+    pub fn singleton(mut self) -> Self
     where
         E::Key: Default,
     {
-        self.inner = self.inner.only();
+        self.inner = self.inner.singleton();
         self
     }
 }
