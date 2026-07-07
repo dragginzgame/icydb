@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.4` extends read-intent diagnostics to paged responses so public pages
+  and trusted admin batches report their semantic intent without changing
+  admission or cursor semantics.
+
 - `0.198.3` adds structured `ReadIntentKind` diagnostics to fluent terminal
   attribution so observability can distinguish semantic terminal intent from
   low-level bounded row-window execution.

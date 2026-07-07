@@ -8,6 +8,7 @@ use crate::{
     db::response::{ExecutionTrace, GroupedRow},
     traits::EntityKind,
 };
+use icydb_core::db::ReadIntentKind;
 
 ///
 /// PagedResponse
@@ -23,11 +24,20 @@ use crate::{
 pub struct PagedResponse<E: EntityKind> {
     items: Vec<E>,
     next_cursor: Option<String>,
+    read_intent: ReadIntentKind,
 }
 
 impl<E: EntityKind> PagedResponse<E> {
-    pub(crate) const fn new(items: Vec<E>, next_cursor: Option<String>) -> Self {
-        Self { items, next_cursor }
+    pub(crate) const fn new(
+        items: Vec<E>,
+        next_cursor: Option<String>,
+        read_intent: ReadIntentKind,
+    ) -> Self {
+        Self {
+            items,
+            next_cursor,
+            read_intent,
+        }
     }
 
     #[must_use]
@@ -38,6 +48,15 @@ impl<E: EntityKind> PagedResponse<E> {
     #[must_use]
     pub fn next_cursor(&self) -> Option<&str> {
         self.next_cursor.as_deref()
+    }
+
+    /// Return diagnostic read-intent metadata for this paged response.
+    ///
+    /// This is reporting metadata only. It does not configure admission,
+    /// planning, cursor encoding, or execution semantics.
+    #[must_use]
+    pub const fn read_intent(&self) -> ReadIntentKind {
+        self.read_intent
     }
 
     #[must_use]

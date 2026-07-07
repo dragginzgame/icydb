@@ -237,6 +237,11 @@ let batch = db()
 `admin_batch(...)` rejects prior raw `limit(...)`; IcyDB owns the batch size.
 It also rejects calls that did not first opt into `trusted_read_unchecked()`.
 
+Paged responses report diagnostic read-intent metadata. Public page terminals
+return `ReadIntentKind::PublicPage`; trusted admin batches return
+`ReadIntentKind::TrustedAdminBatch`. The value is observability metadata only
+and does not change admission, cursor encoding, or execution semantics.
+
 Do not use trusted reads to make arbitrary public endpoints pass admission.
 
 ## Migration Checklist

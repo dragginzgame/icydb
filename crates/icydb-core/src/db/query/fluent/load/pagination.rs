@@ -9,7 +9,7 @@ use crate::{
         query::fluent::load::FluentLoadQuery,
         query::{
             intent::{IntentError, Query, QueryError},
-            read_intent::{ADMIN_BATCH_ROWS, AdminBatchRequest, PageRequest},
+            read_intent::{ADMIN_BATCH_ROWS, AdminBatchRequest, PageRequest, ReadIntentKind},
         },
     },
     traits::{EntityKind, EntityValue},
@@ -117,7 +117,9 @@ where
 
         inner.ensure_paged_mode_ready()?;
 
-        PagedLoadQuery { inner }.execute_trusted()
+        PagedLoadQuery { inner }
+            .execute_trusted()
+            .map(|execution| execution.with_read_intent(ReadIntentKind::TrustedAdminBatch))
     }
 }
 
@@ -189,9 +191,12 @@ where
     {
         // `PagedLoadQuery` can only be constructed through `FluentLoadQuery::page`,
         // so the paged-mode validation already happened before this wrapper existed.
-        self.inner.session.execute_load_query_paged_with_trace(
-            self.inner.query(),
-            self.inner.cursor_token.as_deref(),
-        )
+        self.inner
+            .session
+            .execute_load_query_paged_with_trace(
+                self.inner.query(),
+                self.inner.cursor_token.as_deref(),
+            )
+            .map(|execution| execution.with_read_intent(ReadIntentKind::PublicPage))
     }
 }

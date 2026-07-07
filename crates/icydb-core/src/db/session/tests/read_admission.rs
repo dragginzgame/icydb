@@ -2161,6 +2161,11 @@ fn default_fluent_page_request_clamps_requested_limit_to_public_cap() {
         100,
         "oversized page request should clamp to the default public page cap",
     );
+    assert_eq!(
+        page.read_intent(),
+        crate::db::ReadIntentKind::PublicPage,
+        "paged responses should report the public-page read intent",
+    );
     assert!(
         page.continuation_cursor().is_some(),
         "clamped public page should expose continuation when more rows exist",
@@ -2284,9 +2289,19 @@ fn trusted_fluent_admin_batch_uses_hardcoded_batch_and_cursor_continuation() {
         "trusted admin batch should use the engine-owned batch size",
     );
     assert_eq!(
+        first_batch.read_intent(),
+        crate::db::ReadIntentKind::TrustedAdminBatch,
+        "admin batches should report the trusted-admin-batch read intent",
+    );
+    assert_eq!(
         second_batch.response().count(),
         1,
         "admin batch continuation should resume after the first batch",
+    );
+    assert_eq!(
+        second_batch.read_intent(),
+        crate::db::ReadIntentKind::TrustedAdminBatch,
+        "admin batch continuations should keep the trusted-admin-batch read intent",
     );
     assert!(second_batch.continuation_cursor().is_none());
 }

@@ -171,10 +171,15 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         E: Entity,
     {
         let execution = self.inner.admin_batch(request)?;
+        let read_intent = execution.read_intent();
         let (response, continuation_cursor) = execution.into_response_and_cursor();
         let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
 
-        Ok(PagedResponse::new(response.entities(), next_cursor))
+        Ok(PagedResponse::new(
+            response.entities(),
+            next_cursor,
+            read_intent,
+        ))
     }
 
     /// Execute as a scalar row load through the default bounded read-admission
@@ -880,10 +885,15 @@ impl<E: Entity> PagedLoadQuery<'_, E> {
         E: Entity,
     {
         let execution = self.inner.execute()?;
+        let read_intent = execution.read_intent();
         let (response, continuation_cursor) = execution.into_response_and_cursor();
         let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
 
-        Ok(PagedResponse::new(response.entities(), next_cursor))
+        Ok(PagedResponse::new(
+            response.entities(),
+            next_cursor,
+            read_intent,
+        ))
     }
 
     /// Execute in cursor-pagination mode without the default bounded read-admission gate.
@@ -896,9 +906,14 @@ impl<E: Entity> PagedLoadQuery<'_, E> {
         E: Entity,
     {
         let execution = self.inner.execute_trusted()?;
+        let read_intent = execution.read_intent();
         let (response, continuation_cursor) = execution.into_response_and_cursor();
         let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
 
-        Ok(PagedResponse::new(response.entities(), next_cursor))
+        Ok(PagedResponse::new(
+            response.entities(),
+            next_cursor,
+            read_intent,
+        ))
     }
 }
