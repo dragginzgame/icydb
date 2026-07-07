@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.12` hard-cuts fluent load row-window escape hatches across facade
+  and core fluent APIs by routing partial reads through
+  `PartialWindowLoadQuery`, hiding direct prebuilt-query execution, and
+  updating read-admission invariants to match the final read-intent boundary.
+
 - `0.198.11` hard-cuts the remaining read-intent facade vocabulary by
   renaming delete affected-row caps, ID extrema, and singleton access,
   tiers the public facade reference, and fixes current principal byte-access

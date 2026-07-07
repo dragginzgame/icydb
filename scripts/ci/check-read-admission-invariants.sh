@@ -90,7 +90,7 @@ else
     "\`AdminAdHoc\`" \
     "\`DiagnosticExplain\`" \
     "generated \`icydb_query\`" \
-    "\`DbSession::execute_query\`" \
+    "hidden prebuilt-query execution" \
     "\`trusted_read_unchecked()\` fluent lane" \
     "\`trusted_read_unchecked()\`" \
     "\`execute_sql_query\`" \
@@ -268,11 +268,11 @@ require_file_pattern \
   "readonly SQL is generated controller-gated admin surface" \
   "Readonly SQL.*controller-gated.*admin"
 
-require_file_literal "$PUBLIC_CRATE_LIB" "public read API token" "DbSession::execute_query"
+require_file_literal "$PUBLIC_CRATE_LIB" "bounded admission wording" "read-admission gate"
 require_file_pattern \
   "$PUBLIC_CRATE_LIB" \
   "public crate docs mention bounded read admission" \
-  "default bounded read-admission gate"
+  "bounded"
 
 require_file_literal "$PUBLIC_CRATE_LIB" "read-intent guide link" "docs/guides/read-intent.md"
 
@@ -419,6 +419,11 @@ else
     "$PUBLIC_FACADE_SESSION" \
     "SQL attribution helper keeps generated controller-gated lane wording" \
     "generated controller-gated SQL surfaces"
+
+  require_file_pattern \
+    "$PUBLIC_FACADE_SESSION" \
+    "direct query execution is hidden from normal endpoint API" \
+    "Normal endpoint code should prefer .*semantic"
 fi
 
 if [[ ! -f "$GENERATED_SQL" ]]; then

@@ -12,12 +12,12 @@ partial row window.
 | Endpoint promise | Use | Do not use |
 | --- | --- | --- |
 | One exact row | `by_id(...).try_one()` or canonicalized primary-key equality with `try_one()` | `partial_window(1).execute_rows()` |
-| Existence | `exists()` / `not_exists()` | `partial_window(1).execute_rows()?.is_empty()` or `partial_window(1).exists()` |
+| Existence | `exists()` / `not_exists()` | `partial_window(1).execute_rows()?.is_empty()` |
 | Exact count | `count_exact()` | partial-window row materialization plus `Response::count()` |
 | Exact sum/min/max/average | `sum_exact(field)`, `min_id_exact()`, `min_exact_by(field)`, `max_id_exact()`, `max_exact_by(field)`, `avg_exact(field)` | aggregating a partial row window |
 | Complete small set | `collect_complete()` | `partial_window(N).execute_rows()` when the endpoint promises all matches |
 | Partial row window | `partial_window(N).execute_rows()` / `partial_window(N).execute()` | A complete-result API that silently truncates |
-| Cursor page | `order_term(...).page(PageRequest::first(N))?.execute()` | `partial_window(N).page(...)` or non-zero `offset(...)` for public pages |
+| Cursor page | `order_term(...).page(PageRequest::first(N))?.execute()` | partial windows or SQL `OFFSET` for public pages |
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` | Public endpoints with giant limits or caller-selected batch sizes |
 | Trusted maintenance scan | `trusted_read_unchecked().execute_rows()` or `trusted_read_unchecked().admin_batch(...)` | Public endpoints with giant limits |
 
@@ -54,7 +54,8 @@ let user = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
     .partial_window(1)
-    .try_one()?;
+    .execute_rows()?
+    .try_entity()?;
 
 // After: exact-key spelling.
 let user = db()
@@ -371,7 +372,7 @@ let page = db()
 For public endpoints:
 
 - use deterministic ordering;
-- avoid non-zero `offset(...)`;
+- avoid SQL `OFFSET` for caller-facing pages;
 - keep page sizes small;
 - expose continuation cursors instead of pretending the result is complete.
 

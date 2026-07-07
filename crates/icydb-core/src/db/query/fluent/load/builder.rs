@@ -12,6 +12,7 @@ use crate::{
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, OrderTerm},
+            fluent::load::PartialWindowLoadQuery,
             intent::{CompiledQuery, PlannedQuery, Query, QueryError},
             trace::QueryTracePlan,
         },
@@ -182,23 +183,36 @@ where
         self.try_map_query(|query| query.having_aggregate(aggregate_index, op, value))
     }
 
-    /// Bound the number of returned rows.
+    /// Return a deliberately partial row window.
     ///
-    /// Scalar pagination requires explicit ordering; combine `limit` and/or
-    /// `offset` with `order_term(...)` or planning fails for scalar loads.
-    /// GROUP BY pagination uses canonical grouped-key order by default.
+    /// This is the fluent load spelling for a low-level result window. Use it
+    /// only when the endpoint contract is a partial row-window result. Semantic
+    /// terminals such as `page(...)`, `collect_complete()`, `exists()`, and
+    /// exact aggregate helpers remain on `FluentLoadQuery`.
     #[must_use]
-    pub fn limit(self, limit: u32) -> Self {
+    pub fn partial_window(self, limit: u32) -> PartialWindowLoadQuery<'a, E> {
+        PartialWindowLoadQuery::new(self.map_query(|query| query.limit(limit)))
+    }
+
+    /// Apply a low-level row limit inside core planner/session tests and SQL
+    /// lowering.
+    ///
+    /// Public fluent callers should use `partial_window(...)`, `page(...)`,
+    /// `collect_complete()`, or a semantic terminal instead.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn limit(self, limit: u32) -> Self {
         self.map_query(|query| query.limit(limit))
     }
 
-    /// Skip a number of rows in the ordered result stream.
+    /// Apply a low-level row offset inside core planner/session tests and SQL
+    /// lowering.
     ///
-    /// Scalar pagination requires explicit ordering; combine `offset` and/or
-    /// `limit` with `order_term(...)` or planning fails for scalar loads.
-    /// GROUP BY pagination uses canonical grouped-key order by default.
+    /// Public fluent callers should use cursor continuation through
+    /// `PageRequest` rather than offset pagination.
     #[must_use]
-    pub fn offset(self, offset: u32) -> Self {
+    #[cfg(test)]
+    pub(in crate::db) fn offset(self, offset: u32) -> Self {
         self.map_query(|query| query.offset(offset))
     }
 

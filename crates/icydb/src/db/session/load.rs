@@ -55,17 +55,6 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     // Query refinement
     // ------------------------------------------------------------------
 
-    /// Skip a number of rows in the ordered result stream.
-    ///
-    /// Scalar pagination requires explicit ordering; combine `offset` and/or
-    /// `limit` with `order_term(...)` or planning fails for scalar loads.
-    /// GROUP BY pagination uses canonical grouped-key order by default.
-    #[must_use]
-    pub fn offset(mut self, offset: u32) -> Self {
-        self.inner = self.inner.offset(offset);
-        self
-    }
-
     /// Return a deliberately partial row window.
     ///
     /// This is the hard-cut replacement for raw public read `.limit(...)` on
@@ -74,9 +63,10 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// `collect_complete()` for complete small sets, and exact aggregate
     /// helpers for semantic aggregates.
     #[must_use]
-    pub fn partial_window(mut self, limit: u32) -> Self {
-        self.inner = self.inner.limit(limit);
-        self
+    pub fn partial_window(self, limit: u32) -> PartialWindowLoadQuery<'a, E> {
+        PartialWindowLoadQuery {
+            inner: self.inner.partial_window(limit),
+        }
     }
 
     /// Mark this fluent read as trusted and bypass the default bounded read gate.
@@ -492,6 +482,114 @@ impl<E: Entity + SingletonEntity> FluentLoadQuery<'_, E> {
     {
         self.inner = self.inner.singleton();
         self
+    }
+}
+
+///
+/// PartialWindowLoadQuery
+///
+/// Facade wrapper for deliberately partial row-window reads.
+/// It exposes materialization and diagnostics, but not semantic terminals such
+/// as paging, complete collection, existence, or exact aggregates.
+///
+
+pub struct PartialWindowLoadQuery<'a, E: Entity> {
+    inner: core::db::PartialWindowLoadQuery<'a, E>,
+}
+
+impl<E: Entity> PartialWindowLoadQuery<'_, E> {
+    #[must_use]
+    pub const fn query(&self) -> &Query<E> {
+        self.inner.query()
+    }
+
+    /// Mark this partial window as trusted and bypass the default bounded read
+    /// gate.
+    ///
+    /// Use this only for controller/admin maintenance code that owns its
+    /// authorization and resource policy. Caller-facing list endpoints should
+    /// use `page(PageRequest::...)` instead of trusted partial windows.
+    #[must_use]
+    pub fn trusted_read_unchecked(mut self) -> Self {
+        self.inner = self.inner.trusted_read_unchecked();
+        self
+    }
+
+    /// Execute this deliberately partial row window.
+    ///
+    /// Scalar queries return `QueryResponse::Rows`; grouped queries return
+    /// `QueryResponse::Grouped`. Use `into_rows()` or `into_grouped()` when
+    /// the endpoint expects one concrete shape.
+    pub fn execute(&self) -> Result<QueryResponse<E>, Error>
+    where
+        E: Entity,
+    {
+        Ok(QueryResponse::from_core(self.inner.execute()?))
+    }
+
+    /// Execute this deliberately partial row window as scalar entity rows.
+    pub fn execute_rows(&self) -> Result<Response<E>, Error>
+    where
+        E: Entity,
+    {
+        Ok(Response::from_core(self.inner.execute_rows()?))
+    }
+
+    /// Return the stable plan hash for this partial-window query.
+    pub fn plan_hash_hex(&self) -> Result<String, Error> {
+        Ok(self.inner.plan_hash_hex()?)
+    }
+
+    /// Build one trace payload without executing the partial-window query.
+    pub fn trace(&self) -> Result<QueryTracePlan, Error> {
+        Ok(self.inner.trace()?)
+    }
+
+    /// Build the validated logical plan without compiling execution details.
+    pub fn planned(&self) -> Result<PlannedQuery<E>, Error> {
+        Ok(self.inner.planned()?)
+    }
+
+    /// Build the compiled executable plan for this partial-window query.
+    pub fn plan(&self) -> Result<CompiledQuery<E>, Error> {
+        Ok(self.inner.plan()?)
+    }
+
+    /// Build logical explain metadata for the current partial-window query.
+    pub fn explain(&self) -> Result<ExplainPlan, Error> {
+        Ok(self.inner.explain()?)
+    }
+
+    /// Explain the execution shape without executing the partial-window query.
+    pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_execution()?)
+    }
+
+    /// Render execution explain output as a compact text tree.
+    pub fn explain_execution_text(&self) -> Result<String, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_execution_text()?)
+    }
+
+    /// Render execution explain output as canonical JSON.
+    pub fn explain_execution_json(&self) -> Result<String, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_execution_json()?)
+    }
+
+    /// Render execution explain output as a verbose text tree.
+    pub fn explain_execution_verbose(&self) -> Result<String, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_execution_verbose()?)
     }
 }
 

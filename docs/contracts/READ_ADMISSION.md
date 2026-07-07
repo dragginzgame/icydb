@@ -10,13 +10,16 @@ may execute reads and which admission lane they use.
 Any production canister surface that executes caller-controlled read work must
 make its lane explicit.
 
-Ordinary typed/fluent read execution is bounded by default. The normal
-`DbSession::execute_query`, `FluentLoadQuery::execute`, `execute_rows`,
-cursor-paged `execute`, and fluent terminal execution methods use the built-in
-default bounded-read policy. Trusted maintenance/admin fluent code that has
-already enforced caller authorization and its own resource policy must mark the
-query with `trusted_read_unchecked()` before executing the normal fluent
-terminal.
+Ordinary typed/fluent read execution is bounded by default. Normal endpoint
+code should use `load::<E>()` plus a semantic terminal such as `try_one()`,
+`page(...)`, `collect_complete()`, `exists()`, or an exact aggregate helper.
+Fluent `execute`, `execute_rows`, cursor-paged `execute`, and fluent terminal
+execution methods use the built-in default bounded-read policy. Hidden
+prebuilt-query execution helpers use the same gate when internal/generated
+tooling intentionally owns low-level query construction. Trusted
+maintenance/admin fluent code that has already enforced caller authorization
+and its own resource policy must mark the query with
+`trusted_read_unchecked()` before executing the normal fluent terminal.
 
 The current lanes are:
 
@@ -46,7 +49,8 @@ diagnostic before doing the broader work.
 | Surface | Lane | Guard | Query execution authority |
 | --- | --- | --- | --- |
 | `DbSession::execute_sql_query::<E>` | `AdminAdHoc` by caller contract | caller-owned | Trusted single-entity SQL query helper. It is not public-safe by itself. |
-| `DbSession::execute_query::<E>` / `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, non-zero offset, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound. |
+| `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, non-zero offset, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound. |
+| hidden prebuilt-query execution | `PublicRead` default policy | built-in plus caller auth | Internal/generated tooling path for callers that intentionally own low-level `Query<E>` construction. It is not the normal endpoint API and should not be taught as a read-intent recipe. |
 | `trusted_read_unchecked()` fluent lane | trusted caller contract | caller-owned | Explicit bypass for maintenance/admin fluent code with its own authorization and resource policy. It is not public-safe by itself. Fluent load queries use normal terminal names after entering the trusted lane. |
 | generated `icydb_query` | `AdminAdHoc` | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
 | generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission and schema authority. |
@@ -129,11 +133,11 @@ Required properties:
 
 Public endpoints should prefer typed or fluent APIs where the query shape is
 known to the canister author. Ordinary typed/fluent execution is bounded by
-default, so a full-scan query that accidentally reaches `execute_query()`,
-`execute()`, `execute_rows()`, cursor-paged `execute()`, or a fluent terminal
-returns the shared read-admission error before row execution. Endpoints must
-still enforce caller authorization before entering IcyDB and any final
-application-level response-byte budget after shaping the typed response.
+default, so a full-scan query that accidentally reaches `execute()`,
+`execute_rows()`, cursor-paged `execute()`, or a fluent terminal returns the
+shared read-admission error before row execution. Endpoints must still enforce
+caller authorization before entering IcyDB and any final application-level
+response-byte budget after shaping the typed response.
 
 Example default behavior:
 
@@ -242,21 +246,14 @@ The human-facing message may become more helpful over time, but endpoint logic
 should branch on the diagnostic detail, not rendered text.
 
 0.198 read-intent errors use `DiagnosticCode::QueryIntent` when the query
-builder shape is ambiguous before read admission runs. For example,
-`partial_window(n).exists()` is rejected because `exists()` owns the bounded
-existence route; use `exists()` without a row-window cap, or use
-`execute_rows()` when the low-level partial row window is the actual endpoint
-contract. `partial_window(n).page(PageRequest::...)` is rejected because
-`PageRequest` owns page size and cursor continuation.
-`partial_window(n).collect_complete()` is rejected because complete reads must
-not silently cap or truncate the result. `partial_window(n).count_exact()` is
-rejected for the same reason: exact aggregates must not mean "aggregate the
-first N rows." `partial_window(n).sum_exact(field)`,
-`partial_window(n).min_id_exact()`, `partial_window(n).min_exact_by(field)`,
-`partial_window(n).max_id_exact()`, `partial_window(n).max_exact_by(field)`, and
-`partial_window(n).avg_exact(field)` are rejected on the same contract.
-`admin_batch(...)` requires `trusted_read_unchecked()` and rejects prior
-`partial_window(...)`; trusted batch size is engine-owned.
+builder shape is ambiguous before read admission runs. The public facade now
+types `partial_window(n)` as `PartialWindowLoadQuery`, so semantic terminals
+such as `exists()`, `page(...)`, `collect_complete()`, and exact aggregate
+helpers are not reachable after selecting a partial row-window intent. Core and
+direct-query equivalents still fail closed if a raw row-window cap is combined
+with terminals that own their own bounds. `admin_batch(...)` requires
+`trusted_read_unchecked()` and rejects prior `partial_window(...)`; trusted
+batch size is engine-owned.
 
 | Query shape | Diagnostic detail | Typical fix |
 | --- | --- | --- |
@@ -394,15 +391,12 @@ let users = db()
 
 `QueryReadAdmissionCode::PublicQueryOffsetRejected`
 
-```rust
-let err = db()
-    .load::<User>()
-    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
-    .order_term(icydb::asc("username"))
-    .order_term(icydb::asc("id"))
-    .partial_window(10)
-    .offset(10)
-    .execute_rows();
+```sql
+SELECT *
+FROM users
+WHERE username LIKE 'sam%'
+ORDER BY username, id
+LIMIT 10 OFFSET 10;
 ```
 
 Use cursor pagination for caller-facing pages:

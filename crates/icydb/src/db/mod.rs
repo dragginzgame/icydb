@@ -16,7 +16,8 @@ pub use response::{
     ProjectionRows, Response, RowProjectionOutput,
 };
 pub use session::{
-    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, StructuralPatch,
+    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, PartialWindowLoadQuery,
+    SessionDeleteQuery, StructuralPatch,
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]

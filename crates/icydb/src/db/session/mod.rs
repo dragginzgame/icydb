@@ -30,7 +30,7 @@ use icydb_core as core;
 
 // re-exports
 pub use delete::SessionDeleteQuery;
-pub use load::{FluentLoadQuery, PagedLoadQuery};
+pub use load::{FluentLoadQuery, PagedLoadQuery, PartialWindowLoadQuery};
 
 ///
 /// MutationMode
@@ -691,11 +691,13 @@ impl<C: CanisterKind> DbSession<C> {
     // Execution
     // ------------------------------------------------------------------
 
-    /// Execute an ordinary typed/fluent query through the default bounded
+    /// Execute one prebuilt low-level query through the default bounded
     /// read-admission gate.
     ///
-    /// This is the public endpoint path for caller-facing reads after the
-    /// endpoint has performed its own caller authorization.
+    /// Normal endpoint code should prefer `load::<E>()` plus a semantic
+    /// terminal. This direct-query entrypoint exists for generated/internal
+    /// tooling that intentionally owns query construction.
+    #[doc(hidden)]
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
     where
         E: crate::traits::EntityFor<C>,
@@ -708,6 +710,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Build one trace payload for a query without executing it.
+    #[doc(hidden)]
     pub fn trace_query<E>(&self, query: &Query<E>) -> Result<QueryTracePlan, Error>
     where
         E: crate::traits::EntityFor<C>,

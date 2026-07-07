@@ -57,9 +57,11 @@ Use the method that names the endpoint promise:
 | Trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::new())` |
 
 Load queries do not expose public `.limit(...)`, `.one()`, or `.all()`
-aliases. Use `partial_window(...)` only when returning a partial row window is
-the endpoint contract. Delete queries use `max_affected(...)` for mutation
-safety caps so affected-row bounds do not share read-limit vocabulary.
+aliases. They also do not expose fluent `.offset(...)`; caller-facing list
+endpoints use cursor paging through `PageRequest`. Use `partial_window(...)`
+only when returning a partial row window is the endpoint contract. Delete
+queries use `max_affected(...)` for mutation safety caps so affected-row bounds
+do not share read-limit vocabulary.
 
 ## API Tiers
 
@@ -93,7 +95,7 @@ db.delete::<E>()
 db.delete_with_consistency::<E>(policy)
 ```
 
-### Common Read Recipes
+### Endpoint Cookbook
 
 ```rust
 // Exact lookup.
@@ -124,11 +126,22 @@ db.load::<User>()
     .filter_eq("status", "active")
     .count_exact()
 
+// Existence check.
+db.load::<User>()
+    .filter_eq("email", email)
+    .exists()
+
 // Deliberate partial row window.
 db.load::<Event>()
     .order_desc("created_at")
     .partial_window(100)
     .execute_rows()
+
+// Trusted maintenance batch.
+db.load::<Event>()
+    .order_asc("id")
+    .trusted_read_unchecked()
+    .admin_batch(AdminBatchRequest::new())
 ```
 
 Most endpoint code should not call `execute()` directly. Prefer a terminal that
@@ -188,7 +201,6 @@ These commands refine `db.load::<E>()` and
 .order_desc(expr)
 .order_terms(terms)
 
-.offset(n)
 .partial_window(n)
 
 .group_by(field)?
@@ -202,6 +214,11 @@ These commands refine `db.load::<E>()` and
 
 `singleton()` is only for `SingletonEntity` types. It is not a generic one-row
 terminal. For normal one-row reads, use `.by_id(id).try_one()`.
+
+`partial_window(n)` switches into `PartialWindowLoadQuery`. That wrapper
+exposes partial materialization and diagnostics only; it intentionally does not
+expose semantic terminals such as `page(...)`, `collect_complete()`,
+`exists()`, or exact aggregate helpers.
 
 ### Load Terminals
 
@@ -442,20 +459,12 @@ Load queries also expose read-terminal explain commands:
 .explain_execution_verbose()
 ```
 
-Session-level query inspection:
-
-```rust
-db.trace_query(query)
-```
-
 Feature-gated diagnostics helpers:
 
 ```rust
 .exists_with_attribution()
 .collect_complete_with_attribution()
 .count_exact_with_attribution()
-
-db.execute_query_result_with_attribution(query)
 ```
 
 ### Catalog And Storage Diagnostics
@@ -486,10 +495,13 @@ developer-facing facade and should not be taught as endpoint recipes.
 ### Direct Query Execution
 
 These commands execute prebuilt `Query<E>` values rather than a fluent load.
-Use them only when a caller intentionally owns query construction.
+They are hidden/advanced surfaces for generated or diagnostics tooling that
+intentionally owns query construction. They are not endpoint recipes.
 
 ```rust
 db.execute_query(query)
+db.trace_query(query)
+db.execute_query_result_with_attribution(query)
 ```
 
 ### Generated/Policy SQL Helpers

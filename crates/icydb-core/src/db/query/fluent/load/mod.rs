@@ -5,10 +5,12 @@
 
 mod builder;
 mod pagination;
+mod partial_window;
 mod result;
 mod terminals;
 mod validation;
 
 pub use builder::FluentLoadQuery;
 pub use pagination::PagedLoadQuery;
+pub use partial_window::PartialWindowLoadQuery;
 pub use result::LoadQueryResult;

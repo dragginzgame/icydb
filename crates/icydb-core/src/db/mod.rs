@@ -152,7 +152,7 @@ pub use query::{
     expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
     fluent::{
         delete::FluentDeleteQuery,
-        load::{FluentLoadQuery, LoadQueryResult, PagedLoadQuery},
+        load::{FluentLoadQuery, LoadQueryResult, PagedLoadQuery, PartialWindowLoadQuery},
     },
     intent::{
         AccessRequirementError, AccessRequirementViolation, CompiledQuery, IntentError,

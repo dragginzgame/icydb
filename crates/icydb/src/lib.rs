@@ -48,11 +48,11 @@
 //!
 //! ## Read execution defaults
 //!
-//! Ordinary typed/fluent reads through `DbSession::execute_query`, fluent
-//! `execute`, `execute_rows`, cursor-paged execution, and terminal helpers use
-//! the default bounded read-admission gate. Caller-facing endpoints still own
-//! caller authorization before entering IcyDB. Trusted read helpers are for
-//! controller/admin or maintenance code with a separate resource policy.
+//! Ordinary typed/fluent reads through fluent `execute`, `execute_rows`,
+//! cursor-paged execution, and terminal helpers use the default bounded
+//! read-admission gate. Caller-facing endpoints still own caller authorization
+//! before entering IcyDB. Trusted read helpers are for controller/admin or
+//! maintenance code with a separate resource policy.
 //!
 //! Prefer semantic read intents for caller-facing APIs:
 //! - exact rows use primary-key access plus `try_one()`;
