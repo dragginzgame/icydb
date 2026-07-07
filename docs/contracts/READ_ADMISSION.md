@@ -81,8 +81,15 @@ For migration examples and endpoint-intent guidance, see
 Diagnostics-only terminal attribution and paged responses expose
 `ReadIntentKind` so perf and observability tools can distinguish bounded
 row-window terminals from semantic read intents such as existence checks, exact
-aggregates, public pages, and trusted admin batches. This field is reporting
-metadata only; it does not configure admission or grant access.
+aggregates, complete small-set reads, public pages, and trusted admin batches.
+This field is reporting metadata only; it does not configure admission or grant
+access.
+
+Semantic aggregate EXPLAIN helpers expose the same metadata for supported
+read-intent terminals. `explain_exists()` reports `ExistenceCheck`, while
+`explain_count_exact()` and `explain_sum_exact(field)` report
+`ExactAggregate`. Ordinary low-level aggregate explains remain
+`Unspecified`.
 
 ## Generated SQL Query Surface
 

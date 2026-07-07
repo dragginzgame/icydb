@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)
 
+- `0.198.5` extends read-intent observability across complete-small-set
+  attribution and semantic aggregate EXPLAIN helpers while preserving existing
+  admission, cursor, and lookahead behavior.
+
 - `0.198.4` extends read-intent diagnostics to paged responses so public pages
   and trusted admin batches report their semantic intent without changing
   admission or cursor semantics.

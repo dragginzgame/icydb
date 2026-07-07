@@ -8,6 +8,7 @@ use crate::{
         admission::QueryAdmissionSummary,
         explain::{ExplainAccessPath, ExplainPlan, ExplainPredicate},
         plan::{AggregateKind, ResidualFilterShape},
+        read_intent::ReadIntentKind,
         trace::TraceReuseEvent,
     },
     value::Value,
@@ -174,6 +175,7 @@ pub struct ExplainAggregateTerminalPlan {
     pub(in crate::db) query: ExplainPlan,
     pub(in crate::db) terminal: AggregateKind,
     pub(in crate::db) execution: ExplainExecutionDescriptor,
+    pub(in crate::db) read_intent: ReadIntentKind,
 }
 
 #[cfg_attr(
@@ -317,6 +319,15 @@ impl ExplainAggregateTerminalPlan {
         &self.execution
     }
 
+    /// Return diagnostic read-intent metadata for this terminal explain plan.
+    ///
+    /// This is reporting metadata only. It does not configure admission,
+    /// planning, cursor encoding, or execution semantics.
+    #[must_use]
+    pub const fn read_intent(&self) -> ReadIntentKind {
+        self.read_intent
+    }
+
     #[must_use]
     pub(in crate::db) const fn new(
         query: ExplainPlan,
@@ -327,7 +338,14 @@ impl ExplainAggregateTerminalPlan {
             query,
             terminal,
             execution,
+            read_intent: ReadIntentKind::Unspecified,
         }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn with_read_intent(mut self, read_intent: ReadIntentKind) -> Self {
+        self.read_intent = read_intent;
+        self
     }
 }
 

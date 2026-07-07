@@ -72,6 +72,8 @@ else
     "\`collect_complete()\`" \
     "\`count_exact()\`" \
     "\`sum_exact(field)\`" \
+    "\`explain_count_exact()\`" \
+    "\`explain_sum_exact(field)\`" \
     "Common Rejections And Fixes" \
     "Regression Guard" \
     "\`execute().into_grouped()\`" \
@@ -132,6 +134,9 @@ else
     "collect_complete()" \
     "count_exact()" \
     "sum_exact(field)" \
+    "explain_count_exact()" \
+    "explain_sum_exact(field)" \
+    "ReadIntentKind::CompleteSmallSet" \
     "\`limit(...)\` only when the endpoint is deliberately returning" \
     "Do not mechanically replace every \`limit(N).execute_rows()\`"
   do
@@ -265,7 +270,7 @@ fi
 
 high_raw_limit_hits="$(
   rg -n --color=never '\.limit\((1000|1_000|10000|10_000)\)' \
-    README.md INSTALLING.md docs/contracts docs/guides crates/icydb/src crates/icydb-core/src \
+    README.md INSTALLING.md docs/contracts docs/guides crates/icydb/src crates/icydb-core/src canisters \
     2>/dev/null \
     | rg -v '^docs/contracts/READ_ADMISSION\.md:' || true
 )"

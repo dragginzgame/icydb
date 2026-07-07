@@ -19,6 +19,7 @@ use crate::db::{
     query::{
         admission::{GroupedAdmissionPolicy, QueryAdmissionPolicy},
         intent::IntentError,
+        plan::AggregateKind,
     },
 };
 use icydb_diagnostic_code::{
@@ -983,6 +984,52 @@ fn default_fluent_count_exact_counts_primary_key_filters_without_limit() {
 }
 
 #[test]
+fn default_fluent_exact_aggregate_explain_reports_read_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = crate::types::Ulid::from_u128(19_760);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Sam".to_string(),
+            age: 30,
+        })
+        .expect("test row should insert");
+
+    let count_plan = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(id))
+        .explain_count_exact()
+        .expect("exact count explain should not require a raw limit");
+    let sum_plan = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(id))
+        .explain_sum_exact("age")
+        .expect("exact sum explain should not require a raw limit");
+    let exists_plan = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("id").eq(id))
+        .explain_exists()
+        .expect("exists explain should not require a raw limit");
+
+    assert_eq!(count_plan.terminal(), AggregateKind::Count);
+    assert_eq!(
+        count_plan.read_intent(),
+        crate::db::ReadIntentKind::ExactAggregate,
+    );
+    assert_eq!(sum_plan.terminal(), AggregateKind::Sum);
+    assert_eq!(
+        sum_plan.read_intent(),
+        crate::db::ReadIntentKind::ExactAggregate,
+    );
+    assert_eq!(exists_plan.terminal(), AggregateKind::Exists);
+    assert_eq!(
+        exists_plan.read_intent(),
+        crate::db::ReadIntentKind::ExistenceCheck,
+    );
+}
+
+#[test]
 fn default_fluent_sum_exact_sums_primary_key_filters_without_limit() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1028,6 +1075,33 @@ fn default_fluent_collect_complete_returns_indexed_small_set_without_raw_limit()
         .collect();
 
     assert_eq!(names, ["Sam".to_string(), "Sasha".to_string()]);
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn default_fluent_collect_complete_with_attribution_reports_complete_small_set_intent() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let (rows, attribution) = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .collect_complete_with_attribution()
+        .expect("attributed collect_complete() should return admitted complete small sets");
+    let names = rows
+        .into_iter()
+        .map(|entity| entity.name)
+        .collect::<Vec<_>>();
+
+    assert_eq!(names, ["Sam".to_string(), "Sasha".to_string()]);
+    assert_eq!(
+        attribution.read_intent,
+        crate::db::ReadIntentKind::CompleteSmallSet,
+        "attributed complete reads should report the complete-small-set read intent",
+    );
 }
 
 #[test]

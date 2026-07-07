@@ -343,6 +343,7 @@ impl QueryAttributionCommon {
 // the execution path that produced them.
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct QueryExecutionAttribution {
+    pub read_intent: ReadIntentKind,
     pub compile_local_instructions: u64,
     pub compile_schema_catalog_local_instructions: u64,
     pub compile_schema_info_local_instructions: u64,
@@ -452,6 +453,7 @@ impl QueryExecutionAttribution {
             .saturating_add(execute_phase_attribution.response_finalization_local_instructions);
 
         Self {
+            read_intent: ReadIntentKind::Unspecified,
             compile_local_instructions: common.compile_local_instructions(),
             compile_schema_catalog_local_instructions: common
                 .compile_phase_attribution
@@ -491,6 +493,11 @@ impl QueryExecutionAttribution {
             shared_query_plan_cache_hits: common.cache_attribution.hits,
             shared_query_plan_cache_misses: common.cache_attribution.misses,
         }
+    }
+
+    pub(in crate::db) const fn with_read_intent(mut self, read_intent: ReadIntentKind) -> Self {
+        self.read_intent = read_intent;
+        self
     }
 }
 

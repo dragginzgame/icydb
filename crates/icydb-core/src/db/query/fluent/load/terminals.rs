@@ -17,6 +17,7 @@ use std::num::NonZeroU32;
 #[cfg(feature = "diagnostics")]
 use crate::db::FluentTerminalExecutionAttribution;
 #[cfg(feature = "diagnostics")]
+use crate::db::QueryExecutionAttribution;
 use crate::db::query::read_intent::ReadIntentKind;
 use crate::{
     db::{
@@ -258,6 +259,19 @@ fn non_zero_u32(value: u32) -> Result<NonZeroU32, QueryError> {
     NonZeroU32::new(value).ok_or_else(QueryError::invariant)
 }
 
+fn collect_complete_entities<E>(response: EntityResponse<E>) -> Result<Vec<E>, QueryError>
+where
+    E: PersistedRow,
+{
+    if response.count() > COMPLETE_SMALL_MAX_ROWS {
+        return Err(QueryError::intent(
+            IntentError::complete_read_too_many_rows(),
+        ));
+    }
+
+    Ok(response.entities())
+}
+
 impl<E> FluentLoadQuery<'_, E>
 where
     E: PersistedRow,
@@ -457,6 +471,7 @@ where
         self.ensure_exists_intent_owns_limit()?;
 
         self.explain_terminal(&ExistsRowsTerminal::new())
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExistenceCheck))
     }
 
     /// Execute and return all matching rows if the complete result fits in
@@ -482,13 +497,40 @@ where
             .ensure_query_read_admission_policy(&query, &policy)?;
 
         let response = self.session.execute_scalar_query_rows(&query)?;
-        if response.count() > COMPLETE_SMALL_MAX_ROWS {
-            return Err(QueryError::intent(
-                IntentError::complete_read_too_many_rows(),
-            ));
-        }
 
-        Ok(response.entities())
+        collect_complete_entities(response)
+    }
+
+    /// Execute and return all matching rows with query diagnostics attribution
+    /// if the complete result fits in the default public-read small-set cap.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn collect_complete_with_attribution(
+        &self,
+    ) -> Result<(Vec<E>, QueryExecutionAttribution), QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_collect_complete_intent_owns_limit()?;
+        self.ensure_non_paged_mode_ready()?;
+
+        let query = self.query().with_load_limit(COMPLETE_SMALL_EXECUTION_LIMIT);
+        let policy = QueryAdmissionPolicy::public_read(
+            non_zero_u32(COMPLETE_SMALL_EXECUTION_LIMIT)?,
+            non_zero_u32(PUBLIC_PAGE_MAX_RESPONSE_BYTES)?,
+        );
+
+        self.session
+            .ensure_query_read_admission_policy(&query, &policy)?;
+
+        let (result, attribution) = self.session.execute_query_result_with_attribution(&query)?;
+        let response = result.into_rows()?;
+        let entities = collect_complete_entities(response)?;
+
+        Ok((
+            entities,
+            attribution.with_read_intent(ReadIntentKind::CompleteSmallSet),
+        ))
     }
 
     /// Explain scalar `not_exists()` routing without executing the terminal.
@@ -553,6 +595,17 @@ where
         self.ensure_count_exact_intent_owns_limit()?;
 
         self.execute_terminal(CountRowsTerminal::new())
+    }
+
+    /// Explain exact count routing without executing the terminal.
+    pub fn explain_count_exact(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_count_exact_intent_owns_limit()?;
+
+        self.explain_terminal(&CountRowsTerminal::new())
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
     }
 
     /// Execute and return the number of matching rows with terminal attribution.
@@ -729,6 +782,22 @@ where
         let target_slot = self.resolve_non_paged_slot(field)?;
 
         self.execute_terminal(SumBySlotTerminal::new(target_slot))
+    }
+
+    /// Explain exact sum routing without executing the terminal.
+    pub fn explain_sum_exact(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_sum_exact_intent_owns_limit()?;
+
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.explain_terminal(&SumBySlotTerminal::new(target_slot))
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
     }
 
     /// Explain scalar `sum_by(field)` routing without executing the terminal.

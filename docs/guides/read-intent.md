@@ -100,6 +100,8 @@ contract.
 Diagnostics-only terminal attribution reports `ReadIntentKind::ExistenceCheck`
 for attributed existence terminals, which helps perf and observability tools
 separate existence checks from low-level row-window reads.
+`explain_exists()` reports the same read-intent metadata without executing the
+terminal.
 
 ## Exact Aggregates
 
@@ -123,6 +125,8 @@ aggregates must not mean "aggregate the first N rows."
 Diagnostics-only terminal attribution reports `ReadIntentKind::ExactAggregate`
 for attributed exact count terminals and `ReadIntentKind::BoundedRowWindow` for
 the lower-level bounded count terminal.
+`explain_count_exact()` and `explain_sum_exact(field)` report exact-aggregate
+read-intent metadata without executing the terminal.
 
 Use the older aggregate terminals only when the window is explicitly part of
 the endpoint promise:
@@ -190,6 +194,10 @@ let users = db()
 `collect_complete()` rejects a prior raw `limit(...)`. It internally executes
 with one lookahead row so it can fail when the set is too large instead of
 silently truncating the response.
+
+Diagnostics-only complete-read attribution reports
+`ReadIntentKind::CompleteSmallSet`. The value is observability metadata only
+and does not change admission or row results.
 
 If the set is not known to be small, choose one of:
 

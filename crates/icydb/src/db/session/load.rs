@@ -285,6 +285,19 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.collect_complete()?)
     }
 
+    /// Return all matching rows with query diagnostics attribution if the
+    /// complete result fits in the default public-read small-set cap.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn collect_complete_with_attribution(
+        &self,
+    ) -> Result<(Vec<E>, crate::db::QueryExecutionAttribution), Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.collect_complete_with_attribution()?)
+    }
+
     /// Return the exact number of matching rows.
     ///
     /// This semantic aggregate rejects a prior raw `limit(...)`; use
@@ -295,6 +308,14 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         E: Entity,
     {
         Ok(self.inner.count_exact()?)
+    }
+
+    /// Explain exact count routing without executing the terminal.
+    pub fn explain_count_exact(&self) -> Result<ExplainAggregateTerminalPlan, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_count_exact()?)
     }
 
     /// Return the exact row count with terminal diagnostics attribution.
@@ -450,6 +471,17 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         E: Entity,
     {
         Ok(self.inner.sum_exact(field)?)
+    }
+
+    /// Explain exact sum routing without executing the terminal.
+    pub fn explain_sum_exact(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.explain_sum_exact(field)?)
     }
 
     /// Explain scalar `sum_by(field)` routing without executing the terminal.
