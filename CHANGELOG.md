@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Continues the 0.199 technical-debt cleanup by splitting fluent load terminal
+  driver, read-intent, support, and output helper wiring away from the
+  remaining terminal method list without changing terminal behavior.
+
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
