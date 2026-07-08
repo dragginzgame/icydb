@@ -22,6 +22,12 @@ use crate::{
     value::InputValue,
 };
 
+#[cfg(feature = "diagnostics")]
+use crate::{
+    db::{PersistedRow, QueryExecutionAttribution, query::fluent::load::LoadQueryResult},
+    traits::EntityValue,
+};
+
 ///
 /// FluentLoadQuery
 ///
@@ -62,6 +68,19 @@ where
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query
+    }
+
+    /// Execute this query with diagnostics attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn execute_with_attribution(
+        &self,
+    ) -> Result<(LoadQueryResult<E>, QueryExecutionAttribution), QueryError>
+    where
+        E: PersistedRow + EntityValue,
+    {
+        self.session
+            .execute_query_result_with_attribution(self.query())
     }
 
     pub(super) fn map_query(mut self, map: impl FnOnce(Query<E>) -> Query<E>) -> Self {

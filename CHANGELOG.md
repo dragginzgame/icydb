@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.1` narrows fluent diagnostics/perf attribution onto hidden fluent
+  terminals, moving the SQL perf audit path off raw direct-query extraction
+  while keeping public read behavior unchanged.
+
 - `0.199.0` starts the technical-debt audit line with normalized design docs,
   read/query boundary evidence, direct-query and partial-window cleanup, and
   small drift-reduction refactors without changing public behavior.

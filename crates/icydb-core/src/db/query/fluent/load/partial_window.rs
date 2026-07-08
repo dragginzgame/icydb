@@ -16,6 +16,9 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+#[cfg(feature = "diagnostics")]
+use crate::db::QueryExecutionAttribution;
+
 ///
 /// PartialWindowLoadQuery
 ///
@@ -45,6 +48,18 @@ where
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
+    }
+
+    /// Execute this partial window with diagnostics attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn execute_with_attribution(
+        &self,
+    ) -> Result<(LoadQueryResult<E>, QueryExecutionAttribution), QueryError>
+    where
+        E: PersistedRow + EntityValue,
+    {
+        self.inner.execute_with_attribution()
     }
 
     /// Mark this partial row-window read as trusted.

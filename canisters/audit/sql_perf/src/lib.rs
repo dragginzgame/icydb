@@ -726,8 +726,7 @@ fn run_user_fluent_scenario_once(
                 .load::<PerfAuditUser>()
                 .order_asc("id")
                 .partial_window(1);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -736,8 +735,7 @@ fn run_user_fluent_scenario_once(
                 .load::<PerfAuditUser>()
                 .order_asc("id")
                 .partial_window(2);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -747,8 +745,7 @@ fn run_user_fluent_scenario_once(
                 .order_asc("age")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -758,8 +755,7 @@ fn run_user_fluent_scenario_once(
                 .order_asc("age")
                 .order_asc("id")
                 .partial_window(2);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -770,8 +766,7 @@ fn run_user_fluent_scenario_once(
                 .order_asc("age")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -782,8 +777,7 @@ fn run_user_fluent_scenario_once(
                 .order_asc("age")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -794,8 +788,7 @@ fn run_user_fluent_scenario_once(
                 .order_asc("age")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -806,8 +799,7 @@ fn run_user_fluent_scenario_once(
                 .order_asc("age")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -818,8 +810,7 @@ fn run_user_fluent_scenario_once(
                 .aggregate(count())
                 .order_asc("age")
                 .partial_window(10);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -840,8 +831,7 @@ fn run_account_fluent_scenario_once(
                 .order_asc("handle")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -853,8 +843,7 @@ fn run_account_fluent_scenario_once(
                 .order_asc("handle")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -865,8 +854,7 @@ fn run_account_fluent_scenario_once(
                 .order_asc("score")
                 .order_asc("id")
                 .partial_window(3);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -887,8 +875,7 @@ fn run_token_fluent_scenario_once(
                 .filter_in("stage", ["Draft", "Review"])
                 .order_asc("id")
                 .partial_window(50);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -899,8 +886,7 @@ fn run_token_fluent_scenario_once(
                 .filter_in("stage", ["Draft", "Draft", "Review"])
                 .order_asc("id")
                 .partial_window(50);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -924,8 +910,7 @@ fn run_token_fluent_scenario_once(
                 )
                 .order_asc("id")
                 .partial_window(50);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -935,8 +920,7 @@ fn run_token_fluent_scenario_once(
                 .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
                 .order_asc("id")
                 .partial_window(300);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -955,8 +939,7 @@ fn run_journaled_user_fluent_scenario_once(
                 .load::<PerfAuditJournaledUser>()
                 .order_asc("id")
                 .partial_window(1);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -975,8 +958,7 @@ fn run_heap_user_fluent_scenario_once(
                 .load::<PerfAuditHeapUser>()
                 .order_asc("id")
                 .partial_window(1);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
+            let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
@@ -2085,7 +2067,7 @@ macro_rules! focused_fluent_row {
             Ok(rows) => {
                 let result_signature = focused_rows_signature(&rows);
                 let rows_returned = rows.count();
-                let attributed = db().execute_query_result_with_attribution(($query).query());
+                let attributed = ($query).execute_with_attribution();
                 match attributed {
                     Ok((_result, attribution)) => focused_fluent_success_row(
                         $scenario_key,
@@ -2756,7 +2738,7 @@ fn focused_empty_require_one_row(scenario_key: &str) -> FocusedPkPerfRow {
     let query = session
         .load::<PerfAuditUser>()
         .filter_in("id", Vec::<i32>::new());
-    let attributed = db().execute_query_result_with_attribution(query.query());
+    let attributed = query.execute_with_attribution();
     let mut row = match attributed {
         Ok((_result, attribution)) => focused_fluent_success_row(
             scenario_key,

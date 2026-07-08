@@ -45,6 +45,20 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         self.inner.query()
     }
 
+    /// Execute this query with diagnostics attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn execute_with_attribution(
+        &self,
+    ) -> Result<(QueryResponse<E>, crate::db::QueryExecutionAttribution), Error>
+    where
+        E: Entity,
+    {
+        let (result, attribution) = self.inner.execute_with_attribution()?;
+
+        Ok((QueryResponse::from_core(result), attribution))
+    }
+
     // ------------------------------------------------------------------
     // Primary-key access (semantic)
     // ------------------------------------------------------------------
@@ -520,6 +534,20 @@ impl<E: Entity> PartialWindowLoadQuery<'_, E> {
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
+    }
+
+    /// Execute this partial window with diagnostics attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn execute_with_attribution(
+        &self,
+    ) -> Result<(QueryResponse<E>, crate::db::QueryExecutionAttribution), Error>
+    where
+        E: Entity,
+    {
+        let (result, attribution) = self.inner.execute_with_attribution()?;
+
+        Ok((QueryResponse::from_core(result), attribution))
     }
 
     /// Mark this partial window as trusted and bypass the default bounded read

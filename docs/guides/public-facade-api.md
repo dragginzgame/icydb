@@ -482,17 +482,10 @@ developer-facing facade and should not be taught as endpoint recipes.
 
 ### Direct Query Execution
 
-These commands execute prebuilt `Query<E>` values rather than a fluent load.
-They are hidden/advanced surfaces for generated or diagnostics tooling that
-intentionally owns query construction. They are not endpoint recipes, and the
-fluent `.query()` extraction method is hidden from public docs for the same
-reason.
-
-```rust
-db.execute_query(&query)
-db.trace_query(&query)
-db.execute_query_result_with_attribution(&query)
-```
+Prebuilt `Query<E>` execution exists only as hidden generated/diagnostics
+wiring. It is not a public endpoint recipe, and active docs intentionally do
+not provide copyable direct-query examples. Diagnostics tooling should prefer
+the hidden fluent attribution terminals over extracting raw `Query<E>` values.
 
 ### Generated/Policy SQL Helpers
 
