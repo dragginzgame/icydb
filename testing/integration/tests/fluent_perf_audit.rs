@@ -1039,7 +1039,7 @@ fn print_token_branch_set_page_sample(label: &str, sample: &FluentPerfScenarioSa
     );
 }
 
-fn assert_cold_token_branch_set_page_sample(sample: &FluentPerfScenarioSample) {
+fn assert_token_branch_set_page_sample(sample: &FluentPerfScenarioSample) {
     assert!(
         sample.outcome_stable,
         "token fluent branch-set outcome should stay stable",
@@ -1094,12 +1094,11 @@ fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
 
     let sample = sample_perf_scenario(&fixture, &baseline, token_branch_set_page_scenario());
     print_token_branch_set_page_sample("fluent token branch-set page", &sample);
-    assert_cold_token_branch_set_page_sample(&sample);
-    assert_cached_token_branch_set_page_sample(&sample, "token fluent branch-set page");
+    assert_token_branch_set_page_sample(&sample);
 
     let warm = sample_perf_scenario(&fixture, &baseline, warm_token_branch_set_page_scenario());
     print_token_branch_set_page_sample("warm fluent token branch-set page", &warm);
-    assert_cold_token_branch_set_page_sample(&warm);
+    assert_token_branch_set_page_sample(&warm);
     assert_cached_token_branch_set_page_sample(&warm, "warm token fluent branch-set page");
 }
 

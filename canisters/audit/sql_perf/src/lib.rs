@@ -725,7 +725,8 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .order_asc("id")
-                .partial_window(1);
+                .partial_window(1)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -734,7 +735,8 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .order_asc("id")
-                .partial_window(2);
+                .partial_window(2)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -744,7 +746,8 @@ fn run_user_fluent_scenario_once(
                 .load::<PerfAuditUser>()
                 .order_asc("age")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -754,7 +757,8 @@ fn run_user_fluent_scenario_once(
                 .load::<PerfAuditUser>()
                 .order_asc("age")
                 .order_asc("id")
-                .partial_window(2);
+                .partial_window(2)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -765,7 +769,8 @@ fn run_user_fluent_scenario_once(
                 .filter_eq("active", true)
                 .order_asc("age")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -776,7 +781,8 @@ fn run_user_fluent_scenario_once(
                 .filter_eq_field("age", "age_nat")
                 .order_asc("age")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -787,7 +793,8 @@ fn run_user_fluent_scenario_once(
                 .filter_between_fields("rank", "age", "age")
                 .order_asc("age")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -798,7 +805,8 @@ fn run_user_fluent_scenario_once(
                 .filter_in("rank", [17_i32, 28_i32, 30_i32])
                 .order_asc("age")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -809,7 +817,8 @@ fn run_user_fluent_scenario_once(
                 .group_by("age")?
                 .aggregate(count())
                 .order_asc("age")
-                .partial_window(10);
+                .partial_window(10)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -830,7 +839,8 @@ fn run_account_fluent_scenario_once(
                 .filter_eq("active", true)
                 .order_asc("handle")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -842,7 +852,8 @@ fn run_account_fluent_scenario_once(
                 .filter_eq("tier", "gold")
                 .order_asc("handle")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -853,7 +864,8 @@ fn run_account_fluent_scenario_once(
                 .filter_gte("score", 75_u64)
                 .order_asc("score")
                 .order_asc("id")
-                .partial_window(3);
+                .partial_window(3)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -874,7 +886,8 @@ fn run_token_fluent_scenario_once(
                 .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
                 .filter_in("stage", ["Draft", "Review"])
                 .order_asc("id")
-                .partial_window(50);
+                .partial_window(50)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -885,7 +898,8 @@ fn run_token_fluent_scenario_once(
                 .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
                 .filter_in("stage", ["Draft", "Draft", "Review"])
                 .order_asc("id")
-                .partial_window(50);
+                .partial_window(50)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -909,7 +923,8 @@ fn run_token_fluent_scenario_once(
                     ],
                 )
                 .order_asc("id")
-                .partial_window(50);
+                .partial_window(50)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -919,7 +934,8 @@ fn run_token_fluent_scenario_once(
                 .load::<PerfAuditToken>()
                 .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
                 .order_asc("id")
-                .partial_window(300);
+                .partial_window(300)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -938,7 +954,8 @@ fn run_journaled_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditJournaledUser>()
                 .order_asc("id")
-                .partial_window(1);
+                .partial_window(1)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
@@ -957,7 +974,8 @@ fn run_heap_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditHeapUser>()
                 .order_asc("id")
-                .partial_window(1);
+                .partial_window(1)
+                .trusted_read_unchecked();
             let (result, attribution) = query.execute_with_attribution()?;
 
             Ok((summarize_fluent_outcome(&result), attribution))
