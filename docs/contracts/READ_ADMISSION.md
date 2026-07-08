@@ -149,14 +149,13 @@ let err = db()
     .partial_window(1)
     .execute_rows();
 
-// Admitted when the selected route is index-backed and the result is bounded.
-let users = db()
+// Admitted as a public cursor page when the selected route is index-backed.
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(10)
-    .execute_rows()?;
+    .page(10)?;
 
 // Also admitted: exact selected primary-key access proves at most one row, so
 // a redundant LIMIT is not required.
@@ -294,19 +293,18 @@ let err = db()
     .execute_rows();
 ```
 
-Fix it by adding a finite row bound, or by using grouped execution with
+Fix it by choosing the endpoint intent, or by using grouped execution with
 explicit grouped budgets when the query is genuinely grouped. For exact
 primary-key reads, strict primary-key filters and the explicit key APIs both
 produce selected exact-key proofs when the accepted schema can prove the shape:
 
 ```rust
-let users = db()
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(10)
-    .execute_rows()?;
+    .page(10)?;
 
 let user = db()
     .load::<User>()
@@ -338,13 +336,12 @@ let err = db()
 route-proven bounded access path.
 
 ```rust
-let users = db()
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(10)
-    .execute_rows()?;
+    .page(10)?;
 ```
 
 If the broad scan is maintenance work, keep it controller/admin-only:
@@ -378,13 +375,12 @@ Fix it by tightening the predicate, lowering the page size, or moving the
 large report behind a trusted/admin endpoint:
 
 ```rust
-let users = db()
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(25)
-    .execute_rows()?;
+    .page(25)?;
 ```
 
 ### Non-zero offset
@@ -430,14 +426,13 @@ Fix it by ordering with the selected index route, adding a suitable composite
 index, or keeping the report trusted/admin-only:
 
 ```rust
-let users = db()
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("tier").eq("gold"))
     .order_term(icydb::asc("tier"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(10)
-    .execute_rows()?;
+    .page(10)?;
 ```
 
 ### Response or returned-row budget
@@ -467,13 +462,12 @@ lists, or large variable-width key payloads can reject with
 small.
 
 ```rust
-let users = db()
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(25)
-    .execute_rows()?;
+    .page(25)?;
 ```
 
 ### Missing grouped budgets
@@ -550,13 +544,12 @@ API. After adding a suitable index or changing the query shape, execute through
 the ordinary public lane:
 
 ```rust
-let users = db()
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(10)
-    .execute_rows()?;
+    .page(10)?;
 ```
 
 ### Introspection from the wrong lane
@@ -597,17 +590,17 @@ Prefer a typed/fluent endpoint or a tightly allowlisted application-owned SQL
 surface:
 
 ```rust
-fn public_users_by_prefix(prefix: String) -> Result<Vec<User>, icydb::Error> {
+fn public_users_by_prefix(
+    prefix: String,
+) -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
     require_authenticated_user()?;
 
-    Ok(db()
+    db()
         .load::<User>()
         .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
         .order_term(icydb::asc("username"))
         .order_term(icydb::asc("id"))
-        .partial_window(25)
-        .execute_rows()?
-        .entities())
+        .page(25)
 }
 
 fn controller_sql(sql: String) -> Result<(), icydb::Error> {
@@ -635,13 +628,12 @@ full-scan or materialized-sort rejection. The production fix is to change the
 query to an indexed, bounded shape:
 
 ```rust
-let users = db()
+let users_page = db()
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
-    .partial_window(10)
-    .execute_rows()?;
+    .page(10)?;
 ```
 
 If the shape is intentionally broad operational work, keep the actual

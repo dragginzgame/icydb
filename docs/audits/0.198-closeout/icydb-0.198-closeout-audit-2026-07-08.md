@@ -45,9 +45,9 @@ Docs/examples:
 - `docs/guides/read-intent.md`
 - `docs/contracts/READ_ADMISSION.md`
 - `docs/contracts/QUERY_PRACTICE.md`
-- `docs/design/0.198/0.198-design.md`
-- `docs/design/0.198/0.198-supplemental-status.md`
-- `docs/design/0.198/0.198-api-feedback.md`
+- `docs/design/0.198-read-intent-ergonomics/0.198-design.md`
+- `docs/design/0.198-read-intent-ergonomics/0.198-supplemental-status.md`
+- `docs/design/0.198-read-intent-ergonomics/0.198-api-feedback.md`
 - `docs/changelog/0.198.md`
 - `CHANGELOG.md`
 

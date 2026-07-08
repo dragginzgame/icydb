@@ -48,6 +48,7 @@ where
     // ------------------------------------------------------------------
 
     /// Borrow the current immutable query intent.
+    #[doc(hidden)]
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query

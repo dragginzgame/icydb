@@ -57,6 +57,7 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     // Intent inspection
     // ------------------------------------------------------------------
 
+    #[doc(hidden)]
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
@@ -189,6 +190,7 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     // Intent inspection
     // ------------------------------------------------------------------
 
+    #[doc(hidden)]
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()

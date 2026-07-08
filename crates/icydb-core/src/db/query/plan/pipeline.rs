@@ -12,8 +12,8 @@ use crate::{
             plan::{
                 AccessPlannedQuery, AccessPlanningInputs, LogicalPlan, LogicalPlanningInputs,
                 OrderSpec, PlannedAccessSelection, PlannedNonIndexAccessReason,
-                PrimaryKeyInputResourceSummary, VisibleIndexes, build_logical_plan,
-                fold_constant_predicate, is_limit_zero_load_window,
+                PrimaryKeyAccessProof, PrimaryKeyInputResourceSummary, VisibleIndexes,
+                build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
                 predicate_is_constant_false, primary_key_input_resource_from_value_list,
                 rerank_access_plan_by_residual_burden_with_indexes,
@@ -25,7 +25,7 @@ use crate::{
     },
     model::entity::EntityModel,
     traits::KeyValueCodec,
-    value::{Value, canonicalize_value_set},
+    value::Value,
 };
 
 #[cfg(feature = "sql")]
@@ -188,7 +188,7 @@ where
     let logical_inputs = query.planning_logical_inputs();
     let redundant_primary_key_filter = normalized_predicate.as_ref().is_some_and(|predicate| {
         scalar_primary_key_name(&schema_info).is_some_and(|primary_key_name| {
-            ExactPrimaryKeyAccess::from_access(&access_plan_value)
+            PrimaryKeyAccessProof::from_access(&access_plan_value)
                 .is_some_and(|access| access.matches_predicate(predicate, primary_key_name))
         })
     });
@@ -575,7 +575,7 @@ fn attach_primary_key_input_resource_if_exact_access(
     let Some(resource) = resource else {
         return;
     };
-    if ExactPrimaryKeyAccess::from_access(&plan.access).is_none() {
+    if PrimaryKeyAccessProof::from_access(&plan.access).is_none() {
         return;
     }
 
@@ -668,7 +668,7 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
     let predicate = normalized_predicate?;
 
     if scalar_primary_key_name(schema_info).is_some_and(|primary_key_name| {
-        ExactPrimaryKeyAccess::from_access(access)
+        PrimaryKeyAccessProof::from_access(access)
             .is_some_and(|access| access.matches_predicate(&predicate, primary_key_name))
     }) {
         return None;
@@ -679,127 +679,6 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
 
 fn scalar_primary_key_name(schema_info: &SchemaInfo) -> Option<&str> {
     schema_info.scalar_primary_key_name()
-}
-
-///
-/// ExactPrimaryKeyAccess
-///
-/// Local exact-primary-key access shape used by query planning to decide
-/// whether one normalized predicate is already guaranteed by the chosen
-/// authoritative access path.
-///
-
-enum ExactPrimaryKeyAccess<'a> {
-    ByKey(&'a Value),
-    ByKeys(&'a [Value]),
-    HalfOpenRange { start: &'a Value, end: &'a Value },
-}
-
-impl<'a> ExactPrimaryKeyAccess<'a> {
-    // Project one planner access path into the exact primary-key shapes that
-    // can make a normalized predicate redundant.
-    fn from_access(access: &'a AccessPlan<Value>) -> Option<Self> {
-        if let Some(access_keys) = access.as_by_keys_path()
-            && !access_keys.is_empty()
-        {
-            return Some(Self::ByKeys(access_keys));
-        }
-        if let Some(access_key) = access.as_by_key_path() {
-            return Some(Self::ByKey(access_key));
-        }
-
-        access
-            .as_primary_key_range_path()
-            .map(|(start, end)| Self::HalfOpenRange { start, end })
-    }
-
-    // Return whether one normalized predicate is exactly the same primary-key
-    // contract already guaranteed by this authoritative access path.
-    fn matches_predicate(self, predicate: &Predicate, primary_key_name: &str) -> bool {
-        match self {
-            Self::ByKey(access_key) => {
-                matches_primary_key_eq_predicate(predicate, primary_key_name, access_key)
-            }
-            Self::ByKeys(access_keys) => {
-                matches_primary_key_in_predicate(predicate, primary_key_name, access_keys)
-            }
-            Self::HalfOpenRange { start, end } => {
-                matches_primary_key_half_open_range(predicate, primary_key_name, start, end)
-            }
-        }
-    }
-}
-
-// Return whether one normalized predicate is exactly the same primary-key
-// equality already guaranteed by one canonical `ByKey` access path.
-fn matches_primary_key_eq_predicate(
-    predicate: &Predicate,
-    primary_key_name: &str,
-    access_key: &Value,
-) -> bool {
-    let Predicate::Compare(cmp) = predicate else {
-        return false;
-    };
-    cmp.field == primary_key_name && cmp.op == CompareOp::Eq && cmp.value == *access_key
-}
-
-// Return whether one normalized predicate is exactly the same primary-key IN
-// set already guaranteed by one canonical `ByKeys` access path.
-fn matches_primary_key_in_predicate(
-    predicate: &Predicate,
-    primary_key_name: &str,
-    access_keys: &[Value],
-) -> bool {
-    let Predicate::Compare(cmp) = predicate else {
-        return false;
-    };
-    if cmp.field != primary_key_name || cmp.op != CompareOp::In {
-        return false;
-    }
-
-    let Value::List(predicate_keys) = &cmp.value else {
-        return false;
-    };
-
-    let mut canonical_predicate_keys = predicate_keys.clone();
-    canonicalize_value_set(&mut canonical_predicate_keys);
-
-    canonical_predicate_keys == access_keys
-}
-
-// Return whether one normalized predicate is exactly the same half-open
-// primary-key range already guaranteed by one `KeyRange` access path.
-fn matches_primary_key_half_open_range(
-    predicate: &Predicate,
-    primary_key_name: &str,
-    start: &Value,
-    end: &Value,
-) -> bool {
-    let Predicate::And(children) = predicate else {
-        return false;
-    };
-    if children.len() != 2 {
-        return false;
-    }
-
-    let mut lower_matches = false;
-    let mut upper_matches = false;
-    for child in children {
-        let Predicate::Compare(cmp) = child else {
-            return false;
-        };
-        if cmp.field != primary_key_name {
-            return false;
-        }
-
-        match cmp.op {
-            CompareOp::Gte if cmp.value == *start => lower_matches = true,
-            CompareOp::Lt if cmp.value == *end => upper_matches = true,
-            _ => return false,
-        }
-    }
-
-    lower_matches && upper_matches
 }
 
 // Collapse `LIMIT 1` pagination overhead when access is already one exact

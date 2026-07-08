@@ -72,7 +72,7 @@
         "docs/guides/public-facade-api.md",
         "docs/guides/read-intent.md",
         "docs/contracts/READ_ADMISSION.md",
-        "docs/design/0.198/0.198-supplemental-status.md"
+        "docs/design/0.198-read-intent-ergonomics/0.198-supplemental-status.md"
       ],
       "blocking_issues": []
     },

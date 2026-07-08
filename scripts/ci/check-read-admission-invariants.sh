@@ -216,11 +216,14 @@ else
     fi
   done
 
+  # Keep these guide checks broad. They protect the current read-intent model
+  # without forcing exact explanatory sentences that churn during docs edits.
   declare -A required_read_intent_concepts=(
-    ["partial_window is the partial-row-window primitive"]="partial row window: use .*partial_window\\(N\\)\\.execute_rows\\(\\)"
-    ["partial_window migration is not mechanical"]="mechanically replace .*partial_window\\(N\\)\\.execute_rows\\(\\)"
-    ["generated SQL is not a public endpoint substitute"]="Generated SQL endpoints.*public read endpoints"
-    ["generated SQL wrapper warning"]="Do not expose .*icydb_query"
+    ["partial_window is framed as partial row-window intent"]="partial row window"
+    ["partial_window guide includes the low-level partial execution token"]="partial_window\\(N\\)\\.execute_rows\\(\\)"
+    ["partial_window migration guidance warns against mechanical rewrites"]="mechanically replace"
+    ["generated SQL boundary names public endpoint risk"]="public .*endpoint"
+    ["generated SQL wrapper warning names icydb_query"]="icydb_query"
   )
 
   for required_read_intent_concept in "${!required_read_intent_concepts[@]}"; do

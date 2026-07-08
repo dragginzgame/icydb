@@ -364,6 +364,18 @@ where
         self.with_non_paged(|session, query| strategy.explain(session, query))
     }
 
+    fn explain_exact_aggregate_terminal<S>(
+        &self,
+        strategy: &S,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+        S: TerminalStrategyDriver<E, ExplainOutput = ExplainAggregateTerminalPlan>,
+    {
+        self.explain_terminal(strategy)
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+    }
+
     fn ensure_exists_intent_owns_limit(&self) -> Result<(), QueryError> {
         self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_exists_terminal())
     }
@@ -604,8 +616,7 @@ where
     {
         self.ensure_count_exact_intent_owns_limit()?;
 
-        self.explain_terminal(&CountRowsTerminal::new())
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+        self.explain_exact_aggregate_terminal(&CountRowsTerminal::new())
     }
 
     /// Execute and return the number of matching rows with terminal attribution.
@@ -728,8 +739,7 @@ where
     {
         self.ensure_min_exact_intent_owns_limit()?;
 
-        self.explain_terminal(&MinIdTerminal::new())
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+        self.explain_exact_aggregate_terminal(&MinIdTerminal::new())
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -772,8 +782,7 @@ where
 
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&MinIdBySlotTerminal::new(target_slot))
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+        self.explain_exact_aggregate_terminal(&MinIdBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the largest matching identifier, if any.
@@ -813,8 +822,7 @@ where
     {
         self.ensure_max_exact_intent_owns_limit()?;
 
-        self.explain_terminal(&MaxIdTerminal::new())
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+        self.explain_exact_aggregate_terminal(&MaxIdTerminal::new())
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -857,8 +865,7 @@ where
 
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&MaxIdBySlotTerminal::new(target_slot))
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+        self.explain_exact_aggregate_terminal(&MaxIdBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the id at zero-based ordinal `nth` when rows are
@@ -910,8 +917,7 @@ where
 
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&SumBySlotTerminal::new(target_slot))
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+        self.explain_exact_aggregate_terminal(&SumBySlotTerminal::new(target_slot))
     }
 
     /// Explain scalar `sum_by(field)` routing without executing the terminal.
@@ -1001,8 +1007,7 @@ where
 
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&AvgBySlotTerminal::new(target_slot))
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+        self.explain_exact_aggregate_terminal(&AvgBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the average of distinct `field` values.

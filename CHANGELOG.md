@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
+
+Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
+
+- `0.199.0` starts the technical-debt audit line with normalized design docs,
+  read/query boundary evidence, direct-query and partial-window cleanup, and
+  small drift-reduction refactors without changing public behavior.
+
 ## [0.198.x] ⚠️ - 2026-07-06 - Read Intent Ergonomics
 
 Detailed notes: [docs/changelog/0.198.md](docs/changelog/0.198.md)

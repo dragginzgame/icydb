@@ -20,6 +20,7 @@ mod order_contract;
 mod order_term;
 mod pipeline;
 mod planner;
+mod primary_key_access_proof;
 mod primary_key_input_resource;
 mod projection;
 mod semantics;
@@ -138,6 +139,7 @@ pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,
     residual_query_predicate_after_filtered_access_contract,
 };
+pub(in crate::db::query::plan) use primary_key_access_proof::PrimaryKeyAccessProof;
 pub(in crate::db::query) use primary_key_input_resource::primary_key_input_resource_from_value_list;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::lower_global_aggregate_projection;

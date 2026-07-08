@@ -39,6 +39,7 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     // Intent inspection
     // ------------------------------------------------------------------
 
+    #[doc(hidden)]
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
@@ -515,6 +516,7 @@ pub struct PartialWindowLoadQuery<'a, E: Entity> {
 }
 
 impl<E: Entity> PartialWindowLoadQuery<'_, E> {
+    #[doc(hidden)]
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()

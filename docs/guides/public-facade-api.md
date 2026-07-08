@@ -1,9 +1,10 @@
 # Public Database Facade API Reference
 
 This is the current command vocabulary for the public database/session facade
-under `icydb::db`. It is a reference map, not a behavioral contract. Detailed
-read-admission rules live in [`READ_ADMISSION.md`](../contracts/READ_ADMISSION.md),
-and endpoint migration guidance lives in [`read-intent.md`](read-intent.md).
+under `icydb::db` after the 0.198 read-intent hard cut. It is a reference map,
+not a behavioral contract. Detailed read-admission rules live in
+[`READ_ADMISSION.md`](../contracts/READ_ADMISSION.md), and endpoint migration
+guidance lives in [`read-intent.md`](read-intent.md).
 
 ## Why The API Is Intent-First
 
@@ -420,7 +421,6 @@ state. They do not authorize broad row execution.
 These commands inspect a load or delete query without changing rows.
 
 ```rust
-.query()
 .plan_hash_hex()
 .trace()
 .planned()
@@ -484,12 +484,14 @@ developer-facing facade and should not be taught as endpoint recipes.
 
 These commands execute prebuilt `Query<E>` values rather than a fluent load.
 They are hidden/advanced surfaces for generated or diagnostics tooling that
-intentionally owns query construction. They are not endpoint recipes.
+intentionally owns query construction. They are not endpoint recipes, and the
+fluent `.query()` extraction method is hidden from public docs for the same
+reason.
 
 ```rust
-db.execute_query(query)
-db.trace_query(query)
-db.execute_query_result_with_attribution(query)
+db.execute_query(&query)
+db.trace_query(&query)
+db.execute_query_result_with_attribution(&query)
 ```
 
 ### Generated/Policy SQL Helpers
