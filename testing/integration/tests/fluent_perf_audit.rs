@@ -1067,30 +1067,22 @@ fn assert_cold_token_branch_set_page_sample(sample: &FluentPerfScenarioSample) {
     );
 }
 
-fn assert_warm_token_branch_set_page_sample(
-    sample: &FluentPerfScenarioSample,
-    cold_sample: &FluentPerfScenarioSample,
-) {
-    assert_eq!(
-        cold_sample.avg_shared_query_plan_cache_hits, 0,
-        "cold token fluent branch-set should not reuse the shared query-plan cache",
-    );
-    assert_eq!(
-        cold_sample.avg_shared_query_plan_cache_misses, 1,
-        "cold token fluent branch-set should populate the shared query-plan cache",
-    );
+fn assert_cached_token_branch_set_page_sample(sample: &FluentPerfScenarioSample, label: &str) {
     assert_eq!(
         sample.avg_shared_query_plan_cache_hits, 1,
-        "warm token fluent branch-set should reuse the shared query-plan cache",
+        "{label} should reuse the shared query-plan cache",
     );
     assert_eq!(
         sample.avg_shared_query_plan_cache_misses, 0,
-        "warm token fluent branch-set query should not rebuild the plan after update warm",
+        "{label} should not rebuild the shared query plan",
     );
-    assert!(
-        sample.avg_compile_cache_insert_local_instructions
-            < cold_sample.avg_compile_cache_insert_local_instructions,
-        "warm token fluent branch-set should avoid the cold shared query-plan cache insert path",
+    assert_eq!(
+        sample.avg_compile_plan_build_local_instructions, 0,
+        "{label} should not run the shared plan-build phase on a cache hit",
+    );
+    assert_eq!(
+        sample.avg_compile_cache_insert_local_instructions, 0,
+        "{label} should not run the shared cache-insert phase on a cache hit",
     );
 }
 
@@ -1103,10 +1095,12 @@ fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
     let sample = sample_perf_scenario(&fixture, &baseline, token_branch_set_page_scenario());
     print_token_branch_set_page_sample("fluent token branch-set page", &sample);
     assert_cold_token_branch_set_page_sample(&sample);
+    assert_cached_token_branch_set_page_sample(&sample, "token fluent branch-set page");
 
     let warm = sample_perf_scenario(&fixture, &baseline, warm_token_branch_set_page_scenario());
     print_token_branch_set_page_sample("warm fluent token branch-set page", &warm);
-    assert_warm_token_branch_set_page_sample(&warm, &sample);
+    assert_cold_token_branch_set_page_sample(&warm);
+    assert_cached_token_branch_set_page_sample(&warm, "warm token fluent branch-set page");
 }
 
 #[test]
