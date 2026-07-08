@@ -1072,6 +1072,14 @@ fn assert_warm_token_branch_set_page_sample(
     cold_sample: &FluentPerfScenarioSample,
 ) {
     assert_eq!(
+        cold_sample.avg_shared_query_plan_cache_hits, 0,
+        "cold token fluent branch-set should not reuse the shared query-plan cache",
+    );
+    assert_eq!(
+        cold_sample.avg_shared_query_plan_cache_misses, 1,
+        "cold token fluent branch-set should populate the shared query-plan cache",
+    );
+    assert_eq!(
         sample.avg_shared_query_plan_cache_hits, 1,
         "warm token fluent branch-set should reuse the shared query-plan cache",
     );
@@ -1080,8 +1088,9 @@ fn assert_warm_token_branch_set_page_sample(
         "warm token fluent branch-set query should not rebuild the plan after update warm",
     );
     assert!(
-        sample.avg_compile_local_instructions < cold_sample.avg_compile_local_instructions,
-        "warm token fluent branch-set compile path should be cheaper than cold query calls",
+        sample.avg_compile_cache_insert_local_instructions
+            < cold_sample.avg_compile_cache_insert_local_instructions,
+        "warm token fluent branch-set should avoid the cold shared query-plan cache insert path",
     );
 }
 
