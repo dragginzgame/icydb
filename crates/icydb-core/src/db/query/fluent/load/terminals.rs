@@ -37,7 +37,7 @@ use crate::{
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             fluent::load::{FluentLoadQuery, LoadQueryResult},
             intent::{IntentError, QueryError},
-            plan::AggregateKind,
+            plan::{AggregateKind, FieldSlot},
             read_intent::{
                 COMPLETE_SMALL_EXECUTION_LIMIT, COMPLETE_SMALL_MAX_ROWS,
                 PUBLIC_PAGE_MAX_RESPONSE_BYTES,
@@ -374,6 +374,20 @@ where
         self.with_non_paged(|session, query| strategy.explain(session, query))
     }
 
+    fn explain_checked_exact_aggregate_terminal<S>(
+        &self,
+        err: IntentError,
+        strategy: &S,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+        S: TerminalStrategyDriver<E, ExplainOutput = ExplainAggregateTerminalPlan>,
+    {
+        self.ensure_exact_aggregate_intent_owns_limit(err)?;
+
+        self.explain_exact_aggregate_terminal(strategy)
+    }
+
     fn explain_exact_aggregate_terminal<S>(
         &self,
         strategy: &S,
@@ -384,6 +398,64 @@ where
     {
         self.explain_terminal(strategy)
             .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
+    }
+
+    fn execute_exact_aggregate_terminal<S>(
+        &self,
+        err: IntentError,
+        strategy: S,
+    ) -> Result<S::Output, QueryError>
+    where
+        E: EntityValue,
+        S: TerminalStrategyDriver<E>,
+    {
+        self.ensure_exact_aggregate_intent_owns_limit(err)?;
+
+        self.execute_terminal(strategy)
+    }
+
+    fn execute_exact_aggregate_by_slot_terminal<S>(
+        &self,
+        field: impl AsRef<str>,
+        err: IntentError,
+        make_strategy: impl FnOnce(FieldSlot) -> S,
+    ) -> Result<S::Output, QueryError>
+    where
+        E: EntityValue,
+        S: TerminalStrategyDriver<E>,
+    {
+        let target_slot = self.resolve_exact_aggregate_slot(field, err)?;
+
+        self.execute_terminal(make_strategy(target_slot))
+    }
+
+    fn explain_exact_aggregate_by_slot_terminal<S>(
+        &self,
+        field: impl AsRef<str>,
+        err: IntentError,
+        make_strategy: impl FnOnce(FieldSlot) -> S,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+        S: TerminalStrategyDriver<E, ExplainOutput = ExplainAggregateTerminalPlan>,
+    {
+        let target_slot = self.resolve_exact_aggregate_slot(field, err)?;
+        let strategy = make_strategy(target_slot);
+
+        self.explain_exact_aggregate_terminal(&strategy)
+    }
+
+    fn resolve_exact_aggregate_slot(
+        &self,
+        field: impl AsRef<str>,
+        err: IntentError,
+    ) -> Result<FieldSlot, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_exact_aggregate_intent_owns_limit(err)?;
+
+        self.resolve_non_paged_slot(field)
     }
 
     // Run one complete-small-set operation through the terminal-owned
@@ -433,36 +505,6 @@ where
 
     fn ensure_exists_intent_owns_limit(&self) -> Result<(), QueryError> {
         self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_exists_terminal())
-    }
-
-    fn ensure_count_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_exact_aggregate_intent_owns_limit(
-            IntentError::raw_limit_before_count_exact_terminal(),
-        )
-    }
-
-    fn ensure_sum_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_exact_aggregate_intent_owns_limit(
-            IntentError::raw_limit_before_sum_exact_terminal(),
-        )
-    }
-
-    fn ensure_min_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_exact_aggregate_intent_owns_limit(
-            IntentError::raw_limit_before_min_exact_terminal(),
-        )
-    }
-
-    fn ensure_max_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_exact_aggregate_intent_owns_limit(
-            IntentError::raw_limit_before_max_exact_terminal(),
-        )
-    }
-
-    fn ensure_avg_exact_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_exact_aggregate_intent_owns_limit(
-            IntentError::raw_limit_before_avg_exact_terminal(),
-        )
     }
 
     fn ensure_exact_aggregate_intent_owns_limit(&self, err: IntentError) -> Result<(), QueryError> {
@@ -634,9 +676,10 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_count_exact_intent_owns_limit()?;
-
-        self.execute_terminal(CountRowsTerminal::new())
+        self.execute_exact_aggregate_terminal(
+            IntentError::raw_limit_before_count_exact_terminal(),
+            CountRowsTerminal::new(),
+        )
     }
 
     /// Explain exact count routing without executing the terminal.
@@ -644,9 +687,10 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_count_exact_intent_owns_limit()?;
-
-        self.explain_exact_aggregate_terminal(&CountRowsTerminal::new())
+        self.explain_checked_exact_aggregate_terminal(
+            IntentError::raw_limit_before_count_exact_terminal(),
+            &CountRowsTerminal::new(),
+        )
     }
 
     /// Execute and return the number of matching rows with terminal attribution.
@@ -670,7 +714,9 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_count_exact_intent_owns_limit()?;
+        self.ensure_exact_aggregate_intent_owns_limit(
+            IntentError::raw_limit_before_count_exact_terminal(),
+        )?;
 
         self.execute_count_terminal_with_attribution(ReadIntentKind::ExactAggregate)
     }
@@ -729,9 +775,10 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_min_exact_intent_owns_limit()?;
-
-        self.execute_terminal(MinIdTerminal::new())
+        self.execute_exact_aggregate_terminal(
+            IntentError::raw_limit_before_min_exact_terminal(),
+            MinIdTerminal::new(),
+        )
     }
 
     /// Explain scalar `min()` routing without executing the terminal.
@@ -747,9 +794,10 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_min_exact_intent_owns_limit()?;
-
-        self.explain_exact_aggregate_terminal(&MinIdTerminal::new())
+        self.explain_checked_exact_aggregate_terminal(
+            IntentError::raw_limit_before_min_exact_terminal(),
+            &MinIdTerminal::new(),
+        )
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -773,11 +821,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_min_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(MinIdBySlotTerminal::new(target_slot))
+        self.execute_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_min_exact_terminal(),
+            MinIdBySlotTerminal::new,
+        )
     }
 
     /// Explain exact `min_exact_by(field)` routing without executing the terminal.
@@ -788,11 +836,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_min_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_exact_aggregate_terminal(&MinIdBySlotTerminal::new(target_slot))
+        self.explain_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_min_exact_terminal(),
+            MinIdBySlotTerminal::new,
+        )
     }
 
     /// Execute and return the largest matching identifier, if any.
@@ -812,9 +860,10 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_max_exact_intent_owns_limit()?;
-
-        self.execute_terminal(MaxIdTerminal::new())
+        self.execute_exact_aggregate_terminal(
+            IntentError::raw_limit_before_max_exact_terminal(),
+            MaxIdTerminal::new(),
+        )
     }
 
     /// Explain scalar `max()` routing without executing the terminal.
@@ -830,9 +879,10 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_max_exact_intent_owns_limit()?;
-
-        self.explain_exact_aggregate_terminal(&MaxIdTerminal::new())
+        self.explain_checked_exact_aggregate_terminal(
+            IntentError::raw_limit_before_max_exact_terminal(),
+            &MaxIdTerminal::new(),
+        )
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -856,11 +906,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_max_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(MaxIdBySlotTerminal::new(target_slot))
+        self.execute_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_max_exact_terminal(),
+            MaxIdBySlotTerminal::new,
+        )
     }
 
     /// Explain exact `max_exact_by(field)` routing without executing the terminal.
@@ -871,11 +921,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_max_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_exact_aggregate_terminal(&MaxIdBySlotTerminal::new(target_slot))
+        self.explain_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_max_exact_terminal(),
+            MaxIdBySlotTerminal::new,
+        )
     }
 
     /// Execute and return the id at zero-based ordinal `nth` when rows are
@@ -908,11 +958,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_sum_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(SumBySlotTerminal::new(target_slot))
+        self.execute_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_sum_exact_terminal(),
+            SumBySlotTerminal::new,
+        )
     }
 
     /// Explain exact sum routing without executing the terminal.
@@ -923,11 +973,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_sum_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_exact_aggregate_terminal(&SumBySlotTerminal::new(target_slot))
+        self.explain_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_sum_exact_terminal(),
+            SumBySlotTerminal::new,
+        )
     }
 
     /// Explain scalar `sum_by(field)` routing without executing the terminal.
@@ -985,11 +1035,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_avg_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(AvgBySlotTerminal::new(target_slot))
+        self.execute_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_avg_exact_terminal(),
+            AvgBySlotTerminal::new,
+        )
     }
 
     /// Explain scalar `avg_by(field)` routing without executing the terminal.
@@ -1013,11 +1063,11 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_avg_exact_intent_owns_limit()?;
-
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_exact_aggregate_terminal(&AvgBySlotTerminal::new(target_slot))
+        self.explain_exact_aggregate_by_slot_terminal(
+            field,
+            IntentError::raw_limit_before_avg_exact_terminal(),
+            AvgBySlotTerminal::new,
+        )
     }
 
     /// Execute and return the average of distinct `field` values.

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.4` continues the technical-debt audit line by centralizing
+  exact-aggregate terminal guard, field-slot, execution, and EXPLAIN wiring
+  without changing public aggregate behavior.
+
 - `0.199.3` continues the technical-debt audit line by consolidating
   complete-small-set admission handoff and hidden fluent terminal attribution
   metadata without changing public read behavior.
