@@ -2120,6 +2120,27 @@ fn default_fluent_execute_rejects_unindexed_full_scan() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn default_fluent_execute_with_attribution_rejects_unindexed_full_scan() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
+
+    let err = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .limit(1)
+        .execute_with_attribution()
+        .expect_err("hidden fluent attribution should not bypass default read admission");
+
+    assert_read_admission_rejection(
+        err,
+        QueryReadAdmissionCode::UnboundedFullScanRejected,
+        "default fluent execute_with_attribution full scan",
+    );
+}
+
 #[test]
 fn default_fluent_execute_rows_rejects_unindexed_full_scan_without_policy_setup() {
     reset_session_sql_store();

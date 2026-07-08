@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.8` continues the technical-debt audit line by routing hidden fluent
+  load attribution through the same non-paged read-admission boundary as normal
+  fluent execution.
+
 - `0.199.7` continues the technical-debt audit line by centralizing custom
   field-slot session handoffs for bytes, projections, and ranked helpers
   without changing public field terminal behavior.

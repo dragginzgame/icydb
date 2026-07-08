@@ -298,6 +298,19 @@ where
         self.with_admitted_non_paged(DbSession::execute_query_result)
     }
 
+    /// Execute this query with diagnostics attribution through the same
+    /// admitted non-paged boundary as `execute()`.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn execute_with_attribution(
+        &self,
+    ) -> Result<(LoadQueryResult<E>, QueryExecutionAttribution), QueryError>
+    where
+        E: EntityValue,
+    {
+        self.with_admitted_non_paged(DbSession::execute_query_result_with_attribution)
+    }
+
     /// Execute this query through the scalar rows-only session boundary.
     pub fn execute_rows(&self) -> Result<EntityResponse<E>, QueryError>
     where
