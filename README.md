@@ -55,10 +55,15 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.14", features = ["sql"] }
 ```
 
-Canisters normally call `icydb::start!()` in `src/lib.rs`, add
-`icydb-config` as a build dependency using the same tag, and use
-`icydb_config::build_configured_canister!()` in `build.rs` so generated actor
+Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
+build dependency using the same tag, and use
+`icydb::build::build_configured_canister!()` in `build.rs` so generated actor
 glue follows the active `icydb.toml`.
+
+```toml
+[build-dependencies]
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.14" }
+```
 
 ## Minimal Schema
 
@@ -256,9 +261,10 @@ usage, IC test prerequisites, and wasm report commands live in
 - `crates/icydb` - public API crate and facade.
 - `crates/icydb-core` - runtime, planner, executor, persisted rows, stores,
   SQL, schema catalog, and metrics internals.
-- `crates/icydb-build` - generated canister actor glue.
-- `crates/icydb-config` - host-side `icydb.toml` parsing for build
-  scripts and CLI checks.
+- `crates/icydb-build` - generated canister actor glue implementation behind
+  the public `icydb::build` facade.
+- `crates/icydb-config` - host-side `icydb.toml` parsing behind
+  `icydb::build` and CLI checks.
 - `crates/icydb-derive` - public derive helpers.
 - `crates/icydb-diagnostic-code` - compact diagnostic code registry and
   public diagnostic metadata.

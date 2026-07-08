@@ -22,9 +22,10 @@
 //! - `base`
 //!   Design-time helpers, sanitizers, and validators used by schemas and macros.
 //!
-//! - `build`
-//!   Internal code generation helpers used by macros and tests
-//!   (not intended for direct use).
+//! - `build` *(host builds)*
+//!   Host-side build-script facade for generated actor glue. Downstream
+//!   canister `build.rs` files should use this module rather than depending on
+//!   lower-level implementation crates directly.
 //!
 //! - `traits` / `types` / `value` / `visitor`
 //!   Stable runtime and schema-facing building blocks used by generated code.
@@ -153,6 +154,28 @@ pub mod visitor {
 
 // facade modules
 pub mod base;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod build {
+    //! Host-side build-script facade for generated actor glue.
+    //!
+    //! This module is the advertised downstream build-script API. Add `icydb`
+    //! to `[build-dependencies]`, then call
+    //! `icydb::build::build_configured_canister!()` from `build.rs`.
+    //!
+    //! `icydb-build` and `icydb-config` remain implementation crates behind
+    //! this facade. The module is host-only and is not part of wasm runtime
+    //! builds.
+
+    pub use icydb_build::build_with_options;
+    pub use icydb_build::{BuildOptions, BuildSqlUpdatePolicy, generate_with_options};
+    pub use icydb_config::{
+        ConfigError, GeneratedBuildTarget, GeneratedCanisterConfig, GeneratedIcydbConfig,
+        GeneratedMetricsMode, GeneratedMetricsPolicy, GeneratedSqlIntrospectionPolicy,
+        GeneratedSqlUpdatePolicy, ResolvedIcydbConfig, build_configured_canister,
+        emit_config_for_build_script, emit_configured_canister_for_build_script,
+        load_resolved_icydb_toml, resolve_existing_icydb_toml,
+    };
+}
 pub mod db;
 pub mod diagnostic {
     //! Compact diagnostic identity for CLI and canister callers.
@@ -351,4 +374,33 @@ pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
     icydb_core::validate::validate(node)
         .map_err(InternalError::from)
         .map_err(Error::from)
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use crate::build;
+
+    #[test]
+    fn build_facade_exports_configured_and_manual_entrypoints() {
+        let options = build::BuildOptions::default()
+            .with_metrics_enabled(true)
+            .with_sql_update_policy(Some(build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly));
+        assert!(options.metrics_enabled());
+        assert_eq!(
+            options.sql_update_policy(),
+            Some(build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)
+        );
+        assert_eq!(
+            build::GeneratedBuildTarget::default(),
+            build::GeneratedBuildTarget::Unknown
+        );
+    }
+
+    #[allow(dead_code)]
+    fn build_facade_macros_resolve() -> Result<(), Box<dyn std::error::Error>> {
+        build::build_configured_canister!((), "crate::Canister", "canister");
+        build::build_with_options!("crate::Canister", build::BuildOptions::default());
+
+        Ok(())
+    }
 }

@@ -9,7 +9,7 @@
 #[macro_export]
 macro_rules! build_configured_canister {
     ($canister_ty:ty, $canister_path:literal, $canister_name:literal) => {{
-        icydb_config::build_configured_canister!($canister_ty, $canister_path, $canister_name);
+        icydb::build::build_configured_canister!($canister_ty, $canister_path, $canister_name);
     }};
 }
 

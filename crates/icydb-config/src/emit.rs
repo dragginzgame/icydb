@@ -37,8 +37,9 @@ pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigErro
 
 /// Emit generated actor glue for one canister using the effective config.
 ///
-/// The low-level build options remain owned by `icydb-build`; build scripts
-/// should call `build_configured_canister!` instead of constructing them.
+/// The low-level build options remain owned by `icydb-build`; downstream build
+/// scripts should call `icydb::build::build_configured_canister!()` instead of
+/// constructing them.
 pub fn emit_configured_canister_for_build_script(
     canister_path: &str,
     canister_name: &str,

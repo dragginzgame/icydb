@@ -29,6 +29,10 @@ icydb-utils = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+icydb-build = { workspace = true }
+icydb-config = { workspace = true }
+
 [dev-dependencies]
 trybuild = { workspace = true }
 

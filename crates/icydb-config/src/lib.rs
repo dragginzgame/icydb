@@ -5,7 +5,8 @@
 //!
 //! This crate owns existing config discovery, TOML parsing, and validation for
 //! build scripts and CLI commands. Runtime crates and generated actor code
-//! should consume only the generated actor source emitted by `icydb-build`.
+//! should consume only the generated actor source emitted behind the public
+//! `icydb::build` facade.
 
 mod emit;
 mod error;
@@ -33,6 +34,9 @@ const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
 
 /// Emit generated actor glue for one canister using the effective
 /// `icydb.toml` switches.
+///
+/// Downstream canister build scripts should normally call this through
+/// `icydb::build::build_configured_canister!()`.
 #[macro_export]
 macro_rules! build_configured_canister {
     ($canister_ty:ty, $canister_path:literal, $canister_name:literal) => {{

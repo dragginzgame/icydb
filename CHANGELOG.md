@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.15` restores the host-only `icydb::build` facade as the advertised
+  downstream build-script API while keeping build/config implementation crates
+  behind the public `icydb` crate.
+
 - `0.199.14` continues the technical-debt audit line by splitting public
   `DbSession` catalog, write, paging, and partial-window facade ownership into
   dedicated modules without changing facade behavior.
