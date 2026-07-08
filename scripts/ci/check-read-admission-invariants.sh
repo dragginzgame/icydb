@@ -23,9 +23,12 @@ GENERATED_SQL="crates/icydb-build/src/db/sql.rs"
 CONFIG_PARSE="crates/icydb-config/src/parse.rs"
 PUBLIC_FACADE="crates/icydb/src"
 PUBLIC_CRATE_LIB="crates/icydb/src/lib.rs"
+PUBLIC_FACADE_QUERY="crates/icydb/src/db/query/mod.rs"
 PUBLIC_FACADE_SESSION="crates/icydb/src/db/session/mod.rs"
 PUBLIC_FACADE_LOAD="crates/icydb/src/db/session/load.rs"
+PUBLIC_FACADE_LOAD_PAGING="crates/icydb/src/db/session/load/paging.rs"
 PUBLIC_FACADE_SESSION_MACROS="crates/icydb/src/db/session/macros.rs"
+PUBLIC_FACADE_SQL="crates/icydb/src/db/session/sql.rs"
 ADMISSION_SOURCE="crates/icydb-core/src/db/query/admission.rs"
 READ_INTENT_SOURCE="crates/icydb-core/src/db/query/read_intent.rs"
 DIAGNOSTIC_CODES="crates/icydb-diagnostic-code/src/lib.rs"
@@ -395,7 +398,7 @@ else
   done
 
   declare -A required_public_facade_tokens=(
-    ["$PUBLIC_FACADE_SESSION"]="caller-controlled SQL"
+    ["$PUBLIC_FACADE_SQL"]="caller-controlled SQL"
     ["$PUBLIC_FACADE_SESSION_MACROS"]="QueryResponse::Grouped"
     ["$PUBLIC_FACADE_LOAD"]="execute().into_grouped()"
   )
@@ -411,24 +414,24 @@ else
   done
 
   require_file_pattern \
-    "$PUBLIC_FACADE_LOAD" \
+    "$PUBLIC_FACADE_LOAD_PAGING" \
     "cursor pagination mentions default bounded admission" \
     "Cursor pagination runs through the default bounded read-admission lane"
 
   require_file_pattern \
-    "$PUBLIC_FACADE_SESSION" \
+    "$PUBLIC_FACADE_SQL" \
     "SQL helper warns about caller-controlled SQL" \
     "caller-controlled SQL.*public-safe"
 
   require_file_pattern \
-    "$PUBLIC_FACADE_SESSION" \
+    "$PUBLIC_FACADE_SQL" \
     "SQL attribution helper keeps generated controller-gated lane wording" \
     "generated controller-gated SQL surfaces"
 
   require_file_pattern \
-    "$PUBLIC_FACADE_SESSION" \
+    "$PUBLIC_FACADE_QUERY" \
     "direct query execution is hidden from normal endpoint API" \
-    "Normal endpoint code should prefer .*semantic"
+    "Normal endpoint code.*semantic terminal"
 fi
 
 if [[ ! -f "$GENERATED_SQL" ]]; then

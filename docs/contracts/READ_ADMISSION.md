@@ -14,8 +14,7 @@ Ordinary typed/fluent read execution is bounded by default. Normal endpoint
 code should use `load::<E>()` plus a semantic terminal such as `try_one()`,
 `page(...)`, `collect_complete()`, `exists()`, or an exact aggregate helper.
 Fluent `execute`, `execute_rows`, cursor-paged `execute`, and fluent terminal
-execution methods use the built-in default bounded-read policy. Hidden
-prebuilt-query execution helpers use the same gate when internal/generated
+execution methods use the built-in default bounded-read policy. The hidden prebuilt-query execution helpers use the same gate when internal/generated
 tooling intentionally owns low-level query construction. Trusted
 maintenance/admin fluent code that has already enforced caller authorization
 and its own resource policy must mark the query with

@@ -23,7 +23,7 @@ pub use icydb_core::db::{
 };
 
 // Low-level direct-query intent remains available to facade internals and
-// diagnostics. Normal endpoint code should use `DbSession::load::<E>()` plus a
-// semantic terminal instead of constructing `Query<E>` directly.
+// diagnostics. Normal endpoint code should use `DbSession::load::<E>()` plus a semantic terminal
+// instead of constructing `Query<E>` directly.
 #[doc(hidden)]
 pub use icydb_core::db::Query;
