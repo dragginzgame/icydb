@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Continues the 0.199 technical-debt cleanup by splitting public `DbSession`
+  catalog/show/storage-report methods and write-returning/structural mutation
+  helpers into dedicated owner modules, and by splitting fluent load paging and
+  partial-window wrappers away from the parent load facade without changing
+  facade behavior.
+
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)

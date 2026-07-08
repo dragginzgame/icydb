@@ -4,14 +4,17 @@
 //! Does not own: core execution, storage engines, or planner semantics.
 //! Boundary: wraps core sessions with stable generated-code and application APIs.
 
+mod paging;
+mod partial_window;
+
 use crate::{
     db::{
-        AdminBatchRequest, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
+        ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
             QueryTracePlan,
         },
-        response::{PagedResponse, QueryResponse, Response},
+        response::{QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
@@ -21,6 +24,8 @@ use crate::{
 };
 
 use icydb_core as core;
+
+pub use partial_window::PartialWindowLoadQuery;
 
 ///
 /// FluentLoadQuery
@@ -131,58 +136,6 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     // Execution primitives
     // ------------------------------------------------------------------
     impl_session_materialization_methods!();
-
-    /// Execute the first typed cursor page with the requested page size.
-    ///
-    /// Cursor pagination requires explicit ordering and disallows a prior
-    /// `partial_window(...)`. IcyDB clamps the requested page size to the
-    /// engine-owned public page cap.
-    /// Cursor pagination runs through the default bounded read-admission lane.
-    /// Continuation is best-effort and forward-only over live state:
-    /// deterministic per request under canonical ordering, with no
-    /// snapshot/version pinned across requests.
-    pub fn page(self, limit: u32) -> Result<PagedResponse<E>, Error> {
-        Ok(Self::paged_response_from_execution(self.inner.page(limit)?))
-    }
-
-    /// Execute the next typed cursor page from a previous continuation cursor.
-    ///
-    /// This is the continuation counterpart to `page(limit)`. The cursor is an
-    /// opaque token returned by the previous page response.
-    pub fn next_page(
-        self,
-        limit: u32,
-        cursor: impl Into<String>,
-    ) -> Result<PagedResponse<E>, Error> {
-        Ok(Self::paged_response_from_execution(
-            self.inner.next_page(limit, cursor)?,
-        ))
-    }
-
-    /// Execute a trusted/admin cursor batch with an engine-owned batch size.
-    ///
-    /// This terminal is only for reads that have already opted into
-    /// `trusted_read_unchecked()`. Application-facing list endpoints should
-    /// use `page(limit)` / `next_page(limit, cursor)`.
-    pub fn admin_batch(self, request: AdminBatchRequest) -> Result<PagedResponse<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(Self::paged_response_from_execution(
-            self.inner.admin_batch(request)?,
-        ))
-    }
-
-    fn paged_response_from_execution(execution: core::db::PagedLoadExecution<E>) -> PagedResponse<E>
-    where
-        E: Entity,
-    {
-        let read_intent = execution.read_intent();
-        let (response, continuation_cursor) = execution.into_response_and_cursor();
-        let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
-
-        PagedResponse::new(response.entities(), next_cursor, read_intent)
-    }
 
     /// Execute as a scalar row load through the default bounded read-admission
     /// gate.
@@ -504,123 +457,5 @@ impl<E: Entity + SingletonEntity> FluentLoadQuery<'_, E> {
     {
         self.inner = self.inner.singleton();
         self
-    }
-}
-
-///
-/// PartialWindowLoadQuery
-///
-/// Facade wrapper for deliberately partial row-window reads.
-/// It exposes materialization and diagnostics, but not semantic terminals such
-/// as paging, complete collection, existence, or exact aggregates.
-///
-
-pub struct PartialWindowLoadQuery<'a, E: Entity> {
-    inner: core::db::PartialWindowLoadQuery<'a, E>,
-}
-
-impl<E: Entity> PartialWindowLoadQuery<'_, E> {
-    /// Execute this partial window with diagnostics attribution.
-    #[cfg(feature = "diagnostics")]
-    #[doc(hidden)]
-    pub fn execute_with_attribution(
-        &self,
-    ) -> Result<(QueryResponse<E>, crate::db::QueryExecutionAttribution), Error>
-    where
-        E: Entity,
-    {
-        let (result, attribution) = self.inner.execute_with_attribution()?;
-
-        Ok((QueryResponse::from_core(result), attribution))
-    }
-
-    /// Mark this partial window as trusted and bypass the default bounded read
-    /// gate.
-    ///
-    /// Use this only for controller/admin maintenance code that owns its
-    /// authorization and resource policy. Caller-facing list endpoints should
-    /// use `page(limit)` / `next_page(limit, cursor)` instead of trusted
-    /// partial windows.
-    #[must_use]
-    pub fn trusted_read_unchecked(mut self) -> Self {
-        self.inner = self.inner.trusted_read_unchecked();
-        self
-    }
-
-    /// Execute this deliberately partial row window.
-    ///
-    /// Scalar queries return `QueryResponse::Rows`; grouped queries return
-    /// `QueryResponse::Grouped`. Use `into_rows()` or `into_grouped()` when
-    /// the endpoint expects one concrete shape.
-    pub fn execute(&self) -> Result<QueryResponse<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(QueryResponse::from_core(self.inner.execute()?))
-    }
-
-    /// Execute this deliberately partial row window as scalar entity rows.
-    pub fn execute_rows(&self) -> Result<Response<E>, Error>
-    where
-        E: Entity,
-    {
-        Ok(Response::from_core(self.inner.execute_rows()?))
-    }
-
-    /// Return the stable plan hash for this partial-window query.
-    pub fn plan_hash_hex(&self) -> Result<String, Error> {
-        Ok(self.inner.plan_hash_hex()?)
-    }
-
-    /// Build one trace payload without executing the partial-window query.
-    pub fn trace(&self) -> Result<QueryTracePlan, Error> {
-        Ok(self.inner.trace()?)
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, Error> {
-        Ok(self.inner.planned()?)
-    }
-
-    /// Build the compiled executable plan for this partial-window query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, Error> {
-        Ok(self.inner.plan()?)
-    }
-
-    /// Build logical explain metadata for the current partial-window query.
-    pub fn explain(&self) -> Result<ExplainPlan, Error> {
-        Ok(self.inner.explain()?)
-    }
-
-    /// Explain the execution shape without executing the partial-window query.
-    pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_execution()?)
-    }
-
-    /// Render execution explain output as a compact text tree.
-    pub fn explain_execution_text(&self) -> Result<String, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_execution_text()?)
-    }
-
-    /// Render execution explain output as canonical JSON.
-    pub fn explain_execution_json(&self) -> Result<String, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_execution_json()?)
-    }
-
-    /// Render execution explain output as a verbose text tree.
-    pub fn explain_execution_verbose(&self) -> Result<String, Error>
-    where
-        E: Entity,
-    {
-        Ok(self.inner.explain_execution_verbose()?)
     }
 }
