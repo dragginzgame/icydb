@@ -1000,7 +1000,7 @@ fn execute_cached_plan_reuse_sparse_collection_query(
         );
     let range_scans_before = crate::db::index::IndexStore::current_range_scan_call_count();
     let rows = session
-        .execute_query(&cached_plan_reuse_sparse_collection_query())
+        .execute_scalar_query_rows(&cached_plan_reuse_sparse_collection_query())
         .unwrap_or_else(|err| panic!("cached sparse collection query should execute: {err:?}"));
     let range_scans = crate::db::index::IndexStore::current_range_scan_call_count()
         .saturating_sub(range_scans_before);

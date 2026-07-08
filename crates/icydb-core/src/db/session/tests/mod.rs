@@ -583,7 +583,7 @@ where
         return Err(QueryError::unsupported_query());
     }
 
-    session.execute_query(&query)
+    session.execute_scalar_query_rows(&query)
 }
 
 // Execute one grouped SELECT through the grouped query runtime while keeping

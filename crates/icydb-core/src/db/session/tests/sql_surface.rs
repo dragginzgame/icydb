@@ -1887,7 +1887,7 @@ fn fluent_load_reads_old_rows_after_nullable_additive_schema_transition() {
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let rows = session
-        .execute_query(&Query::<SessionNullableSqlEntity>::new(
+        .execute_scalar_query_rows(&Query::<SessionNullableSqlEntity>::new(
             MissingRowPolicy::Ignore,
         ))
         .expect("fluent load should accept old row after nullable append-only schema transition")
@@ -8627,7 +8627,7 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
         .order_term(crate::db::asc("id"))
         .limit(1);
     let _ = session
-        .execute_query(fluent.query())
+        .execute_scalar_query_rows(fluent.query())
         .expect("equivalent fluent query should execute");
     assert_eq!(
         session.query_plan_cache_len(),

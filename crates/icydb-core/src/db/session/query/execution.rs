@@ -63,7 +63,7 @@ where
 ///
 /// PreparedQueryExecutionOutput
 ///
-/// PreparedQueryExecutionOutput tells the shared prepared-plan seam whether a
+/// PreparedQueryExecutionOutput tells the shared prepared-plan path whether a
 /// delete query should materialize deleted rows or use the count-only executor
 /// terminal. The mode exists so `execute_delete_count` can share the same
 /// session dispatch core without forcing row allocation.
@@ -108,18 +108,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Execute one scalar load/delete query and return materialized response rows.
-    pub(in crate::db) fn execute_query<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<EntityResponse<E>, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        self.execute_query_result(query)
-            .and_then(LoadQueryResult::into_rows)
-    }
-
     /// Execute one scalar load query through a rows-only dispatch path.
     ///
     /// This keeps row-only fluent terminals from retaining grouped and delete
@@ -145,6 +133,31 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    /// Execute one typed delete query and materialize the deleted rows.
+    #[doc(hidden)]
+    pub fn execute_delete_rows<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        // Phase 1: fail closed if the caller routes a non-delete query here.
+        if !query.mode().is_delete() {
+            return Err(QueryError::unsupported_query());
+        }
+
+        // Phase 2: resolve one cached prepared execution-plan contract from
+        // the shared lower boundary.
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+
+        // Phase 3: execute through the shared prepared-plan path while keeping
+        // the row-returning delete terminal explicit.
+        match self.execute_prepared(plan, false, PreparedQueryExecutionOutput::Rows)? {
+            PreparedQueryExecutionOutcome::Delete { rows } => Ok(rows),
+            PreparedQueryExecutionOutcome::Scalar { .. }
+            | PreparedQueryExecutionOutcome::Grouped { .. }
+            | PreparedQueryExecutionOutcome::DeleteCount { .. } => Err(QueryError::invariant()),
+        }
+    }
+
     // Execute one typed query through the unified row/grouped result surface so
     // higher layers do not need to branch on grouped shape themselves.
     #[doc(hidden)]
@@ -159,7 +172,7 @@ impl<C: CanisterKind> DbSession<C> {
         // contract shared by scalar, grouped, and delete execution.
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
 
-        // Phase 2: execute through the canonical prepared-plan seam and adapt
+        // Phase 2: execute through the canonical prepared-plan path and adapt
         // the private executor outcome into the public session result shape.
         self.execute_prepared(plan, false, PreparedQueryExecutionOutput::Rows)
             .and_then(Self::load_result_from_prepared_outcome)
@@ -181,7 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
         // typed compiled-query wrapper.
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
 
-        // Phase 3: execute through the shared prepared-plan seam while keeping
+        // Phase 3: execute through the shared prepared-plan path while keeping
         // the count-only delete terminal that skips response-row materialization.
         match self.execute_prepared(plan, false, PreparedQueryExecutionOutput::DeleteCount)? {
             PreparedQueryExecutionOutcome::DeleteCount { row_count } => Ok(row_count),

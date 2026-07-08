@@ -3227,7 +3227,7 @@ fn session_load_rejects_unsupported_schema_transition_before_row_decode() {
 
     let query = Query::<UniqueEmailEntity>::new(MissingRowPolicy::Ignore).by_id(id);
     let err = session
-        .execute_query(&query)
+        .execute_scalar_query_rows(&query)
         .expect_err("unsupported accepted schema transition must block load planning");
 
     SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

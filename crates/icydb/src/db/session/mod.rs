@@ -263,7 +263,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one typed/fluent query while reporting the compile/execute
-    /// split at the shared query seam.
+    /// split at the shared query boundary.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
     pub fn execute_query_result_with_attribution<E>(

@@ -170,7 +170,7 @@ where
     where
         E: EntityValue,
     {
-        self.session.execute_query(self.query())
+        self.session.execute_delete_rows(self.query())
     }
 
     /// Execute and return whether any rows were affected.

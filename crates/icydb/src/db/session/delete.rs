@@ -38,6 +38,15 @@ enum DeleteReturningSelection {
     Fields(Vec<String>),
 }
 
+impl DeleteReturningSelection {
+    const fn selected_fields(&self) -> Option<&[String]> {
+        match self {
+            Self::All => None,
+            Self::Fields(fields) => Some(fields.as_slice()),
+        }
+    }
+}
+
 ///
 /// SessionDeleteReturningQuery
 ///
@@ -250,22 +259,11 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
 
         // Phase 2: narrow those deleted entities onto the explicit
         // row-returning projection contract requested by the fluent surface.
-        match &self.selection {
-            DeleteReturningSelection::All => {
-                DbSession::<E::Canister>::row_projection_output_from_entities::<E>(
-                    E::PATH.to_string(),
-                    deleted,
-                    None,
-                )
-            }
-            DeleteReturningSelection::Fields(fields) => {
-                DbSession::<E::Canister>::row_projection_output_from_entities::<E>(
-                    E::PATH.to_string(),
-                    deleted,
-                    Some(fields.as_slice()),
-                )
-            }
-        }
+        DbSession::<E::Canister>::row_projection_output_from_entities::<E>(
+            E::PATH.to_string(),
+            deleted,
+            self.selection.selected_fields(),
+        )
     }
 
     /// Return true when the returning payload contains no rows.

@@ -141,7 +141,7 @@ fn predicate_optional_null_converges_but_sql_eq_null_stays_unknown_false() {
         )
         .expect("SQL = NULL query should execute"),
     );
-    let rejected_direct_null = session.execute_query(
+    let rejected_direct_null = session.execute_scalar_query_rows(
         &Query::<SessionNullableSqlEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
             Predicate::Compare(ComparePredicate::with_coercion(
                 "nickname",
