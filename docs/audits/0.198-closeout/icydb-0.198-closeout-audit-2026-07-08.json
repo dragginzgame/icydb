@@ -1,0 +1,147 @@
+{
+  "audit": {
+    "date": "2026-07-08",
+    "repo_commit": "1d2e3d652b4c5db9d61915bf39dde9fc0b139ce9",
+    "branch": "main",
+    "commit_title": "0.198.13",
+    "verdict": "READY_TO_CLOSE_0_198",
+    "dirty_worktree": [
+      {
+        "path": "Cargo.lock",
+        "classification": "unrelated_or_release_tool_lockfile_drift",
+        "summary": "memchr 2.8.2 -> 2.8.3"
+      }
+    ],
+    "commands_run": [
+      { "command": "git status --short", "result": "pass" },
+      { "command": "git branch --show-current", "result": "pass" },
+      { "command": "git rev-parse HEAD", "result": "pass" },
+      { "command": "git log -1 --oneline", "result": "pass" },
+      { "command": "git diff --stat", "result": "pass" },
+      { "command": "git diff -- Cargo.lock", "result": "pass" },
+      { "command": "rg public-surface and docs searches", "result": "pass" },
+      { "command": "cargo fmt --all --check", "result": "pass" },
+      { "command": "git diff --check", "result": "pass" },
+      { "command": "bash scripts/ci/check-read-admission-invariants.sh", "result": "pass" },
+      { "command": "cargo check -p icydb-core -p icydb -p icydb-cli", "result": "pass" },
+      { "command": "cargo test -p icydb-core --test compile", "result": "pass" },
+      { "command": "cargo test -p icydb-core --all-features default_fluent_page", "result": "pass" },
+      { "command": "cargo test -p icydb-core --all-features fluent_paged_load", "result": "pass" },
+      { "command": "cargo test -p icydb-cli renders_query_read_admission", "result": "pass" },
+      { "command": "cargo test -p icydb-core --all-features", "result": "pass" },
+      { "command": "cargo test -p icydb --lib --all-features", "result": "pass" },
+      { "command": "make clippy", "result": "pass" }
+    ]
+  },
+  "summary": {
+    "can_0_198_close": true,
+    "safe_to_start_0_199": true,
+    "safe_to_start_0_199_implementation": false,
+    "top_blockers": [],
+    "top_followups": [
+      "Resolve current Cargo.lock memchr drift deliberately before the next release operation.",
+      "Use 0.199 for a boundary audit of low-level Query/direct execution and internal/generated surfaces."
+    ],
+    "biggest_residual_risk": "Low-level Query<E> remains available as a doc-hidden direct-query primitive; acceptable for 0.198, but worth rechecking in the 0.199 boundary audit.",
+    "performance_claim_level": "none"
+  },
+  "gates": {
+    "public_fluent_legacy_surface": {
+      "status": "pass",
+      "evidence": [
+        "crates/icydb/src/db/session/load.rs",
+        "crates/icydb-core/src/db/query/fluent/load/pagination.rs",
+        "crates/icydb-core/tests/pass/query/read_intent_terminals.rs"
+      ],
+      "blocking_issues": []
+    },
+    "page_ergonomics": {
+      "status": "pass",
+      "evidence": [
+        "public facade page(limit) returns PagedResponse<E>",
+        "public facade next_page(limit, cursor) returns PagedResponse<E>",
+        "core page(limit) returns PagedLoadExecution<E>",
+        "core next_page(limit, cursor) returns PagedLoadExecution<E>"
+      ],
+      "blocking_issues": []
+    },
+    "docs": {
+      "status": "pass",
+      "evidence": [
+        "README.md",
+        "docs/guides/public-facade-api.md",
+        "docs/guides/read-intent.md",
+        "docs/contracts/READ_ADMISSION.md",
+        "docs/design/0.198/0.198-supplemental-status.md"
+      ],
+      "blocking_issues": []
+    },
+    "sql_fluent_boundary": {
+      "status": "pass",
+      "evidence": [
+        "scripts/ci/check-read-admission-invariants.sh",
+        "make clippy"
+      ],
+      "blocking_issues": []
+    },
+    "direct_query_boundary": {
+      "status": "pass",
+      "evidence": [
+        "Query is doc-hidden in crates/icydb/src/db/query/mod.rs",
+        "Direct query execution is documented as Tier 4/internal-generated in docs/guides/public-facade-api.md"
+      ],
+      "blocking_issues": []
+    },
+    "validation": {
+      "status": "pass",
+      "evidence": [
+        "cargo fmt --all --check",
+        "git diff --check",
+        "cargo check -p icydb-core -p icydb -p icydb-cli",
+        "cargo test -p icydb-core --test compile",
+        "cargo test -p icydb-core --all-features",
+        "cargo test -p icydb --lib --all-features",
+        "make clippy"
+      ],
+      "blocking_issues": []
+    }
+  },
+  "findings": [
+    {
+      "id": "198-CO-001",
+      "title": "0.198 read-intent API is ready to close",
+      "category": "closeout",
+      "severity": "low",
+      "blocking": false,
+      "confidence": "high",
+      "evidence": [
+        "public surface search",
+        "read-admission invariant pass",
+        "trybuild pass",
+        "all-features core and public crate tests pass",
+        "make clippy pass"
+      ],
+      "recommended_fix": "No 0.198 fix required.",
+      "acceptance_criteria": [
+        "No public fluent load legacy cap/alias surface",
+        "page/next_page terminal APIs documented and tested",
+        "validation passes"
+      ]
+    },
+    {
+      "id": "198-CO-002",
+      "title": "Cargo.lock contains unrelated memchr lockfile drift",
+      "category": "housekeeping",
+      "severity": "low",
+      "blocking": false,
+      "confidence": "high",
+      "evidence": [
+        "git diff -- Cargo.lock"
+      ],
+      "recommended_fix": "Decide whether to keep or discard the memchr 2.8.3 lockfile update before the next release operation.",
+      "acceptance_criteria": [
+        "Worktree state is intentionally clean or the lockfile update is intentionally committed"
+      ]
+    }
+  ]
+}
