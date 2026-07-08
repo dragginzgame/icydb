@@ -186,18 +186,13 @@ where
     let (access_plan_value, planned_non_index_reason) =
         access_selection.into_access_and_non_index_reason();
     let logical_inputs = query.planning_logical_inputs();
-    let redundant_primary_key_filter = normalized_predicate.as_ref().is_some_and(|predicate| {
-        scalar_primary_key_name(&schema_info).is_some_and(|primary_key_name| {
-            PrimaryKeyAccessProof::from_access(&access_plan_value)
-                .is_some_and(|access| access.matches_predicate(predicate, primary_key_name))
-        })
-    });
-    let normalized_predicate = strip_redundant_primary_key_predicate_for_exact_access(
+    let primary_key_strip = strip_redundant_primary_key_predicate_for_exact_access(
         &schema_info,
         &access_plan_value,
         normalized_predicate,
     );
-    let logical_inputs = if redundant_primary_key_filter {
+    let normalized_predicate = primary_key_strip.predicate;
+    let logical_inputs = if primary_key_strip.stripped {
         logical_inputs.without_filter_expr()
     } else {
         logical_inputs
@@ -657,24 +652,48 @@ impl PrimaryKeyInputResourceAccumulator {
     }
 }
 
+struct PrimaryKeyPredicateStripResult {
+    predicate: Option<Predicate>,
+    stripped: bool,
+}
+
+impl PrimaryKeyPredicateStripResult {
+    const fn kept(predicate: Option<Predicate>) -> Self {
+        Self {
+            predicate,
+            stripped: false,
+        }
+    }
+
+    const fn stripped() -> Self {
+        Self {
+            predicate: None,
+            stripped: true,
+        }
+    }
+}
+
 // Drop one normalized primary-key predicate when access planning already
-// resolved the exact same authoritative PK access path. This prevents duplicate
-// predicate evaluation and unlocks downstream PK fast paths.
+// resolved the exact same authoritative PK access path. The result also owns
+// the matching "filter expression is redundant" fact so planning does not
+// evaluate the selected primary-key proof twice.
 fn strip_redundant_primary_key_predicate_for_exact_access(
     schema_info: &SchemaInfo,
     access: &AccessPlan<Value>,
     normalized_predicate: Option<Predicate>,
-) -> Option<Predicate> {
-    let predicate = normalized_predicate?;
+) -> PrimaryKeyPredicateStripResult {
+    let Some(predicate) = normalized_predicate else {
+        return PrimaryKeyPredicateStripResult::kept(None);
+    };
 
     if scalar_primary_key_name(schema_info).is_some_and(|primary_key_name| {
         PrimaryKeyAccessProof::from_access(access)
             .is_some_and(|access| access.matches_predicate(&predicate, primary_key_name))
     }) {
-        return None;
+        return PrimaryKeyPredicateStripResult::stripped();
     }
 
-    Some(predicate)
+    PrimaryKeyPredicateStripResult::kept(Some(predicate))
 }
 
 fn scalar_primary_key_name(schema_info: &SchemaInfo) -> Option<&str> {
