@@ -52,13 +52,6 @@ impl<E: EntityKind> PagedLoadExecution<E> {
         self.read_intent
     }
 
-    /// Attach diagnostic read-intent metadata.
-    #[must_use]
-    pub(in crate::db) const fn with_read_intent(mut self, read_intent: ReadIntentKind) -> Self {
-        self.read_intent = read_intent;
-        self
-    }
-
     /// Consume this payload and return response rows plus continuation cursor.
     #[must_use]
     pub fn into_response_and_cursor(self) -> (EntityResponse<E>, Option<Vec<u8>>) {

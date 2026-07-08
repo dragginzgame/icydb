@@ -20,6 +20,47 @@ where
     E: EntityKind,
 {
     inner: FluentLoadQuery<'a, E>,
+    read_intent: ReadIntentKind,
+}
+
+#[derive(Clone, Copy)]
+enum PagedTerminal {
+    PublicPage,
+    TrustedAdminBatch,
+}
+
+impl PagedTerminal {
+    const fn raw_limit_error(self) -> IntentError {
+        match self {
+            Self::PublicPage => IntentError::raw_limit_before_page_terminal(),
+            Self::TrustedAdminBatch => IntentError::raw_limit_before_admin_batch_terminal(),
+        }
+    }
+
+    const fn read_intent(self) -> ReadIntentKind {
+        match self {
+            Self::PublicPage => ReadIntentKind::PublicPage,
+            Self::TrustedAdminBatch => ReadIntentKind::TrustedAdminBatch,
+        }
+    }
+
+    const fn validate<E>(self, query: &FluentLoadQuery<'_, E>) -> Result<(), QueryError>
+    where
+        E: EntityKind,
+    {
+        match self {
+            Self::PublicPage => Ok(()),
+            Self::TrustedAdminBatch => {
+                if !query.trusted_read_unchecked_enabled() {
+                    return Err(QueryError::intent(
+                        IntentError::admin_batch_requires_trusted_read(),
+                    ));
+                }
+
+                Ok(())
+            }
+        }
+    }
 }
 
 impl<'a, E> FluentLoadQuery<'a, E>
@@ -60,19 +101,10 @@ where
     }
 
     fn page_request(self, request: PageRequest) -> Result<PagedLoadQuery<'a, E>, QueryError> {
-        self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_page_terminal())?;
-        self.ensure_page_request_owns_cursor()?;
-
         let limit = request.effective_limit();
         let cursor = request.into_cursor();
-        let mut inner = self.map_query(|query| query.with_load_limit(limit));
-        if let Some(cursor) = cursor {
-            inner = inner.with_cursor_token(cursor);
-        }
 
-        inner.ensure_paged_mode_ready()?;
-
-        Ok(PagedLoadQuery { inner })
+        self.into_paged_query(limit, cursor, PagedTerminal::PublicPage)
     }
 
     /// Execute a trusted/admin cursor batch with an engine-owned batch size.
@@ -88,28 +120,32 @@ where
     where
         E: PersistedRow + EntityValue,
     {
-        self.ensure_semantic_terminal_owns_limit(
-            IntentError::raw_limit_before_admin_batch_terminal(),
-        )?;
-        self.ensure_page_request_owns_cursor()?;
-
-        if !self.trusted_read_unchecked_enabled() {
-            return Err(QueryError::intent(
-                IntentError::admin_batch_requires_trusted_read(),
-            ));
-        }
-
         let cursor = request.into_cursor();
-        let mut inner = self.map_query(|query| query.with_load_limit(ADMIN_BATCH_ROWS));
+        self.into_paged_query(ADMIN_BATCH_ROWS, cursor, PagedTerminal::TrustedAdminBatch)?
+            .execute()
+    }
+
+    fn into_paged_query(
+        self,
+        limit: u32,
+        cursor: Option<String>,
+        terminal: PagedTerminal,
+    ) -> Result<PagedLoadQuery<'a, E>, QueryError> {
+        self.ensure_semantic_terminal_owns_limit(terminal.raw_limit_error())?;
+        self.ensure_page_request_owns_cursor()?;
+        terminal.validate(&self)?;
+
+        let mut inner = self.map_query(|query| query.with_load_limit(limit));
         if let Some(cursor) = cursor {
             inner = inner.with_cursor_token(cursor);
         }
 
         inner.ensure_paged_mode_ready()?;
 
-        PagedLoadQuery { inner }
-            .execute()
-            .map(|execution| execution.with_read_intent(ReadIntentKind::TrustedAdminBatch))
+        Ok(PagedLoadQuery {
+            inner,
+            read_intent: terminal.read_intent(),
+        })
     }
 }
 
@@ -149,12 +185,13 @@ where
     {
         // `PagedLoadQuery` is only constructed by page terminals in this module,
         // so paged-mode validation already happened before this wrapper existed.
+        let read_intent = self.read_intent;
         self.inner
             .session
             .execute_load_query_paged_with_trace(
                 self.inner.query(),
                 self.inner.cursor_token.as_deref(),
             )
-            .map(|execution| execution.with_read_intent(ReadIntentKind::PublicPage))
+            .map(|execution| execution.with_read_intent(read_intent))
     }
 }

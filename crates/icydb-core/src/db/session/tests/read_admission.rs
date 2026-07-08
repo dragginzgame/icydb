@@ -2363,6 +2363,36 @@ fn default_fluent_page_clamps_requested_limit_to_public_cap() {
 }
 
 #[test]
+fn default_fluent_page_zero_limit_normalizes_to_one_row() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Soren", 31)]);
+
+    let page = session
+        .load::<IndexedSessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
+        .page(0)
+        .expect("page(0) should normalize to the minimum public page size");
+
+    assert_eq!(
+        page.response().count(),
+        1,
+        "zero page size should normalize to one row instead of disabling pagination",
+    );
+    assert_eq!(
+        page.read_intent(),
+        crate::db::ReadIntentKind::PublicPage,
+        "normalized zero-size page should still report public-page intent",
+    );
+    assert!(
+        page.continuation_cursor().is_some(),
+        "normalized one-row public page should expose continuation when more rows exist",
+    );
+}
+
+#[test]
 fn default_fluent_page_uses_cursor_for_continuation() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
