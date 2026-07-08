@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.16` continues the technical-debt audit line by splitting core
+  `DbSession` accepted-schema authority and catalog/observability helpers into
+  dedicated owner modules without changing runtime behavior.
+
 - `0.199.15` restores the host-only `icydb::build` facade as the advertised
   downstream build-script API while keeping build/config implementation crates
   behind the public `icydb` crate.
