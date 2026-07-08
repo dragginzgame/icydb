@@ -9,20 +9,24 @@ pub(crate) mod generated;
 pub mod load;
 mod macros;
 
+#[cfg(feature = "diagnostics")]
+use crate::db::response::QueryResponse;
 #[cfg(feature = "sql")]
 use crate::db::sql::SqlQueryResult;
+#[cfg(feature = "diagnostics")]
+use crate::traits::Entity;
 use crate::{
     ErrorCode,
     db::{
         EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
         MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::{ProjectionRows, QueryResponse, RowProjectionOutput},
+        response::{ProjectionRows, RowProjectionOutput},
     },
     diagnostic::RuntimeBoundaryCode,
     error::{Error, ErrorOrigin},
     metrics::MetricsSink,
-    traits::{CanisterKind, Entity},
+    traits::CanisterKind,
     value::{InputValue, OutputValue},
 };
 
@@ -199,6 +203,7 @@ const fn finalize_public_sql_query_attribution(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    #[cfg(feature = "diagnostics")]
     fn query_response_from_core<E>(inner: core::db::LoadQueryResult<E>) -> QueryResponse<E>
     where
         E: Entity,
@@ -690,24 +695,6 @@ impl<C: CanisterKind> DbSession<C> {
     // ------------------------------------------------------------------
     // Execution
     // ------------------------------------------------------------------
-
-    /// Execute one prebuilt low-level query through the default bounded
-    /// read-admission gate.
-    ///
-    /// Normal endpoint code should prefer `load::<E>()` plus a semantic
-    /// terminal. This direct-query entrypoint exists for generated/internal
-    /// tooling that intentionally owns query construction.
-    #[doc(hidden)]
-    pub fn execute_query<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        self.inner.ensure_default_query_read_admission(query)?;
-
-        Ok(Self::query_response_from_core(
-            self.inner.execute_query_result(query)?,
-        ))
-    }
 
     /// Build one trace payload for a query without executing it.
     #[doc(hidden)]

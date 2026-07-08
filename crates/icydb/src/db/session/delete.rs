@@ -7,7 +7,7 @@
 use crate::{
     db::{
         DbSession,
-        query::{CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query, QueryTracePlan},
+        query::{CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, QueryTracePlan},
         response::RowProjectionOutput,
         session::macros::impl_session_query_shape_methods,
     },
@@ -62,16 +62,6 @@ pub struct SessionDeleteReturningQuery<'a, E: Entity> {
 }
 
 impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
-    // ------------------------------------------------------------------
-    // Intent inspection
-    // ------------------------------------------------------------------
-
-    #[doc(hidden)]
-    #[must_use]
-    pub const fn query(&self) -> &Query<E> {
-        self.inner.query()
-    }
-
     // ------------------------------------------------------------------
     // Primary-key access (query shaping)
     // ------------------------------------------------------------------
@@ -195,16 +185,6 @@ impl<E: Entity + SingletonEntity> SessionDeleteQuery<'_, E> {
 }
 
 impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
-    // ------------------------------------------------------------------
-    // Intent inspection
-    // ------------------------------------------------------------------
-
-    #[doc(hidden)]
-    #[must_use]
-    pub const fn query(&self) -> &Query<E> {
-        self.inner.query()
-    }
-
     // ------------------------------------------------------------------
     // Primary-key access (query shaping)
     // ------------------------------------------------------------------

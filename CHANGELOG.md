@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.10` continues the technical-debt audit line by removing unused hidden
+  facade direct-query execution and raw-query extraction while preserving
+  hidden diagnostics hooks.
+
 - `0.199.9` continues the technical-debt audit line by routing fluent delete
   returning through delete-specific execution helpers and centralizing returning
   projection selection without changing public delete behavior.

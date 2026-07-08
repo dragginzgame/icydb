@@ -8,7 +8,7 @@ use crate::{
     db::{
         AdminBatchRequest, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
         query::{
-            AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
+            AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
             QueryTracePlan,
         },
         response::{PagedResponse, QueryResponse, Response},
@@ -35,16 +35,6 @@ pub struct FluentLoadQuery<'a, E: Entity> {
 }
 
 impl<'a, E: Entity> FluentLoadQuery<'a, E> {
-    // ------------------------------------------------------------------
-    // Intent inspection
-    // ------------------------------------------------------------------
-
-    #[doc(hidden)]
-    #[must_use]
-    pub const fn query(&self) -> &Query<E> {
-        self.inner.query()
-    }
-
     /// Execute this query with diagnostics attribution.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
@@ -530,12 +520,6 @@ pub struct PartialWindowLoadQuery<'a, E: Entity> {
 }
 
 impl<E: Entity> PartialWindowLoadQuery<'_, E> {
-    #[doc(hidden)]
-    #[must_use]
-    pub const fn query(&self) -> &Query<E> {
-        self.inner.query()
-    }
-
     /// Execute this partial window with diagnostics attribution.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]

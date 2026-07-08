@@ -480,12 +480,13 @@ db.storage_report(name_to_path)
 This section is listed for audit completeness. These methods are not the normal
 developer-facing facade and should not be taught as endpoint recipes.
 
-### Direct Query Execution
+### Direct Query Diagnostics
 
-Prebuilt `Query<E>` execution exists only as hidden generated/diagnostics
-wiring. It is not a public endpoint recipe, and active docs intentionally do
-not provide copyable direct-query examples. Diagnostics tooling should prefer
-the hidden fluent attribution terminals over extracting raw `Query<E>` values.
+Prebuilt `Query<E>` execution is not a public endpoint recipe, and active docs
+intentionally do not provide copyable direct-query examples. Remaining hidden
+`Query<E>` surfaces are diagnostics/planning hooks such as trace and
+attribution. Public facade fluent wrappers do not expose raw query extraction;
+diagnostics tooling should prefer hidden fluent attribution terminals.
 
 ### Generated/Policy SQL Helpers
 
