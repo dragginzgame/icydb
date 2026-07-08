@@ -36,9 +36,7 @@ use std::thread::LocalKey;
 use crate::db::{EntityFieldDescription, EntitySchemaDescription, QueryError};
 #[cfg(test)]
 pub(in crate::db) use accepted_schema::AcceptedCatalogRuntimeCounterSnapshot;
-pub(in crate::db) use accepted_schema::{
-    AcceptedSaveContract, AcceptedSchemaCatalogContext, accepted_save_contract_for_descriptor,
-};
+pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
 #[cfg(feature = "diagnostics")]
 pub use query::{
     DirectDataRowAttribution, FluentTerminalExecutionAttribution, GroupedCountAttribution,

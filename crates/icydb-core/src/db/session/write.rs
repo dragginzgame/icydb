@@ -4,7 +4,7 @@
 //! Does not own: commit staging, mutation execution, or persistence encoding.
 //! Boundary: keeps public session write semantics above the executor save surface.
 
-use super::accepted_save_contract_for_descriptor;
+use super::accepted_schema::accepted_save_contract_for_descriptor;
 use crate::{
     db::{
         DbSession, PersistedRow, WriteBatchResponse,

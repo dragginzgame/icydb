@@ -16,7 +16,7 @@ use crate::{
             literal_matches_type,
         },
         session::{
-            AcceptedSaveContract, accepted_save_contract_for_descriptor,
+            accepted_schema::{AcceptedSaveContract, accepted_save_contract_for_descriptor},
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
                 combined_optional_row_bound,
