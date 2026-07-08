@@ -7,12 +7,14 @@
 use crate::db::FluentTerminalExecutionAttribution;
 #[cfg(feature = "diagnostics")]
 use crate::db::QueryExecutionAttribution;
+#[cfg(feature = "diagnostics")]
+use crate::db::query::read_intent::ReadIntentKind;
 use crate::{
     db::{
         DbSession, PersistedRow,
         query::{
             explain::ExplainAggregateTerminalPlan, fluent::load::FluentLoadQuery,
-            intent::QueryError, read_intent::ReadIntentKind,
+            intent::QueryError,
         },
     },
     traits::EntityValue,

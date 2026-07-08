@@ -7,13 +7,15 @@ use std::num::NonZeroU32;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::FluentTerminalExecutionAttribution;
+#[cfg(feature = "diagnostics")]
+use crate::db::query::builder::CountRowsTerminal;
 use crate::db::query::read_intent::ReadIntentKind;
 use crate::{
     db::{
         DbSession, EntityResponse, PersistedRow, Query,
         query::{
             admission::QueryAdmissionPolicy,
-            builder::{CountRowsTerminal, ExistsRowsTerminal},
+            builder::ExistsRowsTerminal,
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             fluent::load::FluentLoadQuery,
             intent::{IntentError, QueryError},

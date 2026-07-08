@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Continues the 0.199 technical-debt cleanup by splitting fluent load aggregate
-  and projection terminal methods into owner modules without changing terminal
-  behavior.
-
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
+
+- `0.199.13` continues the technical-debt audit line by splitting public
+  `DbSession` SQL facade DTOs, helpers, and methods into a dedicated owner
+  module without changing SQL facade behavior.
+
+- `0.199.12` continues the technical-debt audit line by splitting fluent load
+  aggregate and projection terminal methods into owner modules without changing
+  terminal behavior.
 
 - `0.199.11` continues the technical-debt audit line by splitting fluent load
   terminal driver, read-intent, support, and output helper wiring away from the

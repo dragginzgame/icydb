@@ -5,6 +5,7 @@
 
 #[cfg(feature = "diagnostics")]
 use crate::db::FluentTerminalExecutionAttribution;
+#[cfg(feature = "diagnostics")]
 use crate::db::query::read_intent::ReadIntentKind;
 use crate::{
     db::{
