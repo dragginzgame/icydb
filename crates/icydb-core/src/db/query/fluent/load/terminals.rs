@@ -272,6 +272,16 @@ where
     Ok(response.entities())
 }
 
+#[cfg(feature = "diagnostics")]
+fn with_fluent_terminal_read_intent<T>(
+    result: Result<(T, FluentTerminalExecutionAttribution), QueryError>,
+    read_intent: ReadIntentKind,
+) -> Result<(T, FluentTerminalExecutionAttribution), QueryError> {
+    let (value, attribution) = result?;
+
+    Ok((value, attribution.with_read_intent(read_intent)))
+}
+
 impl<E> FluentLoadQuery<'_, E>
 where
     E: PersistedRow,
@@ -376,6 +386,51 @@ where
             .map(|plan| plan.with_read_intent(ReadIntentKind::ExactAggregate))
     }
 
+    // Run one complete-small-set operation through the terminal-owned
+    // lookahead limit and public-read policy. Both result and attribution
+    // paths share this handoff so the terminal cannot drift on admission
+    // bounds.
+    fn with_complete_small_query<T>(
+        &self,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_collect_complete_intent_owns_limit()?;
+        self.ensure_non_paged_mode_ready()?;
+
+        let query = self.query().with_load_limit(COMPLETE_SMALL_EXECUTION_LIMIT);
+        let policy = QueryAdmissionPolicy::public_read(
+            non_zero_u32(COMPLETE_SMALL_EXECUTION_LIMIT)?,
+            non_zero_u32(PUBLIC_PAGE_MAX_RESPONSE_BYTES)?,
+        );
+
+        self.session
+            .ensure_query_read_admission_policy(&query, &policy)?;
+
+        map(self.session, &query)
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn execute_count_terminal_with_attribution(
+        &self,
+        read_intent: ReadIntentKind,
+    ) -> Result<(u32, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: EntityValue,
+    {
+        with_fluent_terminal_read_intent(
+            self.with_admitted_non_paged(|session, query| {
+                session.execute_fluent_count_rows_terminal_with_attribution(
+                    query,
+                    CountRowsTerminal::new(),
+                )
+            }),
+            read_intent,
+        )
+    }
+
     fn ensure_exists_intent_owns_limit(&self) -> Result<(), QueryError> {
         self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_exists_terminal())
     }
@@ -462,17 +517,15 @@ where
     {
         self.ensure_exists_intent_owns_limit()?;
 
-        let (exists, attribution) = self.with_admitted_non_paged(|session, query| {
-            session.execute_fluent_exists_rows_terminal_with_attribution(
-                query,
-                ExistsRowsTerminal::new(),
-            )
-        })?;
-
-        Ok((
-            exists,
-            attribution.with_read_intent(ReadIntentKind::ExistenceCheck),
-        ))
+        with_fluent_terminal_read_intent(
+            self.with_admitted_non_paged(|session, query| {
+                session.execute_fluent_exists_rows_terminal_with_attribution(
+                    query,
+                    ExistsRowsTerminal::new(),
+                )
+            }),
+            ReadIntentKind::ExistenceCheck,
+        )
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -496,19 +549,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_collect_complete_intent_owns_limit()?;
-        self.ensure_non_paged_mode_ready()?;
-
-        let query = self.query().with_load_limit(COMPLETE_SMALL_EXECUTION_LIMIT);
-        let policy = QueryAdmissionPolicy::public_read(
-            non_zero_u32(COMPLETE_SMALL_EXECUTION_LIMIT)?,
-            non_zero_u32(PUBLIC_PAGE_MAX_RESPONSE_BYTES)?,
-        );
-
-        self.session
-            .ensure_query_read_admission_policy(&query, &policy)?;
-
-        let response = self.session.execute_scalar_query_rows(&query)?;
+        let response = self.with_complete_small_query(DbSession::execute_scalar_query_rows)?;
 
         collect_complete_entities(response)
     }
@@ -523,19 +564,8 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_collect_complete_intent_owns_limit()?;
-        self.ensure_non_paged_mode_ready()?;
-
-        let query = self.query().with_load_limit(COMPLETE_SMALL_EXECUTION_LIMIT);
-        let policy = QueryAdmissionPolicy::public_read(
-            non_zero_u32(COMPLETE_SMALL_EXECUTION_LIMIT)?,
-            non_zero_u32(PUBLIC_PAGE_MAX_RESPONSE_BYTES)?,
-        );
-
-        self.session
-            .ensure_query_read_admission_policy(&query, &policy)?;
-
-        let (result, attribution) = self.session.execute_query_result_with_attribution(&query)?;
+        let (result, attribution) =
+            self.with_complete_small_query(DbSession::execute_query_result_with_attribution)?;
         let response = result.into_rows()?;
         let entities = collect_complete_entities(response)?;
 
@@ -628,17 +658,7 @@ where
     where
         E: EntityValue,
     {
-        let (count, attribution) = self.with_admitted_non_paged(|session, query| {
-            session.execute_fluent_count_rows_terminal_with_attribution(
-                query,
-                CountRowsTerminal::new(),
-            )
-        })?;
-
-        Ok((
-            count,
-            attribution.with_read_intent(ReadIntentKind::BoundedRowWindow),
-        ))
+        self.execute_count_terminal_with_attribution(ReadIntentKind::BoundedRowWindow)
     }
 
     /// Execute and return the exact number of matching rows with terminal attribution.
@@ -652,17 +672,7 @@ where
     {
         self.ensure_count_exact_intent_owns_limit()?;
 
-        let (count, attribution) = self.with_admitted_non_paged(|session, query| {
-            session.execute_fluent_count_rows_terminal_with_attribution(
-                query,
-                CountRowsTerminal::new(),
-            )
-        })?;
-
-        Ok((
-            count,
-            attribution.with_read_intent(ReadIntentKind::ExactAggregate),
-        ))
+        self.execute_count_terminal_with_attribution(ReadIntentKind::ExactAggregate)
     }
 
     /// Execute and return the total persisted payload bytes for the effective

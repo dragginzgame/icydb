@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.3` continues the technical-debt audit line by consolidating
+  complete-small-set admission handoff and hidden fluent terminal attribution
+  metadata without changing public read behavior.
+
+- `0.199.2` reduces exact-key planner proof drift by making redundant
+  primary-key predicate stripping own the matching logical-filter removal fact
+  in one planner-local result.
+
 - `0.199.1` narrows fluent diagnostics/perf attribution onto hidden fluent
   terminals, moving the SQL perf audit path off raw direct-query extraction
   while keeping public read behavior unchanged.
