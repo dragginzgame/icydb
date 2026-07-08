@@ -374,6 +374,35 @@ where
         self.with_non_paged(|session, query| strategy.explain(session, query))
     }
 
+    fn execute_slot_terminal<S>(
+        &self,
+        field: impl AsRef<str>,
+        make_strategy: impl FnOnce(FieldSlot) -> S,
+    ) -> Result<S::Output, QueryError>
+    where
+        E: EntityValue,
+        S: TerminalStrategyDriver<E>,
+    {
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.execute_terminal(make_strategy(target_slot))
+    }
+
+    fn explain_slot_terminal<S>(
+        &self,
+        field: impl AsRef<str>,
+        make_strategy: impl FnOnce(FieldSlot) -> S,
+    ) -> Result<S::ExplainOutput, QueryError>
+    where
+        E: EntityValue,
+        S: TerminalStrategyDriver<E>,
+    {
+        let target_slot = self.resolve_non_paged_slot(field)?;
+        let strategy = make_strategy(target_slot);
+
+        self.explain_terminal(&strategy)
+    }
+
     fn execute_existence_terminal(&self) -> Result<bool, QueryError>
     where
         E: EntityValue,
@@ -831,9 +860,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(MinIdBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, MinIdBySlotTerminal::new)
     }
 
     /// Execute and return the id of the row with the exact minimum `field` value.
@@ -916,9 +943,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(MaxIdBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, MaxIdBySlotTerminal::new)
     }
 
     /// Execute and return the id of the row with the exact maximum `field` value.
@@ -958,9 +983,9 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(NthIdBySlotTerminal::new(target_slot, nth))
+        self.execute_slot_terminal(field, |target_slot| {
+            NthIdBySlotTerminal::new(target_slot, nth)
+        })
     }
 
     /// Execute and return the sum of `field` over matching rows.
@@ -968,9 +993,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(SumBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, SumBySlotTerminal::new)
     }
 
     /// Execute and return the exact sum of `field` over matching rows.
@@ -1012,9 +1035,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&SumBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, SumBySlotTerminal::new)
     }
 
     /// Execute and return the sum of distinct `field` values.
@@ -1022,9 +1043,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(SumDistinctBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, SumDistinctBySlotTerminal::new)
     }
 
     /// Explain scalar `sum(distinct field)` routing without executing the terminal.
@@ -1035,9 +1054,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&SumDistinctBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, SumDistinctBySlotTerminal::new)
     }
 
     /// Execute and return the average of `field` over matching rows.
@@ -1045,9 +1062,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(AvgBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, AvgBySlotTerminal::new)
     }
 
     /// Execute and return the exact average of `field` over matching rows.
@@ -1074,9 +1089,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&AvgBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, AvgBySlotTerminal::new)
     }
 
     /// Explain exact `avg_exact(field)` routing without executing the terminal.
@@ -1099,9 +1112,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(AvgDistinctBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, AvgDistinctBySlotTerminal::new)
     }
 
     /// Explain scalar `avg(distinct field)` routing without executing the terminal.
@@ -1112,9 +1123,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&AvgDistinctBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, AvgDistinctBySlotTerminal::new)
     }
 
     /// Execute and return the median id by `field` using deterministic ordering
@@ -1125,9 +1134,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(MedianIdBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, MedianIdBySlotTerminal::new)
     }
 
     /// Execute and return the number of distinct values for `field` over the
@@ -1136,9 +1143,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(CountDistinctBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, CountDistinctBySlotTerminal::new)
     }
 
     /// Explain `count_distinct_by(field)` routing without executing the terminal.
@@ -1149,9 +1154,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&CountDistinctBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, CountDistinctBySlotTerminal::new)
     }
 
     /// Execute and return both `(min_by(field), max_by(field))` in one terminal.
@@ -1161,9 +1164,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(MinMaxIdBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, MinMaxIdBySlotTerminal::new)
     }
 
     /// Execute and return projected field values for the effective result window.
@@ -1171,9 +1172,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(ValuesBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, ValuesBySlotTerminal::new)
             .map(output_values)
     }
 
@@ -1205,9 +1204,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        let target_slot = self.resolve_non_paged_slot(projection.field())?;
-
-        self.explain_terminal(&ValuesBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(projection.field(), ValuesBySlotTerminal::new)
     }
 
     /// Explain `values_by(field)` routing without executing the terminal.
@@ -1218,9 +1215,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&ValuesBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, ValuesBySlotTerminal::new)
     }
 
     /// Execute and return the first `k` rows from the effective response window.
@@ -1379,9 +1374,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(DistinctValuesBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, DistinctValuesBySlotTerminal::new)
             .map(output_values)
     }
 
@@ -1393,9 +1386,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&DistinctValuesBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, DistinctValuesBySlotTerminal::new)
     }
 
     /// Execute and return projected field values paired with row ids for the
@@ -1407,9 +1398,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(ValuesBySlotWithIdsTerminal::new(target_slot))
+        self.execute_slot_terminal(field, ValuesBySlotWithIdsTerminal::new)
             .map(output_values_with_ids)
     }
 
@@ -1443,9 +1432,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&ValuesBySlotWithIdsTerminal::new(target_slot))
+        self.explain_slot_terminal(field, ValuesBySlotWithIdsTerminal::new)
     }
 
     /// Execute and return the first projected field value in effective response
@@ -1454,9 +1441,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(FirstValueBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, FirstValueBySlotTerminal::new)
             .map(|value| value.map(output))
     }
 
@@ -1488,9 +1473,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&FirstValueBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, FirstValueBySlotTerminal::new)
     }
 
     /// Execute and return the last projected field value in effective response
@@ -1499,9 +1482,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.execute_terminal(LastValueBySlotTerminal::new(target_slot))
+        self.execute_slot_terminal(field, LastValueBySlotTerminal::new)
             .map(|value| value.map(output))
     }
 
@@ -1533,9 +1514,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.explain_terminal(&LastValueBySlotTerminal::new(target_slot))
+        self.explain_slot_terminal(field, LastValueBySlotTerminal::new)
     }
 
     /// Execute and return the first matching identifier in response order, if any.
