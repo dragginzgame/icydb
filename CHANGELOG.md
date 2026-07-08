@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.5` continues the technical-debt audit line by centralizing existence
+  terminal execution, attribution, and EXPLAIN wiring without changing public
+  existence behavior.
+
 - `0.199.4` continues the technical-debt audit line by centralizing
   exact-aggregate terminal guard, field-slot, execution, and EXPLAIN wiring
   without changing public aggregate behavior.

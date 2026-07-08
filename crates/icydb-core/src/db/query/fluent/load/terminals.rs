@@ -374,6 +374,45 @@ where
         self.with_non_paged(|session, query| strategy.explain(session, query))
     }
 
+    fn execute_existence_terminal(&self) -> Result<bool, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_exists_intent_owns_limit()?;
+
+        self.execute_terminal(ExistsRowsTerminal::new())
+    }
+
+    fn explain_existence_terminal(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_exists_intent_owns_limit()?;
+
+        self.explain_terminal(&ExistsRowsTerminal::new())
+            .map(|plan| plan.with_read_intent(ReadIntentKind::ExistenceCheck))
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn execute_existence_terminal_with_attribution(
+        &self,
+    ) -> Result<(bool, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_exists_intent_owns_limit()?;
+
+        with_fluent_terminal_read_intent(
+            self.with_admitted_non_paged(|session, query| {
+                session.execute_fluent_exists_rows_terminal_with_attribution(
+                    query,
+                    ExistsRowsTerminal::new(),
+                )
+            }),
+            ReadIntentKind::ExistenceCheck,
+        )
+    }
+
     fn explain_checked_exact_aggregate_terminal<S>(
         &self,
         err: IntentError,
@@ -542,9 +581,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_exists_intent_owns_limit()?;
-
-        self.execute_terminal(ExistsRowsTerminal::new())
+        self.execute_existence_terminal()
     }
 
     /// Execute and return whether at least one matching row exists with
@@ -557,17 +594,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_exists_intent_owns_limit()?;
-
-        with_fluent_terminal_read_intent(
-            self.with_admitted_non_paged(|session, query| {
-                session.execute_fluent_exists_rows_terminal_with_attribution(
-                    query,
-                    ExistsRowsTerminal::new(),
-                )
-            }),
-            ReadIntentKind::ExistenceCheck,
-        )
+        self.execute_existence_terminal_with_attribution()
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -575,10 +602,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_exists_intent_owns_limit()?;
-
-        self.explain_terminal(&ExistsRowsTerminal::new())
-            .map(|plan| plan.with_read_intent(ReadIntentKind::ExistenceCheck))
+        self.explain_existence_terminal()
     }
 
     /// Execute and return all matching rows if the complete result fits in
