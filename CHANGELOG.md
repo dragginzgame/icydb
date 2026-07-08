@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Continues the 0.199 technical-debt cleanup by centralizing descriptor-backed
-  field terminal slot-resolution, execution, and EXPLAIN wiring without
-  changing public field terminal behavior.
-
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
+
+- `0.199.7` continues the technical-debt audit line by centralizing custom
+  field-slot session handoffs for bytes, projections, and ranked helpers
+  without changing public field terminal behavior.
+
+- `0.199.6` continues the technical-debt audit line by centralizing
+  descriptor-backed field terminal slot-resolution, execution, and EXPLAIN
+  wiring without changing public field terminal behavior.
 
 - `0.199.5` continues the technical-debt audit line by centralizing existence
   terminal execution, attribution, and EXPLAIN wiring without changing public

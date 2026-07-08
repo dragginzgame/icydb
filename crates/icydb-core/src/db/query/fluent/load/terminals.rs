@@ -403,6 +403,32 @@ where
         self.explain_terminal(&strategy)
     }
 
+    fn with_admitted_non_paged_slot<T>(
+        &self,
+        field: impl AsRef<str>,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>, FieldSlot) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.with_admitted_non_paged(|session, query| map(session, query, target_slot))
+    }
+
+    fn with_non_paged_slot<T>(
+        &self,
+        field: impl AsRef<str>,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>, FieldSlot) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        let target_slot = self.resolve_non_paged_slot(field)?;
+
+        self.with_non_paged(|session, query| map(session, query, target_slot))
+    }
+
     fn execute_existence_terminal(&self) -> Result<bool, QueryError>
     where
         E: EntityValue,
@@ -789,9 +815,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_admitted_non_paged(|session, query| {
+        self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
             session.execute_fluent_bytes_by_slot(query, target_slot)
         })
     }
@@ -804,9 +828,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_non_paged(|session, query| {
+        self.with_non_paged_slot(field, |session, query, target_slot| {
             session.explain_query_bytes_by_with_visible_indexes(query, target_slot.field())
         })
     }
@@ -1183,9 +1205,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        let target_slot = self.resolve_non_paged_slot(projection.field())?;
-
-        self.with_admitted_non_paged(|session, query| {
+        self.with_admitted_non_paged_slot(projection.field(), |session, query, target_slot| {
             session.execute_fluent_project_values_by_slot(
                 query,
                 target_slot,
@@ -1243,9 +1263,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_admitted_non_paged(|session, query| {
+        self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
             session.execute_fluent_top_k_rows_by_slot(query, target_slot, take_count)
         })
     }
@@ -1265,9 +1283,7 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_admitted_non_paged(|session, query| {
+        self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
             session.execute_fluent_bottom_k_rows_by_slot(query, target_slot, take_count)
         })
     }
@@ -1287,13 +1303,10 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_admitted_non_paged(|session, query| {
-            session
-                .execute_fluent_top_k_values_by_slot(query, target_slot, take_count)
-                .map(output_values)
+        self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
+            session.execute_fluent_top_k_values_by_slot(query, target_slot, take_count)
         })
+        .map(output_values)
     }
 
     /// Execute and return projected values for the bottom `k` rows by `field`
@@ -1311,13 +1324,10 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_admitted_non_paged(|session, query| {
-            session
-                .execute_fluent_bottom_k_values_by_slot(query, target_slot, take_count)
-                .map(output_values)
+        self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
+            session.execute_fluent_bottom_k_values_by_slot(query, target_slot, take_count)
         })
+        .map(output_values)
     }
 
     /// Execute and return projected id/value pairs for the top `k` rows by
@@ -1335,13 +1345,10 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_admitted_non_paged(|session, query| {
-            session
-                .execute_fluent_top_k_values_with_ids_by_slot(query, target_slot, take_count)
-                .map(output_values_with_ids)
+        self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
+            session.execute_fluent_top_k_values_with_ids_by_slot(query, target_slot, take_count)
         })
+        .map(output_values_with_ids)
     }
 
     /// Execute and return projected id/value pairs for the bottom `k` rows by
@@ -1359,13 +1366,10 @@ where
     where
         E: EntityValue,
     {
-        let target_slot = self.resolve_non_paged_slot(field)?;
-
-        self.with_admitted_non_paged(|session, query| {
-            session
-                .execute_fluent_bottom_k_values_with_ids_by_slot(query, target_slot, take_count)
-                .map(output_values_with_ids)
+        self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
+            session.execute_fluent_bottom_k_values_with_ids_by_slot(query, target_slot, take_count)
         })
+        .map(output_values_with_ids)
     }
 
     /// Execute and return distinct projected field values for the effective
@@ -1412,9 +1416,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        let target_slot = self.resolve_non_paged_slot(projection.field())?;
-
-        self.with_admitted_non_paged(|session, query| {
+        self.with_admitted_non_paged_slot(projection.field(), |session, query, target_slot| {
             session.execute_fluent_project_values_with_ids_by_slot(
                 query,
                 target_slot,
@@ -1452,9 +1454,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        let target_slot = self.resolve_non_paged_slot(projection.field())?;
-
-        self.with_admitted_non_paged(|session, query| {
+        self.with_admitted_non_paged_slot(projection.field(), |session, query, target_slot| {
             session.execute_fluent_project_terminal_value_by_slot(
                 query,
                 target_slot,
@@ -1493,9 +1493,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        let target_slot = self.resolve_non_paged_slot(projection.field())?;
-
-        self.with_admitted_non_paged(|session, query| {
+        self.with_admitted_non_paged_slot(projection.field(), |session, query, target_slot| {
             session.execute_fluent_project_terminal_value_by_slot(
                 query,
                 target_slot,
