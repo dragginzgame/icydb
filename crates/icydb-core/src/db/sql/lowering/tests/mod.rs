@@ -218,6 +218,15 @@ fn lowered_binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
     }
 }
 
+// Build one expected planner searched-CASE expression for SQL order-lowering
+// parser tests.
+fn lowered_case(condition: Expr, result: Expr, else_expr: Expr) -> Expr {
+    Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(condition, result)],
+        else_expr: Box::new(else_expr),
+    }
+}
+
 // Build one expected planner aggregate expression for SQL order-lowering
 // parser tests.
 fn lowered_aggregate(kind: AggregateKind, input: Expr) -> Expr {
@@ -257,6 +266,22 @@ fn sql_order_expr_text_lowers_scalar_order_terms_to_semantic_expr() {
             ],
         ),
         "SQL ORDER BY token parsing should stay in parser while lowering preserves the semantic planner expression",
+    );
+}
+
+#[test]
+fn sql_order_expr_text_lowers_scalar_case_order_terms_to_semantic_expr() {
+    let expr = lower_supported_order_expr_text("CASE WHEN age >= 21 THEN rank ELSE age END")
+        .expect("scalar CASE SQL ORDER BY expression should lower");
+
+    assert_eq!(
+        expr,
+        lowered_case(
+            lowered_binary(BinaryOp::Gte, lowered_field("age"), lowered_int(21)),
+            lowered_field("rank"),
+            lowered_field("age"),
+        ),
+        "SQL ORDER BY CASE parsing should preserve searched CASE condition and branch expressions",
     );
 }
 

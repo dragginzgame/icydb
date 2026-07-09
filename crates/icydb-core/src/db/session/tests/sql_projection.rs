@@ -1782,6 +1782,20 @@ fn execute_sql_projection_case_branch_field_matrix_matches_expected_values() {
                 ],
                 "CASE scalar filter branch fields",
             ),
+            (
+                "SELECT label \
+                 FROM SessionSqlFieldBoundRangeEntity \
+                 ORDER BY CASE WHEN score > 10 THEN min_score ELSE max_score END ASC, \
+                          label ASC \
+                 LIMIT 10",
+                vec![
+                    vec![Value::Text("alpha".to_string())],
+                    vec![Value::Text("bravo".to_string())],
+                    vec![Value::Text("alpha".to_string())],
+                    vec![Value::Text("bravo".to_string())],
+                ],
+                "CASE scalar ORDER BY branch fields",
+            ),
         ],
     );
 }
@@ -1825,6 +1839,18 @@ fn execute_sql_projection_boolean_case_branch_field_matrix_matches_expected_valu
                     vec![Value::Text("mage".to_string())],
                 ],
                 "boolean CASE scalar filter branch fields",
+            ),
+            (
+                "SELECT name \
+                 FROM FilteredIndexedSessionSqlEntity \
+                 ORDER BY CASE WHEN active THEN age ELSE age END ASC, name ASC LIMIT 10",
+                vec![
+                    vec![Value::Text("mage".to_string())],
+                    vec![Value::Text("warrior".to_string())],
+                    vec![Value::Text("warrior".to_string())],
+                    vec![Value::Text("mage".to_string())],
+                ],
+                "boolean CASE scalar ORDER BY branch fields",
             ),
         ],
     );

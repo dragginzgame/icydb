@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### ➕ Added
+
+- SQL `SELECT` now supports searched `CASE` expressions directly in scalar
+  `ORDER BY` terms, including branch-field ordering without projecting the
+  `CASE` value.
+
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)

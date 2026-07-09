@@ -1295,6 +1295,35 @@ fn parse_select_statement_with_direct_scalar_function_expression_order_terms() {
 }
 
 #[test]
+fn parse_select_statement_with_direct_searched_case_order_terms() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         ORDER BY CASE WHEN age >= 21 THEN rank ELSE age END DESC LIMIT 2",
+    )
+    .expect("direct searched CASE ORDER BY terms should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            table_alias: None,
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: sql_order_expr("CASE WHEN age >= 21 THEN rank ELSE age END"),
+                direction: SqlOrderDirection::Desc,
+            }],
+            limit: Some(2),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_direct_unary_text_function_expression_order_terms() {
     let statement = parse_sql(
         "SELECT * FROM users \

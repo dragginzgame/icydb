@@ -36,6 +36,10 @@ impl Parser {
     }
 
     fn parse_order_term_target(&mut self) -> Result<SqlExpr, SqlParseError> {
+        if self.peek_keyword(Keyword::Case) {
+            return self.parse_sql_expr(SqlExprParseSurface::Projection, 0);
+        }
+
         if let Some(kind) = self.parse_aggregate_kind() {
             let aggregate = self.parse_aggregate_call(kind)?;
             if let Some(op) = self.parse_direct_order_arithmetic_op() {

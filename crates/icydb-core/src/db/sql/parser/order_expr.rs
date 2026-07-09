@@ -316,6 +316,82 @@ trait SupportedOrderFunctionParser {
 }
 
 ///
+/// SupportedOrderCaseParser
+///
+/// Local parser contract for searched CASE inside reduced ORDER BY expression
+/// seams. Scalar and grouped order parsing keep different condition/result
+/// grammars, but the WHEN/THEN/ELSE/END shell is shared.
+///
+
+trait SupportedOrderCaseParser {
+    fn cursor(&mut self) -> &mut SqlTokenCursor;
+
+    fn unsupported_case_surface(&self) -> SqlFeatureCode;
+
+    fn parse_case_condition_expr(&mut self) -> Result<SqlExpr, SqlParseError>;
+
+    fn parse_case_result_expr(&mut self) -> Result<SqlExpr, SqlParseError>;
+
+    fn parse_order_case_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        let mut when_then_arms = Vec::new();
+
+        while self.cursor().eat_keyword(Keyword::When) {
+            let condition = self.parse_case_condition_expr()?;
+            if !self.cursor().eat_keyword(Keyword::Then) {
+                return Err(SqlParseError::expected(
+                    SqlExpectedToken::Then,
+                    self.cursor().peek_kind(),
+                ));
+            }
+            let result = self.parse_case_result_expr()?;
+            when_then_arms.push(SqlCaseArm { condition, result });
+        }
+
+        if when_then_arms.is_empty() {
+            return Err(SqlParseError::unsupported_feature(
+                self.unsupported_case_surface(),
+            ));
+        }
+
+        let else_expr = if self.cursor().eat_keyword(Keyword::Else) {
+            self.parse_case_result_expr()?
+        } else {
+            SqlExpr::Literal(Value::Null)
+        };
+
+        if !self.cursor().eat_keyword(Keyword::End) {
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::End,
+                self.cursor().peek_kind(),
+            ));
+        }
+
+        Ok(SqlExpr::Case {
+            arms: when_then_arms,
+            else_expr: Some(Box::new(else_expr)),
+        })
+    }
+}
+
+// Parse one comparison operator shared by the scalar and grouped reduced ORDER
+// BY expression parsers.
+fn parse_order_compare_op(cursor: &mut SqlTokenCursor) -> Option<SqlExprBinaryOp> {
+    let op = match cursor.peek_kind() {
+        Some(TokenKind::Eq) => SqlExprBinaryOp::Eq,
+        Some(TokenKind::Ne) => SqlExprBinaryOp::Ne,
+        Some(TokenKind::Lt) => SqlExprBinaryOp::Lt,
+        Some(TokenKind::Lte) => SqlExprBinaryOp::Lte,
+        Some(TokenKind::Gt) => SqlExprBinaryOp::Gt,
+        Some(TokenKind::Gte) => SqlExprBinaryOp::Gte,
+        _ => return None,
+    };
+
+    cursor.advance();
+
+    Some(op)
+}
+
+///
 /// SupportedOrderExprParser
 ///
 /// SQL parser for one supported scalar ORDER BY expression.
@@ -334,6 +410,51 @@ impl SupportedOrderExprParser {
 
     fn parse_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
         self.parse_additive_expr()
+    }
+
+    fn parse_scalar_case_condition_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        self.parse_scalar_case_or_expr()
+    }
+
+    fn parse_scalar_case_or_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        let mut left = self.parse_scalar_case_and_expr()?;
+
+        while self.cursor.eat_keyword(Keyword::Or) {
+            left = SqlExpr::Binary {
+                op: SqlExprBinaryOp::Or,
+                left: Box::new(left),
+                right: Box::new(self.parse_scalar_case_and_expr()?),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_scalar_case_and_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        let mut left = self.parse_scalar_case_compare_expr()?;
+
+        while self.cursor.eat_keyword(Keyword::And) {
+            left = SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left: Box::new(left),
+                right: Box::new(self.parse_scalar_case_compare_expr()?),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_scalar_case_compare_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        let left = self.parse_additive_expr()?;
+        let Some(op) = parse_order_compare_op(&mut self.cursor) else {
+            return Ok(left);
+        };
+
+        Ok(SqlExpr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(self.parse_additive_expr()?),
+        })
     }
 
     fn parse_additive_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
@@ -407,6 +528,10 @@ impl SupportedOrderExprParser {
             return Ok(expr);
         }
 
+        if self.cursor.eat_keyword(Keyword::Case) {
+            return SupportedOrderCaseParser::parse_order_case_expr(self);
+        }
+
         if matches!(self.cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
             let head = self.cursor.expect_identifier()?;
             if matches!(self.cursor.peek_kind(), Some(TokenKind::LParen)) {
@@ -434,6 +559,24 @@ impl SupportedOrderFunctionParser for SupportedOrderExprParser {
     }
 
     fn parse_expr_arg(&mut self) -> Result<SqlExpr, SqlParseError> {
+        self.parse_expr()
+    }
+}
+
+impl SupportedOrderCaseParser for SupportedOrderExprParser {
+    fn cursor(&mut self) -> &mut SqlTokenCursor {
+        &mut self.cursor
+    }
+
+    fn unsupported_case_surface(&self) -> SqlFeatureCode {
+        SqlFeatureCode::SupportedOrderByExpressionFamily
+    }
+
+    fn parse_case_condition_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        self.parse_scalar_case_condition_expr()
+    }
+
+    fn parse_case_result_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
         self.parse_expr()
     }
 }
@@ -489,7 +632,7 @@ impl SupportedGroupedOrderExprParser {
 
     fn parse_compare_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
         let left = self.parse_additive_expr()?;
-        let Some(op) = self.parse_compare_op() else {
+        let Some(op) = parse_order_compare_op(&mut self.cursor) else {
             return Ok(left);
         };
 
@@ -498,22 +641,6 @@ impl SupportedGroupedOrderExprParser {
             left: Box::new(left),
             right: Box::new(self.parse_additive_expr()?),
         })
-    }
-
-    fn parse_compare_op(&mut self) -> Option<SqlExprBinaryOp> {
-        let op = match self.cursor.peek_kind() {
-            Some(TokenKind::Eq) => SqlExprBinaryOp::Eq,
-            Some(TokenKind::Ne) => SqlExprBinaryOp::Ne,
-            Some(TokenKind::Lt) => SqlExprBinaryOp::Lt,
-            Some(TokenKind::Lte) => SqlExprBinaryOp::Lte,
-            Some(TokenKind::Gt) => SqlExprBinaryOp::Gt,
-            Some(TokenKind::Gte) => SqlExprBinaryOp::Gte,
-            _ => return None,
-        };
-
-        self.cursor.advance();
-
-        Some(op)
     }
 
     fn parse_additive_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
@@ -587,7 +714,7 @@ impl SupportedGroupedOrderExprParser {
             return Ok(expr);
         }
         if self.cursor.eat_keyword(Keyword::Case) {
-            return self.parse_case_expr();
+            return SupportedOrderCaseParser::parse_order_case_expr(self);
         }
         if self.cursor.peek_identifier_keyword("ROUND") {
             let head = self.cursor.expect_identifier()?;
@@ -607,46 +734,6 @@ impl SupportedGroupedOrderExprParser {
         }
 
         self.cursor.parse_literal().map(SqlExpr::Literal)
-    }
-
-    fn parse_case_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
-        let mut when_then_arms = Vec::new();
-
-        while self.cursor.eat_keyword(Keyword::When) {
-            let condition = self.parse_expr()?;
-            if !self.cursor.eat_keyword(Keyword::Then) {
-                return Err(SqlParseError::expected(
-                    SqlExpectedToken::Then,
-                    self.cursor.peek_kind(),
-                ));
-            }
-            let result = self.parse_expr()?;
-            when_then_arms.push(SqlCaseArm { condition, result });
-        }
-
-        if when_then_arms.is_empty() {
-            return Err(SqlParseError::unsupported_feature(
-                SqlFeatureCode::SearchedCaseGroupedOrderBy,
-            ));
-        }
-
-        let else_expr = if self.cursor.eat_keyword(Keyword::Else) {
-            self.parse_expr()?
-        } else {
-            SqlExpr::Literal(Value::Null)
-        };
-
-        if !self.cursor.eat_keyword(Keyword::End) {
-            return Err(SqlParseError::expected(
-                SqlExpectedToken::End,
-                self.cursor.peek_kind(),
-            ));
-        }
-
-        Ok(SqlExpr::Case {
-            arms: when_then_arms,
-            else_expr: Some(Box::new(else_expr)),
-        })
     }
 
     // Parse one normalized scalar function call inside the grouped post-
@@ -716,6 +803,24 @@ impl SupportedGroupedOrderExprParser {
         self.cursor.expect_rparen()?;
 
         Ok(Some(filter_expr))
+    }
+}
+
+impl SupportedOrderCaseParser for SupportedGroupedOrderExprParser {
+    fn cursor(&mut self) -> &mut SqlTokenCursor {
+        &mut self.cursor
+    }
+
+    fn unsupported_case_surface(&self) -> SqlFeatureCode {
+        SqlFeatureCode::SearchedCaseGroupedOrderBy
+    }
+
+    fn parse_case_condition_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        self.parse_expr()
+    }
+
+    fn parse_case_result_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        self.parse_expr()
     }
 }
 
