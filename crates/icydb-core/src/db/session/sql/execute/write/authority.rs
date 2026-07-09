@@ -1,0 +1,278 @@
+//! Module: db::session::sql::execute::write::authority
+//! Responsibility: accepted-schema authority helpers for SQL write execution.
+//! Does not own: INSERT/UPDATE/DELETE execution or candidate-row collection.
+//! Boundary: keeps key decoding, field normalization, descriptor validation,
+//! and save-contract projection in one accepted-schema owner.
+
+use crate::{
+    db::{
+        DbSession, PersistedRow, QueryError,
+        data::{FieldSlot, StructuralPatch},
+        executor::EntityAuthority,
+        schema::{
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
+            SchemaInfo, accepted_commit_schema_fingerprint,
+            canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
+            literal_matches_type,
+        },
+        session::{
+            accepted_schema::{AcceptedSaveContract, accepted_save_contract_for_descriptor},
+            sql::execute::write_returning::validate_sql_returning_projection_fields,
+        },
+        sql::parser::SqlReturningProjection,
+    },
+    traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
+    value::Value,
+};
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
+
+pub(super) fn sql_write_key_from_literal<E>(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    value: &Value,
+) -> Result<E::Key, QueryError>
+where
+    E: EntityKind,
+{
+    if descriptor.primary_key_names().len() > 1 {
+        let Value::List(values) = value else {
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
+            ));
+        };
+
+        return sql_write_key_from_component_literals::<E>(descriptor, values.as_slice());
+    }
+
+    if let Some(key) = <E::Key as KeyValueCodec>::from_key_value(value) {
+        return Ok(key);
+    }
+
+    let primary_key_kind = descriptor.first_primary_key_kind();
+    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(primary_key_kind, value)
+        .unwrap_or_else(|| value.clone());
+
+    <E::Key as KeyValueCodec>::from_key_value(&normalized).ok_or_else(|| {
+        QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
+    })
+}
+
+pub(super) fn sql_write_key_from_component_literals<E>(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    values: &[Value],
+) -> Result<E::Key, QueryError>
+where
+    E: EntityKind,
+{
+    let primary_key_names = descriptor.primary_key_names();
+    let primary_key_kinds = descriptor.primary_key_kinds();
+    if values.len() != primary_key_names.len() {
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
+        ));
+    }
+
+    let mut normalized = Vec::with_capacity(values.len());
+    for ((_field_name, kind), value) in primary_key_names
+        .iter()
+        .zip(primary_key_kinds.iter())
+        .zip(values.iter())
+    {
+        let value = canonicalize_strict_sql_literal_for_persisted_kind(kind, value)
+            .unwrap_or_else(|| value.clone());
+
+        normalized.push(value);
+    }
+
+    let key_value = if normalized.len() == 1 {
+        normalized
+            .into_iter()
+            .next()
+            .ok_or_else(QueryError::invariant)?
+    } else {
+        Value::List(normalized)
+    };
+
+    <E::Key as KeyValueCodec>::from_key_value(&key_value).ok_or_else(|| {
+        QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
+    })
+}
+
+fn checked_accepted_write_descriptor<E>(
+    schema: &AcceptedSchemaSnapshot,
+) -> Result<AcceptedRowLayoutRuntimeContract<'_>, QueryError>
+where
+    E: EntityKind,
+{
+    let (descriptor, _) =
+        AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(schema, E::MODEL)
+            .map_err(QueryError::execute)?;
+
+    Ok(descriptor)
+}
+
+fn checked_accepted_write_descriptor_for_returning<'a, E>(
+    schema: &'a AcceptedSchemaSnapshot,
+    returning: Option<&SqlReturningProjection>,
+) -> Result<AcceptedRowLayoutRuntimeContract<'a>, QueryError>
+where
+    E: EntityKind,
+{
+    let descriptor = checked_accepted_write_descriptor::<E>(schema)?;
+    validate_sql_returning_projection_fields(&descriptor, returning)?;
+
+    Ok(descriptor)
+}
+
+pub(super) fn require_sql_write_policy_plan<T>(plan: Option<T>) -> Result<T, QueryError> {
+    plan.ok_or_else(QueryError::unsupported_query)
+}
+
+pub(super) fn accepted_sql_write_save_contract<E>(
+    schema: &AcceptedSchemaSnapshot,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    schema_info: Option<SchemaInfo>,
+) -> Result<AcceptedSaveContract, QueryError>
+where
+    E: EntityKind,
+{
+    if let Some(schema_info) = schema_info {
+        let row_decode_contract = descriptor.row_decode_contract();
+        let mutation_row_decode_contract = row_decode_contract.clone();
+        let schema_fingerprint =
+            accepted_commit_schema_fingerprint(schema).map_err(QueryError::execute)?;
+
+        return Ok((
+            row_decode_contract,
+            mutation_row_decode_contract,
+            schema_info,
+            schema_fingerprint,
+        ));
+    }
+
+    accepted_save_contract_for_descriptor::<E>(schema, descriptor).map_err(QueryError::execute)
+}
+
+fn accepted_write_field_slot(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    field_name: &str,
+) -> Result<FieldSlot, QueryError> {
+    let accepted_slot = descriptor
+        .field_slot_index_by_name(field_name)
+        .ok_or_else(QueryError::invariant)?;
+
+    Ok(FieldSlot::from_validated_index(accepted_slot))
+}
+
+pub(super) fn sql_write_patch_set_accepted_field(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    patch: StructuralPatch,
+    field_name: &str,
+    value: Value,
+) -> Result<StructuralPatch, QueryError> {
+    let slot = accepted_write_field_slot(descriptor, field_name)?;
+
+    Ok(patch.set(slot, value))
+}
+
+fn write_policy_for_accepted_name(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    field_name: &str,
+) -> Result<SchemaFieldWritePolicy, QueryError> {
+    let Some(field) = descriptor.field_by_name(field_name) else {
+        return Err(QueryError::invariant());
+    };
+
+    Ok(field.write_policy())
+}
+
+pub(super) fn sql_write_value_for_accepted_field(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    field_name: &str,
+    value: &Value,
+) -> Result<Value, QueryError> {
+    let accepted_kind = descriptor
+        .field_kind_by_name(field_name)
+        .ok_or_else(QueryError::invariant)?;
+    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(accepted_kind, value)
+        .unwrap_or_else(|| value.clone());
+
+    let field_type = field_type_from_persisted_kind(accepted_kind);
+    if !literal_matches_type(&normalized, &field_type) {
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::InvalidFieldLiteral,
+        ));
+    }
+
+    Ok(normalized)
+}
+
+pub(super) fn reject_explicit_sql_write_to_managed_field(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    field_name: &str,
+) -> Result<(), QueryError> {
+    let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
+        return Ok(());
+    };
+
+    if policy.write_management().is_some() {
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::ExplicitManagedField,
+        ));
+    }
+
+    Ok(())
+}
+
+pub(super) fn reject_explicit_sql_write_to_generated_field(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    field_name: &str,
+) -> Result<(), QueryError> {
+    let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
+        return Ok(());
+    };
+
+    if policy.insert_generation().is_some() {
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::ExplicitGeneratedField,
+        ));
+    }
+
+    Ok(())
+}
+
+impl<C: CanisterKind> DbSession<C> {
+    pub(super) fn accepted_sql_write_authority_schema_info<E>(
+        schema: &AcceptedSchemaSnapshot,
+    ) -> Result<(EntityAuthority, SchemaInfo), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let authority =
+            Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
+        let schema_info = authority
+            .accepted_schema_info()
+            .ok_or_else(QueryError::invariant)?
+            .clone();
+
+        Ok((authority, schema_info))
+    }
+
+    pub(super) fn with_checked_accepted_write_descriptor_for_returning<E, T>(
+        &self,
+        returning: Option<&SqlReturningProjection>,
+        run: impl for<'a> FnOnce(
+            &'a AcceptedSchemaSnapshot,
+            AcceptedRowLayoutRuntimeContract<'a>,
+        ) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(&schema, returning)?;
+
+        run(&schema, descriptor)
+    }
+}

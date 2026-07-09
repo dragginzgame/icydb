@@ -96,6 +96,44 @@ fn assert_source_excludes_patterns(source: &str, patterns: &[&str], message: &st
     assert!(present.is_empty(), "{message}: {present:?}");
 }
 
+fn assert_sql_write_candidate_owner(candidate: &str) {
+    assert_source_contains_patterns(
+        candidate,
+        &[
+            "struct SqlWriteCandidateAccounting",
+            "semantic_candidates: SqlWriteCandidateRows",
+            "enum SqlWriteCandidateBoundCheck",
+            "struct SqlWriteCandidateDiagnostics",
+            "projected_source_rows: Option<SqlWriteProjectedSourceRows>",
+            "struct SqlWriteCandidateBounds",
+            "fn validate_at(",
+            "struct SqlWriteCandidateCollection<K>",
+            "SqlWriteCandidateBoundCheck::InsertValuesSource",
+            "SqlWriteCandidateBoundCheck::SelectorSourceBatch",
+            "SqlWriteCandidateBoundCheck::MutationBatchHandoff",
+            "fn sql_insert_candidate_bounds(",
+            "fn sql_update_candidate_bounds(",
+        ],
+        "SQL write candidate resource policy should stay centralized in write/candidate.rs",
+    );
+}
+
+fn assert_sql_write_mutation_batch_owner(write_mod: &str) {
+    assert_source_contains_patterns(
+        write_mod,
+        &[
+            "struct SqlWriteMutationExecution<E>",
+            "fn from_bounded_collection(",
+            "SqlWriteCandidateBoundCheck::MutationBatchHandoff",
+            "fn collect_bounded_sql_write_candidate_collection_from_structural_query",
+            "record_projected_source_rows(",
+            "SqlWriteCandidateBoundCheck::SelectorSourceBatch",
+            "fn execute_sql_write_mutation_batch<E>(",
+        ],
+        "SQL UPDATE/INSERT mutation batch admission should stay centralized in the write execution coordinator",
+    );
+}
+
 #[test]
 fn planner_global_distinct_shape_builder_contract_is_semantic_only() {
     assert_global_distinct_builder_signature(global_distinct_group_spec_for_aggregate_identity);
@@ -650,6 +688,7 @@ fn prefix_cardinality_count_entrypoints_share_proof_and_terminal_authority() {
 fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let write_mod = source_for(crate_root, "src/db/session/sql/execute/write/mod.rs");
+    let candidate = source_for(crate_root, "src/db/session/sql/execute/write/candidate.rs");
     let update = source_for(crate_root, "src/db/session/sql/execute/write/update.rs");
     let insert = source_for(crate_root, "src/db/session/sql/execute/write/insert.rs");
     let delete = source_for(crate_root, "src/db/session/sql/execute/write/delete.rs");
@@ -659,27 +698,8 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
         "src/db/executor/delete/structural_projection.rs",
     );
 
-    assert_source_contains_patterns(
-        &write_mod,
-        &[
-            "struct SqlWriteCandidateAccounting",
-            "semantic_candidates: SqlWriteCandidateRows",
-            "enum SqlWriteCandidateBoundCheck",
-            "struct SqlWriteCandidateDiagnostics",
-            "projected_source_rows: Option<SqlWriteProjectedSourceRows>",
-            "struct SqlWriteCandidateBounds",
-            "fn validate_at(",
-            "struct SqlWriteCandidateCollection<K>",
-            "struct SqlWriteMutationExecution<E>",
-            "fn from_bounded_collection(",
-            "SqlWriteCandidateBoundCheck::MutationBatchHandoff",
-            "fn collect_bounded_sql_write_candidate_collection_from_structural_query",
-            "record_projected_source_rows(",
-            "SqlWriteCandidateBoundCheck::SelectorSourceBatch",
-            "fn execute_sql_write_mutation_batch<E>(",
-        ],
-        "SQL UPDATE/INSERT staged-row admission should stay centralized in SqlWriteMutationExecution",
-    );
+    assert_sql_write_candidate_owner(&candidate);
+    assert_sql_write_mutation_batch_owner(&write_mod);
 
     assert_source_contains_patterns(
         &update,
