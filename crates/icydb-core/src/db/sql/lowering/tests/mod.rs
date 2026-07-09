@@ -4818,6 +4818,38 @@ fn compile_sql_command_allows_grouped_aggregate_order_with_limit() {
 }
 
 #[test]
+fn compile_sql_command_allows_grouped_case_aggregate_order_with_limit() {
+    assert_eq!(
+        first_lowered_order_field(
+            "SELECT age, COUNT(*) \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY CASE WHEN COUNT(*) > 1 THEN age ELSE 100 END ASC, age ASC \
+             LIMIT 1",
+            "grouped searched CASE aggregate ORDER BY with LIMIT",
+        ),
+        "CASE WHEN COUNT(*) > 1 THEN age ELSE 100 END",
+        "grouped searched CASE ORDER BY should preserve the canonical post-aggregate order expression",
+    );
+}
+
+#[test]
+fn compile_sql_command_allows_grouped_case_group_field_order_with_limit() {
+    assert_eq!(
+        first_lowered_order_field(
+            "SELECT age, COUNT(*) \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY CASE WHEN age >= 20 THEN 0 ELSE 1 END ASC, age DESC \
+             LIMIT 1",
+            "grouped group-field searched CASE ORDER BY with LIMIT",
+        ),
+        "CASE WHEN age >= 20 THEN 0 ELSE 1 END",
+        "grouped group-field searched CASE ORDER BY should preserve the canonical post-aggregate order expression",
+    );
+}
+
+#[test]
 fn compile_sql_command_normalizes_grouped_aggregate_order_by_alias_with_limit() {
     assert_eq!(
         first_lowered_order_field(

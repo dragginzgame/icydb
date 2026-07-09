@@ -13,7 +13,7 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.199.20`
+Current workspace version: `0.199.21`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
 public `icydb` crate path. Repository development, formatting, Clippy, tests,
@@ -44,7 +44,7 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.20" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.21" }
 ```
 
 The default crate feature set is typed/fluent-only. Enable SQL explicitly when
@@ -52,7 +52,7 @@ the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.20", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.21", features = ["sql"] }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
@@ -62,7 +62,7 @@ glue follows the active `icydb.toml`.
 
 ```toml
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.20" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.199.21" }
 ```
 
 ## Minimal Schema

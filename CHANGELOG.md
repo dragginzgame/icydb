@@ -7,15 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### ➕ Added
-
-- SQL `SELECT` now supports searched `CASE` expressions directly in scalar
-  `ORDER BY` terms, including branch-field ordering without projecting the
-  `CASE` value.
-
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
+
+- `0.199.21` fixes grouped SQL `ORDER BY CASE` over grouped fields so
+  searched `CASE` ordering can run through bounded Top-K finalization without
+  projecting the `CASE` value.
+
+- `0.199.20` adds scalar SQL `SELECT` support for searched `CASE`
+  expressions directly in `ORDER BY` terms without requiring the `CASE` value
+  to be projected.
 
 - `0.199.19` continues the technical-debt audit line by separating query
   diagnostics attribution DTOs from hidden measured execution and moving SQL

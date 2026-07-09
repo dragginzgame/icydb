@@ -2483,6 +2483,88 @@ fn grouped_select_helper_executes_bounded_aggregate_order_top_k_alias_rows() {
 }
 
 #[test]
+fn grouped_select_helper_executes_bounded_case_aggregate_order_top_k_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("single-low", 10),
+            ("multi-a", 20),
+            ("multi-b", 20),
+            ("single-high", 30),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY CASE WHEN COUNT(*) > 1 THEN age ELSE 100 END ASC, age ASC LIMIT 3",
+        None,
+    )
+    .expect(
+        "grouped aggregate searched CASE ORDER BY should execute through bounded Top-K finalize",
+    );
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Nat64(20), vec![Value::Nat64(2)]),
+            (Value::Nat64(10), vec![Value::Nat64(1)]),
+            (Value::Nat64(30), vec![Value::Nat64(1)]),
+        ],
+        "grouped searched CASE ORDER BY should rank on finalized aggregate values without projecting the CASE value",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped searched CASE ORDER BY should stay on the bounded Top-K lane without continuation cursors",
+    );
+}
+
+#[test]
+fn grouped_select_helper_executes_bounded_case_group_field_order_top_k_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("single-low", 10),
+            ("multi-a", 20),
+            ("multi-b", 20),
+            ("single-high", 30),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY CASE WHEN age >= 20 THEN 0 ELSE 1 END ASC, age DESC LIMIT 3",
+        None,
+    )
+    .expect(
+        "grouped group-field searched CASE ORDER BY should execute through bounded Top-K finalize",
+    );
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Nat64(30), vec![Value::Nat64(1)]),
+            (Value::Nat64(20), vec![Value::Nat64(2)]),
+            (Value::Nat64(10), vec![Value::Nat64(1)]),
+        ],
+        "grouped searched CASE ORDER BY should rank on grouped field values without projecting the CASE value",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped group-field searched CASE ORDER BY should stay on the bounded Top-K lane without continuation cursors",
+    );
+}
+
+#[test]
 fn grouped_select_helper_executes_bounded_multi_key_aggregate_order_top_k_rows() {
     let session = seeded_indexed_grouped_session(&[
         ("alpha", 10),

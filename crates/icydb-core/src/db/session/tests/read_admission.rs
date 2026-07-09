@@ -2,14 +2,16 @@
 
 use std::num::NonZeroU32;
 
+#[cfg(feature = "sql-explain")]
+use super::SessionSqlWriteEntity;
 use super::{
     FilteredIndexedSessionSqlEntity, HeapSessionSqlEntity, IndexedSessionSqlEntity,
     JournaledSessionSqlEntity, SessionPrincipalKeyEntity, SessionSqlCompositeWriteEntity,
-    SessionSqlEntity, SessionSqlSignedWriteEntity, SessionSqlWriteEntity,
-    SessionUniquePrefixOffsetEntity, assert_query_plan_expr_unknown_field,
-    assert_query_plan_predicate_invalid_field, assert_sql_lowering_detail, heap_sql_session,
-    indexed_sql_session, journaled_sql_session, reset_heap_session_sql_store,
-    reset_indexed_session_sql_store, reset_journaled_session_sql_store, reset_session_sql_store,
+    SessionSqlEntity, SessionSqlSignedWriteEntity, SessionUniquePrefixOffsetEntity,
+    assert_query_plan_expr_unknown_field, assert_query_plan_predicate_invalid_field,
+    assert_sql_lowering_detail, heap_sql_session, indexed_sql_session, journaled_sql_session,
+    reset_heap_session_sql_store, reset_indexed_session_sql_store,
+    reset_journaled_session_sql_store, reset_session_sql_store,
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, seed_unique_prefix_offset_session_entities, sql_session,
 };

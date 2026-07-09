@@ -11,7 +11,7 @@ use crate::{
         plan::{
             AggregateKind,
             expr::{
-                BinaryOp, Expr, FieldId, Function, GroupedOrderExprClass,
+                BinaryOp, CaseWhenArm, Expr, FieldId, Function, GroupedOrderExprClass,
                 GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility, UnaryOp,
                 classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
                 grouped_top_k_order_term_requires_heap,
@@ -38,6 +38,13 @@ fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
         op,
         left: Box::new(left),
         right: Box::new(right),
+    }
+}
+
+fn case_when(condition: Expr, result: Expr, else_expr: Expr) -> Expr {
+    Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(condition, result)],
+        else_expr: Box::new(else_expr),
     }
 }
 
@@ -216,6 +223,20 @@ fn grouped_top_k_classifier_accepts_group_field_scalar_composition() {
 }
 
 #[test]
+fn grouped_top_k_classifier_accepts_group_field_case_value_selection() {
+    let expr = case_when(
+        binary(BinaryOp::Gte, field("score"), int(20)),
+        int(0),
+        int(1),
+    );
+
+    assert_eq!(
+        classify_grouped_top_k_order_term(&expr, &["score"]),
+        GroupedTopKOrderTermAdmissibility::Admissible,
+    );
+}
+
+#[test]
 fn grouped_top_k_classifier_rejects_non_group_field_leaves() {
     let expr = binary(BinaryOp::Add, avg(field("score")), field("other_score"));
 
@@ -260,11 +281,16 @@ fn grouped_top_k_classifier_accepts_filtered_aggregate_null_test_boolean_composi
 }
 
 #[test]
-fn grouped_top_k_heap_gate_requires_aggregate_leaf() {
+fn grouped_top_k_heap_gate_requires_aggregate_or_case_term() {
     assert!(grouped_top_k_order_term_requires_heap(&avg(field("score"))));
     assert!(grouped_top_k_order_term_requires_heap(&round(avg(field(
         "score"
     )))));
+    assert!(grouped_top_k_order_term_requires_heap(&case_when(
+        binary(BinaryOp::Gte, field("score"), int(20)),
+        int(0),
+        int(1),
+    )));
     assert!(!grouped_top_k_order_term_requires_heap(&binary(
         BinaryOp::Add,
         field("score"),

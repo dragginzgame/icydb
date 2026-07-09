@@ -309,6 +309,7 @@ struct GroupedOrderExprAnalysis {
     canonical_shape: GroupedCanonicalOrderShape,
     references_only_group_fields: bool,
     contains_aggregate: bool,
+    contains_case: bool,
     contains_non_aggregate_wrapper_fn: bool,
 }
 
@@ -333,24 +334,28 @@ impl GroupedOrderExprAnalysis {
                     .iter()
                     .any(|allowed| *allowed == field.as_str()),
                 contains_aggregate: false,
+                contains_case: false,
                 contains_non_aggregate_wrapper_fn: false,
             },
             Expr::Aggregate(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
                 references_only_group_fields: true,
                 contains_aggregate: true,
+                contains_case: false,
                 contains_non_aggregate_wrapper_fn: false,
             },
             Expr::FieldPath(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
                 references_only_group_fields: false,
                 contains_aggregate: false,
+                contains_case: false,
                 contains_non_aggregate_wrapper_fn: false,
             },
             Expr::Literal(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
                 references_only_group_fields: true,
                 contains_aggregate: false,
+                contains_case: false,
                 contains_non_aggregate_wrapper_fn: false,
             },
             Expr::FunctionCall { args, .. } => {
@@ -359,6 +364,7 @@ impl GroupedOrderExprAnalysis {
                         canonical_shape: GroupedCanonicalOrderShape::Unsupported,
                         references_only_group_fields: true,
                         contains_aggregate: false,
+                        contains_case: false,
                         contains_non_aggregate_wrapper_fn: false,
                     },
                     |current, arg| current.merge_with(Self::from_expr(arg, group_fields, None)),
@@ -374,14 +380,21 @@ impl GroupedOrderExprAnalysis {
             Expr::Case {
                 when_then_arms,
                 else_expr,
-            } => when_then_arms.iter().fold(
-                Self::from_expr(else_expr.as_ref(), group_fields, None),
-                |current, arm| {
-                    current
-                        .merge_with(Self::from_expr(arm.condition(), group_fields, None))
-                        .merge_with(Self::from_expr(arm.result(), group_fields, None))
-                },
-            ),
+            } => {
+                let child = when_then_arms.iter().fold(
+                    Self::from_expr(else_expr.as_ref(), group_fields, None),
+                    |current, arm| {
+                        current
+                            .merge_with(Self::from_expr(arm.condition(), group_fields, None))
+                            .merge_with(Self::from_expr(arm.result(), group_fields, None))
+                    },
+                );
+
+                Self {
+                    contains_case: true,
+                    ..child
+                }
+            }
             Expr::Binary { op, left, right } => {
                 let left_expr = left.as_ref();
                 let right_expr = right.as_ref();
@@ -418,6 +431,7 @@ impl GroupedOrderExprAnalysis {
             references_only_group_fields: self.references_only_group_fields
                 && other.references_only_group_fields,
             contains_aggregate: self.contains_aggregate || other.contains_aggregate,
+            contains_case: self.contains_case || other.contains_case,
             contains_non_aggregate_wrapper_fn: self.contains_non_aggregate_wrapper_fn
                 || other.contains_non_aggregate_wrapper_fn,
         }
@@ -536,12 +550,12 @@ pub(in crate::db) fn classify_grouped_top_k_order_term(
     GroupedTopKOrderTermAdmissibility::NonGroupFieldReference
 }
 
-/// Return true when one grouped post-aggregate order expression depends on at
-/// least one aggregate leaf and therefore cannot stay on the canonical grouped-
-/// key ordered lane.
+/// Return true when one grouped post-aggregate order expression must leave the
+/// canonical grouped-key ordered lane for bounded Top-K finalization.
 #[must_use]
 pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
-    GroupedOrderExprAnalysis::from_expr(expr, &[], None).contains_aggregate
+    let analysis = GroupedOrderExprAnalysis::from_expr(expr, &[], None);
+    analysis.contains_aggregate || analysis.contains_case
 }
 
 ///
