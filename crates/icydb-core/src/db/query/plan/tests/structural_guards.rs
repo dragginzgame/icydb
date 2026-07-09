@@ -643,15 +643,17 @@ fn prefix_cardinality_count_entrypoints_share_proof_and_terminal_authority() {
         &[
             "pub(in crate::db::session::sql::execute) fn direct_count_cardinality_prefix_specs_for_accepted_authority(",
             ".try_build_count_cardinality_prefix_access_with_schema_info(",
-            "query.build_plan_with_visible_indexes(visible_indexes)?",
-            "direct_count_cardinality_prefix_specs_from_planned_query(authority, &plan)",
+            "fn direct_count_cardinality_target_from_cached_shared_plan(",
+            ".cached_shared_query_plan_for_accepted_authority_with_catalog(",
+            ".cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(",
+            "direct_count_cardinality_prefix_specs_from_planned_query(",
             "fn direct_count_cardinality_prefix_specs_from_planned_query(",
             "lower_access(authority.entity_tag(), &plan.access)",
             "exact_count_cardinality_prefixes_for_plan(",
             "lowered_access.index_prefix_specs()",
             "lowered_index_prefix_cardinality_specs_from_plan(",
         ],
-        "direct SQL count prefix-spec admission may keep its accepted-authority shortcut, but its planned fallback must share the planner prefix-cardinality proof",
+        "direct SQL count prefix-spec admission may keep its accepted-authority shortcut, but its planned fallback must use the shared query-plan cache and the planner prefix-cardinality proof",
     );
 
     assert_source_contains_patterns(

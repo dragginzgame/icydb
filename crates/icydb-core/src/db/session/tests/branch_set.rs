@@ -2174,11 +2174,11 @@ fn session_branch_set_sql_count_covered_predicate_uses_prefix_cardinality() {
     );
     assert_eq!(
         attribution.cache.shared_query_plan_hits, 0,
-        "direct metadata COUNT should not hit the shared prepared-plan cache",
+        "planned metadata COUNT should compile through the shared prepared-plan cache on first use",
     );
     assert_eq!(
-        attribution.cache.shared_query_plan_misses, 0,
-        "direct metadata COUNT should not build a shared prepared-plan cache entry",
+        attribution.cache.shared_query_plan_misses, 1,
+        "planned metadata COUNT should build exactly one shared prepared-plan cache entry",
     );
 }
 
