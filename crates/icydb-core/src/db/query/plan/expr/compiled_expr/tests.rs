@@ -133,7 +133,7 @@ fn field_path_expr(root_slot: usize) -> CompiledExpr {
         root_slot,
         field: "profile.rank".to_string(),
         segments: vec!["rank".to_string()].into_boxed_slice(),
-        segment_bytes: vec!["rank".as_bytes().to_vec().into_boxed_slice()].into_boxed_slice(),
+        segment_bytes: vec![b"rank".to_vec().into_boxed_slice()].into_boxed_slice(),
     }
 }
 
@@ -307,7 +307,7 @@ fn assert_evaluation_reads_are_advertised(expr: &CompiledExpr, context: &str) {
     expr.extend_referenced_slots(&mut advertised);
     let actual_reads = row_view.read_slots.borrow();
 
-    for slot in actual_reads.iter().copied() {
+    for &slot in actual_reads.iter() {
         assert!(
             advertised.contains(&slot),
             "{context} read slot {slot} without advertising it in referenced slots: {advertised:?}",
