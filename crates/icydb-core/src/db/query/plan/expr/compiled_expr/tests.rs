@@ -1,11 +1,10 @@
 use crate::{
     db::query::plan::expr::{
-        BinaryOp, CompiledExpr, CompiledExprValueReader, Function, ProjectionEvalError,
+        BinaryOp, CompiledExpr, CompiledExprValueReader, Function, ProjectionEvalError, UnaryOp,
     },
     value::Value,
 };
-use std::borrow::Cow;
-use std::cmp::Ordering;
+use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
 use super::ProjectionAccessCode;
 
@@ -16,6 +15,11 @@ struct TestRowView {
 struct TestGroupedView {
     group_keys: Vec<Value>,
     aggregates: Vec<Value>,
+}
+
+struct TracingRowView {
+    slots: Vec<Option<Value>>,
+    read_slots: RefCell<Vec<usize>>,
 }
 
 impl CompiledExprValueReader for TestRowView {
@@ -49,6 +53,40 @@ impl CompiledExprValueReader for TestGroupedView {
     }
 }
 
+impl CompiledExprValueReader for TracingRowView {
+    fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        self.read_slots.borrow_mut().push(slot);
+        self.slots
+            .get(slot)
+            .and_then(Option::as_ref)
+            .map(Cow::Borrowed)
+    }
+
+    fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
+        None
+    }
+
+    fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
+        None
+    }
+
+    fn read_field_path(
+        &self,
+        root_slot: usize,
+        _field: &str,
+        _segments: &[String],
+        _segment_bytes: &[Box<[u8]>],
+    ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
+        self.read_slots.borrow_mut().push(root_slot);
+
+        Ok(self
+            .slots
+            .get(root_slot)
+            .and_then(Option::as_ref)
+            .map(Cow::Borrowed))
+    }
+}
+
 fn row_view() -> TestRowView {
     TestRowView {
         slots: vec![
@@ -58,6 +96,22 @@ fn row_view() -> TestRowView {
             Some(Value::Text("MiXeD".to_string())),
             Some(Value::Bool(true)),
         ],
+    }
+}
+
+fn tracing_row_view() -> TracingRowView {
+    TracingRowView {
+        slots: vec![
+            Some(Value::Nat64(7)),
+            Some(Value::Int64(3)),
+            Some(Value::Null),
+            Some(Value::Text("MiXeD".to_string())),
+            Some(Value::Bool(true)),
+            Some(Value::Bool(false)),
+            Some(Value::Nat64(10)),
+            Some(Value::Nat64(2)),
+        ],
+        read_slots: RefCell::new(Vec::new()),
     }
 }
 
@@ -72,6 +126,193 @@ fn evaluate(expr: &CompiledExpr) -> Value {
     expr.evaluate(&row_view())
         .expect("grouped compiled expression should evaluate")
         .into_owned()
+}
+
+fn field_path_expr(root_slot: usize) -> CompiledExpr {
+    CompiledExpr::FieldPath {
+        root_slot,
+        field: "profile.rank".to_string(),
+        segments: vec!["rank".to_string()].into_boxed_slice(),
+        segment_bytes: vec!["rank".as_bytes().to_vec().into_boxed_slice()].into_boxed_slice(),
+    }
+}
+
+fn slot_expr(slot: usize) -> CompiledExpr {
+    CompiledExpr::Slot {
+        slot,
+        field: format!("slot_{slot}"),
+    }
+}
+
+fn direct_slot_binary_expr(op: BinaryOp, left_slot: usize, right_slot: usize) -> CompiledExpr {
+    match op {
+        BinaryOp::Add => CompiledExpr::Add {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Sub => CompiledExpr::Sub {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Mul => CompiledExpr::Mul {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Div => CompiledExpr::Div {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Eq => CompiledExpr::Eq {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Ne => CompiledExpr::Ne {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Lt => CompiledExpr::Lt {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Lte => CompiledExpr::Lte {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Gt => CompiledExpr::Gt {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::Gte => CompiledExpr::Gte {
+            left_slot,
+            left_field: "left".to_string(),
+            right_slot,
+            right_field: "right".to_string(),
+        },
+        BinaryOp::And | BinaryOp::Or => CompiledExpr::Binary {
+            op,
+            left: Box::new(slot_expr(left_slot)),
+            right: Box::new(slot_expr(right_slot)),
+        },
+    }
+}
+
+fn slot_literal_expr(op: BinaryOp, slot: usize, literal: Value) -> CompiledExpr {
+    CompiledExpr::BinarySlotLiteral {
+        op,
+        slot,
+        field: format!("slot_{slot}"),
+        literal,
+        slot_on_left: true,
+    }
+}
+
+fn case_slot_literal_expr(
+    op: BinaryOp,
+    slot: usize,
+    then_expr: CompiledExpr,
+    else_expr: CompiledExpr,
+) -> CompiledExpr {
+    CompiledExpr::CaseSlotLiteral {
+        op,
+        slot,
+        field: format!("slot_{slot}"),
+        literal: Value::Nat64(5),
+        slot_on_left: true,
+        then_expr: Box::new(then_expr),
+        else_expr: Box::new(else_expr),
+    }
+}
+
+fn case_slot_bool_expr(
+    slot: usize,
+    then_expr: CompiledExpr,
+    else_expr: CompiledExpr,
+) -> CompiledExpr {
+    CompiledExpr::CaseSlotBool {
+        slot,
+        field: format!("slot_{slot}"),
+        then_expr: Box::new(then_expr),
+        else_expr: Box::new(else_expr),
+    }
+}
+
+fn function_expr(function: Function, args: Vec<CompiledExpr>) -> CompiledExpr {
+    CompiledExpr::FunctionCall {
+        function,
+        args: args.into_boxed_slice(),
+    }
+}
+
+fn unary_not_expr(expr: CompiledExpr) -> CompiledExpr {
+    CompiledExpr::Unary {
+        op: UnaryOp::Not,
+        expr: Box::new(expr),
+    }
+}
+
+fn generic_case_expr(
+    condition: CompiledExpr,
+    then_expr: CompiledExpr,
+    else_expr: CompiledExpr,
+) -> CompiledExpr {
+    CompiledExpr::Case {
+        when_then_arms: vec![super::CompiledExprCaseArm::new(condition, then_expr)]
+            .into_boxed_slice(),
+        else_expr: Box::new(else_expr),
+    }
+}
+
+fn generic_binary_expr(op: BinaryOp, left: CompiledExpr, right: CompiledExpr) -> CompiledExpr {
+    CompiledExpr::Binary {
+        op,
+        left: Box::new(left),
+        right: Box::new(right),
+    }
+}
+
+fn assert_referenced_slots(expr: &CompiledExpr, expected: &[usize], context: &str) {
+    let mut actual = Vec::new();
+    expr.extend_referenced_slots(&mut actual);
+
+    assert_eq!(
+        actual, expected,
+        "{context} should advertise every row slot it may evaluate",
+    );
+}
+
+fn assert_evaluation_reads_are_advertised(expr: &CompiledExpr, context: &str) {
+    let row_view = tracing_row_view();
+    let _ = expr
+        .evaluate(&row_view)
+        .unwrap_or_else(|err| panic!("{context} should evaluate: {err:?}"));
+    let mut advertised = Vec::new();
+    expr.extend_referenced_slots(&mut advertised);
+    let actual_reads = row_view.read_slots.borrow();
+
+    for slot in actual_reads.iter().copied() {
+        assert!(
+            advertised.contains(&slot),
+            "{context} read slot {slot} without advertising it in referenced slots: {advertised:?}",
+        );
+    }
 }
 
 #[test]
@@ -98,6 +339,187 @@ fn grouped_compiled_expr_preserves_slot_arithmetic_semantics() {
         value.cmp_numeric(&Value::Int64(10)),
         Some(Ordering::Equal),
         "direct slot arithmetic must preserve shared numeric coercion semantics",
+    );
+}
+
+#[test]
+fn compiled_expr_referenced_slot_matrix_covers_row_slot_variants() {
+    for (context, expr, expected) in [
+        ("slot", slot_expr(0), vec![0]),
+        ("field-path", field_path_expr(3), vec![3]),
+        (
+            "group-key",
+            CompiledExpr::GroupKey {
+                offset: 0,
+                field: "tier".to_string(),
+            },
+            vec![],
+        ),
+        ("aggregate", CompiledExpr::Aggregate { index: 0 }, vec![]),
+        ("literal", CompiledExpr::Literal(Value::Nat64(1)), vec![]),
+    ] {
+        assert_referenced_slots(&expr, expected.as_slice(), context);
+    }
+
+    for (context, op) in [
+        ("direct add", BinaryOp::Add),
+        ("direct sub", BinaryOp::Sub),
+        ("direct mul", BinaryOp::Mul),
+        ("direct div", BinaryOp::Div),
+        ("direct eq", BinaryOp::Eq),
+        ("direct ne", BinaryOp::Ne),
+        ("direct lt", BinaryOp::Lt),
+        ("direct lte", BinaryOp::Lte),
+        ("direct gt", BinaryOp::Gt),
+        ("direct gte", BinaryOp::Gte),
+    ] {
+        assert_referenced_slots(&direct_slot_binary_expr(op, 0, 1), &[0, 1], context);
+    }
+
+    for (context, expr, expected) in [
+        (
+            "slot literal",
+            slot_literal_expr(BinaryOp::Gt, 0, Value::Nat64(5)),
+            vec![0],
+        ),
+        (
+            "case slot literal",
+            case_slot_literal_expr(BinaryOp::Gt, 0, slot_expr(2), slot_expr(3)),
+            vec![0, 2, 3],
+        ),
+        (
+            "case slot bool",
+            case_slot_bool_expr(4, slot_expr(0), slot_expr(1)),
+            vec![4, 0, 1],
+        ),
+        (
+            "function",
+            function_expr(Function::Lower, vec![slot_expr(3)]),
+            vec![3],
+        ),
+        ("unary", unary_not_expr(slot_expr(4)), vec![4]),
+        (
+            "case",
+            generic_case_expr(
+                slot_literal_expr(BinaryOp::Gt, 0, Value::Nat64(5)),
+                slot_expr(2),
+                slot_expr(3),
+            ),
+            vec![0, 2, 3],
+        ),
+        (
+            "binary",
+            generic_binary_expr(BinaryOp::And, slot_expr(4), slot_expr(5)),
+            vec![4, 5],
+        ),
+    ] {
+        assert_referenced_slots(&expr, expected.as_slice(), context);
+    }
+}
+
+#[test]
+fn compiled_expr_evaluation_reads_are_subset_of_referenced_slots() {
+    let cases = [
+        ("slot", slot_expr(0)),
+        ("field-path", field_path_expr(3)),
+        ("direct add", direct_slot_binary_expr(BinaryOp::Add, 0, 1)),
+        ("direct gt", direct_slot_binary_expr(BinaryOp::Gt, 0, 1)),
+        (
+            "slot literal",
+            slot_literal_expr(BinaryOp::Gt, 0, Value::Nat64(5)),
+        ),
+        (
+            "case slot literal then branch",
+            case_slot_literal_expr(BinaryOp::Gt, 0, slot_expr(6), slot_expr(7)),
+        ),
+        (
+            "case slot literal else branch",
+            case_slot_literal_expr(BinaryOp::Lt, 0, slot_expr(6), slot_expr(7)),
+        ),
+        (
+            "case slot bool then branch",
+            case_slot_bool_expr(4, slot_expr(6), slot_expr(7)),
+        ),
+        (
+            "case slot bool else branch",
+            case_slot_bool_expr(5, slot_expr(6), slot_expr(7)),
+        ),
+        (
+            "function",
+            function_expr(Function::Lower, vec![slot_expr(3)]),
+        ),
+        ("unary", unary_not_expr(slot_expr(4))),
+        (
+            "case",
+            generic_case_expr(
+                slot_literal_expr(BinaryOp::Gt, 0, Value::Nat64(5)),
+                slot_expr(6),
+                slot_expr(7),
+            ),
+        ),
+        (
+            "binary",
+            generic_binary_expr(BinaryOp::And, slot_expr(4), slot_expr(5)),
+        ),
+    ];
+
+    for (context, expr) in cases {
+        assert_evaluation_reads_are_advertised(&expr, context);
+    }
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn compiled_expr_contains_field_path_matrix_reaches_child_expressions() {
+    let cases = [
+        (
+            "function",
+            function_expr(
+                Function::Coalesce,
+                vec![field_path_expr(0), CompiledExpr::Literal(Value::Null)],
+            ),
+        ),
+        ("unary", unary_not_expr(field_path_expr(0))),
+        (
+            "binary",
+            generic_binary_expr(
+                BinaryOp::Eq,
+                field_path_expr(0),
+                CompiledExpr::Literal(Value::Nat64(1)),
+            ),
+        ),
+        (
+            "case",
+            generic_case_expr(
+                CompiledExpr::Literal(Value::Bool(true)),
+                field_path_expr(0),
+                CompiledExpr::Literal(Value::Null),
+            ),
+        ),
+        (
+            "case slot literal",
+            case_slot_literal_expr(
+                BinaryOp::Gt,
+                0,
+                field_path_expr(1),
+                CompiledExpr::Literal(Value::Null),
+            ),
+        ),
+        (
+            "case slot bool",
+            case_slot_bool_expr(4, CompiledExpr::Literal(Value::Null), field_path_expr(1)),
+        ),
+    ];
+
+    for (context, expr) in cases {
+        assert!(
+            expr.contains_field_path(),
+            "{context} should report child field-path expressions",
+        );
+    }
+    assert!(
+        !slot_expr(0).contains_field_path(),
+        "plain slots should not report nested field paths",
     );
 }
 
@@ -172,6 +594,57 @@ fn grouped_compiled_expr_case_slot_bool_preserves_null_fallthrough() {
     };
 
     assert_eq!(evaluate(&expr), Value::Text("else".to_string()));
+}
+
+#[test]
+fn compiled_expr_case_slot_literal_references_condition_and_branch_slots() {
+    let expr = CompiledExpr::CaseSlotLiteral {
+        op: BinaryOp::Gt,
+        slot: 0,
+        field: "score".to_string(),
+        literal: Value::Nat64(10),
+        slot_on_left: true,
+        then_expr: Box::new(CompiledExpr::Slot {
+            slot: 2,
+            field: "min_score".to_string(),
+        }),
+        else_expr: Box::new(CompiledExpr::Slot {
+            slot: 3,
+            field: "max_score".to_string(),
+        }),
+    };
+    let mut slots = Vec::new();
+    expr.extend_referenced_slots(&mut slots);
+
+    assert_eq!(
+        slots,
+        vec![0, 2, 3],
+        "specialized CASE slot/literal predicates must retain branch field reads in row layouts",
+    );
+}
+
+#[test]
+fn compiled_expr_case_slot_bool_references_condition_and_branch_slots() {
+    let expr = CompiledExpr::CaseSlotBool {
+        slot: 4,
+        field: "active".to_string(),
+        then_expr: Box::new(CompiledExpr::Slot {
+            slot: 0,
+            field: "score".to_string(),
+        }),
+        else_expr: Box::new(CompiledExpr::Slot {
+            slot: 1,
+            field: "fallback".to_string(),
+        }),
+    };
+    let mut required = [false; 5];
+    expr.mark_referenced_slots(&mut required);
+
+    assert_eq!(
+        required,
+        [true, true, false, false, true],
+        "specialized CASE boolean predicates must retain branch field reads in row layouts",
+    );
 }
 
 #[test]

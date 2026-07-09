@@ -3637,6 +3637,53 @@ fn grouped_select_executes_aggregate_input_expressions() {
 }
 
 #[test]
+fn grouped_select_executes_case_field_aggregate_input_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+    for (label, score, min_score, max_score) in [
+        ("alpha", 20, 1, 9),
+        ("alpha", 5, 3, 9),
+        ("bravo", 30, 7, 11),
+        ("bravo", 3, 5, 11),
+    ] {
+        session
+            .insert(SessionSqlFieldBoundRangeEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                score,
+                min_score,
+                max_score,
+            })
+            .expect("CASE aggregate fixture insert should succeed");
+    }
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlFieldBoundRangeEntity>(
+        &session,
+        "SELECT label, AVG(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+         FROM SessionSqlFieldBoundRangeEntity \
+         GROUP BY label \
+         ORDER BY label ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped CASE aggregate input expressions should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Text("alpha".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(5_u64))],
+            ),
+            (
+                Value::Text("bravo".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(9_u64))],
+            ),
+        ],
+        "grouped CASE aggregate input expressions should read branch field values before grouped reduction",
+    );
+}
+
+#[test]
 fn grouped_select_executes_function_wrapped_aggregate_input_expressions() {
     reset_session_sql_store();
     let session = sql_session();

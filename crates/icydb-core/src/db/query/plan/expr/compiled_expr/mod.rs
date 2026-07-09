@@ -808,9 +808,23 @@ impl CompiledExpr {
             | Self::FieldPath {
                 root_slot: slot, ..
             }
-            | Self::BinarySlotLiteral { slot, .. }
-            | Self::CaseSlotLiteral { slot, .. }
-            | Self::CaseSlotBool { slot, .. } => visit(*slot),
+            | Self::BinarySlotLiteral { slot, .. } => visit(*slot),
+            Self::CaseSlotLiteral {
+                slot,
+                then_expr,
+                else_expr,
+                ..
+            }
+            | Self::CaseSlotBool {
+                slot,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                visit(*slot);
+                then_expr.for_each_referenced_slot(visit);
+                else_expr.for_each_referenced_slot(visit);
+            }
             Self::Add {
                 left_slot,
                 right_slot,
