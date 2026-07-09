@@ -58,6 +58,27 @@ fn seeded_projection_window_session() -> DbSession<SessionSqlCanister> {
     session
 }
 
+// Seed the CASE branch-field fixture used by scalar projection retention
+// checks in this file.
+fn seed_projection_case_field_entities(session: &DbSession<SessionSqlCanister>) {
+    for (label, score, min_score, max_score) in [
+        ("alpha", 20, 1, 9),
+        ("alpha", 5, 3, 9),
+        ("bravo", 30, 7, 11),
+        ("bravo", 3, 5, 11),
+    ] {
+        session
+            .insert(SessionSqlFieldBoundRangeEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                score,
+                min_score,
+                max_score,
+            })
+            .expect("projection CASE branch-field fixture insert should succeed");
+    }
+}
+
 // Reset the shared SQL store and seed the bounded ORDER BY fixture rows used
 // by the alias/direct numeric ordering checks in this file.
 fn seeded_projection_bounded_order_session() -> DbSession<SessionSqlCanister> {
@@ -1724,6 +1745,86 @@ fn execute_sql_projection_searched_case_matrix_matches_expected_values() {
                     vec![Value::Text("senior".to_string())],
                 ],
                 "searched CASE without ELSE should project planner-normalized NULL fallback values",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_projection_case_branch_field_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_projection_case_field_entities(&session);
+
+    assert_projection_row_case_matrix::<SessionSqlFieldBoundRangeEntity>(
+        &session,
+        &[
+            (
+                "SELECT label, CASE WHEN score > 10 THEN min_score ELSE max_score END AS case_score \
+                 FROM SessionSqlFieldBoundRangeEntity \
+                 ORDER BY label ASC, case_score ASC LIMIT 10",
+                vec![
+                    vec![Value::Text("alpha".to_string()), Value::Nat64(1)],
+                    vec![Value::Text("alpha".to_string()), Value::Nat64(9)],
+                    vec![Value::Text("bravo".to_string()), Value::Nat64(7)],
+                    vec![Value::Text("bravo".to_string()), Value::Nat64(11)],
+                ],
+                "CASE scalar projection branch fields",
+            ),
+            (
+                "SELECT label \
+                 FROM SessionSqlFieldBoundRangeEntity \
+                 WHERE CASE WHEN score > 10 THEN min_score = 1 ELSE max_score = 11 END \
+                 ORDER BY label ASC LIMIT 10",
+                vec![
+                    vec![Value::Text("alpha".to_string())],
+                    vec![Value::Text("bravo".to_string())],
+                ],
+                "CASE scalar filter branch fields",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_projection_boolean_case_branch_field_matrix_matches_expected_values() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "mage", false, 30),
+            (2, "mage", true, 10),
+            (3, "warrior", false, 20),
+            (4, "warrior", false, 15),
+        ],
+    );
+
+    assert_projection_row_case_matrix::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        &[
+            (
+                "SELECT name, CASE WHEN active THEN age ELSE age END AS case_age \
+                 FROM FilteredIndexedSessionSqlEntity \
+                 ORDER BY name ASC, case_age ASC LIMIT 10",
+                vec![
+                    vec![Value::Text("mage".to_string()), Value::Nat64(10)],
+                    vec![Value::Text("mage".to_string()), Value::Nat64(30)],
+                    vec![Value::Text("warrior".to_string()), Value::Nat64(15)],
+                    vec![Value::Text("warrior".to_string()), Value::Nat64(20)],
+                ],
+                "boolean CASE scalar projection branch fields",
+            ),
+            (
+                "SELECT name \
+                 FROM FilteredIndexedSessionSqlEntity \
+                 WHERE CASE WHEN active THEN age = 10 ELSE age > 20 END \
+                 ORDER BY name ASC, age ASC LIMIT 10",
+                vec![
+                    vec![Value::Text("mage".to_string())],
+                    vec![Value::Text("mage".to_string())],
+                ],
+                "boolean CASE scalar filter branch fields",
             ),
         ],
     );

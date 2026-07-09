@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.18` continues the technical-debt audit line by splitting session
+  fluent terminal adapters, SQL SELECT read-budget test helpers, and SQL write
+  `RETURNING` projection/bounds into owner modules without changing runtime
+  behavior.
+
 - `0.199.17` continues the technical-debt audit line by splitting shared
   query-plan cache identity into its own owner module and fixes specialized
   grouped aggregate `CASE` inputs so branch fields stay available at

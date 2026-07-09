@@ -446,6 +446,125 @@ fn global_aggregate_case_expression_matrix_matches_expected_values() {
     }
 }
 
+fn seed_global_case_field_aggregate_entities(session: &DbSession<SessionSqlCanister>) {
+    for (label, score, min_score, max_score) in [
+        ("alpha", 20, 1, 9),
+        ("alpha", 5, 3, 9),
+        ("bravo", 30, 7, 11),
+        ("bravo", 3, 5, 11),
+    ] {
+        session
+            .insert(SessionSqlFieldBoundRangeEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                score,
+                min_score,
+                max_score,
+            })
+            .expect("global CASE aggregate fixture insert should succeed");
+    }
+}
+
+#[test]
+fn global_aggregate_case_branch_field_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_global_case_field_aggregate_entities(&session);
+
+    let dec = |value| Value::Decimal(crate::types::Decimal::from(value));
+    let cases = [
+        (
+            "global SUM over CASE branch fields",
+            "SELECT SUM(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity",
+            dec(28_u64),
+        ),
+        (
+            "global AVG over CASE branch fields",
+            "SELECT AVG(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity",
+            dec(7_u64),
+        ),
+        (
+            "global COUNT DISTINCT over CASE branch fields",
+            "SELECT COUNT(DISTINCT CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity",
+            Value::Nat64(4),
+        ),
+        (
+            "global COUNT with CASE aggregate filter branch fields",
+            "SELECT COUNT(*) FILTER (WHERE CASE \
+                WHEN score > 10 THEN min_score = 1 \
+                ELSE max_score = 11 \
+             END) FROM SessionSqlFieldBoundRangeEntity",
+            Value::Nat64(2),
+        ),
+        (
+            "global WHERE over CASE branch fields",
+            "SELECT COUNT(*) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             WHERE CASE WHEN score > 10 THEN min_score = 1 ELSE max_score = 11 END",
+            Value::Nat64(2),
+        ),
+    ];
+
+    for (context, sql, expected) in cases {
+        assert_session_sql_scalar_value::<SessionSqlFieldBoundRangeEntity>(
+            &session, sql, expected, context,
+        );
+    }
+}
+
+#[test]
+fn global_aggregate_boolean_case_branch_field_matrix_matches_expected_values() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "mage", false, 30),
+            (2, "mage", true, 10),
+            (3, "warrior", false, 20),
+            (4, "warrior", false, 15),
+        ],
+    );
+
+    let dec = |value| Value::Decimal(crate::types::Decimal::from(value));
+    let cases = [
+        (
+            "global SUM over boolean CASE branch fields",
+            "SELECT SUM(CASE WHEN active THEN age ELSE age + 1 END) \
+             FROM FilteredIndexedSessionSqlEntity",
+            dec(78_u64),
+        ),
+        (
+            "global SUM DISTINCT over boolean CASE branch fields",
+            "SELECT SUM(DISTINCT CASE WHEN active THEN age ELSE age + 1 END) \
+             FROM FilteredIndexedSessionSqlEntity",
+            dec(78_u64),
+        ),
+        (
+            "global COUNT with boolean CASE aggregate filter branch fields",
+            "SELECT COUNT(*) FILTER (WHERE CASE WHEN active THEN age = 10 ELSE age > 20 END) \
+             FROM FilteredIndexedSessionSqlEntity",
+            Value::Nat64(2),
+        ),
+        (
+            "global WHERE over boolean CASE branch fields",
+            "SELECT COUNT(*) \
+             FROM FilteredIndexedSessionSqlEntity \
+             WHERE CASE WHEN active THEN age = 10 ELSE age > 20 END",
+            Value::Nat64(2),
+        ),
+    ];
+
+    for (context, sql, expected) in cases {
+        assert_session_sql_scalar_value::<FilteredIndexedSessionSqlEntity>(
+            &session, sql, expected, context,
+        );
+    }
+}
+
 #[test]
 fn global_aggregate_filter_value_matrix_matches_expected_values() {
     reset_session_sql_store();

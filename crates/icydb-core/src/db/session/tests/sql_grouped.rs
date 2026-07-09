@@ -1670,6 +1670,65 @@ fn grouped_select_helper_executes_searched_case_where_expression() {
 }
 
 #[test]
+fn grouped_select_executes_case_branch_field_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_grouped_case_field_aggregate_input_entities(&session);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlFieldBoundRangeEntity>(
+        &session,
+        "SELECT label, COUNT(*) \
+         FROM SessionSqlFieldBoundRangeEntity \
+         WHERE CASE WHEN score > 10 THEN min_score = 1 ELSE max_score = 11 END \
+         GROUP BY label \
+         ORDER BY label ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped CASE WHERE branch field expression should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Text("alpha".to_string()), vec![Value::Nat64(1)]),
+            (Value::Text("bravo".to_string()), vec![Value::Nat64(1)]),
+        ],
+        "grouped CASE WHERE should retain branch field reads in the pre-group row layout",
+    );
+}
+
+#[test]
+fn grouped_select_executes_boolean_case_branch_field_where_expression() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "mage", false, 30),
+            (2, "mage", true, 10),
+            (3, "warrior", false, 20),
+            (4, "warrior", false, 15),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, COUNT(*) \
+         FROM FilteredIndexedSessionSqlEntity \
+         WHERE CASE WHEN active THEN age = 10 ELSE age > 20 END \
+         GROUP BY name \
+         ORDER BY name ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped boolean CASE WHERE branch field expression should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(Value::Text("mage".to_string()), vec![Value::Nat64(2)])],
+        "grouped boolean CASE WHERE should retain branch field reads in the pre-group row layout",
+    );
+}
+
+#[test]
 fn grouped_select_helper_executes_coalesce_and_nullif_where_expression() {
     reset_session_sql_store();
     let session = sql_session();
@@ -3636,10 +3695,7 @@ fn grouped_select_executes_aggregate_input_expressions() {
     );
 }
 
-#[test]
-fn grouped_select_executes_case_field_aggregate_input_expressions() {
-    reset_session_sql_store();
-    let session = sql_session();
+fn seed_grouped_case_field_aggregate_input_entities(session: &DbSession<SessionSqlCanister>) {
     for (label, score, min_score, max_score) in [
         ("alpha", 20, 1, 9),
         ("alpha", 5, 3, 9),
@@ -3656,31 +3712,263 @@ fn grouped_select_executes_case_field_aggregate_input_expressions() {
             })
             .expect("CASE aggregate fixture insert should succeed");
     }
+}
 
-    let execution = execute_grouped_select_for_tests::<SessionSqlFieldBoundRangeEntity>(
+fn grouped_case_field_aggregate_input_cases() -> Vec<IndexedGroupedCase<'static>> {
+    let mut cases = grouped_case_field_aggregate_basic_input_cases();
+    cases.extend(grouped_case_field_aggregate_expression_input_cases());
+
+    cases
+}
+
+fn grouped_case_field_aggregate_basic_input_cases() -> Vec<IndexedGroupedCase<'static>> {
+    let alpha = Value::Text("alpha".to_string());
+    let bravo = Value::Text("bravo".to_string());
+    let dec = |value| Value::Decimal(Decimal::from(value));
+
+    vec![
+        (
+            "AVG over CASE branch fields",
+            "SELECT label, AVG(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha.clone(), vec![dec(5_u64)]),
+                (bravo.clone(), vec![dec(9_u64)]),
+            ],
+        ),
+        (
+            "SUM over CASE branch fields",
+            "SELECT label, SUM(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha.clone(), vec![dec(10_u64)]),
+                (bravo.clone(), vec![dec(18_u64)]),
+            ],
+        ),
+        (
+            "COUNT over CASE branch fields",
+            "SELECT label, COUNT(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha.clone(), vec![Value::Nat64(2)]),
+                (bravo.clone(), vec![Value::Nat64(2)]),
+            ],
+        ),
+        (
+            "COUNT DISTINCT over CASE branch fields",
+            "SELECT label, COUNT(DISTINCT CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha.clone(), vec![Value::Nat64(2)]),
+                (bravo.clone(), vec![Value::Nat64(2)]),
+            ],
+        ),
+        (
+            "MIN and MAX over CASE branch fields",
+            "SELECT label, \
+                    MIN(CASE WHEN score > 10 THEN min_score ELSE max_score END), \
+                    MAX(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha, vec![Value::Nat64(1), Value::Nat64(9)]),
+                (bravo, vec![Value::Nat64(7), Value::Nat64(11)]),
+            ],
+        ),
+    ]
+}
+
+fn grouped_case_field_aggregate_expression_input_cases() -> Vec<IndexedGroupedCase<'static>> {
+    let alpha = Value::Text("alpha".to_string());
+    let bravo = Value::Text("bravo".to_string());
+    let dec = |value| Value::Decimal(Decimal::from(value));
+
+    vec![
+        (
+            "function-wrapped AVG over CASE branch fields",
+            "SELECT label, ROUND(AVG(CASE WHEN score > 10 THEN min_score ELSE max_score END), 0) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha.clone(), vec![dec(5_u64)]),
+                (bravo.clone(), vec![dec(9_u64)]),
+            ],
+        ),
+        (
+            "filtered SUM over CASE branch fields",
+            "SELECT label, \
+                    SUM(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
+                    FILTER (WHERE score > 10) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha.clone(), vec![dec(1_u64)]),
+                (bravo.clone(), vec![dec(7_u64)]),
+            ],
+        ),
+        (
+            "COUNT with CASE aggregate filter branch fields",
+            "SELECT label, \
+                    COUNT(*) FILTER (WHERE CASE \
+                        WHEN score > 10 THEN min_score = 1 \
+                        ELSE max_score = 11 \
+                    END) \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY label ASC LIMIT 10",
+            vec![
+                (alpha.clone(), vec![Value::Nat64(1)]),
+                (bravo.clone(), vec![Value::Nat64(1)]),
+            ],
+        ),
+        (
+            "HAVING over CASE branch fields",
+            "SELECT label, AVG(CASE WHEN score > 10 THEN min_score ELSE max_score END) AS case_avg \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             HAVING case_avg > 5 \
+             ORDER BY label ASC LIMIT 10",
+            vec![(bravo.clone(), vec![dec(9_u64)])],
+        ),
+        (
+            "ORDER BY over CASE branch field aggregate alias",
+            "SELECT label, SUM(CASE WHEN score > 10 THEN min_score ELSE max_score END) AS case_sum \
+             FROM SessionSqlFieldBoundRangeEntity \
+             GROUP BY label \
+             ORDER BY case_sum DESC, label ASC LIMIT 10",
+            vec![(bravo, vec![dec(18_u64)]), (alpha, vec![dec(10_u64)])],
+        ),
+    ]
+}
+
+#[test]
+fn grouped_select_executes_case_field_aggregate_input_expression_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_grouped_case_field_aggregate_input_entities(&session);
+
+    for (context, sql, expected_rows) in grouped_case_field_aggregate_input_cases() {
+        let execution = execute_grouped_select_for_tests::<SessionSqlFieldBoundRangeEntity>(
+            &session, sql, None,
+        )
+        .unwrap_or_else(|err| {
+            panic!("grouped CASE aggregate input matrix should execute {context}: {err}")
+        });
+
+        assert_eq!(
+            grouped_result_rows(&execution),
+            expected_rows,
+            "{context} should read CASE branch field values before grouped reduction",
+        );
+    }
+}
+
+#[test]
+fn grouped_select_executes_boolean_case_field_aggregate_input_expression_matrix() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_filtered_indexed_session_sql_entities(
         &session,
-        "SELECT label, AVG(CASE WHEN score > 10 THEN min_score ELSE max_score END) \
-         FROM SessionSqlFieldBoundRangeEntity \
-         GROUP BY label \
-         ORDER BY label ASC LIMIT 10",
-        None,
-    )
-    .expect("grouped CASE aggregate input expressions should execute");
-
-    assert_eq!(
-        grouped_result_rows(&execution),
-        vec![
-            (
-                Value::Text("alpha".to_string()),
-                vec![Value::Decimal(crate::types::Decimal::from(5_u64))],
-            ),
-            (
-                Value::Text("bravo".to_string()),
-                vec![Value::Decimal(crate::types::Decimal::from(9_u64))],
-            ),
+        &[
+            (1, "mage", false, 30),
+            (2, "mage", true, 10),
+            (3, "warrior", false, 20),
+            (4, "warrior", false, 15),
         ],
-        "grouped CASE aggregate input expressions should read branch field values before grouped reduction",
     );
+
+    let mage = Value::Text("mage".to_string());
+    let warrior = Value::Text("warrior".to_string());
+    let dec = |value| Value::Decimal(Decimal::from(value));
+    let cases = [
+        (
+            "SUM over boolean CASE branch fields",
+            "SELECT name, SUM(CASE WHEN active THEN age ELSE age + 1 END) \
+             FROM FilteredIndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (mage.clone(), vec![dec(41_u64)]),
+                (warrior.clone(), vec![dec(37_u64)]),
+            ],
+        ),
+        (
+            "SUM DISTINCT over boolean CASE branch fields",
+            "SELECT name, SUM(DISTINCT CASE WHEN active THEN age ELSE age + 1 END) \
+             FROM FilteredIndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (mage.clone(), vec![dec(41_u64)]),
+                (warrior.clone(), vec![dec(37_u64)]),
+            ],
+        ),
+        (
+            "AVG over boolean CASE branch fields ordered by alias",
+            "SELECT name, AVG(CASE WHEN active THEN age ELSE age + 1 END) AS case_avg \
+             FROM FilteredIndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY case_avg DESC, name ASC LIMIT 10",
+            vec![
+                (
+                    mage.clone(),
+                    vec![Value::Decimal(crate::types::Decimal::new(205_000, 4))],
+                ),
+                (
+                    warrior.clone(),
+                    vec![Value::Decimal(crate::types::Decimal::new(185_000, 4))],
+                ),
+            ],
+        ),
+        (
+            "filtered SUM over boolean CASE branch fields",
+            "SELECT name, SUM(CASE WHEN active THEN age ELSE age + 1 END) FILTER (WHERE active) \
+             FROM FilteredIndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (mage.clone(), vec![dec(10_u64)]),
+                (warrior.clone(), vec![Value::Null]),
+            ],
+        ),
+        (
+            "COUNT with boolean CASE aggregate filter branch fields",
+            "SELECT name, COUNT(*) FILTER (WHERE CASE WHEN active THEN age = 10 ELSE age > 20 END) \
+             FROM FilteredIndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (mage, vec![Value::Nat64(2)]),
+                (warrior, vec![Value::Nat64(0)]),
+            ],
+        ),
+    ];
+
+    for (context, sql, expected_rows) in cases {
+        let execution = execute_grouped_select_for_tests::<FilteredIndexedSessionSqlEntity>(
+            &session, sql, None,
+        )
+        .unwrap_or_else(|err| {
+            panic!("grouped boolean CASE aggregate input matrix should execute {context}: {err}")
+        });
+
+        assert_eq!(
+            grouped_result_rows(&execution),
+            expected_rows,
+            "{context} should read boolean CASE branch field values before grouped reduction",
+        );
+    }
 }
 
 #[test]
