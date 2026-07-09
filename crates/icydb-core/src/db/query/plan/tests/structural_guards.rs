@@ -752,11 +752,18 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
 fn sql_write_policy_validated_plan_helpers_are_recoverable() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let write_policy = source_for(crate_root, "src/db/session/sql/write_policy.rs");
+    let write_policy_model = source_for(crate_root, "src/db/session/sql/write_policy/model.rs");
+    let write_policy_bounds = source_for(crate_root, "src/db/session/sql/write_policy/bounds.rs");
     let update_policy = source_for(crate_root, "src/db/session/sql/update_policy.rs");
     let delete_policy = source_for(crate_root, "src/db/session/sql/delete_policy.rs");
 
     assert_source_contains_patterns(
         &write_policy,
+        &["mod bounds;", "mod model;", "mod shape;"],
+        "shared SQL write policy parent should stay a narrow owner index",
+    );
+    assert_source_contains_patterns(
+        &write_policy_model,
         &[
             "enum SqlWriteExposureClass",
             "enum SqlWriteShapePolicyRejection",
@@ -767,10 +774,21 @@ fn sql_write_policy_validated_plan_helpers_are_recoverable() {
             ") -> Option<Self> {",
             "shape.limit?",
         ],
-        "shared SQL write policy shape and proof construction should stay fallible and centralized",
+        "shared SQL write policy model and proof construction should stay fallible and centralized",
+    );
+    assert_source_contains_patterns(
+        &write_policy_bounds,
+        &[
+            "const fn bounded_write_policy_rejection(",
+            "SqlWriteBoundedPolicyRejection::OffsetUnsupported",
+            "SqlWriteBoundedPolicyRejection::MissingLimit",
+            "SqlWriteBoundedPolicyRejection::LimitTooHigh",
+            "SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder",
+        ],
+        "shared SQL write policy bounds should stay centralized in the bounds owner",
     );
     assert_source_excludes_patterns(
-        &write_policy,
+        &write_policy_model,
         &[".expect(\"bounded policy admitted a limit\")"],
         "bounded SQL write proof construction must not trap on a missing limit",
     );

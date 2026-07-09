@@ -307,10 +307,80 @@ enum GroupedCanonicalOrderShape {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct GroupedOrderExprAnalysis {
     canonical_shape: GroupedCanonicalOrderShape,
-    references_only_group_fields: bool,
-    contains_aggregate: bool,
-    contains_case: bool,
-    contains_non_aggregate_wrapper_fn: bool,
+    flags: GroupedOrderExprFlags,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GroupedOrderExprFlags {
+    bits: u8,
+}
+
+impl GroupedOrderExprFlags {
+    const REFERENCES_ONLY_GROUP_FIELDS: u8 = 1 << 0;
+    const CONTAINS_AGGREGATE: u8 = 1 << 1;
+    const CONTAINS_CASE: u8 = 1 << 2;
+    const CONTAINS_NON_AGGREGATE_WRAPPER_FN: u8 = 1 << 3;
+
+    const fn field_reference(is_group_field: bool) -> Self {
+        if is_group_field {
+            Self::group_field_only()
+        } else {
+            Self::empty()
+        }
+    }
+
+    const fn empty() -> Self {
+        Self { bits: 0 }
+    }
+
+    const fn group_field_only() -> Self {
+        Self {
+            bits: Self::REFERENCES_ONLY_GROUP_FIELDS,
+        }
+    }
+
+    const fn aggregate() -> Self {
+        Self {
+            bits: Self::REFERENCES_ONLY_GROUP_FIELDS | Self::CONTAINS_AGGREGATE,
+        }
+    }
+
+    const fn with_case(self) -> Self {
+        Self {
+            bits: self.bits | Self::CONTAINS_CASE,
+        }
+    }
+
+    const fn with_non_aggregate_wrapper_fn(self) -> Self {
+        Self {
+            bits: self.bits | Self::CONTAINS_NON_AGGREGATE_WRAPPER_FN,
+        }
+    }
+
+    const fn merge_with(self, other: Self) -> Self {
+        let mut bits = (self.bits | other.bits) & !Self::REFERENCES_ONLY_GROUP_FIELDS;
+        if self.references_only_group_fields() && other.references_only_group_fields() {
+            bits |= Self::REFERENCES_ONLY_GROUP_FIELDS;
+        }
+
+        Self { bits }
+    }
+
+    const fn references_only_group_fields(self) -> bool {
+        self.bits & Self::REFERENCES_ONLY_GROUP_FIELDS != 0
+    }
+
+    const fn contains_aggregate(self) -> bool {
+        self.bits & Self::CONTAINS_AGGREGATE != 0
+    }
+
+    const fn contains_case(self) -> bool {
+        self.bits & Self::CONTAINS_CASE != 0
+    }
+
+    const fn contains_non_aggregate_wrapper_fn(self) -> bool {
+        self.bits & Self::CONTAINS_NON_AGGREGATE_WRAPPER_FN != 0
+    }
 }
 
 impl GroupedOrderExprAnalysis {
@@ -330,51 +400,42 @@ impl GroupedOrderExprAnalysis {
                         }
                     },
                 ),
-                references_only_group_fields: group_fields
-                    .iter()
-                    .any(|allowed| *allowed == field.as_str()),
-                contains_aggregate: false,
-                contains_case: false,
-                contains_non_aggregate_wrapper_fn: false,
+                flags: GroupedOrderExprFlags::field_reference(
+                    group_fields
+                        .iter()
+                        .any(|allowed| *allowed == field.as_str()),
+                ),
             },
             Expr::Aggregate(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                references_only_group_fields: true,
-                contains_aggregate: true,
-                contains_case: false,
-                contains_non_aggregate_wrapper_fn: false,
+                flags: GroupedOrderExprFlags::aggregate(),
             },
             Expr::FieldPath(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                references_only_group_fields: false,
-                contains_aggregate: false,
-                contains_case: false,
-                contains_non_aggregate_wrapper_fn: false,
+                flags: GroupedOrderExprFlags::empty(),
             },
             Expr::Literal(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                references_only_group_fields: true,
-                contains_aggregate: false,
-                contains_case: false,
-                contains_non_aggregate_wrapper_fn: false,
+                flags: GroupedOrderExprFlags::group_field_only(),
             },
             Expr::FunctionCall { args, .. } => {
                 let child = args.iter().fold(
                     Self {
                         canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                        references_only_group_fields: true,
-                        contains_aggregate: false,
-                        contains_case: false,
-                        contains_non_aggregate_wrapper_fn: false,
+                        flags: GroupedOrderExprFlags::group_field_only(),
                     },
                     |current, arg| current.merge_with(Self::from_expr(arg, group_fields, None)),
                 );
 
                 Self {
                     canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                    contains_non_aggregate_wrapper_fn: !child.contains_aggregate
-                        || child.contains_non_aggregate_wrapper_fn,
-                    ..child
+                    flags: if !child.flags.contains_aggregate()
+                        || child.flags.contains_non_aggregate_wrapper_fn()
+                    {
+                        child.flags.with_non_aggregate_wrapper_fn()
+                    } else {
+                        child.flags
+                    },
                 }
             }
             Expr::Case {
@@ -391,7 +452,7 @@ impl GroupedOrderExprAnalysis {
                 );
 
                 Self {
-                    contains_case: true,
+                    flags: child.flags.with_case(),
                     ..child
                 }
             }
@@ -428,12 +489,7 @@ impl GroupedOrderExprAnalysis {
     const fn merge_with(self, other: Self) -> Self {
         Self {
             canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-            references_only_group_fields: self.references_only_group_fields
-                && other.references_only_group_fields,
-            contains_aggregate: self.contains_aggregate || other.contains_aggregate,
-            contains_case: self.contains_case || other.contains_case,
-            contains_non_aggregate_wrapper_fn: self.contains_non_aggregate_wrapper_fn
-                || other.contains_non_aggregate_wrapper_fn,
+            flags: self.flags.merge_with(other.flags),
         }
     }
 
@@ -539,8 +595,10 @@ pub(in crate::db) fn classify_grouped_top_k_order_term(
 ) -> GroupedTopKOrderTermAdmissibility {
     let analysis = GroupedOrderExprAnalysis::from_expr(expr, group_fields, None);
 
-    if analysis.references_only_group_fields {
-        if !analysis.contains_aggregate && analysis.contains_non_aggregate_wrapper_fn {
+    if analysis.flags.references_only_group_fields() {
+        if !analysis.flags.contains_aggregate()
+            && analysis.flags.contains_non_aggregate_wrapper_fn()
+        {
             return GroupedTopKOrderTermAdmissibility::UnsupportedExpression;
         }
 
@@ -555,7 +613,7 @@ pub(in crate::db) fn classify_grouped_top_k_order_term(
 #[must_use]
 pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
     let analysis = GroupedOrderExprAnalysis::from_expr(expr, &[], None);
-    analysis.contains_aggregate || analysis.contains_case
+    analysis.flags.contains_aggregate() || analysis.flags.contains_case()
 }
 
 ///
