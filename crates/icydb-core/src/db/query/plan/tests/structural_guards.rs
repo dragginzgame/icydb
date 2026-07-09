@@ -635,17 +635,16 @@ fn filter_authority_downstream_consumers_do_not_extract_predicate_facts() {
 #[test]
 fn prefix_cardinality_count_entrypoints_share_proof_and_terminal_authority() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let session_cache = source_for(crate_root, "src/db/session/query/cache.rs");
     let count_terminal = source_for(crate_root, "src/db/executor/aggregate/count_terminal.rs");
     let direct_count = source_for(crate_root, "src/db/session/sql/execute/direct_count.rs");
 
     assert_source_contains_patterns(
-        &session_cache,
+        &direct_count,
         &[
-            "pub(in crate::db) fn direct_count_cardinality_prefix_specs_for_accepted_authority(",
-            "query.try_build_count_cardinality_prefix_access_with_schema_info(",
+            "pub(in crate::db::session::sql::execute) fn direct_count_cardinality_prefix_specs_for_accepted_authority(",
+            ".try_build_count_cardinality_prefix_access_with_schema_info(",
             "query.build_plan_with_visible_indexes(visible_indexes)?",
-            "Self::direct_count_cardinality_prefix_specs_from_planned_query(authority, &plan)",
+            "direct_count_cardinality_prefix_specs_from_planned_query(authority, &plan)",
             "fn direct_count_cardinality_prefix_specs_from_planned_query(",
             "lower_access(authority.entity_tag(), &plan.access)",
             "exact_count_cardinality_prefixes_for_plan(",

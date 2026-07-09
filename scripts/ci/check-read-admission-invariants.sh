@@ -30,6 +30,7 @@ PUBLIC_FACADE_LOAD_PAGING="crates/icydb/src/db/session/load/paging.rs"
 PUBLIC_FACADE_SESSION_MACROS="crates/icydb/src/db/session/macros.rs"
 PUBLIC_FACADE_SQL="crates/icydb/src/db/session/sql.rs"
 ADMISSION_SOURCE="crates/icydb-core/src/db/query/admission.rs"
+ADMISSION_POLICY_SOURCE="crates/icydb-core/src/db/query/admission/policy.rs"
 READ_INTENT_SOURCE="crates/icydb-core/src/db/query/read_intent.rs"
 DIAGNOSTIC_CODES="crates/icydb-diagnostic-code/src/lib.rs"
 
@@ -289,8 +290,8 @@ require_file_pattern \
   "generated SQL remains controller-gated admin surface" \
   "Generated SQL endpoints.*controller-gated.*admin"
 
-if [[ ! -f "$ADMISSION_SOURCE" ]]; then
-  echo "[ERROR] Missing read-admission source owner: $ADMISSION_SOURCE" >&2
+if [[ ! -f "$ADMISSION_POLICY_SOURCE" ]]; then
+  echo "[ERROR] Missing read-admission policy source owner: $ADMISSION_POLICY_SOURCE" >&2
   status=1
 else
   for required_source_constant in \
@@ -300,12 +301,17 @@ else
     "const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;" \
     "const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;"
   do
-    if ! rg -F --quiet "$required_source_constant" "$ADMISSION_SOURCE"; then
+    if ! rg -F --quiet "$required_source_constant" "$ADMISSION_POLICY_SOURCE"; then
       echo "[ERROR] Default read-admission budget changed without updating the invariant contract: $required_source_constant" >&2
       status=1
     fi
   done
+fi
 
+if [[ ! -f "$ADMISSION_SOURCE" ]]; then
+  echo "[ERROR] Missing read-admission source owner: $ADMISSION_SOURCE" >&2
+  status=1
+else
   if [[ -f "$DIAGNOSTIC_CODES" ]]; then
     public_rejection_variants="$(
       extract_rust_enum_variants "QueryReadAdmissionCode" "$DIAGNOSTIC_CODES"
