@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.24` continues the technical-debt audit line by splitting compiled
+  SQL artifacts into cache-entry, command, and execution-context owners without
+  changing SQL compile/cache or execution behavior.
+
 - `0.199.23` continues the technical-debt audit line by splitting
   command-specific SQL UPDATE and DELETE policy owners into model, planning,
   and test modules without changing write admission or execution behavior.
