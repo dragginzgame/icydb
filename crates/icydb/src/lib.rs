@@ -134,8 +134,8 @@ pub mod model {
 pub mod metrics {
     pub use icydb_core::metrics::{
         CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
-        EntitySummary, EventCounters, EventOps, EventReport, MetricsSink, compact_metric_code,
-        compact_metrics_report, metrics_report, metrics_reset_all,
+        EntitySummary, EventCounters, EventOps, EventReport, MetricRatio, MetricsSink,
+        compact_metric_code, compact_metrics_report, metrics_report, metrics_reset_all,
     };
 }
 

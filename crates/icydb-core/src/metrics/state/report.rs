@@ -161,11 +161,11 @@ pub(in crate::metrics) fn report_window_start(window_start_ms: Option<u64>) -> E
     entity_counters.sort_by(|a, b| {
         b.activity_score()
             .cmp(&a.activity_score())
-            .then_with(|| b.rows_loaded.cmp(&a.rows_loaded))
-            .then_with(|| b.rows_saved.cmp(&a.rows_saved))
-            .then_with(|| b.rows_scanned.cmp(&a.rows_scanned))
-            .then_with(|| b.rows_deleted.cmp(&a.rows_deleted))
-            .then_with(|| a.path.cmp(&b.path))
+            .then_with(|| b.rows_loaded().cmp(&a.rows_loaded()))
+            .then_with(|| b.rows_saved().cmp(&a.rows_saved()))
+            .then_with(|| b.rows_scanned().cmp(&a.rows_scanned()))
+            .then_with(|| b.rows_deleted().cmp(&a.rows_deleted()))
+            .then_with(|| a.path().cmp(b.path()))
     });
 
     EventReport::new(

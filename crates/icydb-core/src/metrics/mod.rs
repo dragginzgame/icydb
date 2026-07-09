@@ -17,7 +17,7 @@ pub use sink::{
 };
 pub use state::{
     CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport, EntitySummary,
-    EventCounters, EventOps, EventReport, compact_metric_code,
+    EventCounters, EventOps, EventReport, MetricRatio, compact_metric_code,
 };
 
 ///

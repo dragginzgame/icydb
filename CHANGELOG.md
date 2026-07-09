@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.29` continues the technical-debt audit line by splitting per-entity
+  rich metrics summary DTOs and global operation counter DTOs into dedicated
+  owners without changing metrics payloads or instrumentation behavior.
+
 - `0.199.28` continues the technical-debt audit line by splitting rich metrics
   report DTOs and windowed report construction into a dedicated owner without
   changing metrics payloads or instrumentation behavior.
