@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.27` continues the technical-debt audit line by splitting
+  read-admission policy, planner summary extraction, rendering, and tests into
+  separate owners without changing read-admission behavior.
+
 - `0.199.26` continues the technical-debt audit line by splitting SQL write
   accepted-schema authority and candidate-row accounting out of the compiled
   write execution coordinator without changing SQL write behavior.
