@@ -6,9 +6,19 @@
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        access::LoweredIndexPrefixCardinalitySpec,
-        executor::{EntityAuthority, ScalarTerminalBoundaryRequest, SharedPreparedExecutionPlan},
-        query::plan::{VisibleIndexes, expr::ProjectionSpec},
+        access::{
+            LoweredIndexPrefixCardinalitySpec, lower_access,
+            lower_exact_index_prefix_cardinality_specs_for_prefix_access,
+        },
+        executor::{
+            EntityAuthority, ScalarTerminalBoundaryRequest, SharedPreparedExecutionPlan,
+            exact_count_cardinality_prefixes_for_plan,
+            lowered_index_prefix_cardinality_specs_from_plan,
+        },
+        query::{
+            intent::StructuralQuery,
+            plan::{AccessPlannedQuery, VisibleIndexes, expr::ProjectionSpec},
+        },
         schema::SchemaInfo,
         session::{
             AcceptedSchemaCatalogContext,
@@ -178,6 +188,50 @@ fn direct_count_cardinality_plan_entry_from_prefix_specs(
         SqlCompiledSchemaFingerprint::from_catalog(catalog),
         Rc::from(prefix_specs),
     )))
+}
+
+pub(in crate::db::session::sql::execute) fn direct_count_cardinality_prefix_specs_for_accepted_authority(
+    authority: &EntityAuthority,
+    query: &StructuralQuery,
+    visible_indexes: &VisibleIndexes<'_>,
+    schema_info: &SchemaInfo,
+) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
+    if let Some(access) = query
+        .try_build_count_cardinality_prefix_access_with_schema_info(visible_indexes, schema_info)?
+    {
+        let prefix_specs = lower_exact_index_prefix_cardinality_specs_for_prefix_access(
+            authority.entity_tag(),
+            &access,
+        )
+        .map_err(|_err| QueryError::invariant())?;
+        if !prefix_specs.is_empty() {
+            return Ok(Some(prefix_specs));
+        }
+    }
+
+    let plan = query.build_plan_with_visible_indexes(visible_indexes)?;
+
+    direct_count_cardinality_prefix_specs_from_planned_query(authority, &plan)
+}
+
+fn direct_count_cardinality_prefix_specs_from_planned_query(
+    authority: &EntityAuthority,
+    plan: &AccessPlannedQuery,
+) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
+    let lowered_access = lower_access(authority.entity_tag(), &plan.access)
+        .map_err(|_err| QueryError::invariant())?;
+    let Some(prefix_plan) = exact_count_cardinality_prefixes_for_plan(
+        authority.entity_tag(),
+        plan,
+        lowered_access.index_prefix_specs(),
+        true,
+    ) else {
+        return Ok(None);
+    };
+
+    Ok(lowered_index_prefix_cardinality_specs_from_plan(
+        prefix_plan,
+    ))
 }
 
 fn direct_count_cardinality_target_from_entry<E>(
@@ -351,7 +405,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Option<Rc<SqlGlobalAggregateCountPlanCacheEntry>>, QueryError> {
         Ok(direct_count_cardinality_plan_entry_from_prefix_specs(
             catalog,
-            Self::direct_count_cardinality_prefix_specs_for_accepted_authority(
+            direct_count_cardinality_prefix_specs_for_accepted_authority(
                 authority,
                 command.query(),
                 visible_indexes,

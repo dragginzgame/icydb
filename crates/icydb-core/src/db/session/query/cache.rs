@@ -7,22 +7,10 @@ mod identity;
 
 #[cfg(any(test, feature = "sql"))]
 use crate::db::commit::CommitSchemaFingerprint;
-#[cfg(feature = "sql")]
-use crate::db::query::plan::AccessPlannedQuery;
 #[cfg(test)]
 use crate::db::schema::SchemaVersion;
 #[cfg(feature = "sql-explain")]
 use crate::db::schema::accepted_schema_cache_fingerprint;
-#[cfg(feature = "sql")]
-use crate::db::{
-    access::{
-        LoweredIndexPrefixCardinalitySpec, lower_access,
-        lower_exact_index_prefix_cardinality_specs_for_prefix_access,
-    },
-    executor::{
-        exact_count_cardinality_prefixes_for_plan, lowered_index_prefix_cardinality_specs_from_plan,
-    },
-};
 use crate::{
     db::{
         DbSession, Query, QueryError, TraceReuseArtifactClass, TraceReuseEvent,
@@ -345,53 +333,6 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         Ok(visibility)
-    }
-
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn direct_count_cardinality_prefix_specs_for_accepted_authority(
-        authority: &EntityAuthority,
-        query: &StructuralQuery,
-        visible_indexes: &VisibleIndexes<'_>,
-        schema_info: &SchemaInfo,
-    ) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
-        if let Some(access) = query.try_build_count_cardinality_prefix_access_with_schema_info(
-            visible_indexes,
-            schema_info,
-        )? {
-            let prefix_specs = lower_exact_index_prefix_cardinality_specs_for_prefix_access(
-                authority.entity_tag(),
-                &access,
-            )
-            .map_err(|_err| QueryError::invariant())?;
-            if !prefix_specs.is_empty() {
-                return Ok(Some(prefix_specs));
-            }
-        }
-
-        let plan = query.build_plan_with_visible_indexes(visible_indexes)?;
-
-        Self::direct_count_cardinality_prefix_specs_from_planned_query(authority, &plan)
-    }
-
-    #[cfg(feature = "sql")]
-    fn direct_count_cardinality_prefix_specs_from_planned_query(
-        authority: &EntityAuthority,
-        plan: &AccessPlannedQuery,
-    ) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
-        let lowered_access = lower_access(authority.entity_tag(), &plan.access)
-            .map_err(|_err| QueryError::invariant())?;
-        let Some(prefix_plan) = exact_count_cardinality_prefixes_for_plan(
-            authority.entity_tag(),
-            plan,
-            lowered_access.index_prefix_specs(),
-            true,
-        ) else {
-            return Ok(None);
-        };
-
-        Ok(lowered_index_prefix_cardinality_specs_from_plan(
-            prefix_plan,
-        ))
     }
 
     #[cfg(feature = "sql-explain")]

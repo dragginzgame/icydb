@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.19` continues the technical-debt audit line by separating query
+  diagnostics attribution DTOs from hidden measured execution and moving SQL
+  direct-count cardinality helper ownership out of the shared query cache.
+
 - `0.199.18` continues the technical-debt audit line by splitting session
   fluent terminal adapters, SQL SELECT read-budget test helpers, and SQL write
   `RETURNING` projection/bounds into owner modules without changing runtime
