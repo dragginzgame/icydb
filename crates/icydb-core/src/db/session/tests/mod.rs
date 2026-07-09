@@ -60,8 +60,9 @@ use crate::db::{
 };
 use crate::{
     db::{
-        Db, EntityCatalogDescription, EntityRuntimeHooks, MemoryCatalogDescription,
-        MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError, StoreCatalogDescription,
+        Db, EntityCatalogDescription, EntityFieldDescription, EntityRuntimeHooks,
+        EntitySchemaDescription, MemoryCatalogDescription, MissingRowPolicy,
+        PagedGroupedExecutionWithTrace, PlanError, QueryError, StoreCatalogDescription,
         access::lower_access,
         commit::{
             ensure_recovered, init_commit_store_for_tests,
@@ -3284,35 +3285,39 @@ fn runtime_outputs(values: &[OutputValue]) -> Vec<Value> {
 // Execute one projection SQL statement and require exactly one scalar output
 // cell from the first row so scalar aggregate tests can share one extraction
 // helper.
-fn statement_projection_scalar_value<E>(
+fn statement_projection_scalar_value<Entity>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<Value, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    Entity: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    statement_projection_rows::<E>(session, sql)?
+    let unsupported = || {
+        unsupported_sql_statement_query_error(
+            "scalar projection SQL requires one row with exactly one scalar value",
+        )
+    };
+    let mut row = statement_projection_rows::<Entity>(session, sql)?
         .into_iter()
         .next()
-        .and_then(|mut row| if row.len() == 1 { row.pop() } else { None })
-        .ok_or_else(|| {
-            unsupported_sql_statement_query_error(
-                "scalar projection SQL requires one row with exactly one scalar value",
-            )
-        })
+        .ok_or_else(unsupported)?;
+    if row.len() != 1 {
+        return Err(unsupported());
+    }
+    row.pop().ok_or_else(unsupported)
 }
 
 // Execute one scalar projection SQL statement and assert it emits the expected
 // public scalar value.
-fn assert_session_sql_scalar_value<E>(
+fn assert_session_sql_scalar_value<Entity>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     expected: Value,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    Entity: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    let actual = statement_projection_scalar_value::<E>(session, sql)
+    let actual = statement_projection_scalar_value::<Entity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} scalar SQL should execute: {err}"));
 
     assert_eq!(
