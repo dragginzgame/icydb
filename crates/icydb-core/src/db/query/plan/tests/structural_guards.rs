@@ -755,7 +755,13 @@ fn sql_write_policy_validated_plan_helpers_are_recoverable() {
     let write_policy_model = source_for(crate_root, "src/db/session/sql/write_policy/model.rs");
     let write_policy_bounds = source_for(crate_root, "src/db/session/sql/write_policy/bounds.rs");
     let update_policy = source_for(crate_root, "src/db/session/sql/update_policy.rs");
+    let update_policy_model = source_for(crate_root, "src/db/session/sql/update_policy/model.rs");
+    let update_policy_planning =
+        source_for(crate_root, "src/db/session/sql/update_policy/planning.rs");
     let delete_policy = source_for(crate_root, "src/db/session/sql/delete_policy.rs");
+    let delete_policy_model = source_for(crate_root, "src/db/session/sql/delete_policy/model.rs");
+    let delete_policy_planning =
+        source_for(crate_root, "src/db/session/sql/delete_policy/planning.rs");
 
     assert_source_contains_patterns(
         &write_policy,
@@ -793,25 +799,48 @@ fn sql_write_policy_validated_plan_helpers_are_recoverable() {
         "bounded SQL write proof construction must not trap on a missing limit",
     );
 
-    for (policy_name, source) in [
-        ("UPDATE", update_policy.as_str()),
-        ("DELETE", delete_policy.as_str()),
+    assert_source_contains_patterns(
+        &delete_policy,
+        &["mod model;", "mod planning;"],
+        "SQL DELETE policy parent should stay a narrow owner index",
+    );
+    assert_source_contains_patterns(
+        &update_policy,
+        &["mod model;", "mod planning;"],
+        "SQL UPDATE policy parent should stay a narrow owner index",
+    );
+
+    for (policy_name, model_source, planning_source) in [
+        (
+            "UPDATE",
+            update_policy_model.as_str(),
+            update_policy_planning.as_str(),
+        ),
+        (
+            "DELETE",
+            delete_policy_model.as_str(),
+            delete_policy_planning.as_str(),
+        ),
     ] {
         assert_source_contains_patterns(
-            source,
+            model_source,
+            &["const fn exposure_class(self) -> SqlWriteExposureClass"],
+            &format!("{policy_name} policy model should own exposure-class mapping"),
+        );
+        assert_source_contains_patterns(
+            planning_source,
             &[
-                "const fn exposure_class(self) -> SqlWriteExposureClass",
                 "fn validated_",
                 "-> Option<SqlValidated",
                 "const fn generated_policy_rejection(",
                 ".execution_bounds_for_exposure_class(policy.exposure_class(), context.write_bounds())",
             ],
             &format!(
-                "{policy_name} generated-policy and validated-plan helpers should stay fallible"
+                "{policy_name} generated-policy and validated-plan helpers should stay fallible in the planning owner"
             ),
         );
         assert_source_excludes_patterns(
-            source,
+            planning_source,
             &[
                 "const fn validated_admission_lane(self) -> Option<SqlWriteAdmissionLane>",
                 "unreachable!(\"generated policies",

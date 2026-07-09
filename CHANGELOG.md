@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
 
+- `0.199.23` continues the technical-debt audit line by splitting
+  command-specific SQL UPDATE and DELETE policy owners into model, planning,
+  and test modules without changing write admission or execution behavior.
+
 - `0.199.22` continues the technical-debt audit line by splitting shared SQL
   write policy into model, bounds, and shape owners, and by replacing grouped
   `ORDER BY` analysis boolean state with named flags.
