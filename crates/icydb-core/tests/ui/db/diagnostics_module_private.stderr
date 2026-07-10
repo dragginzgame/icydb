@@ -2,7 +2,9 @@ error[E0603]: module `diagnostics` is private
  --> tests/ui/db/diagnostics_module_private.rs:1:21
   |
 1 | use icydb_core::db::diagnostics::ExecutionTrace;
-  |                     ^^^^^^^^^^^ private module
+  |                     ^^^^^^^^^^^  -------------- struct `ExecutionTrace` is not publicly re-exported
+  |                     |
+  |                     private module
   |
 note: the module `diagnostics` is defined here
  --> src/db/mod.rs

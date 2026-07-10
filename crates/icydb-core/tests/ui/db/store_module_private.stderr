@@ -2,7 +2,9 @@ error[E0603]: module `data` is private
  --> tests/ui/db/store_module_private.rs:1:21
   |
 1 | use icydb_core::db::data::DataStore;
-  |                     ^^^^ private module
+  |                     ^^^^  --------- struct `DataStore` is not publicly re-exported
+  |                     |
+  |                     private module
   |
 note: the module `data` is defined here
  --> src/db/mod.rs
