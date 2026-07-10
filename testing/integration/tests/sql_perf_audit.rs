@@ -2469,7 +2469,7 @@ fn print_cached_journaled_sql_limit_one_attribution(perf: &SqlQueryPerfResult) {
         attribution.execute_local_instructions,
         attribution.response_decode_local_instructions,
         attribution.total_local_instructions,
-        &attribution.pure_covering,
+        attribution.pure_covering,
         cache.sql_compiled_command_hits,
         cache.sql_compiled_command_misses,
         cache.shared_query_plan_hits,
@@ -2506,7 +2506,7 @@ fn print_fluent_limit_one_attribution(label: &str, perf: &FluentQueryPerfResult)
         attribution.total_local_instructions,
         attribution.shared_query_plan_cache_hits,
         attribution.shared_query_plan_cache_misses,
-        &attribution.direct_data_row,
+        attribution.direct_data_row,
     );
 }
 
