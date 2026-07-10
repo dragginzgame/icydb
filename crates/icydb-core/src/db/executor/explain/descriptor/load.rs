@@ -796,15 +796,14 @@ fn covering_projection_execution_node_descriptor(
                 covering.order_contract,
                 covering.existing_row_mode,
             )
-        } else if let Some(hybrid) = hybrid_covering_read_plan {
+        } else {
+            let hybrid = hybrid_covering_read_plan?;
             (
                 property_values::HYBRID_COVERING,
                 hybrid.fields.as_slice(),
                 hybrid.order_contract,
                 hybrid.existing_row_mode,
             )
-        } else {
-            return None;
         };
     let mut node =
         crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(

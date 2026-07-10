@@ -765,10 +765,10 @@ fn eq_and_ne_none_semantics() {
     let none_val = Value::Null;
 
     // eq(None) only true if both sides are None
-    assert!(none_val == Value::Null);
-    assert!(some_val != Value::Null);
+    assert_eq!(none_val, Value::Null);
+    assert_ne!(some_val, Value::Null);
 
     // ne(None) true if left is not None
-    assert!(none_val == Value::Null);
-    assert!(some_val != Value::Null);
+    assert_eq!(none_val, Value::Null);
+    assert_ne!(some_val, Value::Null);
 }

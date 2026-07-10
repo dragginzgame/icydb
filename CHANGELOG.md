@@ -7,12 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Routes SQL direct `COUNT(*)` prefix-cardinality planned fallback through the
-  shared query-plan cache without changing query results.
-
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)
+
+- `0.199.31` continues the technical-debt audit line by splitting metrics
+  counter mutation ownership and aligning the core crate with Rust 1.97 Clippy
+  without changing runtime behavior.
 
 - `0.199.30` continues the technical-debt audit line by splitting concrete
   metrics event dispatch and typed instrumentation span helpers out of the
