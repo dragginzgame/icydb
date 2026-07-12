@@ -15,8 +15,8 @@ use super::{
 use super::{
     codec::{ScalarSlotValueRef, ScalarValueRef, encode_scalar_slot_value},
     contract::{
-        decode_slot_into_runtime_value, encode_runtime_value_into_slot,
-        encode_slot_payload_from_table_and_bytes,
+        decode_slot_into_runtime_value, encode_slot_payload_from_table_and_bytes,
+        encode_value_with_model_proposal_for_test,
     },
     reader::{CachedSlotValue, StructuralSlotReader},
     types::{FieldSlot, SerializedStructuralFieldUpdate, SerializedStructuralPatch},
@@ -1247,9 +1247,10 @@ fn decode_slot_into_runtime_value_respects_value_storage_decode_contract() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_roundtrips_scalar_slots() {
-    let payload = encode_runtime_value_into_slot(&TEST_MODEL, 0, &Value::Text("Ada".to_string()))
-        .expect("encode slot");
+fn encode_value_with_model_proposal_for_test_roundtrips_scalar_slots() {
+    let payload =
+        encode_value_with_model_proposal_for_test(&TEST_MODEL, 0, &Value::Text("Ada".to_string()))
+            .expect("encode slot");
     let decoded =
         decode_slot_into_runtime_value(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
 
@@ -1257,9 +1258,10 @@ fn encode_runtime_value_into_slot_roundtrips_scalar_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_roundtrips_value_storage_slots() {
-    let payload = encode_runtime_value_into_slot(&TEST_MODEL, 1, &Value::Text("Ada".to_string()))
-        .expect("encode slot");
+fn encode_value_with_model_proposal_for_test_roundtrips_value_storage_slots() {
+    let payload =
+        encode_value_with_model_proposal_for_test(&TEST_MODEL, 1, &Value::Text("Ada".to_string()))
+            .expect("encode slot");
     let decoded =
         decode_slot_into_runtime_value(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
 
@@ -1267,8 +1269,8 @@ fn encode_runtime_value_into_slot_roundtrips_value_storage_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_roundtrips_list_by_kind_slots() {
-    let payload = encode_runtime_value_into_slot(
+fn encode_value_with_model_proposal_for_test_roundtrips_list_by_kind_slots() {
+    let payload = encode_value_with_model_proposal_for_test(
         &LIST_MODEL,
         0,
         &Value::List(vec![Value::Text("alpha".to_string())]),
@@ -1281,8 +1283,8 @@ fn encode_runtime_value_into_slot_roundtrips_list_by_kind_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
-    let payload = encode_runtime_value_into_slot(
+fn encode_value_with_model_proposal_for_test_roundtrips_map_by_kind_slots() {
+    let payload = encode_value_with_model_proposal_for_test(
         &MAP_MODEL,
         0,
         &Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat64(7))]),
@@ -1298,13 +1300,14 @@ fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_roundtrips_leaf_by_kind_wrapper_slots() {
+fn encode_value_with_model_proposal_for_test_roundtrips_leaf_by_kind_wrapper_slots() {
     let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[7]),
         Some(Subaccount::from_array([7_u8; 32])),
     );
-    let payload = encode_runtime_value_into_slot(&ACCOUNT_MODEL, 0, &Value::Account(account))
-        .expect("encode account slot");
+    let payload =
+        encode_value_with_model_proposal_for_test(&ACCOUNT_MODEL, 0, &Value::Account(account))
+            .expect("encode account slot");
     let decoded =
         decode_slot_into_runtime_value(&ACCOUNT_MODEL, 0, payload.as_slice()).expect("decode slot");
 
@@ -1378,17 +1381,19 @@ fn decode_persisted_slot_payload_by_kind_rejects_malformed_structured_null_paylo
 }
 
 #[test]
-fn encode_runtime_value_into_slot_rejects_null_for_required_structured_slots() {
-    let err = encode_runtime_value_into_slot(&REQUIRED_STRUCTURED_MODEL, 0, &Value::Null)
-        .expect_err("required structured slot must reject null");
+fn encode_value_with_model_proposal_for_test_rejects_null_for_required_structured_slots() {
+    let err =
+        encode_value_with_model_proposal_for_test(&REQUIRED_STRUCTURED_MODEL, 0, &Value::Null)
+            .expect_err("required structured slot must reject null");
 
     assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
 }
 
 #[test]
-fn encode_runtime_value_into_slot_allows_null_for_optional_structured_slots() {
-    let payload = encode_runtime_value_into_slot(&OPTIONAL_STRUCTURED_MODEL, 0, &Value::Null)
-        .expect("optional structured slot should allow null");
+fn encode_value_with_model_proposal_for_test_allows_null_for_optional_structured_slots() {
+    let payload =
+        encode_value_with_model_proposal_for_test(&OPTIONAL_STRUCTURED_MODEL, 0, &Value::Null)
+            .expect("optional structured slot should allow null");
     let decoded = decode_slot_into_runtime_value(&OPTIONAL_STRUCTURED_MODEL, 0, payload.as_slice())
         .expect("optional structured slot should decode");
 
@@ -1396,9 +1401,10 @@ fn encode_runtime_value_into_slot_allows_null_for_optional_structured_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_allows_null_for_optional_decimal_slots() {
-    let payload = encode_runtime_value_into_slot(&OPTIONAL_DECIMAL_MODEL, 0, &Value::Null)
-        .expect("optional decimal slot should allow null");
+fn encode_value_with_model_proposal_for_test_allows_null_for_optional_decimal_slots() {
+    let payload =
+        encode_value_with_model_proposal_for_test(&OPTIONAL_DECIMAL_MODEL, 0, &Value::Null)
+            .expect("optional decimal slot should allow null");
     let decoded = decode_slot_into_runtime_value(&OPTIONAL_DECIMAL_MODEL, 0, payload.as_slice())
         .expect("optional decimal slot should decode");
 
@@ -1406,8 +1412,8 @@ fn encode_runtime_value_into_slot_allows_null_for_optional_decimal_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_normalizes_decimal_to_declared_scale() {
-    let payload = encode_runtime_value_into_slot(
+fn encode_value_with_model_proposal_for_test_normalizes_decimal_to_declared_scale() {
+    let payload = encode_value_with_model_proposal_for_test(
         &OPTIONAL_DECIMAL_MODEL,
         0,
         &Value::Decimal(Decimal::from_i128_with_scale(140, 0)),
@@ -1491,8 +1497,9 @@ fn option_by_kind_leaf_malformed_non_null_error_is_stable() {
 
 #[test]
 fn decode_slot_into_runtime_value_allows_null_for_optional_account_slots() {
-    let payload = encode_runtime_value_into_slot(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
-        .expect("optional account slot should allow null");
+    let payload =
+        encode_value_with_model_proposal_for_test(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
+            .expect("optional account slot should allow null");
     let decoded = decode_slot_into_runtime_value(&OPTIONAL_ACCOUNT_MODEL, 0, payload.as_slice())
         .expect("optional account slot should decode");
 
@@ -1501,8 +1508,9 @@ fn decode_slot_into_runtime_value_allows_null_for_optional_account_slots() {
 
 #[test]
 fn structural_slot_reader_accepts_null_for_optional_account_slots() {
-    let payload = encode_runtime_value_into_slot(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
-        .expect("optional account slot should allow null");
+    let payload =
+        encode_value_with_model_proposal_for_test(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
+            .expect("optional account slot should allow null");
     let raw_row =
         raw_row_from_dense_slot_payloads_for_tests(&OPTIONAL_ACCOUNT_MODEL, &[payload.as_slice()]);
 
@@ -1516,8 +1524,8 @@ fn structural_slot_reader_accepts_null_for_optional_account_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_rejects_unknown_enum_payload_variants() {
-    let err = encode_runtime_value_into_slot(
+fn encode_value_with_model_proposal_for_test_rejects_unknown_enum_payload_variants() {
+    let err = encode_value_with_model_proposal_for_test(
         &ENUM_MODEL,
         0,
         &Value::Enum(ValueEnum::test_unit(1, 1).test_with_payload(Value::Nat64(7))),

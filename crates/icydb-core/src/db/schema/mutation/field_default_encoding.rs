@@ -1,15 +1,10 @@
 //! Schema-owned field default encoding helpers for DDL-authored candidates.
 
 use crate::db::{
-    data::{
-        encode_admitted_value_for_accepted_field_contract,
-        encode_runtime_value_for_accepted_field_contract,
-    },
+    data::encode_input_value_for_accepted_field_contract,
     schema::{
         AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract, AcceptedFieldKind,
-        PersistedFieldSnapshot, SchemaFieldDefault,
-        canonicalize_strict_sql_literal_for_persisted_kind,
-        enum_catalog::{ValueAdmissionBudget, normalize_and_admit_persisted_field_value},
+        PersistedFieldSnapshot, SchemaFieldDefault, enum_catalog::ValueAdmissionBudget,
         input_value_from_strict_sql_literal_for_persisted_kind,
     },
 };
@@ -85,28 +80,11 @@ fn encode_sql_ddl_field_default_payload(
         AcceptedFieldDecodeContract::new(field_name, kind, nullable, storage_decode, leaf_codec);
     let input = input_value_from_strict_sql_literal_for_persisted_kind(kind, default)
         .ok_or(SchemaDdlFieldDefaultEncodingError::Encoding)?;
-    let payload = if let Some(catalog) = catalog {
-        let mut budget = ValueAdmissionBudget::standard();
-        let admitted = normalize_and_admit_persisted_field_value(
-            catalog,
-            kind,
-            storage_decode,
-            nullable,
-            input,
-            &mut budget,
-        )
-        .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
-        encode_admitted_value_for_accepted_field_contract(catalog, contract, &admitted)
-            .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?
-    } else {
-        if matches!(kind, AcceptedFieldKind::Enum { .. }) {
-            return Err(SchemaDdlFieldDefaultEncodingError::Encoding);
-        }
-        let normalized = canonicalize_strict_sql_literal_for_persisted_kind(kind, default)
-            .unwrap_or_else(|| default.clone());
-        encode_runtime_value_for_accepted_field_contract(contract, &normalized)
-            .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?
-    };
+    let catalog = catalog.ok_or(SchemaDdlFieldDefaultEncodingError::Encoding)?;
+    let mut budget = ValueAdmissionBudget::standard();
+    let payload =
+        encode_input_value_for_accepted_field_contract(catalog, contract, input, &mut budget)
+            .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
 
     Ok(SchemaFieldDefault::SlotPayload(payload))
 }
@@ -178,7 +156,11 @@ mod tests {
     }
 
     #[test]
-    fn sql_ddl_enum_default_requires_catalog_and_unit_variant() {
+    fn sql_ddl_enum_default_requires_catalog_and_rejects_unknown_variant() {
+        let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
+            .expect("enum catalog should build");
+        let catalog =
+            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
         let field = enum_field(AcceptedFieldKind::from_model_kind(STATUS_KIND));
 
         assert_eq!(
@@ -186,7 +168,11 @@ mod tests {
             Err(SchemaDdlFieldDefaultEncodingError::Encoding),
         );
         assert_eq!(
-            encode_sql_ddl_alter_column_default(&field, &Value::Text("Missing".to_string()), None,),
+            encode_sql_ddl_alter_column_default(
+                &field,
+                &Value::Text("Missing".to_string()),
+                Some(&catalog),
+            ),
             Err(SchemaDdlFieldDefaultEncodingError::Encoding),
         );
     }

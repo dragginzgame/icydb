@@ -6,7 +6,13 @@
 use crate::{
     db::{
         data::{
-            persisted_row::codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
+            accepted_kind_supports_primary_key_component_binary,
+            encode_structural_field_by_accepted_kind_bytes,
+            encode_structural_value_storage_null_bytes,
+            persisted_row::codec::{
+                ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value,
+                encode_scalar_slot_value,
+            },
             structural_field::{
                 decode_canonical_value_storage_bytes, encode_canonical_value_storage_bytes,
             },
@@ -18,24 +24,45 @@ use crate::{
                 AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedValueContract,
                 AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget,
                 admit_decoded_persisted_field_value, validate_nullable_canonical_value,
+                with_normalized_accepted_value,
             },
         },
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec},
+    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+    value::{InputValue, Value},
 };
 
-/// Encode one admitted canonical value through its accepted field contract.
-pub(in crate::db) fn encode_admitted_value_for_accepted_field_contract(
+/// Normalize and encode one authored input through an accepted field contract.
+pub(in crate::db) fn encode_input_value_for_accepted_field_contract(
     catalog: &AcceptedEnumCatalogHandle,
     field: AcceptedFieldDecodeContract<'_>,
-    admitted: &AdmittedOwnedValue,
+    input: InputValue,
+    budget: &mut ValueAdmissionBudget,
 ) -> Result<Vec<u8>, InternalError> {
-    if admitted.authority() != catalog.authority() {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field.field_name(),
-        ));
-    }
+    let contract = AcceptedValueContract::from_accepted_field(
+        catalog.catalog(),
+        field.kind(),
+        field.storage_decode(),
+    )
+    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    with_normalized_accepted_value(
+        catalog,
+        &contract,
+        field.nullable(),
+        input,
+        budget,
+        |accepted| encode_accepted_value_ref_for_accepted_field_contract(field, &accepted),
+    )
+    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
+}
+
+/// Strictly validate and encode one canonical value through an accepted field contract.
+pub(in crate::db) fn encode_canonical_value_for_accepted_field_contract(
+    catalog: &AcceptedEnumCatalogHandle,
+    field: AcceptedFieldDecodeContract<'_>,
+    value: &CanonicalValue,
+) -> Result<Vec<u8>, InternalError> {
     let contract = AcceptedValueContract::from_accepted_field(
         catalog.catalog(),
         field.kind(),
@@ -43,14 +70,9 @@ pub(in crate::db) fn encode_admitted_value_for_accepted_field_contract(
     )
     .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
     let mut budget = ValueAdmissionBudget::standard();
-    let accepted = validate_nullable_canonical_value(
-        catalog,
-        &contract,
-        field.nullable(),
-        admitted.value(),
-        &mut budget,
-    )
-    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    let accepted =
+        validate_nullable_canonical_value(catalog, &contract, field.nullable(), value, &mut budget)
+            .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
 
     encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
 }
@@ -59,7 +81,10 @@ fn encode_accepted_value_ref_for_accepted_field_contract(
     field: AcceptedFieldDecodeContract<'_>,
     accepted: &AcceptedValueRef<'_>,
 ) -> Result<Vec<u8>, InternalError> {
-    if accepted.nullable() != field.nullable() {
+    if accepted.nullable() != field.nullable()
+        || accepted.contract().kind() != field.kind()
+        || accepted.contract().storage_decode() != field.storage_decode()
+    {
         return Err(InternalError::persisted_row_field_encode_internal(
             field.field_name(),
         ));
@@ -69,7 +94,86 @@ fn encode_accepted_value_ref_for_accepted_field_contract(
         return encode_canonical_value_storage_bytes(value);
     }
 
-    super::contract::encode_runtime_value_for_accepted_field_contract(field, value)
+    if matches!(value, Value::Null) {
+        return encode_accepted_null_slot_value(field);
+    }
+
+    match field.storage_decode() {
+        FieldStorageDecode::Value => Err(InternalError::persisted_row_field_encode_internal(
+            field.field_name(),
+        )),
+        FieldStorageDecode::ByKind => match field.leaf_codec() {
+            LeafCodec::Scalar(codec) => {
+                let scalar =
+                    scalar_slot_value_ref_from_accepted_value(value, codec).ok_or_else(|| {
+                        InternalError::persisted_row_field_encode_internal(field.field_name())
+                    })?;
+
+                Ok(encode_scalar_slot_value(scalar))
+            }
+            LeafCodec::StructuralFallback => encode_structural_field_by_accepted_kind_bytes(
+                field.kind(),
+                value,
+                field.field_name(),
+            ),
+        },
+    }
+}
+
+// Encode an admitted nullable `NULL` through the accepted field's storage lane.
+fn encode_accepted_null_slot_value(
+    field: AcceptedFieldDecodeContract<'_>,
+) -> Result<Vec<u8>, InternalError> {
+    if !field.nullable() {
+        return Err(InternalError::persisted_row_field_encode_internal(
+            field.field_name(),
+        ));
+    }
+
+    match field.storage_decode() {
+        FieldStorageDecode::Value => Err(InternalError::persisted_row_field_encode_internal(
+            field.field_name(),
+        )),
+        FieldStorageDecode::ByKind => match field.leaf_codec() {
+            LeafCodec::Scalar(_) => Ok(encode_scalar_slot_value(ScalarSlotValueRef::Null)),
+            LeafCodec::StructuralFallback
+                if accepted_kind_supports_primary_key_component_binary(field.kind()) =>
+            {
+                encode_structural_field_by_accepted_kind_bytes(
+                    field.kind(),
+                    &Value::Null,
+                    field.field_name(),
+                )
+            }
+            LeafCodec::StructuralFallback => Ok(encode_structural_value_storage_null_bytes()),
+        },
+    }
+}
+
+// Convert one accepted scalar into the borrowed scalar-slot view used by the codec.
+const fn scalar_slot_value_ref_from_accepted_value(
+    value: &Value,
+    codec: ScalarCodec,
+) -> Option<ScalarSlotValueRef<'_>> {
+    let scalar = match (codec, value) {
+        (ScalarCodec::Blob, Value::Blob(value)) => ScalarValueRef::Blob(value.as_slice()),
+        (ScalarCodec::Bool, Value::Bool(value)) => ScalarValueRef::Bool(*value),
+        (ScalarCodec::Date, Value::Date(value)) => ScalarValueRef::Date(*value),
+        (ScalarCodec::Duration, Value::Duration(value)) => ScalarValueRef::Duration(*value),
+        (ScalarCodec::Float32, Value::Float32(value)) => ScalarValueRef::Float32(*value),
+        (ScalarCodec::Float64, Value::Float64(value)) => ScalarValueRef::Float64(*value),
+        (ScalarCodec::Int64, Value::Int64(value)) => ScalarValueRef::Int(*value),
+        (ScalarCodec::Principal, Value::Principal(value)) => ScalarValueRef::Principal(*value),
+        (ScalarCodec::Subaccount, Value::Subaccount(value)) => ScalarValueRef::Subaccount(*value),
+        (ScalarCodec::Text, Value::Text(value)) => ScalarValueRef::Text(value.as_str()),
+        (ScalarCodec::Timestamp, Value::Timestamp(value)) => ScalarValueRef::Timestamp(*value),
+        (ScalarCodec::Nat64, Value::Nat64(value)) => ScalarValueRef::Nat(*value),
+        (ScalarCodec::Ulid, Value::Ulid(value)) => ScalarValueRef::Ulid(*value),
+        (ScalarCodec::Unit, Value::Unit) => ScalarValueRef::Unit,
+        _ => return None,
+    };
+
+    Some(ScalarSlotValueRef::Value(scalar))
 }
 
 /// Decode one slot through the current canonical value format and strict
@@ -187,7 +291,6 @@ mod tests {
             AcceptedFieldKind,
             enum_catalog::{
                 AcceptedSchemaRevision, build_initial_accepted_enum_catalog_from_kinds_for_tests,
-                normalize_and_admit_persisted_field_value,
             },
         },
         model::field::{EnumVariantModel, FieldKind, ScalarCodec},
@@ -204,33 +307,19 @@ mod tests {
         variants: &STATUS_VARIANTS,
     };
 
-    fn accepted_enum_fixture() -> (
-        AcceptedEnumCatalogHandle,
-        AcceptedFieldKind,
-        AdmittedOwnedValue,
-    ) {
+    fn accepted_enum_fixture() -> (AcceptedEnumCatalogHandle, AcceptedFieldKind) {
         let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
             .expect("accepted enum catalog should build");
         let catalog =
             AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
         let kind = AcceptedFieldKind::from_model_kind(STATUS_KIND);
-        let mut budget = ValueAdmissionBudget::standard();
-        let admitted = normalize_and_admit_persisted_field_value(
-            &catalog,
-            &kind,
-            FieldStorageDecode::Value,
-            false,
-            InputValue::Enum(InputValueEnum::loose("Ready")),
-            &mut budget,
-        )
-        .expect("accepted enum input should admit");
 
-        (catalog, kind, admitted)
+        (catalog, kind)
     }
 
     #[test]
-    fn accepted_canonical_slot_round_trips_id_backed_enum_with_authority() {
-        let (catalog, kind, admitted) = accepted_enum_fixture();
+    fn accepted_input_slot_round_trips_id_backed_enum() {
+        let (catalog, kind) = accepted_enum_fixture();
         let field = AcceptedFieldDecodeContract::new(
             "status",
             &kind,
@@ -238,49 +327,56 @@ mod tests {
             FieldStorageDecode::Value,
             LeafCodec::StructuralFallback,
         );
-        let encoded = encode_admitted_value_for_accepted_field_contract(&catalog, field, &admitted)
-            .expect("admitted enum slot should encode");
+        let mut budget = ValueAdmissionBudget::standard();
+        let encoded = encode_input_value_for_accepted_field_contract(
+            &catalog,
+            field,
+            InputValue::Enum(InputValueEnum::loose("Ready")),
+            &mut budget,
+        )
+        .expect("accepted enum slot should encode");
         assert_eq!(encoded.first(), Some(&0x84));
 
         let decoded = decode_admitted_value_from_accepted_field_contract(&catalog, field, &encoded)
             .expect("canonical enum slot should decode strictly");
-        assert_eq!(decoded, admitted);
+        let CanonicalValue::Enum(value) = decoded.value() else {
+            panic!("accepted enum slot should decode to canonical IDs");
+        };
+        assert_eq!(
+            Some(value.type_id()),
+            catalog.catalog().type_id("tests::CanonicalStatus"),
+        );
     }
 
     #[test]
-    fn accepted_canonical_slot_rejects_foreign_authority() {
-        let (catalog, kind, admitted) = accepted_enum_fixture();
-        let field = AcceptedFieldDecodeContract::new(
-            "status",
-            &kind,
+    fn accepted_input_slot_rejects_wrong_contract() {
+        let (catalog, _) = accepted_enum_fixture();
+        let blob_kind = AcceptedFieldKind::Blob { max_len: Some(8) };
+        let blob_field = AcceptedFieldDecodeContract::new(
+            "payload",
+            &blob_kind,
             false,
-            FieldStorageDecode::Value,
-            LeafCodec::StructuralFallback,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Blob),
         );
-        let foreign_catalog = AcceptedEnumCatalogHandle::new_for_tests(
-            catalog.catalog().clone(),
-            AcceptedSchemaRevision::INITIAL,
-        );
+        let mut budget = ValueAdmissionBudget::standard();
+
         assert!(
-            encode_admitted_value_for_accepted_field_contract(&foreign_catalog, field, &admitted,)
-                .is_err()
+            encode_input_value_for_accepted_field_contract(
+                &catalog,
+                blob_field,
+                InputValue::Text("ready".to_string()),
+                &mut budget,
+            )
+            .is_err(),
+            "authored input must match the selected accepted contract",
         );
     }
 
     #[test]
-    fn accepted_canonical_slot_requires_nullable_proof_for_null() {
-        let (catalog, _, _) = accepted_enum_fixture();
+    fn accepted_input_slot_enforces_nullability() {
+        let (catalog, _) = accepted_enum_fixture();
         let kind = AcceptedFieldKind::Text { max_len: Some(8) };
-        let mut budget = ValueAdmissionBudget::standard();
-        let admitted = normalize_and_admit_persisted_field_value(
-            &catalog,
-            &kind,
-            FieldStorageDecode::ByKind,
-            true,
-            InputValue::Null,
-            &mut budget,
-        )
-        .expect("nullable field should admit null");
         let nullable_field = AcceptedFieldDecodeContract::new(
             "label",
             &kind,
@@ -288,13 +384,18 @@ mod tests {
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
         );
-        let encoded =
-            encode_admitted_value_for_accepted_field_contract(&catalog, nullable_field, &admitted)
-                .expect("nullable proof should encode null");
+        let mut nullable_budget = ValueAdmissionBudget::standard();
+        let encoded = encode_input_value_for_accepted_field_contract(
+            &catalog,
+            nullable_field,
+            InputValue::Null,
+            &mut nullable_budget,
+        )
+        .expect("nullable proof should encode null");
         let decoded =
             decode_admitted_value_from_accepted_field_contract(&catalog, nullable_field, &encoded)
                 .expect("nullable null should decode through the accepted contract");
-        assert_eq!(decoded, admitted);
+        assert_eq!(decoded.value(), &CanonicalValue::Null);
 
         let required_field = AcceptedFieldDecodeContract::new(
             "label",
@@ -303,10 +404,16 @@ mod tests {
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
         );
+        let mut required_budget = ValueAdmissionBudget::standard();
         assert!(
-            encode_admitted_value_for_accepted_field_contract(&catalog, required_field, &admitted,)
-                .is_err(),
-            "nullable admission must not authorize required-field persistence",
+            encode_input_value_for_accepted_field_contract(
+                &catalog,
+                required_field,
+                InputValue::Null,
+                &mut required_budget,
+            )
+            .is_err(),
+            "required fields must reject null before persistence",
         );
     }
 }

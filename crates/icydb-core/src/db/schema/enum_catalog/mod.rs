@@ -30,7 +30,7 @@ pub(in crate::db) use admission::{
     AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget,
     ValueAdmissionError, admit_decoded_persisted_field_value, encode_unit_enum_default_in_catalog,
     normalize_and_admit_nullable_value, normalize_and_admit_persisted_field_value,
-    validate_canonical_value, validate_nullable_canonical_value,
+    validate_canonical_value, validate_nullable_canonical_value, with_normalized_accepted_value,
 };
 pub(in crate::db::schema) use codec::{decode_accepted_enum_catalog, encode_accepted_enum_catalog};
 pub(in crate::db) use equality_key::encode_unit_enum_equality_key;

@@ -21,12 +21,13 @@ mod writer;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db) use canonical::encode_admitted_value_for_accepted_field_contract;
 pub(in crate::db) use canonical::validate_default_payload_for_accepted_field_contract;
-#[cfg(feature = "sql")]
-pub(in crate::db) use contract::encode_runtime_value_for_accepted_field_contract;
+pub(in crate::db) use canonical::{
+    encode_canonical_value_for_accepted_field_contract,
+    encode_input_value_for_accepted_field_contract,
+};
 #[cfg(test)]
-pub(in crate::db) use contract::encode_runtime_value_into_slot;
+pub(in crate::db) use contract::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };

@@ -18,11 +18,10 @@ pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_contract;
 pub(in crate::db) use key::{DecodedDataStoreKey, primary_key_value_from_structural_value};
-pub(in crate::db) use persisted_row::encode_admitted_value_for_accepted_field_contract;
-#[cfg(feature = "sql")]
-pub(in crate::db) use persisted_row::encode_runtime_value_for_accepted_field_contract;
+pub(in crate::db) use persisted_row::encode_canonical_value_for_accepted_field_contract;
+pub(in crate::db) use persisted_row::encode_input_value_for_accepted_field_contract;
 #[cfg(test)]
-pub(in crate::db) use persisted_row::encode_runtime_value_into_slot;
+pub(in crate::db) use persisted_row::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use persisted_row::validate_default_payload_for_accepted_field_contract;
 pub use persisted_row::{
     AuthoredStructuralPatch, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef,

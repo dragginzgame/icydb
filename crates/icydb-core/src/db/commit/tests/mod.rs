@@ -26,7 +26,7 @@ use crate::{
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
-            encode_runtime_value_into_slot,
+            encode_value_with_model_proposal_for_test,
         },
         executor::SaveExecutor,
         index::{
@@ -1046,10 +1046,13 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
 // the pre-transition `id` and `group` slots. Startup recovery uses this to
 // prove that current accepted schema can rebuild indexes from older rows.
 fn old_nullable_indexed_raw_row_for_test(id: Ulid, group: u32) -> RawRow {
-    let id_payload =
-        encode_runtime_value_into_slot(RecoveryNullableIndexedEntity::MODEL, 0, &Value::Ulid(id))
-            .expect("old nullable indexed id payload should encode");
-    let group_payload = encode_runtime_value_into_slot(
+    let id_payload = encode_value_with_model_proposal_for_test(
+        RecoveryNullableIndexedEntity::MODEL,
+        0,
+        &Value::Ulid(id),
+    )
+    .expect("old nullable indexed id payload should encode");
+    let group_payload = encode_value_with_model_proposal_for_test(
         RecoveryNullableIndexedEntity::MODEL,
         1,
         &Value::Nat64(u64::from(group)),

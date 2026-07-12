@@ -8,7 +8,8 @@ use crate::{
     db::{
         data::{
             CanonicalRow, RawRow, StructuralRowContract,
-            encode_admitted_value_for_accepted_field_contract,
+            encode_canonical_value_for_accepted_field_contract,
+            encode_input_value_for_accepted_field_contract,
             persisted_row::{
                 codec::ScalarSlotValueRef,
                 contract::{
@@ -16,7 +17,6 @@ use crate::{
                     canonical_row_from_runtime_value_source_with_accepted_contract,
                     decode_runtime_value_from_row_contract,
                     decode_scalar_slot_value_from_row_contract, emit_raw_row_from_slot_payloads,
-                    encode_runtime_value_for_accepted_field_contract,
                 },
                 reader::StructuralSlotReader,
                 types::{
@@ -28,11 +28,10 @@ use crate::{
         schema::{
             AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
             authored_projection::AcceptedAuthoredFieldProjection,
-            enum_catalog::{ValueAdmissionBudget, normalize_and_admit_persisted_field_value},
+            enum_catalog::ValueAdmissionBudget,
         },
     },
     error::InternalError,
-    model::field::LeafCodec,
     traits::AuthoredFieldProjection,
     value::{InputValue, Value},
 };
@@ -330,7 +329,11 @@ where
         }
 
         let value = contract.missing_slot_value(slot)?;
-        slot_payloads.push(encode_runtime_value_for_accepted_field_contract(
+        let catalog = contract
+            .accepted_enum_catalog_handle()
+            .ok_or_else(InternalError::persisted_row_encode_internal)?;
+        slot_payloads.push(encode_canonical_value_for_accepted_field_contract(
+            catalog,
             field.decode_contract(),
             &value,
         )?);
@@ -383,39 +386,18 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
     CanonicalRow::from_canonical_raw_row(raw_row)
 }
 
-// Admit authored values directly whenever the accepted slot has a canonical
-// codec. Recursive `ByKind` structural fields retain their existing non-enum
-// codec until that codec consumes canonical values; unresolved enum input must
-// never enter the runtime `Value` fallback.
+// Admit every authored value before selecting its accepted storage codec.
 fn encode_authored_value_for_accepted_field_contract(
     contract: &StructuralRowContract,
     field: AcceptedFieldDecodeContract<'_>,
     input: InputValue,
 ) -> Result<Vec<u8>, InternalError> {
-    let has_canonical_codec =
-        field.uses_canonical_value_wire() || matches!(field.leaf_codec(), LeafCodec::Scalar(_));
-    if has_canonical_codec {
-        let catalog = contract.accepted_enum_catalog_handle().ok_or_else(|| {
-            InternalError::persisted_row_field_encode_internal(field.field_name())
-        })?;
-        let mut budget = ValueAdmissionBudget::standard();
-        let admitted = normalize_and_admit_persisted_field_value(
-            catalog,
-            field.kind(),
-            field.storage_decode(),
-            field.nullable(),
-            input,
-            &mut budget,
-        )
-        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
-
-        return encode_admitted_value_for_accepted_field_contract(catalog, field, &admitted);
-    }
-
-    let runtime = input
-        .try_into_runtime_non_enum()
+    let catalog = contract
+        .accepted_enum_catalog_handle()
         .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
-    encode_runtime_value_for_accepted_field_contract(field, &runtime)
+    let mut budget = ValueAdmissionBudget::standard();
+    encode_input_value_for_accepted_field_contract(catalog, field, input, &mut budget)
+        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
 }
 
 /// Serialize one structural patch through an accepted row-decode contract.

@@ -96,6 +96,7 @@ impl AdmittedOwnedValue {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn authority(&self) -> &AcceptedSchemaAuthority {
         &self.authority
     }
@@ -154,10 +155,7 @@ pub(in crate::db) fn normalize_and_admit_value(
     input: InputValue,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
-    if catalog.authority().revision() == AcceptedSchemaRevision::NONE {
-        return Err(ValueAdmissionError::MissingSchemaRevision);
-    }
-    let value = normalize_contract(catalog.catalog(), contract, input, 0, budget)?;
+    let value = normalize_nullable_value(catalog, contract, false, input, budget)?;
     Ok(AdmittedOwnedValue {
         authority: catalog.authority().clone(),
         value,
@@ -185,19 +183,55 @@ pub(in crate::db) fn normalize_and_admit_nullable_value(
     input: InputValue,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
-    if nullable && matches!(input, InputValue::Null) {
-        if catalog.revision() == AcceptedSchemaRevision::NONE {
-            return Err(ValueAdmissionError::MissingSchemaRevision);
+    if !matches!(&input, InputValue::Null) {
+        return normalize_and_admit_value(catalog, contract, input, budget);
+    }
+
+    let value = normalize_nullable_value(catalog, contract, nullable, input, budget)?;
+    Ok(AdmittedOwnedValue {
+        authority: catalog.authority().clone(),
+        value,
+    })
+}
+
+/// Normalize one authored value and expose its short-lived accepted proof.
+pub(in crate::db) fn with_normalized_accepted_value<R>(
+    catalog: &AcceptedEnumCatalogHandle,
+    contract: &AcceptedValueContract,
+    nullable: bool,
+    input: InputValue,
+    budget: &mut ValueAdmissionBudget,
+    use_value: impl for<'value> FnOnce(AcceptedValueRef<'value>) -> R,
+) -> Result<R, ValueAdmissionError> {
+    let value = normalize_nullable_value(catalog, contract, nullable, input, budget)?;
+    Ok(use_value(AcceptedValueRef {
+        catalog,
+        contract,
+        nullable,
+        value: &value,
+    }))
+}
+
+fn normalize_nullable_value(
+    catalog: &AcceptedEnumCatalogHandle,
+    contract: &AcceptedValueContract,
+    nullable: bool,
+    input: InputValue,
+    budget: &mut ValueAdmissionBudget,
+) -> Result<CanonicalValue, ValueAdmissionError> {
+    if catalog.revision() == AcceptedSchemaRevision::NONE {
+        return Err(ValueAdmissionError::MissingSchemaRevision);
+    }
+    if matches!(&input, InputValue::Null) {
+        if !nullable {
+            return Err(ValueAdmissionError::TypeMismatch);
         }
         budget.enter(0)?;
         budget.consume(1)?;
-        return Ok(AdmittedOwnedValue {
-            authority: catalog.authority().clone(),
-            value: CanonicalValue::Null,
-        });
+        return Ok(CanonicalValue::Null);
     }
 
-    normalize_and_admit_value(catalog, contract, input, budget)
+    normalize_contract(catalog.catalog(), contract, input, 0, budget)
 }
 
 /// Resolve and encode one generated unit-enum default through the candidate catalog.
@@ -237,7 +271,10 @@ pub(in crate::db) fn admit_decoded_persisted_field_value(
     value: CanonicalValue,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
-    validate_persisted_field_value(catalog, kind, storage_decode, nullable, &value, budget)?;
+    let contract =
+        AcceptedValueContract::from_accepted_field(catalog.catalog(), kind, storage_decode)
+            .map_err(|_| ValueAdmissionError::InvalidAcceptedContract)?;
+    let _ = validate_nullable_canonical_value(catalog, &contract, nullable, &value, budget)?;
     Ok(AdmittedOwnedValue {
         authority: catalog.authority().clone(),
         value,
@@ -256,27 +293,6 @@ pub(in crate::db) fn validate_decoded_persisted_field_value_in_catalog(
 ) -> Result<(), ValueAdmissionError> {
     validate_persisted_field_value_in_catalog(
         catalog,
-        kind,
-        storage_decode,
-        nullable,
-        value,
-        budget,
-    )
-}
-
-fn validate_persisted_field_value(
-    catalog: &AcceptedEnumCatalogHandle,
-    kind: &AcceptedFieldKind,
-    storage_decode: FieldStorageDecode,
-    nullable: bool,
-    value: &CanonicalValue,
-    budget: &mut ValueAdmissionBudget,
-) -> Result<(), ValueAdmissionError> {
-    if catalog.revision() == AcceptedSchemaRevision::NONE {
-        return Err(ValueAdmissionError::MissingSchemaRevision);
-    }
-    validate_persisted_field_value_in_catalog(
-        catalog.catalog(),
         kind,
         storage_decode,
         nullable,

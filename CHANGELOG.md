@@ -13,6 +13,11 @@ Detailed notes: [docs/changelog/0.200.md](docs/changelog/0.200.md)
 
 ### 🧹 Cleanup
 
+- `0.200.2` closes the persistence admission boundary so rows, patches, and
+  schema defaults emit bytes only from values proven against the current
+  accepted field contract, removing the raw runtime-value encoder and duplicate
+  normalization path.
+
 - `0.200.1` finishes accepted-schema row authority by removing the remaining
   generated-model codec branch, tightening current-format value validation,
   and reducing the measured wasm footprint without changing public APIs.

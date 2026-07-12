@@ -2,8 +2,6 @@
 //!
 //! Production writes and test fixtures enter through accepted field contracts.
 
-#[cfg(test)]
-use crate::model::entity::EntityModel;
 use crate::{
     db::{
         codec::serialize_row_payload,
@@ -11,27 +9,20 @@ use crate::{
             CanonicalRow, RawRow, StructuralRowContract,
             accepted_kind_supports_primary_key_component_binary,
             decode_structural_field_by_accepted_kind_bytes, decode_structural_value_storage_bytes,
-            encode_structural_field_by_accepted_kind_bytes, encode_structural_value_storage_bytes,
-            encode_structural_value_storage_null_bytes,
             validate_structural_field_by_accepted_kind_bytes,
             validate_structural_value_storage_bytes, value_storage_bytes_are_null,
         },
-        schema::{AcceptedFieldDecodeContract, AcceptedFieldKind},
+        schema::AcceptedFieldDecodeContract,
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
-    types::Decimal,
+    model::field::{FieldStorageDecode, LeafCodec},
     value::Value,
 };
-use std::{borrow::Cow, cmp::Ordering};
+#[cfg(test)]
+use crate::{model::entity::EntityModel, value::InputValue};
+use std::borrow::Cow;
 
-use crate::db::data::persisted_row::codec::{
-    ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value, encode_scalar_slot_value,
-};
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AcceptedStorageValidationError {
-    DecimalScaleMismatch,
-}
+use crate::db::data::persisted_row::codec::{ScalarSlotValueRef, decode_scalar_slot_value};
 
 pub(in crate::db::data::persisted_row) const RETIRED_SLOT_PLACEHOLDER_PAYLOAD: &[u8] = &[0];
 
@@ -110,221 +101,30 @@ pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
     decode_scalar_slot_value(raw_value, codec, accepted_field.field_name())
 }
 
-/// Encode one runtime boundary `Value` into a persisted slot payload.
+/// Normalize and encode one test value through accepted model-proposal authority.
 ///
-/// Test models are first projected into accepted row authority. This remains a
-/// fixture helper, not permission to persist arbitrary runtime `Value`.
+/// This fixture adapter converts the runtime value back into authored input;
+/// production persistence consumes admitted or strictly validated values.
 #[cfg(test)]
-pub(in crate::db) fn encode_runtime_value_into_slot(
+pub(in crate::db) fn encode_value_with_model_proposal_for_test(
     model: &'static EntityModel,
     slot: usize,
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
     let contract = StructuralRowContract::from_model_proposal_for_test(model);
     let field = contract.required_accepted_field_decode_contract(slot)?;
-
-    encode_runtime_value_for_accepted_field_contract(field, value)
-}
-
-/// Encode one runtime boundary `Value` through an accepted field contract.
-///
-/// This is the accepted-schema counterpart to
-/// `encode_runtime_value_for_field_model(...)`. `Value` remains a runtime
-/// boundary object; this helper only selects the persisted field-codec lane
-/// from accepted schema metadata before emitting slot bytes.
-pub(in crate::db) fn encode_runtime_value_for_accepted_field_contract(
-    field: AcceptedFieldDecodeContract<'_>,
-    value: &Value,
-) -> Result<Vec<u8>, InternalError> {
-    let value = normalize_decimal_scale_for_accepted_storage(field.kind(), value)
-        .map_err(|err| InternalError::persisted_row_field_encode_failed(field.field_name(), err))?;
-    let value = value.as_ref();
-
-    if matches!(value, Value::Null) {
-        return encode_null_slot_value_for_accepted_field(field);
-    }
-
-    match field.storage_decode() {
-        FieldStorageDecode::Value => encode_structural_value_storage_bytes(value).map_err(|err| {
-            InternalError::persisted_row_field_encode_failed(field.field_name(), err)
-        }),
-        FieldStorageDecode::ByKind => match field.leaf_codec() {
-            LeafCodec::Scalar(codec) => {
-                let scalar =
-                    scalar_slot_value_ref_from_runtime_value(value, codec).ok_or_else(|| {
-                        InternalError::persisted_row_field_encode_internal(field.field_name())
-                    })?;
-
-                Ok(encode_scalar_slot_value(scalar))
-            }
-            LeafCodec::StructuralFallback => encode_structural_field_by_accepted_kind_bytes(
-                field.kind(),
-                value,
-                field.field_name(),
-            ),
-        },
-    }
-}
-
-// Encode an explicit nullable `NULL` through the accepted field's storage
-// lane. Required fields fail before slot bytes are emitted.
-fn encode_null_slot_value_for_accepted_field(
-    field: AcceptedFieldDecodeContract<'_>,
-) -> Result<Vec<u8>, InternalError> {
-    if !field.nullable() {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field.field_name(),
-        ));
-    }
-
-    match field.storage_decode() {
-        FieldStorageDecode::Value => Ok(encode_structural_value_storage_null_bytes()),
-        FieldStorageDecode::ByKind => match field.leaf_codec() {
-            LeafCodec::Scalar(_) => Ok(encode_scalar_slot_value(ScalarSlotValueRef::Null)),
-            LeafCodec::StructuralFallback
-                if accepted_kind_supports_primary_key_component_binary(field.kind()) =>
-            {
-                encode_structural_field_by_accepted_kind_bytes(
-                    field.kind(),
-                    &Value::Null,
-                    field.field_name(),
-                )
-            }
-            LeafCodec::StructuralFallback => Ok(encode_structural_value_storage_null_bytes()),
-        },
-    }
-}
-
-// Convert one runtime scalar value into the borrowed scalar-slot view expected
-// by the persisted-row scalar codec. Field compatibility has already been
-// checked by the model field contract before this storage encoder runs.
-const fn scalar_slot_value_ref_from_runtime_value(
-    value: &Value,
-    codec: ScalarCodec,
-) -> Option<ScalarSlotValueRef<'_>> {
-    let scalar = match (codec, value) {
-        (ScalarCodec::Blob, Value::Blob(value)) => ScalarValueRef::Blob(value.as_slice()),
-        (ScalarCodec::Bool, Value::Bool(value)) => ScalarValueRef::Bool(*value),
-        (ScalarCodec::Date, Value::Date(value)) => ScalarValueRef::Date(*value),
-        (ScalarCodec::Duration, Value::Duration(value)) => ScalarValueRef::Duration(*value),
-        (ScalarCodec::Float32, Value::Float32(value)) => ScalarValueRef::Float32(*value),
-        (ScalarCodec::Float64, Value::Float64(value)) => ScalarValueRef::Float64(*value),
-        (ScalarCodec::Int64, Value::Int64(value)) => ScalarValueRef::Int(*value),
-        (ScalarCodec::Principal, Value::Principal(value)) => ScalarValueRef::Principal(*value),
-        (ScalarCodec::Subaccount, Value::Subaccount(value)) => ScalarValueRef::Subaccount(*value),
-        (ScalarCodec::Text, Value::Text(value)) => ScalarValueRef::Text(value.as_str()),
-        (ScalarCodec::Timestamp, Value::Timestamp(value)) => ScalarValueRef::Timestamp(*value),
-        (ScalarCodec::Nat64, Value::Nat64(value)) => ScalarValueRef::Nat(*value),
-        (ScalarCodec::Ulid, Value::Ulid(value)) => ScalarValueRef::Ulid(*value),
-        (ScalarCodec::Unit, Value::Unit) => ScalarValueRef::Unit,
-        _ => return None,
-    };
-
-    Some(ScalarSlotValueRef::Value(scalar))
-}
-
-// Normalize decimal values to accepted persisted storage scale before encoding.
-// `AcceptedFieldKind` remains the sole storage contract owner.
-fn normalize_decimal_scale_for_accepted_storage<'a>(
-    kind: &AcceptedFieldKind,
-    value: &'a Value,
-) -> Result<Cow<'a, Value>, AcceptedStorageValidationError> {
-    if matches!(value, Value::Null) {
-        return Ok(Cow::Borrowed(value));
-    }
-
-    match (kind, value) {
-        (AcceptedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-            let normalized = decimal_with_accepted_storage_scale(*decimal, *scale)
-                .ok_or(AcceptedStorageValidationError::DecimalScaleMismatch)?;
-
-            if normalized.scale() == decimal.scale() {
-                Ok(Cow::Borrowed(value))
-            } else {
-                Ok(Cow::Owned(Value::Decimal(normalized)))
-            }
-        }
-        (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
-            normalize_decimal_scale_for_accepted_storage(key_kind, value)
-        }
-        (AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner), Value::List(items)) => {
-            normalize_accepted_decimal_list_items(inner, items.as_slice()).map(|items| {
-                items.map_or_else(
-                    || Cow::Borrowed(value),
-                    |items| Cow::Owned(Value::List(items)),
-                )
-            })
-        }
-        (
-            AcceptedFieldKind::Map {
-                key,
-                value: map_value,
-            },
-            Value::Map(entries),
-        ) => normalize_accepted_decimal_map_entries(key, map_value, entries.as_slice()).map(
-            |entries| {
-                entries.map_or_else(
-                    || Cow::Borrowed(value),
-                    |items| Cow::Owned(Value::Map(items)),
-                )
-            },
-        ),
-        _ => Ok(Cow::Borrowed(value)),
-    }
-}
-
-// Convert one accepted decimal into exact persisted storage scale.
-fn decimal_with_accepted_storage_scale(decimal: Decimal, scale: u32) -> Option<Decimal> {
-    match decimal.scale().cmp(&scale) {
-        Ordering::Equal => Some(decimal),
-        Ordering::Less => decimal
-            .scale_to_integer(scale)
-            .and_then(|mantissa| Decimal::try_from_i128_with_scale(mantissa, scale)),
-        Ordering::Greater => Some(decimal.round_dp(scale)),
-    }
-}
-
-// Normalize decimal values inside accepted list/set fields while preserving
-// borrowed output when no element changes.
-fn normalize_accepted_decimal_list_items(
-    kind: &AcceptedFieldKind,
-    items: &[Value],
-) -> Result<Option<Vec<Value>>, AcceptedStorageValidationError> {
-    let mut normalized = None;
-    for (index, item) in items.iter().enumerate() {
-        let value = normalize_decimal_scale_for_accepted_storage(kind, item)?;
-        if let Cow::Owned(value) = value {
-            let values = normalized.get_or_insert_with(|| items.to_vec());
-            values[index] = value;
-        }
-    }
-
-    Ok(normalized)
-}
-
-// Normalize decimal values inside accepted map fields while preserving
-// borrowed output when no key or value changes.
-fn normalize_accepted_decimal_map_entries(
-    key_kind: &AcceptedFieldKind,
-    value_kind: &AcceptedFieldKind,
-    entries: &[(Value, Value)],
-) -> Result<Option<Vec<(Value, Value)>>, AcceptedStorageValidationError> {
-    let mut normalized = None;
-    for (index, (entry_key, entry_value)) in entries.iter().enumerate() {
-        let key = normalize_decimal_scale_for_accepted_storage(key_kind, entry_key)?;
-        let value = normalize_decimal_scale_for_accepted_storage(value_kind, entry_value)?;
-        if matches!(key, Cow::Owned(_)) || matches!(value, Cow::Owned(_)) {
-            let values = normalized.get_or_insert_with(|| entries.to_vec());
-            if let Cow::Owned(key) = key {
-                values[index].0 = key;
-            }
-            if let Cow::Owned(value) = value {
-                values[index].1 = value;
-            }
-        }
-    }
-
-    Ok(normalized)
+    let catalog = contract
+        .accepted_enum_catalog_handle()
+        .ok_or_else(InternalError::persisted_row_encode_internal)?;
+    let input = InputValue::try_from_runtime_non_enum(value)
+        .ok_or_else(InternalError::persisted_row_encode_internal)?;
+    let mut budget = crate::db::schema::enum_catalog::ValueAdmissionBudget::standard();
+    super::canonical::encode_input_value_for_accepted_field_contract(
+        catalog,
+        field,
+        input,
+        &mut budget,
+    )
 }
 
 // Build one dense slot image by running one caller-supplied encode step per
@@ -362,8 +162,15 @@ where
 
         let value = value_for_slot(slot)?;
         let field = contract.required_accepted_field_decode_contract(slot)?;
+        let catalog = contract
+            .accepted_enum_catalog_handle()
+            .ok_or_else(InternalError::persisted_row_encode_internal)?;
 
-        encode_runtime_value_for_accepted_field_contract(field, value.as_ref())
+        super::canonical::encode_canonical_value_for_accepted_field_contract(
+            catalog,
+            field,
+            value.as_ref(),
+        )
     })
 }
 

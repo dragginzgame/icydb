@@ -3,15 +3,16 @@ use crate::{
     db::{
         FieldRef, MutationMode, asc,
         codec::{decode_row_payload_bytes, serialize_row_payload},
-        data::{RawRow, encode_runtime_value_into_slot},
+        data::{RawRow, encode_value_with_model_proposal_for_test},
         executor::EntityAuthority,
         response::Row,
         schema::{
-            AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
-            PersistedFieldOrigin, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-            SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
-            SchemaVersion, accepted_schema_cache_fingerprint,
-            accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
+            AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
+            AcceptedSchemaSnapshot, PersistedFieldOrigin, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, SchemaDdlMutationAdmissionError,
+            SchemaDdlSchemaVersionAdmissionError, SchemaInfo, SchemaVersion,
+            accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_method_version,
+            compiled_schema_proposal_for_model, enum_catalog::build_initial_accepted_enum_catalog,
             execute_sql_ddl_field_addition, persisted_schema_snapshot_decode_count_for_tests,
             publish_test_accepted_schema_snapshot,
             reset_persisted_schema_snapshot_decode_count_for_tests,
@@ -58,15 +59,29 @@ fn session_sql_entity_initial_accepted_schema_cache_fingerprint() -> [u8; 16] {
 }
 
 fn accepted_schema_info_for_entity<E: EntitySchema>() -> SchemaInfo {
-    let accepted = accepted_schema_snapshot_for_entity::<E>();
+    let (accepted, catalog) = accepted_schema_snapshot_and_catalog_for_entity::<E>();
 
-    SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted)
+    SchemaInfo::from_accepted_snapshot_and_catalog_for_model(E::MODEL, &accepted, catalog, false)
 }
 
 fn accepted_schema_snapshot_for_entity<E: EntitySchema>() -> AcceptedSchemaSnapshot {
+    accepted_schema_snapshot_and_catalog_for_entity::<E>().0
+}
+
+fn accepted_schema_snapshot_and_catalog_for_entity<E: EntitySchema>()
+-> (AcceptedSchemaSnapshot, AcceptedEnumCatalogHandle) {
     let proposal = compiled_schema_proposal_for_model(E::MODEL);
-    AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
-        .expect("session SQL test schema snapshot should be accepted")
+    let catalog = build_initial_accepted_enum_catalog(&[E::MODEL])
+        .expect("session SQL test enum catalog should build");
+    let snapshot = proposal
+        .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+        .expect("session SQL test schema should resolve through its enum catalog");
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
+        .expect("session SQL test schema snapshot should be accepted");
+    let catalog =
+        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+
+    (accepted, catalog)
 }
 
 fn ddl_transition_sql(sql: &str, expected_schema_version: u32) -> String {
@@ -169,10 +184,13 @@ fn assert_sql_lowering_detail(err: QueryError, expected: SqlLoweringCode) {
 // before the nullable `nickname` field was appended. This lets the SQL surface
 // test prove startup transition acceptance and old-row decode together.
 fn old_nullable_sql_raw_row_for_test(id: Ulid, name: &str) -> RawRow {
-    let id_payload =
-        encode_runtime_value_into_slot(SessionNullableSqlEntity::MODEL, 0, &Value::Ulid(id))
-            .expect("old nullable SQL id payload should encode");
-    let name_payload = encode_runtime_value_into_slot(
+    let id_payload = encode_value_with_model_proposal_for_test(
+        SessionNullableSqlEntity::MODEL,
+        0,
+        &Value::Ulid(id),
+    )
+    .expect("old nullable SQL id payload should encode");
+    let name_payload = encode_value_with_model_proposal_for_test(
         SessionNullableSqlEntity::MODEL,
         1,
         &Value::Text(name.to_string()),

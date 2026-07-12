@@ -4,9 +4,9 @@
 //! Boundary: stable generated field slots -> admitted owned values.
 use crate::{
     db::{
-        data::encode_admitted_value_for_accepted_field_contract,
+        data::encode_input_value_for_accepted_field_contract,
         schema::{
-            AcceptedRowDecodeContract,
+            AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
             enum_catalog::{
                 AcceptedEnumCatalogHandle, AdmittedOwnedValue, ValueAdmissionBudget,
                 ValueAdmissionError, normalize_and_admit_persisted_field_value,
@@ -14,6 +14,7 @@ use crate::{
         },
     },
     traits::AuthoredFieldProjection,
+    value::InputValue,
 };
 
 /// Failure to bind or admit one generated authored field slot.
@@ -55,17 +56,7 @@ impl<'a> AcceptedAuthoredFieldProjection<'a> {
     where
         E: AuthoredFieldProjection,
     {
-        let field = self
-            .row_contract
-            .field_for_slot(slot)
-            .ok_or(AuthoredFieldAdmissionError::MissingFieldContract { slot })?;
-        if !field.generated() {
-            return Err(AuthoredFieldAdmissionError::FieldNotGenerated { slot });
-        }
-        let input = entity
-            .get_input_value_by_index(slot)
-            .ok_or(AuthoredFieldAdmissionError::MissingAuthoredValue { slot })?;
-        let decode = field.decode_contract();
+        let (decode, input) = self.authored_field_input(entity, slot)?;
 
         normalize_and_admit_persisted_field_value(
             self.catalog,
@@ -87,17 +78,31 @@ impl<'a> AcceptedAuthoredFieldProjection<'a> {
     where
         E: AuthoredFieldProjection,
     {
-        let admitted = self.admit_field(entity, slot, budget)?;
+        let (field, input) = self.authored_field_input(entity, slot)?;
+
+        encode_input_value_for_accepted_field_contract(self.catalog, field, input, budget)
+            .map_err(|_| AuthoredFieldAdmissionError::PersistenceEncoding { slot })
+    }
+
+    fn authored_field_input<E>(
+        &self,
+        entity: &E,
+        slot: usize,
+    ) -> Result<(AcceptedFieldDecodeContract<'_>, InputValue), AuthoredFieldAdmissionError>
+    where
+        E: AuthoredFieldProjection,
+    {
         let field = self
             .row_contract
             .field_for_slot(slot)
             .ok_or(AuthoredFieldAdmissionError::MissingFieldContract { slot })?;
+        if !field.generated() {
+            return Err(AuthoredFieldAdmissionError::FieldNotGenerated { slot });
+        }
+        let input = entity
+            .get_input_value_by_index(slot)
+            .ok_or(AuthoredFieldAdmissionError::MissingAuthoredValue { slot })?;
 
-        encode_admitted_value_for_accepted_field_contract(
-            self.catalog,
-            field.decode_contract(),
-            &admitted,
-        )
-        .map_err(|_| AuthoredFieldAdmissionError::PersistenceEncoding { slot })
+        Ok((field.decode_contract(), input))
     }
 }
