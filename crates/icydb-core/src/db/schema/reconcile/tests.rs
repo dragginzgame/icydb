@@ -5,12 +5,17 @@ use super::{
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
+        commit::{
+            CommitMarker, begin_commit, clear_commit_marker_for_tests,
+            clear_recovery_runtime_state_for_tests, commit_marker_present, ensure_recovered,
+            generate_commit_id, init_commit_store_for_tests,
+        },
         data::{CanonicalRow, DataStore, DecodedDataStoreKey, StructuralRowContract},
         index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore},
-        journal::JournalTailStore,
+        journal::{JournalBatch, JournalRecord, JournalTailStore},
         registry::StoreRegistry,
         schema::{
-            AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
             PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
@@ -149,7 +154,6 @@ static ADDITIVE_NULLABLE_SCHEMA_MODEL: EntityModel = EntityModel::generated(
     &ADDITIVE_NULLABLE_SCHEMA_INDEXES,
 );
 const ADDITIVE_NULLABLE_ENTITY_TAG: EntityTag = EntityTag::new(0x6164_6469_7469_7665);
-
 thread_local! {
     static RECONCILE_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init_journaled(test_memory(252)));
@@ -158,7 +162,7 @@ thread_local! {
     static RECONCILE_SCHEMA_STORE: RefCell<SchemaStore> =
         RefCell::new(SchemaStore::init_journaled(test_memory(254)));
     static RECONCILE_JOURNAL_STORE: RefCell<JournalTailStore> =
-        RefCell::new(JournalTailStore::init(test_memory(255)));
+        RefCell::new(JournalTailStore::init(test_memory(250)));
     static RECONCILE_STORE_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry
@@ -182,7 +186,7 @@ thread_local! {
                         "icydb.test.reconcile.schema.v1",
                     ),
                     crate::db::StoreAllocationIdentity::new(
-                        255,
+                        250,
                         "icydb.test.reconcile.journal.v1",
                     ),
                 ),
@@ -228,6 +232,25 @@ fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
         expected.fields().to_vec(),
         Vec::new(),
     )
+}
+
+fn stage_and_publish_indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
+    let snapshot = indexed_schema_snapshot_without_indexes();
+    RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+        store
+            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &snapshot)
+            .expect("stored index-free schema snapshot should encode");
+        super::publish_test_accepted_schema_snapshot(
+            store,
+            IndexedSchemaEntity::ENTITY_TAG,
+            IndexedSchemaEntity::MODEL.path(),
+            SchemaReconcileTestStore::PATH,
+            IndexedSchemaEntity::MODEL,
+            snapshot.clone(),
+        )
+        .expect("stored index-free accepted root should publish");
+    });
+    snapshot
 }
 
 fn indexed_schema_snapshot_with_renamed_index(index_name: &str) -> PersistedSchemaSnapshot {
@@ -337,14 +360,9 @@ fn indexed_schema_field_path_publication_context() -> (
     PersistedSchemaSnapshot,
     super::SchemaTransitionPlan,
 ) {
-    let stored_without_index = indexed_schema_snapshot_without_indexes();
+    let stored_without_index = stage_and_publish_indexed_schema_snapshot_without_indexes();
     let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
-    RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
-            .expect("stored index-free schema snapshot should encode");
-    });
     insert_indexed_schema_row(15_401, "Ada");
 
     let plan = super::validate_existing_schema_snapshot(
@@ -375,6 +393,12 @@ fn reconcile_runtime_schemas_writes_initial_snapshot_on_first_contact() {
 
     assert_eq!(snapshot.entity_path(), SchemaReconcileEntity::PATH);
     assert_eq!(snapshot.fields().len(), 2);
+    let bundle = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted schema bundle should decode")
+        .expect("first reconciliation should publish one accepted schema root");
+    assert_eq!(bundle.revision(), super::AcceptedSchemaRevision::INITIAL);
+    assert_eq!(bundle.store_path(), SchemaReconcileTestStore::PATH);
 
     let report = metrics_report(None);
     let counters = report
@@ -411,7 +435,9 @@ fn reconcile_runtime_schemas_publishes_declared_version_on_first_contact() {
         .expect("initial schema reconciliation should write generated snapshot");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("schema store latest snapshot should decode")
         .expect("initial schema snapshot should be persisted");
     let by_declared_version = RECONCILE_SCHEMA_STORE
@@ -455,6 +481,15 @@ fn reconcile_runtime_schemas_accepts_existing_matching_snapshot() {
         .expect("matching persisted schema should be accepted");
 
     assert_eq!(RECONCILE_SCHEMA_STORE.with_borrow(SchemaStore::len), 1);
+    let bundle = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted schema bundle should decode")
+        .expect("accepted schema root should remain published");
+    assert_eq!(
+        bundle.revision(),
+        super::AcceptedSchemaRevision::INITIAL,
+        "an exact semantic no-op must not publish a new revision",
+    );
 
     let report = metrics_report(None);
     let counters = report
@@ -474,7 +509,111 @@ fn reconcile_runtime_schemas_accepts_existing_matching_snapshot() {
 }
 
 #[test]
-fn ensure_accepted_schema_snapshot_accepts_append_only_nullable_field() {
+fn accepted_schema_post_root_change_publishes_through_marker_bound_journal() {
+    reset_schema_store();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    metrics_reset_all();
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema reconciliation should publish revision one");
+
+    let catalog =
+        super::build_generated_enum_catalog_candidates(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+            .expect("generated catalog should build")
+            .remove(SchemaReconcileTestStore::PATH)
+            .expect("store catalog should exist");
+    let changed_snapshot = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL)
+        .initial_persisted_schema_snapshot()
+        .clone_with_version(SchemaVersion::new(2));
+    super::publish_generated_accepted_schema_bundle(
+        RECONCILE_DB
+            .store_handle(SchemaReconcileTestStore::PATH)
+            .expect("store should resolve"),
+        SchemaReconcileTestStore::PATH,
+        catalog,
+        std::collections::BTreeMap::from([(SchemaReconcileEntity::ENTITY_TAG, changed_snapshot)]),
+    )
+    .expect("post-root change should publish through the journal");
+
+    let bundle = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted schema bundle should decode")
+        .expect("new accepted root should be visible");
+    assert_eq!(bundle.revision(), super::AcceptedSchemaRevision::new(2));
+    assert_eq!(
+        RECONCILE_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        1
+    );
+    assert_eq!(
+        RECONCILE_SCHEMA_STORE.with_borrow(SchemaStore::canonical_len_for_tests),
+        3
+    );
+    assert!(!commit_marker_present().expect("commit marker should decode"));
+}
+
+#[test]
+fn accepted_schema_marker_recovery_repairs_replays_and_folds_candidate() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    clear_recovery_runtime_state_for_tests(&RECONCILE_DB)
+        .expect("recovery runtime state should clear");
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial schema reconciliation should publish revision one");
+
+    let current = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("accepted schema bundle should decode")
+        .expect("accepted schema bundle should exist");
+    let next_bundle = super::AcceptedSchemaRevisionBundle::new(
+        super::AcceptedSchemaRevision::new(2),
+        current.store_path(),
+        current.enum_catalog().clone(),
+        current.entity_snapshots().clone(),
+    )
+    .expect("next accepted schema bundle should build");
+    let candidate = super::CandidateSchemaRevision::new(next_bundle)
+        .expect("next accepted schema candidate should encode");
+    let record = JournalRecord::accepted_schema_publish(
+        SchemaReconcileTestStore::PATH,
+        super::AcceptedSchemaRevision::INITIAL,
+        candidate.encoded_bundle().to_vec(),
+        candidate.encoded_root().to_vec(),
+    )
+    .expect("accepted schema journal record should build");
+    let marker_id = generate_commit_id().expect("commit id should generate");
+    let sequence = RECONCILE_JOURNAL_STORE
+        .with_borrow(JournalTailStore::next_append_sequence)
+        .expect("journal sequence should allocate");
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])
+        .expect("accepted schema journal batch should build");
+    let marker = CommitMarker::from_parts(marker_id, Vec::new(), vec![batch])
+        .expect("accepted schema commit marker should build");
+    let _unfinished = begin_commit(marker).expect("crash fixture marker should persist");
+
+    ensure_recovered(&RECONCILE_DB)
+        .expect("recovery should repair, replay, and fold accepted schema publication");
+
+    let recovered = RECONCILE_SCHEMA_STORE
+        .with_borrow(SchemaStore::current_accepted_schema_bundle)
+        .expect("recovered accepted schema bundle should decode")
+        .expect("recovered accepted schema bundle should exist");
+    assert_eq!(recovered.revision(), super::AcceptedSchemaRevision::new(2));
+    assert_eq!(
+        RECONCILE_SCHEMA_STORE.with_borrow(SchemaStore::canonical_len_for_tests),
+        5
+    );
+    assert_eq!(
+        RECONCILE_JOURNAL_STORE.with_borrow(JournalTailStore::len),
+        0
+    );
+    assert!(!commit_marker_present().expect("commit marker should decode"));
+}
+
+#[test]
+fn reconcile_staged_schema_snapshot_accepts_append_only_nullable_field() {
     let mut schema_store = SchemaStore::init_journaled(test_memory(243));
     metrics_reset_all();
 
@@ -499,7 +638,7 @@ fn ensure_accepted_schema_snapshot_accepts_append_only_nullable_field() {
         .insert_persisted_snapshot(ADDITIVE_NULLABLE_ENTITY_TAG, &stored_prefix)
         .expect("stored prefix schema snapshot should encode");
 
-    let accepted = super::ensure_accepted_schema_snapshot(
+    let accepted = super::reconcile_staged_schema_snapshot(
         &mut schema_store,
         ADDITIVE_NULLABLE_ENTITY_TAG,
         ADDITIVE_NULLABLE_SCHEMA_MODEL.path(),
@@ -507,7 +646,7 @@ fn ensure_accepted_schema_snapshot_accepts_append_only_nullable_field() {
     )
     .expect("append-only nullable generated field should be accepted");
     let latest = schema_store
-        .latest_persisted_snapshot(ADDITIVE_NULLABLE_ENTITY_TAG)
+        .latest_staged_persisted_snapshot(ADDITIVE_NULLABLE_ENTITY_TAG)
         .expect("schema store latest snapshot should decode")
         .expect("schema store should retain accepted additive snapshot");
 
@@ -563,7 +702,7 @@ fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
         FieldId::new(3),
         "nickname".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         false,
         SchemaFieldDefault::None,
@@ -615,14 +754,14 @@ fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
 }
 
 #[test]
-fn ensure_accepted_schema_snapshot_publishes_metadata_only_index_rename() {
+fn reconcile_staged_schema_snapshot_publishes_metadata_only_index_rename() {
     let mut schema_store = SchemaStore::init_journaled(test_memory(240));
     let stored = indexed_schema_snapshot_with_renamed_index("IndexedSchemaEntity|name");
     schema_store
         .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored)
         .expect("stored renamed-index schema snapshot should encode");
 
-    let accepted = super::ensure_accepted_schema_snapshot(
+    let accepted = super::reconcile_staged_schema_snapshot(
         &mut schema_store,
         IndexedSchemaEntity::ENTITY_TAG,
         IndexedSchemaEntity::MODEL.path(),
@@ -630,7 +769,7 @@ fn ensure_accepted_schema_snapshot_publishes_metadata_only_index_rename() {
     )
     .expect("metadata-only generated index rename should be accepted");
     let latest = schema_store
-        .latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        .latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
         .expect("schema store latest snapshot should decode")
         .expect("schema store should retain accepted renamed-index snapshot");
 
@@ -640,7 +779,7 @@ fn ensure_accepted_schema_snapshot_publishes_metadata_only_index_rename() {
 }
 
 #[test]
-fn ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename() {
+fn reconcile_staged_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename() {
     let mut schema_store = SchemaStore::init_journaled(test_memory(239));
     let stored = indexed_schema_snapshot_with_renamed_index_and_extra_indexes(
         "IndexedSchemaEntity|name",
@@ -650,7 +789,7 @@ fn ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_
         .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored)
         .expect("stored renamed-index schema snapshot should encode");
 
-    let accepted = super::ensure_accepted_schema_snapshot(
+    let accepted = super::reconcile_staged_schema_snapshot(
         &mut schema_store,
         IndexedSchemaEntity::ENTITY_TAG,
         IndexedSchemaEntity::MODEL.path(),
@@ -658,7 +797,7 @@ fn ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_
     )
     .expect("generated index rename with extra DDL indexes should be accepted");
     let latest = schema_store
-        .latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        .latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
         .expect("schema store latest snapshot should decode")
         .expect("schema store should retain accepted merged snapshot");
 
@@ -676,14 +815,12 @@ fn ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_
 #[test]
 fn reconcile_runtime_schemas_executes_supported_field_path_index_addition() {
     reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
     metrics_reset_all();
 
-    let stored_without_index = indexed_schema_snapshot_without_indexes();
-    RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
-            .expect("stored index-free schema snapshot should encode");
-    });
+    let _stored_without_index = stage_and_publish_indexed_schema_snapshot_without_indexes();
 
     let id = Ulid::from_u128(15_401);
     let data_key =
@@ -703,7 +840,9 @@ fn reconcile_runtime_schemas_executes_supported_field_path_index_addition() {
         .expect("supported field-path index addition should rebuild and publish");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("latest schema snapshot should decode")
         .expect("indexed schema snapshot should be published");
     assert_eq!(latest.indexes().len(), 1);
@@ -727,12 +866,7 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_ta
     reset_reconcile_stores();
     metrics_reset_all();
 
-    let stored_without_index = indexed_schema_snapshot_without_indexes();
-    RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
-            .expect("stored index-free schema snapshot should encode");
-    });
+    let _stored_without_index = stage_and_publish_indexed_schema_snapshot_without_indexes();
 
     RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
         let sentinel_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 1);
@@ -748,7 +882,9 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_ta
         .expect_err("populated target physical index should fail closed");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("latest schema snapshot should decode")
         .expect("index-free schema snapshot should remain accepted");
     assert_eq!(latest.indexes().len(), 0);
@@ -763,12 +899,7 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_building_ind
     reset_reconcile_stores();
     metrics_reset_all();
 
-    let stored_without_index = indexed_schema_snapshot_without_indexes();
-    RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
-            .expect("stored index-free schema snapshot should encode");
-    });
+    let _stored_without_index = stage_and_publish_indexed_schema_snapshot_without_indexes();
     insert_indexed_schema_row(15_401, "Ada");
 
     RECONCILE_INDEX_STORE.with_borrow_mut(IndexStore::mark_building);
@@ -778,7 +909,9 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_building_ind
         .expect_err("building physical index store should fail closed before schema publish");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("latest schema snapshot should decode")
         .expect("index-free schema snapshot should remain accepted");
     assert_eq!(latest.indexes().len(), 0);
@@ -793,14 +926,12 @@ fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_building_ind
 #[test]
 fn reconcile_runtime_schemas_accepts_field_path_index_addition_with_unrelated_index_entries() {
     reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
     metrics_reset_all();
 
-    let stored_without_index = indexed_schema_snapshot_without_indexes();
-    RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
-            .expect("stored index-free schema snapshot should encode");
-    });
+    let _stored_without_index = stage_and_publish_indexed_schema_snapshot_without_indexes();
 
     RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
         let unrelated_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 99);
@@ -816,7 +947,9 @@ fn reconcile_runtime_schemas_accepts_field_path_index_addition_with_unrelated_in
         .expect("unrelated physical index entries should not block target index addition");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("latest schema snapshot should decode")
         .expect("indexed schema snapshot should be published");
     assert_eq!(latest.indexes().len(), 1);
@@ -1162,13 +1295,18 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
     decision
         .publish_accepted_snapshot(
             store,
-            SchemaPublicationGate::startup(IndexedSchemaEntity::ENTITY_TAG),
+            SchemaPublicationGate::startup(
+                IndexedSchemaEntity::ENTITY_TAG,
+                SchemaReconcileTestStore::PATH,
+            ),
             &expected,
         )
         .expect("publication decision should write accepted schema");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("latest schema snapshot should decode")
         .expect("indexed schema snapshot should be published");
     assert_eq!(latest.indexes().len(), 1);
@@ -1245,7 +1383,9 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
     .expect_err("row drift after runner should reject schema publication");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("latest schema snapshot should decode")
         .expect("index-free schema snapshot should remain accepted");
     assert_eq!(latest.indexes().len(), 0);
@@ -1334,20 +1474,25 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
     decision
         .publish_accepted_snapshot(
             store,
-            SchemaPublicationGate::startup(IndexedSchemaEntity::ENTITY_TAG),
+            SchemaPublicationGate::startup(
+                IndexedSchemaEntity::ENTITY_TAG,
+                SchemaReconcileTestStore::PATH,
+            ),
             &expected,
         )
         .expect_err("physical store drift after runner should reject schema publication");
 
     let latest = RECONCILE_SCHEMA_STORE
-        .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
         .expect("latest schema snapshot should decode")
         .expect("index-free schema snapshot should remain accepted");
     assert_eq!(latest.indexes().len(), 0);
 }
 
 #[test]
-fn ensure_accepted_schema_snapshot_rejects_field_path_index_addition_without_runtime_store() {
+fn reconcile_staged_schema_snapshot_rejects_field_path_index_addition_without_runtime_store() {
     let mut schema_store = SchemaStore::init_journaled(test_memory(244));
     metrics_reset_all();
 
@@ -1356,7 +1501,7 @@ fn ensure_accepted_schema_snapshot_rejects_field_path_index_addition_without_run
         .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
         .expect("stored index-free schema snapshot should encode");
 
-    let err = super::ensure_accepted_schema_snapshot(
+    let err = super::reconcile_staged_schema_snapshot(
         &mut schema_store,
         IndexedSchemaEntity::ENTITY_TAG,
         IndexedSchemaEntity::MODEL.path(),
@@ -1366,18 +1511,18 @@ fn ensure_accepted_schema_snapshot_rejects_field_path_index_addition_without_run
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     let latest = schema_store
-        .latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        .latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
         .expect("latest schema snapshot should decode")
         .expect("index-free schema snapshot should remain accepted");
     assert_eq!(latest.indexes().len(), 0);
 }
 
 #[test]
-fn ensure_accepted_schema_snapshot_records_nested_leaf_footprint() {
+fn reconcile_staged_schema_snapshot_records_nested_leaf_footprint() {
     let mut schema_store = SchemaStore::init_journaled(test_memory(241));
     metrics_reset_all();
 
-    let accepted = super::ensure_accepted_schema_snapshot(
+    let accepted = super::reconcile_staged_schema_snapshot(
         &mut schema_store,
         NESTED_SCHEMA_ENTITY_TAG,
         NESTED_SCHEMA_MODEL.path(),
@@ -1406,7 +1551,7 @@ fn ensure_accepted_schema_snapshot_records_nested_leaf_footprint() {
 }
 
 #[test]
-fn ensure_accepted_schema_snapshot_rejects_nested_leaf_drift_as_field_contract() {
+fn reconcile_staged_schema_snapshot_rejects_nested_leaf_drift_as_field_contract() {
     let mut schema_store = SchemaStore::init_journaled(test_memory(242));
     metrics_reset_all();
 
@@ -1421,7 +1566,7 @@ fn ensure_accepted_schema_snapshot_rejects_nested_leaf_drift_as_field_contract()
         profile.kind().clone(),
         vec![PersistedNestedLeafSnapshot::new(
             vec!["legacy_rank".to_string()],
-            PersistedFieldKind::Nat64,
+            AcceptedFieldKind::Nat64,
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Nat64),
@@ -1443,7 +1588,7 @@ fn ensure_accepted_schema_snapshot_rejects_nested_leaf_drift_as_field_contract()
         .insert_persisted_snapshot(NESTED_SCHEMA_ENTITY_TAG, &stored_with_nested_leaf_drift)
         .expect("stored nested-leaf drift snapshot should encode");
 
-    let err = super::ensure_accepted_schema_snapshot(
+    let err = super::reconcile_staged_schema_snapshot(
         &mut schema_store,
         NESTED_SCHEMA_ENTITY_TAG,
         NESTED_SCHEMA_MODEL.path(),
@@ -1599,7 +1744,7 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
         FieldId::new(3),
         "legacy_score".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Nat64,
+        AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
         SchemaFieldDefault::None,
@@ -1696,4 +1841,46 @@ fn reconcile_runtime_schemas_rejects_newer_schema_snapshot() {
         &err,
         "newer accepted snapshot should reject through admission gate",
     );
+}
+
+#[test]
+fn runtime_schema_reads_ignore_unpublished_staged_snapshot() {
+    reset_schema_store();
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("initial accepted root should publish");
+
+    let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
+    let accepted = proposal.initial_persisted_schema_snapshot();
+    let staged_row_layout = SchemaRowLayout::new(
+        SchemaVersion::new(2),
+        accepted.row_layout().field_to_slot().to_vec(),
+    );
+    let staged = PersistedSchemaSnapshot::new(
+        SchemaVersion::new(2),
+        accepted.entity_path().to_string(),
+        accepted.entity_name().to_string(),
+        accepted.primary_key_field_ids().to_vec(),
+        staged_row_layout,
+        accepted.fields().to_vec(),
+    );
+
+    RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+        store
+            .insert_persisted_snapshot(SchemaReconcileEntity::ENTITY_TAG, &staged)
+            .expect("unpublished candidate snapshot should stage");
+
+        assert_eq!(
+            store
+                .latest_staged_persisted_snapshot(SchemaReconcileEntity::ENTITY_TAG)
+                .expect("staged snapshot should decode"),
+            Some(staged),
+        );
+        assert_eq!(
+            store
+                .current_accepted_persisted_snapshot(SchemaReconcileEntity::ENTITY_TAG)
+                .expect("accepted root snapshot should decode"),
+            Some(accepted),
+            "runtime authority must remain pinned to the published root",
+        );
+    });
 }

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     db::schema::{
-        FieldId, MutationCompatibility, PersistedFieldKind, PersistedFieldOrigin,
+        AcceptedFieldKind, FieldId, MutationCompatibility, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
         RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
@@ -34,7 +34,7 @@ fn expected_snapshot() -> PersistedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -45,7 +45,7 @@ fn expected_snapshot() -> PersistedSchemaSnapshot {
                 FieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -98,7 +98,7 @@ fn snapshot_with_ddl_nickname_field(
         FieldId::new(3),
         "nickname".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         true,
         SchemaFieldDefault::None,
@@ -156,7 +156,7 @@ fn snapshot_with_renamed_name_field(
         FieldId::new(2),
         name.to_string(),
         SchemaFieldSlot::new(1),
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         false,
         SchemaFieldDefault::None,
@@ -171,6 +171,33 @@ fn snapshot_with_renamed_name_field(
         snapshot.first_primary_key_field_id(),
         snapshot.row_layout().clone(),
         changed_fields,
+    )
+}
+
+fn snapshot_with_name_kind(
+    snapshot: &PersistedSchemaSnapshot,
+    kind: AcceptedFieldKind,
+) -> PersistedSchemaSnapshot {
+    let mut fields = snapshot.fields().to_vec();
+    fields[1] = PersistedFieldSnapshot::new(
+        FieldId::new(2),
+        "name".to_string(),
+        SchemaFieldSlot::new(1),
+        kind,
+        Vec::new(),
+        false,
+        SchemaFieldDefault::None,
+        FieldStorageDecode::ByKind,
+        LeafCodec::StructuralFallback,
+    );
+
+    PersistedSchemaSnapshot::new(
+        snapshot.version(),
+        snapshot.entity_path().to_string(),
+        snapshot.entity_name().to_string(),
+        snapshot.first_primary_key_field_id(),
+        snapshot.row_layout().clone(),
+        fields,
     )
 }
 
@@ -366,7 +393,7 @@ fn named_field_path_index_with_ordinal(
             FieldId::new(2),
             SchemaFieldSlot::new(1),
             vec!["name".to_string()],
-            PersistedFieldKind::Text { max_len: None },
+            AcceptedFieldKind::Text { max_len: None },
             false,
         )]),
         None,
@@ -561,7 +588,7 @@ fn schema_transition_policy_accepts_append_only_nullable_fields() {
         FieldId::new(3),
         "nickname".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         true,
         SchemaFieldDefault::None,
@@ -605,6 +632,28 @@ fn schema_transition_policy_accepts_append_only_nullable_fields() {
 }
 
 #[test]
+fn schema_transition_policy_rejects_existing_enum_field_type_rebind() {
+    let base = expected_snapshot();
+    let stored = snapshot_with_name_kind(
+        &base,
+        AcceptedFieldKind::Enum {
+            type_id: crate::value::EnumTypeId::new(1).expect("test enum type ID should be valid"),
+        },
+    );
+    let rebound = snapshot_with_name_kind(
+        &base,
+        AcceptedFieldKind::Enum {
+            type_id: crate::value::EnumTypeId::new(2).expect("test enum type ID should be valid"),
+        },
+    );
+
+    assert!(matches!(
+        decide_schema_transition(&stored, &rebound),
+        SchemaTransitionDecision::Rejected(_)
+    ));
+}
+
+#[test]
 fn schema_transition_policy_accepts_append_only_defaulted_fields() {
     let stored = expected_snapshot();
     let mut generated_fields = stored.fields().to_vec();
@@ -612,7 +661,7 @@ fn schema_transition_policy_accepts_append_only_defaulted_fields() {
         FieldId::new(3),
         "score".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Nat64,
+        AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
         SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0]),
@@ -655,7 +704,7 @@ fn schema_transition_policy_rejects_malformed_append_only_default_payloads() {
         FieldId::new(3),
         "score".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Nat64,
+        AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
         SchemaFieldDefault::SlotPayload(vec![0x00]),
@@ -781,7 +830,7 @@ fn schema_transition_policy_rejects_field_type_changes() {
         FieldId::new(2),
         "name".to_string(),
         SchemaFieldSlot::new(1),
-        PersistedFieldKind::Nat64,
+        AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
         SchemaFieldDefault::None,
@@ -823,7 +872,7 @@ fn schema_transition_policy_rejects_existing_field_default_changes() {
         FieldId::new(2),
         "name".to_string(),
         SchemaFieldSlot::new(1),
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         false,
         SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
@@ -877,7 +926,7 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -888,10 +937,10 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
                 FieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Structured { queryable: false },
+                AcceptedFieldKind::Structured { queryable: false },
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["nickname".to_string()],
-                    PersistedFieldKind::Text { max_len: None },
+                    AcceptedFieldKind::Text { max_len: None },
                     false,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Text),
@@ -908,10 +957,10 @@ fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
         FieldId::new(2),
         "profile".to_string(),
         SchemaFieldSlot::new(1),
-        PersistedFieldKind::Structured { queryable: false },
+        AcceptedFieldKind::Structured { queryable: false },
         vec![PersistedNestedLeafSnapshot::new(
             vec!["score".to_string()],
-            PersistedFieldKind::Nat64,
+            AcceptedFieldKind::Nat64,
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Nat64),
@@ -969,7 +1018,7 @@ fn schema_transition_policy_names_unsupported_generated_removed_fields() {
         FieldId::new(3),
         "legacy_score".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Nat64,
+        AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
         SchemaFieldDefault::None,
@@ -1024,7 +1073,7 @@ fn schema_transition_policy_names_unsupported_generated_additive_fields() {
         FieldId::new(3),
         "new_score".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Nat64,
+        AcceptedFieldKind::Nat64,
         Vec::new(),
         false,
         SchemaFieldDefault::None,

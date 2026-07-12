@@ -4,9 +4,8 @@
 //! Boundary: internal helper for ordered component encoding.
 
 use crate::{
-    db::index::key::ordered::{OrderedValueEncodeError, encode_canonical_index_component},
+    db::index::key::ordered::OrderedValueEncodeError,
     types::{Account, Principal, Subaccount},
-    value::ValueEnum,
 };
 
 const LENGTH_BYTES: usize = 2;
@@ -45,34 +44,6 @@ pub(super) fn push_account_payload(
     Ok(())
 }
 
-/// Enum ordering is variant -> path option -> payload option, recursively.
-pub(super) fn push_enum_payload(
-    out: &mut Vec<u8>,
-    value: &ValueEnum,
-) -> Result<(), OrderedValueEncodeError> {
-    push_terminated_bytes(out, value.variant().as_bytes());
-
-    match value.path() {
-        Some(path) => {
-            out.push(1);
-            push_terminated_bytes(out, path.as_bytes());
-        }
-        None => out.push(0),
-    }
-
-    match value.payload() {
-        Some(payload) => {
-            out.push(1);
-
-            let payload_bytes = encode_canonical_index_component(payload)?;
-            push_len_prefixed_bytes(out, &payload_bytes)?;
-        }
-        None => out.push(0),
-    }
-
-    Ok(())
-}
-
 /// Byte strings are escaped so tuple boundaries remain unambiguous.
 /// Segment size bounds for these terminated payloads are enforced by the outer
 /// index-key component caps in `IndexKey`, not at this primitive encoder layer.
@@ -86,13 +57,6 @@ pub(super) fn push_terminated_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
     }
 
     out.extend_from_slice(&[0, 0]);
-}
-
-fn push_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), OrderedValueEncodeError> {
-    let len = encode_segment_len(bytes.len())?;
-    out.extend_from_slice(&len);
-    out.extend_from_slice(bytes);
-    Ok(())
 }
 
 pub(super) fn push_inverted(out: &mut Vec<u8>, bytes: &[u8]) {

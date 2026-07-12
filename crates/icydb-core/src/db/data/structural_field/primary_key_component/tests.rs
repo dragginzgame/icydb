@@ -14,7 +14,7 @@ use crate::{
         validate_primary_key_component_binary_value_bytes,
     },
     db::key_taxonomy::PrimaryKeyComponent,
-    db::schema::{PersistedFieldKind, PersistedRelationStrength},
+    db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
     model::field::{FieldKind, RelationStrength},
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
@@ -221,21 +221,21 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
         vec![PrimaryKeyComponent::Nat128(nat_key)],
     );
 
-    let accepted_int_kind = PersistedFieldKind::Relation {
+    let accepted_int_kind = AcceptedFieldKind::Relation {
         target_path: "RelationTargetEntity".to_string(),
         target_entity_name: "RelationTargetEntity".to_string(),
         target_entity_tag: EntityTag::new(7),
         target_store_path: "RelationTargetStore".to_string(),
-        key_kind: Box::new(PersistedFieldKind::Int128),
-        strength: PersistedRelationStrength::Strong,
+        key_kind: Box::new(AcceptedFieldKind::Int128),
+        strength: AcceptedRelationStrength::Strong,
     };
-    let accepted_nat_kind = PersistedFieldKind::Relation {
+    let accepted_nat_kind = AcceptedFieldKind::Relation {
         target_path: "RelationTargetEntity".to_string(),
         target_entity_name: "RelationTargetEntity".to_string(),
         target_entity_tag: EntityTag::new(7),
         target_store_path: "RelationTargetStore".to_string(),
-        key_kind: Box::new(PersistedFieldKind::Nat128),
-        strength: PersistedRelationStrength::Strong,
+        key_kind: Box::new(AcceptedFieldKind::Nat128),
+        strength: AcceptedRelationStrength::Strong,
     };
 
     assert_eq!(

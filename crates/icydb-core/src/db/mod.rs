@@ -25,6 +25,7 @@ pub(crate) mod sql;
 pub(in crate::db) mod codec;
 pub(in crate::db) mod commit;
 pub(in crate::db) mod data;
+pub(in crate::db) mod database_format;
 pub(in crate::db) mod direction;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
@@ -63,7 +64,7 @@ pub use runtime_hooks::EntityRuntimeHooks;
 // These hidden helper re-exports remain public so the crate-root `__macro`
 // boundary can route generated code through one stable path without widening
 // the normal `db` facade contract.
-pub use data::{DataStore, PersistedRow, SlotReader, SlotWriter, StructuralPatch};
+pub use data::{AuthoredStructuralPatch, DataStore, PersistedRow, SlotReader, SlotWriter};
 #[doc(hidden)]
 pub use data::{
     PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
@@ -71,12 +72,11 @@ pub use data::{
     decode_persisted_option_slot_payload_by_kind, decode_persisted_option_slot_payload_by_meta,
     decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
     decode_persisted_slot_payload_by_meta, decode_persisted_structured_many_slot_payload,
-    decode_persisted_structured_slot_payload, decode_slot_into_runtime_value,
-    encode_persisted_many_slot_payload_by_meta, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
-    encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
-    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
-    encode_runtime_value_into_slot,
+    decode_persisted_structured_slot_payload, encode_persisted_many_slot_payload_by_meta,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
+    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
+    encode_persisted_slot_payload_by_meta, encode_persisted_structured_many_slot_payload,
+    encode_persisted_structured_slot_payload,
 };
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
@@ -226,10 +226,6 @@ pub use sql::lowering::LoweredSqlCommand;
 #[doc(hidden)]
 pub type GeneratedStructuralMapPayloadSlices<'a> = Vec<(&'a [u8], &'a [u8])>;
 
-/// Hidden generated-code alias for one decoded enum payload frame.
-#[doc(hidden)]
-pub type GeneratedStructuralEnumPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
-
 /// Hidden generated-code helper for canonical structural text payload framing.
 #[doc(hidden)]
 #[must_use]
@@ -249,17 +245,6 @@ pub(crate) fn encode_generated_structural_list_payload_bytes(items: &[&[u8]]) ->
 #[must_use]
 pub(crate) fn encode_generated_structural_map_payload_bytes(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
     data::encode_value_storage_map_entry_slices(entries)
-}
-
-/// Hidden generated-code helper for canonical structural enum payload framing.
-#[doc(hidden)]
-#[must_use]
-pub(crate) fn encode_generated_structural_enum_payload_bytes(
-    variant: &str,
-    path: Option<&str>,
-    payload: Option<&[u8]>,
-) -> Vec<u8> {
-    data::encode_enum(variant, path, payload)
 }
 
 /// Hidden generated-code helper for structural text payload decoding.
@@ -288,20 +273,27 @@ pub(crate) fn decode_generated_structural_map_payload_bytes(
         .map_err(InternalError::persisted_row_decode_failed)
 }
 
-/// Hidden generated-code helper for structural enum payload decoding.
-#[doc(hidden)]
-pub(crate) fn decode_generated_structural_enum_payload_bytes(
-    raw_bytes: &[u8],
-) -> Result<GeneratedStructuralEnumPayload<'_>, InternalError> {
-    data::decode_enum(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
-}
-
 /// Hidden generated-code helper for persisted structured payload decode errors.
 #[doc(hidden)]
 pub(crate) fn generated_persisted_structured_payload_decode_failed(
     detail: impl Sized,
 ) -> InternalError {
     InternalError::persisted_row_decode_failed(detail)
+}
+
+/// Encode one explicitly non-enum protocol value through Structural Binary.
+pub(crate) fn encode_non_enum_protocol_value_bytes(
+    value: &crate::value::Value,
+) -> Result<Vec<u8>, InternalError> {
+    data::encode_structural_value_storage_bytes(value)
+}
+
+/// Decode one explicitly non-enum protocol value through Structural Binary.
+pub(crate) fn decode_non_enum_protocol_value_bytes(
+    raw_bytes: &[u8],
+) -> Result<crate::value::Value, InternalError> {
+    data::decode_structural_value_storage_bytes(raw_bytes)
+        .map_err(InternalError::persisted_row_decode_failed)
 }
 
 ///

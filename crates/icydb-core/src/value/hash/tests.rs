@@ -114,21 +114,20 @@ fn different_variants_produce_different_hashes() {
 }
 
 #[test]
-fn enum_hash_tracks_path_presence() {
-    let strict = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
-    let loose = Value::Enum(ValueEnum::new("A", None));
+fn enum_hash_tracks_type_identity() {
+    let first_type = Value::Enum(ValueEnum::test_unit(1, 1));
+    let second_type = Value::Enum(ValueEnum::test_unit(2, 1));
     assert_ne!(
-        hash_value(&strict).expect("hash value"),
-        hash_value(&loose).expect("hash value"),
-        "Enum hashes must differ when path is present vs absent"
+        hash_value(&first_type).expect("hash value"),
+        hash_value(&second_type).expect("hash value"),
+        "enum hashes must include store-local type identity"
     );
 }
 
 #[test]
 fn enum_hash_includes_payload() {
-    let base = ValueEnum::new("A", Some("MyEnum"));
-    let with_one = Value::Enum(base.clone().with_payload(Value::Nat64(1)));
-    let with_two = Value::Enum(base.with_payload(Value::Nat64(2)));
+    let with_one = Value::Enum(ValueEnum::test_payload(1, 1, Value::Nat64(1)));
+    let with_two = Value::Enum(ValueEnum::test_payload(1, 1, Value::Nat64(2)));
 
     assert_ne!(
         hash_value(&with_one).expect("hash value"),

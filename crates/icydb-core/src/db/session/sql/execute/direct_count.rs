@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         access::{
-            LoweredIndexPrefixCardinalitySpec, lower_access,
+            LoweredIndexPrefixCardinalitySpec, lower_access_with_schema_info,
             lower_exact_index_prefix_cardinality_specs_for_prefix_access,
         },
         executor::{
@@ -25,16 +25,13 @@ use crate::{
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlCompiledSchemaFingerprint,
                 SqlGlobalAggregateCountPlanCacheEntry, SqlStatementResult,
-                projection::{
-                    projection_contract_from_projection_spec,
-                    sql_projection_statement_result_from_value_rows,
-                },
+                projection::projection_contract_from_projection_spec,
             },
         },
         sql::lowering::SqlGlobalAggregateCommand,
     },
     traits::{CanisterKind, EntityValue},
-    value::Value,
+    value::{OutputValue, Value},
 };
 use std::rc::Rc;
 
@@ -80,19 +77,23 @@ pub(super) fn direct_count_rows_statement_result(
     projection: &ProjectionSpec,
     value: Value,
     cache_attribution: SqlCacheAttribution,
-) -> (SqlStatementResult, SqlCacheAttribution) {
+) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
     let (columns, fixed_scales) =
         projection_contract_from_projection_spec(projection).into_components();
 
-    (
-        sql_projection_statement_result_from_value_rows(
+    let Value::Nat64(value) = value else {
+        return Err(QueryError::invariant());
+    };
+
+    Ok((
+        SqlStatementResult::Projection {
             columns,
             fixed_scales,
-            vec![vec![value]],
-            1,
-        ),
+            rows: vec![vec![OutputValue::Nat64(value)]],
+            row_count: 1,
+        },
         cache_attribution,
-    )
+    ))
 }
 
 impl DirectCountCardinalityTarget {
@@ -134,11 +135,11 @@ impl DirectCountCardinalityOutcome {
         projection: &ProjectionSpec,
         value: Value,
         cache_attribution: SqlCacheAttribution,
-    ) -> Self {
+    ) -> Result<Self, QueryError> {
         let (result, cache_attribution) =
-            direct_count_rows_statement_result(projection, value, cache_attribution);
+            direct_count_rows_statement_result(projection, value, cache_attribution)?;
 
-        Self::Direct(result, cache_attribution)
+        Ok(Self::Direct(result, cache_attribution))
     }
 }
 
@@ -192,6 +193,7 @@ pub(in crate::db::session::sql::execute) fn direct_count_cardinality_prefix_spec
         let prefix_specs = lower_exact_index_prefix_cardinality_specs_for_prefix_access(
             authority.entity_tag(),
             &access,
+            schema_info,
         )
         .map_err(|_err| QueryError::invariant())?;
         if !prefix_specs.is_empty() {
@@ -206,8 +208,14 @@ fn direct_count_cardinality_prefix_specs_from_planned_query(
     authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
 ) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
-    let lowered_access = lower_access(authority.entity_tag(), &plan.access)
-        .map_err(|_err| QueryError::invariant())?;
+    let lowered_access = lower_access_with_schema_info(
+        authority.entity_tag(),
+        &plan.access,
+        authority
+            .accepted_schema_info()
+            .ok_or_else(QueryError::invariant)?,
+    )
+    .map_err(|_err| QueryError::invariant())?;
     let Some(prefix_plan) = exact_count_cardinality_prefixes_for_plan(
         authority.entity_tag(),
         plan,
@@ -326,11 +334,11 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.clone(),
                     &entry,
                 )? {
-                    return Ok(DirectCountCardinalityOutcome::from_direct_value(
+                    return DirectCountCardinalityOutcome::from_direct_value(
                         projection,
                         value,
                         cache_attribution,
-                    ));
+                    );
                 }
 
                 Ok(DirectCountCardinalityOutcome::fallback(authority))
@@ -374,7 +382,7 @@ impl<C: CanisterKind> DbSession<C> {
         });
         if let Some(value) = result? {
             let (result, cache_attribution) =
-                direct_count_rows_statement_result(projection, value, cache_attribution);
+                direct_count_rows_statement_result(projection, value, cache_attribution)?;
             let phase_attribution =
                 SqlExecutePhaseAttribution::from_query_plan_execute_total_and_store_total(
                     plan_compile_attribution.planner_local_instructions(),

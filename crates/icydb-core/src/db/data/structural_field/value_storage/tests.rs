@@ -4,16 +4,15 @@ use crate::{
         binary::{TAG_BYTES, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT},
         value_storage::{
             decode::{
-                ValueStorageView, decode_enum, decode_structural_value_storage_bytes,
-                decode_structural_value_storage_ulid_bytes, decode_value_storage_list_item_slices,
-                decode_value_storage_map_entry_slices, validate_structural_value_storage_bytes,
+                ValueStorageView, decode_structural_value_storage_bytes,
+                decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
+                validate_structural_value_storage_bytes,
             },
             encode_structural_value_storage_bytes,
-            tags::{VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_ULID},
+            tags::VALUE_BINARY_TAG_ULID,
         },
     },
-    types::{Account, Decimal, Float32, Float64, Principal, Subaccount, Timestamp, Ulid},
-    value::{Value, ValueEnum},
+    value::Value,
 };
 
 fn push_len_prefixed_head(out: &mut Vec<u8>, tag: u8, len: u32) {
@@ -46,58 +45,6 @@ fn push_i64_value(out: &mut Vec<u8>, value: i64) {
 
 fn decode_value_storage_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     decode_structural_value_storage_bytes(raw_bytes)
-}
-
-#[test]
-fn binary_value_storage_roundtrips_nested_variants() {
-    let value = Value::Map(vec![
-        (
-            Value::Text("account".to_string()),
-            Value::Account(Account::new(
-                Principal::from_slice(&[1, 2, 3]),
-                Some(Subaccount::from_array([7u8; 32])),
-            )),
-        ),
-        (
-            Value::Text("enum".to_string()),
-            Value::Enum(
-                ValueEnum::new("Spell", Some("Demo/Spell")).with_payload(Value::List(vec![
-                    Value::Decimal(Decimal::from_i128_with_scale(12345, 2)),
-                    Value::Timestamp(Timestamp::from_millis(1_710_013_530_123)),
-                    Value::Ulid(Ulid::from_u128(77)),
-                ])),
-            ),
-        ),
-        (
-            Value::Text("floats".to_string()),
-            Value::List(vec![
-                Value::Float32(Float32::try_new(3.5).expect("finite f32")),
-                Value::Float64(Float64::try_new(9.25).expect("finite f64")),
-                Value::Subaccount(Subaccount::from_array([9u8; 32])),
-            ]),
-        ),
-    ]);
-
-    let encoded =
-        encode_structural_value_storage_bytes(&value).expect("binary value bytes should encode");
-    let decoded = decode_value_storage_value(&encoded).expect("binary value bytes should decode");
-
-    assert_eq!(decoded, value);
-}
-
-#[test]
-fn binary_value_storage_uses_local_tags_for_ambiguous_variants() {
-    let ulid = Value::Ulid(Ulid::from_u128(99));
-    let enum_value = Value::Enum(ValueEnum::loose("Loose"));
-
-    let ulid_bytes =
-        encode_structural_value_storage_bytes(&ulid).expect("ulid value bytes should encode");
-    let enum_bytes =
-        encode_structural_value_storage_bytes(&enum_value).expect("enum value bytes should encode");
-
-    assert_eq!(ulid_bytes[0], VALUE_BINARY_TAG_ULID);
-    assert_eq!(enum_bytes[0], VALUE_BINARY_TAG_ENUM);
-    assert_eq!(enum_bytes[1], TAG_LIST);
 }
 
 #[test]
@@ -343,38 +290,4 @@ fn binary_value_storage_validate_rejects_trailing_bytes() {
 #[test]
 fn binary_value_storage_validate_rejects_truncated_payload() {
     assert!(validate_structural_value_storage_bytes(&[]).is_err());
-}
-
-#[test]
-fn binary_value_storage_validate_accepts_nested_value_storage_tags() {
-    let value = Value::Enum(
-        ValueEnum::new("Arc", Some("Spell/Arc")).with_payload(Value::Ulid(Ulid::from_u128(5))),
-    );
-    let encoded =
-        encode_structural_value_storage_bytes(&value).expect("binary value bytes should encode");
-
-    validate_structural_value_storage_bytes(&encoded).expect("binary value bytes should validate");
-}
-
-#[test]
-fn binary_value_storage_enum_splitter_accepts_local_tagged_payload() {
-    let selected = Ulid::from_u128(5);
-    let value = Value::Enum(
-        ValueEnum::new("Selected", Some("AssetSelection")).with_payload(Value::Ulid(selected)),
-    );
-    let encoded =
-        encode_structural_value_storage_bytes(&value).expect("binary value bytes should encode");
-
-    let (variant, path, payload) =
-        decode_enum(&encoded).expect("enum payload should split without rejecting ULID tag");
-    let payload = payload.expect("selected payload should be present");
-
-    assert_eq!(variant, "Selected");
-    assert_eq!(path.as_deref(), Some("AssetSelection"));
-    assert_eq!(payload[0], VALUE_BINARY_TAG_ULID);
-    assert_eq!(
-        decode_structural_value_storage_ulid_bytes(payload)
-            .expect("enum payload should decode as ULID"),
-        selected
-    );
 }

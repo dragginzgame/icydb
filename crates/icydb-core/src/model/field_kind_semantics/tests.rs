@@ -65,6 +65,28 @@ fn classify_collection_and_blob_stay_non_orderable() {
 }
 
 #[test]
+fn classify_enum_as_equality_only() {
+    static VARIANTS: [crate::model::field::EnumVariantModel; 1] =
+        [crate::model::field::EnumVariantModel::new(
+            "Active",
+            None,
+            crate::model::field::FieldStorageDecode::ByKind,
+        )];
+    let semantics = classify_field_kind(&FieldKind::Enum {
+        path: "tests::Status",
+        variants: &VARIANTS,
+    });
+
+    assert_eq!(
+        semantics.category(),
+        FieldKindCategory::Scalar(FieldKindScalarClass::EqualityOnly),
+    );
+    assert!(!semantics.supports_aggregate_numeric());
+    assert!(!semantics.supports_aggregate_ordering());
+    assert!(!semantics.supports_predicate_numeric_widen());
+}
+
+#[test]
 fn classify_wide_integer_and_temporal_kinds_keep_distinct_numeric_facets() {
     let wide = classify_field_kind(&FieldKind::Int128);
     let duration = classify_field_kind(&FieldKind::Duration);

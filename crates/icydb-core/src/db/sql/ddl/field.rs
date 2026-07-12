@@ -247,6 +247,7 @@ pub(super) fn bind_alter_table_add_column_statement(
         statement.default.as_ref(),
         &contract,
         statement.nullable,
+        schema.enum_catalog_handle(),
     )?;
     let (kind, storage_decode, leaf_codec) = contract.into_parts();
     let field = build_sql_ddl_field_addition_candidate(
@@ -300,8 +301,12 @@ pub(super) fn bind_alter_table_alter_column_statement(
                     error,
                 )
             })?;
-            let default =
-                schema_field_default_for_alter_column_default(entity_name, &field, default)?;
+            let default = schema_field_default_for_alter_column_default(
+                entity_name,
+                &field,
+                default,
+                schema.enum_catalog_handle(),
+            )?;
             Ok(bind_alter_table_alter_column_default(
                 entity_name,
                 &field,
@@ -647,6 +652,7 @@ fn schema_field_default_for_sql_default(
     default: Option<&crate::value::Value>,
     contract: &SchemaDdlFieldTypeContract,
     nullable: bool,
+    catalog: Option<&crate::db::schema::AcceptedEnumCatalogHandle>,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
     encode_sql_ddl_add_column_default(
         column_name,
@@ -655,6 +661,7 @@ fn schema_field_default_for_sql_default(
         nullable,
         contract.storage_decode(),
         contract.leaf_codec(),
+        catalog,
     )
     .map_err(|_| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
         entity_name: entity_name.to_string(),
@@ -666,8 +673,9 @@ fn schema_field_default_for_alter_column_default(
     entity_name: &str,
     field: &PersistedFieldSnapshot,
     default: &crate::value::Value,
+    catalog: Option<&crate::db::schema::AcceptedEnumCatalogHandle>,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
-    encode_sql_ddl_alter_column_default(field, default).map_err(|_| {
+    encode_sql_ddl_alter_column_default(field, default, catalog).map_err(|_| {
         SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
             entity_name: entity_name.to_string(),
             column_name: field.name().to_string(),

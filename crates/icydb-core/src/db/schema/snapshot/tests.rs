@@ -31,7 +31,7 @@ fn accepted_schema_fixture_with_payload_slots(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -42,10 +42,10 @@ fn accepted_schema_fixture_with_payload_slots(
                 FieldId::new(2),
                 "payload".to_string(),
                 field_slot,
-                PersistedFieldKind::Blob { max_len: None },
+                AcceptedFieldKind::Blob { max_len: None },
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["thumbnail".to_string()],
-                    PersistedFieldKind::Blob { max_len: None },
+                    AcceptedFieldKind::Blob { max_len: None },
                     false,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Blob),
@@ -68,11 +68,11 @@ fn accepted_schema_snapshot_exposes_schema_facts_without_raw_payload_access() {
     assert_eq!(snapshot.primary_key_field_names(), ["id"]);
     assert_eq!(
         snapshot.field_kind_by_name("id"),
-        Some(&PersistedFieldKind::Ulid)
+        Some(&AcceptedFieldKind::Ulid)
     );
     assert_eq!(
         snapshot.field_kind_by_name("payload"),
-        Some(&PersistedFieldKind::Blob { max_len: None }),
+        Some(&AcceptedFieldKind::Blob { max_len: None }),
     );
     assert_eq!(snapshot.field_kind_by_name("missing"), None);
 }
@@ -96,7 +96,7 @@ fn accepted_schema_snapshot_exposes_ordered_primary_key_field_names() {
                 FieldId::new(1),
                 "entity_id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -107,7 +107,7 @@ fn accepted_schema_snapshot_exposes_ordered_primary_key_field_names() {
                 FieldId::new(2),
                 "battle_id".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -147,7 +147,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_metadata() {
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
-            PersistedFieldKind::Ulid,
+            AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -181,7 +181,7 @@ fn accepted_schema_snapshot_try_new_rejects_zero_schema_version() {
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
-            PersistedFieldKind::Ulid,
+            AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -215,7 +215,7 @@ fn accepted_schema_snapshot_try_new_rejects_duplicate_primary_key_fields() {
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
-            PersistedFieldKind::Ulid,
+            AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -253,7 +253,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -264,7 +264,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
                 FieldId::new(2),
                 "email".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -281,7 +281,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
                 FieldId::new(2),
                 SchemaFieldSlot::new(7),
                 vec!["email".to_string()],
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 false,
             )]),
             None,
@@ -317,7 +317,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -328,7 +328,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
                 FieldId::new(2),
                 "owner_id".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -376,7 +376,7 @@ fn accepted_schema_snapshot_try_new_rejects_relation_missing_local_field() {
             FieldId::new(1),
             "id".to_string(),
             SchemaFieldSlot::new(0),
-            PersistedFieldKind::Ulid,
+            AcceptedFieldKind::Ulid,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -420,7 +420,7 @@ fn accepted_schema_snapshot_exposes_relation_edges() {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -431,7 +431,7 @@ fn accepted_schema_snapshot_exposes_relation_edges() {
                 FieldId::new(2),
                 "owner_id".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -464,7 +464,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
         FieldId::new(2),
         SchemaFieldSlot::new(1),
         vec!["email".to_string()],
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         false,
     );
     let snapshot = PersistedSchemaSnapshot::new_with_indexes(
@@ -484,7 +484,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -495,7 +495,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
                 FieldId::new(2),
                 "email".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -512,8 +512,8 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
                 Box::new(PersistedIndexExpressionSnapshot::new(
                     PersistedIndexExpressionOp::Lower,
                     source,
-                    PersistedFieldKind::Text { max_len: None },
-                    PersistedFieldKind::Date,
+                    AcceptedFieldKind::Text { max_len: None },
+                    AcceptedFieldKind::Date,
                     "expr:v1:LOWER(email)".to_string(),
                 )),
             )]),
@@ -529,4 +529,14 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should reject expression output-kind drift"
     );
+}
+
+#[test]
+fn structured_members_select_the_canonical_recursive_wire() {
+    let structured = AcceptedFieldKind::Structured { queryable: true };
+    let nested = AcceptedFieldKind::List(Box::new(structured.clone()));
+
+    assert!(structured.requires_canonical_value_wire());
+    assert!(nested.requires_canonical_value_wire());
+    assert!(!AcceptedFieldKind::Nat64.requires_canonical_value_wire());
 }

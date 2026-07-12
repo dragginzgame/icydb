@@ -409,7 +409,9 @@ fn bind_create_index_field_path(
         field_path: field_path.to_string(),
     })?;
 
-    if !capabilities.orderable() {
+    // Catalog evidence is recorded now, but enum index routing remains closed
+    // until runtime values and index bytes use canonical IDs end to end.
+    if capabilities.enum_equality().is_some() || !capabilities.orderable() {
         return Err(SqlDdlBindError::FieldPathNotIndexable {
             field_path: field_path.to_string(),
         });

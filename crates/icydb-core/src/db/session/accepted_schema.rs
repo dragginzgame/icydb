@@ -13,14 +13,16 @@ use crate::{
         commit::CommitSchemaFingerprint,
         executor::EntityAuthority,
         schema::{
-            AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedRowDecodeContract,
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo, SchemaVersion,
-            accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
-            ensure_accepted_schema_snapshot,
+            AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedEnumCatalog,
+            AcceptedEnumCatalogHandle, AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract,
+            AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaInfo, SchemaStore, SchemaVersion,
+            authored_projection::AcceptedAuthoredFieldProjection, ensure_accepted_schema_snapshot,
+            enum_catalog::ValueAdmissionBudget, output_value_from_runtime,
         },
     },
     error::InternalError,
-    traits::{CanisterKind, EntityKind, Path},
+    traits::{AuthoredFieldProjection, CanisterKind, EntityKind, Path},
+    value::OutputValue,
 };
 use std::{
     cell::{OnceCell, RefCell},
@@ -41,6 +43,7 @@ pub(in crate::db) struct AcceptedCatalogRuntimeCounterSnapshot {
 struct AcceptedSchemaQueryCacheEntry {
     snapshot: AcceptedSchemaSnapshot,
     identity: AcceptedCatalogIdentity,
+    enum_catalog: AcceptedEnumCatalogHandle,
 }
 
 type AcceptedSchemaQueryCacheKey = (usize, &'static str);
@@ -56,6 +59,7 @@ pub(in crate::db) type AcceptedSaveContract = (
 pub(in crate::db) struct AcceptedSchemaCatalogContext {
     snapshot: AcceptedSchemaSnapshot,
     identity: AcceptedCatalogIdentity,
+    enum_catalog: AcceptedEnumCatalogHandle,
     schema_info: OnceCell<SchemaInfo>,
 }
 
@@ -64,10 +68,12 @@ impl AcceptedSchemaCatalogContext {
     pub(in crate::db) const fn new(
         snapshot: AcceptedSchemaSnapshot,
         identity: AcceptedCatalogIdentity,
+        enum_catalog: AcceptedEnumCatalogHandle,
     ) -> Self {
         Self {
             snapshot,
             identity,
+            enum_catalog,
             schema_info: OnceCell::new(),
         }
     }
@@ -78,8 +84,24 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
+    pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
+        self.enum_catalog.catalog()
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const fn enum_catalog_handle(&self) -> &AcceptedEnumCatalogHandle {
+        &self.enum_catalog
+    }
+
+    #[must_use]
     pub(in crate::db) const fn schema_version(&self) -> SchemaVersion {
         self.identity.accepted_schema_version()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn revision(&self) -> AcceptedSchemaRevision {
+        self.identity.accepted_schema_revision()
     }
 
     #[must_use]
@@ -132,7 +154,17 @@ impl AcceptedSchemaCatalogContext {
                 &self.snapshot,
                 authority.model(),
             )?;
-        let row_decode_contract = accepted_row_layout.row_decode_contract();
+        let row_decode_contract =
+            accepted_row_layout.row_decode_contract_with_catalog(self.enum_catalog.clone());
+        debug_assert_eq!(
+            row_decode_contract.accepted_schema_revision(),
+            Some(self.revision())
+        );
+        debug_assert!(
+            row_decode_contract
+                .enum_catalog()
+                .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
+        );
 
         Ok(
             authority.with_accepted_row_decode_contract(
@@ -195,34 +227,42 @@ impl AcceptedSchemaCatalogContext {
         self.debug_assert_matches_entity::<E>();
         self.schema_info
             .get_or_init(|| {
-                SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+                let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
                     E::MODEL,
                     &self.snapshot,
+                    self.enum_catalog.clone(),
                     true,
-                )
+                );
+                debug_assert!(
+                    schema_info
+                        .enum_catalog()
+                        .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
+                );
+                schema_info
             })
             .clone()
     }
 }
 
-pub(in crate::db) fn accepted_save_contract_for_descriptor<E>(
-    accepted_schema: &AcceptedSchemaSnapshot,
+/// Build one save contract pinned to the selected catalog context.
+pub(in crate::db) fn accepted_save_contract_for_catalog_context<E>(
+    context: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-) -> Result<AcceptedSaveContract, InternalError>
+) -> AcceptedSaveContract
 where
     E: EntityKind,
 {
-    let row_decode_contract = descriptor.row_decode_contract();
+    let row_decode_contract =
+        descriptor.row_decode_contract_with_catalog(context.enum_catalog.clone());
     let mutation_row_decode_contract = row_decode_contract.clone();
-    let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, accepted_schema);
-    let schema_fingerprint = accepted_commit_schema_fingerprint(accepted_schema)?;
+    let schema_info = context.accepted_schema_info_for::<E>();
 
-    Ok((
+    (
         row_decode_contract,
         mutation_row_decode_contract,
         schema_info,
-        schema_fingerprint,
-    ))
+        context.fingerprint(),
+    )
 }
 
 thread_local! {
@@ -235,6 +275,37 @@ thread_local! {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Project selected generated entity fields through the current accepted
+    /// catalog into public output values.
+    #[doc(hidden)]
+    pub fn project_entity_output_values<E>(
+        &self,
+        entity: &E,
+        slots: &[usize],
+    ) -> Result<Vec<OutputValue>, InternalError>
+    where
+        E: EntityKind<Canister = C> + AuthoredFieldProjection,
+    {
+        let (row_contract, _, _) = self.ensure_generated_compatible_accepted_save_schema::<E>()?;
+        let projection = AcceptedAuthoredFieldProjection::new(&row_contract)
+            .map_err(|_| InternalError::persisted_row_encode_internal())?;
+        let catalog = row_contract
+            .enum_catalog_handle()
+            .ok_or_else(InternalError::store_invariant)?;
+        let mut values = Vec::with_capacity(slots.len());
+        let mut budget = ValueAdmissionBudget::standard();
+        for slot in slots {
+            let admitted = projection
+                .admit_field(entity, *slot, &mut budget)
+                .map_err(|_| InternalError::persisted_row_encode_internal())?;
+            values.push(
+                output_value_from_runtime(catalog.catalog(), admitted.value())
+                    .map_err(|_| InternalError::store_invariant())?,
+            );
+        }
+        Ok(values)
+    }
+
     #[cfg(test)]
     pub(in crate::db) fn reset_accepted_catalog_runtime_counters_for_tests() {
         crate::db::schema::reset_accepted_schema_info_projection_count_for_tests();
@@ -272,16 +343,33 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(context);
         }
 
-        let snapshot = Self::load_accepted_schema_snapshot_for_runtime_hook(hooks, store)?;
-        let identity = AcceptedCatalogIdentity::new(
-            hooks.entity_tag,
-            hooks.entity_path,
-            hooks.store_path,
-            snapshot.persisted_snapshot().version(),
-            accepted_schema_cache_fingerprint(&snapshot)?,
+        let selection = store
+            .with_schema(|schema_store| {
+                schema_store.current_accepted_catalog_selection(
+                    hooks.entity_tag,
+                    hooks.entity_path,
+                    hooks.store_path,
+                )
+            })?
+            .ok_or_else(InternalError::store_corruption)?;
+        let snapshot = selection.decode_verified()?;
+        let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+            &snapshot,
+            hooks.model,
+        )
+        .map_err(|_error| InternalError::store_unsupported())?;
+        let enum_catalog = selection.enum_catalog().clone();
+        let context = AcceptedSchemaCatalogContext::new(
+            snapshot.clone(),
+            selection.identity(),
+            enum_catalog.clone(),
         );
-        let context = AcceptedSchemaCatalogContext::new(snapshot.clone(), identity);
-        Self::insert_accepted_schema_query_cache(cache_key, snapshot, identity);
+        Self::insert_accepted_schema_query_cache(
+            cache_key,
+            snapshot,
+            selection.identity(),
+            enum_catalog,
+        );
 
         Ok(context)
     }
@@ -291,49 +379,19 @@ impl<C: CanisterKind> DbSession<C> {
         hooks: &EntityRuntimeHooks<C>,
         store: crate::db::registry::StoreHandle,
     ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        let selection = store.with_schema_mut(|schema_store| {
-            schema_store.latest_catalog_identity(
-                hooks.entity_tag,
-                hooks.entity_path,
-                hooks.store_path,
-            )
-        })?;
-        if let Some(selection) = selection
-            && let Some(context) = Self::accepted_schema_catalog_context_from_query_cache(
-                cache_key,
-                selection.identity(),
-            )
-        {
-            return Ok(Some(context));
+        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
+        let context =
+            Self::accepted_schema_catalog_context_from_revision_cache(cache_key, current_revision);
+        if let Some(context) = &context {
+            debug_assert_eq!(context.identity.entity_tag(), hooks.entity_tag);
+            debug_assert_eq!(context.identity.entity_path(), hooks.entity_path);
+            debug_assert_eq!(context.identity.store_path(), hooks.store_path);
         }
-
-        Ok(None)
+        Ok(context)
     }
 
-    fn load_accepted_schema_snapshot_for_runtime_hook(
-        hooks: &EntityRuntimeHooks<C>,
-        store: crate::db::registry::StoreHandle,
-    ) -> Result<AcceptedSchemaSnapshot, InternalError> {
-        store.with_schema_mut(|schema_store| {
-            if let Some(snapshot) = schema_store.latest_persisted_snapshot(hooks.entity_tag)? {
-                let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
-                if accepted.entity_path() == hooks.entity_path {
-                    return Ok(accepted);
-                }
-            }
-
-            ensure_accepted_schema_snapshot(
-                schema_store,
-                hooks.entity_tag,
-                hooks.entity_path,
-                hooks.model,
-            )
-        })
-    }
-
-    // Ensure and return the accepted schema snapshot for one generated entity.
-    // This may write the first snapshot for an empty store; otherwise it loads
-    // the latest stored snapshot and applies the current exact-match policy.
+    // Load one accepted schema snapshot for a generated entity from the
+    // current immutable root.
     pub(in crate::db::session) fn ensure_accepted_schema_snapshot<E>(
         &self,
     ) -> Result<AcceptedSchemaSnapshot, InternalError>
@@ -342,8 +400,25 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let store = self.db.recovered_store(E::Store::PATH)?;
 
+        #[cfg(test)]
         store.with_schema_mut(|schema_store| {
-            ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+            crate::db::schema::bootstrap_test_accepted_schema_snapshot(
+                schema_store,
+                E::ENTITY_TAG,
+                E::PATH,
+                E::Store::PATH,
+                E::MODEL,
+            )
+        })?;
+
+        store.with_schema_mut(|schema_store| {
+            ensure_accepted_schema_snapshot(
+                schema_store,
+                E::ENTITY_TAG,
+                E::PATH,
+                E::Store::PATH,
+                E::MODEL,
+            )
         })
     }
 
@@ -360,8 +435,30 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Option<AcceptedSchemaCatalogContext> {
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow().get(&cache_key).and_then(|entry| {
-                (entry.identity == identity)
-                    .then(|| AcceptedSchemaCatalogContext::new(entry.snapshot.clone(), identity))
+                (entry.identity == identity).then(|| {
+                    AcceptedSchemaCatalogContext::new(
+                        entry.snapshot.clone(),
+                        identity,
+                        entry.enum_catalog.clone(),
+                    )
+                })
+            })
+        })
+    }
+
+    fn accepted_schema_catalog_context_from_revision_cache(
+        cache_key: AcceptedSchemaQueryCacheKey,
+        current_revision: Option<AcceptedSchemaRevision>,
+    ) -> Option<AcceptedSchemaCatalogContext> {
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow().get(&cache_key).and_then(|entry| {
+                (Some(entry.identity.accepted_schema_revision()) == current_revision).then(|| {
+                    AcceptedSchemaCatalogContext::new(
+                        entry.snapshot.clone(),
+                        entry.identity,
+                        entry.enum_catalog.clone(),
+                    )
+                })
             })
         })
     }
@@ -370,11 +467,16 @@ impl<C: CanisterKind> DbSession<C> {
         cache_key: AcceptedSchemaQueryCacheKey,
         snapshot: AcceptedSchemaSnapshot,
         identity: AcceptedCatalogIdentity,
+        enum_catalog: AcceptedEnumCatalogHandle,
     ) {
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow_mut().insert(
                 cache_key,
-                AcceptedSchemaQueryCacheEntry { snapshot, identity },
+                AcceptedSchemaQueryCacheEntry {
+                    snapshot,
+                    identity,
+                    enum_catalog,
+                },
             );
         });
     }
@@ -386,10 +488,8 @@ impl<C: CanisterKind> DbSession<C> {
         });
     }
 
-    // Load the current accepted schema snapshot for read/query paths without
-    // rerunning generated proposal reconciliation on every cold query call.
-    // Startup and write paths still own reconciliation; the fallback only keeps
-    // first-use test stores and freshly initialized local stores functional.
+    // Load the current accepted schema snapshot for read/query paths from the
+    // immutable root and validate the cache entry against that authority.
     pub(in crate::db::session) fn accepted_schema_catalog_context_for_query<E>(
         &self,
     ) -> Result<AcceptedSchemaCatalogContext, InternalError>
@@ -397,27 +497,59 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let cache_key = self.accepted_schema_query_cache_key(E::PATH);
-        if let Some(entry) =
-            ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned())
+        let store = self.db.recovered_store(E::Store::PATH)?;
+        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
+        if let Some(context) =
+            Self::accepted_schema_catalog_context_from_revision_cache(cache_key, current_revision)
         {
-            return Ok(AcceptedSchemaCatalogContext::new(
-                entry.snapshot,
-                entry.identity,
-            ));
+            return Ok(context);
+        }
+        let selection = self
+            .accepted_catalog_snapshot_selection_for_query::<E>()?
+            .ok_or_else(InternalError::store_corruption)?;
+        if let Some(context) =
+            Self::accepted_schema_catalog_context_from_query_cache(cache_key, selection.identity())
+        {
+            return Ok(context);
         }
 
-        let snapshot = self.load_accepted_schema_snapshot_for_query::<E>()?;
-        let fingerprint = accepted_schema_cache_fingerprint(&snapshot)?;
-        let identity = AcceptedCatalogIdentity::new(
-            E::ENTITY_TAG,
-            E::PATH,
-            E::Store::PATH,
-            snapshot.persisted_snapshot().version(),
-            fingerprint,
+        let snapshot = selection.decode_verified()?;
+        let _runtime_contract =
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&snapshot, E::MODEL)
+                .map_err(|_error| InternalError::store_unsupported())?;
+        let enum_catalog = selection.enum_catalog().clone();
+        Self::insert_accepted_schema_query_cache(
+            cache_key,
+            snapshot.clone(),
+            selection.identity(),
+            enum_catalog.clone(),
         );
-        Self::insert_accepted_schema_query_cache(cache_key, snapshot.clone(), identity);
 
-        Ok(AcceptedSchemaCatalogContext::new(snapshot, identity))
+        Ok(AcceptedSchemaCatalogContext::new(
+            snapshot,
+            selection.identity(),
+            enum_catalog,
+        ))
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db::session) fn ensure_accepted_schema_revision_is_current<E>(
+        &self,
+        expected_revision: AcceptedSchemaRevision,
+    ) -> Result<(), InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let store = self.db.recovered_store(E::Store::PATH)?;
+        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
+        if current_revision == Some(expected_revision) {
+            return Ok(());
+        }
+
+        Err(InternalError::query_stale_accepted_schema_revision(
+            expected_revision.get(),
+            current_revision.map(AcceptedSchemaRevision::get),
+        ))
     }
 
     pub(in crate::db::session) fn accepted_catalog_snapshot_selection_for_query<E>(
@@ -428,9 +560,49 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let store = self.db.recovered_store(E::Store::PATH)?;
 
-        store.with_schema_mut(|schema_store| {
-            schema_store.latest_catalog_identity(E::ENTITY_TAG, E::PATH, E::Store::PATH)
-        })
+        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
+        if let Some(entry) = ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache
+                .borrow()
+                .get(&self.accepted_schema_query_cache_key(E::PATH))
+                .cloned()
+        }) && Some(entry.identity.accepted_schema_revision()) == current_revision
+        {
+            return AcceptedCatalogSnapshotSelection::from_accepted_snapshot(
+                entry.identity,
+                entry.enum_catalog,
+                &entry.snapshot,
+            )
+            .map(Some);
+        }
+
+        let selection = store.with_schema(|schema_store| {
+            schema_store.current_accepted_catalog_selection(E::ENTITY_TAG, E::PATH, E::Store::PATH)
+        })?;
+
+        #[cfg(test)]
+        let selection = if selection.is_none() {
+            store.with_schema_mut(|schema_store| {
+                crate::db::schema::bootstrap_test_accepted_schema_snapshot(
+                    schema_store,
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    E::Store::PATH,
+                    E::MODEL,
+                )
+            })?;
+            store.with_schema(|schema_store| {
+                schema_store.current_accepted_catalog_selection(
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    E::Store::PATH,
+                )
+            })?
+        } else {
+            selection
+        };
+
+        Ok(selection)
     }
 
     pub(in crate::db::session) fn accepted_schema_catalog_context_from_selection<E>(
@@ -451,9 +623,19 @@ impl<C: CanisterKind> DbSession<C> {
         if snapshot.persisted_snapshot().fields().len() != E::MODEL.fields().len() {
             return Ok(None);
         }
-        let context = AcceptedSchemaCatalogContext::new(snapshot.clone(), selection.identity());
+        let enum_catalog = selection.enum_catalog().clone();
+        let context = AcceptedSchemaCatalogContext::new(
+            snapshot.clone(),
+            selection.identity(),
+            enum_catalog.clone(),
+        );
 
-        Self::insert_accepted_schema_query_cache(cache_key, snapshot, selection.identity());
+        Self::insert_accepted_schema_query_cache(
+            cache_key,
+            snapshot,
+            selection.identity(),
+            enum_catalog,
+        );
 
         Ok(Some(context))
     }
@@ -467,31 +649,6 @@ impl<C: CanisterKind> DbSession<C> {
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow_mut().remove(&cache_key);
         });
-    }
-
-    fn load_accepted_schema_snapshot_for_query<E>(
-        &self,
-    ) -> Result<AcceptedSchemaSnapshot, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let store = self.db.recovered_store(E::Store::PATH)?;
-
-        store.with_schema_mut(|schema_store| {
-            if let Some(snapshot) = schema_store.latest_persisted_snapshot(E::ENTITY_TAG)? {
-                let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
-                if AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-                    &accepted,
-                    E::MODEL,
-                )
-                .is_ok()
-                {
-                    return Ok(accepted);
-                }
-            }
-
-            ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
-        })
     }
 
     // Build the accepted schema-info projection for one typed entity. Fluent
@@ -508,23 +665,9 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(catalog.accepted_schema_info_for::<E>())
     }
 
-    // Derive typed executor authority from an accepted snapshot the caller
-    // already loaded, avoiding a second schema-store pass in SQL write/select
-    // adapters that need both write descriptors and read selector authority.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn accepted_entity_authority_for_schema<E>(
-        accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<EntityAuthority, InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        EntityAuthority::from_accepted_schema_for_type::<E>(accepted_schema)
-    }
-
     // Ensure accepted schema metadata is safe for write paths that still encode
-    // rows through generated field contracts. Returning only the snapshot keeps
-    // SQL write type checks unchanged while the schema-runtime contract guard
-    // rejects unsupported layout or payload drift before mutation staging.
+    // rows through generated field contracts. The save contract retains the
+    // same immutable catalog and revision selected for schema validation.
     pub(in crate::db::session) fn ensure_generated_compatible_accepted_save_schema<E>(
         &self,
     ) -> Result<
@@ -538,14 +681,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
+        let context = self.accepted_schema_catalog_context_for_query::<E>()?;
         let (accepted_row_layout, _) =
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-                &accepted_schema,
+                context.snapshot(),
                 E::MODEL,
             )?;
         let (row_decode_contract, _, schema_info, schema_fingerprint) =
-            accepted_save_contract_for_descriptor::<E>(&accepted_schema, &accepted_row_layout)?;
+            accepted_save_contract_for_catalog_context::<E>(&context, &accepted_row_layout);
 
         Ok((row_decode_contract, schema_info, schema_fingerprint))
     }

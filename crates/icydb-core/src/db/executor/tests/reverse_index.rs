@@ -30,6 +30,7 @@ fn relation_source_accepted_commit_schema_fingerprint() -> CommitSchemaFingerpri
                 schema_store,
                 RelationSourceEntity::ENTITY_TAG,
                 RelationSourceEntity::PATH,
+                RelationSourceStore::PATH,
                 <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
             )
         })

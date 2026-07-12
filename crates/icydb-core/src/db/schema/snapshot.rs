@@ -7,16 +7,12 @@
 use crate::db::predicate::relabel_sql_predicate_field_root;
 use crate::{
     db::schema::{
-        FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        AcceptedFieldKind, FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
         schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
         schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
-    model::field::{
-        FieldDatabaseDefault, FieldInsertGeneration, FieldKind, FieldStorageDecode,
-        FieldWriteManagement, LeafCodec, RelationStrength,
-    },
-    types::EntityTag,
+    model::field::{FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec},
 };
 
 ///
@@ -169,7 +165,7 @@ impl AcceptedSchemaSnapshot {
 
     /// Return accepted primary-key field kinds in key order.
     #[must_use]
-    pub(in crate::db) fn primary_key_field_kinds(&self) -> Vec<&PersistedFieldKind> {
+    pub(in crate::db) fn primary_key_field_kinds(&self) -> Vec<&AcceptedFieldKind> {
         self.primary_key_fields()
             .iter()
             .map(|field| field.kind())
@@ -189,7 +185,7 @@ impl AcceptedSchemaSnapshot {
     /// Borrow one accepted field kind by persisted field name.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&PersistedFieldKind> {
+    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&AcceptedFieldKind> {
         self.field_by_name(name).map(PersistedFieldSnapshot::kind)
     }
 
@@ -740,7 +736,7 @@ pub(in crate::db) struct PersistedIndexFieldPathSnapshot {
     field_id: FieldId,
     slot: SchemaFieldSlot,
     path: Vec<String>,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     nullable: bool,
 }
 
@@ -751,7 +747,7 @@ impl PersistedIndexFieldPathSnapshot {
         field_id: FieldId,
         slot: SchemaFieldSlot,
         path: Vec<String>,
-        kind: PersistedFieldKind,
+        kind: AcceptedFieldKind,
         nullable: bool,
     ) -> Self {
         Self {
@@ -783,7 +779,7 @@ impl PersistedIndexFieldPathSnapshot {
 
     /// Borrow the accepted persisted field kind at this key item path.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
 
@@ -827,8 +823,8 @@ impl PersistedIndexFieldPathSnapshot {
 pub(in crate::db) struct PersistedIndexExpressionSnapshot {
     op: PersistedIndexExpressionOp,
     source: PersistedIndexFieldPathSnapshot,
-    input_kind: PersistedFieldKind,
-    output_kind: PersistedFieldKind,
+    input_kind: AcceptedFieldKind,
+    output_kind: AcceptedFieldKind,
     canonical_text: String,
 }
 
@@ -838,8 +834,8 @@ impl PersistedIndexExpressionSnapshot {
     pub(in crate::db) const fn new(
         op: PersistedIndexExpressionOp,
         source: PersistedIndexFieldPathSnapshot,
-        input_kind: PersistedFieldKind,
-        output_kind: PersistedFieldKind,
+        input_kind: AcceptedFieldKind,
+        output_kind: AcceptedFieldKind,
         canonical_text: String,
     ) -> Self {
         Self {
@@ -865,13 +861,13 @@ impl PersistedIndexExpressionSnapshot {
 
     /// Borrow the accepted input field kind.
     #[must_use]
-    pub(in crate::db) const fn input_kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn input_kind(&self) -> &AcceptedFieldKind {
         &self.input_kind
     }
 
     /// Borrow the accepted expression output field kind.
     #[must_use]
-    pub(in crate::db) const fn output_kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn output_kind(&self) -> &AcceptedFieldKind {
         &self.output_kind
     }
 
@@ -963,7 +959,7 @@ pub(in crate::db) struct PersistedFieldSnapshot {
     id: FieldId,
     name: String,
     slot: SchemaFieldSlot,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     nullable: bool,
     default: SchemaFieldDefault,
@@ -985,7 +981,7 @@ impl PersistedFieldSnapshot {
         id: FieldId,
         name: String,
         slot: SchemaFieldSlot,
-        kind: PersistedFieldKind,
+        kind: AcceptedFieldKind,
         nested_leaves: Vec<PersistedNestedLeafSnapshot>,
         nullable: bool,
         default: SchemaFieldDefault,
@@ -1016,7 +1012,7 @@ impl PersistedFieldSnapshot {
         id: FieldId,
         name: String,
         slot: SchemaFieldSlot,
-        kind: PersistedFieldKind,
+        kind: AcceptedFieldKind,
         nested_leaves: Vec<PersistedNestedLeafSnapshot>,
         nullable: bool,
         default: SchemaFieldDefault,
@@ -1049,7 +1045,7 @@ impl PersistedFieldSnapshot {
         id: FieldId,
         name: String,
         slot: SchemaFieldSlot,
-        kind: PersistedFieldKind,
+        kind: AcceptedFieldKind,
         nested_leaves: Vec<PersistedNestedLeafSnapshot>,
         nullable: bool,
         default: SchemaFieldDefault,
@@ -1093,7 +1089,7 @@ impl PersistedFieldSnapshot {
 
     /// Borrow the owned persisted field kind.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
 
@@ -1215,7 +1211,7 @@ impl PersistedFieldSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PersistedNestedLeafSnapshot {
     path: Vec<String>,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
@@ -1226,7 +1222,7 @@ impl PersistedNestedLeafSnapshot {
     #[must_use]
     pub(in crate::db) const fn new(
         path: Vec<String>,
-        kind: PersistedFieldKind,
+        kind: AcceptedFieldKind,
         nullable: bool,
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
@@ -1248,7 +1244,7 @@ impl PersistedNestedLeafSnapshot {
 
     /// Borrow the persisted field kind for this nested leaf.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
 
@@ -1287,15 +1283,6 @@ pub(in crate::db) enum SchemaFieldDefault {
 }
 
 impl SchemaFieldDefault {
-    /// Convert runtime model default metadata into persisted schema shape.
-    #[must_use]
-    pub(in crate::db) fn from_model_default(default: FieldDatabaseDefault) -> Self {
-        match default {
-            FieldDatabaseDefault::None => Self::None,
-            FieldDatabaseDefault::EncodedSlotPayload(bytes) => Self::SlotPayload(Vec::from(bytes)),
-        }
-    }
-
     /// Return whether this field declares no database-level default.
     #[must_use]
     pub(in crate::db) const fn is_none(&self) -> bool {
@@ -1359,222 +1346,6 @@ impl SchemaFieldWritePolicy {
     #[must_use]
     pub(in crate::db) const fn write_management(self) -> Option<FieldWriteManagement> {
         self.write_management
-    }
-}
-
-///
-/// PersistedFieldKind
-///
-/// Owned field-kind representation for persisted schema snapshots.
-/// It mirrors the runtime `FieldKind` shape but owns strings and nested field
-/// kinds so the live schema can outlive generated static metadata.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PersistedFieldKind {
-    Account,
-    Blob {
-        max_len: Option<u32>,
-    },
-    Bool,
-    Date,
-    Decimal {
-        scale: u32,
-    },
-    Duration,
-    Enum {
-        path: String,
-        variants: Vec<PersistedEnumVariant>,
-    },
-    Float32,
-    Float64,
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    Int128,
-    IntBig {
-        max_bytes: u32,
-    },
-    Principal,
-    Subaccount,
-    Text {
-        max_len: Option<u32>,
-    },
-    Timestamp,
-    Nat8,
-    Nat16,
-    Nat32,
-    Nat64,
-    Nat128,
-    NatBig {
-        max_bytes: u32,
-    },
-    Ulid,
-    Unit,
-    Relation {
-        target_path: String,
-        target_entity_name: String,
-        target_entity_tag: EntityTag,
-        target_store_path: String,
-        key_kind: Box<Self>,
-        strength: PersistedRelationStrength,
-    },
-    List(Box<Self>),
-    Set(Box<Self>),
-    Map {
-        key: Box<Self>,
-        value: Box<Self>,
-    },
-    Structured {
-        queryable: bool,
-    },
-}
-
-impl PersistedFieldKind {
-    /// Convert generated runtime field kind metadata into owned persisted shape.
-    #[must_use]
-    pub(in crate::db) fn from_model_kind(kind: FieldKind) -> Self {
-        match kind {
-            FieldKind::Account => Self::Account,
-            FieldKind::Blob { max_len } => Self::Blob { max_len },
-            FieldKind::Bool => Self::Bool,
-            FieldKind::Date => Self::Date,
-            FieldKind::Decimal { scale } => Self::Decimal { scale },
-            FieldKind::Duration => Self::Duration,
-            FieldKind::Enum { path, variants } => Self::Enum {
-                path: path.to_string(),
-                variants: variants
-                    .iter()
-                    .map(|variant| PersistedEnumVariant {
-                        ident: variant.ident().to_string(),
-                        payload_kind: variant
-                            .payload_kind()
-                            .map(|payload| Box::new(Self::from_model_kind(*payload))),
-                        payload_storage_decode: variant.payload_storage_decode(),
-                    })
-                    .collect(),
-            },
-            FieldKind::Float32 => Self::Float32,
-            FieldKind::Float64 => Self::Float64,
-            FieldKind::Int8 => Self::Int8,
-            FieldKind::Int16 => Self::Int16,
-            FieldKind::Int32 => Self::Int32,
-            FieldKind::Int64 => Self::Int64,
-            FieldKind::Int128 => Self::Int128,
-            FieldKind::IntBig { max_bytes } => Self::IntBig { max_bytes },
-            FieldKind::Principal => Self::Principal,
-            FieldKind::Subaccount => Self::Subaccount,
-            FieldKind::Text { max_len } => Self::Text { max_len },
-            FieldKind::Timestamp => Self::Timestamp,
-            FieldKind::Nat8 => Self::Nat8,
-            FieldKind::Nat16 => Self::Nat16,
-            FieldKind::Nat32 => Self::Nat32,
-            FieldKind::Nat64 => Self::Nat64,
-            FieldKind::Nat128 => Self::Nat128,
-            FieldKind::NatBig { max_bytes } => Self::NatBig { max_bytes },
-            FieldKind::Ulid => Self::Ulid,
-            FieldKind::Unit => Self::Unit,
-            FieldKind::Relation {
-                target_path,
-                target_entity_name,
-                target_entity_tag,
-                target_store_path,
-                key_kind,
-                strength,
-            } => Self::Relation {
-                target_path: target_path.to_string(),
-                target_entity_name: target_entity_name.to_string(),
-                target_entity_tag,
-                target_store_path: target_store_path.to_string(),
-                key_kind: Box::new(Self::from_model_kind(*key_kind)),
-                strength: PersistedRelationStrength::from_model_strength(strength),
-            },
-            FieldKind::List(inner) => Self::List(Box::new(Self::from_model_kind(*inner))),
-            FieldKind::Set(inner) => Self::Set(Box::new(Self::from_model_kind(*inner))),
-            FieldKind::Map { key, value } => Self::Map {
-                key: Box::new(Self::from_model_kind(*key)),
-                value: Box::new(Self::from_model_kind(*value)),
-            },
-            FieldKind::Structured { queryable } => Self::Structured { queryable },
-        }
-    }
-}
-
-///
-/// PersistedEnumVariant
-///
-/// Owned persisted-schema representation of one enum variant.
-/// The payload metadata is stored recursively so generated enum payload
-/// metadata does not remain the live-schema authority after reconciliation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct PersistedEnumVariant {
-    ident: String,
-    payload_kind: Option<Box<PersistedFieldKind>>,
-    payload_storage_decode: FieldStorageDecode,
-}
-
-impl PersistedEnumVariant {
-    /// Build one persisted enum variant from trusted schema metadata.
-    #[must_use]
-    pub(in crate::db) const fn new(
-        ident: String,
-        payload_kind: Option<Box<PersistedFieldKind>>,
-        payload_storage_decode: FieldStorageDecode,
-    ) -> Self {
-        Self {
-            ident,
-            payload_kind,
-            payload_storage_decode,
-        }
-    }
-
-    /// Borrow the stable enum variant identifier.
-    #[must_use]
-    pub(in crate::db) const fn ident(&self) -> &str {
-        self.ident.as_str()
-    }
-
-    /// Borrow the persisted payload kind, when this variant stores data.
-    #[must_use]
-    pub(in crate::db) fn payload_kind(&self) -> Option<&PersistedFieldKind> {
-        match self.payload_kind.as_ref() {
-            Some(kind) => Some(kind.as_ref()),
-            None => None,
-        }
-    }
-
-    /// Return the payload storage-decode contract.
-    #[must_use]
-    pub(in crate::db) const fn payload_storage_decode(&self) -> FieldStorageDecode {
-        self.payload_storage_decode
-    }
-}
-
-///
-/// PersistedRelationStrength
-///
-/// Owned relation-strength representation for persisted schema snapshots.
-/// It mirrors generated relation metadata without requiring live schema code to
-/// depend on generated `RelationStrength` values after reconciliation.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PersistedRelationStrength {
-    Strong,
-    Weak,
-}
-
-impl PersistedRelationStrength {
-    /// Convert generated relation strength into persisted-schema shape.
-    #[must_use]
-    const fn from_model_strength(strength: RelationStrength) -> Self {
-        match strength {
-            RelationStrength::Strong => Self::Strong,
-            RelationStrength::Weak => Self::Weak,
-        }
     }
 }
 

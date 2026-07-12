@@ -10,13 +10,10 @@ pub use icydb_testing_test_fixtures::macro_test::enum_payload::*;
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use base::types::ic::icp::Tokens;
     use icydb::{
-        __macro::{
-            Value, decode_persisted_structured_slot_payload,
-            encode_persisted_structured_slot_payload, runtime_value_to_value,
-        },
+        __macro::{Value, runtime_value_to_value},
         db::query::FilterExpr,
+        traits::EntitySchema,
         value::InputValue,
     };
 
@@ -60,20 +57,41 @@ pub mod test {
     #[enum_(variant(ident = "Draft", default), variant(ident = "Live"))]
     pub struct Stage {}
 
-    #[test]
-    fn enum_runtime_value_carries_payload() {
-        let v = EnumWithPayload::Icp(Tokens::from(123_u64));
+    #[entity(
+        store = "TestStore",
+        version = 1,
+        pk(fields = ["id"]),
+        fields(
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
+            field(
+                ident = "stage",
+                value(item(is = "Stage")),
+                default = "Stage::Draft"
+            )
+        )
+    )]
+    pub struct EnumDefaultEntityHarness {}
 
-        match runtime_value_to_value(&v) {
-            Value::Enum(e) => {
-                assert_eq!(e.variant(), "Icp");
-                assert_eq!(
-                    e.payload(),
-                    Some(&runtime_value_to_value(&Tokens::from(123_u64)))
-                );
-            }
-            other => panic!("expected Value::Enum with payload, got {other:?}"),
-        }
+    #[test]
+    fn generated_unit_enum_default_remains_authored_model_metadata() {
+        let default = EnumDefaultEntityHarness::MODEL
+            .fields()
+            .iter()
+            .find(|field| field.name() == "stage")
+            .expect("generated enum field should exist")
+            .database_default();
+
+        assert_eq!(
+            default,
+            icydb::model::field::FieldDatabaseDefault::AuthoredEnumUnit {
+                enum_path: <Stage as icydb::traits::Path>::PATH,
+                variant: "Draft",
+            },
+        );
     }
 
     #[test]
@@ -94,17 +112,20 @@ pub mod test {
     }
 
     #[test]
-    fn primitive_enum_structured_slot_payload_roundtrips_through_storage_helpers() {
-        let value = PrimitiveEnumWithPayload::Loaded(7);
-        let payload = encode_persisted_structured_slot_payload(&value, "status")
-            .expect("encode enum payload");
-        let decoded = decode_persisted_structured_slot_payload::<PrimitiveEnumWithPayload>(
-            payload.as_slice(),
-            "status",
-        )
-        .expect("decode enum payload");
+    fn generated_payload_enum_lowers_to_recursive_input_value() {
+        let input = InputValue::from(PrimitiveEnumWithPayload::Loaded(7));
 
-        assert_eq!(decoded, value);
+        match input {
+            InputValue::Enum(value) => {
+                assert_eq!(value.variant(), "Loaded");
+                assert_eq!(
+                    value.path(),
+                    Some(<PrimitiveEnumWithPayload as icydb::traits::Path>::PATH),
+                );
+                assert_eq!(value.payload(), Some(&InputValue::Nat64(7)));
+            }
+            other => panic!("expected InputValue::Enum, got {other:?}"),
+        }
     }
 
     #[test]

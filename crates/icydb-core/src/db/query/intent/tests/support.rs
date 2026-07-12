@@ -43,7 +43,6 @@ pub(in crate::db::query::intent::tests) use crate::{
         field::FieldModel,
         index::{IndexExpression, IndexKeyItem},
     },
-    value::ValueEnum,
 };
 use icydb_derive::FieldProjection;
 use serde::Deserialize;
@@ -349,30 +348,6 @@ pub(in crate::db::query::intent::tests) static MAP_PLAN_MODEL: EntityModel =
         0,
         &MAP_PLAN_FIELDS,
         &MAP_PLAN_INDEXES,
-    );
-
-#[cfg(feature = "sql")]
-pub(in crate::db::query::intent::tests) static ENUM_PLAN_FIELDS: [FieldModel; 2] = [
-    FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated(
-        "stage",
-        FieldKind::Enum {
-            path: "intent_tests::Stage",
-            variants: &[],
-        },
-    ),
-];
-#[cfg(feature = "sql")]
-pub(in crate::db::query::intent::tests) static ENUM_PLAN_INDEXES: [&IndexModel; 0] = [];
-#[cfg(feature = "sql")]
-pub(in crate::db::query::intent::tests) static ENUM_PLAN_MODEL: EntityModel =
-    entity_model_from_static(
-        "intent_tests::EnumPlanEntity",
-        "EnumPlanEntity",
-        &ENUM_PLAN_FIELDS[0],
-        0,
-        &ENUM_PLAN_FIELDS,
-        &ENUM_PLAN_INDEXES,
     );
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]

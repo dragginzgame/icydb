@@ -20,11 +20,11 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
-    traits::{EntityCreateInput, EntityValue, Storable},
+    traits::{AuthoredFieldProjection, EntityCreateInput, EntityValue, Storable},
     types::Timestamp,
 };
 
-impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow + EntityValue + AuthoredFieldProjection> SaveExecutor<E> {
     // Create one authored typed input after materializing its typed entity and
     // authored-slot provenance.
     pub(super) fn save_typed_create_input<I>(&self, input: I) -> Result<E, InternalError>

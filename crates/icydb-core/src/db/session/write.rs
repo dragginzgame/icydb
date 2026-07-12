@@ -4,17 +4,17 @@
 //! Does not own: commit staging, mutation execution, or persistence encoding.
 //! Boundary: keeps public session write semantics above the executor save surface.
 
-use super::accepted_schema::accepted_save_contract_for_descriptor;
+use super::accepted_schema::accepted_save_contract_for_catalog_context;
 use crate::{
     db::{
         DbSession, PersistedRow, WriteBatchResponse,
-        data::{FieldSlot, StructuralPatch},
+        data::{AuthoredStructuralPatch, FieldSlot},
         executor::MutationMode,
         schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeContract},
     },
     error::InternalError,
-    traits::{CanisterKind, EntityCreateInput, EntityValue},
-    value::Value,
+    traits::{AuthoredFieldProjection, CanisterKind, EntityCreateInput, EntityValue},
+    value::InputValue,
 };
 
 // Append one session-resolved structural field update. The caller passes the
@@ -24,10 +24,10 @@ use crate::{
 fn append_accepted_structural_patch_field(
     entity_path: &'static str,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: StructuralPatch,
+    patch: AuthoredStructuralPatch,
     field_name: &str,
-    value: Value,
-) -> Result<StructuralPatch, InternalError> {
+    value: InputValue,
+) -> Result<AuthoredStructuralPatch, InternalError> {
     let slot = descriptor
         .field_slot_index_by_name(field_name)
         .ok_or_else(|| InternalError::mutation_structural_field_unknown(entity_path, field_name))?;
@@ -42,7 +42,7 @@ fn append_accepted_structural_patch_field(
 // `Default`, or derive-local missing slot behavior.
 fn validate_structural_patch_schema_policy<E>(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: &StructuralPatch,
+    patch: &AuthoredStructuralPatch,
     mode: MutationMode,
 ) -> Result<(), InternalError>
 where
@@ -91,7 +91,7 @@ where
 // authoritative key separately.
 fn reject_explicit_generated_fields_from_accepted_patch<E>(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: &StructuralPatch,
+    patch: &AuthoredStructuralPatch,
 ) -> Result<(), InternalError>
 where
     E: PersistedRow + EntityValue,
@@ -120,7 +120,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Insert one entity row.
     pub fn insert<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_entity(|save| save.insert(entity))
     }
@@ -129,7 +129,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn create<I>(&self, input: I) -> Result<I::Entity, InternalError>
     where
         I: EntityCreateInput,
-        I::Entity: PersistedRow<Canister = C> + EntityValue,
+        I::Entity: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_entity(|save| save.create(input))
     }
@@ -146,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_batch(|save| save.insert_many_atomic(entities))
     }
@@ -162,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_batch(|save| save.insert_many_non_atomic(entities))
     }
@@ -170,7 +170,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Replace one existing entity row.
     pub fn replace<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_entity(|save| save.replace(entity))
     }
@@ -183,15 +183,15 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn mutate_structural<E>(
         &self,
         key: E::Key,
-        patch: StructuralPatch,
+        patch: AuthoredStructuralPatch,
         mode: MutationMode,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
-        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
+        let context = self.accepted_schema_catalog_context_for_query::<E>()?;
         let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-            &accepted_schema,
+            context.snapshot(),
             E::MODEL,
         )?;
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
@@ -200,7 +200,7 @@ impl<C: CanisterKind> DbSession<C> {
             mutation_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
-        ) = accepted_save_contract_for_descriptor::<E>(&accepted_schema, &descriptor)?;
+        ) = accepted_save_contract_for_catalog_context::<E>(&context, &descriptor);
 
         self.execute_save_with_checked_accepted_row_contract(
             row_decode_contract,
@@ -217,18 +217,22 @@ impl<C: CanisterKind> DbSession<C> {
     /// can provide all dynamic field updates at once. It resolves field names
     /// through the accepted row-layout descriptor before the patch reaches the
     /// generated-compatible write codec bridge.
-    pub fn structural_patch<E, I, S>(&self, fields: I) -> Result<StructuralPatch, InternalError>
+    pub fn structural_patch<E, I, S, V>(
+        &self,
+        fields: I,
+    ) -> Result<AuthoredStructuralPatch, InternalError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
-        I: IntoIterator<Item = (S, Value)>,
+        I: IntoIterator<Item = (S, V)>,
         S: AsRef<str>,
+        V: Into<InputValue>,
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
         let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
             &accepted_schema,
             E::MODEL,
         )?;
-        let mut patch = StructuralPatch::new();
+        let mut patch = AuthoredStructuralPatch::new();
 
         // Phase 1: resolve every caller-provided field name against the
         // accepted descriptor so public structural patch construction no
@@ -240,7 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
                 &descriptor,
                 patch,
                 field_name,
-                value,
+                value.into(),
             )?;
         }
 
@@ -256,10 +260,10 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn replace_structural<E>(
         &self,
         key: E::Key,
-        patch: StructuralPatch,
+        patch: AuthoredStructuralPatch,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.mutate_structural(key, patch, MutationMode::Replace)
     }
@@ -276,7 +280,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_batch(|save| save.replace_many_atomic(entities))
     }
@@ -292,7 +296,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_batch(|save| save.replace_many_non_atomic(entities))
     }
@@ -300,7 +304,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Update one existing entity row.
     pub fn update<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_entity(|save| save.update(entity))
     }
@@ -314,10 +318,10 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn insert_structural<E>(
         &self,
         key: E::Key,
-        patch: StructuralPatch,
+        patch: AuthoredStructuralPatch,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.mutate_structural(key, patch, MutationMode::Insert)
     }
@@ -331,10 +335,10 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn update_structural<E>(
         &self,
         key: E::Key,
-        patch: StructuralPatch,
+        patch: AuthoredStructuralPatch,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.mutate_structural(key, patch, MutationMode::Update)
     }
@@ -351,7 +355,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_batch(|save| save.update_many_atomic(entities))
     }
@@ -367,7 +371,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
     {
         self.execute_save_batch(|save| save.update_many_non_atomic(entities))
     }

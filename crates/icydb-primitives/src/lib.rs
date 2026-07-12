@@ -252,6 +252,13 @@ mod tests {
         }
     }
 
+    #[test]
+    fn enum_capabilities_are_equality_only() {
+        assert!(ScalarKind::Enum.supports_equality());
+        assert!(!ScalarKind::Enum.supports_ordering());
+        assert!(!ScalarKind::Enum.is_keyable());
+    }
+
     fn assert_variant_is_known(kind: ScalarKind) {
         match kind {
             ScalarKind::Account

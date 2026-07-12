@@ -29,14 +29,12 @@ where
     pub(in crate::db::executor::terminal::ranking) fn top_k_field_from_materialized(
         row_layout: RowLayout,
         rows: Vec<DataRow>,
-        target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         let ordered_rows = Self::top_k_ranked_rows_from_materialized(
             row_layout.clone(),
             &rows,
-            target_field,
             field_slot,
             take_count,
         )?;
@@ -48,17 +46,10 @@ where
     pub(in crate::db::executor::terminal::ranking) fn top_k_field_values_from_materialized(
         row_layout: RowLayout,
         rows: &[DataRow],
-        target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        Self::top_k_ranked_values_from_materialized(
-            row_layout,
-            rows,
-            target_field,
-            field_slot,
-            take_count,
-        )
+        Self::top_k_ranked_values_from_materialized(row_layout, rows, field_slot, take_count)
     }
 
     // Reduce one materialized response into top-k projected field values with
@@ -66,17 +57,11 @@ where
     pub(in crate::db::executor::terminal::ranking) fn top_k_field_values_with_ids_from_materialized(
         row_layout: RowLayout,
         rows: Vec<DataRow>,
-        target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(DecodedDataStoreKey, Value)>, InternalError> {
-        let ordered_rows = Self::top_k_ranked_rows_from_materialized(
-            row_layout,
-            &rows,
-            target_field,
-            field_slot,
-            take_count,
-        )?;
+        let ordered_rows =
+            Self::top_k_ranked_rows_from_materialized(row_layout, &rows, field_slot, take_count)?;
         field_values_with_data_keys_from_ranked_rows(rows, ordered_rows)
     }
 
@@ -85,14 +70,12 @@ where
     pub(in crate::db::executor::terminal::ranking) fn bottom_k_field_from_materialized(
         row_layout: RowLayout,
         rows: Vec<DataRow>,
-        target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
             row_layout.clone(),
             &rows,
-            target_field,
             field_slot,
             take_count,
         )?;
@@ -104,17 +87,10 @@ where
     pub(in crate::db::executor::terminal::ranking) fn bottom_k_field_values_from_materialized(
         row_layout: RowLayout,
         rows: &[DataRow],
-        target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        Self::bottom_k_ranked_values_from_materialized(
-            row_layout,
-            rows,
-            target_field,
-            field_slot,
-            take_count,
-        )
+        Self::bottom_k_ranked_values_from_materialized(row_layout, rows, field_slot, take_count)
     }
 
     // Reduce one materialized response into bottom-k projected field values
@@ -122,16 +98,11 @@ where
     pub(in crate::db::executor::terminal::ranking) fn bottom_k_field_values_with_ids_from_materialized(
         row_layout: RowLayout,
         rows: Vec<DataRow>,
-        target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(DecodedDataStoreKey, Value)>, InternalError> {
         let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
-            row_layout,
-            &rows,
-            target_field,
-            field_slot,
-            take_count,
+            row_layout, &rows, field_slot, take_count,
         )?;
         field_values_with_data_keys_from_ranked_rows(rows, ordered_rows)
     }

@@ -116,7 +116,7 @@ fn sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority() {
     let forbidden = [
         "SchemaStore",
         "with_schema_mut(",
-        "latest_persisted_snapshot(",
+        "latest_staged_persisted_snapshot(",
         "publish_accepted_snapshot(",
         "compiled_schema_proposal_for_model",
         ".indexes()",

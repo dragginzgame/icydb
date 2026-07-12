@@ -8,7 +8,7 @@ fn grouped_count_field_skips_null_slot_values() {
             AggregateKind::Count,
             Direction::Asc,
             false,
-            Some(FieldSlot::from_test_slot(0, "id")),
+            Some(accepted_nat64_target_slot()),
         )
         .expect("grouped COUNT(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
@@ -48,7 +48,7 @@ fn grouped_sum_field_skips_null_slot_values_and_accumulates_numeric_rows() {
             AggregateKind::Sum,
             Direction::Asc,
             false,
-            Some(FieldSlot::from_test_slot(0, "id")),
+            Some(accepted_nat64_target_slot()),
         )
         .expect("grouped SUM(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
@@ -100,7 +100,7 @@ fn grouped_avg_field_skips_null_slot_values_and_accumulates_numeric_rows() {
             AggregateKind::Avg,
             Direction::Asc,
             false,
-            Some(FieldSlot::from_test_slot(0, "id")),
+            Some(accepted_nat64_target_slot()),
         )
         .expect("grouped AVG(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");

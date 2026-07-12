@@ -1,7 +1,7 @@
 //! Schema-owned secondary-index candidate helpers for SQL DDL.
 
 use crate::db::schema::{
-    AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexExpressionOp,
+    AcceptedFieldKind, AcceptedSchemaSnapshot, PersistedIndexExpressionOp,
     PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
 };
@@ -303,14 +303,14 @@ const fn persisted_expression_op_for_sql_ddl_intent(
 
 fn sql_ddl_index_expression_output_kind(
     op: PersistedIndexExpressionOp,
-    source_kind: &PersistedFieldKind,
-) -> Option<PersistedFieldKind> {
+    source_kind: &AcceptedFieldKind,
+) -> Option<AcceptedFieldKind> {
     match op {
         PersistedIndexExpressionOp::Lower
         | PersistedIndexExpressionOp::Upper
         | PersistedIndexExpressionOp::Trim
         | PersistedIndexExpressionOp::LowerTrim => {
-            if matches!(source_kind, PersistedFieldKind::Text { .. }) {
+            if matches!(source_kind, AcceptedFieldKind::Text { .. }) {
                 Some(source_kind.clone())
             } else {
                 None
@@ -319,9 +319,9 @@ fn sql_ddl_index_expression_output_kind(
         PersistedIndexExpressionOp::Date => {
             if matches!(
                 source_kind,
-                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
+                AcceptedFieldKind::Date | AcceptedFieldKind::Timestamp
             ) {
-                Some(PersistedFieldKind::Date)
+                Some(AcceptedFieldKind::Date)
             } else {
                 None
             }
@@ -331,9 +331,9 @@ fn sql_ddl_index_expression_output_kind(
         | PersistedIndexExpressionOp::Day => {
             if matches!(
                 source_kind,
-                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
+                AcceptedFieldKind::Date | AcceptedFieldKind::Timestamp
             ) {
-                Some(PersistedFieldKind::Int64)
+                Some(AcceptedFieldKind::Int64)
             } else {
                 None
             }

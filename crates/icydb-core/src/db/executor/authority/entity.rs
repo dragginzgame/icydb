@@ -2,13 +2,17 @@
 use crate::db::query::plan::CoveringHybridReadExecutionPlan;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::query::plan::covering_hybrid_projection_execution_plan_with_schema_info;
-#[cfg(feature = "sql")]
-use crate::db::schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot};
+#[cfg(test)]
+use crate::db::schema::{
+    AcceptedEnumCatalogHandle, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
+    AcceptedSchemaSnapshot, compiled_schema_proposal_for_model,
+    enum_catalog::build_initial_accepted_enum_catalog,
+};
 #[cfg(test)]
 use crate::model::field::FieldModel;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 use crate::traits::EntityKind;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 use crate::traits::Path;
 use crate::{
     db::{
@@ -77,34 +81,32 @@ impl EntityAuthority {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
-    /// Build typed executor authority from an accepted schema snapshot.
-    ///
-    /// The generated model remains the compatibility proof input until
-    /// accepted snapshots own every index/layout fact directly, but callers get
-    /// back only authority with accepted row decode and schema info attached.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn from_accepted_schema_for_type<E>(
-        accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<Self, InternalError>
-    where
-        E: EntityKind,
-    {
-        let authority = Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH);
-        let (accepted_row_layout, row_proof) =
-            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
-                accepted_schema,
-                authority.model(),
-            )?;
-        let row_decode_contract = accepted_row_layout.row_decode_contract();
-        let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
+    /// Build production-shaped accepted authority for executor tests.
+    #[cfg(test)]
+    pub(in crate::db) fn for_accepted_generated_type_for_test<E: EntityKind>() -> Self {
+        let proposal = compiled_schema_proposal_for_model(E::MODEL);
+        let accepted =
+            AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
+                .expect("generated model proposal should produce an accepted test schema");
+        let (descriptor, row_proof) =
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&accepted, E::MODEL)
+                .expect("generated model should match its accepted test schema");
+        let catalog = build_initial_accepted_enum_catalog(&[E::MODEL])
+            .expect("generated model enum catalog should build");
+        let catalog =
+            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let row_contract = descriptor.row_decode_contract_with_catalog(catalog.clone());
+        let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
+            E::MODEL,
+            &accepted,
+            catalog,
+            false,
+        );
 
-        Ok(
-            authority.with_accepted_row_decode_contract(
-                row_proof,
-                row_decode_contract,
-                schema_info,
-            ),
+        Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH).with_accepted_row_decode_contract(
+            row_proof,
+            row_contract,
+            schema_info,
         )
     }
 
@@ -420,7 +422,7 @@ mod tests {
                 expr::{FieldId as ExprFieldId, ProjectionSelection},
             },
             schema::{
-                AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+                AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
                 PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo,
                 SchemaRowLayout, SchemaVersion,
             },
@@ -471,7 +473,7 @@ mod tests {
                     FieldId::new(1),
                     "id".to_string(),
                     SchemaFieldSlot::new(0),
-                    PersistedFieldKind::Ulid,
+                    AcceptedFieldKind::Ulid,
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,
@@ -482,7 +484,7 @@ mod tests {
                     FieldId::new(2),
                     "profile".to_string(),
                     SchemaFieldSlot::new(1),
-                    PersistedFieldKind::Structured { queryable: true },
+                    AcceptedFieldKind::Structured { queryable: true },
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,

@@ -3,10 +3,9 @@
 //! Does not own: low-level structural binary parsing, scalar fast paths, or non-recursive typed leaves.
 //! Boundary: the structural-field root routes composite kinds here after scalar and leaf lanes are ruled out.
 
+use crate::db::data::structural_field::FieldDecodeError;
 use crate::db::data::structural_field::binary::{
-    push_binary_list_len, push_binary_map_len, push_binary_variant_payload,
-    push_binary_variant_unit, split_binary_variant_payload, walk_binary_list_items,
-    walk_binary_map_entries,
+    push_binary_list_len, push_binary_map_len, walk_binary_list_items, walk_binary_map_entries,
 };
 use crate::db::data::structural_field::primary_key_component::{
     decode_primary_key_component_binary_value_bytes,
@@ -17,17 +16,8 @@ use crate::db::data::structural_field::scalar::{
     decode_scalar_fast_path_binary_bytes, encode_scalar_fast_path_binary_bytes,
     validate_scalar_fast_path_binary_bytes,
 };
-use crate::db::data::structural_field::value_storage::{
-    encode_structural_value_storage_bytes, normalize_map_entries_or_preserve,
-    validate_structural_value_storage_bytes,
-};
-use crate::db::data::structural_field::{FieldDecodeError, decode_structural_value_storage_bytes};
-use crate::{
-    error::InternalError,
-    model::field::{EnumVariantModel, FieldKind, FieldStorageDecode},
-    value::{Value, ValueEnum},
-};
-use std::str;
+use crate::db::data::structural_field::value_storage::normalize_map_entries_or_preserve;
+use crate::{error::InternalError, model::field::FieldKind, value::Value};
 
 // Decode one list/set field directly from Structural Binary v1 bytes.
 fn decode_binary_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<Value, FieldDecodeError> {
@@ -81,69 +71,6 @@ fn validate_binary_map_bytes(
     })
 }
 
-// Decode one enum field directly from Structural Binary v1 bytes using the
-// schema-declared variant payload contract when available.
-fn decode_binary_enum_bytes(
-    raw_bytes: &[u8],
-    path: &'static str,
-    variants: &'static [EnumVariantModel],
-) -> Result<Value, FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
-    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
-
-    if let Some(payload_bytes) = payload_bytes {
-        let payload = if let Some(variant_model) =
-            variants.iter().find(|item| item.ident() == variant)
-        {
-            if let Some(payload_kind) = variant_model.payload_kind() {
-                match variant_model.payload_storage_decode() {
-                    FieldStorageDecode::ByKind => {
-                        decode_structural_binary_field_by_kind_bytes(payload_bytes, *payload_kind)?
-                    }
-                    FieldStorageDecode::Value => {
-                        decode_structural_value_storage_bytes(payload_bytes)?
-                    }
-                }
-            } else {
-                return Err(FieldDecodeError::new());
-            }
-        } else {
-            return Err(FieldDecodeError::new());
-        };
-
-        Ok(Value::Enum(
-            ValueEnum::new(variant, Some(path)).with_payload(payload),
-        ))
-    } else {
-        Ok(Value::Enum(ValueEnum::new(variant, Some(path))))
-    }
-}
-
-// Validate one enum field directly from Structural Binary v1 bytes.
-fn validate_binary_enum_bytes(
-    raw_bytes: &[u8],
-    variants: &'static [EnumVariantModel],
-) -> Result<(), FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
-    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
-    let Some(payload_bytes) = payload_bytes else {
-        return Ok(());
-    };
-
-    if let Some(variant_model) = variants.iter().find(|item| item.ident() == variant)
-        && let Some(payload_kind) = variant_model.payload_kind()
-    {
-        return match variant_model.payload_storage_decode() {
-            FieldStorageDecode::ByKind => {
-                validate_structural_binary_field_by_kind_bytes(payload_bytes, *payload_kind)
-            }
-            FieldStorageDecode::Value => validate_structural_value_storage_bytes(payload_bytes),
-        };
-    }
-
-    Err(FieldDecodeError::new())
-}
-
 // Encode one recursive `ByKind` field payload into Structural Binary v1 bytes.
 pub(in crate::db::data::structural_field) fn encode_composite_field_binary_bytes(
     kind: FieldKind,
@@ -163,7 +90,6 @@ pub(super) fn decode_composite_field_binary_bytes(
     kind: FieldKind,
 ) -> Result<Value, FieldDecodeError> {
     match kind {
-        FieldKind::Enum { path, variants } => decode_binary_enum_bytes(raw_bytes, path, variants),
         FieldKind::List(inner) | FieldKind::Set(inner) => {
             decode_binary_list_bytes(raw_bytes, *inner)
         }
@@ -171,7 +97,8 @@ pub(super) fn decode_composite_field_binary_bytes(
         FieldKind::Relation { key_kind, .. } => {
             decode_structural_binary_field_by_kind_bytes(raw_bytes, *key_kind)
         }
-        FieldKind::Account
+        FieldKind::Enum { .. }
+        | FieldKind::Account
         | FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Date
@@ -208,7 +135,6 @@ pub(super) fn validate_composite_field_binary_bytes(
     kind: FieldKind,
 ) -> Result<(), FieldDecodeError> {
     match kind {
-        FieldKind::Enum { variants, .. } => validate_binary_enum_bytes(raw_bytes, variants),
         FieldKind::List(inner) | FieldKind::Set(inner) => {
             validate_binary_list_bytes(raw_bytes, *inner)
         }
@@ -216,7 +142,8 @@ pub(super) fn validate_composite_field_binary_bytes(
         FieldKind::Relation { key_kind, .. } => {
             validate_structural_binary_field_by_kind_bytes(raw_bytes, *key_kind)
         }
-        FieldKind::Account
+        FieldKind::Enum { .. }
+        | FieldKind::Account
         | FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Date
@@ -325,9 +252,6 @@ fn encode_structural_binary_field_by_kind_into(
                 )?;
             }
         }
-        FieldKind::Enum { path, variants } => {
-            encode_binary_enum_payload(out, path, variants, value, field_name)?;
-        }
         FieldKind::Relation { key_kind, .. } => {
             encode_structural_binary_field_by_kind_into(out, *key_kind, value, field_name)?;
         }
@@ -337,65 +261,6 @@ fn encode_structural_binary_field_by_kind_into(
             ));
         }
     }
-
-    Ok(())
-}
-
-// Encode one enum field into the parallel Structural Binary v1 lane.
-fn encode_binary_enum_payload(
-    out: &mut Vec<u8>,
-    path: &'static str,
-    variants: &'static [EnumVariantModel],
-    value: &Value,
-    field_name: &str,
-) -> Result<(), InternalError> {
-    let Value::Enum(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    };
-
-    if let Some(actual_path) = value.path()
-        && actual_path != path
-    {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    }
-
-    let Some(payload) = value.payload() else {
-        push_binary_variant_unit(out, value.variant());
-        return Ok(());
-    };
-
-    let Some(variant_model) = variants.iter().find(|item| item.ident() == value.variant()) else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    };
-    let Some(payload_kind) = variant_model.payload_kind() else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    };
-    if matches!(
-        variant_model.payload_storage_decode(),
-        FieldStorageDecode::Value
-    ) {
-        let payload_bytes = encode_structural_value_storage_bytes(payload)?;
-        push_binary_variant_payload(out, value.variant(), payload_bytes.as_slice());
-
-        return Ok(());
-    }
-
-    let mut payload_bytes = Vec::new();
-    encode_structural_binary_field_by_kind_into(
-        &mut payload_bytes,
-        *payload_kind,
-        payload,
-        field_name,
-    )?;
-    push_binary_variant_payload(out, value.variant(), payload_bytes.as_slice());
 
     Ok(())
 }
@@ -431,16 +296,7 @@ mod tests {
         decode_composite_field_binary_bytes, encode_composite_field_binary_bytes,
         validate_composite_field_binary_bytes,
     };
-    use crate::{
-        model::field::{EnumVariantModel, FieldKind, FieldStorageDecode},
-        value::{Value, ValueEnum},
-    };
-
-    static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
-        "Loaded",
-        Some(&FieldKind::Nat64),
-        FieldStorageDecode::ByKind,
-    )];
+    use crate::{model::field::FieldKind, value::Value};
 
     #[test]
     fn binary_composite_list_roundtrips_scalar_items() {
@@ -475,24 +331,6 @@ mod tests {
             .expect("binary composite map should decode");
         validate_composite_field_binary_bytes(&encoded, kind)
             .expect("binary composite map should validate");
-
-        assert_eq!(decoded, value);
-    }
-
-    #[test]
-    fn binary_composite_enum_roundtrips_typed_payload() {
-        let kind = FieldKind::Enum {
-            path: "State",
-            variants: STATE_VARIANTS,
-        };
-        let value =
-            Value::Enum(ValueEnum::new("Loaded", Some("State")).with_payload(Value::Nat64(7)));
-        let encoded = encode_composite_field_binary_bytes(kind, &value, "state")
-            .expect("binary composite enum should encode");
-        let decoded = decode_composite_field_binary_bytes(&encoded, kind)
-            .expect("binary composite enum should decode");
-        validate_composite_field_binary_bytes(&encoded, kind)
-            .expect("binary composite enum should validate");
 
         assert_eq!(decoded, value);
     }

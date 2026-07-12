@@ -310,6 +310,28 @@ fn raw_bounds_for_encoded_index_component_range(
     .map_err(|_| IndexRangeBoundEncodeError::RawKey)
 }
 
+/// Lower one ordered range after its equality prefix has already been encoded
+/// against accepted index contracts.
+pub(in crate::db) fn build_index_component_range_with_encoded_prefix(
+    index_id: &IndexId,
+    index_len: usize,
+    encoded_prefix: Vec<EncodedValue>,
+    lower: &Bound<Value>,
+    upper: &Bound<Value>,
+) -> Result<IndexBoundsLowering, IndexRangeBoundEncodeError> {
+    let encoded_lower = encode_semantic_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
+    let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
+    let (lower, upper) = raw_bounds_for_encoded_index_component_range(
+        index_id,
+        index_len,
+        encoded_prefix.as_slice(),
+        &encoded_lower,
+        &encoded_upper,
+    )?;
+
+    Ok(IndexBoundsLowering::new(lower, upper, encoded_prefix))
+}
+
 ///
 /// raw_bounds_for_semantic_index_component_range
 ///

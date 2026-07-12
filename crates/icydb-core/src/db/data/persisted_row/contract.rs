@@ -1,14 +1,11 @@
-//! Runtime boundary adapters between typed persisted-row slots and `Value`.
+//! Accepted persisted-row field encoding and decode adapters.
 //!
-//! This module is not the persisted-field contract. It is the runtime boundary
-//! adapter that converts `Value` -> bytes using schema `FieldModel` validation.
-//! It intentionally does not use Rust field types because runtime write, query,
-//! projection, and patch paths naturally carry dynamic `Value` payloads at the
-//! outer row boundary.
-//!
-//! Persistence contracts remain type-owned in codecs. `Value` must stay
-//! runtime-only and must never implement persisted-field codec traits.
+//! Production writes enter through accepted field contracts. Generated-model
+//! runtime-value adapters remain test-only characterization helpers and cannot
+//! become a context-free persistence surface.
 
+#[cfg(test)]
+use crate::model::{entity::EntityModel, field::FieldModel};
 use crate::{
     db::{
         codec::serialize_row_payload,
@@ -17,8 +14,7 @@ use crate::{
             accepted_kind_supports_primary_key_component_binary,
             decode_primary_key_component_binary_value_bytes,
             decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
-            decode_structural_value_storage_bytes, encode_primary_key_component_binary_value_bytes,
-            encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
+            decode_structural_value_storage_bytes, encode_structural_field_by_accepted_kind_bytes,
             encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
             supports_primary_key_component_binary_kind,
             validate_primary_key_component_binary_value_bytes,
@@ -26,23 +22,23 @@ use crate::{
             validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
             value_storage_bytes_are_null,
         },
-        schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
+        schema::{AcceptedFieldDecodeContract, AcceptedFieldKind},
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
-    },
+    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     types::Decimal,
     value::Value,
 };
 use std::{borrow::Cow, cmp::Ordering};
 
-use crate::db::data::persisted_row::{
-    codec::{
-        ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value, encode_scalar_slot_value,
-    },
-    types::generated_compatible_field_model_for_slot,
+use crate::db::data::persisted_row::codec::{
+    ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value, encode_scalar_slot_value,
+};
+#[cfg(test)]
+use crate::db::data::persisted_row::types::generated_compatible_field_model_for_slot;
+#[cfg(test)]
+use crate::db::data::{
+    encode_primary_key_component_binary_value_bytes, encode_structural_field_by_kind_bytes,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,8 +53,8 @@ pub(in crate::db::data::persisted_row) const RETIRED_SLOT_PLACEHOLDER_PAYLOAD: &
 /// This adapter is for runtime row consumers only. It uses the owning
 /// `FieldModel` contract to select the exact storage lane before materializing
 /// a dynamic value for query/projection code.
-#[doc(hidden)]
-pub fn decode_slot_into_runtime_value(
+#[cfg(test)]
+pub(in crate::db) fn decode_slot_into_runtime_value(
     model: &'static EntityModel,
     slot: usize,
     raw_value: &[u8],
@@ -90,7 +86,7 @@ pub(in crate::db::data::persisted_row) fn decode_runtime_value_from_field_contra
 ///
 /// This is the descriptor-owned counterpart to
 /// `decode_runtime_value_from_field_contract(...)`. It keeps accepted
-/// `PersistedFieldKind` metadata intact for recursive payloads instead of
+/// `AcceptedFieldKind` metadata intact for recursive payloads instead of
 /// first converting back through generated static `FieldKind` descriptors.
 pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
     field: AcceptedFieldDecodeContract<'_>,
@@ -143,6 +139,18 @@ fn decode_runtime_value_from_accepted_row_contract(
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
     let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
+
+    if accepted_field.uses_canonical_value_wire() {
+        let catalog = contract
+            .accepted_enum_catalog_handle()
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        let admitted = super::canonical::decode_admitted_value_from_accepted_field_contract(
+            catalog,
+            accepted_field,
+            raw_value,
+        )?;
+        return Ok(admitted.value().clone());
+    }
 
     decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value)
 }
@@ -239,8 +247,8 @@ fn decode_scalar_slot_value_from_generated_row_contract<'raw>(
 /// This adapter converts `Value` -> bytes through schema `FieldModel`
 /// validation. It is a boundary contract, not permission to persist `Value` as
 /// a field type; persisted Rust fields remain governed by type-owned codecs.
-#[doc(hidden)]
-pub fn encode_runtime_value_into_slot(
+#[cfg(test)]
+pub(in crate::db) fn encode_runtime_value_into_slot(
     model: &'static EntityModel,
     slot: usize,
     value: &Value,
@@ -250,10 +258,9 @@ pub fn encode_runtime_value_into_slot(
     encode_runtime_value_for_field_model(field, value)
 }
 
-// Encode one runtime boundary `Value` after the caller has already resolved
-// the generated-compatible field model. This keeps the public model/slot
-// adapter thin while the current write codec still requires `FieldModel`
-// validation and normalization policy.
+// Encode one runtime `Value` through generated model metadata for test
+// characterization only.
+#[cfg(test)]
 pub(in crate::db::data::persisted_row) fn encode_runtime_value_for_field_model(
     field: &FieldModel,
     value: &Value,
@@ -341,6 +348,7 @@ pub(in crate::db) fn encode_runtime_value_for_accepted_field_contract(
 // Encode an explicit nullable `NULL` through the same slot lane the field uses
 // for non-null values. Storage-key-compatible fields keep their dedicated lane
 // because relation nulls already have storage-key-specific shape.
+#[cfg(test)]
 fn encode_null_slot_value_for_field(field: &FieldModel) -> Result<Vec<u8>, InternalError> {
     match field.storage_decode() {
         FieldStorageDecode::Value => Ok(encode_structural_value_storage_null_bytes()),
@@ -415,9 +423,9 @@ const fn scalar_slot_value_ref_from_runtime_value(
 
 // Normalize decimal values to accepted persisted storage scale before encoding.
 // This mirrors the generated field-model bridge while keeping the accepted
-// `PersistedFieldKind` as the storage contract owner.
+// `AcceptedFieldKind` as the storage contract owner.
 fn normalize_decimal_scale_for_accepted_storage<'a>(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     value: &'a Value,
 ) -> Result<Cow<'a, Value>, AcceptedStorageValidationError> {
     if matches!(value, Value::Null) {
@@ -425,7 +433,7 @@ fn normalize_decimal_scale_for_accepted_storage<'a>(
     }
 
     match (kind, value) {
-        (PersistedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+        (AcceptedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
             let normalized = decimal_with_accepted_storage_scale(*decimal, *scale)
                 .ok_or(AcceptedStorageValidationError::DecimalScaleMismatch)?;
 
@@ -435,10 +443,10 @@ fn normalize_decimal_scale_for_accepted_storage<'a>(
                 Ok(Cow::Owned(Value::Decimal(normalized)))
             }
         }
-        (PersistedFieldKind::Relation { key_kind, .. }, value) => {
+        (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
             normalize_decimal_scale_for_accepted_storage(key_kind, value)
         }
-        (PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner), Value::List(items)) => {
+        (AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner), Value::List(items)) => {
             normalize_accepted_decimal_list_items(inner, items.as_slice()).map(|items| {
                 items.map_or_else(
                     || Cow::Borrowed(value),
@@ -447,7 +455,7 @@ fn normalize_decimal_scale_for_accepted_storage<'a>(
             })
         }
         (
-            PersistedFieldKind::Map {
+            AcceptedFieldKind::Map {
                 key,
                 value: map_value,
             },
@@ -478,7 +486,7 @@ fn decimal_with_accepted_storage_scale(decimal: Decimal, scale: u32) -> Option<D
 // Normalize decimal values inside accepted list/set fields while preserving
 // borrowed output when no element changes.
 fn normalize_accepted_decimal_list_items(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     items: &[Value],
 ) -> Result<Option<Vec<Value>>, AcceptedStorageValidationError> {
     let mut normalized = None;
@@ -496,8 +504,8 @@ fn normalize_accepted_decimal_list_items(
 // Normalize decimal values inside accepted map fields while preserving
 // borrowed output when no key or value changes.
 fn normalize_accepted_decimal_map_entries(
-    key_kind: &PersistedFieldKind,
-    value_kind: &PersistedFieldKind,
+    key_kind: &AcceptedFieldKind,
+    value_kind: &AcceptedFieldKind,
     entries: &[(Value, Value)],
 ) -> Result<Option<Vec<(Value, Value)>>, AcceptedStorageValidationError> {
     let mut normalized = None;
@@ -744,7 +752,7 @@ fn canonical_row_from_slot_payload_bytes(
 }
 
 // Emit one raw row from a dense canonical slot image.
-fn emit_raw_row_from_slot_payloads(
+pub(in crate::db::data::persisted_row) fn emit_raw_row_from_slot_payloads(
     expected_slot_count: usize,
     slot_payloads: &[Vec<u8>],
 ) -> Result<CanonicalRow, InternalError> {
@@ -894,7 +902,7 @@ pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
 /// Validate one non-scalar slot through an accepted-schema field contract.
 ///
 /// The helper mirrors the generated-compatible validation boundary but keeps
-/// recursive payload validation on accepted `PersistedFieldKind` metadata.
+/// recursive payload validation on accepted `AcceptedFieldKind` metadata.
 pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
@@ -966,6 +974,19 @@ fn validate_non_scalar_slot_value_with_accepted_row_contract(
     raw_value: &[u8],
 ) -> Result<(), InternalError> {
     let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
+    if accepted_field.uses_canonical_value_wire()
+        && !matches!(accepted_field.storage_decode(), FieldStorageDecode::Value)
+    {
+        let catalog = contract
+            .accepted_enum_catalog_handle()
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        super::canonical::decode_admitted_value_from_accepted_field_contract(
+            catalog,
+            accepted_field,
+            raw_value,
+        )?;
+        return Ok(());
+    }
 
     validate_non_scalar_accepted_slot_value(raw_value, accepted_field)
 }

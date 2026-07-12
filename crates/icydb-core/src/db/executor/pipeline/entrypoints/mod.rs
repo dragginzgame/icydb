@@ -22,6 +22,7 @@ use crate::{
             terminal::decode_data_rows_into_entity_response,
         },
         response::EntityResponse,
+        schema::SchemaInfo,
     },
     error::InternalError,
     traits::EntityValue,
@@ -205,12 +206,21 @@ where
         plan: PreparedExecutionPlan<E>,
         cursor: impl Into<ValidatedGroupedCursor>,
     ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), InternalError> {
+        let enum_catalog = plan
+            .authority_ref()
+            .accepted_schema_info()
+            .and_then(SchemaInfo::enum_catalog_handle)
+            .cloned()
+            .ok_or_else(InternalError::query_executor_invariant)?;
         let (page, trace) = self.execute_load_grouped_page_with_trace(
             plan.into_prepared_load_plan(),
             LoadCursorInput::grouped(cursor),
         )?;
 
-        Ok((StructuralGroupedProjectionResult::from_page(page), trace))
+        Ok((
+            StructuralGroupedProjectionResult::from_page(page, enum_catalog),
+            trace,
+        ))
     }
 
     /// Execute one grouped load plan while reporting the grouped runtime
@@ -228,6 +238,12 @@ where
         ),
         InternalError,
     > {
+        let enum_catalog = plan
+            .authority_ref()
+            .accepted_schema_info()
+            .and_then(SchemaInfo::enum_catalog_handle)
+            .cloned()
+            .ok_or_else(InternalError::query_executor_invariant)?;
         let (page, trace, phase_attribution) = self
             .execute_load_grouped_page_with_trace_with_phase_attribution(
                 plan.into_prepared_load_plan(),
@@ -235,7 +251,7 @@ where
             )?;
 
         Ok((
-            StructuralGroupedProjectionResult::from_page(page),
+            StructuralGroupedProjectionResult::from_page(page, enum_catalog),
             trace,
             phase_attribution,
         ))

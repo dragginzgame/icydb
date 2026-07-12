@@ -26,7 +26,7 @@ use crate::{
         },
     },
     db::key_taxonomy::PrimaryKeyComponent,
-    db::schema::PersistedFieldKind,
+    db::schema::AcceptedFieldKind,
     model::field::FieldKind,
     value::Value,
 };
@@ -56,18 +56,18 @@ pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
 /// directly into target primary-key components.
 pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_binary_bytes(
     raw_bytes: &[u8],
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     match kind {
-        PersistedFieldKind::Relation { key_kind, .. } => Ok(
+        AcceptedFieldKind::Relation { key_kind, .. } => Ok(
             decode_optional_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind)?
                 .into_iter()
                 .collect(),
         ),
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner)
-            if matches!(inner.as_ref(), PersistedFieldKind::Relation { .. }) =>
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner)
+            if matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) =>
         {
-            let PersistedFieldKind::Relation { key_kind, .. } = inner.as_ref() else {
+            let AcceptedFieldKind::Relation { key_kind, .. } = inner.as_ref() else {
                 unreachable!("relation shape checked above");
             };
 
@@ -203,7 +203,7 @@ fn decode_optional_relation_primary_key_component_binary_bytes(
 // treating explicit null as "no target".
 pub(in crate::db) fn decode_optional_accepted_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
-    key_kind: &PersistedFieldKind,
+    key_kind: &AcceptedFieldKind,
 ) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new());
@@ -253,7 +253,7 @@ fn decode_relation_primary_key_component_binary_list_bytes(
 // canonical primary-key components while preserving current null-item semantics.
 fn decode_accepted_relation_primary_key_component_binary_list_bytes(
     raw_bytes: &[u8],
-    key_kind: &PersistedFieldKind,
+    key_kind: &AcceptedFieldKind,
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new());
@@ -292,38 +292,38 @@ fn decode_relation_primary_key_component_binary_scalar_bytes(
 // Binary v1 into its primary-key-component form.
 fn decode_accepted_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     match kind {
-        PersistedFieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
-        PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64 => decode_int_primary_key_component_binary_bytes(raw_bytes),
-        PersistedFieldKind::Int128 => {
+        AcceptedFieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64 => decode_int_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Int128 => {
             crate::db::data::structural_field::primary_key_component::scalar::decode_int128_primary_key_component_binary_bytes(raw_bytes)
         }
-        PersistedFieldKind::Principal => {
+        AcceptedFieldKind::Principal => {
             decode_principal_primary_key_component_binary_bytes(raw_bytes)
         }
-        PersistedFieldKind::Relation { key_kind, .. } => {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
             decode_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind)
         }
-        PersistedFieldKind::Subaccount => {
+        AcceptedFieldKind::Subaccount => {
             decode_subaccount_primary_key_component_binary_bytes(raw_bytes)
         }
-        PersistedFieldKind::Timestamp => {
+        AcceptedFieldKind::Timestamp => {
             decode_timestamp_primary_key_component_binary_bytes(raw_bytes)
         }
-        PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64 => decode_nat_primary_key_component_binary_bytes(raw_bytes),
-        PersistedFieldKind::Nat128 => {
+        AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64 => decode_nat_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Nat128 => {
             crate::db::data::structural_field::primary_key_component::scalar::decode_nat128_primary_key_component_binary_bytes(raw_bytes)
         }
-        PersistedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
-        PersistedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         _ => Err(FieldDecodeError::new()),
     }
 }

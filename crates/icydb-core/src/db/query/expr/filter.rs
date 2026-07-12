@@ -28,41 +28,6 @@ pub enum FilterValue {
 }
 
 impl FilterValue {
-    /// Convert one typed runtime value onto the narrowed public filter wire
-    /// contract.
-    ///
-    /// Non-bool scalar values travel as canonical strings so the schema-aware
-    /// intent boundary can rehydrate the exact field kind later.
-    fn from_typed_value(value: Value) -> Self {
-        match value {
-            Value::Bool(value) => Self::Bool(value),
-            Value::List(values) => {
-                Self::List(values.into_iter().map(Self::from_typed_value).collect())
-            }
-            Value::Null | Value::Unit => Self::Null,
-            Value::Text(value) => Self::String(value),
-            Value::Enum(value) => Self::String(value.variant().to_string()),
-            Value::Account(value) => Self::String(value.to_string()),
-            Value::Blob(value) => Self::String(format!("{value:?}")),
-            Value::Date(value) => Self::String(value.to_string()),
-            Value::Decimal(value) => Self::String(value.to_string()),
-            Value::Duration(value) => Self::String(format!("{value:?}")),
-            Value::Float32(value) => Self::String(value.to_string()),
-            Value::Float64(value) => Self::String(value.to_string()),
-            Value::Int64(value) => Self::String(value.to_string()),
-            Value::Int128(value) => Self::String(value.to_string()),
-            Value::IntBig(value) => Self::String(value.to_string()),
-            Value::Map(value) => Self::String(format!("{value:?}")),
-            Value::Principal(value) => Self::String(value.to_string()),
-            Value::Subaccount(value) => Self::String(value.to_string()),
-            Value::Timestamp(value) => Self::String(value.to_string()),
-            Value::Nat64(value) => Self::String(value.to_string()),
-            Value::Nat128(value) => Self::String(value.to_string()),
-            Value::NatBig(value) => Self::String(value.to_string()),
-            Value::Ulid(value) => Self::String(value.to_string()),
-        }
-    }
-
     /// Lower one public wire literal back onto the runtime value model before
     /// adjacent schema-aware callers optionally canonicalize it to the target
     /// field kind.
@@ -76,7 +41,33 @@ impl FilterValue {
     }
 
     fn from_input_value(value: InputValue) -> Self {
-        Self::from_typed_value(Value::from(value))
+        match value {
+            InputValue::Bool(value) => Self::Bool(value),
+            InputValue::List(values) => {
+                Self::List(values.into_iter().map(Self::from_input_value).collect())
+            }
+            InputValue::Null | InputValue::Unit => Self::Null,
+            InputValue::Text(value) => Self::String(value),
+            InputValue::Enum(value) => Self::String(value.variant().to_string()),
+            InputValue::Account(value) => Self::String(value.to_string()),
+            InputValue::Blob(value) => Self::String(format!("{value:?}")),
+            InputValue::Date(value) => Self::String(value.to_string()),
+            InputValue::Decimal(value) => Self::String(value.to_string()),
+            InputValue::Duration(value) => Self::String(format!("{value:?}")),
+            InputValue::Float32(value) => Self::String(value.to_string()),
+            InputValue::Float64(value) => Self::String(value.to_string()),
+            InputValue::Int64(value) => Self::String(value.to_string()),
+            InputValue::Int128(value) => Self::String(value.to_string()),
+            InputValue::IntBig(value) => Self::String(value.to_string()),
+            InputValue::Map(value) => Self::String(format!("{value:?}")),
+            InputValue::Principal(value) => Self::String(value.to_string()),
+            InputValue::Subaccount(value) => Self::String(value.to_string()),
+            InputValue::Timestamp(value) => Self::String(value.to_string()),
+            InputValue::Nat64(value) => Self::String(value.to_string()),
+            InputValue::Nat128(value) => Self::String(value.to_string()),
+            InputValue::NatBig(value) => Self::String(value.to_string()),
+            InputValue::Ulid(value) => Self::String(value.to_string()),
+        }
     }
 }
 

@@ -11,8 +11,9 @@ use crate::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, CommitSchemaFingerprint,
             PreparedIndexMutation, PreparedRowCommitOp, begin_commit, begin_single_row_commit,
             finish_commit, generate_commit_id,
+            prepare_commit_context_for_entity_with_schema_fingerprint,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
-            rollback_prepared_row_ops_reverse,
+            prepare_row_commit_with_context, rollback_prepared_row_ops_reverse,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -597,7 +598,13 @@ where
 {
     let store = db.with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
     let accepted = store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+        ensure_accepted_schema_snapshot(
+            schema_store,
+            E::ENTITY_TAG,
+            E::PATH,
+            E::Store::PATH,
+            E::MODEL,
+        )
     })?;
 
     accepted_commit_schema_fingerprint(&accepted)
@@ -608,17 +615,20 @@ fn preflight_prepare_row_op_batch_with_schema_fingerprint<E: EntityKind + Entity
     row_ops: &[CommitRowOp],
     schema_fingerprint: CommitSchemaFingerprint,
 ) -> Result<PreparedRowOpBatch, InternalError> {
+    let context =
+        prepare_commit_context_for_entity_with_schema_fingerprint::<E>(db, schema_fingerprint)?;
+
     // Single-row writes do not need staged overlay simulation because no later
     // row op can observe earlier preflight effects.
     if let [row_op] = row_ops {
-        let context = db.context::<E>();
+        let store_context = db.context::<E>();
 
-        return prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+        return prepare_row_commit_with_context(
             db,
             row_op,
             &context,
-            &context,
-            schema_fingerprint,
+            &store_context,
+            &store_context,
         )
         .map(|prepared| {
             let mut batch = PreparedRowOpBatch::with_row_capacity(1);
@@ -628,13 +638,7 @@ fn preflight_prepare_row_op_batch_with_schema_fingerprint<E: EntityKind + Entity
     }
 
     preflight_prepare_row_ops_with_overlay(db, row_ops, |overlay, row_op| {
-        prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
-            db,
-            row_op,
-            overlay,
-            overlay,
-            schema_fingerprint,
-        )
+        prepare_row_commit_with_context(db, row_op, &context, overlay, overlay)
     })
 }
 
@@ -644,19 +648,27 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: &[CommitRowOp],
 ) -> Result<PreparedRowOpBatch, InternalError> {
+    let Some(first_row_op) = row_ops.first() else {
+        return Ok(PreparedRowOpBatch::with_row_capacity(0));
+    };
+    let hooks = db.runtime_hook_for_entity_path(first_row_op.entity_path.as_ref())?;
+    let context = hooks.prepare_commit_context(db, first_row_op.schema_fingerprint)?;
+
     // The structural runtime-hook path can also bypass overlay simulation for
     // one-row commits because there is no staged cross-row state to read.
     if let [row_op] = row_ops {
-        return db.prepare_row_commit_op(row_op).map(|prepared| {
-            let mut batch = PreparedRowOpBatch::with_row_capacity(1);
-            batch.push(prepared);
-            batch
-        });
+        let store = db.store_handle(hooks.store_path)?;
+        return prepare_row_commit_with_context(db, row_op, &context, &store, &store).map(
+            |prepared| {
+                let mut batch = PreparedRowOpBatch::with_row_capacity(1);
+                batch.push(prepared);
+                batch
+            },
+        );
     }
 
     preflight_prepare_row_ops_with_overlay(db, row_ops, |overlay, row_op| {
-        let hooks = db.runtime_hook_for_entity_path(row_op.entity_path.as_ref())?;
-        (hooks.prepare_row_commit_with_readers)(db, row_op, overlay, overlay)
+        prepare_row_commit_with_context(db, row_op, &context, overlay, overlay)
     })
 }
 

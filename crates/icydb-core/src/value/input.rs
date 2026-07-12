@@ -1,10 +1,10 @@
 use crate::{
     traits::EntityKey,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Id, IntBig, NatBig, Principal,
-        Subaccount, Timestamp, Ulid,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, Id, IntBig, NatBig, Principal,
+        Subaccount, Timestamp, Ulid, Unit,
     },
-    value::{Value, ValueEnum},
+    value::Value,
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -63,6 +63,33 @@ pub struct InputValueEnum {
 }
 
 impl InputValueEnum {
+    /// Build an enum input with an optional schema-visible type path.
+    #[must_use]
+    pub fn new(variant: &str, path: Option<&str>) -> Self {
+        Self {
+            variant: variant.to_string(),
+            path: path.map(ToString::to_string),
+            payload: None,
+        }
+    }
+
+    /// Build an enum input whose type is resolved from its expected contract.
+    #[must_use]
+    pub fn loose(variant: impl Into<String>) -> Self {
+        Self {
+            variant: variant.into(),
+            path: None,
+            payload: None,
+        }
+    }
+
+    /// Attach one unresolved payload value to this enum input.
+    #[must_use]
+    pub fn with_payload(mut self, payload: InputValue) -> Self {
+        self.payload = Some(Box::new(payload));
+        self
+    }
+
     #[must_use]
     pub const fn variant(&self) -> &str {
         self.variant.as_str()
@@ -77,35 +104,96 @@ impl InputValueEnum {
     pub fn payload(&self) -> Option<&InputValue> {
         self.payload.as_deref()
     }
-}
 
-impl From<Value> for InputValue {
-    fn from(value: Value) -> Self {
-        Self::from(&value)
+    pub(crate) fn into_parts(self) -> (String, Option<String>, Option<InputValue>) {
+        (
+            self.variant,
+            self.path,
+            self.payload.map(|payload| *payload),
+        )
     }
 }
 
-impl From<&Value> for InputValue {
-    fn from(value: &Value) -> Self {
-        match value {
+impl InputValue {
+    /// Lower an input that cannot require accepted enum admission.
+    ///
+    /// Enum input, including nested enum input, stays unresolved and must use
+    /// the accepted catalog admission boundary instead.
+    pub(crate) fn try_into_runtime_non_enum(self) -> Option<Value> {
+        Some(match self {
+            Self::Account(value) => Value::Account(value),
+            Self::Blob(value) => Value::Blob(value),
+            Self::Bool(value) => Value::Bool(value),
+            Self::Date(value) => Value::Date(value),
+            Self::Decimal(value) => Value::Decimal(value),
+            Self::Duration(value) => Value::Duration(value),
+            Self::Enum(_) => return None,
+            Self::Float32(value) => Value::Float32(value),
+            Self::Float64(value) => Value::Float64(value),
+            Self::Int64(value) => Value::Int64(value),
+            Self::Int128(value) => Value::Int128(value),
+            Self::IntBig(value) => Value::IntBig(value),
+            Self::List(values) => Value::List(
+                values
+                    .into_iter()
+                    .map(Self::try_into_runtime_non_enum)
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            Self::Map(entries) => Value::Map(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| {
+                        Some((
+                            key.try_into_runtime_non_enum()?,
+                            value.try_into_runtime_non_enum()?,
+                        ))
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            Self::Null => Value::Null,
+            Self::Principal(value) => Value::Principal(value),
+            Self::Subaccount(value) => Value::Subaccount(value),
+            Self::Text(value) => Value::Text(value),
+            Self::Timestamp(value) => Value::Timestamp(value),
+            Self::Nat64(value) => Value::Nat64(value),
+            Self::Nat128(value) => Value::Nat128(value),
+            Self::NatBig(value) => Value::NatBig(value),
+            Self::Ulid(value) => Value::Ulid(value),
+            Self::Unit => Value::Unit,
+        })
+    }
+
+    /// Lift a runtime value without canonical enum IDs into authored input.
+    pub(crate) fn try_from_runtime_non_enum(value: &Value) -> Option<Self> {
+        Some(match value {
             Value::Account(value) => Self::Account(*value),
             Value::Blob(value) => Self::Blob(value.clone()),
             Value::Bool(value) => Self::Bool(*value),
             Value::Date(value) => Self::Date(*value),
             Value::Decimal(value) => Self::Decimal(*value),
             Value::Duration(value) => Self::Duration(*value),
-            Value::Enum(value) => Self::Enum(InputValueEnum::from(value)),
+            Value::Enum(_) => return None,
             Value::Float32(value) => Self::Float32(*value),
             Value::Float64(value) => Self::Float64(*value),
             Value::Int64(value) => Self::Int64(*value),
             Value::Int128(value) => Self::Int128(*value),
             Value::IntBig(value) => Self::IntBig(value.clone()),
-            Value::List(values) => Self::List(values.iter().map(Self::from).collect()),
+            Value::List(values) => Self::List(
+                values
+                    .iter()
+                    .map(Self::try_from_runtime_non_enum)
+                    .collect::<Option<Vec<_>>>()?,
+            ),
             Value::Map(entries) => Self::Map(
                 entries
                     .iter()
-                    .map(|(key, value)| (Self::from(key), Self::from(value)))
-                    .collect(),
+                    .map(|(key, value)| {
+                        Some((
+                            Self::try_from_runtime_non_enum(key)?,
+                            Self::try_from_runtime_non_enum(value)?,
+                        ))
+                    })
+                    .collect::<Option<Vec<_>>>()?,
             ),
             Value::Null => Self::Null,
             Value::Principal(value) => Self::Principal(*value),
@@ -117,84 +205,23 @@ impl From<&Value> for InputValue {
             Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
             Value::Unit => Self::Unit,
-        }
+        })
     }
 }
 
-impl From<InputValue> for Value {
-    fn from(value: InputValue) -> Self {
-        Self::from(&value)
+#[cfg(test)]
+impl From<Value> for InputValue {
+    fn from(value: Value) -> Self {
+        Self::try_from_runtime_non_enum(&value)
+            .expect("test runtime-to-input conversion must not contain canonical enum IDs")
     }
 }
 
-impl From<&InputValue> for Value {
-    fn from(value: &InputValue) -> Self {
-        match value {
-            InputValue::Account(value) => Self::Account(*value),
-            InputValue::Blob(value) => Self::Blob(value.clone()),
-            InputValue::Bool(value) => Self::Bool(*value),
-            InputValue::Date(value) => Self::Date(*value),
-            InputValue::Decimal(value) => Self::Decimal(*value),
-            InputValue::Duration(value) => Self::Duration(*value),
-            InputValue::Enum(value) => Self::Enum(ValueEnum::from(value)),
-            InputValue::Float32(value) => Self::Float32(*value),
-            InputValue::Float64(value) => Self::Float64(*value),
-            InputValue::Int64(value) => Self::Int64(*value),
-            InputValue::Int128(value) => Self::Int128(*value),
-            InputValue::IntBig(value) => Self::IntBig(value.clone()),
-            InputValue::List(values) => Self::List(values.iter().map(Self::from).collect()),
-            InputValue::Map(entries) => Self::Map(
-                entries
-                    .iter()
-                    .map(|(key, value)| (Self::from(key), Self::from(value)))
-                    .collect(),
-            ),
-            InputValue::Null => Self::Null,
-            InputValue::Principal(value) => Self::Principal(*value),
-            InputValue::Subaccount(value) => Self::Subaccount(*value),
-            InputValue::Text(value) => Self::Text(value.clone()),
-            InputValue::Timestamp(value) => Self::Timestamp(*value),
-            InputValue::Nat64(value) => Self::Nat64(*value),
-            InputValue::Nat128(value) => Self::Nat128(*value),
-            InputValue::NatBig(value) => Self::NatBig(value.clone()),
-            InputValue::Ulid(value) => Self::Ulid(*value),
-            InputValue::Unit => Self::Unit,
-        }
-    }
-}
-
-impl From<ValueEnum> for InputValueEnum {
-    fn from(value: ValueEnum) -> Self {
-        Self::from(&value)
-    }
-}
-
-impl From<&ValueEnum> for InputValueEnum {
-    fn from(value: &ValueEnum) -> Self {
-        Self {
-            variant: value.variant().to_string(),
-            path: value.path().map(ToString::to_string),
-            payload: value
-                .payload()
-                .map(|payload| Box::new(InputValue::from(payload))),
-        }
-    }
-}
-
-impl From<InputValueEnum> for ValueEnum {
-    fn from(value: InputValueEnum) -> Self {
-        Self::from(&value)
-    }
-}
-
-impl From<&InputValueEnum> for ValueEnum {
-    fn from(value: &InputValueEnum) -> Self {
-        let mut runtime = Self::new(value.variant(), value.path());
-        if let Some(payload) = value.payload() {
-            runtime = runtime.with_payload(Value::from(payload));
-        }
-
-        runtime
+#[cfg(test)]
+impl From<&Value> for InputValue {
+    fn from(value: &Value) -> Self {
+        Self::try_from_runtime_non_enum(value)
+            .expect("test runtime-to-input conversion must not contain canonical enum IDs")
     }
 }
 
@@ -213,6 +240,12 @@ impl From<String> for InputValue {
 impl From<Vec<u8>> for InputValue {
     fn from(value: Vec<u8>) -> Self {
         Self::Blob(value)
+    }
+}
+
+impl From<Blob> for InputValue {
+    fn from(value: Blob) -> Self {
+        Self::Blob(value.to_vec())
     }
 }
 
@@ -312,6 +345,12 @@ impl From<()> for InputValue {
     }
 }
 
+impl From<Unit> for InputValue {
+    fn from(_value: Unit) -> Self {
+        Self::Unit
+    }
+}
+
 impl<T> From<Option<T>> for InputValue
 where
     T: Into<Self>,
@@ -321,6 +360,15 @@ where
             Some(value) => value.into(),
             None => Self::Null,
         }
+    }
+}
+
+impl<T> From<Box<T>> for InputValue
+where
+    T: Into<Self>,
+{
+    fn from(value: Box<T>) -> Self {
+        (*value).into()
     }
 }
 
@@ -377,34 +425,33 @@ impl_input_value_nat!(u8, u16, u32, u64);
 
 #[cfg(test)]
 mod tests {
-    use crate::value::{InputValue, InputValueEnum, Value, ValueEnum};
+    use crate::value::{InputValue, InputValueEnum, Value};
 
     #[test]
-    fn input_value_round_trip_keeps_recursive_collection_shape() {
+    fn runtime_to_input_value_keeps_recursive_collection_shape() {
         let runtime = Value::List(vec![
             Value::Nat64(7),
             Value::Map(vec![(Value::Text("x".to_string()), Value::Bool(true))]),
         ]);
 
-        assert_eq!(Value::from(InputValue::from(runtime.clone())), runtime);
+        assert_eq!(
+            InputValue::from(runtime),
+            InputValue::List(vec![
+                InputValue::Nat64(7),
+                InputValue::Map(vec![(
+                    InputValue::Text("x".to_string()),
+                    InputValue::Bool(true),
+                )]),
+            ]),
+        );
     }
 
     #[test]
-    fn input_value_enum_round_trip_keeps_payload() {
-        let runtime =
-            ValueEnum::new("Example", Some("test::InputEnum")).with_payload(Value::Nat64(9));
+    fn unresolved_enum_input_cannot_lower_without_admission() {
+        let direct = InputValue::Enum(InputValueEnum::loose("Active"));
+        let nested = InputValue::List(vec![direct.clone()]);
 
-        assert_eq!(
-            InputValueEnum::from(runtime.clone()),
-            InputValueEnum {
-                variant: "Example".to_string(),
-                path: Some("test::InputEnum".to_string()),
-                payload: Some(Box::new(InputValue::Nat64(9))),
-            },
-        );
-        assert_eq!(
-            ValueEnum::from(InputValueEnum::from(runtime.clone())),
-            runtime
-        );
+        assert_eq!(direct.try_into_runtime_non_enum(), None);
+        assert_eq!(nested.try_into_runtime_non_enum(), None);
     }
 }

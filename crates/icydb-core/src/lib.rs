@@ -64,26 +64,43 @@ pub mod prelude {
 // the test harness.
 #[doc(hidden)]
 pub mod __macro {
+    #[doc(hidden)]
+    pub fn decode_generated_runtime_field_value<T>(
+        value: &crate::value::Value,
+        context: Option<&dyn crate::traits::RuntimeEnumContext>,
+        field_name: &'static str,
+    ) -> Result<T, crate::error::InternalError>
+    where
+        T: crate::traits::RuntimeValueDecode,
+    {
+        crate::traits::runtime_value_from_value_with_optional_enum_context(value, context)
+            .ok_or_else(|| {
+                crate::error::InternalError::persisted_row_field_decode_failed(field_name, ())
+            })
+    }
+
     pub use crate::db::{
-        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, GeneratedStructuralEnumPayload,
+        CompositePrimaryKeyValue, CompositePrimaryKeyValueError,
         GeneratedStructuralMapPayloadSlices, JournalTailStore, PersistedRow, PersistedScalar,
         PrimaryKeyComponent, PrimaryKeyValue, ScalarSlotValueRef, ScalarValueRef, SlotReader,
         SlotWriter, StoreRuntimeStorageCapabilities,
     };
     pub use crate::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use crate::traits::{
-        EntityKeyBytes, EnumValue, FieldProjection, KeyValueCodec, PersistedByKindCodec,
-        PersistedFieldMetaCodec, PersistedFieldSlotCodec, PersistedStructuredFieldCodec,
-        PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError, RuntimeValueDecode,
-        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
+        AuthoredFieldProjection, EntityKeyBytes, FieldProjection, KeyValueCodec,
+        PersistedByKindCodec, PersistedFieldMetaCodec, PersistedFieldSlotCodec,
+        PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
+        RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode, RuntimeValueEncode,
+        RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
         ScalarRelationTargetKeyMatchesDeclaredPrimitive, runtime_value_btree_map_from_value,
         runtime_value_btree_set_from_value, runtime_value_collection_to_value,
-        runtime_value_from_value, runtime_value_from_vec_into,
+        runtime_value_from_value, runtime_value_from_value_with_enum_context,
+        runtime_value_from_value_with_optional_enum_context, runtime_value_from_vec_into,
         runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
         runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
         runtime_value_vec_from_value,
     };
-    pub use crate::value::{InputValue, Value, ValueEnum};
+    pub use crate::value::{InputValue, InputValueEnum, Value, ValueEnum};
     pub use ic_memory::{
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };
@@ -104,16 +121,6 @@ pub mod __macro {
     #[must_use]
     pub fn encode_generated_structural_map_payload_bytes(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
         crate::db::encode_generated_structural_map_payload_bytes(entries)
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn encode_generated_structural_enum_payload_bytes(
-        variant: &str,
-        path: Option<&str>,
-        payload: Option<&[u8]>,
-    ) -> Vec<u8> {
-        crate::db::encode_generated_structural_enum_payload_bytes(variant, path, payload)
     }
 
     #[doc(hidden)]
@@ -139,17 +146,24 @@ pub mod __macro {
     }
 
     #[doc(hidden)]
-    pub fn decode_generated_structural_enum_payload_bytes(
-        raw_bytes: &[u8],
-    ) -> Result<crate::db::GeneratedStructuralEnumPayload<'_>, crate::error::InternalError> {
-        crate::db::decode_generated_structural_enum_payload_bytes(raw_bytes)
-    }
-
-    #[doc(hidden)]
     pub fn generated_persisted_structured_payload_decode_failed(
         detail: impl std::fmt::Display,
     ) -> crate::error::InternalError {
         crate::db::generated_persisted_structured_payload_decode_failed(detail)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_non_enum_protocol_value_bytes(
+        value: &crate::value::Value,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_non_enum_protocol_value_bytes(value)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_non_enum_protocol_value_bytes(
+        raw_bytes: &[u8],
+    ) -> Result<crate::value::Value, crate::error::InternalError> {
+        crate::db::decode_non_enum_protocol_value_bytes(raw_bytes)
     }
 
     #[doc(hidden)]
@@ -340,39 +354,5 @@ pub mod __macro {
         T: crate::traits::PersistedFieldMetaCodec,
     {
         crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
-    }
-
-    #[doc(hidden)]
-    pub fn encode_schema_runtime_field_slot<T>(
-        model: &'static crate::model::entity::EntityModel,
-        slot: usize,
-        value: &T,
-    ) -> Result<Vec<u8>, crate::error::InternalError>
-    where
-        T: ?Sized + crate::traits::RuntimeValueEncode,
-    {
-        let runtime_value = value.to_value();
-
-        crate::db::encode_runtime_value_into_slot(model, slot, &runtime_value)
-    }
-
-    #[doc(hidden)]
-    pub fn decode_schema_runtime_field_slot<T>(
-        model: &'static crate::model::entity::EntityModel,
-        slot: usize,
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<T, crate::error::InternalError>
-    where
-        T: crate::traits::RuntimeValueDecode,
-    {
-        let runtime_value = crate::db::decode_slot_into_runtime_value(model, slot, bytes)?;
-
-        T::from_value(&runtime_value).ok_or_else(|| {
-            crate::error::InternalError::persisted_row_field_decode_failed(
-                field_name,
-                format!("payload does not match {}", std::any::type_name::<T>()),
-            )
-        })
     }
 }

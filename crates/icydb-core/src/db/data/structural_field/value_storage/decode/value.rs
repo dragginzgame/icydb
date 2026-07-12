@@ -25,16 +25,15 @@ use crate::{
                 decode_binary_required_bytes, decode_binary_required_i64,
                 decode_binary_required_text, decode_binary_required_u64,
                 decode_value_storage_binary_payload, split_binary_tuple_2,
-                split_value_storage_tuple_3,
             },
             reserve_one_value_storage_item,
             skip::skip_value_storage_binary_value,
             tags::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
-                VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_FLOAT32,
-                VALUE_BINARY_TAG_FLOAT64, VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128,
-                VALUE_BINARY_TAG_NAT_BIG, VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL,
-                VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
+                VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_FLOAT32, VALUE_BINARY_TAG_FLOAT64,
+                VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128, VALUE_BINARY_TAG_NAT_BIG,
+                VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
+                VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
             },
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
@@ -46,14 +45,13 @@ use crate::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
-    value::{Value, ValueEnum},
+    value::Value,
 };
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 // Borrowed map-entry payload slices returned by the direct structural
 // value-storage split helpers.
 type ValueStorageMapEntrySlices<'a> = Vec<(&'a [u8], &'a [u8])>;
-type EnumBinaryDecodedPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
 
 /// Decode one `FieldStorageDecode::Value` payload directly from the externally
 /// tagged `Value` wire shape without routing through serde's recursive enum
@@ -305,24 +303,6 @@ pub(in crate::db) fn decode_structural_value_storage_ulid_bytes(
     decode_ulid_payload_bytes(decode_binary_required_bytes(payload)?)
 }
 
-/// Decode one canonical enum payload into its variant, optional strict path,
-/// and borrowed nested payload bytes without constructing `Value`.
-pub(in crate::db) fn decode_enum(
-    raw_bytes: &[u8],
-) -> Result<EnumBinaryDecodedPayload<'_>, FieldDecodeError> {
-    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ENUM)?;
-    let [variant, path, nested] = split_value_storage_tuple_3(payload)?;
-    let variant = decode_binary_required_text(variant)?.to_owned();
-    let path = decode_binary_optional_text(path)?.map(str::to_owned);
-    let payload = if value_storage_bytes_are_null(nested)? {
-        None
-    } else {
-        Some(nested)
-    };
-
-    Ok((variant, path, payload))
-}
-
 /// Split one structural value-storage list payload into borrowed nested item
 /// payload slices without materializing runtime `Value` items.
 pub(in crate::db) fn decode_value_storage_list_item_slices(
@@ -435,7 +415,6 @@ pub(super) fn decode_value_storage_slice_at_depth(
         VALUE_BINARY_TAG_DURATION => {
             decode_structural_value_storage_duration_bytes(raw_bytes).map(Value::Duration)
         }
-        VALUE_BINARY_TAG_ENUM => decode_binary_enum_value(raw_bytes, depth),
         VALUE_BINARY_TAG_FLOAT32 => {
             decode_structural_value_storage_float32_bytes(raw_bytes).map(Value::Float32)
         }
@@ -460,20 +439,6 @@ pub(super) fn decode_value_storage_slice_at_depth(
         }
         _ => Err(FieldDecodeError::new()),
     }
-}
-
-// Decode one local enum payload from the fixed positional tuple
-// `(variant, path, payload)`.
-fn decode_binary_enum_value(raw_bytes: &[u8], depth: usize) -> Result<Value, FieldDecodeError> {
-    let (variant, path, nested) = decode_enum(raw_bytes)?;
-
-    let mut value = ValueEnum::new(&variant, path.as_deref());
-    if let Some(nested) = nested {
-        let payload = decode_bounded_value_storage_slice(nested, depth)?;
-        value = value.with_payload(payload);
-    }
-
-    Ok(Value::Enum(value))
 }
 
 // Decode one binary list payload recursively from raw item bytes.
@@ -551,32 +516,4 @@ const fn decode_binary_int_big_sign(sign: i64) -> Result<BigIntSign, FieldDecode
         1 => Ok(BigIntSign::Plus),
         _ => Err(FieldDecodeError::new()),
     }
-}
-
-// Decode one optional binary text field from the fixed enum tuple.
-fn decode_binary_optional_text(raw_bytes: &[u8]) -> Result<Option<&str>, FieldDecodeError> {
-    let Some(&tag) = raw_bytes.first() else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag == TAG_NULL {
-        let end = skip_binary_value(raw_bytes, 0)?;
-        if end != raw_bytes.len() {
-            return Err(FieldDecodeError::new());
-        }
-
-        return Ok(None);
-    }
-
-    decode_binary_required_text(raw_bytes).map(Some)
-}
-
-// Materialize a nested value-storage payload whose exact byte range was already
-// bounded by tuple/list/map traversal.
-fn decode_bounded_value_storage_slice(
-    raw_bytes: &[u8],
-    depth: usize,
-) -> Result<Value, FieldDecodeError> {
-    let slice = ValueStorageSlice::from_skip_bounded_unchecked(raw_bytes);
-
-    decode_value_storage_slice_at_depth(slice, depth)
 }

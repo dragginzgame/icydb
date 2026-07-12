@@ -6,15 +6,19 @@
 use crate::{
     db::{
         codec::decode_row_payload_bytes,
-        data::{RawRow, decode_runtime_value_from_accepted_field_contract},
+        data::{RawRow, decode_runtime_value_from_row_contract},
         schema::{
-            AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
+            AcceptedCatalogSnapshotSelection, AcceptedFieldAbsencePolicy,
+            AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             OwnedAcceptedRelationEdgeContract,
         },
     },
     error::InternalError,
-    model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+    },
     value::Value,
 };
 use std::{borrow::Cow, rc::Rc};
@@ -23,6 +27,88 @@ type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
 type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
 type RowSlotTableSections<'a> = (usize, usize, &'a [u8], &'a [u8]);
+
+/// Accepted snapshot and structural row contract selected from one catalog root.
+#[derive(Clone, Debug)]
+pub(in crate::db) struct AcceptedStructuralRowAuthority {
+    accepted_schema: AcceptedSchemaSnapshot,
+    row_contract: StructuralRowContract,
+}
+
+impl AcceptedStructuralRowAuthority {
+    /// Build accepted-only row authority without separating snapshot and catalog.
+    pub(in crate::db) fn from_catalog_selection(
+        entity_path: &'static str,
+        selection: &AcceptedCatalogSnapshotSelection,
+    ) -> Result<Self, InternalError> {
+        let accepted_schema = selection.decode_verified()?;
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted_schema)?;
+        let row_contract = Self::catalog_backed_row_contract(entity_path, &descriptor, selection);
+
+        Ok(Self {
+            accepted_schema,
+            row_contract,
+        })
+    }
+
+    /// Build generated-compatible row authority from one catalog selection.
+    pub(in crate::db) fn from_generated_compatible_catalog_selection(
+        entity_path: &'static str,
+        model: &'static EntityModel,
+        selection: &AcceptedCatalogSnapshotSelection,
+    ) -> Result<Self, InternalError> {
+        let accepted_schema = selection.decode_verified()?;
+        let (descriptor, _row_proof) =
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+                &accepted_schema,
+                model,
+            )?;
+        let row_contract = Self::catalog_backed_row_contract(entity_path, &descriptor, selection);
+
+        Ok(Self {
+            accepted_schema,
+            row_contract,
+        })
+    }
+
+    fn catalog_backed_row_contract(
+        entity_path: &'static str,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        selection: &AcceptedCatalogSnapshotSelection,
+    ) -> StructuralRowContract {
+        let identity = selection.identity();
+        let row_decode_contract =
+            descriptor.row_decode_contract_with_catalog(selection.enum_catalog().clone());
+        debug_assert_eq!(
+            row_decode_contract.accepted_schema_revision(),
+            Some(identity.accepted_schema_revision())
+        );
+        debug_assert!(
+            row_decode_contract.enum_catalog().is_some_and(|catalog| {
+                std::ptr::eq(catalog, selection.enum_catalog().catalog())
+            })
+        );
+        StructuralRowContract::from_accepted_decode_contract(entity_path, row_decode_contract)
+    }
+
+    /// Borrow the accepted snapshot selected with this row contract.
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
+        &self.accepted_schema
+    }
+
+    /// Consume this authority into its still-paired accepted artifacts.
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (AcceptedSchemaSnapshot, StructuralRowContract) {
+        (self.accepted_schema, self.row_contract)
+    }
+
+    /// Consume this authority when the caller only needs structural row decode.
+    #[must_use]
+    pub(in crate::db) fn into_row_contract(self) -> StructuralRowContract {
+        self.row_contract
+    }
+}
 
 ///
 /// StructuralRowContract
@@ -118,6 +204,7 @@ impl StructuralRowContract {
     /// sequence after callers have already crossed schema reconciliation.
     /// Runtime row readers receive an accepted-only structural contract so they
     /// cannot fall back to generated schema metadata after acceptance.
+    #[cfg(test)]
     pub(in crate::db) fn from_accepted_schema_snapshot(
         entity_path: &'static str,
         accepted_schema: &AcceptedSchemaSnapshot,
@@ -201,6 +288,16 @@ impl StructuralRowContract {
             })?
             .required_field_for_slot(self.entity_path(), slot)?
             .decode_contract())
+    }
+
+    /// Borrow the catalog authority carried by this accepted row contract.
+    #[must_use]
+    pub(in crate::db) fn accepted_enum_catalog_handle(
+        &self,
+    ) -> Option<&crate::db::schema::AcceptedEnumCatalogHandle> {
+        self.accepted_decode_contract
+            .as_ref()
+            .and_then(|contract| contract.enum_catalog_handle())
     }
 
     /// Borrow accepted relation-edge metadata declared on this source row.
@@ -329,10 +426,7 @@ impl StructuralRowContract {
                     ));
                 };
 
-                decode_runtime_value_from_accepted_field_contract(
-                    field.decode_contract(),
-                    default_payload,
-                )
+                decode_runtime_value_from_row_contract(self, slot, default_payload)
             }
             Some(AcceptedFieldAbsencePolicy::Required) | None => Err(
                 InternalError::persisted_row_declared_field_missing(field_name),

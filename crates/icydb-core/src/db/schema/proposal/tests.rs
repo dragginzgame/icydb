@@ -1,13 +1,14 @@
 use crate::{
     db::schema::{
-        FieldId, PersistedFieldKind, PersistedIndexExpressionOp, PersistedIndexKeyItemSnapshot,
+        AcceptedFieldKind, FieldId, PersistedIndexExpressionOp, PersistedIndexKeyItemSnapshot,
         PersistedIndexKeySnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaVersion,
         compiled_schema_proposal_for_model,
     },
     model::{
         entity::{EntityModel, PrimaryKeyModel, RelationEdgeModel},
         field::{
-            FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
+            EnumVariantModel, FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
+            LeafCodec, ScalarCodec,
         },
         index::{IndexExpression, IndexKeyItem, IndexModel},
     },
@@ -100,6 +101,43 @@ static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_mo
     &FIELDS,
     &INDEXES,
 );
+static STATUS_VARIANTS: [EnumVariantModel; 3] = [
+    EnumVariantModel::new("Active", None, FieldStorageDecode::ByKind),
+    EnumVariantModel::new(
+        "Loaded",
+        Some(&FieldKind::Nat64),
+        FieldStorageDecode::ByKind,
+    ),
+    EnumVariantModel::new("Paused", None, FieldStorageDecode::ByKind),
+];
+const STATUS_KIND: FieldKind = FieldKind::Enum {
+    path: "schema::proposal::tests::Status",
+    variants: &STATUS_VARIANTS,
+};
+static ENUM_DEFAULT_FIELDS: [FieldModel; 2] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+        "status",
+        STATUS_KIND,
+        FieldStorageDecode::ByKind,
+        false,
+        None,
+        None,
+        FieldDatabaseDefault::AuthoredEnumUnit {
+            enum_path: "schema::proposal::tests::Status",
+            variant: "Active",
+        },
+        &[],
+    ),
+];
+static ENUM_DEFAULT_MODEL: EntityModel = entity_model_from_static(
+    "schema::proposal::tests::EnumDefaultEntity",
+    "EnumDefaultEntity",
+    &ENUM_DEFAULT_FIELDS[0],
+    0,
+    &ENUM_DEFAULT_FIELDS,
+    &[],
+);
 
 #[test]
 fn compiled_schema_proposal_assigns_initial_field_ids_from_slots() {
@@ -131,6 +169,69 @@ fn compiled_schema_proposal_assigns_initial_field_ids_from_slots() {
             FieldId::new(4),
         ],
     );
+}
+
+#[test]
+fn compiled_enum_default_persists_catalog_ids() {
+    let proposal = compiled_schema_proposal_for_model(&ENUM_DEFAULT_MODEL);
+    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[
+        &ENUM_DEFAULT_MODEL,
+    ])
+    .expect("generated enum catalog should build");
+    let snapshot = proposal
+        .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+        .expect("authored enum default should admit through its store catalog");
+    let field = &snapshot.fields()[1];
+    let payload = field
+        .default()
+        .slot_payload()
+        .expect("accepted enum default should persist one slot payload");
+
+    assert_eq!(payload.first(), Some(&0x84));
+    let contract = crate::db::schema::AcceptedFieldDecodeContract::new(
+        field.name(),
+        field.kind(),
+        field.nullable(),
+        field.storage_decode(),
+        field.leaf_codec(),
+    );
+    crate::db::data::validate_default_payload_for_accepted_field_contract(
+        &catalog, contract, payload,
+    )
+    .expect("generated enum default bytes should satisfy bundle validation");
+}
+
+#[test]
+fn compiled_enum_default_rejects_unknown_and_payload_variants() {
+    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[
+        &ENUM_DEFAULT_MODEL,
+    ])
+    .expect("generated enum catalog should build");
+    let kind = crate::db::schema::enum_catalog::resolve_model_field_kind(&catalog, STATUS_KIND)
+        .expect("test enum kind should resolve through its catalog");
+
+    for variant in ["Missing", "Loaded"] {
+        let field = super::CompiledFieldProposal {
+            id: FieldId::new(2),
+            name: "status",
+            slot: SchemaFieldSlot::new(1),
+            kind: STATUS_KIND,
+            nested_leaves: Vec::new(),
+            nullable: false,
+            database_default: FieldDatabaseDefault::AuthoredEnumUnit {
+                enum_path: "schema::proposal::tests::Status",
+                variant,
+            },
+            write_policy: crate::db::schema::SchemaFieldWritePolicy::none(),
+            storage_decode: FieldStorageDecode::ByKind,
+            leaf_codec: LeafCodec::StructuralFallback,
+        };
+
+        assert!(
+            field.persisted_database_default(&catalog, &kind).is_err(),
+            "{variant} must reject as an authored unit-enum default",
+        );
+    }
 }
 
 #[test]
@@ -233,7 +334,7 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     assert_eq!(name.id(), FieldId::new(2));
     assert_eq!(name.name(), "name");
     assert_eq!(name.slot(), SchemaFieldSlot::from_generated_index(1));
-    std::assert_matches!(name.kind(), PersistedFieldKind::Text { max_len: None });
+    std::assert_matches!(name.kind(), AcceptedFieldKind::Text { max_len: None });
     assert!(name.nullable());
     assert_eq!(name.default(), &SchemaFieldDefault::None);
     assert_eq!(name.storage_decode(), FieldStorageDecode::ByKind);
@@ -245,10 +346,10 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     assert_eq!(profile.nested_leaves()[0].path(), &["nickname".to_string()],);
     std::assert_matches!(
         profile.nested_leaves()[0].kind(),
-        PersistedFieldKind::Text { max_len: None }
+        AcceptedFieldKind::Text { max_len: None }
     );
     assert_eq!(profile.nested_leaves()[1].path(), &["score".to_string()]);
-    std::assert_matches!(profile.nested_leaves()[1].kind(), PersistedFieldKind::Nat64);
+    std::assert_matches!(profile.nested_leaves()[1].kind(), AcceptedFieldKind::Nat64);
 
     let name_index = &snapshot.indexes()[0];
     assert_eq!(name_index.ordinal(), 1);
@@ -280,7 +381,7 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     );
     std::assert_matches!(
         nested_index.key().field_paths()[0].kind(),
-        PersistedFieldKind::Text { max_len: None }
+        AcceptedFieldKind::Text { max_len: None }
     );
 
     let expression_index = &snapshot.indexes()[2];
@@ -302,11 +403,11 @@ fn compiled_schema_proposal_builds_initial_persisted_snapshot() {
     assert_eq!(expression.source().path(), &["name".to_string()]);
     std::assert_matches!(
         expression.input_kind(),
-        PersistedFieldKind::Text { max_len: None }
+        AcceptedFieldKind::Text { max_len: None }
     );
     std::assert_matches!(
         expression.output_kind(),
-        PersistedFieldKind::Text { max_len: None }
+        AcceptedFieldKind::Text { max_len: None }
     );
     assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
 }

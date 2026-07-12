@@ -85,7 +85,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
-                supports_ordering = true,
+                supports_ordering = false,
                 is_keyable = false,
                 is_primary_key_component_encodable = false
             ),

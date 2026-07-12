@@ -177,7 +177,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "010124242424242424242424242424242424242424242424242424242424242424240000000003000000020113000000000000000701110000000874656e616e742d6100",
+            "020124242424242424242424242424242424242424242424242424242424242424240000000003000000020113000000000000000701110000000874656e616e742d6100",
             "scalar continuation token wire encoding must remain stable",
         );
     }
@@ -192,7 +192,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "010151515151515151515151515151515151515151515151515151515151515151510000000009000000010113000000000000000b0100000003aabbcc",
+            "020151515151515151515151515151515151515151515151515151515151515151510000000009000000010113000000000000000b0100000003aabbcc",
             "scalar continuation token with index-range anchor wire encoding must remain stable",
         );
     }
@@ -216,5 +216,18 @@ mod tests {
             .expect_err("oversized scalar cursor payload must fail before emission");
 
         std::assert_matches!(err, TokenWireError::Encode);
+    }
+
+    #[test]
+    fn continuation_token_rejects_pre_0200_wire_version() {
+        let mut encoded = scalar_token_fixture(Direction::Asc)
+            .encode()
+            .expect("current scalar continuation token should encode");
+        encoded[0] = 1;
+
+        let err = ContinuationToken::decode(encoded.as_slice())
+            .expect_err("pre-0.200 continuation token must reject");
+
+        std::assert_matches!(err, TokenWireError::Decode);
     }
 }

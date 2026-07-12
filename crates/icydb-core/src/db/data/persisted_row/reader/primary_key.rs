@@ -10,7 +10,7 @@ use crate::{
             },
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
-        schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
+        schema::{AcceptedFieldDecodeContract, AcceptedFieldKind},
     },
     error::InternalError,
     model::field::{FieldKind, LeafCodec},
@@ -332,65 +332,61 @@ fn materialize_primary_key_value_from_kind(
 // Only primary-key-compatible shapes are accepted; relation keys recurse to
 // their declared target-key kind exactly like the generated bridge.
 fn materialize_primary_key_value_from_persisted_kind(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     component: PrimaryKeyComponent,
 ) -> Result<Value, InternalError> {
     match (kind, component) {
-        (PersistedFieldKind::Account, PrimaryKeyComponent::Account(value)) => {
+        (AcceptedFieldKind::Account, PrimaryKeyComponent::Account(value)) => {
             Ok(Value::Account(value))
         }
-        (PersistedFieldKind::Int64, PrimaryKeyComponent::Int64(value)) => Ok(Value::Int64(value)),
-        (PersistedFieldKind::Int8, PrimaryKeyComponent::Int64(value))
+        (AcceptedFieldKind::Int64, PrimaryKeyComponent::Int64(value)) => Ok(Value::Int64(value)),
+        (AcceptedFieldKind::Int8, PrimaryKeyComponent::Int64(value))
             if i8::try_from(value).is_ok() =>
         {
             Ok(Value::Int64(value))
         }
-        (PersistedFieldKind::Int16, PrimaryKeyComponent::Int64(value))
+        (AcceptedFieldKind::Int16, PrimaryKeyComponent::Int64(value))
             if i16::try_from(value).is_ok() =>
         {
             Ok(Value::Int64(value))
         }
-        (PersistedFieldKind::Int32, PrimaryKeyComponent::Int64(value))
+        (AcceptedFieldKind::Int32, PrimaryKeyComponent::Int64(value))
             if i32::try_from(value).is_ok() =>
         {
             Ok(Value::Int64(value))
         }
-        (PersistedFieldKind::Int128, PrimaryKeyComponent::Int128(value)) => {
-            Ok(Value::Int128(value))
-        }
-        (PersistedFieldKind::Principal, PrimaryKeyComponent::Principal(value)) => {
+        (AcceptedFieldKind::Int128, PrimaryKeyComponent::Int128(value)) => Ok(Value::Int128(value)),
+        (AcceptedFieldKind::Principal, PrimaryKeyComponent::Principal(value)) => {
             Ok(Value::Principal(value))
         }
-        (PersistedFieldKind::Relation { key_kind, .. }, component) => {
+        (AcceptedFieldKind::Relation { key_kind, .. }, component) => {
             materialize_primary_key_value_from_persisted_kind(key_kind, component)
         }
-        (PersistedFieldKind::Subaccount, PrimaryKeyComponent::Subaccount(value)) => {
+        (AcceptedFieldKind::Subaccount, PrimaryKeyComponent::Subaccount(value)) => {
             Ok(Value::Subaccount(value))
         }
-        (PersistedFieldKind::Timestamp, PrimaryKeyComponent::Timestamp(value)) => {
+        (AcceptedFieldKind::Timestamp, PrimaryKeyComponent::Timestamp(value)) => {
             Ok(Value::Timestamp(value))
         }
-        (PersistedFieldKind::Nat64, PrimaryKeyComponent::Nat64(value)) => Ok(Value::Nat64(value)),
-        (PersistedFieldKind::Nat8, PrimaryKeyComponent::Nat64(value))
+        (AcceptedFieldKind::Nat64, PrimaryKeyComponent::Nat64(value)) => Ok(Value::Nat64(value)),
+        (AcceptedFieldKind::Nat8, PrimaryKeyComponent::Nat64(value))
             if u8::try_from(value).is_ok() =>
         {
             Ok(Value::Nat64(value))
         }
-        (PersistedFieldKind::Nat16, PrimaryKeyComponent::Nat64(value))
+        (AcceptedFieldKind::Nat16, PrimaryKeyComponent::Nat64(value))
             if u16::try_from(value).is_ok() =>
         {
             Ok(Value::Nat64(value))
         }
-        (PersistedFieldKind::Nat32, PrimaryKeyComponent::Nat64(value))
+        (AcceptedFieldKind::Nat32, PrimaryKeyComponent::Nat64(value))
             if u32::try_from(value).is_ok() =>
         {
             Ok(Value::Nat64(value))
         }
-        (PersistedFieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => {
-            Ok(Value::Nat128(value))
-        }
-        (PersistedFieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
-        (PersistedFieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
+        (AcceptedFieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => Ok(Value::Nat128(value)),
+        (AcceptedFieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
+        (AcceptedFieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
         (_, _) => Err(InternalError::persisted_row_decode_corruption()),
     }
 }

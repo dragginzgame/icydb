@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.200.0] ⚠️ - 2026-07-12 - Schema-Native Enums
+
+Detailed notes: [docs/changelog/0.200.md](docs/changelog/0.200.md)
+
+### ⚠️ Breaking
+
+- `0.200.0` ships one catalog-backed enum model with stable type and variant
+  identities, accepted-schema-only runtime authority, canonical enum admission,
+  target-typed unit-enum writes and predicates, atomic schema publication, and
+  ID-based unit-enum equality indexes. It also hard-cuts every pre-0.200 durable
+  format: existing databases, snapshots, indexes, cursors, and older binaries
+  are unsupported and development stores must be recreated; no migration,
+  alias, fallback, repair, or rollback path is provided.
+
 ## [0.199.x] 🧹 - 2026-07-08 - Technical Debt Audit
 
 Detailed notes: [docs/changelog/0.199.md](docs/changelog/0.199.md)

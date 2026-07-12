@@ -72,10 +72,7 @@ fn estimate_value_payload_bytes(value: &Value) -> u32 {
 }
 
 fn estimate_enum_payload_bytes(value: &ValueEnum) -> u32 {
-    let mut bytes = byte_len_u32(value.variant().len());
-    if let Some(path) = value.path() {
-        bytes = bytes.saturating_add(byte_len_u32(path.len()));
-    }
+    let mut bytes = 9_u32;
     if let Some(payload) = value.payload() {
         bytes = bytes.saturating_add(estimate_value_payload_bytes(payload));
     }

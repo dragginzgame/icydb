@@ -3,12 +3,11 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, SlotReader, decode_structural_field_by_kind_bytes,
-            encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
+            CanonicalRow, RawRow, SlotReader, encode_structural_value_storage_bytes,
             with_structural_read_metrics,
         },
         schema::{
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, FieldId, PersistedFieldKind,
+            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, FieldId,
             PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout,
             SchemaVersion, compiled_schema_proposal_for_model,
         },
@@ -18,12 +17,9 @@ use crate::{
         entity::EntityModel,
         field::{FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
     },
-    traits::{
-        EntitySchema, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
-        RuntimeValueEncode,
-    },
+    traits::EntitySchema,
     types::{Blob, Text},
-    value::{Value, ValueEnum},
+    value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -190,7 +186,7 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
                 FieldId::new(1),
                 "tenant_id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 crate::db::schema::SchemaFieldDefault::None,
@@ -201,7 +197,7 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
                 FieldId::new(2),
                 "local_id".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 crate::db::schema::SchemaFieldDefault::None,
@@ -212,7 +208,7 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
                 FieldId::new(3),
                 "label".to_string(),
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Text { max_len: Some(64) },
+                AcceptedFieldKind::Text { max_len: Some(64) },
                 Vec::new(),
                 false,
                 crate::db::schema::SchemaFieldDefault::None,
@@ -412,7 +408,7 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
         title.id(),
         title.name().to_string(),
         title.slot(),
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         title.nested_leaves().to_vec(),
         title.nullable(),
         title.default().clone(),
@@ -627,141 +623,6 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
     assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
-#[test]
-fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
-    static ENUM_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
-        "Loaded",
-        Some(&FieldKind::Nat64),
-        FieldStorageDecode::ByKind,
-    )];
-    let bytes = encode_structural_field_by_kind_bytes(
-        FieldKind::Enum {
-            path: "tests::State",
-            variants: ENUM_VARIANTS,
-        },
-        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat64(7))),
-        "status",
-    )
-    .expect("enum payload bytes should encode");
-
-    let decoded = decode_structural_field_by_kind_bytes(
-        &bytes,
-        FieldKind::Enum {
-            path: "tests::State",
-            variants: ENUM_VARIANTS,
-        },
-    )
-    .expect("enum payload decode should succeed");
-
-    assert_eq!(
-        decoded,
-        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat64(7)),),
-    );
-}
-
-///
-/// RowDecodeStatus
-///
-/// RowDecodeStatus is the typed persisted enum wrapper for structural row
-/// decode tests.
-/// The decoder still materializes runtime `Value` outputs, but persistence
-/// enters through this static field contract instead of `Value` itself.
-///
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-struct RowDecodeStatus(ValueEnum);
-
-impl FieldTypeMeta for RowDecodeStatus {
-    const KIND: FieldKind = FieldKind::Enum {
-        path: "tests::Status",
-        variants: &[],
-    };
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
-}
-
-impl RuntimeValueEncode for RowDecodeStatus {
-    fn to_value(&self) -> Value {
-        Value::Enum(self.0.clone())
-    }
-}
-
-impl RuntimeValueDecode for RowDecodeStatus {
-    fn from_value(value: &Value) -> Option<Self> {
-        let Value::Enum(value) = value else {
-            return None;
-        };
-
-        Some(Self(value.clone()))
-    }
-}
-
-impl PersistedFieldSlotCodec for RowDecodeStatus {
-    fn encode_persisted_slot(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
-    }
-
-    fn decode_persisted_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, crate::error::InternalError> {
-        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
-    }
-
-    fn decode_persisted_option_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, crate::error::InternalError> {
-        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct RowDecodeValueEntity {
-    id: Ulid,
-    status: RowDecodeStatus,
-}
-
-impl Default for RowDecodeValueEntity {
-    fn default() -> Self {
-        Self {
-            id: Ulid::from_u128(0),
-            status: RowDecodeStatus(ValueEnum::new("Pending", Some("tests::Status"))),
-        }
-    }
-}
-
-crate::test_entity! {
-    ident = RowDecodeValueEntity,
-    entity_name = "RowDecodeValueEntity",
-    tag = crate::testing::PROBE_ENTITY_TAG,
-    store = RowDecodeStore,
-    canister = RowDecodeCanister,
-    key_type = Ulid,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! {
-            status: RowDecodeStatus => FieldKind::Enum {
-                path: "tests::Status",
-                variants: &[],
-            },
-            options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(crate::model::field::FieldStorageDecode::Value),
-        },
-    ],
-    indexes = [],
-}
-
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RowDecodeValueTextEntity {
     id: Ulid,
@@ -785,112 +646,6 @@ crate::test_entity! {
         },
     ],
     indexes = [],
-}
-
-#[test]
-fn structural_row_decoder_respects_value_storage_decode_contract() {
-    let entity = RowDecodeValueEntity {
-        id: Ulid::from_u128(77),
-        status: RowDecodeStatus(
-            ValueEnum::new("Paid", Some("tests::Status")).with_payload(Value::Nat64(7)),
-        ),
-    };
-    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeValueEntity>(entity.id)
-        .expect("test key construction should succeed");
-    let row = CanonicalRow::from_generated_entity_for_test(&entity)
-        .expect("test row serialization should succeed")
-        .into_raw_row();
-    let decoded = RowDecoder::structural()
-        .decode(
-            &RowLayout::from_generated_model_for_test(RowDecodeValueEntity::MODEL),
-            (key, row),
-        )
-        .expect("structural row decode should succeed");
-
-    assert_eq!(decoded.slot(1), Some(entity.status.to_value()));
-}
-
-#[test]
-fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field() {
-    let entity = RowDecodeValueEntity {
-        id: Ulid::from_u128(78),
-        status: RowDecodeStatus(
-            ValueEnum::new("Settled", Some("tests::Status")).with_payload(Value::Nat64(11)),
-        ),
-    };
-    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeValueEntity>(entity.id)
-        .expect("test key construction should succeed");
-    let primary_key = key.primary_key_value();
-    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
-        .expect("test row serialization should succeed")
-        .into_raw_row();
-    let accepted = AcceptedSchemaSnapshot::new(
-        compiled_schema_proposal_for_model(RowDecodeValueEntity::MODEL)
-            .initial_persisted_schema_snapshot(),
-    );
-    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
-        .expect("accepted value-storage row decode schema should project into runtime contract");
-    let generated_layout = RowLayout::from_generated_model_for_test(RowDecodeValueEntity::MODEL);
-    let accepted_layout =
-        accepted_row_decode_layout_for_model(RowDecodeValueEntity::MODEL, &descriptor)
-            .expect("value-storage accepted layout should be generated-compatible");
-
-    // Phase 1: full-row decode must keep `FieldStorageDecode::Value` logical
-    // values identical after accepted contracts take over the direct path.
-    let generated_full = RowDecoder::structural()
-        .decode(&generated_layout, (key.clone(), raw_row.clone()))
-        .expect("generated value-storage full-row decode should succeed");
-    let accepted_full = RowDecoder::structural()
-        .decode(&accepted_layout, (key.clone(), raw_row.clone()))
-        .expect("accepted value-storage full-row decode should succeed");
-    assert_eq!(accepted_full.slot(1), generated_full.slot(1));
-
-    // Phase 2: sparse slot decode is the accepted-contract branch that
-    // validates and materializes structural-fallback payloads directly.
-    let selected_slots = [1];
-    let generated_sparse = RowDecoder::structural()
-        .decode_slots(
-            &generated_layout,
-            &primary_key,
-            &raw_row,
-            Some(&selected_slots),
-        )
-        .expect("generated value-storage sparse decode should succeed");
-    let accepted_sparse = RowDecoder::structural()
-        .decode_slots(
-            &accepted_layout,
-            &primary_key,
-            &raw_row,
-            Some(&selected_slots),
-        )
-        .expect("accepted value-storage sparse decode should succeed");
-    assert_eq!(accepted_sparse, generated_sparse);
-
-    // Phase 3: the narrow single-slot direct path must use the same accepted
-    // contract as the sparse slot-vector path so grouped/projection fast paths
-    // cannot fall back to generated-only value-storage semantics.
-    let generated_required = generated_layout
-        .decode_required_value_from_data_key(&raw_row, &key, 1)
-        .expect("generated value-storage required-slot decode should succeed");
-    let accepted_required = accepted_layout
-        .decode_required_value_from_data_key(&raw_row, &key, 1)
-        .expect("accepted value-storage required-slot decode should succeed");
-    assert_eq!(accepted_required, generated_required);
-
-    let mut generated_reader = generated_layout
-        .open_raw_row_with_contract(&raw_row)
-        .expect("generated value-storage lazy row reader should open");
-    let mut accepted_reader = accepted_layout
-        .open_raw_row_with_contract(&raw_row)
-        .expect("accepted value-storage lazy row reader should open");
-    assert_eq!(
-        accepted_reader
-            .get_value(1)
-            .expect("accepted value-storage lazy slot decode should succeed"),
-        generated_reader
-            .get_value(1)
-            .expect("generated value-storage lazy slot decode should succeed"),
-    );
 }
 
 #[test]

@@ -12,7 +12,7 @@ use crate::{
         Db,
         commit::ensure_recovered,
         data::{
-            DecodedDataStoreKey, PersistedRow, SerializedStructuralPatch, StructuralPatch,
+            AuthoredStructuralPatch, DecodedDataStoreKey, PersistedRow, SerializedStructuralPatch,
             serialize_complete_structural_patch_fields_with_accepted_contract,
             serialize_structural_patch_fields_with_accepted_contract,
         },
@@ -70,7 +70,7 @@ impl MutationInput {
     /// Lower one accepted-schema key + sparse structural patch pair.
     pub(in crate::db::executor) fn from_accepted_sparse_structural_patch<E>(
         key: E::Key,
-        patch: &StructuralPatch,
+        patch: &AuthoredStructuralPatch,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<Self, InternalError>
     where
@@ -89,7 +89,7 @@ impl MutationInput {
     /// Lower one accepted-schema key + complete after-image structural patch pair.
     pub(in crate::db::executor) fn from_accepted_complete_structural_patch<E>(
         key: E::Key,
-        patch: &StructuralPatch,
+        patch: &AuthoredStructuralPatch,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<Self, InternalError>
     where

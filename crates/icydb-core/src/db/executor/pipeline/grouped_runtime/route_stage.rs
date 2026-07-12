@@ -30,6 +30,13 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
 
     validate_executor_plan_for_authority(&authority, plan.logical_plan())?;
     let grouped_handoff = grouped_executor_handoff(plan.logical_plan())?;
+    if grouped_handoff
+        .group_fields()
+        .iter()
+        .any(|field| field.accepted_kind().is_none())
+    {
+        return Err(InternalError::query_executor_invariant());
+    }
     if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
         return Err(reason.into_grouped_route_internal_error());
     }

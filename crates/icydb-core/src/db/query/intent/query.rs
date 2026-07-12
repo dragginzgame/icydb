@@ -24,7 +24,7 @@ use crate::{
                 VisibleIndexes,
             },
         },
-        schema::SchemaInfo,
+        schema::{SchemaInfo, SchemaLiteralValidationReason, ValidateError},
     },
     traits::{EntityKind, KeyValueCodec, SingletonEntity},
     value::{InputValue, Value},
@@ -149,28 +149,10 @@ impl StructuralQuery {
     #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db) fn direct_count_cardinality_prefix_candidate(&self) -> bool {
-        if self.intent.validate_policy_shape().is_err() {
-            return false;
-        }
-
-        let access_inputs = self.intent.planning_access_inputs();
-        let logical_inputs = self.intent.planning_logical_inputs();
-        if access_inputs.order().is_some()
-            || access_inputs.has_key_access_override()
-            || logical_inputs.distinct()
-            || logical_inputs.has_group()
-            || logical_inputs.has_having_expr()
-            || (logical_inputs.has_filter_expr() && !logical_inputs.filter_predicate_covers_expr())
-        {
-            return false;
-        }
-
-        let QueryMode::Load(load_spec) = self.intent.mode() else {
-            return false;
-        };
-        load_spec.limit().is_none()
-            && load_spec.offset() == 0
-            && access_inputs.predicate().is_some()
+        matches!(
+            self.intent.direct_count_cardinality_prefix_predicate(),
+            Ok(Some(_))
+        )
     }
 
     #[must_use]
@@ -904,8 +886,15 @@ impl<E: EntityKind> Query<E> {
         op: CompareOp,
         value: InputValue,
     ) -> Result<Self, QueryError> {
+        let field = field.as_ref().to_string();
+        let value = value.try_into_runtime_non_enum().ok_or_else(|| {
+            QueryError::validate(ValidateError::invalid_literal(
+                field.as_str(),
+                SchemaLiteralValidationReason::LiteralTypeMismatch,
+            ))
+        })?;
         let Self { inner, .. } = self;
-        let inner = inner.having_group(field, op, value.into())?;
+        let inner = inner.having_group(field, op, value)?;
 
         Ok(Self::from_inner(inner))
     }
@@ -917,8 +906,15 @@ impl<E: EntityKind> Query<E> {
         op: CompareOp,
         value: InputValue,
     ) -> Result<Self, QueryError> {
+        let field = field.as_ref().to_string();
+        let value = value.try_into_runtime_non_enum().ok_or_else(|| {
+            QueryError::validate(ValidateError::invalid_literal(
+                field.as_str(),
+                SchemaLiteralValidationReason::LiteralTypeMismatch,
+            ))
+        })?;
         let Self { inner, .. } = self;
-        let inner = inner.having_group_with_schema(field, schema, op, value.into())?;
+        let inner = inner.having_group_with_schema(field, schema, op, value)?;
 
         Ok(Self::from_inner(inner))
     }
@@ -930,8 +926,14 @@ impl<E: EntityKind> Query<E> {
         op: CompareOp,
         value: InputValue,
     ) -> Result<Self, QueryError> {
+        let value = value.try_into_runtime_non_enum().ok_or_else(|| {
+            QueryError::validate(ValidateError::invalid_literal(
+                "aggregate",
+                SchemaLiteralValidationReason::LiteralTypeMismatch,
+            ))
+        })?;
         let Self { inner, .. } = self;
-        let inner = inner.having_aggregate(aggregate_index, op, value.into())?;
+        let inner = inner.having_aggregate(aggregate_index, op, value)?;
 
         Ok(Self::from_inner(inner))
     }

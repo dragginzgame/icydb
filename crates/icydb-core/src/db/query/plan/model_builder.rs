@@ -32,11 +32,7 @@ impl FieldSlot {
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn from_test_slot(index: usize, field: impl Into<String>) -> Self {
-        Self {
-            index,
-            field: field.into(),
-            kind: None,
-        }
+        Self::unresolved(index, field)
     }
 }
 

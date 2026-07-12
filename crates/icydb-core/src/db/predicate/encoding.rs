@@ -8,7 +8,7 @@ use crate::{
         numeric::coerce_numeric_decimal,
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate, casefold_text},
     },
-    value::{Value, ValueEnum, canonicalize_value_set},
+    value::{CanonicalEnumBody, Value, ValueEnum, canonicalize_value_set},
 };
 
 const SORT_PRED_TRUE: u8 = 0x00;
@@ -253,20 +253,14 @@ fn canonicalize_compare_literal_for_coercion(coercion: CoercionId, value: &Value
 }
 
 fn encode_enum_sort_key_into(out: &mut Vec<u8>, value: &ValueEnum) {
-    match value.path() {
-        Some(path) => {
-            out.push(1);
-            push_str_u64(out, path);
-        }
-        None => out.push(0),
-    }
-    push_str_u64(out, value.variant());
-    match value.payload() {
-        Some(payload) => {
+    out.extend_from_slice(&value.type_id().get().to_be_bytes());
+    out.extend_from_slice(&value.variant_id().get().to_be_bytes());
+    match value.body() {
+        CanonicalEnumBody::Unit => out.push(0),
+        CanonicalEnumBody::Payload(payload) => {
             out.push(1);
             push_value_sort_key_framed(out, payload);
         }
-        None => out.push(0),
     }
 }
 

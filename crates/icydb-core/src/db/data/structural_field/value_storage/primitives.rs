@@ -72,14 +72,6 @@ pub(super) fn split_binary_tuple_2(raw_bytes: &[u8]) -> Result<[&[u8]; 2], Field
     split_tuple_2(raw_bytes, skip_binary_value)
 }
 
-// Split a three-item tuple whose items are nested `Value` envelopes without
-// staging borrowed item slices in a heap-backed Vec.
-pub(super) fn split_value_storage_tuple_3(
-    raw_bytes: &[u8],
-) -> Result<[&[u8]; 3], FieldDecodeError> {
-    split_tuple_3(raw_bytes, skip_value_storage_binary_value)
-}
-
 // Shared fixed-arity tuple head validation. Error wording intentionally
 // matches the Vec-based splitter exactly.
 fn parse_fixed_tuple_head(raw_bytes: &[u8], expected_len: u32) -> Result<usize, FieldDecodeError> {
@@ -113,32 +105,6 @@ fn split_tuple_2(
     }
 
     Ok([first, second])
-}
-
-// Split a three-item tuple with the caller-selected item skip authority.
-fn split_tuple_3(
-    raw_bytes: &[u8],
-    skip_item: BinarySkipFn,
-) -> Result<[&[u8]; 3], FieldDecodeError> {
-    let mut cursor = parse_fixed_tuple_head(raw_bytes, 3)?;
-
-    let first_start = cursor;
-    cursor = skip_item(raw_bytes, cursor)?;
-    let first = &raw_bytes[first_start..cursor];
-
-    let second_start = cursor;
-    cursor = skip_item(raw_bytes, cursor)?;
-    let second = &raw_bytes[second_start..cursor];
-
-    let third_start = cursor;
-    cursor = skip_item(raw_bytes, cursor)?;
-    let third = &raw_bytes[third_start..cursor];
-
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok([first, second, third])
 }
 
 // === Payload Extraction Helpers ===

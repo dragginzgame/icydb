@@ -9,6 +9,7 @@
 //! writes, reads, projection, and patch replay. Persisted field storage remains
 //! owned by field types through `PersistedFieldSlotCodec`.
 
+mod canonical;
 mod codec;
 mod contract;
 mod patch;
@@ -20,11 +21,15 @@ mod writer;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db) use contract::decode_runtime_value_from_accepted_field_contract;
+pub(in crate::db) use canonical::encode_admitted_value_for_accepted_field_contract;
+pub(in crate::db) use canonical::validate_default_payload_for_accepted_field_contract;
 #[cfg(feature = "sql")]
 pub(in crate::db) use contract::encode_runtime_value_for_accepted_field_contract;
-#[doc(hidden)]
-pub use contract::{decode_slot_into_runtime_value, encode_runtime_value_into_slot};
+#[cfg(test)]
+pub(in crate::db) use contract::encode_runtime_value_into_slot;
+pub(in crate::db) use contract::{
+    decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
+};
 pub(in crate::db) use patch::{
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
     canonical_row_from_entity_with_accepted_contract,
@@ -51,8 +56,8 @@ pub(in crate::db) use reader::{
     decode_sparse_indexed_raw_row_with_contract, decode_sparse_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,
 };
+pub use types::{AuthoredStructuralPatch, PersistedRow, SlotReader, SlotWriter};
 pub(in crate::db) use types::{CanonicalSlotReader, FieldSlot, SerializedStructuralPatch};
-pub use types::{PersistedRow, SlotReader, SlotWriter, StructuralPatch};
 // These helpers remain public inside `icydb-core` because the cross-crate
 // `icydb::__macro` boundary still needs a stable path for generated code.
 pub use codec::{

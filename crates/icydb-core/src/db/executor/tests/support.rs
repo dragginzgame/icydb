@@ -10,8 +10,7 @@ pub(in crate::db::executor::tests) use crate::{
         Db, DbSession, EntityRuntimeHooks,
         commit::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered,
-            init_commit_store_for_tests, prepare_row_commit_for_entity_with_structural_readers,
-            reset_commit_marker_test_journal_sequence,
+            init_commit_store_for_tests, reset_commit_marker_test_journal_sequence,
         },
         data::DataStore,
         executor::{
@@ -481,7 +480,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <RelationTargetEntity as crate::traits::EntitySchema>::MODEL,
         RelationTargetEntity::PATH,
         RelationTargetStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RelationTargetEntity>,
         validate_delete_strong_relations_for_source::<RelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -489,7 +487,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         RelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RelationSourceEntity>,
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -497,7 +494,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <CompositeRelationTargetEntity as crate::traits::EntitySchema>::MODEL,
         CompositeRelationTargetEntity::PATH,
         RelationTargetStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<CompositeRelationTargetEntity>,
         validate_delete_strong_relations_for_source::<CompositeRelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -505,7 +501,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <CompositeRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         CompositeRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<CompositeRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<CompositeRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -513,9 +508,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <OptionalCompositeRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         OptionalCompositeRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<
-            OptionalCompositeRelationSourceEntity,
-        >,
         validate_delete_strong_relations_for_source::<OptionalCompositeRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -523,7 +515,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <CompositePkRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         CompositePkRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<CompositePkRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<CompositePkRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -531,7 +522,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <WeakSingleRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         WeakSingleRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<WeakSingleRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -539,7 +529,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <WeakOptionalRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         WeakOptionalRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<WeakOptionalRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -547,7 +536,6 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <WeakListRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         WeakListRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<WeakListRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,
     ),
 ];

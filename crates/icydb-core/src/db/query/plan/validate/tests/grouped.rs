@@ -22,7 +22,7 @@ use crate::{
             },
         },
         schema::{
-            AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId as SchemaFieldId,
             PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
             SchemaInfo, SchemaRowLayout, SchemaVersion,
         },
@@ -229,24 +229,24 @@ fn accepted_schema_with_team_layout_slot(team_slot: SchemaFieldSlot) -> SchemaIn
             ],
         ),
         vec![
-            accepted_field(1, "id", SchemaFieldSlot::new(0), PersistedFieldKind::Ulid),
+            accepted_field(1, "id", SchemaFieldSlot::new(0), AcceptedFieldKind::Ulid),
             accepted_field(
                 2,
                 "team",
                 team_slot,
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
             ),
             accepted_field(
                 3,
                 "region",
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
             ),
             accepted_field(
                 4,
                 "score",
                 SchemaFieldSlot::new(3),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
             ),
         ],
     ));
@@ -260,7 +260,7 @@ fn accepted_field(
     id: u32,
     name: &str,
     slot: SchemaFieldSlot,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
 ) -> PersistedFieldSnapshot {
     PersistedFieldSnapshot::new(
         SchemaFieldId::new(id),

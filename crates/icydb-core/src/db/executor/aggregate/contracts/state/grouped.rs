@@ -12,7 +12,7 @@ use crate::{
                 contracts::{
                     error::GroupError,
                     grouped::ExecutionContext,
-                    plan::{CompiledExpr, FieldSlot, collapse_true_only_boolean_admission},
+                    plan::{CompiledExpr, collapse_true_only_boolean_admission},
                     spec::AggregateKind,
                     state::{
                         ExtremumKind, FoldControl, GroupedAggregateReducerState,
@@ -119,7 +119,8 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
         GroupedDistinctExecutionMode,
     pub(in crate::db::executor::aggregate::contracts::state) max_distinct_values_per_group: u64,
     pub(in crate::db::executor::aggregate::contracts::state) distinct_keys: Option<GroupKeySet>,
-    pub(in crate::db::executor::aggregate::contracts::state) target_field: Option<FieldSlot>,
+    pub(in crate::db::executor::aggregate::contracts::state) target_field:
+        Option<AggregateFieldSlot>,
     pub(in crate::db::executor::aggregate::contracts::state) grouped_input_expr:
         Option<CompiledExpr>,
     pub(in crate::db::executor::aggregate::contracts::state) grouped_filter_expr:
@@ -144,7 +145,6 @@ impl GroupedTerminalAggregateState {
     // rejected.
     fn sum_like_field_requires_numeric_value(
         _label: &'static str,
-        _field: &str,
         _value: &Value,
     ) -> InternalError {
         InternalError::query_executor_invariant()
@@ -226,7 +226,7 @@ impl GroupedTerminalAggregateState {
             return Err(Self::field_target_execution_required(label));
         };
 
-        row_view.require_slot_value(target_field.index())
+        row_view.require_slot_value(target_field.index)
     }
 
     // Resolve the one canonical grouped aggregate input value for COUNT/SUM/AVG
@@ -283,7 +283,7 @@ impl GroupedTerminalAggregateState {
                 .ok_or_else(InternalError::query_executor_invariant);
         }
 
-        let Some(target_field) = self.target_field.as_ref() else {
+        let Some(_target_field) = self.target_field.as_ref() else {
             return Err(Self::field_target_execution_required("SUM/AVG(input)"));
         };
         let value = self.target_field_value(row_view, label)?;
@@ -293,13 +293,7 @@ impl GroupedTerminalAggregateState {
 
         Self::coerce_sum_like_decimal(value.as_ref())
             .map(Some)
-            .ok_or_else(|| {
-                Self::sum_like_field_requires_numeric_value(
-                    label,
-                    target_field.field(),
-                    value.as_ref(),
-                )
-            })
+            .ok_or_else(|| Self::sum_like_field_requires_numeric_value(label, value.as_ref()))
     }
 
     // Evaluate one grouped aggregate filter expression through the same compiled
@@ -484,17 +478,10 @@ impl GroupedTerminalAggregateState {
                 ExtremumKind::Max => self.reducer.ingest_max_value(value)?,
             }
         } else if let Some(target_field) = self.target_field.as_ref() {
-            let Some(target_kind) = target_field.kind() else {
-                return Err(Self::field_target_execution_required(kind.field_label()));
-            };
             let AggregateInputValue::Value(value) =
                 self.resolve_input_value(row_view, kind.field_label())?
             else {
                 return Ok(FoldControl::Continue);
-            };
-            let aggregate_field_slot = AggregateFieldSlot {
-                index: target_field.index(),
-                kind: target_kind,
             };
             let current = match kind {
                 ExtremumKind::Min => self.reducer.min_value()?,
@@ -502,13 +489,9 @@ impl GroupedTerminalAggregateState {
             };
             let replace = match current {
                 Some(current) => {
-                    let ordering = compare_orderable_field_values_with_slot(
-                        target_field.field(),
-                        aggregate_field_slot,
-                        &value,
-                        current,
-                    )
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                    let ordering =
+                        compare_orderable_field_values_with_slot(*target_field, &value, current)
+                            .map_err(AggregateFieldValueError::into_internal_error)?;
                     match kind {
                         ExtremumKind::Min => ordering.is_lt(),
                         ExtremumKind::Max => ordering.is_gt(),

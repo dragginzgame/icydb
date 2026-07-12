@@ -13,6 +13,7 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
+use ic_memory::stable_structures::Memory;
 // Wrap one test marker payload in the canonical marker envelope so strict
 // decode still reaches shape validation.
 fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {
@@ -95,7 +96,7 @@ fn encode_test_single_row_payload_with_flags(
 
 #[test]
 fn commit_control_slot_rejects_corrupt_magic() {
-    let mut store = super::CommitStore::init(test_memory(233));
+    let store = super::CommitStore::init(test_memory(233));
     let mut malformed = Vec::new();
     malformed.extend_from_slice(b"XMCS");
     malformed.push(1);
@@ -411,7 +412,7 @@ fn direct_single_row_control_slot_rejects_invalid_row_op_before_persist() {
 
 #[test]
 fn clear_verified_rejects_malformed_control_slot() {
-    let mut store = super::CommitStore::init(test_memory(232));
+    let store = super::CommitStore::init(test_memory(232));
     let mut malformed = Vec::new();
     malformed.extend_from_slice(b"CMCS");
     malformed.push(1);
@@ -424,7 +425,82 @@ fn clear_verified_rejects_malformed_control_slot() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert_eq!(store.cell.get().as_bytes(), malformed.as_slice());
+    assert_eq!(store.raw_control_slot_bytes_for_tests(), malformed);
+}
+
+#[test]
+fn commit_slot_writes_and_clears_preserve_database_boot_record() {
+    let memory = test_memory(231);
+    let store = super::CommitStore::init(memory.clone());
+    let mut boot_before = [0_u8; crate::db::database_format::DATABASE_BOOT_RECORD_BYTES];
+    memory.read(0, &mut boot_before);
+    let control_slot = super::CommitStore::encode_raw_control_slot_for_tests(vec![0xaa])
+        .expect("test control slot should encode");
+
+    store.set_raw_marker_bytes_for_tests(control_slot);
+    store.clear_raw_for_tests();
+
+    let mut boot_after = [0_u8; crate::db::database_format::DATABASE_BOOT_RECORD_BYTES];
+    memory.read(0, &mut boot_after);
+    assert_eq!(boot_after, boot_before);
+}
+
+#[test]
+fn database_control_frame_checksum_corruption_fails_closed() {
+    let memory = test_memory(230);
+    let store = super::CommitStore::init(memory.clone());
+    let checksum_offset = super::DATABASE_CONTROL_SLOT_FRAME_OFFSET
+        + super::DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET as u64;
+    let mut checksum_byte = [0_u8; 1];
+    memory.read(checksum_offset, &mut checksum_byte);
+    checksum_byte[0] ^= 0xff;
+    memory.write(checksum_offset, &checksum_byte);
+
+    let err = store
+        .marker_is_empty()
+        .expect_err("corrupt database-control checksum should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn database_control_frame_noncurrent_versions_fail_closed() {
+    for version in [
+        super::DATABASE_CONTROL_SLOT_FRAME_VERSION.saturating_sub(1),
+        super::DATABASE_CONTROL_SLOT_FRAME_VERSION.saturating_add(1),
+    ] {
+        let memory = test_memory(229);
+        let store = super::CommitStore::init(memory.clone());
+        let version_offset = super::DATABASE_CONTROL_SLOT_FRAME_OFFSET
+            + super::DATABASE_CONTROL_SLOT_FRAME_MAGIC.len() as u64;
+        memory.write(version_offset, &[version]);
+
+        let err = store
+            .marker_is_empty()
+            .expect_err("noncurrent database-control frame must fail closed");
+
+        assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
+        assert_eq!(err.origin, ErrorOrigin::Serialize);
+    }
+}
+
+#[test]
+fn commit_control_slot_noncurrent_versions_fail_closed() {
+    for version in [0, 2] {
+        let store = super::CommitStore::init(test_memory(228));
+        let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+            .expect("current empty commit-control slot should encode");
+        control_slot[4] = version;
+        store.set_raw_marker_bytes_for_tests(control_slot);
+
+        let err = store
+            .marker_is_empty()
+            .expect_err("noncurrent commit-control slot must fail closed");
+
+        assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
+        assert_eq!(err.origin, ErrorOrigin::Serialize);
+    }
 }
 
 #[test]

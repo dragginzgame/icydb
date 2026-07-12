@@ -1,5 +1,5 @@
 use super::{
-    SlotReader, SlotWriter, StructuralPatch,
+    AuthoredStructuralPatch, SlotReader, SlotWriter,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
     canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test,
     canonical_row_from_raw_row_with_structural_contract, decode_persisted_slot_payload_by_kind,
@@ -28,7 +28,7 @@ use crate::{
         codec::serialize_row_payload,
         data::{
             CanonicalRow, RawRow, StructuralRowContract, decode_structural_row_payload,
-            decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
+            encode_structural_value_storage_bytes,
             structural_field::{
                 encode_list_field_items, encode_map_field_entries,
                 encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
@@ -58,7 +58,7 @@ use crate::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
         Subaccount, Timestamp, Ulid, Unit,
     },
-    value::{Value, ValueEnum},
+    value::{InputValue, InputValueEnum, Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -457,22 +457,6 @@ static OPTIONAL_STRUCTURED_FIELD_MODELS: [FieldModel; 1] =
         FieldStorageDecode::ByKind,
         true,
     )];
-static VALUE_STORAGE_STRUCTURED_FIELD_MODELS: [FieldModel; 1] =
-    [FieldModel::generated_with_storage_decode(
-        "manifest",
-        FieldKind::Structured { queryable: false },
-        FieldStorageDecode::Value,
-    )];
-static STRUCTURED_MAP_VALUE_KIND: FieldKind = FieldKind::Structured { queryable: false };
-static STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS: [FieldModel; 1] =
-    [FieldModel::generated_with_storage_decode(
-        "projects",
-        FieldKind::Map {
-            key: &FieldKind::Principal,
-            value: &STRUCTURED_MAP_VALUE_KIND,
-        },
-        FieldStorageDecode::Value,
-    )];
 static INDEX_MODELS: [&crate::model::index::IndexModel; 0] = [];
 static TEST_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowFieldCodecEntity",
@@ -591,24 +575,6 @@ static OPTIONAL_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
     &OPTIONAL_STRUCTURED_FIELD_MODELS,
     &INDEX_MODELS,
 );
-static VALUE_STORAGE_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
-    "tests::PersistedRowValueStorageStructuredFieldCodecEntity",
-    "persisted_row_value_storage_structured_field_codec_entity",
-    1,
-    &VALUE_STORAGE_STRUCTURED_FIELD_MODELS[0],
-    0,
-    &VALUE_STORAGE_STRUCTURED_FIELD_MODELS,
-    &INDEX_MODELS,
-);
-static STRUCTURED_MAP_VALUE_STORAGE_MODEL: EntityModel = EntityModel::generated(
-    "tests::PersistedRowStructuredMapValueStorageEntity",
-    "persisted_row_structured_map_value_storage_entity",
-    1,
-    &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS[0],
-    0,
-    &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS,
-    &INDEX_MODELS,
-);
 static RELATION_PK_KEY_KIND: FieldKind = FieldKind::Ulid;
 static RELATION_PK_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "token_id",
@@ -630,149 +596,6 @@ static RELATION_PK_MODEL: EntityModel = EntityModel::generated(
     &RELATION_PK_FIELD_MODELS,
     &INDEX_MODELS,
 );
-
-fn representative_value_storage_cases() -> Vec<Value> {
-    let nested = Value::from_map(vec![
-        (
-            Value::Text("blob".to_string()),
-            Value::Blob(vec![0x10, 0x20, 0x30]),
-        ),
-        (Value::Text("i128".to_string()), Value::Int128(-123i128)),
-        (Value::Text("u128".to_string()), Value::Nat128(456u128)),
-        (
-            Value::Text("enum".to_string()),
-            Value::Enum(
-                ValueEnum::new("Loaded", Some("tests::PersistedRowManifest"))
-                    .with_payload(Value::Blob(vec![0xAA, 0xBB])),
-            ),
-        ),
-    ])
-    .expect("nested value storage case should normalize");
-
-    vec![
-        Value::Account(Account::from_owner_and_subaccount(
-            Principal::from_slice(&[7]),
-            Some(Subaccount::from_array([7; 32])),
-        )),
-        Value::Blob(vec![1u8, 2u8, 3u8]),
-        Value::Bool(true),
-        Value::Date(Date::new(2024, 1, 2)),
-        Value::Decimal(Decimal::new(123, 2)),
-        Value::Duration(Duration::from_secs(1)),
-        Value::Enum(
-            ValueEnum::new("Ready", Some("tests::PersistedRowState")).with_payload(nested.clone()),
-        ),
-        Value::Float32(Float32::try_new(1.25).expect("float32 sample should be finite")),
-        Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
-        Value::Int64(-7),
-        Value::Int128(123i128),
-        Value::IntBig(IntBig::from(99i32)),
-        Value::List(vec![
-            Value::Blob(vec![0xCC, 0xDD]),
-            Value::Text("nested".to_string()),
-            nested.clone(),
-        ]),
-        nested,
-        Value::Null,
-        Value::Principal(Principal::from_slice(&[9])),
-        Value::Subaccount(Subaccount::from_array([7u8; 32])),
-        Value::Text("example".to_string()),
-        Value::Timestamp(Timestamp::from_secs(1)),
-        Value::Nat64(7),
-        Value::Nat128(9u128),
-        Value::NatBig(NatBig::from(11u64)),
-        Value::Ulid(Ulid::from_u128(42)),
-        Value::Unit,
-    ]
-}
-
-fn representative_structured_value_storage_cases() -> Vec<Value> {
-    let nested_map = Value::from_map(vec![
-        (
-            Value::Text("account".to_string()),
-            Value::Account(Account::from_owner_and_subaccount(
-                Principal::from_slice(&[7]),
-                Some(Subaccount::from_array([7; 32])),
-            )),
-        ),
-        (
-            Value::Text("blob".to_string()),
-            Value::Blob(vec![1u8, 2u8, 3u8]),
-        ),
-        (Value::Text("bool".to_string()), Value::Bool(true)),
-        (
-            Value::Text("date".to_string()),
-            Value::Date(Date::new(2024, 1, 2)),
-        ),
-        (
-            Value::Text("decimal".to_string()),
-            Value::Decimal(Decimal::new(123, 2)),
-        ),
-        (
-            Value::Text("duration".to_string()),
-            Value::Duration(Duration::from_secs(1)),
-        ),
-        (
-            Value::Text("enum".to_string()),
-            Value::Enum(
-                ValueEnum::new("Loaded", Some("tests::PersistedRowManifest"))
-                    .with_payload(Value::Blob(vec![0xAA, 0xBB])),
-            ),
-        ),
-        (
-            Value::Text("f32".to_string()),
-            Value::Float32(Float32::try_new(1.25).expect("float32 sample should be finite")),
-        ),
-        (
-            Value::Text("f64".to_string()),
-            Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
-        ),
-        (Value::Text("i64".to_string()), Value::Int64(-7)),
-        (Value::Text("i128".to_string()), Value::Int128(123i128)),
-        (
-            Value::Text("ibig".to_string()),
-            Value::IntBig(IntBig::from(99i32)),
-        ),
-        (Value::Text("null".to_string()), Value::Null),
-        (
-            Value::Text("principal".to_string()),
-            Value::Principal(Principal::from_slice(&[9])),
-        ),
-        (
-            Value::Text("subaccount".to_string()),
-            Value::Subaccount(Subaccount::from_array([7u8; 32])),
-        ),
-        (
-            Value::Text("text".to_string()),
-            Value::Text("example".to_string()),
-        ),
-        (
-            Value::Text("timestamp".to_string()),
-            Value::Timestamp(Timestamp::from_secs(1)),
-        ),
-        (Value::Text("u64".to_string()), Value::Nat64(7)),
-        (Value::Text("u128".to_string()), Value::Nat128(9u128)),
-        (
-            Value::Text("ubig".to_string()),
-            Value::NatBig(NatBig::from(11u64)),
-        ),
-        (
-            Value::Text("ulid".to_string()),
-            Value::Ulid(Ulid::from_u128(42)),
-        ),
-        (Value::Text("unit".to_string()), Value::Unit),
-    ])
-    .expect("structured value-storage map should normalize");
-
-    vec![
-        nested_map.clone(),
-        Value::List(vec![
-            Value::Blob(vec![0xCC, 0xDD]),
-            Value::Text("nested".to_string()),
-            nested_map,
-        ]),
-    ]
-}
 
 // Encode one persisted `FieldStorageDecode::Value` fixture payload through the
 // owner-local structural value-storage boundary.
@@ -853,7 +676,14 @@ fn accepted_row_decode_contract_for_model(
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted runtime contract should build");
 
-    descriptor.row_decode_contract()
+    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[model])
+        .expect("accepted enum catalog fixture should build");
+    let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        crate::db::schema::AcceptedSchemaRevision::INITIAL,
+    );
+
+    descriptor.row_decode_contract_with_catalog(catalog)
 }
 
 // Build one structural row contract from the accepted schema path so tests can
@@ -871,7 +701,7 @@ fn accepted_row_contract_for_model(model: &'static EntityModel) -> StructuralRow
 // boundary coverage exercises the same authority production save paths use.
 fn serialize_structural_patch_fields_for_accepted_test_model(
     model: &'static EntityModel,
-    patch: &StructuralPatch,
+    patch: &AuthoredStructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
     serialize_structural_patch_fields_with_accepted_contract(
         model.path(),
@@ -941,7 +771,16 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted defaulted runtime contract should build");
 
-    descriptor.row_decode_contract()
+    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[
+        &ADDITIVE_REQUIRED_MODEL,
+    ])
+    .expect("accepted enum catalog fixture should build");
+    let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        crate::db::schema::AcceptedSchemaRevision::INITIAL,
+    );
+
+    descriptor.row_decode_contract_with_catalog(catalog)
 }
 
 // Build one accepted row contract for the additive required-field fixture with
@@ -1432,28 +1271,6 @@ fn encode_runtime_value_into_slot_roundtrips_value_storage_slots() {
 }
 
 #[test]
-fn encode_runtime_value_into_slot_roundtrips_structured_value_storage_slots_for_all_cases() {
-    for value in representative_structured_value_storage_cases() {
-        let payload = encode_runtime_value_into_slot(&VALUE_STORAGE_STRUCTURED_MODEL, 0, &value)
-            .unwrap_or_else(|err| {
-                panic!("structured value-storage slot should encode for value {value:?}: {err:?}")
-            });
-        let decoded = decode_slot_into_runtime_value(
-            &VALUE_STORAGE_STRUCTURED_MODEL,
-            0,
-            payload.as_slice(),
-        )
-        .unwrap_or_else(|err| {
-            panic!(
-                "structured value-storage slot should decode for value {value:?} with payload {payload:?}: {err:?}"
-            )
-        });
-
-        assert_eq!(decoded, value);
-    }
-}
-
-#[test]
 fn encode_runtime_value_into_slot_roundtrips_list_by_kind_slots() {
     let payload = encode_runtime_value_into_slot(
         &LIST_MODEL,
@@ -1481,65 +1298,6 @@ fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
     assert_eq!(
         decoded,
         Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat64(7))]),
-    );
-}
-
-#[test]
-fn encode_runtime_value_into_slot_accepts_value_storage_maps_with_structured_values() {
-    let principal = Principal::from_slice(&[7]);
-    let project = Value::from_map(vec![
-        (Value::Text("pid".to_string()), Value::Principal(principal)),
-        (
-            Value::Text("status".to_string()),
-            Value::Enum(ValueEnum::new(
-                "Saved",
-                Some("design::app::user::customise::project::ProjectStatus"),
-            )),
-        ),
-    ])
-    .expect("project value should normalize into a canonical map");
-    let projects = Value::from_map(vec![(Value::Principal(principal), project)])
-        .expect("outer map should normalize into a canonical map");
-
-    let payload = encode_runtime_value_into_slot(&STRUCTURED_MAP_VALUE_STORAGE_MODEL, 0, &projects)
-        .expect("encode structured map slot");
-    let decoded =
-        decode_slot_into_runtime_value(&STRUCTURED_MAP_VALUE_STORAGE_MODEL, 0, payload.as_slice())
-            .expect("decode structured map slot");
-
-    assert_eq!(decoded, projects);
-}
-
-#[test]
-fn structured_value_storage_cases_decode_through_direct_value_storage_boundary() {
-    for value in representative_value_storage_cases() {
-        let payload = encode_value_storage_payload(&value);
-        let decoded = decode_structural_value_storage_bytes(payload.as_slice()).unwrap_or_else(
-            |err| {
-                panic!(
-                    "structured value-storage payload should decode for value {value:?} with payload {payload:?}: {err:?}"
-                )
-            },
-        );
-
-        assert_eq!(decoded, value);
-    }
-}
-
-#[test]
-fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
-    let payload = encode_runtime_value_into_slot(
-        &ENUM_MODEL,
-        0,
-        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat64(7))),
-    )
-    .expect("encode enum slot");
-    let decoded =
-        decode_slot_into_runtime_value(&ENUM_MODEL, 0, payload.as_slice()).expect("decode slot");
-
-    assert_eq!(
-        decoded,
-        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat64(7,))),
     );
 }
 
@@ -1766,7 +1524,7 @@ fn encode_runtime_value_into_slot_rejects_unknown_enum_payload_variants() {
     let err = encode_runtime_value_into_slot(
         &ENUM_MODEL,
         0,
-        &Value::Enum(ValueEnum::new("Unknown", Some("tests::State")).with_payload(Value::Nat64(7))),
+        &Value::Enum(ValueEnum::test_unit(1, 1).test_with_payload(Value::Nat64(7))),
     )
     .expect_err("unknown enum payload should fail closed");
 
@@ -2344,7 +2102,7 @@ fn apply_structural_patch_to_raw_row_updates_only_targeted_slots() {
         &TEST_MODEL,
         &[name_payload.as_slice(), payload.as_slice()],
     );
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
         Value::Text("Grace".to_string()),
     );
@@ -2375,7 +2133,7 @@ fn apply_structural_patch_to_raw_row_updates_only_targeted_slots() {
 
 #[test]
 fn serialize_structural_patch_fields_encodes_canonical_slot_payloads() {
-    let patch = StructuralPatch::new()
+    let patch = AuthoredStructuralPatch::new()
         .set(
             FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
             Value::Text("Grace".to_string()),
@@ -2410,9 +2168,39 @@ fn serialize_structural_patch_fields_encodes_canonical_slot_payloads() {
 }
 
 #[test]
+fn serialize_authored_enum_patch_resolves_names_to_canonical_ids() {
+    let patch = AuthoredStructuralPatch::new().set(
+        FieldSlot::from_index(&ENUM_MODEL, 0).expect("resolve enum slot"),
+        InputValue::Enum(InputValueEnum::loose("Loaded").with_payload(InputValue::Nat64(7))),
+    );
+
+    let serialized = serialize_structural_patch_fields_for_accepted_test_model(&ENUM_MODEL, &patch)
+        .expect("accepted enum patch should serialize");
+
+    assert_eq!(serialized.entries().len(), 1);
+    assert_eq!(serialized.entries()[0].payload().first(), Some(&0x84));
+
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &ENUM_MODEL,
+        &[serialized.entries()[0].payload()],
+    );
+    let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
+        &raw_row,
+        accepted_row_contract_for_model(&ENUM_MODEL),
+    )
+    .expect("canonical enum row should open through accepted authority");
+    assert_eq!(
+        reader.get_value(0).expect("canonical enum should decode"),
+        Some(Value::Enum(
+            ValueEnum::test_unit(1, 1).test_with_payload(Value::Nat64(7))
+        ))
+    );
+}
+
+#[test]
 fn serialize_structural_patch_fields_with_accepted_contract_rejects_unaccepted_slots() {
     let accepted_decode_contract = accepted_row_decode_contract_for_model(&ADDITIVE_PREFIX_MODEL);
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(&ADDITIVE_NULLABLE_MODEL, 2).expect("resolve generated slot"),
         Value::Text("Ada".to_string()),
     );
@@ -2430,7 +2218,7 @@ fn serialize_structural_patch_fields_with_accepted_contract_rejects_unaccepted_s
 #[test]
 fn serialize_structural_patch_fields_with_accepted_contract_normalizes_decimal_scale() {
     let accepted_decode_contract = accepted_row_decode_contract_for_model(&OPTIONAL_DECIMAL_MODEL);
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(&OPTIONAL_DECIMAL_MODEL, 0).expect("resolve decimal slot"),
         Value::Decimal(Decimal::from_i128_with_scale(140, 0)),
     );
@@ -2462,7 +2250,7 @@ fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_data
     let accepted_decode_contract =
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
     let id = Ulid::from_u128(149);
-    let patch = StructuralPatch::new()
+    let patch = AuthoredStructuralPatch::new()
         .set(
             FieldSlot::from_index(&ADDITIVE_REQUIRED_MODEL, 0).expect("resolve id slot"),
             Value::Ulid(id),
@@ -2512,7 +2300,7 @@ fn apply_structural_patch_to_raw_row_uses_last_write_wins() {
         &[name_payload.as_slice(), payload.as_slice()],
     );
     let slot = FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot");
-    let patch = StructuralPatch::new()
+    let patch = AuthoredStructuralPatch::new()
         .set(slot, Value::Text("Grace".to_string()))
         .set(slot, Value::Text("Lin".to_string()));
 
@@ -2547,7 +2335,7 @@ fn apply_structural_patch_to_raw_row_rejects_noncanonical_missing_slot_baseline(
         .expect("serialize row payload"),
     )
     .expect("build raw row");
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
         Value::Text("payload".to_string()),
     );
@@ -2576,7 +2364,7 @@ fn apply_serialized_structural_patch_to_raw_row_rejects_noncanonical_scalar_base
         .expect("serialize row payload"),
     )
     .expect("build raw row");
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
         Value::Text("patched".to_string()),
     );
@@ -2778,7 +2566,7 @@ fn apply_serialized_structural_patch_to_raw_row_replays_preencoded_slots() {
         &TEST_MODEL,
         &[name_payload.as_slice(), payload.as_slice()],
     );
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
         Value::Text("Grace".to_string()),
     );
@@ -3001,7 +2789,7 @@ fn many_typed_meta_decodes_matching_container_slot_payload() {
 
 #[test]
 fn materialize_entity_from_serialized_structural_patch_rejects_missing_required_field() {
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
         Value::Text("Ada".to_string()),
     );
@@ -3022,7 +2810,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_missing_required_
 #[test]
 fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_matches_generated_bridge()
  {
-    let patch = StructuralPatch::new()
+    let patch = AuthoredStructuralPatch::new()
         .set(
             FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
             Value::Ulid(crate::types::Ulid::from_u128(7)),
@@ -3055,7 +2843,7 @@ fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_ma
 
 #[test]
 fn materialize_entity_from_serialized_structural_patch_rejects_noncanonical_scalar_payload() {
-    let patch = StructuralPatch::new()
+    let patch = AuthoredStructuralPatch::new()
         .set(
             FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
             Value::Ulid(crate::types::Ulid::from_u128(7)),
@@ -3090,7 +2878,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_noncanonical_scal
 
 #[test]
 fn canonical_row_from_complete_serialized_structural_patch_rejects_noncanonical_scalar_payload() {
-    let patch = StructuralPatch::new()
+    let patch = AuthoredStructuralPatch::new()
         .set(
             FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
             Value::Ulid(crate::types::Ulid::from_u128(7)),
@@ -3126,7 +2914,7 @@ fn canonical_row_from_complete_serialized_structural_patch_rejects_noncanonical_
 
 #[test]
 fn canonical_row_from_complete_serialized_structural_patch_rejects_incomplete_slot_image() {
-    let patch = StructuralPatch::new().set(
+    let patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
         Value::Text("Ada".to_string()),
     );
@@ -3147,11 +2935,11 @@ fn canonical_row_from_complete_serialized_structural_patch_rejects_incomplete_sl
 
 #[test]
 fn materialize_entity_from_serialized_structural_patch_duplicate_slot_prefers_last_payload() {
-    let first_name_patch = StructuralPatch::new().set(
+    let first_name_patch = AuthoredStructuralPatch::new().set(
         FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
         Value::Text("Ada".to_string()),
     );
-    let final_patch = StructuralPatch::new()
+    let final_patch = AuthoredStructuralPatch::new()
         .set(
             FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
             Value::Ulid(crate::types::Ulid::from_u128(7)),

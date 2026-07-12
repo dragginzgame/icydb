@@ -9,16 +9,16 @@ use crate::{
     db::{
         PersistedRow,
         data::{
-            DecodedDataStoreKey, RawRow, StructuralPatch, StructuralRowContract,
+            AuthoredStructuralPatch, DecodedDataStoreKey, RawRow, StructuralRowContract,
             StructuralSlotReader,
         },
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
         relation::validate_save_strong_relations_with_accepted_contract,
         schema::{
-            AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract, PersistedFieldKind,
-            PersistedFieldKindCategory, PersistedScalarClass, SchemaInfo,
-            classify_persisted_field_kind, literal_matches_type,
+            AcceptedFieldAbsencePolicy, AcceptedFieldKind, AcceptedFieldKindCategory,
+            AcceptedRowDecodeContract, AcceptedScalarClass, SchemaInfo,
+            classify_accepted_field_kind, literal_matches_type,
         },
     },
     error::InternalError,
@@ -35,7 +35,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // selected schema snapshot's field contracts, so out-of-range slots fail
     // before write encoding.
     pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds_with_accepted_contract(
-        patch: &StructuralPatch,
+        patch: &AuthoredStructuralPatch,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<(), InternalError> {
         let contract = StructuralRowContract::from_accepted_decode_contract(
@@ -50,22 +50,27 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // The accepted lane uses only the selected schema snapshot's field
     // contracts, so out-of-range slots fail before write encoding.
     fn validate_structural_patch_write_bounds_for_accepted_row_contract(
-        patch: &StructuralPatch,
+        patch: &AuthoredStructuralPatch,
         contract: &StructuralRowContract,
     ) -> Result<(), InternalError> {
         for entry in patch.entries() {
             let slot = entry.slot().index();
             let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
+            let Some(value) = entry.value().clone().try_into_runtime_non_enum() else {
+                // Canonical enum admission owns enum and recursive payload
+                // validation during accepted patch serialization.
+                continue;
+            };
 
             Self::validate_persisted_decimal_scale_is_normalizable(
                 accepted_field.field_name(),
                 accepted_field.kind(),
-                entry.value(),
+                &value,
             )?;
             Self::validate_persisted_text_max_len(
                 accepted_field.field_name(),
                 accepted_field.kind(),
-                entry.value(),
+                &value,
             )?;
         }
 
@@ -365,13 +370,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             }
 
-            let value = entity.get_value_by_index(field_index).ok_or_else(|| {
-                InternalError::mutation_entity_field_missing(
+            let Some(value) = entity.get_value_by_index(field_index) else {
+                if entity.get_input_value_by_index(field_index).is_some() {
+                    // Enum and generated structured fields remain authored
+                    // input until the accepted row encoder admits them. Their
+                    // absence from the runtime projection is intentional.
+                    continue;
+                }
+                return Err(InternalError::mutation_entity_field_missing(
                     E::PATH,
                     field_name,
                     schema.field_is_indexed(field_name),
-                )
-            })?;
+                ));
+            };
 
             if matches!(value, Value::Null | Value::Unit) {
                 // Null = absent, Unit = singleton sentinel; both skip type checks.
@@ -426,7 +437,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn validate_accepted_authored_field_value_invariants(
         schema: &SchemaInfo,
         field_name: &str,
-        field_kind: &PersistedFieldKind,
+        field_kind: &AcceptedFieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
         if !Self::validate_accepted_queryable_field_value_shape(
@@ -446,7 +457,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn validate_accepted_persisted_field_value_invariants(
         schema: &SchemaInfo,
         field_name: &str,
-        field_kind: &PersistedFieldKind,
+        field_kind: &AcceptedFieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
         if !Self::validate_accepted_queryable_field_value_shape(
@@ -465,7 +476,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn validate_accepted_queryable_field_value_shape(
         schema: &SchemaInfo,
         field_name: &str,
-        field_kind: &PersistedFieldKind,
+        field_kind: &AcceptedFieldKind,
         value: &Value,
     ) -> Result<bool, InternalError> {
         if !persisted_field_kind_is_queryable(field_kind) {
@@ -496,7 +507,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // converting accepted field kinds back into generated metadata.
     fn validate_persisted_decimal_scale_is_normalizable(
         field_name: &str,
-        kind: &PersistedFieldKind,
+        kind: &AcceptedFieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
         if matches!(value, Value::Null | Value::Unit) {
@@ -504,7 +515,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         match (kind, value) {
-            (PersistedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+            (AcceptedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
                 let normalizable = match decimal.scale().cmp(scale) {
                     Ordering::Equal | Ordering::Greater => true,
                     Ordering::Less => decimal.scale_to_integer(*scale).is_some(),
@@ -520,11 +531,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     decimal.scale(),
                 ))
             }
-            (PersistedFieldKind::Relation { key_kind, .. }, value) => {
+            (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
                 Self::validate_persisted_decimal_scale_is_normalizable(field_name, key_kind, value)
             }
             (
-                PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner),
+                AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner),
                 Value::List(items),
             ) => {
                 for item in items {
@@ -536,7 +547,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 Ok(())
             }
             (
-                PersistedFieldKind::Map {
+                AcceptedFieldKind::Map {
                     key,
                     value: map_value,
                 },
@@ -563,7 +574,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // persisted schema metadata.
     fn validate_persisted_decimal_scale_exact(
         field_name: &str,
-        kind: &PersistedFieldKind,
+        kind: &AcceptedFieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
         if matches!(value, Value::Null | Value::Unit) {
@@ -571,7 +582,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         match (kind, value) {
-            (PersistedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+            (AcceptedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
                 if decimal.scale() != *scale {
                     return Err(InternalError::mutation_decimal_scale_mismatch(
                         E::PATH,
@@ -583,11 +594,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
                 Ok(())
             }
-            (PersistedFieldKind::Relation { key_kind, .. }, value) => {
+            (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
                 Self::validate_persisted_decimal_scale_exact(field_name, key_kind, value)
             }
             (
-                PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner),
+                AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner),
                 Value::List(items),
             ) => {
                 for item in items {
@@ -597,7 +608,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 Ok(())
             }
             (
-                PersistedFieldKind::Map {
+                AcceptedFieldKind::Map {
                     key,
                     value: map_value,
                 },
@@ -621,7 +632,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Enforce accepted persisted-schema text bounds across nested values.
     fn validate_persisted_text_max_len(
         field_name: &str,
-        kind: &PersistedFieldKind,
+        kind: &AcceptedFieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
         if matches!(value, Value::Null | Value::Unit) {
@@ -629,7 +640,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         match (kind, value) {
-            (PersistedFieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
+            (AcceptedFieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
                 let actual_len = text.chars().count();
                 if actual_len > *max as usize {
                     return Err(InternalError::mutation_text_max_len_exceeded(
@@ -642,11 +653,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
                 Ok(())
             }
-            (PersistedFieldKind::Relation { key_kind, .. }, value) => {
+            (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
                 Self::validate_persisted_text_max_len(field_name, key_kind, value)
             }
             (
-                PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner),
+                AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner),
                 Value::List(items),
             ) => {
                 for item in items {
@@ -656,7 +667,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 Ok(())
             }
             (
-                PersistedFieldKind::Map {
+                AcceptedFieldKind::Map {
                     key,
                     value: map_value,
                 },
@@ -691,12 +702,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // field kinds.
     fn validate_persisted_deterministic_field_value(
         field_name: &str,
-        kind: &PersistedFieldKind,
+        kind: &AcceptedFieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
         match kind {
-            PersistedFieldKind::Set(_) => Self::validate_set_encoding(field_name, value),
-            PersistedFieldKind::Map { .. } => Self::validate_map_encoding(field_name, value),
+            AcceptedFieldKind::Set(_) => Self::validate_set_encoding(field_name, value),
+            AcceptedFieldKind::Map { .. } => Self::validate_map_encoding(field_name, value),
             _ => Ok(()),
         }
     }
@@ -769,76 +780,76 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 // This mirrors generated `FieldKind::value_kind().is_queryable()` for saved
 // schema metadata without converting accepted field kinds back into generated
 // model metadata.
-const fn persisted_field_kind_is_queryable(kind: &PersistedFieldKind) -> bool {
-    match classify_persisted_field_kind(kind).category() {
-        PersistedFieldKindCategory::Scalar(_) | PersistedFieldKindCategory::Relation(_) => true,
-        PersistedFieldKindCategory::Collection => !matches!(kind, PersistedFieldKind::Map { .. }),
-        PersistedFieldKindCategory::Structured { queryable } => queryable,
+const fn persisted_field_kind_is_queryable(kind: &AcceptedFieldKind) -> bool {
+    match classify_accepted_field_kind(kind).category() {
+        AcceptedFieldKindCategory::Scalar(_) | AcceptedFieldKindCategory::Relation(_) => true,
+        AcceptedFieldKindCategory::Collection => !matches!(kind, AcceptedFieldKind::Map { .. }),
+        AcceptedFieldKindCategory::Structured { queryable } => queryable,
     }
 }
 
 // Match one runtime value against accepted persisted schema kind metadata.
 // Relation, list/set, and map shapes recurse exactly like generated field
 // validation, but the accepted snapshot remains the kind authority.
-fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) -> bool {
-    match classify_persisted_field_kind(kind).category() {
-        PersistedFieldKindCategory::Scalar(class) => {
+fn persisted_field_kind_accepts_value(kind: &AcceptedFieldKind, value: &Value) -> bool {
+    match classify_accepted_field_kind(kind).category() {
+        AcceptedFieldKindCategory::Scalar(class) => {
             persisted_scalar_class_accepts_value(kind, class, value)
         }
-        PersistedFieldKindCategory::Relation(_) => {
-            let PersistedFieldKind::Relation { key_kind, .. } = kind else {
+        AcceptedFieldKindCategory::Relation(_) => {
+            let AcceptedFieldKind::Relation { key_kind, .. } = kind else {
                 return false;
             };
 
             persisted_field_kind_accepts_value(key_kind, value)
         }
-        PersistedFieldKindCategory::Collection => {
+        AcceptedFieldKindCategory::Collection => {
             persisted_collection_kind_accepts_value(kind, value)
         }
-        PersistedFieldKindCategory::Structured { .. } => {
+        AcceptedFieldKindCategory::Structured { .. } => {
             matches!(value, Value::List(_) | Value::Map(_))
         }
     }
 }
 
 fn persisted_scalar_class_accepts_value(
-    kind: &PersistedFieldKind,
-    class: PersistedScalarClass,
+    kind: &AcceptedFieldKind,
+    class: AcceptedScalarClass,
     value: &Value,
 ) -> bool {
     match (class, value) {
-        (PersistedScalarClass::Account, Value::Account(_))
-        | (PersistedScalarClass::Blob, Value::Blob(_))
-        | (PersistedScalarClass::Bool, Value::Bool(_))
-        | (PersistedScalarClass::Date, Value::Date(_))
-        | (PersistedScalarClass::Decimal, Value::Decimal(_))
-        | (PersistedScalarClass::Duration, Value::Duration(_))
-        | (PersistedScalarClass::Enum, Value::Enum(_))
-        | (PersistedScalarClass::Float32, Value::Float32(_))
-        | (PersistedScalarClass::Float64, Value::Float64(_))
-        | (PersistedScalarClass::Signed128, Value::Int128(_))
-        | (PersistedScalarClass::Principal, Value::Principal(_))
-        | (PersistedScalarClass::Subaccount, Value::Subaccount(_))
-        | (PersistedScalarClass::Text, Value::Text(_))
-        | (PersistedScalarClass::Timestamp, Value::Timestamp(_))
-        | (PersistedScalarClass::Unsigned128, Value::Nat128(_))
-        | (PersistedScalarClass::Ulid, Value::Ulid(_))
-        | (PersistedScalarClass::Unit, Value::Unit) => true,
-        (PersistedScalarClass::Signed64, Value::Int64(value)) => {
+        (AcceptedScalarClass::Account, Value::Account(_))
+        | (AcceptedScalarClass::Blob, Value::Blob(_))
+        | (AcceptedScalarClass::Bool, Value::Bool(_))
+        | (AcceptedScalarClass::Date, Value::Date(_))
+        | (AcceptedScalarClass::Decimal, Value::Decimal(_))
+        | (AcceptedScalarClass::Duration, Value::Duration(_))
+        | (AcceptedScalarClass::Enum, Value::Enum(_))
+        | (AcceptedScalarClass::Float32, Value::Float32(_))
+        | (AcceptedScalarClass::Float64, Value::Float64(_))
+        | (AcceptedScalarClass::Signed128, Value::Int128(_))
+        | (AcceptedScalarClass::Principal, Value::Principal(_))
+        | (AcceptedScalarClass::Subaccount, Value::Subaccount(_))
+        | (AcceptedScalarClass::Text, Value::Text(_))
+        | (AcceptedScalarClass::Timestamp, Value::Timestamp(_))
+        | (AcceptedScalarClass::Unsigned128, Value::Nat128(_))
+        | (AcceptedScalarClass::Ulid, Value::Ulid(_))
+        | (AcceptedScalarClass::Unit, Value::Unit) => true,
+        (AcceptedScalarClass::Signed64, Value::Int64(value)) => {
             persisted_signed64_kind_accepts_value(kind, *value)
         }
-        (PersistedScalarClass::SignedBig, Value::IntBig(value)) => {
-            let PersistedFieldKind::IntBig { max_bytes } = kind else {
+        (AcceptedScalarClass::SignedBig, Value::IntBig(value)) => {
+            let AcceptedFieldKind::IntBig { max_bytes } = kind else {
                 return false;
             };
 
             value.to_leb128().len() <= *max_bytes as usize
         }
-        (PersistedScalarClass::Unsigned64, Value::Nat64(value)) => {
+        (AcceptedScalarClass::Unsigned64, Value::Nat64(value)) => {
             persisted_unsigned64_kind_accepts_value(kind, *value)
         }
-        (PersistedScalarClass::UnsignedBig, Value::NatBig(value)) => {
-            let PersistedFieldKind::NatBig { max_bytes } = kind else {
+        (AcceptedScalarClass::UnsignedBig, Value::NatBig(value)) => {
+            let AcceptedFieldKind::NatBig { max_bytes } = kind else {
                 return false;
             };
 
@@ -848,34 +859,34 @@ fn persisted_scalar_class_accepts_value(
     }
 }
 
-const fn persisted_signed64_kind_accepts_value(kind: &PersistedFieldKind, value: i64) -> bool {
+const fn persisted_signed64_kind_accepts_value(kind: &AcceptedFieldKind, value: i64) -> bool {
     match kind {
-        PersistedFieldKind::Int8 => value >= i8::MIN as i64 && value <= i8::MAX as i64,
-        PersistedFieldKind::Int16 => value >= i16::MIN as i64 && value <= i16::MAX as i64,
-        PersistedFieldKind::Int32 => value >= i32::MIN as i64 && value <= i32::MAX as i64,
-        PersistedFieldKind::Int64 => true,
+        AcceptedFieldKind::Int8 => value >= i8::MIN as i64 && value <= i8::MAX as i64,
+        AcceptedFieldKind::Int16 => value >= i16::MIN as i64 && value <= i16::MAX as i64,
+        AcceptedFieldKind::Int32 => value >= i32::MIN as i64 && value <= i32::MAX as i64,
+        AcceptedFieldKind::Int64 => true,
         _ => false,
     }
 }
 
-const fn persisted_unsigned64_kind_accepts_value(kind: &PersistedFieldKind, value: u64) -> bool {
+const fn persisted_unsigned64_kind_accepts_value(kind: &AcceptedFieldKind, value: u64) -> bool {
     match kind {
-        PersistedFieldKind::Nat8 => value <= u8::MAX as u64,
-        PersistedFieldKind::Nat16 => value <= u16::MAX as u64,
-        PersistedFieldKind::Nat32 => value <= u32::MAX as u64,
-        PersistedFieldKind::Nat64 => true,
+        AcceptedFieldKind::Nat8 => value <= u8::MAX as u64,
+        AcceptedFieldKind::Nat16 => value <= u16::MAX as u64,
+        AcceptedFieldKind::Nat32 => value <= u32::MAX as u64,
+        AcceptedFieldKind::Nat64 => true,
         _ => false,
     }
 }
 
-fn persisted_collection_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) -> bool {
+fn persisted_collection_kind_accepts_value(kind: &AcceptedFieldKind, value: &Value) -> bool {
     match (kind, value) {
-        (PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner), Value::List(items)) => {
+        (AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner), Value::List(items)) => {
             items
                 .iter()
                 .all(|item| persisted_field_kind_accepts_value(inner, item))
         }
-        (PersistedFieldKind::Map { key, value }, Value::Map(entries)) => {
+        (AcceptedFieldKind::Map { key, value }, Value::Map(entries)) => {
             if Value::validate_map_entries(entries.as_slice()).is_err() {
                 return false;
             }
@@ -893,34 +904,34 @@ fn persisted_collection_kind_accepts_value(kind: &PersistedFieldKind, value: &Va
 mod tests {
     use super::{persisted_field_kind_accepts_value, persisted_field_kind_is_queryable};
     use crate::{
-        db::schema::{PersistedFieldKind, PersistedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
         types::EntityTag,
         value::Value,
     };
 
-    fn relation_to_key(key_kind: PersistedFieldKind) -> PersistedFieldKind {
-        PersistedFieldKind::Relation {
+    fn relation_to_key(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
+        AcceptedFieldKind::Relation {
             target_path: "target::Entity".into(),
             target_entity_name: "Target".into(),
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            strength: PersistedRelationStrength::Weak,
+            strength: AcceptedRelationStrength::Weak,
         }
     }
 
     #[test]
     fn persisted_field_kind_queryability_uses_schema_semantics_for_kind_shape() {
-        let scalar_kind = PersistedFieldKind::Nat64;
-        let relation_kind = relation_to_key(PersistedFieldKind::Ulid);
-        let list_kind = PersistedFieldKind::List(Box::new(PersistedFieldKind::Nat64));
-        let set_kind = PersistedFieldKind::Set(Box::new(PersistedFieldKind::Nat64));
-        let map_kind = PersistedFieldKind::Map {
-            key: Box::new(PersistedFieldKind::Text { max_len: None }),
-            value: Box::new(PersistedFieldKind::Nat64),
+        let scalar_kind = AcceptedFieldKind::Nat64;
+        let relation_kind = relation_to_key(AcceptedFieldKind::Ulid);
+        let list_kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64));
+        let set_kind = AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Nat64));
+        let map_kind = AcceptedFieldKind::Map {
+            key: Box::new(AcceptedFieldKind::Text { max_len: None }),
+            value: Box::new(AcceptedFieldKind::Nat64),
         };
-        let shown_structured = PersistedFieldKind::Structured { queryable: true };
-        let hidden_structured = PersistedFieldKind::Structured { queryable: false };
+        let shown_structured = AcceptedFieldKind::Structured { queryable: true };
+        let hidden_structured = AcceptedFieldKind::Structured { queryable: false };
 
         assert!(persisted_field_kind_is_queryable(&scalar_kind));
         assert!(persisted_field_kind_is_queryable(&relation_kind));
@@ -933,16 +944,16 @@ mod tests {
 
     #[test]
     fn persisted_field_kind_value_acceptance_uses_schema_semantics_for_shape_dispatch() {
-        let nat8_kind = PersistedFieldKind::Nat8;
-        let int16_kind = PersistedFieldKind::Int16;
-        let relation_kind = relation_to_key(PersistedFieldKind::Nat8);
+        let nat8_kind = AcceptedFieldKind::Nat8;
+        let int16_kind = AcceptedFieldKind::Int16;
+        let relation_kind = relation_to_key(AcceptedFieldKind::Nat8);
         let list_kind =
-            PersistedFieldKind::List(Box::new(PersistedFieldKind::Text { max_len: None }));
-        let map_kind = PersistedFieldKind::Map {
-            key: Box::new(PersistedFieldKind::Text { max_len: None }),
-            value: Box::new(PersistedFieldKind::Nat8),
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Text { max_len: None }));
+        let map_kind = AcceptedFieldKind::Map {
+            key: Box::new(AcceptedFieldKind::Text { max_len: None }),
+            value: Box::new(AcceptedFieldKind::Nat8),
         };
-        let structured_kind = PersistedFieldKind::Structured { queryable: false };
+        let structured_kind = AcceptedFieldKind::Structured { queryable: false };
 
         assert!(persisted_field_kind_accepts_value(
             &nat8_kind,

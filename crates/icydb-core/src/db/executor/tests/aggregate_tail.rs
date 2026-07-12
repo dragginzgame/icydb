@@ -247,11 +247,13 @@ where
 {
     let resolved_index = E::MODEL.resolve_field_slot(field);
     let index = resolved_index.unwrap_or(0);
-
-    PlannedFieldSlot {
-        index,
-        field: field.to_string(),
-        kind: resolved_index.and_then(|index| E::MODEL.fields.get(index).map(|field| field.kind)),
+    match resolved_index.and_then(|index| E::MODEL.fields.get(index)) {
+        Some(model_field) => PlannedFieldSlot::from_test_accepted_kind(
+            index,
+            field,
+            crate::db::schema::AcceptedFieldKind::from_model_kind(model_field.kind),
+        ),
+        None => PlannedFieldSlot::from_test_slot(index, field),
     }
 }
 

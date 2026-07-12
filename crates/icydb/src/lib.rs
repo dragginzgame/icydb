@@ -200,24 +200,22 @@ pub type Create<E> = <E as icydb_core::traits::EntityCreateType>::Create;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::execute_generated_storage_report;
+    pub use icydb_core::__macro::decode_generated_runtime_field_value;
     pub use icydb_core::__macro::{
-        GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices,
-        decode_generated_structural_enum_payload_bytes,
-        decode_generated_structural_list_payload_bytes,
+        GeneratedStructuralMapPayloadSlices, decode_generated_structural_list_payload_bytes,
         decode_generated_structural_map_payload_bytes,
         decode_generated_structural_text_payload_bytes, decode_persisted_many_slot_payload_by_meta,
         decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
         decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
         decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
         decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-        decode_schema_runtime_field_slot, encode_generated_structural_enum_payload_bytes,
         encode_generated_structural_list_payload_bytes,
         encode_generated_structural_map_payload_bytes,
         encode_generated_structural_text_payload_bytes, encode_persisted_many_slot_payload_by_meta,
         encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
         encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
         encode_persisted_slot_payload_by_meta, encode_persisted_structured_many_slot_payload,
-        encode_persisted_structured_slot_payload, encode_schema_runtime_field_slot,
+        encode_persisted_structured_slot_payload,
         generated_persisted_structured_payload_decode_failed,
     };
     pub use icydb_core::__macro::{PersistedScalar, ScalarSlotValueRef, ScalarValueRef};
@@ -238,18 +236,20 @@ pub mod __macro {
     };
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{
-        EntityKeyBytes, EntityValue, EnumValue, FieldProjection, KeyValueCodec,
+        AuthoredFieldProjection, EntityKeyBytes, EntityValue, FieldProjection, KeyValueCodec,
         PersistedByKindCodec, PersistedFieldMetaCodec, PersistedFieldSlotCodec,
         PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
-        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        ScalarRelationTargetKey, ScalarRelationTargetKeyMatchesDeclaredPrimitive,
-        runtime_value_btree_map_from_value, runtime_value_btree_set_from_value,
-        runtime_value_collection_to_value, runtime_value_from_value, runtime_value_from_vec_into,
+        RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode, RuntimeValueEncode,
+        RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
+        ScalarRelationTargetKeyMatchesDeclaredPrimitive, runtime_value_btree_map_from_value,
+        runtime_value_btree_set_from_value, runtime_value_collection_to_value,
+        runtime_value_from_value, runtime_value_from_value_with_enum_context,
+        runtime_value_from_value_with_optional_enum_context, runtime_value_from_vec_into,
         runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
         runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
         runtime_value_vec_from_value,
     };
-    pub use icydb_core::value::{InputValue, Value, ValueEnum};
+    pub use icydb_core::value::{InputValue, InputValueEnum, Value, ValueEnum};
 }
 
 // re-exports

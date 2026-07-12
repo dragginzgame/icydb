@@ -58,7 +58,7 @@ impl MutationMode {
 
 #[derive(Default)]
 pub struct StructuralPatch {
-    inner: core::db::StructuralPatch,
+    inner: core::db::AuthoredStructuralPatch,
 }
 
 impl StructuralPatch {
@@ -68,11 +68,11 @@ impl StructuralPatch {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            inner: core::db::StructuralPatch::new(),
+            inner: core::db::AuthoredStructuralPatch::new(),
         }
     }
 
-    const fn from_core(inner: core::db::StructuralPatch) -> Self {
+    const fn from_core(inner: core::db::AuthoredStructuralPatch) -> Self {
         Self { inner }
     }
 }
@@ -119,6 +119,7 @@ impl<C: CanisterKind> DbSession<C> {
         entity_name: String,
         entities: Vec<E>,
         selected_fields: Option<&[String]>,
+        mut project: impl FnMut(&E, &[usize]) -> Result<Vec<OutputValue>, Error>,
     ) -> Result<RowProjectionOutput, Error>
     where
         E: crate::traits::EntityFor<C>,
@@ -132,14 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 2: move selected entity slots into the typed output payload so
         // row-producing write surfaces do not pre-render blob fields as text.
         for entity in entities {
-            let mut row = Vec::with_capacity(indices.len());
-            for index in &indices {
-                let value = entity.get_value_by_index(*index).ok_or_else(|| {
-                    Error::from_error_code(ErrorCode::RUNTIME_INTERNAL, ErrorOrigin::Query)
-                })?;
-                row.push(OutputValue::from(value));
-            }
-            rows.push(row);
+            rows.push(project(&entity, indices.as_slice())?);
         }
 
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
@@ -162,6 +156,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn row_projection_output_from_entity<E>(
+        &self,
         entity: E,
         selected_fields: Option<&[String]>,
     ) -> Result<RowProjectionOutput, Error>
@@ -172,6 +167,13 @@ impl<C: CanisterKind> DbSession<C> {
             E::PATH.to_string(),
             vec![entity],
             selected_fields,
+            |entity, slots| {
+                self.inner
+                    .project_entity_output_values(entity, slots)
+                    .map_err(|_| {
+                        Error::from_error_code(ErrorCode::RUNTIME_INTERNAL, ErrorOrigin::Query)
+                    })
+            },
         )
     }
 
@@ -193,7 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let entity = self.inner.insert(entity)?;
 
-        Self::row_projection_output_from_entity::<E>(entity, None)
+        self.row_projection_output_from_entity::<E>(entity, None)
     }
 
     /// Insert one full entity and return one explicit field list.
@@ -210,7 +212,7 @@ impl<C: CanisterKind> DbSession<C> {
         let entity = self.inner.insert(entity)?;
         let fields = Self::returning_fields(fields);
 
-        Self::row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
+        self.row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
     }
 
     /// Create one authored typed input.
@@ -230,7 +232,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let entity = self.inner.create(input)?;
 
-        Self::row_projection_output_from_entity::<I::Entity>(entity, None)
+        self.row_projection_output_from_entity::<I::Entity>(entity, None)
     }
 
     /// Create one authored typed input and return one explicit field list.
@@ -248,7 +250,7 @@ impl<C: CanisterKind> DbSession<C> {
         let entity = self.inner.create(input)?;
         let fields = Self::returning_fields(fields);
 
-        Self::row_projection_output_from_entity::<I::Entity>(entity, Some(fields.as_slice()))
+        self.row_projection_output_from_entity::<I::Entity>(entity, Some(fields.as_slice()))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -338,7 +340,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let entity = self.inner.update(entity)?;
 
-        Self::row_projection_output_from_entity::<E>(entity, None)
+        self.row_projection_output_from_entity::<E>(entity, None)
     }
 
     /// Update one full entity and return one explicit field list.
@@ -355,7 +357,7 @@ impl<C: CanisterKind> DbSession<C> {
         let entity = self.inner.update(entity)?;
         let fields = Self::returning_fields(fields);
 
-        Self::row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
+        self.row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
     }
 
     /// Apply one structural mutation under one explicit write-mode contract.
@@ -396,10 +398,7 @@ impl<C: CanisterKind> DbSession<C> {
         I: IntoIterator<Item = (S, InputValue)>,
         S: AsRef<str>,
     {
-        let fields = fields
-            .into_iter()
-            .map(|(field, value)| (field, value.into()));
-        let patch = self.inner.structural_patch::<E, _, _>(fields)?;
+        let patch = self.inner.structural_patch::<E, _, _, _>(fields)?;
 
         Ok(StructuralPatch::from_core(patch))
     }

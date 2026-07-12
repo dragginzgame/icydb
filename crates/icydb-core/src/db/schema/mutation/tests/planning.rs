@@ -86,7 +86,7 @@ fn rebuild_plan_derives_physical_index_actions() {
     assert_eq!(key_path.field_id(), FieldId::new(2));
     assert_eq!(key_path.slot(), SchemaFieldSlot::new(1));
     assert_eq!(key_path.path(), &["name".to_string()]);
-    assert_eq!(key_path.kind(), &PersistedFieldKind::Text { max_len: None });
+    assert_eq!(key_path.kind(), &AcceptedFieldKind::Text { max_len: None });
     assert!(!key_path.nullable());
     let expression_rebuild = expression.rebuild_plan();
     let [SchemaRebuildAction::BuildExpressionIndex { target }] = expression_rebuild.actions()
@@ -106,11 +106,11 @@ fn rebuild_plan_derives_physical_index_actions() {
     assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
     assert_eq!(
         expression.input_kind(),
-        &PersistedFieldKind::Text { max_len: None }
+        &AcceptedFieldKind::Text { max_len: None }
     );
     assert_eq!(
         expression.output_kind(),
-        &PersistedFieldKind::Text { max_len: None }
+        &AcceptedFieldKind::Text { max_len: None }
     );
     assert_eq!(expression.source().field_id(), FieldId::new(2));
     assert_eq!(expression.source().slot(), SchemaFieldSlot::new(1));

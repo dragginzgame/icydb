@@ -5,13 +5,13 @@
 
 use crate::{
     db::schema::{
-        FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldOrigin,
+        AcceptedFieldKind, AcceptedRelationStrength, FieldId, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedRelationEdgeSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
-        SchemaVersion, schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
+        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
         schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
@@ -19,6 +19,7 @@ use crate::{
         FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
     },
     types::EntityTag,
+    value::EnumTypeId,
 };
 #[cfg(test)]
 use std::cell::Cell;
@@ -73,7 +74,7 @@ struct PersistedFieldSnapshotWire {
     id: u32,
     name: String,
     slot: u16,
-    kind: PersistedFieldKindWire,
+    kind: AcceptedFieldKindWire,
     nested_leaves: Vec<PersistedNestedLeafSnapshotWire>,
     nullable: bool,
     default: SchemaFieldDefaultWire,
@@ -94,7 +95,7 @@ enum PersistedFieldOriginWire {
 #[derive(CandidType, Deserialize)]
 struct PersistedNestedLeafSnapshotWire {
     path: Vec<String>,
-    kind: PersistedFieldKindWire,
+    kind: AcceptedFieldKindWire,
     nullable: bool,
     storage_decode: FieldStorageDecodeWire,
     leaf_codec: LeafCodecWire,
@@ -147,7 +148,7 @@ struct PersistedIndexFieldPathSnapshotWire {
     field_id: u32,
     slot: u16,
     path: Vec<String>,
-    kind: PersistedFieldKindWire,
+    kind: AcceptedFieldKindWire,
     nullable: bool,
 }
 
@@ -156,8 +157,8 @@ struct PersistedIndexFieldPathSnapshotWire {
 struct PersistedIndexExpressionSnapshotWire {
     op: PersistedIndexExpressionOpWire,
     source: PersistedIndexFieldPathSnapshotWire,
-    input_kind: PersistedFieldKindWire,
-    output_kind: PersistedFieldKindWire,
+    input_kind: AcceptedFieldKindWire,
+    output_kind: AcceptedFieldKindWire,
     canonical_text: String,
 }
 
@@ -204,7 +205,7 @@ enum FieldWriteManagementWire {
 
 // Candid wire enum for the complete persisted field-kind shape.
 #[derive(CandidType, Deserialize)]
-enum PersistedFieldKindWire {
+enum AcceptedFieldKindWire {
     Account,
     Blob {
         max_len: Option<u32>,
@@ -216,8 +217,7 @@ enum PersistedFieldKindWire {
     },
     Duration,
     Enum {
-        path: String,
-        variants: Vec<PersistedEnumVariantWire>,
+        type_id: u32,
     },
     Float32,
     Float64,
@@ -262,14 +262,6 @@ enum PersistedFieldKindWire {
     Structured {
         queryable: bool,
     },
-}
-
-// Candid wire container for one enum variant contract.
-#[derive(CandidType, Deserialize)]
-struct PersistedEnumVariantWire {
-    ident: String,
-    payload_kind: Option<Box<PersistedFieldKindWire>>,
-    payload_storage_decode: FieldStorageDecodeWire,
 }
 
 // Candid wire enum for relation strength.
@@ -479,7 +471,7 @@ impl PersistedFieldSnapshotWire {
             id: field.id().get(),
             name: field.name().to_string(),
             slot: field.slot().get(),
-            kind: PersistedFieldKindWire::from_kind(field.kind()),
+            kind: AcceptedFieldKindWire::from_kind(field.kind()),
             nested_leaves: field
                 .nested_leaves()
                 .iter()
@@ -534,7 +526,7 @@ impl PersistedNestedLeafSnapshotWire {
     fn from_leaf(leaf: &PersistedNestedLeafSnapshot) -> Self {
         Self {
             path: leaf.path().to_vec(),
-            kind: PersistedFieldKindWire::from_kind(leaf.kind()),
+            kind: AcceptedFieldKindWire::from_kind(leaf.kind()),
             nullable: leaf.nullable(),
             storage_decode: FieldStorageDecodeWire::from_storage_decode(leaf.storage_decode()),
             leaf_codec: LeafCodecWire::from_leaf_codec(leaf.leaf_codec()),
@@ -682,7 +674,7 @@ impl PersistedIndexFieldPathSnapshotWire {
             field_id: path.field_id().get(),
             slot: path.slot().get(),
             path: path.path().to_vec(),
-            kind: PersistedFieldKindWire::from_kind(path.kind()),
+            kind: AcceptedFieldKindWire::from_kind(path.kind()),
             nullable: path.nullable(),
         }
     }
@@ -703,8 +695,8 @@ impl PersistedIndexExpressionSnapshotWire {
         Self {
             op: PersistedIndexExpressionOpWire::from_op(expression.op()),
             source: PersistedIndexFieldPathSnapshotWire::from_path(expression.source()),
-            input_kind: PersistedFieldKindWire::from_kind(expression.input_kind()),
-            output_kind: PersistedFieldKindWire::from_kind(expression.output_kind()),
+            input_kind: AcceptedFieldKindWire::from_kind(expression.input_kind()),
+            output_kind: AcceptedFieldKindWire::from_kind(expression.output_kind()),
             canonical_text: expression.canonical_text().to_string(),
         }
     }
@@ -801,47 +793,43 @@ impl SchemaFieldWritePolicyWire {
     }
 }
 
-impl PersistedFieldKindWire {
-    fn from_kind(kind: &PersistedFieldKind) -> Self {
+impl AcceptedFieldKindWire {
+    fn from_kind(kind: &AcceptedFieldKind) -> Self {
         match kind {
-            PersistedFieldKind::Account => Self::Account,
-            PersistedFieldKind::Blob { max_len } => Self::Blob { max_len: *max_len },
-            PersistedFieldKind::Bool => Self::Bool,
-            PersistedFieldKind::Date => Self::Date,
-            PersistedFieldKind::Decimal { scale } => Self::Decimal { scale: *scale },
-            PersistedFieldKind::Duration => Self::Duration,
-            PersistedFieldKind::Enum { path, variants } => Self::Enum {
-                path: path.clone(),
-                variants: variants
-                    .iter()
-                    .map(PersistedEnumVariantWire::from_variant)
-                    .collect(),
+            AcceptedFieldKind::Account => Self::Account,
+            AcceptedFieldKind::Blob { max_len } => Self::Blob { max_len: *max_len },
+            AcceptedFieldKind::Bool => Self::Bool,
+            AcceptedFieldKind::Date => Self::Date,
+            AcceptedFieldKind::Decimal { scale } => Self::Decimal { scale: *scale },
+            AcceptedFieldKind::Duration => Self::Duration,
+            AcceptedFieldKind::Enum { type_id } => Self::Enum {
+                type_id: type_id.get(),
             },
-            PersistedFieldKind::Float32 => Self::Float32,
-            PersistedFieldKind::Float64 => Self::Float64,
-            PersistedFieldKind::Int8 => Self::Int8,
-            PersistedFieldKind::Int16 => Self::Int16,
-            PersistedFieldKind::Int32 => Self::Int32,
-            PersistedFieldKind::Int64 => Self::Int64,
-            PersistedFieldKind::Int128 => Self::Int128,
-            PersistedFieldKind::IntBig { max_bytes } => Self::IntBig {
+            AcceptedFieldKind::Float32 => Self::Float32,
+            AcceptedFieldKind::Float64 => Self::Float64,
+            AcceptedFieldKind::Int8 => Self::Int8,
+            AcceptedFieldKind::Int16 => Self::Int16,
+            AcceptedFieldKind::Int32 => Self::Int32,
+            AcceptedFieldKind::Int64 => Self::Int64,
+            AcceptedFieldKind::Int128 => Self::Int128,
+            AcceptedFieldKind::IntBig { max_bytes } => Self::IntBig {
                 max_bytes: *max_bytes,
             },
-            PersistedFieldKind::Principal => Self::Principal,
-            PersistedFieldKind::Subaccount => Self::Subaccount,
-            PersistedFieldKind::Text { max_len } => Self::Text { max_len: *max_len },
-            PersistedFieldKind::Timestamp => Self::Timestamp,
-            PersistedFieldKind::Nat8 => Self::Nat8,
-            PersistedFieldKind::Nat16 => Self::Nat16,
-            PersistedFieldKind::Nat32 => Self::Nat32,
-            PersistedFieldKind::Nat64 => Self::Nat64,
-            PersistedFieldKind::Nat128 => Self::Nat128,
-            PersistedFieldKind::NatBig { max_bytes } => Self::NatBig {
+            AcceptedFieldKind::Principal => Self::Principal,
+            AcceptedFieldKind::Subaccount => Self::Subaccount,
+            AcceptedFieldKind::Text { max_len } => Self::Text { max_len: *max_len },
+            AcceptedFieldKind::Timestamp => Self::Timestamp,
+            AcceptedFieldKind::Nat8 => Self::Nat8,
+            AcceptedFieldKind::Nat16 => Self::Nat16,
+            AcceptedFieldKind::Nat32 => Self::Nat32,
+            AcceptedFieldKind::Nat64 => Self::Nat64,
+            AcceptedFieldKind::Nat128 => Self::Nat128,
+            AcceptedFieldKind::NatBig { max_bytes } => Self::NatBig {
                 max_bytes: *max_bytes,
             },
-            PersistedFieldKind::Ulid => Self::Ulid,
-            PersistedFieldKind::Unit => Self::Unit,
-            PersistedFieldKind::Relation {
+            AcceptedFieldKind::Ulid => Self::Ulid,
+            AcceptedFieldKind::Unit => Self::Unit,
+            AcceptedFieldKind::Relation {
                 target_path,
                 target_entity_name,
                 target_entity_tag,
@@ -856,53 +844,49 @@ impl PersistedFieldKindWire {
                 key_kind: Box::new(Self::from_kind(key_kind)),
                 strength: PersistedRelationStrengthWire::from_strength(*strength),
             },
-            PersistedFieldKind::List(inner) => Self::List(Box::new(Self::from_kind(inner))),
-            PersistedFieldKind::Set(inner) => Self::Set(Box::new(Self::from_kind(inner))),
-            PersistedFieldKind::Map { key, value } => Self::Map {
+            AcceptedFieldKind::List(inner) => Self::List(Box::new(Self::from_kind(inner))),
+            AcceptedFieldKind::Set(inner) => Self::Set(Box::new(Self::from_kind(inner))),
+            AcceptedFieldKind::Map { key, value } => Self::Map {
                 key: Box::new(Self::from_kind(key)),
                 value: Box::new(Self::from_kind(value)),
             },
-            PersistedFieldKind::Structured { queryable } => Self::Structured {
+            AcceptedFieldKind::Structured { queryable } => Self::Structured {
                 queryable: *queryable,
             },
         }
     }
 
-    fn into_kind(self) -> Result<PersistedFieldKind, InternalError> {
+    fn into_kind(self) -> Result<AcceptedFieldKind, InternalError> {
         Ok(match self {
-            Self::Account => PersistedFieldKind::Account,
-            Self::Blob { max_len } => PersistedFieldKind::Blob { max_len },
-            Self::Bool => PersistedFieldKind::Bool,
-            Self::Date => PersistedFieldKind::Date,
-            Self::Decimal { scale } => PersistedFieldKind::Decimal { scale },
-            Self::Duration => PersistedFieldKind::Duration,
-            Self::Enum { path, variants } => PersistedFieldKind::Enum {
-                path,
-                variants: variants
-                    .into_iter()
-                    .map(PersistedEnumVariantWire::into_variant)
-                    .collect::<Result<Vec<_>, _>>()?,
+            Self::Account => AcceptedFieldKind::Account,
+            Self::Blob { max_len } => AcceptedFieldKind::Blob { max_len },
+            Self::Bool => AcceptedFieldKind::Bool,
+            Self::Date => AcceptedFieldKind::Date,
+            Self::Decimal { scale } => AcceptedFieldKind::Decimal { scale },
+            Self::Duration => AcceptedFieldKind::Duration,
+            Self::Enum { type_id } => AcceptedFieldKind::Enum {
+                type_id: EnumTypeId::new(type_id).ok_or_else(InternalError::store_corruption)?,
             },
-            Self::Float32 => PersistedFieldKind::Float32,
-            Self::Float64 => PersistedFieldKind::Float64,
-            Self::Int8 => PersistedFieldKind::Int8,
-            Self::Int16 => PersistedFieldKind::Int16,
-            Self::Int32 => PersistedFieldKind::Int32,
-            Self::Int64 => PersistedFieldKind::Int64,
-            Self::Int128 => PersistedFieldKind::Int128,
-            Self::IntBig { max_bytes } => PersistedFieldKind::IntBig { max_bytes },
-            Self::Principal => PersistedFieldKind::Principal,
-            Self::Subaccount => PersistedFieldKind::Subaccount,
-            Self::Text { max_len } => PersistedFieldKind::Text { max_len },
-            Self::Timestamp => PersistedFieldKind::Timestamp,
-            Self::Nat8 => PersistedFieldKind::Nat8,
-            Self::Nat16 => PersistedFieldKind::Nat16,
-            Self::Nat32 => PersistedFieldKind::Nat32,
-            Self::Nat64 => PersistedFieldKind::Nat64,
-            Self::Nat128 => PersistedFieldKind::Nat128,
-            Self::NatBig { max_bytes } => PersistedFieldKind::NatBig { max_bytes },
-            Self::Ulid => PersistedFieldKind::Ulid,
-            Self::Unit => PersistedFieldKind::Unit,
+            Self::Float32 => AcceptedFieldKind::Float32,
+            Self::Float64 => AcceptedFieldKind::Float64,
+            Self::Int8 => AcceptedFieldKind::Int8,
+            Self::Int16 => AcceptedFieldKind::Int16,
+            Self::Int32 => AcceptedFieldKind::Int32,
+            Self::Int64 => AcceptedFieldKind::Int64,
+            Self::Int128 => AcceptedFieldKind::Int128,
+            Self::IntBig { max_bytes } => AcceptedFieldKind::IntBig { max_bytes },
+            Self::Principal => AcceptedFieldKind::Principal,
+            Self::Subaccount => AcceptedFieldKind::Subaccount,
+            Self::Text { max_len } => AcceptedFieldKind::Text { max_len },
+            Self::Timestamp => AcceptedFieldKind::Timestamp,
+            Self::Nat8 => AcceptedFieldKind::Nat8,
+            Self::Nat16 => AcceptedFieldKind::Nat16,
+            Self::Nat32 => AcceptedFieldKind::Nat32,
+            Self::Nat64 => AcceptedFieldKind::Nat64,
+            Self::Nat128 => AcceptedFieldKind::Nat128,
+            Self::NatBig { max_bytes } => AcceptedFieldKind::NatBig { max_bytes },
+            Self::Ulid => AcceptedFieldKind::Ulid,
+            Self::Unit => AcceptedFieldKind::Unit,
             Self::Relation {
                 target_path,
                 target_entity_name,
@@ -910,7 +894,7 @@ impl PersistedFieldKindWire {
                 target_store_path,
                 key_kind,
                 strength,
-            } => PersistedFieldKind::Relation {
+            } => AcceptedFieldKind::Relation {
                 target_path,
                 target_entity_name,
                 target_entity_tag: EntityTag::new(target_entity_tag),
@@ -918,53 +902,29 @@ impl PersistedFieldKindWire {
                 key_kind: Box::new(key_kind.into_kind()?),
                 strength: strength.into_strength(),
             },
-            Self::List(inner) => PersistedFieldKind::List(Box::new(inner.into_kind()?)),
-            Self::Set(inner) => PersistedFieldKind::Set(Box::new(inner.into_kind()?)),
-            Self::Map { key, value } => PersistedFieldKind::Map {
+            Self::List(inner) => AcceptedFieldKind::List(Box::new(inner.into_kind()?)),
+            Self::Set(inner) => AcceptedFieldKind::Set(Box::new(inner.into_kind()?)),
+            Self::Map { key, value } => AcceptedFieldKind::Map {
                 key: Box::new(key.into_kind()?),
                 value: Box::new(value.into_kind()?),
             },
-            Self::Structured { queryable } => PersistedFieldKind::Structured { queryable },
+            Self::Structured { queryable } => AcceptedFieldKind::Structured { queryable },
         })
     }
 }
 
-impl PersistedEnumVariantWire {
-    fn from_variant(variant: &PersistedEnumVariant) -> Self {
-        Self {
-            ident: variant.ident().to_string(),
-            payload_kind: variant
-                .payload_kind()
-                .map(|kind| Box::new(PersistedFieldKindWire::from_kind(kind))),
-            payload_storage_decode: FieldStorageDecodeWire::from_storage_decode(
-                variant.payload_storage_decode(),
-            ),
-        }
-    }
-
-    fn into_variant(self) -> Result<PersistedEnumVariant, InternalError> {
-        Ok(PersistedEnumVariant::new(
-            self.ident,
-            self.payload_kind
-                .map(|kind| kind.into_kind().map(Box::new))
-                .transpose()?,
-            self.payload_storage_decode.into_storage_decode(),
-        ))
-    }
-}
-
 impl PersistedRelationStrengthWire {
-    const fn from_strength(strength: PersistedRelationStrength) -> Self {
+    const fn from_strength(strength: AcceptedRelationStrength) -> Self {
         match strength {
-            PersistedRelationStrength::Strong => Self::Strong,
-            PersistedRelationStrength::Weak => Self::Weak,
+            AcceptedRelationStrength::Strong => Self::Strong,
+            AcceptedRelationStrength::Weak => Self::Weak,
         }
     }
 
-    const fn into_strength(self) -> PersistedRelationStrength {
+    const fn into_strength(self) -> AcceptedRelationStrength {
         match self {
-            Self::Strong => PersistedRelationStrength::Strong,
-            Self::Weak => PersistedRelationStrength::Weak,
+            Self::Strong => AcceptedRelationStrength::Strong,
+            Self::Weak => AcceptedRelationStrength::Weak,
         }
     }
 }

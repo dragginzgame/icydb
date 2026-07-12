@@ -2,12 +2,15 @@
 //! Responsibility: grouped fold route and count-key path selection.
 //! Boundary: resolves route-owned branching before execution loops run.
 
-use crate::{
-    db::executor::{
-        aggregate::{EffectiveRuntimeFilterProgram, FieldSlot},
-        pipeline::contracts::GroupedRouteStage,
+use crate::db::executor::{
+    aggregate::{
+        EffectiveRuntimeFilterProgram, FieldSlot,
+        capability::{
+            accepted_field_kind_has_identity_group_canonical_form,
+            accepted_field_kind_supports_group_probe,
+        },
     },
-    model::field_kind_has_identity_group_canonical_form,
+    pipeline::contracts::GroupedRouteStage,
 };
 
 ///
@@ -35,8 +38,8 @@ impl GroupedCountKeyPath {
         if effective_runtime_filter_program.is_none()
             && let [field] = route.group_fields()
             && field
-                .kind()
-                .is_some_and(field_kind_has_identity_group_canonical_form)
+                .accepted_kind()
+                .is_some_and(accepted_field_kind_has_identity_group_canonical_form)
         {
             return Self::DirectSingleField {
                 group_field_index: field.index(),
@@ -76,10 +79,42 @@ impl GroupedCountProbeKind {
     }
 }
 
-// Return true when every planner-frozen grouped slot kind supports the
+// Return true when every planner-frozen accepted slot kind supports the
 // borrowed grouped-key probe path for this grouped route.
 pub(super) fn group_fields_support_borrowed_group_probe(group_fields: &[FieldSlot]) -> bool {
-    group_fields
-        .iter()
-        .all(|field| field.kind().is_some_and(|kind| kind.supports_group_probe()))
+    group_fields.iter().all(|field| {
+        field
+            .accepted_kind()
+            .is_some_and(accepted_field_kind_supports_group_probe)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::group_fields_support_borrowed_group_probe;
+    use crate::{
+        db::{query::plan::FieldSlot, schema::AcceptedFieldKind},
+        model::field::FieldKind,
+    };
+
+    #[test]
+    fn borrowed_group_probe_requires_accepted_scalar_authority() {
+        let accepted = FieldSlot::from_test_accepted_kind(
+            0,
+            "status",
+            AcceptedFieldKind::Text { max_len: None },
+        );
+        let model_only = FieldSlot::from_model_kind(0, "status", FieldKind::Text { max_len: None });
+        let accepted_enum = FieldSlot::from_test_accepted_kind(
+            0,
+            "status",
+            AcceptedFieldKind::Enum {
+                type_id: crate::value::EnumTypeId::new(1).expect("non-zero type ID"),
+            },
+        );
+
+        assert!(group_fields_support_borrowed_group_probe(&[accepted]));
+        assert!(!group_fields_support_borrowed_group_probe(&[model_only]));
+        assert!(!group_fields_support_borrowed_group_probe(&[accepted_enum]));
+    }
 }

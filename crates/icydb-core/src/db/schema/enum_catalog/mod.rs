@@ -1,0 +1,1123 @@
+//! Module: db::schema::enum_catalog
+//! Responsibility: canonicalize generated enum proposals into ID-backed catalog candidates.
+//! Does not own: durable catalog publication, runtime value admission, or enum key encoding.
+//! Boundary: generated entity models -> deterministic accepted enum catalog candidate.
+
+mod admission;
+mod codec;
+mod equality_key;
+mod output;
+mod publication;
+#[cfg(test)]
+mod tests;
+mod value_wire;
+
+use crate::{
+    db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
+    model::{
+        entity::EntityModel,
+        field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
+    },
+    traits::{RuntimeEnumContext, RuntimeEnumSelection},
+    value::{CanonicalEnumBody, CanonicalEnumValue},
+};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
+pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
+pub(in crate::db) use admission::{
+    AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget,
+    ValueAdmissionError, admit_decoded_persisted_field_value, encode_unit_enum_default_in_catalog,
+    normalize_and_admit_nullable_value, normalize_and_admit_persisted_field_value,
+    validate_canonical_value, validate_nullable_canonical_value,
+};
+pub(in crate::db::schema) use codec::{decode_accepted_enum_catalog, encode_accepted_enum_catalog};
+pub(in crate::db) use equality_key::encode_unit_enum_equality_key;
+#[cfg(feature = "sql")]
+pub(in crate::db) use equality_key::{EqualityCapability, enum_equality_capability};
+pub(in crate::db) use output::output_value_from_runtime;
+#[cfg(test)]
+pub(in crate::db::schema) use publication::decode_accepted_schema_revision_bundle;
+#[cfg(test)]
+pub(in crate::db) use publication::empty_accepted_schema_candidate_for_tests;
+pub(in crate::db::schema) use publication::{
+    AcceptedSchemaBundleKey, AcceptedSchemaPublicationError, AcceptedSchemaRevisionBundle,
+    AcceptedSchemaRootSelection, decode_verified_accepted_schema_revision_bundle,
+    prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
+};
+pub(in crate::db) use publication::{
+    AcceptedSchemaFingerprint, AcceptedSchemaRevision, CandidateSchemaRevision,
+};
+pub(in crate::db) use value_wire::{
+    CanonicalEnumWireError, decode_canonical_enum_value, encode_canonical_enum_value,
+};
+
+const MAX_ENUM_CONTRACT_DEPTH: usize = 64;
+
+/// Initial 0.200 enum ordering contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum EnumOrderingPolicy {
+    EqualityOnly,
+}
+
+/// Canonical accepted enum definitions for one store-local catalog candidate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedEnumCatalog {
+    by_id: BTreeMap<EnumTypeId, AcceptedEnumType>,
+    id_by_path: BTreeMap<String, EnumTypeId>,
+}
+
+/// Opaque process-local identity for one store's accepted catalog domain.
+#[derive(Clone)]
+pub(in crate::db) struct AcceptedStoreCatalogScope(Arc<()>);
+
+impl AcceptedStoreCatalogScope {
+    #[must_use]
+    pub(in crate::db::schema) fn new() -> Self {
+        Self(Arc::new(()))
+    }
+}
+
+impl std::fmt::Debug for AcceptedStoreCatalogScope {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("AcceptedStoreCatalogScope(..)")
+    }
+}
+
+impl PartialEq for AcceptedStoreCatalogScope {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for AcceptedStoreCatalogScope {}
+
+/// Store-local provenance retained by an admitted owned value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedSchemaAuthority {
+    store_scope: AcceptedStoreCatalogScope,
+    revision: AcceptedSchemaRevision,
+    fingerprint: AcceptedSchemaFingerprint,
+}
+
+impl AcceptedSchemaAuthority {
+    #[must_use]
+    pub(in crate::db) const fn revision(&self) -> AcceptedSchemaRevision {
+        self.revision
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn fingerprint(&self) -> AcceptedSchemaFingerprint {
+        self.fingerprint
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn matches(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+/// Shared immutable catalog authority retained by one accepted revision context.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedEnumCatalogHandle {
+    catalog: Arc<AcceptedEnumCatalog>,
+    authority: AcceptedSchemaAuthority,
+}
+
+impl AcceptedEnumCatalogHandle {
+    #[must_use]
+    pub(in crate::db::schema) fn new(
+        catalog: AcceptedEnumCatalog,
+        store_scope: AcceptedStoreCatalogScope,
+        revision: AcceptedSchemaRevision,
+        fingerprint: AcceptedSchemaFingerprint,
+    ) -> Self {
+        Self {
+            catalog: Arc::new(catalog),
+            authority: AcceptedSchemaAuthority {
+                store_scope,
+                revision,
+                fingerprint,
+            },
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn new_for_tests(
+        catalog: AcceptedEnumCatalog,
+        revision: AcceptedSchemaRevision,
+    ) -> Self {
+        Self::new(
+            catalog,
+            AcceptedStoreCatalogScope::new(),
+            revision,
+            AcceptedSchemaFingerprint::new([0xA5; 32]),
+        )
+    }
+
+    #[must_use]
+    pub(in crate::db) fn catalog(&self) -> &AcceptedEnumCatalog {
+        self.catalog.as_ref()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn authority(&self) -> &AcceptedSchemaAuthority {
+        &self.authority
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn revision(&self) -> AcceptedSchemaRevision {
+        self.authority.revision()
+    }
+}
+
+impl AcceptedEnumCatalog {
+    fn validate(&self) -> bool {
+        self.lookup_maps_are_bijective() && self.contract_graph_is_valid()
+    }
+
+    fn lookup_maps_are_bijective(&self) -> bool {
+        self.by_id.len() == self.id_by_path.len()
+            && self.id_by_path.iter().all(|(path, type_id)| {
+                self.by_id
+                    .get(type_id)
+                    .is_some_and(|definition| definition.path == *path)
+            })
+            && self.by_id.iter().all(|(type_id, definition)| {
+                self.id_by_path.get(definition.path.as_str()) == Some(type_id)
+                    && definition.lookup_maps_are_bijective()
+            })
+    }
+
+    fn contract_graph_is_valid(&self) -> bool {
+        let mut visited = BTreeSet::new();
+        let mut active = BTreeSet::new();
+        self.by_id
+            .keys()
+            .copied()
+            .all(|type_id| validate_enum_type_graph(self, type_id, &mut visited, &mut active, 0))
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn len(&self) -> usize {
+        self.by_id.len()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn type_id(&self, path: &str) -> Option<EnumTypeId> {
+        self.id_by_path.get(path).copied()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn enum_type(&self, id: EnumTypeId) -> Option<&AcceptedEnumType> {
+        self.by_id.get(&id)
+    }
+
+    /// Resolve one canonical enum value against this exact catalog authority.
+    pub(in crate::db) fn resolve_value<'catalog, 'value, V>(
+        &'catalog self,
+        value: &'value CanonicalEnumValue<V>,
+    ) -> Result<AcceptedEnumValueSelection<'catalog, 'value, V>, EnumValueResolutionError> {
+        let definition = self
+            .enum_type(value.type_id())
+            .ok_or(EnumValueResolutionError::UnknownType)?;
+        let variant = definition
+            .variant(value.variant_id())
+            .ok_or(EnumValueResolutionError::UnknownVariant)?;
+
+        Ok(AcceptedEnumValueSelection {
+            type_id: value.type_id(),
+            variant_id: value.variant_id(),
+            definition,
+            variant,
+            body: value.body(),
+        })
+    }
+
+    pub(super) fn matches_accepted_kind(&self, kind: &AcceptedFieldKind) -> bool {
+        accepted_kind_matches_catalog(self, kind, 0)
+    }
+}
+
+impl RuntimeEnumContext for AcceptedEnumCatalog {
+    fn resolve_enum<'a>(
+        &'a self,
+        value: &'a crate::value::ValueEnum,
+    ) -> Option<RuntimeEnumSelection<'a>> {
+        let definition = self.enum_type(value.type_id())?;
+        let variant = definition.variant(value.variant_id())?;
+        Some(RuntimeEnumSelection {
+            path: definition.path.as_str(),
+            variant: variant.name.as_str(),
+            payload: value.payload(),
+        })
+    }
+}
+
+/// Catalog-backed view of one canonical enum value.
+///
+/// This keeps ID resolution, schema-visible names, the accepted variant
+/// contract, and the runtime body attached to one catalog borrow.
+pub(in crate::db) struct AcceptedEnumValueSelection<'catalog, 'value, V> {
+    type_id: EnumTypeId,
+    variant_id: EnumVariantId,
+    definition: &'catalog AcceptedEnumType,
+    variant: &'catalog AcceptedEnumVariant,
+    body: &'value CanonicalEnumBody<V>,
+}
+
+impl<V> AcceptedEnumValueSelection<'_, '_, V> {
+    #[must_use]
+    pub(in crate::db) const fn type_id(&self) -> EnumTypeId {
+        self.type_id
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn variant_id(&self) -> EnumVariantId {
+        self.variant_id
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn path(&self) -> &str {
+        self.definition.path.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn variant_name(&self) -> &str {
+        self.variant.name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_body(&self) -> &AcceptedEnumVariantBody {
+        self.variant.body()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn value_body(&self) -> &CanonicalEnumBody<V> {
+        self.body
+    }
+}
+
+/// Failure to resolve canonical store-local enum IDs in one accepted catalog.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum EnumValueResolutionError {
+    UnknownType,
+    UnknownVariant,
+}
+
+/// One canonical accepted enum type definition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedEnumType {
+    path: String,
+    variants_by_id: BTreeMap<EnumVariantId, AcceptedEnumVariant>,
+    variant_id_by_name: BTreeMap<String, EnumVariantId>,
+    ordering: EnumOrderingPolicy,
+}
+
+impl AcceptedEnumType {
+    fn lookup_maps_are_bijective(&self) -> bool {
+        self.variants_by_id.len() == self.variant_id_by_name.len()
+            && self.variant_id_by_name.iter().all(|(name, variant_id)| {
+                self.variants_by_id
+                    .get(variant_id)
+                    .is_some_and(|variant| variant.name == *name)
+            })
+            && self.variants_by_id.iter().all(|(variant_id, variant)| {
+                self.variant_id_by_name.get(variant.name.as_str()) == Some(variant_id)
+            })
+    }
+
+    #[must_use]
+    pub(in crate::db) fn variant_id(&self, name: &str) -> Option<EnumVariantId> {
+        self.variant_id_by_name.get(name).copied()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn variant(&self, id: EnumVariantId) -> Option<&AcceptedEnumVariant> {
+        self.variants_by_id.get(&id)
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn ordering(&self) -> EnumOrderingPolicy {
+        self.ordering
+    }
+}
+
+/// One accepted enum variant with structurally valid unit/payload state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedEnumVariant {
+    name: String,
+    body: AcceptedEnumVariantBody,
+}
+
+impl AcceptedEnumVariant {
+    #[must_use]
+    pub(in crate::db) const fn body(&self) -> &AcceptedEnumVariantBody {
+        &self.body
+    }
+}
+
+/// Accepted unit or payload-bearing enum variant contract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum AcceptedEnumVariantBody {
+    Unit,
+    Payload { contract: AcceptedValueContract },
+}
+
+/// Accepted payload kind and storage decoder as one inseparable contract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedValueContract {
+    kind: AcceptedFieldKind,
+    storage_decode: FieldStorageDecode,
+}
+
+impl AcceptedValueContract {
+    pub(in crate::db) fn from_accepted_field(
+        catalog: &AcceptedEnumCatalog,
+        kind: &AcceptedFieldKind,
+        storage_decode: FieldStorageDecode,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        if !accepted_kind_matches_catalog(catalog, kind, 0) {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        Ok(Self {
+            kind: kind.clone(),
+            storage_decode,
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
+        &self.kind
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn storage_decode(&self) -> FieldStorageDecode {
+        self.storage_decode
+    }
+
+    /// Derive the accepted element contract for a list or set value.
+    #[must_use]
+    pub(in crate::db) fn collection_element_contract(&self) -> Option<Self> {
+        match &self.kind {
+            AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => Some(Self {
+                kind: inner.as_ref().clone(),
+                storage_decode: FieldStorageDecode::ByKind,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Typed failure while canonicalizing one generated enum catalog candidate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum EnumCatalogBuildError {
+    EmptyTypePath,
+    EmptyVariantName { path: String },
+    DuplicateVariantName { path: String, name: String },
+    ConflictingDefinition { path: String },
+    RecursiveEnumContract { cycle: Vec<String> },
+    ContractDepthExceeded,
+    EnumTypeIdExhausted,
+    EnumVariantIdExhausted { path: String },
+    ExistingVariantRemoved { path: String, name: String },
+    ExistingVariantContractChanged { path: String, name: String },
+    UnknownEnumPath { path: String },
+    LookupMapInvariant,
+}
+
+struct RawEnumVariantProposal {
+    payload_kind: Option<FieldKind>,
+    payload_storage_decode: FieldStorageDecode,
+}
+
+struct RawEnumDefinitionProposal {
+    variants: BTreeMap<String, RawEnumVariantProposal>,
+}
+
+/// Build one deterministic initial catalog candidate from all generated models
+/// belonging to the same store.
+pub(in crate::db) fn build_initial_accepted_enum_catalog(
+    models: &[&EntityModel],
+) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
+    build_catalog_from_definitions(collect_enum_definitions_from_models(models)?)
+}
+
+/// Reconcile generated enum proposals against one accepted store catalog.
+///
+/// Existing identities and definitions are append-only. New paths and variants
+/// receive checked IDs in canonical name order inside the candidate only.
+pub(in crate::db::schema) fn reconcile_accepted_enum_catalog(
+    accepted: &AcceptedEnumCatalog,
+    models: &[&EntityModel],
+) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
+    reconcile_catalog_from_definitions(accepted, collect_enum_definitions_from_models(models)?)
+}
+
+fn collect_enum_definitions_from_models(
+    models: &[&EntityModel],
+) -> Result<BTreeMap<String, Vec<RawEnumDefinitionProposal>>, EnumCatalogBuildError> {
+    let mut definitions = BTreeMap::<String, Vec<RawEnumDefinitionProposal>>::new();
+    for model in models {
+        for field in model.fields() {
+            collect_enum_definitions_from_field(field, &mut definitions, &mut Vec::new(), 0)?;
+        }
+    }
+
+    Ok(definitions)
+}
+
+#[cfg(test)]
+fn build_initial_accepted_enum_catalog_from_kinds(
+    kinds: &[FieldKind],
+) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
+    let mut definitions = BTreeMap::<String, Vec<RawEnumDefinitionProposal>>::new();
+    for kind in kinds {
+        collect_enum_definitions_from_kind(*kind, &mut definitions, &mut Vec::new(), 0)?;
+    }
+
+    build_catalog_from_definitions(definitions)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn build_initial_accepted_enum_catalog_from_kinds_for_tests(
+    kinds: &[FieldKind],
+) -> Result<AcceptedEnumCatalog, ()> {
+    build_initial_accepted_enum_catalog_from_kinds(kinds).map_err(|_| ())
+}
+
+#[cfg(test)]
+fn reconcile_accepted_enum_catalog_from_kinds(
+    accepted: &AcceptedEnumCatalog,
+    kinds: &[FieldKind],
+) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
+    let mut definitions = BTreeMap::<String, Vec<RawEnumDefinitionProposal>>::new();
+    for kind in kinds {
+        collect_enum_definitions_from_kind(*kind, &mut definitions, &mut Vec::new(), 0)?;
+    }
+
+    reconcile_catalog_from_definitions(accepted, definitions)
+}
+
+fn collect_enum_definitions_from_field(
+    field: &FieldModel,
+    definitions: &mut BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
+    active_paths: &mut Vec<String>,
+    depth: usize,
+) -> Result<(), EnumCatalogBuildError> {
+    collect_enum_definitions_from_kind(field.kind(), definitions, active_paths, depth)?;
+    for nested in field.nested_fields() {
+        collect_enum_definitions_from_field(
+            nested,
+            definitions,
+            active_paths,
+            depth.saturating_add(1),
+        )?;
+    }
+    Ok(())
+}
+
+fn collect_enum_definitions_from_kind(
+    kind: FieldKind,
+    definitions: &mut BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
+    active_paths: &mut Vec<String>,
+    depth: usize,
+) -> Result<(), EnumCatalogBuildError> {
+    if depth > MAX_ENUM_CONTRACT_DEPTH {
+        return Err(EnumCatalogBuildError::ContractDepthExceeded);
+    }
+
+    match kind {
+        FieldKind::Enum { path, variants } => {
+            collect_enum_definition(path, variants, definitions, active_paths, depth)?;
+        }
+        FieldKind::Relation { key_kind, .. }
+        | FieldKind::List(key_kind)
+        | FieldKind::Set(key_kind) => collect_enum_definitions_from_kind(
+            *key_kind,
+            definitions,
+            active_paths,
+            depth.saturating_add(1),
+        )?,
+        FieldKind::Map { key, value } => {
+            collect_enum_definitions_from_kind(
+                *key,
+                definitions,
+                active_paths,
+                depth.saturating_add(1),
+            )?;
+            collect_enum_definitions_from_kind(
+                *value,
+                definitions,
+                active_paths,
+                depth.saturating_add(1),
+            )?;
+        }
+        FieldKind::Account
+        | FieldKind::Blob { .. }
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
+        | FieldKind::Int128
+        | FieldKind::IntBig { .. }
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Text { .. }
+        | FieldKind::Timestamp
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
+        | FieldKind::Nat128
+        | FieldKind::NatBig { .. }
+        | FieldKind::Ulid
+        | FieldKind::Unit
+        | FieldKind::Structured { .. } => {}
+    }
+
+    Ok(())
+}
+
+fn collect_enum_definition(
+    path: &str,
+    variants: &[EnumVariantModel],
+    definitions: &mut BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
+    active_paths: &mut Vec<String>,
+    depth: usize,
+) -> Result<(), EnumCatalogBuildError> {
+    if path.is_empty() {
+        return Err(EnumCatalogBuildError::EmptyTypePath);
+    }
+    if let Some(cycle_start) = active_paths.iter().position(|active| active == path) {
+        let mut cycle = active_paths[cycle_start..].to_vec();
+        cycle.push(path.to_string());
+        return Err(EnumCatalogBuildError::RecursiveEnumContract { cycle });
+    }
+
+    let mut variant_names = BTreeSet::new();
+    for variant in variants {
+        if variant.ident().is_empty() {
+            return Err(EnumCatalogBuildError::EmptyVariantName {
+                path: path.to_string(),
+            });
+        }
+        if !variant_names.insert(variant.ident()) {
+            return Err(EnumCatalogBuildError::DuplicateVariantName {
+                path: path.to_string(),
+                name: variant.ident().to_string(),
+            });
+        }
+    }
+
+    active_paths.push(path.to_string());
+    for variant in variants {
+        if let Some(payload_kind) = variant.payload_kind() {
+            collect_enum_definitions_from_kind(
+                *payload_kind,
+                definitions,
+                active_paths,
+                depth.saturating_add(1),
+            )?;
+        }
+    }
+    active_paths.pop();
+
+    let proposal_variants = variants
+        .iter()
+        .map(|variant| {
+            (
+                variant.ident().to_string(),
+                RawEnumVariantProposal {
+                    payload_kind: variant.payload_kind().copied(),
+                    payload_storage_decode: variant.payload_storage_decode(),
+                },
+            )
+        })
+        .collect();
+    definitions
+        .entry(path.to_string())
+        .or_default()
+        .push(RawEnumDefinitionProposal {
+            variants: proposal_variants,
+        });
+
+    Ok(())
+}
+
+fn build_catalog_from_definitions(
+    definitions: BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
+) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
+    let mut id_by_path = BTreeMap::new();
+    let mut last_type_id = None;
+    for path in definitions.keys() {
+        let type_id = next_type_id(last_type_id)?;
+        id_by_path.insert(path.clone(), type_id);
+        last_type_id = Some(type_id);
+    }
+
+    let mut by_id = BTreeMap::new();
+    for (path, proposals) in definitions {
+        let type_id = id_by_path
+            .get(path.as_str())
+            .copied()
+            .ok_or_else(|| EnumCatalogBuildError::UnknownEnumPath { path: path.clone() })?;
+        let variant_ids = allocate_variant_ids(&path, &proposals, None)?;
+        let accepted_definition =
+            accepted_enum_type_from_proposals(&path, proposals, &id_by_path, &variant_ids)?;
+        by_id.insert(type_id, accepted_definition);
+    }
+
+    let catalog = AcceptedEnumCatalog { by_id, id_by_path };
+    if !catalog.validate() {
+        return Err(EnumCatalogBuildError::LookupMapInvariant);
+    }
+
+    Ok(catalog)
+}
+
+fn reconcile_catalog_from_definitions(
+    accepted: &AcceptedEnumCatalog,
+    definitions: BTreeMap<String, Vec<RawEnumDefinitionProposal>>,
+) -> Result<AcceptedEnumCatalog, EnumCatalogBuildError> {
+    if !accepted.validate() {
+        return Err(EnumCatalogBuildError::LookupMapInvariant);
+    }
+
+    let mut candidate = accepted.clone();
+    let mut last_type_id = candidate.by_id.keys().next_back().copied();
+    for path in definitions.keys() {
+        if candidate.id_by_path.contains_key(path) {
+            continue;
+        }
+        let type_id = next_type_id(last_type_id)?;
+        candidate.id_by_path.insert(path.clone(), type_id);
+        last_type_id = Some(type_id);
+    }
+
+    for (path, proposals) in definitions {
+        let type_id = candidate
+            .id_by_path
+            .get(path.as_str())
+            .copied()
+            .ok_or_else(|| EnumCatalogBuildError::UnknownEnumPath { path: path.clone() })?;
+        let accepted_definition = accepted.enum_type(type_id);
+        let variant_ids = allocate_variant_ids(&path, &proposals, accepted_definition)?;
+        let candidate_definition = accepted_enum_type_from_proposals(
+            &path,
+            proposals,
+            &candidate.id_by_path,
+            &variant_ids,
+        )?;
+
+        if let Some(accepted_definition) = accepted_definition {
+            validate_existing_definition_is_preserved(
+                &path,
+                accepted_definition,
+                &candidate_definition,
+            )?;
+        }
+        candidate.by_id.insert(type_id, candidate_definition);
+    }
+
+    if !candidate.validate() {
+        return Err(EnumCatalogBuildError::LookupMapInvariant);
+    }
+
+    Ok(candidate)
+}
+
+fn allocate_variant_ids(
+    path: &str,
+    proposals: &[RawEnumDefinitionProposal],
+    accepted: Option<&AcceptedEnumType>,
+) -> Result<BTreeMap<String, EnumVariantId>, EnumCatalogBuildError> {
+    let mut ids = accepted.map_or_else(BTreeMap::new, |definition| {
+        definition.variant_id_by_name.clone()
+    });
+    let mut last_variant_id = ids.values().max().copied();
+    let proposed_names = proposals
+        .iter()
+        .flat_map(|proposal| proposal.variants.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    for name in proposed_names {
+        if ids.contains_key(name.as_str()) {
+            continue;
+        }
+        let variant_id = next_variant_id(path, last_variant_id)?;
+        ids.insert(name, variant_id);
+        last_variant_id = Some(variant_id);
+    }
+
+    Ok(ids)
+}
+
+fn accepted_enum_type_from_proposals(
+    path: &str,
+    proposals: Vec<RawEnumDefinitionProposal>,
+    id_by_path: &BTreeMap<String, EnumTypeId>,
+    variant_id_by_name: &BTreeMap<String, EnumVariantId>,
+) -> Result<AcceptedEnumType, EnumCatalogBuildError> {
+    let mut accepted_definition = None;
+    for proposal in proposals {
+        let candidate =
+            accepted_enum_type_from_proposal(path, proposal, id_by_path, variant_id_by_name)?;
+        if let Some(accepted) = accepted_definition.as_ref()
+            && accepted != &candidate
+        {
+            return Err(EnumCatalogBuildError::ConflictingDefinition {
+                path: path.to_string(),
+            });
+        }
+        accepted_definition = Some(candidate);
+    }
+
+    accepted_definition.ok_or_else(|| EnumCatalogBuildError::ConflictingDefinition {
+        path: path.to_string(),
+    })
+}
+
+fn validate_existing_definition_is_preserved(
+    path: &str,
+    accepted: &AcceptedEnumType,
+    candidate: &AcceptedEnumType,
+) -> Result<(), EnumCatalogBuildError> {
+    for (variant_id, accepted_variant) in &accepted.variants_by_id {
+        let Some(candidate_variant) = candidate.variants_by_id.get(variant_id) else {
+            return Err(EnumCatalogBuildError::ExistingVariantRemoved {
+                path: path.to_string(),
+                name: accepted_variant.name.clone(),
+            });
+        };
+        if candidate_variant != accepted_variant {
+            return Err(EnumCatalogBuildError::ExistingVariantContractChanged {
+                path: path.to_string(),
+                name: accepted_variant.name.clone(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn accepted_enum_type_from_proposal(
+    path: &str,
+    proposal: RawEnumDefinitionProposal,
+    id_by_path: &BTreeMap<String, EnumTypeId>,
+    variant_id_by_name: &BTreeMap<String, EnumVariantId>,
+) -> Result<AcceptedEnumType, EnumCatalogBuildError> {
+    let mut variants_by_id = BTreeMap::new();
+    let mut candidate_variant_id_by_name = BTreeMap::new();
+    for (name, proposal) in proposal.variants {
+        let variant_id = variant_id_by_name
+            .get(name.as_str())
+            .copied()
+            .ok_or_else(|| EnumCatalogBuildError::ConflictingDefinition {
+                path: path.to_string(),
+            })?;
+        let body = match proposal.payload_kind {
+            Some(kind) => AcceptedEnumVariantBody::Payload {
+                contract: AcceptedValueContract {
+                    kind: accepted_field_kind_from_model(kind, id_by_path, 0)?,
+                    storage_decode: proposal.payload_storage_decode,
+                },
+            },
+            None => AcceptedEnumVariantBody::Unit,
+        };
+        variants_by_id.insert(
+            variant_id,
+            AcceptedEnumVariant {
+                name: name.clone(),
+                body,
+            },
+        );
+        candidate_variant_id_by_name.insert(name, variant_id);
+    }
+
+    Ok(AcceptedEnumType {
+        path: path.to_string(),
+        variants_by_id,
+        variant_id_by_name: candidate_variant_id_by_name,
+        ordering: EnumOrderingPolicy::EqualityOnly,
+    })
+}
+
+fn accepted_field_kind_from_model(
+    kind: FieldKind,
+    id_by_path: &BTreeMap<String, EnumTypeId>,
+    depth: usize,
+) -> Result<AcceptedFieldKind, EnumCatalogBuildError> {
+    if depth > MAX_ENUM_CONTRACT_DEPTH {
+        return Err(EnumCatalogBuildError::ContractDepthExceeded);
+    }
+
+    Ok(match kind {
+        FieldKind::Account => AcceptedFieldKind::Account,
+        FieldKind::Blob { max_len } => AcceptedFieldKind::Blob { max_len },
+        FieldKind::Bool => AcceptedFieldKind::Bool,
+        FieldKind::Date => AcceptedFieldKind::Date,
+        FieldKind::Decimal { scale } => AcceptedFieldKind::Decimal { scale },
+        FieldKind::Duration => AcceptedFieldKind::Duration,
+        FieldKind::Enum { path, .. } => AcceptedFieldKind::Enum {
+            type_id: id_by_path.get(path).copied().ok_or_else(|| {
+                EnumCatalogBuildError::UnknownEnumPath {
+                    path: path.to_string(),
+                }
+            })?,
+        },
+        FieldKind::Float32 => AcceptedFieldKind::Float32,
+        FieldKind::Float64 => AcceptedFieldKind::Float64,
+        FieldKind::Int8 => AcceptedFieldKind::Int8,
+        FieldKind::Int16 => AcceptedFieldKind::Int16,
+        FieldKind::Int32 => AcceptedFieldKind::Int32,
+        FieldKind::Int64 => AcceptedFieldKind::Int64,
+        FieldKind::Int128 => AcceptedFieldKind::Int128,
+        FieldKind::IntBig { max_bytes } => AcceptedFieldKind::IntBig { max_bytes },
+        FieldKind::Principal => AcceptedFieldKind::Principal,
+        FieldKind::Subaccount => AcceptedFieldKind::Subaccount,
+        FieldKind::Text { max_len } => AcceptedFieldKind::Text { max_len },
+        FieldKind::Timestamp => AcceptedFieldKind::Timestamp,
+        FieldKind::Nat8 => AcceptedFieldKind::Nat8,
+        FieldKind::Nat16 => AcceptedFieldKind::Nat16,
+        FieldKind::Nat32 => AcceptedFieldKind::Nat32,
+        FieldKind::Nat64 => AcceptedFieldKind::Nat64,
+        FieldKind::Nat128 => AcceptedFieldKind::Nat128,
+        FieldKind::NatBig { max_bytes } => AcceptedFieldKind::NatBig { max_bytes },
+        FieldKind::Ulid => AcceptedFieldKind::Ulid,
+        FieldKind::Unit => AcceptedFieldKind::Unit,
+        FieldKind::Relation {
+            target_path,
+            target_entity_name,
+            target_entity_tag,
+            target_store_path,
+            key_kind,
+            strength,
+        } => AcceptedFieldKind::Relation {
+            target_path: target_path.to_string(),
+            target_entity_name: target_entity_name.to_string(),
+            target_entity_tag,
+            target_store_path: target_store_path.to_string(),
+            key_kind: Box::new(accepted_field_kind_from_model(
+                *key_kind,
+                id_by_path,
+                depth.saturating_add(1),
+            )?),
+            strength: match strength {
+                crate::model::field::RelationStrength::Strong => AcceptedRelationStrength::Strong,
+                crate::model::field::RelationStrength::Weak => AcceptedRelationStrength::Weak,
+            },
+        },
+        FieldKind::List(inner) => AcceptedFieldKind::List(Box::new(
+            accepted_field_kind_from_model(*inner, id_by_path, depth.saturating_add(1))?,
+        )),
+        FieldKind::Set(inner) => AcceptedFieldKind::Set(Box::new(accepted_field_kind_from_model(
+            *inner,
+            id_by_path,
+            depth.saturating_add(1),
+        )?)),
+        FieldKind::Map { key, value } => AcceptedFieldKind::Map {
+            key: Box::new(accepted_field_kind_from_model(
+                *key,
+                id_by_path,
+                depth.saturating_add(1),
+            )?),
+            value: Box::new(accepted_field_kind_from_model(
+                *value,
+                id_by_path,
+                depth.saturating_add(1),
+            )?),
+        },
+        FieldKind::Structured { queryable } => AcceptedFieldKind::Structured { queryable },
+    })
+}
+
+pub(in crate::db::schema) fn resolve_model_field_kind(
+    catalog: &AcceptedEnumCatalog,
+    kind: FieldKind,
+) -> Result<AcceptedFieldKind, EnumCatalogBuildError> {
+    accepted_field_kind_from_model(kind, &catalog.id_by_path, 0)
+}
+
+fn accepted_kind_matches_catalog(
+    catalog: &AcceptedEnumCatalog,
+    kind: &AcceptedFieldKind,
+    depth: usize,
+) -> bool {
+    if depth > MAX_ENUM_CONTRACT_DEPTH {
+        return false;
+    }
+    match kind {
+        AcceptedFieldKind::Enum { type_id } => catalog.enum_type(*type_id).is_some(),
+        AcceptedFieldKind::Relation { key_kind, .. }
+        | AcceptedFieldKind::List(key_kind)
+        | AcceptedFieldKind::Set(key_kind) => {
+            accepted_kind_matches_catalog(catalog, key_kind, depth.saturating_add(1))
+        }
+        AcceptedFieldKind::Map { key, value } => {
+            accepted_kind_matches_catalog(catalog, key, depth.saturating_add(1))
+                && accepted_kind_matches_catalog(catalog, value, depth.saturating_add(1))
+        }
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::Structured { .. } => true,
+    }
+}
+
+fn next_type_id(last: Option<EnumTypeId>) -> Result<EnumTypeId, EnumCatalogBuildError> {
+    let value = match last {
+        Some(last) => last
+            .get()
+            .checked_add(1)
+            .ok_or(EnumCatalogBuildError::EnumTypeIdExhausted)?,
+        None => 1,
+    };
+    EnumTypeId::new(value).ok_or(EnumCatalogBuildError::EnumTypeIdExhausted)
+}
+
+fn next_variant_id(
+    path: &str,
+    last: Option<EnumVariantId>,
+) -> Result<EnumVariantId, EnumCatalogBuildError> {
+    let exhausted = || EnumCatalogBuildError::EnumVariantIdExhausted {
+        path: path.to_string(),
+    };
+    let value = match last {
+        Some(last) => last.get().checked_add(1).ok_or_else(exhausted)?,
+        None => 1,
+    };
+    EnumVariantId::new(value).ok_or_else(exhausted)
+}
+
+fn validate_enum_type_graph(
+    catalog: &AcceptedEnumCatalog,
+    type_id: EnumTypeId,
+    visited: &mut BTreeSet<EnumTypeId>,
+    active: &mut BTreeSet<EnumTypeId>,
+    depth: usize,
+) -> bool {
+    if depth > MAX_ENUM_CONTRACT_DEPTH {
+        return false;
+    }
+    if visited.contains(&type_id) {
+        return true;
+    }
+    if !active.insert(type_id) {
+        return false;
+    }
+    let Some(definition) = catalog.by_id.get(&type_id) else {
+        return false;
+    };
+    let mut references = BTreeSet::new();
+    for variant in definition.variants_by_id.values() {
+        if let AcceptedEnumVariantBody::Payload { contract } = &variant.body
+            && !collect_enum_type_references(&contract.kind, &mut references, 0)
+        {
+            return false;
+        }
+    }
+    for referenced_type in references {
+        if !catalog.by_id.contains_key(&referenced_type)
+            || !validate_enum_type_graph(
+                catalog,
+                referenced_type,
+                visited,
+                active,
+                depth.saturating_add(1),
+            )
+        {
+            return false;
+        }
+    }
+    active.remove(&type_id);
+    visited.insert(type_id);
+    true
+}
+
+fn collect_enum_type_references(
+    kind: &AcceptedFieldKind,
+    references: &mut BTreeSet<EnumTypeId>,
+    depth: usize,
+) -> bool {
+    if depth > MAX_ENUM_CONTRACT_DEPTH {
+        return false;
+    }
+    match kind {
+        AcceptedFieldKind::Enum { type_id } => {
+            references.insert(*type_id);
+        }
+        AcceptedFieldKind::Relation { key_kind, .. }
+        | AcceptedFieldKind::List(key_kind)
+        | AcceptedFieldKind::Set(key_kind) => {
+            return collect_enum_type_references(key_kind, references, depth.saturating_add(1));
+        }
+        AcceptedFieldKind::Map { key, value } => {
+            return collect_enum_type_references(key, references, depth.saturating_add(1))
+                && collect_enum_type_references(value, references, depth.saturating_add(1));
+        }
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::Structured { .. } => {}
+    }
+    true
+}

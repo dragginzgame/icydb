@@ -78,13 +78,19 @@ impl<C: CanisterKind> DbSession<C> {
         projection: SqlProjectionContract,
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+        let enum_catalog = prepared_plan
+            .authority_ref()
+            .accepted_schema_info()
+            .and_then(|schema| schema.enum_catalog_handle())
+            .cloned()
+            .ok_or_else(QueryError::invariant)?;
         let (columns, fixed_scales) = projection.into_components();
         let (rows, row_count) =
             execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
                 .map_err(QueryError::execute)?;
 
         Ok((
-            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
+            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count, enum_catalog),
             cache_attribution,
         ))
     }
@@ -105,7 +111,7 @@ impl<C: CanisterKind> DbSession<C> {
                 cache_attribution,
             )?;
 
-        Ok((payload.into_statement_result(), cache_attribution))
+        Ok((payload.into_statement_result()?, cache_attribution))
     }
 
     // Execute one grouped SQL statement from one shared lowered prepared plan
@@ -264,6 +270,12 @@ impl<C: CanisterKind> DbSession<C> {
         let (resolved, plan_compile_attribution) = resolved_query_plan?;
         let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
 
+        let enum_catalog = prepared_plan
+            .authority_ref()
+            .accepted_schema_info()
+            .and_then(|schema| schema.enum_catalog_handle())
+            .cloned()
+            .ok_or_else(QueryError::invariant)?;
         let ((execute_local_instructions, store_local_instructions), payload) =
             measure_execute_phase_with_physical_access(move || {
                 let (columns, fixed_scales) = projection.into_components();
@@ -274,7 +286,13 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .map(|((rows, row_count), direct_data_row, kernel_row)| {
                     (
-                        SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
+                        SqlProjectionPayload::new(
+                            columns,
+                            fixed_scales,
+                            rows,
+                            row_count,
+                            enum_catalog,
+                        ),
                         direct_data_row,
                         kernel_row,
                     )
@@ -283,7 +301,7 @@ impl<C: CanisterKind> DbSession<C> {
             });
         let (payload, direct_data_row, kernel_row) = payload?;
         let (response_finalization_local_instructions, statement_result) =
-            measure_sql_stage(|| Ok::<_, QueryError>(payload.into_statement_result()));
+            measure_sql_stage(|| payload.into_statement_result());
         let statement_result = statement_result?;
 
         Ok((

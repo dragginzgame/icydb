@@ -609,6 +609,46 @@ impl InternalError {
         Self::store_internal()
     }
 
+    /// Construct a recovery-origin incompatible store-format error.
+    pub(crate) fn recovery_unsupported_database_format(found: Option<u16>, required: u16) -> Self {
+        Self {
+            class: ErrorClass::IncompatiblePersistedFormat,
+            origin: ErrorOrigin::Recovery,
+            detail: Some(ErrorDetail::Recovery(
+                RecoveryErrorDetail::UnsupportedFormatVersion { found, required },
+            )),
+        }
+    }
+
+    /// Construct a recovery-origin malformed store-format marker error.
+    pub(crate) fn recovery_malformed_database_format_marker(
+        reason: RecoveryFormatMarkerError,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Corruption,
+            origin: ErrorOrigin::Recovery,
+            detail: Some(ErrorDetail::Recovery(
+                RecoveryErrorDetail::MalformedFormatMarker { reason },
+            )),
+        }
+    }
+
+    /// Construct a recovery-origin boot control-memory failure.
+    pub(crate) fn recovery_database_format_control_unavailable() -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Recovery)
+    }
+
+    /// Construct a commit control-memory growth failure.
+    pub(crate) fn commit_control_memory_growth_failed() -> Self {
+        Self::store_internal()
+    }
+
+    /// Construct a store-format memory registration failure.
+    #[cfg(not(test))]
+    pub(crate) fn database_format_memory_registration_failed(_err: impl Sized) -> Self {
+        Self::store_internal()
+    }
+
     /// Construct the canonical missing rollback-row invariant for delete execution.
     pub(crate) fn delete_rollback_row_required() -> Self {
         Self::store_internal()
@@ -661,6 +701,20 @@ impl InternalError {
     #[inline(never)]
     pub(crate) fn query_unsupported() -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Query)
+    }
+
+    /// Construct a query-origin conflict for execution against a superseded
+    /// accepted schema revision.
+    #[cfg(feature = "sql")]
+    pub(crate) fn query_stale_accepted_schema_revision(
+        _expected_revision: u64,
+        _current_revision: Option<u64>,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Conflict,
+            origin: ErrorOrigin::Query,
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::StaleSchemaRevision)),
+        }
     }
 
     /// Construct a query-origin SQL DDL admission error with structured detail.
@@ -1122,6 +1176,7 @@ impl InternalError {
     }
 
     /// Construct the canonical schema DDL publication race error.
+    #[cfg(any(test, feature = "sql"))]
     pub(crate) fn schema_ddl_publication_race_lost(_entity_path: &'static str) -> Self {
         Self {
             class: ErrorClass::Unsupported,
@@ -1384,10 +1439,31 @@ impl std::error::Error for InternalError {}
 pub enum ErrorDetail {
     Store(StoreError),
     Query(QueryErrorDetail),
+    Recovery(RecoveryErrorDetail),
     // Future-proofing:
     // Index(IndexError),
     //
     // Executor(ExecutorErrorDetail),
+}
+
+///
+/// RecoveryErrorDetail
+///
+/// Recovery-origin structured error detail payload.
+///
+
+pub enum RecoveryErrorDetail {
+    UnsupportedFormatVersion { found: Option<u16>, required: u16 },
+
+    MalformedFormatMarker { reason: RecoveryFormatMarkerError },
+}
+
+/// Store boot-marker corruption classification.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum RecoveryFormatMarkerError {
+    Magic,
+    Checksum,
+    State,
 }
 
 ///
@@ -1453,6 +1529,8 @@ pub enum QueryErrorDetail {
     SchemaDdlAdmission {
         error: SchemaDdlAdmissionError,
     },
+
+    StaleSchemaRevision,
 }
 
 impl fmt::Display for QueryErrorDetail {
@@ -1542,6 +1620,24 @@ impl fmt::Debug for QueryErrorDetail {
     }
 }
 
+impl fmt::Debug for RecoveryErrorDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
+    }
+}
+
+impl fmt::Debug for RecoveryFormatMarkerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(
+            f,
+            diagnostic_code::DiagnosticCode::RuntimeCorruption,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeKind {
+                kind: diagnostic_code::RuntimeErrorKind::Corruption,
+            }),
+        )
+    }
+}
+
 impl fmt::Debug for SchemaDdlAdmissionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_compact_diagnostic(
@@ -1573,6 +1669,7 @@ impl ErrorDetail {
         match self {
             Self::Store(error) => error.diagnostic_code(),
             Self::Query(error) => error.diagnostic_code(),
+            Self::Recovery(error) => error.diagnostic_code(),
         }
     }
 
@@ -1582,7 +1679,36 @@ impl ErrorDetail {
         match self {
             Self::Store(error) => error.diagnostic_detail(),
             Self::Query(error) => error.diagnostic_detail(),
+            Self::Recovery(error) => error.diagnostic_detail(),
         }
+    }
+}
+
+impl RecoveryErrorDetail {
+    /// Return the compact diagnostic code for this recovery detail.
+    #[must_use]
+    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::UnsupportedFormatVersion { .. } => {
+                diagnostic_code::DiagnosticCode::RuntimeIncompatiblePersistedFormat
+            }
+            Self::MalformedFormatMarker { .. } => {
+                diagnostic_code::DiagnosticCode::RuntimeCorruption
+            }
+        }
+    }
+
+    /// Return compact structured diagnostic detail for this recovery detail.
+    #[must_use]
+    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+        let kind = match self {
+            Self::UnsupportedFormatVersion { .. } => {
+                diagnostic_code::RuntimeErrorKind::IncompatiblePersistedFormat
+            }
+            Self::MalformedFormatMarker { .. } => diagnostic_code::RuntimeErrorKind::Corruption,
+        };
+
+        Some(diagnostic_code::DiagnosticDetail::RuntimeKind { kind })
     }
 }
 
@@ -1647,6 +1773,7 @@ impl QueryErrorDetail {
             }
             Self::SqlWriteBoundary { .. } => diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary,
             Self::SchemaDdlAdmission { .. } => diagnostic_code::DiagnosticCode::SchemaDdlAdmission,
+            Self::StaleSchemaRevision => diagnostic_code::DiagnosticCode::RuntimeConflict,
         }
     }
 
@@ -1686,7 +1813,8 @@ impl QueryErrorDetail {
             }
             Self::NumericOverflow
             | Self::NumericNotRepresentable
-            | Self::UnknownAggregateTargetField => None,
+            | Self::UnknownAggregateTargetField
+            | Self::StaleSchemaRevision => None,
         }
     }
 }

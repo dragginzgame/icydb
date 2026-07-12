@@ -1,12 +1,12 @@
-use crate::{
-    types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, Ulid,
-    },
-    value::{Value, ValueEnum},
+use crate::types::{
+    Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+    Timestamp, Ulid,
 };
 use candid::CandidType;
 use serde::Deserialize;
+
+#[cfg(test)]
+use crate::value::Value;
 
 //
 // OutputValue
@@ -64,6 +64,20 @@ pub struct OutputValueEnum {
 }
 
 impl OutputValueEnum {
+    /// Build output enum metadata resolved from one accepted catalog revision.
+    #[must_use]
+    pub(crate) fn from_catalog_parts(
+        variant: &str,
+        path: &str,
+        payload: Option<OutputValue>,
+    ) -> Self {
+        Self {
+            variant: variant.to_string(),
+            path: Some(path.to_string()),
+            payload: payload.map(Box::new),
+        }
+    }
+
     #[must_use]
     pub const fn variant(&self) -> &str {
         self.variant.as_str()
@@ -80,103 +94,55 @@ impl OutputValueEnum {
     }
 }
 
+#[cfg(test)]
 impl From<Value> for OutputValue {
     fn from(value: Value) -> Self {
-        match value {
-            Value::Account(value) => Self::Account(value),
-            Value::Blob(value) => Self::Blob(value),
-            Value::Bool(value) => Self::Bool(value),
-            Value::Date(value) => Self::Date(value),
-            Value::Decimal(value) => Self::Decimal(value),
-            Value::Duration(value) => Self::Duration(value),
-            Value::Enum(value) => Self::Enum(OutputValueEnum::from(value)),
-            Value::Float32(value) => Self::Float32(value),
-            Value::Float64(value) => Self::Float64(value),
-            Value::Int64(value) => Self::Int64(value),
-            Value::Int128(value) => Self::Int128(value),
-            Value::IntBig(value) => Self::IntBig(value),
-            Value::List(items) => Self::List(items.into_iter().map(Self::from).collect()),
-            Value::Map(entries) => Self::Map(
-                entries
-                    .into_iter()
-                    .map(|(key, value)| (Self::from(key), Self::from(value)))
-                    .collect(),
-            ),
-            Value::Null => Self::Null,
-            Value::Principal(value) => Self::Principal(value),
-            Value::Subaccount(value) => Self::Subaccount(value),
-            Value::Text(value) => Self::Text(value),
-            Value::Timestamp(value) => Self::Timestamp(value),
-            Value::Nat64(value) => Self::Nat64(value),
-            Value::Nat128(value) => Self::Nat128(value),
-            Value::NatBig(value) => Self::NatBig(value),
-            Value::Ulid(value) => Self::Ulid(value),
-            Value::Unit => Self::Unit,
-        }
+        output_value_from_non_enum_test_value(&value)
     }
 }
 
-impl From<&Value> for OutputValue {
-    fn from(value: &Value) -> Self {
-        match value {
-            Value::Account(value) => Self::Account(*value),
-            Value::Blob(value) => Self::Blob(value.clone()),
-            Value::Bool(value) => Self::Bool(*value),
-            Value::Date(value) => Self::Date(*value),
-            Value::Decimal(value) => Self::Decimal(*value),
-            Value::Duration(value) => Self::Duration(*value),
-            Value::Enum(value) => Self::Enum(OutputValueEnum::from(value)),
-            Value::Float32(value) => Self::Float32(*value),
-            Value::Float64(value) => Self::Float64(*value),
-            Value::Int64(value) => Self::Int64(*value),
-            Value::Int128(value) => Self::Int128(*value),
-            Value::IntBig(value) => Self::IntBig(value.clone()),
-            Value::List(items) => Self::List(items.iter().map(Self::from).collect()),
-            Value::Map(entries) => Self::Map(
-                entries
-                    .iter()
-                    .map(|(key, value)| (Self::from(key), Self::from(value)))
-                    .collect(),
-            ),
-            Value::Null => Self::Null,
-            Value::Principal(value) => Self::Principal(*value),
-            Value::Subaccount(value) => Self::Subaccount(*value),
-            Value::Text(value) => Self::Text(value.clone()),
-            Value::Timestamp(value) => Self::Timestamp(*value),
-            Value::Nat64(value) => Self::Nat64(*value),
-            Value::Nat128(value) => Self::Nat128(*value),
-            Value::NatBig(value) => Self::NatBig(value.clone()),
-            Value::Ulid(value) => Self::Ulid(*value),
-            Value::Unit => Self::Unit,
-        }
-    }
-}
-
-impl From<ValueEnum> for OutputValueEnum {
-    fn from(value: ValueEnum) -> Self {
-        let ValueEnum {
-            variant,
-            path,
-            payload,
-        } = value;
-
-        Self {
-            variant,
-            path,
-            payload: payload.map(|payload| Box::new(OutputValue::from(*payload))),
-        }
-    }
-}
-
-impl From<&ValueEnum> for OutputValueEnum {
-    fn from(value: &ValueEnum) -> Self {
-        Self {
-            variant: value.variant().to_string(),
-            path: value.path().map(ToString::to_string),
-            payload: value
-                .payload()
-                .map(|payload| Box::new(OutputValue::from(payload))),
-        }
+#[cfg(test)]
+fn output_value_from_non_enum_test_value(value: &Value) -> OutputValue {
+    match value {
+        Value::Account(value) => OutputValue::Account(*value),
+        Value::Blob(value) => OutputValue::Blob(value.clone()),
+        Value::Bool(value) => OutputValue::Bool(*value),
+        Value::Date(value) => OutputValue::Date(*value),
+        Value::Decimal(value) => OutputValue::Decimal(*value),
+        Value::Duration(value) => OutputValue::Duration(*value),
+        Value::Enum(_) => panic!("test output conversion requires accepted enum catalog"),
+        Value::Float32(value) => OutputValue::Float32(*value),
+        Value::Float64(value) => OutputValue::Float64(*value),
+        Value::Int64(value) => OutputValue::Int64(*value),
+        Value::Int128(value) => OutputValue::Int128(*value),
+        Value::IntBig(value) => OutputValue::IntBig(value.clone()),
+        Value::List(values) => OutputValue::List(
+            values
+                .iter()
+                .map(output_value_from_non_enum_test_value)
+                .collect(),
+        ),
+        Value::Map(entries) => OutputValue::Map(
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        output_value_from_non_enum_test_value(key),
+                        output_value_from_non_enum_test_value(value),
+                    )
+                })
+                .collect(),
+        ),
+        Value::Null => OutputValue::Null,
+        Value::Principal(value) => OutputValue::Principal(*value),
+        Value::Subaccount(value) => OutputValue::Subaccount(*value),
+        Value::Text(value) => OutputValue::Text(value.clone()),
+        Value::Timestamp(value) => OutputValue::Timestamp(*value),
+        Value::Nat64(value) => OutputValue::Nat64(*value),
+        Value::Nat128(value) => OutputValue::Nat128(*value),
+        Value::NatBig(value) => OutputValue::NatBig(value.clone()),
+        Value::Ulid(value) => OutputValue::Ulid(*value),
+        Value::Unit => OutputValue::Unit,
     }
 }
 
@@ -294,7 +260,7 @@ fn render_enum(value: &OutputValueEnum) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::{OutputValue, OutputValueEnum, Value, ValueEnum};
+    use crate::value::{OutputValue, Value};
 
     #[test]
     fn output_value_from_runtime_value_keeps_recursive_collection_shape() {
@@ -312,37 +278,6 @@ mod tests {
                     OutputValue::Bool(true),
                 )]),
             ]),
-        );
-    }
-
-    #[test]
-    fn output_value_from_owned_blob_moves_payload_without_clone() {
-        let bytes = vec![0x10, 0x20, 0x30];
-        let original_ptr = bytes.as_ptr();
-
-        let OutputValue::Blob(output) = OutputValue::from(Value::Blob(bytes)) else {
-            panic!("owned blob conversion should preserve the blob variant");
-        };
-
-        assert_eq!(
-            output.as_ptr(),
-            original_ptr,
-            "owned output conversion should move blob bytes instead of cloning them",
-        );
-    }
-
-    #[test]
-    fn output_value_enum_from_runtime_enum_keeps_payload() {
-        let runtime =
-            ValueEnum::new("Example", Some("test::OutputEnum")).with_payload(Value::Nat64(9));
-
-        assert_eq!(
-            OutputValueEnum::from(runtime),
-            OutputValueEnum {
-                variant: "Example".to_string(),
-                path: Some("test::OutputEnum".to_string()),
-                payload: Some(Box::new(OutputValue::Nat64(9))),
-            },
         );
     }
 }

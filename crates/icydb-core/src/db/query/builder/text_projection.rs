@@ -16,7 +16,7 @@ use crate::{
             plan::expr::{Expr, FieldId, Function, eval_builder_expr_for_value_preview},
         },
     },
-    value::{InputValue, Value},
+    value::Value,
 };
 
 ///
@@ -51,7 +51,7 @@ impl TextProjectionExpr {
     pub(in crate::db) fn with_literal(
         field: impl Into<String>,
         function: Function,
-        literal: impl Into<InputValue>,
+        literal: impl Into<Value>,
     ) -> Self {
         let field = field.into();
 
@@ -60,7 +60,7 @@ impl TextProjectionExpr {
                 function,
                 args: vec![
                     Expr::Field(FieldId::new(field.clone())),
-                    Expr::Literal(Value::from(literal.into())),
+                    Expr::Literal(literal.into()),
                 ],
             },
             field,
@@ -71,8 +71,8 @@ impl TextProjectionExpr {
     pub(in crate::db) fn with_two_literals(
         field: impl Into<String>,
         function: Function,
-        literal: impl Into<InputValue>,
-        literal2: impl Into<InputValue>,
+        literal: impl Into<Value>,
+        literal2: impl Into<Value>,
     ) -> Self {
         let field = field.into();
 
@@ -81,8 +81,8 @@ impl TextProjectionExpr {
                 function,
                 args: vec![
                     Expr::Field(FieldId::new(field.clone())),
-                    Expr::Literal(Value::from(literal.into())),
-                    Expr::Literal(Value::from(literal2.into())),
+                    Expr::Literal(literal.into()),
+                    Expr::Literal(literal2.into()),
                 ],
             },
             field,
@@ -90,17 +90,14 @@ impl TextProjectionExpr {
     }
 
     // Build one `POSITION(literal, field)` projection.
-    pub(in crate::db) fn position(
-        field: impl Into<String>,
-        literal: impl Into<InputValue>,
-    ) -> Self {
+    pub(in crate::db) fn position(field: impl Into<String>, literal: impl Into<Value>) -> Self {
         let field = field.into();
 
         Self {
             expr: Expr::FunctionCall {
                 function: Function::Position,
                 args: vec![
-                    Expr::Literal(Value::from(literal.into())),
+                    Expr::Literal(literal.into()),
                     Expr::Field(FieldId::new(field.clone())),
                 ],
             },
@@ -171,37 +168,37 @@ pub fn length(field: impl AsRef<str>) -> TextProjectionExpr {
 
 /// Build `LEFT(field, length)`.
 #[must_use]
-pub fn left(field: impl AsRef<str>, length: impl Into<InputValue>) -> TextProjectionExpr {
+pub fn left(field: impl AsRef<str>, length: impl Into<Value>) -> TextProjectionExpr {
     TextProjectionExpr::with_literal(field.as_ref().to_string(), Function::Left, length)
 }
 
 /// Build `RIGHT(field, length)`.
 #[must_use]
-pub fn right(field: impl AsRef<str>, length: impl Into<InputValue>) -> TextProjectionExpr {
+pub fn right(field: impl AsRef<str>, length: impl Into<Value>) -> TextProjectionExpr {
     TextProjectionExpr::with_literal(field.as_ref().to_string(), Function::Right, length)
 }
 
 /// Build `STARTS_WITH(field, literal)`.
 #[must_use]
-pub fn starts_with(field: impl AsRef<str>, literal: impl Into<InputValue>) -> TextProjectionExpr {
+pub fn starts_with(field: impl AsRef<str>, literal: impl Into<Value>) -> TextProjectionExpr {
     TextProjectionExpr::with_literal(field.as_ref().to_string(), Function::StartsWith, literal)
 }
 
 /// Build `ENDS_WITH(field, literal)`.
 #[must_use]
-pub fn ends_with(field: impl AsRef<str>, literal: impl Into<InputValue>) -> TextProjectionExpr {
+pub fn ends_with(field: impl AsRef<str>, literal: impl Into<Value>) -> TextProjectionExpr {
     TextProjectionExpr::with_literal(field.as_ref().to_string(), Function::EndsWith, literal)
 }
 
 /// Build `CONTAINS(field, literal)`.
 #[must_use]
-pub fn contains(field: impl AsRef<str>, literal: impl Into<InputValue>) -> TextProjectionExpr {
+pub fn contains(field: impl AsRef<str>, literal: impl Into<Value>) -> TextProjectionExpr {
     TextProjectionExpr::with_literal(field.as_ref().to_string(), Function::Contains, literal)
 }
 
 /// Build `POSITION(literal, field)`.
 #[must_use]
-pub fn position(field: impl AsRef<str>, literal: impl Into<InputValue>) -> TextProjectionExpr {
+pub fn position(field: impl AsRef<str>, literal: impl Into<Value>) -> TextProjectionExpr {
     TextProjectionExpr::position(field.as_ref().to_string(), literal)
 }
 
@@ -209,15 +206,15 @@ pub fn position(field: impl AsRef<str>, literal: impl Into<InputValue>) -> TextP
 #[must_use]
 pub fn replace(
     field: impl AsRef<str>,
-    from: impl Into<InputValue>,
-    to: impl Into<InputValue>,
+    from: impl Into<Value>,
+    to: impl Into<Value>,
 ) -> TextProjectionExpr {
     TextProjectionExpr::with_two_literals(field.as_ref().to_string(), Function::Replace, from, to)
 }
 
 /// Build `SUBSTRING(field, start)`.
 #[must_use]
-pub fn substring(field: impl AsRef<str>, start: impl Into<InputValue>) -> TextProjectionExpr {
+pub fn substring(field: impl AsRef<str>, start: impl Into<Value>) -> TextProjectionExpr {
     TextProjectionExpr::with_literal(field.as_ref().to_string(), Function::Substring, start)
 }
 
@@ -225,8 +222,8 @@ pub fn substring(field: impl AsRef<str>, start: impl Into<InputValue>) -> TextPr
 #[must_use]
 pub fn substring_with_length(
     field: impl AsRef<str>,
-    start: impl Into<InputValue>,
-    length: impl Into<InputValue>,
+    start: impl Into<Value>,
+    length: impl Into<Value>,
 ) -> TextProjectionExpr {
     TextProjectionExpr::with_two_literals(
         field.as_ref().to_string(),

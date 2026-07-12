@@ -17,10 +17,7 @@ use crate::{
             ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes,
             serialize_row_payload_with_version,
         },
-        commit::{
-            CommitRowOp, ensure_recovered, init_commit_store_for_tests,
-            prepare_row_commit_for_entity_with_structural_readers,
-        },
+        commit::{CommitRowOp, ensure_recovered, init_commit_store_for_tests},
         data::{CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
@@ -114,7 +111,6 @@ static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &
         <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
         SINGLE_ENTITY_PATH,
         STORE_A_PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<IntegrityIndexedEntity>,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -122,7 +118,6 @@ static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &
         <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
         FIRST_ENTITY_PATH,
         STORE_A_PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<IntegrityIndexedEntity>,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -130,7 +125,6 @@ static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &
         <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
         SECOND_ENTITY_PATH,
         STORE_A_PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<IntegrityIndexedEntity>,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -138,7 +132,6 @@ static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &
         <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
         MINMAX_ENTITY_PATH,
         STORE_A_PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<IntegrityIndexedEntity>,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -146,7 +139,6 @@ static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &
         <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
         VALID_ENTITY_PATH,
         STORE_A_PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<IntegrityIndexedEntity>,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::for_entity::<IntegrityIndexedEntity>(),

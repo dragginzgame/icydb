@@ -243,6 +243,11 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
             E::PATH.to_string(),
             deleted,
             self.selection.selected_fields(),
+            |entity, slots| {
+                self.inner
+                    .project_entity_output_values(entity, slots)
+                    .map_err(Error::from)
+            },
         )
     }
 

@@ -21,6 +21,7 @@ use crate::{
             ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow,
         },
         response::EntityResponse,
+        schema::AcceptedEnumCatalogHandle,
     },
     traits::EntityKind,
 };
@@ -133,13 +134,17 @@ pub(in crate::db::executor) struct GroupedCursorPage {
 #[derive(Debug)]
 pub(in crate::db) struct StructuralGroupedProjectionResult {
     page: GroupedCursorPage,
+    enum_catalog: AcceptedEnumCatalogHandle,
 }
 
 impl StructuralGroupedProjectionResult {
     /// Wrap one grouped cursor page behind the structural grouped boundary.
     #[must_use]
-    pub(in crate::db::executor) const fn from_page(page: GroupedCursorPage) -> Self {
-        Self { page }
+    pub(in crate::db::executor) const fn from_page(
+        page: GroupedCursorPage,
+        enum_catalog: AcceptedEnumCatalogHandle,
+    ) -> Self {
+        Self { page, enum_catalog }
     }
 
     /// Return the grouped row count computed at the executor boundary.
@@ -154,10 +159,14 @@ impl StructuralGroupedProjectionResult {
     #[must_use]
     pub(in crate::db) fn into_rows_and_cursor(
         self,
-    ) -> (Vec<RuntimeGroupedRow>, Option<PageCursor>) {
-        let Self { page } = self;
+    ) -> (
+        Vec<RuntimeGroupedRow>,
+        Option<PageCursor>,
+        AcceptedEnumCatalogHandle,
+    ) {
+        let Self { page, enum_catalog } = self;
 
-        (page.rows, page.next_cursor)
+        (page.rows, page.next_cursor, enum_catalog)
     }
 }
 

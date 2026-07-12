@@ -11,7 +11,7 @@ mod tests;
 
 use crate::{
     db::key_taxonomy::PrimaryKeyComponent,
-    db::{data::structural_field::FieldDecodeError, schema::PersistedFieldKind},
+    db::{data::structural_field::FieldDecodeError, schema::AcceptedFieldKind},
     error::InternalError,
     model::field::FieldKind,
 };
@@ -73,7 +73,7 @@ pub(in crate::db) fn decode_relation_target_primary_key_components_bytes(
 /// primary-key components.
 pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bytes(
     raw_bytes: &[u8],
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     crate::db::data::structural_field::primary_key_component::decode::decode_accepted_relation_target_primary_key_components_binary_bytes(
         raw_bytes, kind,

@@ -1,7 +1,7 @@
 //! Persisted schema index integrity checks.
 
 use crate::db::schema::{
-    PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+    AcceptedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
     PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
     SchemaRowLayout,
@@ -99,22 +99,22 @@ fn index_expression_detail(
 
 const fn expression_output_kind_matches_op(
     op: PersistedIndexExpressionOp,
-    output_kind: &PersistedFieldKind,
+    output_kind: &AcceptedFieldKind,
 ) -> bool {
     match op {
         PersistedIndexExpressionOp::Lower
         | PersistedIndexExpressionOp::Upper
         | PersistedIndexExpressionOp::Trim
         | PersistedIndexExpressionOp::LowerTrim => {
-            matches!(output_kind, PersistedFieldKind::Text { .. })
+            matches!(output_kind, AcceptedFieldKind::Text { .. })
         }
         PersistedIndexExpressionOp::Date => {
-            matches!(output_kind, PersistedFieldKind::Date)
+            matches!(output_kind, AcceptedFieldKind::Date)
         }
         PersistedIndexExpressionOp::Year
         | PersistedIndexExpressionOp::Month
         | PersistedIndexExpressionOp::Day => {
-            matches!(output_kind, PersistedFieldKind::Int64)
+            matches!(output_kind, AcceptedFieldKind::Int64)
         }
     }
 }

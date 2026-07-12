@@ -16,7 +16,7 @@ use crate::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
-    value::{Value, ValueEnum},
+    value::{CanonicalEnumBody, EnumTypeId, EnumVariantId, Value, ValueEnum},
 };
 use num_bigint::{BigInt, BigUint};
 
@@ -214,22 +214,14 @@ fn write_decimal(out: &mut Vec<u8>, value: Decimal) {
 }
 
 fn write_value_enum(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), TokenWireError> {
-    write_string(out, value.variant())?;
-
-    match value.path() {
-        Some(path) => {
-            out.push(1);
-            write_string(out, path)?;
-        }
-        None => out.push(0),
-    }
-
-    match value.payload() {
-        Some(payload) => {
+    write_u32(out, value.type_id().get());
+    write_u32(out, value.variant_id().get());
+    match value.body() {
+        CanonicalEnumBody::Unit => out.push(0),
+        CanonicalEnumBody::Payload(payload) => {
             out.push(1);
             write_value(out, payload)?;
         }
-        None => out.push(0),
     }
 
     Ok(())
@@ -316,30 +308,16 @@ fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> 
 }
 
 fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireError> {
-    let variant = cursor.read_string()?;
-
-    let path = match cursor.read_u8()? {
-        0 => None,
-        1 => Some(cursor.read_string()?),
+    let type_id = EnumTypeId::new(cursor.read_u32()?).ok_or_else(TokenWireError::decode)?;
+    let variant_id = EnumVariantId::new(cursor.read_u32()?).ok_or_else(TokenWireError::decode)?;
+    let body = match cursor.read_u8()? {
+        0 => CanonicalEnumBody::Unit,
+        1 => CanonicalEnumBody::Payload(Box::new(read_value(cursor)?)),
         _ => {
             return Err(TokenWireError::decode());
         }
     };
-
-    let payload = match cursor.read_u8()? {
-        0 => None,
-        1 => Some(read_value(cursor)?),
-        _ => {
-            return Err(TokenWireError::decode());
-        }
-    };
-
-    let mut value = ValueEnum::new(variant.as_str(), path.as_deref());
-    if let Some(payload) = payload {
-        value = value.with_payload(payload);
-    }
-
-    Ok(value)
+    Ok(ValueEnum::new(type_id, variant_id, body))
 }
 
 fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<IntBig, TokenWireError> {

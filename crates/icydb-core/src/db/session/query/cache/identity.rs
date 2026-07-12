@@ -11,7 +11,9 @@ use crate::db::{
     commit::CommitSchemaFingerprint,
     executor::EntityAuthority,
     query::intent::{StructuralQuery, StructuralQueryCacheKey},
-    schema::{AcceptedCatalogIdentity, AcceptedSchemaSnapshot, SchemaVersion},
+    schema::{
+        AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaVersion,
+    },
     session::AcceptedSchemaCatalogContext,
 };
 
@@ -22,7 +24,7 @@ fn measure_query_plan_compile_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
 
 // Bump this when the shared lower query-plan cache key meaning changes in a
 // way that must force old in-heap entries to miss instead of aliasing.
-pub(super) const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 3;
+pub(super) const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 4;
 
 ///
 /// QueryPlanVisibility
@@ -56,6 +58,7 @@ pub(in crate::db) struct QueryPlanCacheKey {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) struct SchemaCacheIdentity {
+    revision: AcceptedSchemaRevision,
     version: SchemaVersion,
     fingerprint_method_version: u8,
     fingerprint: CommitSchemaFingerprint,
@@ -63,11 +66,13 @@ pub(super) struct SchemaCacheIdentity {
 
 impl SchemaCacheIdentity {
     pub(super) const fn new(
+        revision: AcceptedSchemaRevision,
         version: SchemaVersion,
         fingerprint_method_version: u8,
         fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         Self {
+            revision,
             version,
             fingerprint_method_version,
             fingerprint,
@@ -80,6 +85,7 @@ impl SchemaCacheIdentity {
         fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         Self::new(
+            AcceptedSchemaRevision::NONE,
             accepted_schema.persisted_snapshot().version(),
             crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             fingerprint,
@@ -88,6 +94,7 @@ impl SchemaCacheIdentity {
 
     pub(super) const fn from_accepted_catalog_identity(identity: AcceptedCatalogIdentity) -> Self {
         Self::new(
+            identity.accepted_schema_revision(),
             identity.accepted_schema_version(),
             identity.fingerprint_method_version(),
             identity.accepted_schema_fingerprint(),
@@ -96,6 +103,7 @@ impl SchemaCacheIdentity {
 
     const fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
         Self::new(
+            catalog.revision(),
             catalog.schema_version(),
             catalog.fingerprint_method_version(),
             catalog.fingerprint(),
@@ -107,7 +115,7 @@ impl SchemaCacheIdentity {
     }
 
     pub(super) fn same_version(self, other: Self) -> bool {
-        self.version == other.version
+        self.revision == other.revision && self.version == other.version
     }
 
     pub(super) fn same_fingerprint(self, other: Self) -> bool {

@@ -14,7 +14,7 @@ use crate::{
         data::RawDataStoreKey,
         identity::EntityName,
         schema::{
-            PersistedFieldKind, PersistedRelationStrength, classify_persisted_field_kind,
+            AcceptedFieldKind, AcceptedRelationStrength, classify_accepted_field_kind,
             ensure_accepted_schema_snapshot,
         },
     },
@@ -90,20 +90,20 @@ struct AcceptedRelationTargetMetadata<'a> {
     target_entity_name: &'a str,
     target_entity_tag: EntityTag,
     target_store_path: &'a str,
-    scalar_target_key_kind: &'a PersistedFieldKind,
-    strength: PersistedRelationStrength,
+    scalar_target_key_kind: &'a AcceptedFieldKind,
+    strength: AcceptedRelationStrength,
     cardinality: AcceptedRelationCardinality,
 }
 
 #[derive(Clone, Debug)]
 struct AcceptedRelationEdgeTargetContract {
     target: AcceptedRelationTargetAuthority,
-    primary_key_kinds: Vec<PersistedFieldKind>,
+    primary_key_kinds: Vec<AcceptedFieldKind>,
 }
 
 impl AcceptedRelationEdgeTargetContract {
     #[must_use]
-    const fn primary_key_kinds(&self) -> &[PersistedFieldKind] {
+    const fn primary_key_kinds(&self) -> &[AcceptedFieldKind] {
         self.primary_key_kinds.as_slice()
     }
 
@@ -115,11 +115,11 @@ impl AcceptedRelationEdgeTargetContract {
 #[derive(Clone, Copy)]
 struct AcceptedRelationTupleEdgeLocalComponent<'a> {
     field_name: &'a str,
-    kind: &'a PersistedFieldKind,
+    kind: &'a AcceptedFieldKind,
 }
 
 impl<'a> AcceptedRelationTupleEdgeLocalComponent<'a> {
-    const fn new(field_name: &'a str, kind: &'a PersistedFieldKind) -> Self {
+    const fn new(field_name: &'a str, kind: &'a AcceptedFieldKind) -> Self {
         Self { field_name, kind }
     }
 }
@@ -130,7 +130,7 @@ struct AcceptedRelationTupleEdgeDescriptor {
 
 impl AcceptedRelationTupleEdgeDescriptor {
     #[must_use]
-    const fn primary_key_kinds(&self) -> &[PersistedFieldKind] {
+    const fn primary_key_kinds(&self) -> &[AcceptedFieldKind] {
         self.target_contract.primary_key_kinds()
     }
 
@@ -190,7 +190,7 @@ struct AcceptedRelationScalarTargetDescriptor {
 }
 
 impl AcceptedRelationScalarTargetDescriptor {
-    const fn primary_key_kinds(&self) -> &[PersistedFieldKind] {
+    const fn primary_key_kinds(&self) -> &[AcceptedFieldKind] {
         self.target_contract.primary_key_kinds()
     }
 
@@ -207,13 +207,13 @@ fn accepted_strong_scalar_relation_target_descriptor(
     source_path: &str,
     _diagnostic_relation_name: &str,
     authority_relation_name: &str,
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     expected_edge_target_path: Option<&str>,
 ) -> Result<Option<AcceptedRelationScalarTargetDescriptor>, InternalError> {
     let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
         return Ok(None);
     };
-    if target.strength != PersistedRelationStrength::Strong {
+    if target.strength != AcceptedRelationStrength::Strong {
         return Ok(None);
     }
     if let Some(edge_target_path) = expected_edge_target_path
@@ -255,6 +255,7 @@ where
             schema_store,
             target_hook.entity_tag,
             target_hook.entity_path,
+            target_hook.store_path,
             target_hook.model,
         )
     })?;
@@ -279,13 +280,13 @@ where
 }
 
 fn accepted_relation_target_metadata_from_kind(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Option<AcceptedRelationTargetMetadata<'_>> {
     fn relation_target(
-        kind: &PersistedFieldKind,
+        kind: &AcceptedFieldKind,
         cardinality: AcceptedRelationCardinality,
     ) -> Option<AcceptedRelationTargetMetadata<'_>> {
-        let PersistedFieldKind::Relation {
+        let AcceptedFieldKind::Relation {
             target_path,
             target_entity_name,
             target_entity_tag,
@@ -309,13 +310,13 @@ fn accepted_relation_target_metadata_from_kind(
     }
 
     match kind {
-        PersistedFieldKind::Relation { .. } => {
+        AcceptedFieldKind::Relation { .. } => {
             relation_target(kind, AcceptedRelationCardinality::Single)
         }
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             let cardinality = match kind {
-                PersistedFieldKind::List(_) => AcceptedRelationCardinality::List,
-                PersistedFieldKind::Set(_) => AcceptedRelationCardinality::Set,
+                AcceptedFieldKind::List(_) => AcceptedRelationCardinality::List,
+                AcceptedFieldKind::Set(_) => AcceptedRelationCardinality::Set,
                 _ => unreachable!("relation invariant"),
             };
 
@@ -326,13 +327,13 @@ fn accepted_relation_target_metadata_from_kind(
 }
 
 fn validate_relation_primary_key_component_kind(
-    key_kind: &PersistedFieldKind,
+    key_kind: &AcceptedFieldKind,
 ) -> Result<(), InternalError> {
-    if let PersistedFieldKind::Relation { key_kind, .. } = key_kind {
+    if let AcceptedFieldKind::Relation { key_kind, .. } = key_kind {
         return validate_relation_primary_key_component_kind(key_kind);
     }
 
-    if classify_persisted_field_kind(key_kind).is_relation_key_eligible() {
+    if classify_accepted_field_kind(key_kind).is_relation_key_eligible() {
         Ok(())
     } else {
         Err(InternalError::relation_source_row_unsupported_key_kind(
@@ -341,9 +342,9 @@ fn validate_relation_primary_key_component_kind(
     }
 }
 
-fn relation_local_component_key_kind(kind: &PersistedFieldKind) -> &PersistedFieldKind {
+fn relation_local_component_key_kind(kind: &AcceptedFieldKind) -> &AcceptedFieldKind {
     match kind {
-        PersistedFieldKind::Relation { key_kind, .. } => key_kind,
+        AcceptedFieldKind::Relation { key_kind, .. } => key_kind,
         other => other,
     }
 }
@@ -571,34 +572,34 @@ pub(super) fn for_each_relation_target_value(
 mod tests {
     use super::validate_relation_primary_key_component_kind;
     use crate::{
-        db::schema::{PersistedFieldKind, PersistedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
         types::EntityTag,
     };
 
-    fn relation_key_kind(key_kind: PersistedFieldKind) -> PersistedFieldKind {
-        PersistedFieldKind::Relation {
+    fn relation_key_kind(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
+        AcceptedFieldKind::Relation {
             target_path: "Target".to_string(),
             target_entity_name: "Target".to_string(),
             target_entity_tag: EntityTag::new(11),
             target_store_path: "TargetStore".to_string(),
             key_kind: Box::new(key_kind),
-            strength: PersistedRelationStrength::Strong,
+            strength: AcceptedRelationStrength::Strong,
         }
     }
 
     #[test]
     fn relation_primary_key_component_kind_accepts_admitted_scalar_lanes() {
         for kind in [
-            PersistedFieldKind::Account,
-            PersistedFieldKind::Int64,
-            PersistedFieldKind::Int128,
-            PersistedFieldKind::Nat64,
-            PersistedFieldKind::Nat128,
-            PersistedFieldKind::Principal,
-            PersistedFieldKind::Subaccount,
-            PersistedFieldKind::Timestamp,
-            PersistedFieldKind::Ulid,
-            PersistedFieldKind::Unit,
+            AcceptedFieldKind::Account,
+            AcceptedFieldKind::Int64,
+            AcceptedFieldKind::Int128,
+            AcceptedFieldKind::Nat64,
+            AcceptedFieldKind::Nat128,
+            AcceptedFieldKind::Principal,
+            AcceptedFieldKind::Subaccount,
+            AcceptedFieldKind::Timestamp,
+            AcceptedFieldKind::Ulid,
+            AcceptedFieldKind::Unit,
         ] {
             validate_relation_primary_key_component_kind(&kind)
                 .expect("admitted relation primary-key component kind should validate");
@@ -607,7 +608,7 @@ mod tests {
 
     #[test]
     fn relation_primary_key_component_kind_unwraps_relation_key_kind() {
-        let kind = relation_key_kind(PersistedFieldKind::Nat128);
+        let kind = relation_key_kind(AcceptedFieldKind::Nat128);
 
         validate_relation_primary_key_component_kind(&kind)
             .expect("relation field wrapper should validate through its key kind");
@@ -616,10 +617,10 @@ mod tests {
     #[test]
     fn relation_primary_key_component_kind_rejects_non_admitted_bigints() {
         for kind in [
-            PersistedFieldKind::IntBig { max_bytes: 32 },
-            PersistedFieldKind::NatBig { max_bytes: 32 },
-            relation_key_kind(PersistedFieldKind::IntBig { max_bytes: 32 }),
-            relation_key_kind(PersistedFieldKind::NatBig { max_bytes: 32 }),
+            AcceptedFieldKind::IntBig { max_bytes: 32 },
+            AcceptedFieldKind::NatBig { max_bytes: 32 },
+            relation_key_kind(AcceptedFieldKind::IntBig { max_bytes: 32 }),
+            relation_key_kind(AcceptedFieldKind::NatBig { max_bytes: 32 }),
         ] {
             validate_relation_primary_key_component_kind(&kind)
                 .expect_err("big integer relation primary-key components must reject");

@@ -39,9 +39,11 @@ pub(in crate::db) use execution_contract::{
 };
 #[cfg(test)]
 pub(in crate::db) use lowering::current_deferred_index_prefix_raw_bound_materialization_count_for_tests;
+#[cfg(test)]
+pub(in crate::db) use lowering::lower_access;
 pub(in crate::db) use lowering::{
     LoweredAccess, LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-    LoweredIndexScanContract, LoweredKey, lower_access,
+    LoweredIndexScanContract, LoweredKey, lower_access_with_schema_info,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use lowering::{

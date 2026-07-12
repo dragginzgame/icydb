@@ -7,10 +7,10 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity_with_structural_readers,
+            CommitPrepareContext, CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
+            prepare_commit_context_for_runtime_entity, prepare_row_commit_with_context,
         },
         data::RawDataStoreKey,
-        index::{StructuralIndexEntryReader, StructuralPrimaryRowReader},
         relation::StrongRelationDeleteValidateFn,
     },
     error::InternalError,
@@ -19,16 +19,6 @@ use crate::{
     types::EntityTag,
 };
 use std::collections::BTreeSet;
-
-/// Runtime hook callback used when commit preparation must read existing
-/// primary rows and index entries through structural reader facades.
-pub(in crate::db) type PrepareRowCommitWithReadersFn<C> =
-    fn(
-        &Db<C>,
-        &CommitRowOp,
-        &dyn StructuralPrimaryRowReader,
-        &dyn StructuralIndexEntryReader,
-    ) -> Result<PreparedRowCommitOp, InternalError>;
 
 ///
 /// EntityRuntimeHooks
@@ -44,7 +34,6 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub(in crate::db) model: &'static EntityModel,
     pub(in crate::db) entity_path: &'static str,
     pub(in crate::db) store_path: &'static str,
-    pub(in crate::db) prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
     pub(in crate::db) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }
 
@@ -56,7 +45,6 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         model: &'static EntityModel,
         entity_path: &'static str,
         store_path: &'static str,
-        prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
         validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self {
         Self {
@@ -64,7 +52,6 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
             model,
             entity_path,
             store_path,
-            prepare_row_commit_with_readers,
             validate_delete_strong_relations,
         }
     }
@@ -80,8 +67,23 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
             E::MODEL,
             E::PATH,
             E::Store::PATH,
-            prepare_row_commit_for_entity_with_structural_readers::<E>,
             crate::db::relation::validate_delete_strong_relations_for_source::<E>,
+        )
+    }
+
+    /// Resolve accepted commit authority once for a batch targeting this entity.
+    pub(in crate::db) fn prepare_commit_context(
+        &self,
+        db: &Db<C>,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Result<CommitPrepareContext, InternalError> {
+        prepare_commit_context_for_runtime_entity(
+            db,
+            self.entity_path,
+            self.entity_tag,
+            self.store_path,
+            self.model,
+            schema_fingerprint,
         )
     }
 }
@@ -180,8 +182,9 @@ pub(in crate::db) fn prepare_row_commit_with_hook<C: CanisterKind>(
 ) -> Result<PreparedRowCommitOp, InternalError> {
     let hooks = resolve_runtime_hook_by_path(entity_runtime_hooks, op.entity_path.as_ref())?;
     let store = db.store_handle(hooks.store_path)?;
+    let context = hooks.prepare_commit_context(db, op.schema_fingerprint)?;
 
-    (hooks.prepare_row_commit_with_readers)(db, op, &store, &store)
+    prepare_row_commit_with_context(db, op, &context, &store, &store)
 }
 
 /// Validate delete-side strong relation constraints through runtime hooks.

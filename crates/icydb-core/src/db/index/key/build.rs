@@ -31,14 +31,18 @@ use crate::{
             scalar_expr_value_into_value,
         },
         schema::{
-            PersistedIndexExpressionOp, SchemaExpressionIndexInfo,
-            SchemaExpressionIndexKeyItemInfo, SchemaFieldPathIndexRebuildKey,
-            SchemaFieldPathIndexRebuildTarget, SchemaIndexFieldPathInfo, SchemaIndexInfo,
-            SchemaInfo,
+            AcceptedFieldKind, AcceptedValueContract, PersistedIndexExpressionOp,
+            SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
+            SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
+            SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo, ValueAdmissionBudget,
+            encode_unit_enum_equality_key, validate_canonical_value,
         },
     },
     error::InternalError,
-    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef},
+    model::{
+        field::FieldStorageDecode,
+        index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef},
+    },
     types::EntityTag,
     value::Value,
 };
@@ -182,7 +186,9 @@ fn index_component_bytes_from_slot_ref_reader_with_access_contract<'a>(
     };
 
     match key_item {
-        SemanticIndexKeyItemRef::Field(_) => encode_value_index_component_ref(source),
+        SemanticIndexKeyItemRef::Field(field) => {
+            encode_schema_field_index_component(schema_info, field, source)
+        }
         SemanticIndexKeyItemRef::Expression(expression) => {
             value_for_expression_with_index_name(index.name(), expression, source.clone())?
                 .map_or(Ok(None), encode_value_index_component)
@@ -637,7 +643,7 @@ impl IndexKey {
 }
 
 fn accepted_field_path_component_bytes<'a>(
-    _accepted_index: &SchemaIndexInfo,
+    accepted_index: &SchemaIndexInfo,
     field: &SchemaIndexFieldPathInfo,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Option<Vec<u8>>, InternalError> {
@@ -650,11 +656,11 @@ fn accepted_field_path_component_bytes<'a>(
         return Ok(None);
     };
 
-    encode_value_index_component_ref(source)
+    encode_accepted_field_path_index_component(accepted_index, field, source)
 }
 
 fn accepted_field_path_component_bytes_from_slots(
-    _accepted_index: &SchemaIndexInfo,
+    accepted_index: &SchemaIndexInfo,
     field: &SchemaIndexFieldPathInfo,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
@@ -663,7 +669,130 @@ fn accepted_field_path_component_bytes_from_slots(
         return Ok(None);
     };
 
-    encode_value_index_component_ref(source)
+    encode_accepted_field_path_index_component(accepted_index, field, source)
+}
+
+fn encode_schema_field_index_component(
+    schema_info: &SchemaInfo,
+    field_name: &str,
+    source: &Value,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let Some(field_contract) = schema_info.accepted_field_contract(field_name) else {
+        return encode_value_index_component_ref(source);
+    };
+    if !matches!(field_contract.kind(), AcceptedFieldKind::Enum { .. }) {
+        return encode_value_index_component_ref(source);
+    }
+
+    encode_admitted_unit_enum_index_component(
+        field_contract.enum_catalog(),
+        field_contract.value_contract(),
+        source,
+    )
+}
+
+fn encode_accepted_field_path_index_component(
+    accepted_index: &SchemaIndexInfo,
+    field: &SchemaIndexFieldPathInfo,
+    source: &Value,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    encode_accepted_index_leaf_component(
+        accepted_index.enum_catalog(),
+        field.persisted_kind(),
+        source,
+    )
+}
+
+fn encode_accepted_expression_field_path_index_component(
+    accepted_index: &SchemaExpressionIndexInfo,
+    field: &SchemaIndexFieldPathInfo,
+    source: &Value,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    encode_accepted_index_leaf_component(
+        accepted_index.enum_catalog(),
+        field.persisted_kind(),
+        source,
+    )
+}
+
+/// Encode one admitted literal against the exact accepted index component
+/// contract that will encode stored rows for the same index position.
+pub(in crate::db) fn encode_accepted_index_literal_component(
+    schema_info: &SchemaInfo,
+    index_name: &str,
+    component_index: usize,
+    value: &Value,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    if let Some(index) = schema_info
+        .field_path_indexes()
+        .iter()
+        .find(|index| index.name() == index_name)
+    {
+        let field = index
+            .fields()
+            .get(component_index)
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        return encode_accepted_field_path_index_component(index, field, value);
+    }
+
+    if let Some(index) = schema_info
+        .expression_indexes()
+        .iter()
+        .find(|index| index.name() == index_name)
+    {
+        let key_item = index
+            .key_items()
+            .get(component_index)
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        return match key_item {
+            SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
+                encode_accepted_expression_field_path_index_component(index, field, value)
+            }
+            SchemaExpressionIndexKeyItemInfo::Expression(_) => {
+                encode_value_index_component_ref(value)
+            }
+        };
+    }
+
+    encode_value_index_component_ref(value)
+}
+
+fn encode_accepted_index_leaf_component(
+    catalog: Option<&crate::db::schema::AcceptedEnumCatalogHandle>,
+    kind: Option<&AcceptedFieldKind>,
+    source: &Value,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let Some(kind @ AcceptedFieldKind::Enum { .. }) = kind else {
+        return encode_value_index_component_ref(source);
+    };
+    let Some(catalog) = catalog else {
+        return Err(InternalError::index_unsupported());
+    };
+    let contract = AcceptedValueContract::from_accepted_field(
+        catalog.catalog(),
+        kind,
+        FieldStorageDecode::ByKind,
+    )
+    .map_err(|_| InternalError::index_unsupported())?;
+
+    encode_admitted_unit_enum_index_component(catalog, &contract, source)
+}
+
+fn encode_admitted_unit_enum_index_component(
+    catalog: &crate::db::schema::AcceptedEnumCatalogHandle,
+    contract: &AcceptedValueContract,
+    source: &Value,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    if matches!(source, Value::Null) {
+        return Ok(None);
+    }
+    let mut budget = ValueAdmissionBudget::standard();
+    let proof = validate_canonical_value(catalog, contract, source, &mut budget)
+        .map_err(|_| InternalError::index_unsupported())?;
+    let encoded =
+        encode_unit_enum_equality_key(&proof).map_err(|_| InternalError::index_unsupported())?;
+
+    Ok(Some(encoded.to_vec()))
 }
 
 fn accepted_expression_component_bytes_from_slots(
@@ -679,7 +808,7 @@ fn accepted_expression_component_bytes_from_slots(
                 return Ok(None);
             };
 
-            encode_value_index_component_ref(source)
+            encode_accepted_expression_field_path_index_component(accepted_index, field, source)
         }
         SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
             let source = slots.required_value_by_contract_cow(expression.source().slot())?;
@@ -1217,5 +1346,70 @@ fn normalize_range_component_bound<C: AsRef<[u8]>>(
             }
             Some(component.to_vec())
         }
+    }
+}
+
+#[cfg(test)]
+mod accepted_enum_tests {
+    use super::*;
+    use crate::{
+        db::schema::{
+            AcceptedEnumCatalogHandle, AcceptedSchemaRevision,
+            build_initial_accepted_enum_catalog_from_kinds_for_tests,
+        },
+        model::field::{EnumVariantModel, FieldKind},
+        value::{ValueEnum, ValueTag},
+    };
+
+    static UNIT_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
+        "Ready",
+        None,
+        FieldStorageDecode::ByKind,
+    )];
+    static UNIT_KIND: FieldKind = FieldKind::Enum {
+        path: "index::Status",
+        variants: &UNIT_VARIANTS,
+    };
+    static PAYLOAD_KIND: FieldKind = FieldKind::Nat64;
+    static PAYLOAD_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
+        "Value",
+        Some(&PAYLOAD_KIND),
+        FieldStorageDecode::ByKind,
+    )];
+    static PAYLOAD_ENUM_KIND: FieldKind = FieldKind::Enum {
+        path: "index::Payload",
+        variants: &PAYLOAD_VARIANTS,
+    };
+
+    #[test]
+    fn accepted_index_leaf_uses_catalog_ids_for_unit_enum_key() {
+        let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[UNIT_KIND])
+            .expect("unit enum catalog should build");
+        let handle =
+            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let kind = AcceptedFieldKind::from_model_kind(UNIT_KIND);
+        let value = Value::Enum(ValueEnum::test_unit(1, 1));
+
+        assert_eq!(
+            encode_accepted_index_leaf_component(Some(&handle), Some(&kind), &value)
+                .expect("accepted unit enum should produce an index component"),
+            Some(vec![ValueTag::Enum.to_u8(), 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]),
+        );
+    }
+
+    #[test]
+    fn accepted_index_leaf_rejects_payload_enum_without_stable_key_capability() {
+        let catalog =
+            build_initial_accepted_enum_catalog_from_kinds_for_tests(&[PAYLOAD_ENUM_KIND])
+                .expect("payload enum catalog should build");
+        let handle =
+            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+        let kind = AcceptedFieldKind::from_model_kind(PAYLOAD_ENUM_KIND);
+        let value = Value::Enum(ValueEnum::test_payload(1, 1, Value::Nat64(7)));
+
+        assert!(
+            encode_accepted_index_leaf_component(Some(&handle), Some(&kind), &value).is_err(),
+            "payload enums must remain outside canonical index-key capability",
+        );
     }
 }

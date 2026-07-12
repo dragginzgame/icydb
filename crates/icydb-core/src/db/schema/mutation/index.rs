@@ -9,13 +9,13 @@ use super::{
 };
 #[cfg(test)]
 use crate::db::codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32};
-#[cfg(feature = "sql")]
-use crate::db::schema::{AcceptedSchemaSnapshot, PersistedSchemaSnapshot};
 use crate::db::schema::{
-    FieldId, PersistedFieldKind, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
+    AcceptedFieldKind, FieldId, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
     SchemaFieldSlot,
 };
+#[cfg(feature = "sql")]
+use crate::db::schema::{AcceptedSchemaSnapshot, PersistedSchemaSnapshot};
 
 ///
 /// SchemaFieldPathIndexRebuildTarget
@@ -82,7 +82,7 @@ pub(in crate::db) struct SchemaFieldPathIndexRebuildKey {
     pub(in crate::db::schema::mutation) field_id: FieldId,
     pub(in crate::db::schema::mutation) slot: SchemaFieldSlot,
     pub(in crate::db::schema::mutation) path: Vec<String>,
-    pub(in crate::db::schema::mutation) kind: PersistedFieldKind,
+    pub(in crate::db::schema::mutation) kind: AcceptedFieldKind,
     pub(in crate::db::schema::mutation) nullable: bool,
 }
 
@@ -110,7 +110,7 @@ impl SchemaFieldPathIndexRebuildKey {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
 
@@ -204,8 +204,8 @@ pub(in crate::db) enum SchemaExpressionIndexRebuildKey {
 pub(in crate::db) struct SchemaExpressionIndexRebuildExpression {
     op: PersistedIndexExpressionOp,
     source: SchemaFieldPathIndexRebuildKey,
-    input_kind: PersistedFieldKind,
-    output_kind: PersistedFieldKind,
+    input_kind: AcceptedFieldKind,
+    output_kind: AcceptedFieldKind,
     canonical_text: String,
 }
 
@@ -224,13 +224,13 @@ impl SchemaExpressionIndexRebuildExpression {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) const fn input_kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn input_kind(&self) -> &AcceptedFieldKind {
         &self.input_kind
     }
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) const fn output_kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn output_kind(&self) -> &AcceptedFieldKind {
         &self.output_kind
     }
 

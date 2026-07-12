@@ -83,7 +83,13 @@ where
     let accepted_schema = {
         let store = db.recovered_store(E::Store::PATH)?;
         store.with_schema_mut(|schema_store| {
-            ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+            ensure_accepted_schema_snapshot(
+                schema_store,
+                E::ENTITY_TAG,
+                E::PATH,
+                E::Store::PATH,
+                E::MODEL,
+            )
         })?
     };
     let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;

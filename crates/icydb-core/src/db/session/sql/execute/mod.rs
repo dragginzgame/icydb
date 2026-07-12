@@ -34,7 +34,7 @@ use crate::{
             AcceptedSchemaCatalogContext,
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandExecutionContext,
-                SqlStatementResult,
+                SqlCompiledCommandSurface, SqlStatementResult,
             },
         },
     },
@@ -59,7 +59,7 @@ impl<C: CanisterKind> DbSession<C> {
         compiled: &CompiledSqlCommand,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (result, _) = self.execute_compiled_sql_with_cache_attribution::<E>(compiled)?;
 
@@ -73,43 +73,11 @@ impl<C: CanisterKind> DbSession<C> {
         compiled: CompiledSqlCommand,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (result, _) = self.execute_compiled_sql_with_cache_attribution::<E>(&compiled)?;
 
         Ok(result)
-    }
-
-    pub(in crate::db::session::sql) fn execute_update_surface_compiled_sql_owned<E>(
-        &self,
-        compiled: CompiledSqlCommand,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        match &compiled {
-            CompiledSqlCommand::Delete { query, returning } => {
-                self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
-            }
-            CompiledSqlCommand::Insert(command) => self
-                .execute_sql_insert_statement_with_update_surface_bounds::<E>(
-                    command.statement(),
-                    command.source_query(),
-                ),
-            CompiledSqlCommand::Update(statement) => {
-                self.execute_sql_update_statement::<E>(statement)
-            }
-            CompiledSqlCommand::Select { .. }
-            | CompiledSqlCommand::GlobalAggregate { .. }
-            | CompiledSqlCommand::DescribeEntity
-            | CompiledSqlCommand::ShowIndexesEntity
-            | CompiledSqlCommand::ShowColumnsEntity
-            | CompiledSqlCommand::ShowEntities { .. }
-            | CompiledSqlCommand::ShowStores { .. }
-            | CompiledSqlCommand::ShowMemory => Err(QueryError::unsupported_query()),
-            #[cfg(feature = "sql-explain")]
-            CompiledSqlCommand::Explain(..) => Err(QueryError::unsupported_query()),
-        }
     }
 
     // Keep one perf-only execution entrypoint that returns cache attribution
@@ -159,8 +127,11 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
+        self.ensure_accepted_schema_revision_is_current::<E>(context.accepted_catalog().revision())
+            .map_err(QueryError::execute)?;
+
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context_phase_attribution::<E>(query, context)
@@ -190,6 +161,7 @@ impl<C: CanisterKind> DbSession<C> {
                     self.execute_compiled_sql_with_catalog_cache_attribution::<E>(
                         compiled,
                         context.accepted_catalog(),
+                        context.surface(),
                     )
                 },
             ),
@@ -202,7 +174,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
@@ -218,7 +190,7 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_authority: Option<&EntityAuthority>,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (authority, schema_info) = catalog
             .accepted_or_provided_entity_authority_and_schema_info_for::<E>(accepted_authority)
@@ -227,7 +199,7 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
             lowered,
             authority.clone(),
-            catalog.snapshot(),
+            catalog,
             &schema_info,
         )? {
             return Ok((
@@ -236,7 +208,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        self.explain_lowered_sql_for_authority(lowered, authority, catalog.snapshot(), &schema_info)
+        self.explain_lowered_sql_for_authority(lowered, authority, catalog, &schema_info)
             .map(SqlStatementResult::Explain)
             .map(|result| (result, SqlCacheAttribution::default()))
     }
@@ -246,12 +218,13 @@ impl<C: CanisterKind> DbSession<C> {
         compiled: &CompiledSqlCommand,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         if let Some(result) = self.execute_metadata_compiled_sql_with_default_cache::<E>(compiled) {
             return result;
         }
-        if let Some(result) = execute_compiled_sql_write_with_default_cache::<E, C>(self, compiled)
+        if let Some(result) =
+            execute_compiled_sql_write_with_default_cache::<E, C>(self, compiled, None, None)
         {
             return result;
         }
@@ -286,8 +259,11 @@ impl<C: CanisterKind> DbSession<C> {
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
+        self.ensure_accepted_schema_revision_is_current::<E>(context.accepted_catalog().revision())
+            .map_err(QueryError::execute)?;
+
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context::<E>(query, context)
@@ -302,6 +278,7 @@ impl<C: CanisterKind> DbSession<C> {
             compiled => self.execute_compiled_sql_with_catalog_cache_attribution::<E>(
                 compiled,
                 context.accepted_catalog(),
+                context.surface(),
             ),
         }
     }
@@ -310,17 +287,22 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         compiled: &CompiledSqlCommand,
         catalog: &AcceptedSchemaCatalogContext,
+        surface: SqlCompiledCommandSurface,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         if let Some(result) =
             self.execute_metadata_compiled_sql_with_catalog_cache::<E>(compiled, catalog)
         {
             return result;
         }
-        if let Some(result) = execute_compiled_sql_write_with_default_cache::<E, C>(self, compiled)
-        {
+        if let Some(result) = execute_compiled_sql_write_with_default_cache::<E, C>(
+            self,
+            compiled,
+            Some(catalog),
+            Some(surface),
+        ) {
             return result;
         }
 
@@ -338,7 +320,7 @@ impl<C: CanisterKind> DbSession<C> {
         context: SqlCompiledCommandExecutionContext,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (result, _) =
             self.execute_compiled_sql_context_with_cache_attribution::<E>(&context)?;
@@ -353,8 +335,11 @@ impl<C: CanisterKind> DbSession<C> {
         policy: &QueryAdmissionPolicy,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
+        self.ensure_accepted_schema_revision_is_current::<E>(context.accepted_catalog().revision())
+            .map_err(QueryError::execute)?;
+
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
                 let (result, _) = self
@@ -398,7 +383,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let statement = crate::db::session::sql::parse_sql_statement(sql)?;
         let (compiled, _, _) = match statement {

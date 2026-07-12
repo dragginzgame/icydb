@@ -232,19 +232,13 @@ where
             .map_err(AggregateFieldValueError::into_internal_error)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
-        Self::bytes_by_materialized_rows(
-            page.data_rows(),
-            &row_layout,
-            target_field.field(),
-            field_slot,
-        )
+        Self::bytes_by_materialized_rows(page.data_rows(), &row_layout, field_slot)
     }
 
     // Fold `bytes(field)` over one already materialized structural row window.
     fn bytes_by_materialized_rows(
         rows: &[DataRow],
         row_layout: &RowLayout,
-        target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u64, InternalError> {
         let mut total = 0u64;
@@ -258,9 +252,8 @@ where
                 data_key,
                 field_slot.index,
             )?;
-            let value =
-                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+            let value = extract_orderable_field_value_from_decoded_slot(field_slot, value)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
             total = saturating_add_payload_len(total, serialized_value_len(&value)?);
         }
 

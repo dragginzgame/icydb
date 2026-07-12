@@ -15,8 +15,8 @@ use crate::{
             accepted_strong_scalar_relation_target_descriptor, for_each_relation_target_value,
         },
         schema::{
-            AcceptedRowDecodeContract, OwnedAcceptedFieldDecodeContract,
-            OwnedAcceptedRelationEdgeContract, PersistedFieldKind, ensure_accepted_schema_snapshot,
+            AcceptedFieldKind, AcceptedRowDecodeContract, OwnedAcceptedFieldDecodeContract,
+            OwnedAcceptedRelationEdgeContract, ensure_accepted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -32,12 +32,12 @@ struct AcceptedSaveStrongRelationInfo {
     relation_name: String,
     local_components: Vec<AcceptedSaveStrongRelationLocalComponent>,
     target: AcceptedRelationTargetAuthority,
-    target_primary_key_kinds: Vec<PersistedFieldKind>,
+    target_primary_key_kinds: Vec<AcceptedFieldKind>,
 }
 
 struct AcceptedSaveStrongRelationLocalComponent {
     index: usize,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
 }
 
 impl AcceptedSaveStrongRelationInfo {
@@ -45,7 +45,7 @@ impl AcceptedSaveStrongRelationInfo {
         relation_name: impl Into<String>,
         local_components: Vec<AcceptedSaveStrongRelationLocalComponent>,
         target: AcceptedRelationTargetAuthority,
-        target_primary_key_kinds: Vec<PersistedFieldKind>,
+        target_primary_key_kinds: Vec<AcceptedFieldKind>,
     ) -> Self {
         Self {
             relation_name: relation_name.into(),
@@ -76,7 +76,7 @@ impl AcceptedSaveStrongRelationInfo {
 }
 
 impl AcceptedSaveStrongRelationLocalComponent {
-    const fn new(index: usize, kind: PersistedFieldKind) -> Self {
+    const fn new(index: usize, kind: AcceptedFieldKind) -> Self {
         Self { index, kind }
     }
 
@@ -267,7 +267,7 @@ fn accepted_save_strong_relation_from_field(
     source_path: &str,
     field_index: usize,
     field_name: &str,
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<Option<AcceptedSaveStrongRelationInfo>, InternalError> {
     let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
         source_path,
@@ -475,6 +475,7 @@ where
             schema_store,
             relation.target.entity_tag(),
             target_hook.entity_path,
+            target_hook.store_path,
             target_hook.model,
         )
     })?;
@@ -492,8 +493,8 @@ fn validate_target_accepted_primary_key_kinds(
     source_path: &str,
     field_name: &str,
     target_path: &str,
-    relation_key_kinds: &[PersistedFieldKind],
-    primary_key_kinds: &[&PersistedFieldKind],
+    relation_key_kinds: &[AcceptedFieldKind],
+    primary_key_kinds: &[&AcceptedFieldKind],
 ) -> Result<(), InternalError> {
     if primary_key_kinds.len() != relation_key_kinds.len() {
         return Err(InternalError::strong_relation_target_identity_mismatch(
@@ -527,17 +528,17 @@ fn validate_target_accepted_primary_key_kinds(
 #[cfg(test)]
 mod tests {
     use super::validate_target_accepted_primary_key_kinds;
-    use crate::{db::schema::PersistedFieldKind, error::ErrorClass};
+    use crate::{db::schema::AcceptedFieldKind, error::ErrorClass};
 
     #[test]
     fn save_relation_target_pk_guard_rejects_composite_target_authority() {
-        let kinds = [&PersistedFieldKind::Nat64, &PersistedFieldKind::Ulid];
+        let kinds = [&AcceptedFieldKind::Nat64, &AcceptedFieldKind::Ulid];
 
         let err = validate_target_accepted_primary_key_kinds(
             "Source",
             "target_id",
             "Target",
-            &[PersistedFieldKind::Nat64],
+            &[AcceptedFieldKind::Nat64],
             &kinds,
         )
         .expect_err("save relation guard must reject composite target PK authority");
@@ -552,13 +553,13 @@ mod tests {
 
     #[test]
     fn save_relation_target_pk_guard_rejects_kind_drift() {
-        let kinds = [&PersistedFieldKind::Nat128];
+        let kinds = [&AcceptedFieldKind::Nat128];
 
         let err = validate_target_accepted_primary_key_kinds(
             "Source",
             "target_id",
             "Target",
-            &[PersistedFieldKind::Nat64],
+            &[AcceptedFieldKind::Nat64],
             &kinds,
         )
         .expect_err("save relation guard must reject relation/target key-kind drift");
@@ -573,13 +574,13 @@ mod tests {
 
     #[test]
     fn save_relation_target_pk_guard_accepts_ordered_composite_key_kinds() {
-        let kinds = [&PersistedFieldKind::Nat64, &PersistedFieldKind::Ulid];
+        let kinds = [&AcceptedFieldKind::Nat64, &AcceptedFieldKind::Ulid];
 
         validate_target_accepted_primary_key_kinds(
             "Source",
             "author",
             "Target",
-            &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
+            &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
             &kinds,
         )
         .expect("matching ordered composite relation key kinds should validate");

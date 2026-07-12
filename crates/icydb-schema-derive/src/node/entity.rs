@@ -459,11 +459,11 @@ impl HasTraits for Entity {
         let mut traits = self.traits.with_type_traits().build();
 
         traits.extend([
+            TraitKind::AuthoredFieldProjection,
             TraitKind::CandidType,
             TraitKind::Inherent,
             TraitKind::EntityKind,
             TraitKind::EntityValue,
-            TraitKind::FieldProjection,
             TraitKind::PersistedRow,
         ]);
 

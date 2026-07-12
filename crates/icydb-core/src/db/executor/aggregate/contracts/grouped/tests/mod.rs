@@ -26,6 +26,7 @@ use crate::{
             builder::aggregate::{count, min_by},
             plan::FieldSlot,
         },
+        schema::AcceptedFieldKind,
     },
     model::field::FieldKind,
     testing,
@@ -74,6 +75,10 @@ fn text_group_key(value: &str) -> crate::db::executor::group::GroupKey {
 
 fn data_key(id: u64) -> DecodedDataStoreKey {
     DecodedDataStoreKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
+}
+
+fn accepted_nat64_target_slot() -> FieldSlot {
+    FieldSlot::from_test_accepted_kind(0, "id", AcceptedFieldKind::Nat64)
 }
 
 fn into_value_pairs(

@@ -2,18 +2,17 @@ use super::{
     decode_relation_target_primary_key_components_bytes, decode_structural_field_by_kind_bytes,
     decode_structural_value_storage_bytes, encode_primary_key_component_binary_value_bytes,
     encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
-    encode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
-    validate_structural_value_storage_bytes,
+    validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
 };
 use crate::{
     db::data::structural_field::binary::{
         push_binary_bytes, push_binary_list_len, push_binary_nat64, push_binary_text,
     },
     db::key_taxonomy::PrimaryKeyComponent,
-    db::schema::PersistedFieldKind,
+    db::schema::AcceptedFieldKind,
     model::field::{FieldKind, RelationStrength},
     types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount, Ulid},
-    value::{Value, ValueEnum},
+    value::Value,
 };
 
 static RELATION_ULID_KEY_KIND: FieldKind = FieldKind::Ulid;
@@ -84,7 +83,7 @@ fn relation_target_primary_key_component_decode_handles_list_and_skips_null_item
 #[test]
 fn accepted_structural_field_encode_matches_generated_simple_kind() {
     let value = Value::Text("Ada".to_string());
-    let accepted_kind = PersistedFieldKind::Text { max_len: None };
+    let accepted_kind = AcceptedFieldKind::Text { max_len: None };
     let generated_kind = FieldKind::Text { max_len: None };
 
     let accepted = encode_structural_field_by_accepted_kind_bytes(&accepted_kind, &value, "name")
@@ -106,10 +105,10 @@ fn accepted_structural_field_encode_matches_generated_recursive_kinds() {
         (Value::Text("beta".to_string()), Value::Nat64(2)),
     ]);
     let accepted_list_kind =
-        PersistedFieldKind::List(Box::new(PersistedFieldKind::Text { max_len: None }));
-    let accepted_map_kind = PersistedFieldKind::Map {
-        key: Box::new(PersistedFieldKind::Text { max_len: None }),
-        value: Box::new(PersistedFieldKind::Nat64),
+        AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Text { max_len: None }));
+    let accepted_map_kind = AcceptedFieldKind::Map {
+        key: Box::new(AcceptedFieldKind::Text { max_len: None }),
+        value: Box::new(AcceptedFieldKind::Nat64),
     };
     let generated_list_kind = FieldKind::List(&FieldKind::Text { max_len: None });
     let generated_map_kind = FieldKind::Map {
@@ -139,7 +138,7 @@ fn accepted_structural_field_encode_matches_generated_relation_list_null_skip() 
     let left = Ulid::from_u128(10);
     let right = Ulid::from_u128(11);
     let value = Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]);
-    let accepted_kind = PersistedFieldKind::from_model_kind(STRONG_RELATION_LIST_KIND);
+    let accepted_kind = AcceptedFieldKind::from_model_kind(STRONG_RELATION_LIST_KIND);
 
     let accepted = encode_structural_field_by_accepted_kind_bytes(&accepted_kind, &value, "ids")
         .expect("accepted relation list bytes should encode");
@@ -231,22 +230,6 @@ fn structural_field_decode_float_scalars_uses_binary_lane() {
 }
 
 #[test]
-fn structural_field_decode_value_storage_handles_enum_payload() {
-    let value = Value::Enum(
-        ValueEnum::new("Active", Some("Status")).with_payload(Value::Map(vec![(
-            Value::Text("count".into()),
-            Value::Nat64(7),
-        )])),
-    );
-    let bytes = encode_structural_value_storage_bytes(&value).expect("value bytes should encode");
-
-    let decoded =
-        decode_structural_value_storage_bytes(&bytes).expect("value enum payload should decode");
-
-    assert_eq!(decoded, value);
-}
-
-#[test]
 fn structural_field_decode_typed_wrappers_preserves_payloads() {
     let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[7]),
@@ -275,41 +258,6 @@ fn structural_field_decode_typed_wrappers_preserves_payloads() {
 
     assert_eq!(decoded_account, Value::Account(account));
     assert_eq!(decoded_decimal, Value::Decimal(decimal));
-}
-
-#[test]
-fn structural_field_decode_value_storage_roundtrips_nested_bytes_like_variants() {
-    let nested = Value::from_map(vec![
-        (
-            Value::Text("blob".to_string()),
-            Value::Blob(vec![0x10, 0x20, 0x30]),
-        ),
-        (Value::Text("i128".to_string()), Value::Int128(-123i128)),
-        (Value::Text("u128".to_string()), Value::Nat128(456u128)),
-        (
-            Value::Text("list".to_string()),
-            Value::List(vec![
-                Value::Blob(vec![0xAA, 0xBB]),
-                Value::Int128(7i128),
-                Value::Nat128(8u128),
-            ]),
-        ),
-        (
-            Value::Text("enum".to_string()),
-            Value::Enum(
-                ValueEnum::new("Loaded", Some("tests::StructuredPayload"))
-                    .with_payload(Value::Blob(vec![0xCC, 0xDD])),
-            ),
-        ),
-    ])
-    .expect("nested value payload should normalize");
-    let bytes = encode_structural_value_storage_bytes(&nested)
-        .expect("nested value payload should serialize");
-
-    let decoded = decode_structural_value_storage_bytes(&bytes)
-        .expect("nested value payload should decode through value storage");
-
-    assert_eq!(decoded, nested);
 }
 
 #[test]

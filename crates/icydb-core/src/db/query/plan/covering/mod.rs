@@ -1028,16 +1028,14 @@ fn covering_projection_fields_from_projection(
 fn expression_projection_field_slot(
     projection_field: &crate::db::query::plan::expr::ProjectionField,
 ) -> FieldSlot {
-    FieldSlot {
+    FieldSlot::unresolved(
         // Expression components are decoded from index key payloads; this slot
         // exists only to carry the stable output label through explain/projection.
-        index: usize::MAX,
-        field:
-            crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label(
-                projection_field.expr(),
-            ),
-        kind: None,
-    }
+        usize::MAX,
+        crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label(
+            projection_field.expr(),
+        ),
+    )
 }
 
 // Resolve one covering field against generated field-table authority without
@@ -1048,11 +1046,11 @@ fn resolve_covering_field_slot(fields: &[FieldModel], field_name: &str) -> Optio
         .enumerate()
         .find(|(_, field)| field.name() == field_name)?;
 
-    Some(FieldSlot {
+    Some(FieldSlot::from_model_kind(
         index,
-        field: field.name().to_string(),
-        kind: Some(field.kind()),
-    })
+        field.name(),
+        field.kind(),
+    ))
 }
 
 // Resolve one covering field against accepted schema authority without
@@ -1061,11 +1059,7 @@ fn resolve_covering_field_slot_with_schema(
     schema: &SchemaInfo,
     field_name: &str,
 ) -> Option<FieldSlot> {
-    Some(FieldSlot {
-        index: schema.field_slot_index(field_name)?,
-        field: field_name.to_string(),
-        kind: schema.field_kind(field_name).copied(),
-    })
+    FieldSlot::resolve_with_schema(schema, field_name)
 }
 
 // Resolve one projected covering field source under the requested planner

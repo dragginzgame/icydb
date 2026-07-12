@@ -15,7 +15,7 @@ use crate::{
     model::field::{FieldKind, FieldModel, FieldStorageDecode},
     prelude::*,
     types::{EntityTag, Id},
-    value::{Value, ValueEnum},
+    value::{InputValue, Value, ValueEnum},
     visitor::VisitorContext,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -576,6 +576,33 @@ pub trait RuntimeValueDecode {
     fn from_value(value: &Value) -> Option<Self>
     where
         Self: Sized;
+
+    /// Reconstruct through the accepted catalog when the value graph may
+    /// contain store-local enum IDs.
+    #[doc(hidden)]
+    fn from_value_with_enum_context(
+        value: &Value,
+        _context: &dyn RuntimeEnumContext,
+    ) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        Self::from_value(value)
+    }
+}
+
+/// Catalog-resolved view of one canonical runtime enum value.
+#[doc(hidden)]
+pub struct RuntimeEnumSelection<'a> {
+    pub path: &'a str,
+    pub variant: &'a str,
+    pub payload: Option<&'a Value>,
+}
+
+/// Opaque accepted-catalog resolver used by generated typed decode.
+#[doc(hidden)]
+pub trait RuntimeEnumContext {
+    fn resolve_enum<'a>(&'a self, value: &'a ValueEnum) -> Option<RuntimeEnumSelection<'a>>;
 }
 
 ///
@@ -607,6 +634,34 @@ where
     T: RuntimeValueDecode,
 {
     T::from_value(value)
+}
+
+/// Hidden contextual runtime reconstruction helper for generated enum graphs.
+#[doc(hidden)]
+pub fn runtime_value_from_value_with_enum_context<T>(
+    value: &Value,
+    context: &dyn RuntimeEnumContext,
+) -> Option<T>
+where
+    T: RuntimeValueDecode,
+{
+    T::from_value_with_enum_context(value, context)
+}
+
+/// Decode with accepted enum authority when the row reader carries it.
+#[doc(hidden)]
+#[must_use]
+pub fn runtime_value_from_value_with_optional_enum_context<T>(
+    value: &Value,
+    context: Option<&dyn RuntimeEnumContext>,
+) -> Option<T>
+where
+    T: RuntimeValueDecode,
+{
+    match context {
+        Some(context) => T::from_value_with_enum_context(value, context),
+        None => T::from_value(value),
+    }
 }
 
 ///
@@ -720,7 +775,7 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {
 /// The returned `Id<Self>` is a public identifier, not proof of authority.
 ///
 
-pub trait EntityValue: EntityKey + FieldProjection + Sized {
+pub trait EntityValue: EntityKey + AuthoredFieldProjection + FieldProjection + Sized {
     fn id(&self) -> Id<Self>;
 }
 
@@ -1071,8 +1126,10 @@ impl<K, V> MapCollection for BTreeMap<K, V> {
     }
 }
 
-pub trait EnumValue {
-    fn to_value_enum(&self) -> ValueEnum;
+/// Name-based field input projection used before accepted-catalog admission.
+pub trait AuthoredFieldProjection {
+    /// Resolve one authored field value by stable field slot index.
+    fn get_input_value_by_index(&self, index: usize) -> Option<InputValue>;
 }
 
 pub trait FieldProjection {
@@ -1410,6 +1467,17 @@ impl<T: RuntimeValueDecode> RuntimeValueDecode for Option<T> {
 
         T::from_value(value).map(Some)
     }
+
+    fn from_value_with_enum_context(
+        value: &Value,
+        context: &dyn RuntimeEnumContext,
+    ) -> Option<Self> {
+        if matches!(value, Value::Null) {
+            return Some(None);
+        }
+
+        T::from_value_with_enum_context(value, context).map(Some)
+    }
 }
 
 impl<T: RuntimeValueMeta> RuntimeValueMeta for Box<T> {
@@ -1428,6 +1496,13 @@ impl<T: RuntimeValueDecode> RuntimeValueDecode for Box<T> {
     fn from_value(value: &Value) -> Option<Self> {
         T::from_value(value).map(Self::new)
     }
+
+    fn from_value_with_enum_context(
+        value: &Value,
+        context: &dyn RuntimeEnumContext,
+    ) -> Option<Self> {
+        T::from_value_with_enum_context(value, context).map(Self::new)
+    }
 }
 
 impl<T> RuntimeValueMeta for Vec<T> {
@@ -1445,6 +1520,19 @@ impl<T: RuntimeValueEncode> RuntimeValueEncode for Vec<T> {
 impl<T: RuntimeValueDecode> RuntimeValueDecode for Vec<T> {
     fn from_value(value: &Value) -> Option<Self> {
         runtime_value_vec_from_value(value)
+    }
+
+    fn from_value_with_enum_context(
+        value: &Value,
+        context: &dyn RuntimeEnumContext,
+    ) -> Option<Self> {
+        let Value::List(values) = value else {
+            return None;
+        };
+        values
+            .iter()
+            .map(|value| T::from_value_with_enum_context(value, context))
+            .collect()
     }
 }
 
@@ -1472,6 +1560,19 @@ where
 {
     fn from_value(value: &Value) -> Option<Self> {
         runtime_value_btree_set_from_value(value)
+    }
+
+    fn from_value_with_enum_context(
+        value: &Value,
+        context: &dyn RuntimeEnumContext,
+    ) -> Option<Self> {
+        let Value::List(values) = value else {
+            return None;
+        };
+        values
+            .iter()
+            .map(|value| T::from_value_with_enum_context(value, context))
+            .collect()
     }
 }
 
@@ -1501,6 +1602,24 @@ where
 {
     fn from_value(value: &Value) -> Option<Self> {
         runtime_value_btree_map_from_value(value)
+    }
+
+    fn from_value_with_enum_context(
+        value: &Value,
+        context: &dyn RuntimeEnumContext,
+    ) -> Option<Self> {
+        let Value::Map(entries) = value else {
+            return None;
+        };
+        entries
+            .iter()
+            .map(|(key, value)| {
+                Some((
+                    K::from_value_with_enum_context(key, context)?,
+                    V::from_value_with_enum_context(value, context)?,
+                ))
+            })
+            .collect()
     }
 }
 

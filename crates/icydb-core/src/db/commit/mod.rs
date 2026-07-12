@@ -27,6 +27,7 @@ mod rebuild;
 mod recovery;
 mod replay;
 mod rollback;
+mod schema_publication;
 mod store;
 #[cfg(test)]
 mod tests;
@@ -52,20 +53,34 @@ pub(in crate::db) use guard::{
     CommitApplyGuard, CommitGuard, begin_commit, begin_single_row_commit, finish_commit,
 };
 #[cfg(test)]
+pub(in crate::db) use marker::COMMIT_MARKER_FORMAT_VERSION_CURRENT;
+#[cfg(test)]
 pub(in crate::db) use marker::reset_test_journal_sequence as reset_commit_marker_test_journal_sequence;
 pub(in crate::db) use marker::{
     CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
     generate_commit_id,
 };
+pub(in crate::db) use memory::{
+    CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
+};
+#[cfg(test)]
+pub(in crate::db) use prepare::prepare_row_commit_for_entity_with_structural_readers;
 pub(in crate::db) use prepare::{
-    prepare_row_commit_for_entity_with_structural_readers,
+    CommitPrepareContext, prepare_commit_context_for_entity_with_schema_fingerprint,
+    prepare_commit_context_for_runtime_entity,
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
+    prepare_row_commit_with_context,
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
 #[cfg(test)]
 pub(in crate::db) use recovery::clear_recovery_runtime_state_for_tests;
 pub(in crate::db) use recovery::ensure_recovered;
+#[cfg(test)]
+pub(in crate::db::commit) use recovery::mark_schema_reconciliation_dirty_for_tests;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
+pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
+#[cfg(test)]
+pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
 
 /// Return true if a commit marker is currently persisted.
 #[cfg(test)]
@@ -114,6 +129,13 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
     // while Rust test bodies run in separate OS threads.
     memory::configure_commit_memory_id(test_commit_memory_id(), TEST_COMMIT_STABLE_KEY)?;
 
-    // Phase 2: initialize the commit store in the configured slot.
+    // Phase 2: direct commit tests initialize the current database format
+    // without a registry-backed virginity proof; recovery tests exercise the
+    // real admission gate separately.
+    let allocation = memory::current_commit_memory_allocation()?;
+    let control_memory = memory::commit_memory_handle(allocation)?;
+    crate::db::database_format::initialize_current_database_control_for_tests(&control_memory);
+
+    // Phase 3: initialize the commit store in the configured slot.
     store::with_commit_store(|_| Ok(()))
 }

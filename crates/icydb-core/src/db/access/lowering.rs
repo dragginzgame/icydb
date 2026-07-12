@@ -9,9 +9,11 @@ use crate::{
         index::{
             EncodedValue, IndexBoundsSpec, IndexId, IndexKeyKind, IndexRangeBoundEncodeError,
             RawIndexStoreKey, build_index_bounds_lowering_for_arity,
+            build_index_component_range_with_encoded_prefix,
             build_index_prefix_bounds_for_encoded_components,
-            raw_keys_for_component_prefix_with_kind,
+            encode_accepted_index_literal_component, raw_keys_for_component_prefix_with_kind,
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
     types::EntityTag,
@@ -111,15 +113,35 @@ pub(in crate::db) enum LoweredAccessError {
 }
 
 /// Lower one structural access plan into executable and raw index-bound specs.
+#[cfg(test)]
 pub(in crate::db) fn lower_access<K>(
     entity_tag: EntityTag,
     access: &AccessPlan<K>,
 ) -> Result<LoweredAccess<'_, K>, LoweredAccessError> {
+    lower_access_with_optional_schema_info(entity_tag, access, None)
+}
+
+/// Lower an access plan using accepted index contracts for enum equality
+/// components while preserving the context-free model-only test lane.
+pub(in crate::db) fn lower_access_with_schema_info<'a, K>(
+    entity_tag: EntityTag,
+    access: &'a AccessPlan<K>,
+    schema_info: &SchemaInfo,
+) -> Result<LoweredAccess<'a, K>, LoweredAccessError> {
+    lower_access_with_optional_schema_info(entity_tag, access, Some(schema_info))
+}
+
+fn lower_access_with_optional_schema_info<'a, K>(
+    entity_tag: EntityTag,
+    access: &'a AccessPlan<K>,
+    schema_info: Option<&SchemaInfo>,
+) -> Result<LoweredAccess<'a, K>, LoweredAccessError> {
     let mut index_prefix_specs = Vec::new();
     let mut index_range_specs = Vec::new();
     let executable = lower_access_node(
         entity_tag,
         access,
+        schema_info,
         &mut index_prefix_specs,
         &mut index_range_specs,
     )?;
@@ -533,18 +555,31 @@ fn validated_spec_not_indexable(_err: IndexRangeBoundEncodeError) -> InternalErr
 fn lower_index_range_bounds_for_scope(
     entity_tag: EntityTag,
     index: crate::db::access::SemanticIndexAccessContract,
+    schema_info: Option<&SchemaInfo>,
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> Result<LoweredIndexRangeEnvelope, InternalError> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
-    let lowering = build_index_bounds_lowering_for_arity(
-        &index_id,
-        index.key_arity(),
-        IndexBoundsSpec::component_range(prefix, lower, upper),
-    )
-    .map_err(validated_spec_not_indexable)?;
+    let lowering = if schema_info.is_some() {
+        let encoded_prefix = encode_index_prefix_values(schema_info, &index, prefix)?;
+        build_index_component_range_with_encoded_prefix(
+            &index_id,
+            index.key_arity(),
+            encoded_prefix,
+            lower,
+            upper,
+        )
+        .map_err(validated_spec_not_indexable)?
+    } else {
+        build_index_bounds_lowering_for_arity(
+            &index_id,
+            index.key_arity(),
+            IndexBoundsSpec::component_range(prefix, lower, upper),
+        )
+        .map_err(validated_spec_not_indexable)?
+    };
 
     Ok(lowering.into_bounds_and_prefix_components())
 }
@@ -554,13 +589,20 @@ fn lower_index_range_bounds_for_scope(
 fn lower_access_node<'a, K>(
     entity_tag: EntityTag,
     access: &'a AccessPlan<K>,
+    schema_info: Option<&SchemaInfo>,
     index_prefix_specs: &mut Vec<LoweredIndexPrefixSpec>,
     index_range_specs: &mut Vec<LoweredIndexRangeSpec>,
 ) -> Result<ExecutableAccessPlan<'a, K>, LoweredAccessError> {
     match access {
         AccessPlan::Path(path) => {
             let path = path.as_ref();
-            lower_index_specs_for_path(entity_tag, path, index_prefix_specs, index_range_specs)?;
+            lower_index_specs_for_path(
+                entity_tag,
+                path,
+                schema_info,
+                index_prefix_specs,
+                index_range_specs,
+            )?;
 
             Ok(ExecutableAccessPlan::from_access_path(path))
         }
@@ -570,6 +612,7 @@ fn lower_access_node<'a, K>(
                 lowered_children.push(lower_access_node(
                     entity_tag,
                     child,
+                    schema_info,
                     index_prefix_specs,
                     index_range_specs,
                 )?);
@@ -583,6 +626,7 @@ fn lower_access_node<'a, K>(
                 lowered_children.push(lower_access_node(
                     entity_tag,
                     child,
+                    schema_info,
                     index_prefix_specs,
                     index_range_specs,
                 )?);
@@ -596,6 +640,7 @@ fn lower_access_node<'a, K>(
 fn lower_index_specs_for_path<K>(
     entity_tag: EntityTag,
     path: &AccessPath<K>,
+    schema_info: Option<&SchemaInfo>,
     index_prefix_specs: &mut Vec<LoweredIndexPrefixSpec>,
     index_range_specs: &mut Vec<LoweredIndexRangeSpec>,
 ) -> Result<(), LoweredAccessError> {
@@ -605,6 +650,7 @@ fn lower_index_specs_for_path<K>(
                 entity_tag,
                 index.clone(),
                 values,
+                schema_info,
                 index_prefix_specs,
             )
             .map_err(|_err| LoweredAccessError::IndexPrefix)?;
@@ -614,6 +660,7 @@ fn lower_index_specs_for_path<K>(
                 entity_tag,
                 index.clone(),
                 values,
+                schema_info,
                 index_prefix_specs,
             )
             .map_err(|_err| LoweredAccessError::IndexPrefix)?;
@@ -625,6 +672,7 @@ fn lower_index_specs_for_path<K>(
                     entity_tag,
                     spec.index(),
                     values.as_slice(),
+                    schema_info,
                     index_prefix_specs,
                 )
                 .map_err(|_err| LoweredAccessError::IndexPrefix)?;
@@ -639,6 +687,7 @@ fn lower_index_specs_for_path<K>(
             let (lower, upper, prefix_components) = lower_index_range_bounds_for_scope(
                 entity_tag,
                 spec.index(),
+                schema_info,
                 spec.prefix_values(),
                 spec.lower(),
                 spec.upper(),
@@ -664,6 +713,7 @@ fn lower_index_specs_for_path<K>(
 pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_access(
     entity_tag: EntityTag,
     access: &crate::db::query::plan::CountCardinalityPrefixAccess<'_>,
+    schema_info: &SchemaInfo,
 ) -> Result<Vec<LoweredIndexPrefixCardinalitySpec>, LoweredAccessError> {
     let values = access.values();
     if values.is_empty() {
@@ -674,16 +724,18 @@ pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_acces
         crate::db::query::plan::CountCardinalityPrefixValues::One(value) => {
             lower_single_component_index_prefix_cardinality_specs(
                 entity_tag,
-                access.index().ordinal(),
+                access.index().clone(),
                 std::slice::from_ref(value),
+                schema_info,
             )
             .map_err(|_err| LoweredAccessError::IndexPrefix)
         }
         crate::db::query::plan::CountCardinalityPrefixValues::Many(values) => {
             lower_single_component_index_prefix_cardinality_specs(
                 entity_tag,
-                access.index().ordinal(),
+                access.index().clone(),
                 values,
+                schema_info,
             )
             .map_err(|_err| LoweredAccessError::IndexPrefix)
         }
@@ -693,19 +745,18 @@ pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_acces
 #[cfg(feature = "sql")]
 fn lower_single_component_index_prefix_cardinality_specs(
     entity_tag: EntityTag,
-    index_ordinal: u16,
+    index: crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
+    schema_info: &SchemaInfo,
 ) -> Result<Vec<LoweredIndexPrefixCardinalitySpec>, InternalError> {
     if values.is_empty() {
         return Err(InternalError::query_executor_invariant());
     }
 
-    let index_id = IndexId::new(entity_tag, index_ordinal);
+    let index_id = IndexId::new(entity_tag, index.ordinal());
     let mut specs = Vec::with_capacity(values.len());
     for value in values {
-        let component = EncodedValue::try_from_ref(value)
-            .map_err(|_| InternalError::query_executor_invariant())?
-            .into_bytes();
+        let component = encode_index_component(Some(schema_info), &index, 0, value)?.into_bytes();
         specs.push(LoweredIndexPrefixCardinalitySpec::new(
             index_id,
             vec![component],
@@ -719,10 +770,10 @@ fn lower_index_prefix_values_for_specs(
     entity_tag: EntityTag,
     index: crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
+    schema_info: Option<&SchemaInfo>,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let encoded_values = EncodedValue::try_encode_all(values)
-        .map_err(|_| InternalError::query_executor_invariant())?;
+    let encoded_values = encode_index_prefix_values(schema_info, &index, values)?;
     let scan_contract = LoweredIndexScanContract::from_access_contract(index.clone());
 
     push_lowered_index_prefix_spec_from_encoded_components(
@@ -805,6 +856,7 @@ fn lower_single_component_index_prefix_values_for_specs(
     entity_tag: EntityTag,
     index: crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
+    schema_info: Option<&SchemaInfo>,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
     let scan_contract = LoweredIndexScanContract::from_access_contract(index.clone());
@@ -812,8 +864,7 @@ fn lower_single_component_index_prefix_values_for_specs(
 
     specs.reserve(values.len());
     for value in values {
-        let encoded = EncodedValue::try_from_ref(value)
-            .map_err(|_| InternalError::query_executor_invariant())?;
+        let encoded = encode_index_component(schema_info, &index, 0, value)?;
         push_lowered_index_prefix_spec_from_single_encoded_component(
             entity_tag,
             &index,
@@ -825,4 +876,171 @@ fn lower_single_component_index_prefix_values_for_specs(
     }
 
     Ok(())
+}
+
+fn encode_index_prefix_values(
+    schema_info: Option<&SchemaInfo>,
+    index: &crate::db::access::SemanticIndexAccessContract,
+    values: &[Value],
+) -> Result<Vec<EncodedValue>, InternalError> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(component_index, value)| {
+            encode_index_component(schema_info, index, component_index, value)
+        })
+        .collect()
+}
+
+fn encode_index_component(
+    schema_info: Option<&SchemaInfo>,
+    index: &crate::db::access::SemanticIndexAccessContract,
+    component_index: usize,
+    value: &Value,
+) -> Result<EncodedValue, InternalError> {
+    let bytes = match schema_info {
+        Some(schema_info) => encode_accepted_index_literal_component(
+            schema_info,
+            index.name(),
+            component_index,
+            value,
+        )?
+        .ok_or_else(InternalError::query_executor_invariant)?,
+        None => EncodedValue::try_from_ref(value)
+            .map_err(|_| InternalError::query_executor_invariant())?
+            .into_bytes(),
+    };
+
+    Ok(EncodedValue::from_canonical_bytes(bytes))
+}
+
+#[cfg(test)]
+mod accepted_enum_tests {
+    use super::*;
+    use crate::{
+        db::{
+            access::{AccessPlan, SemanticIndexAccessContract},
+            schema::{
+                AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
+                AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+                PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+                SchemaVersion, build_initial_accepted_enum_catalog_from_kinds_for_tests,
+            },
+        },
+        model::{
+            entity::EntityModel,
+            field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+            index::IndexModel,
+        },
+        testing::entity_model_from_static,
+        value::{ValueEnum, ValueTag},
+    };
+
+    static STATUS_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
+        "Ready",
+        None,
+        FieldStorageDecode::ByKind,
+    )];
+    static STATUS_KIND: FieldKind = FieldKind::Enum {
+        path: "access::Status",
+        variants: &STATUS_VARIANTS,
+    };
+    static FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("status", STATUS_KIND),
+    ];
+    static INDEX_FIELDS: [&str; 1] = ["status"];
+    static STATUS_INDEX: IndexModel = IndexModel::generated_with_ordinal(
+        1,
+        "idx_item__status",
+        "access::Item::status",
+        &INDEX_FIELDS,
+        false,
+    );
+    static INDEXES: [&IndexModel; 1] = [&STATUS_INDEX];
+    static MODEL: EntityModel =
+        entity_model_from_static("access::Item", "Item", &FIELDS[0], 0, &FIELDS, &INDEXES);
+
+    #[test]
+    fn accepted_enum_prefix_lowering_matches_stored_unit_key_bytes() {
+        let persisted_kind = AcceptedFieldKind::from_model_kind(STATUS_KIND);
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "access::Item".to_string(),
+            "Item".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    AcceptedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "status".to_string(),
+                    SchemaFieldSlot::new(1),
+                    persisted_kind.clone(),
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                1,
+                "idx_item__status".to_string(),
+                "access::Item::status".to_string(),
+                false,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["status".to_string()],
+                    persisted_kind,
+                    false,
+                )]),
+                None,
+            )],
+        ));
+        let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[STATUS_KIND])
+            .expect("status catalog should build");
+        let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
+            &MODEL,
+            &snapshot,
+            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL),
+            false,
+        );
+        let index = SemanticIndexAccessContract::from_accepted_field_path_index(
+            &schema_info.field_path_indexes()[0],
+        );
+        let plan = AccessPlan::<()>::index_prefix_from_contract(
+            index,
+            vec![Value::Enum(ValueEnum::test_unit(1, 1))],
+        );
+
+        assert!(matches!(
+            lower_access(EntityTag::new(7), &plan),
+            Err(LoweredAccessError::IndexPrefix),
+        ));
+        let lowered = lower_access_with_schema_info(EntityTag::new(7), &plan, &schema_info)
+            .expect("accepted enum equality prefix should lower");
+        assert_eq!(
+            lowered.index_prefix_specs()[0].prefix_components(),
+            &[vec![ValueTag::Enum.to_u8(), 1, 0, 0, 0, 1, 0, 0, 0, 1, 0,]],
+        );
+    }
 }

@@ -18,7 +18,7 @@ use crate::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
-    value::{Value, ValueEnum},
+    value::Value,
 };
 use proptest::prelude::*;
 use std::cmp::Ordering;
@@ -505,14 +505,17 @@ fn canonical_encoder_respects_text_and_identifier_order() {
 }
 
 #[test]
-fn canonical_encoder_respects_enum_order() {
-    let left = Value::Enum(ValueEnum::new("A", Some("Path")));
-    let right = Value::Enum(ValueEnum::new("B", Some("Path")));
-    assert_encoded_order(left, right, Ordering::Less);
-
-    let no_payload = Value::Enum(ValueEnum::new("A", Some("Path")));
-    let with_payload = Value::Enum(ValueEnum::new("A", Some("Path")).with_payload(Value::Nat64(1)));
-    assert_encoded_order(no_payload, with_payload, Ordering::Less);
+fn canonical_ordered_encoder_rejects_enums_without_accepted_key_proof() {
+    assert!(matches!(
+        encode_canonical_index_component(&Value::Enum(crate::value::ValueEnum::test_unit(1, 1),)),
+        Err(OrderedValueEncodeError::UnsupportedValueKind),
+    ));
+    assert!(matches!(
+        encode_canonical_index_component(&Value::Enum(
+            crate::value::ValueEnum::test_unit(1, 1).test_with_payload(Value::Nat64(1)),
+        )),
+        Err(OrderedValueEncodeError::UnsupportedValueKind),
+    ));
 }
 
 #[test]
@@ -566,15 +569,6 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
             vec![0x16, 0x00, 0x02, 0x37, 0x30],
         ),
         (
-            "Enum(State::MyPath(7))",
-            Value::Enum(ValueEnum::new("State", Some("MyPath")).with_payload(Value::Int64(7))),
-            vec![
-                0x07, b'S', b't', b'a', b't', b'e', 0x00, 0x00, 0x01, b'M', b'y', b'P', b'a', b't',
-                b'h', 0x00, 0x00, 0x01, 0x00, 0x09, 0x0A, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x07,
-            ],
-        ),
-        (
             "Ulid(1)",
             Value::Ulid(Ulid::from_u128(1)),
             vec![
@@ -609,7 +603,6 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         Value::Decimal(Decimal::new(0, 0)),
         Value::Decimal(Decimal::new(11, 1)),
         Value::Duration(Duration::from_secs(1)),
-        Value::Enum(ValueEnum::new("A", Some("E"))),
         Value::Float32(Float32::try_new(-1.0).expect("finite")),
         Value::Float32(Float32::try_new(1.0).expect("finite")),
         Value::Float64(Float64::try_new(-1.0).expect("finite")),

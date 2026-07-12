@@ -259,15 +259,12 @@ impl RowView {
     /// Extract one validated aggregate field value from this structural row.
     pub(in crate::db::executor) fn extract_orderable_field_value(
         &self,
-        target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Value, InternalError> {
         let mut value = Some(self.require_slot_owned(field_slot.index)?);
 
-        extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |_| {
-            value.take()
-        })
-        .map_err(AggregateFieldValueError::into_internal_error)
+        extract_orderable_field_value_with_slot_reader(field_slot, &mut |_| value.take())
+            .map_err(AggregateFieldValueError::into_internal_error)
     }
 
     /// Collect one grouped key payload from planned group field slots.

@@ -814,13 +814,7 @@ fn resolve_aggregate_target_field_slot_from_schema(
     schema_info: &SchemaInfo,
     field: &str,
 ) -> Option<FieldSlot> {
-    let index = schema_info.field_slot_index(field)?;
-
-    Some(FieldSlot {
-        index,
-        field: field.to_string(),
-        kind: schema_info.field_kind(field).copied(),
-    })
+    FieldSlot::resolve_with_schema(schema_info, field)
 }
 
 // Derive grouped field/aggregate projection slots and grouped aggregate

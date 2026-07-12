@@ -7,6 +7,8 @@ use crate::error::InternalError;
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
 use ic_memory::stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
+#[cfg(test)]
+use std::cell::RefCell;
 use std::{
     cell::Cell,
     sync::{Mutex, OnceLock},
@@ -17,6 +19,10 @@ static COMMIT_STORE_ALLOCATIONS: OnceLock<Mutex<Vec<CommitMemoryAllocation>>> = 
 thread_local! {
     static CURRENT_COMMIT_STORE_ALLOCATION: Cell<Option<CommitMemoryAllocation>> =
         const { Cell::new(None) };
+    #[cfg(test)]
+    static TEST_COMMIT_MEMORIES: RefCell<
+        Vec<(CommitMemoryAllocation, VirtualMemory<DefaultMemoryImpl>)>
+    > = const { RefCell::new(Vec::new()) };
 }
 
 /// Runtime allocation identity for the commit-marker control slot.
@@ -24,12 +30,13 @@ thread_local! {
 /// This is process-global commit storage wiring, not marker payload metadata.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct CommitMemoryAllocation {
-    pub(super) memory_id: u8,
-    pub(super) stable_key: &'static str,
+pub(in crate::db) struct CommitMemoryAllocation {
+    pub(in crate::db) memory_id: u8,
+    pub(in crate::db) stable_key: &'static str,
 }
 
-pub(super) fn current_commit_memory_allocation() -> Result<CommitMemoryAllocation, InternalError> {
+pub(in crate::db) fn current_commit_memory_allocation()
+-> Result<CommitMemoryAllocation, InternalError> {
     CURRENT_COMMIT_STORE_ALLOCATION.with(|cell| {
         cell.get()
             .ok_or_else(InternalError::commit_memory_id_unconfigured)
@@ -54,15 +61,27 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
 
 /// Open the configured commit-marker memory slot through the shared memory API.
 #[cfg(test)]
-pub(super) fn commit_memory_handle(
+pub(in crate::db) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
-) -> VirtualMemory<DefaultMemoryImpl> {
-    crate::testing::test_memory(allocation.memory_id)
+) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+    TEST_COMMIT_MEMORIES.with(|memories| {
+        let mut memories = memories.borrow_mut();
+        if let Some((_, memory)) = memories
+            .iter()
+            .find(|(existing, _)| *existing == allocation)
+        {
+            return Ok(memory.clone());
+        }
+
+        let memory = crate::testing::test_memory(allocation.memory_id);
+        memories.push((allocation, memory.clone()));
+        Ok(memory)
+    })
 }
 
 /// Open the configured commit-marker memory slot through the shared memory API.
 #[cfg(not(test))]
-pub(super) fn commit_memory_handle(
+pub(in crate::db) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
 ) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)

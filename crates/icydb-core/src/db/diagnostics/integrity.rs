@@ -125,6 +125,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                     schema_store,
                     hooks.entity_tag,
                     hooks.entity_path,
+                    hooks.store_path,
                     hooks.model,
                 )
             }) {

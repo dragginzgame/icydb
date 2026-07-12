@@ -592,6 +592,12 @@ impl StoreHandle {
         self.allocations.journal()
     }
 
+    /// Return this store's complete allocation identity bundle.
+    #[must_use]
+    pub(in crate::db) const fn allocation_identities(&self) -> StoreAllocationIdentities {
+        self.allocations
+    }
+
     /// Return this store's explicit runtime storage capabilities.
     #[must_use]
     pub const fn storage_capabilities(&self) -> StoreRuntimeStorageCapabilities {

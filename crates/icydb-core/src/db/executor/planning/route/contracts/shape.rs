@@ -4,11 +4,11 @@
 //! Boundary: exports immutable route shape facts produced by executor planning.
 
 use crate::db::{
-    executor::aggregate::capability::field_kind_supports_aggregate_ordering,
+    executor::aggregate::capability::accepted_field_kind_supports_aggregate_ordering,
     query::plan::AggregateKind, schema::SchemaInfo,
 };
 #[cfg(test)]
-use crate::model::field::FieldModel;
+use crate::{db::schema::AcceptedFieldKind, model::field::FieldModel};
 
 ///
 /// FastPathOrder
@@ -110,7 +110,9 @@ impl<'a> AggregateRouteShape<'a> {
                 .iter()
                 .find(|field_model| field_model.name() == target_field)
                 .is_some_and(|field_model| {
-                    field_kind_supports_aggregate_ordering(&field_model.kind())
+                    accepted_field_kind_supports_aggregate_ordering(
+                        &AcceptedFieldKind::from_model_kind(field_model.kind()),
+                    )
                 })
         });
         let target_field_is_primary_key =
@@ -136,8 +138,10 @@ impl<'a> AggregateRouteShape<'a> {
             target_field.is_none_or(|target_field| schema.field_slot_index(target_field).is_some());
         let target_field_orderable = target_field.is_some_and(|target_field| {
             schema
-                .field_kind(target_field)
-                .is_some_and(field_kind_supports_aggregate_ordering)
+                .accepted_field_contract(target_field)
+                .is_some_and(|contract| {
+                    accepted_field_kind_supports_aggregate_ordering(contract.kind())
+                })
         });
         let primary_key_names = schema.primary_key_names();
         let target_field_is_primary_key = target_field.is_some_and(|target_field| {

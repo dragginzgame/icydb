@@ -147,7 +147,6 @@ pub struct SimpleEntity {}
         value(item(prim = "Ulid")),
         generated(insert = "Ulid::generate")
     ),
-    field(ident = "variant_a", value(item(is = "EnumA"))),
     field(ident = "description", value(item(prim = "Text", unbounded))),
 ))]
 pub struct RecordA {}

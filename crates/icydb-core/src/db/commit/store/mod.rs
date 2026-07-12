@@ -10,25 +10,30 @@ mod marker_envelope;
 mod tests;
 
 use crate::{
-    db::commit::{
-        marker::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES, validate_commit_marker_shape},
-        memory::{CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation},
-        store::{
-            control_slot::{
-                decode_commit_control_slot, encode_commit_control_slot_from_marker,
-                encode_single_row_commit_control_slot, inspect_commit_control_slot,
+    db::{
+        commit::{
+            marker::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES, validate_commit_marker_shape},
+            memory::{
+                CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
             },
-            marker_envelope::decode_commit_marker,
+            store::{
+                control_slot::{
+                    COMMIT_CONTROL_HEADER_BYTES, commit_control_slot_encoded_len,
+                    decode_commit_control_slot, encode_commit_control_slot_from_marker,
+                    encode_empty_commit_control_slot, encode_single_row_commit_control_slot,
+                    inspect_commit_control_slot,
+                },
+                marker_envelope::decode_commit_marker,
+            },
         },
+        database_format::{DATABASE_BOOT_RECORD_BYTES, validate_current_boot_record},
     },
     error::InternalError,
 };
-use ic_memory::stable_structures::{
-    Cell as StableCell, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory, storable::Bound,
-};
+use ic_memory::stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
+use std::cell::RefCell;
 #[cfg(not(test))]
 use std::sync::{Mutex, OnceLock};
-use std::{borrow::Cow, cell::RefCell};
 
 #[cfg(test)]
 use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
@@ -36,6 +41,9 @@ use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
 use crate::db::commit::store::control_slot::encode_commit_control_slot;
 #[cfg(test)]
 use crate::db::commit::store::marker_envelope::encode_commit_marker_bytes;
+use crate::db::database_format::crc32c;
+#[cfg(test)]
+use crate::db::database_format::initialize_current_database_control_for_tests;
 
 #[cfg(not(test))]
 static COMMIT_MARKER_PRESENCE_HINTS: OnceLock<Mutex<Vec<CommitMarkerPresenceHint>>> =
@@ -51,24 +59,15 @@ struct CommitMarkerPresenceHint {
 ///
 /// RawCommitMarker
 ///
-/// Raw, bounded commit control-plane bytes stored in stable memory.
-/// This type owns only storage-level framing, not semantic validation logic.
+/// Raw, bounded commit control-plane bytes decoded from stable memory.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RawCommitMarker(Vec<u8>);
 
 impl RawCommitMarker {
-    const fn empty() -> Self {
-        Self(Vec::new())
-    }
-
     const fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-
-    const fn as_bytes(&self) -> &[u8] {
-        self.0.as_slice()
     }
 
     /// Deserialize the stored payload, treating failures as corruption.
@@ -91,35 +90,33 @@ impl RawCommitMarker {
     }
 }
 
-impl Storable for RawCommitMarker {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
-    }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    const BOUND: Bound = Bound::Bounded {
-        max_size: MAX_COMMIT_BYTES,
-        is_fixed_size: false,
-    };
+#[cfg(test)]
+pub(in crate::db) fn validate_commit_marker_envelope_for_tests(
+    bytes: &[u8],
+) -> Result<(), InternalError> {
+    RawCommitMarker(bytes.to_vec()).try_decode().map(drop)
 }
 
 ///
 /// CommitStore
 ///
-/// Stable-cell wrapper for commit marker storage.
-/// Invariant: an empty cell means "no in-flight marker persisted".
+/// Database-wide control store over the existing commit allocation.
+/// The permanent format prefix is followed by one bounded transient marker slot.
 ///
 
 pub(super) struct CommitStore {
-    cell: StableCell<RawCommitMarker, VirtualMemory<DefaultMemoryImpl>>,
+    memory: VirtualMemory<DefaultMemoryImpl>,
 }
+
+const DATABASE_CONTROL_SLOT_FRAME_OFFSET: u64 = DATABASE_BOOT_RECORD_BYTES as u64;
+const DATABASE_CONTROL_SLOT_FRAME_MAGIC: &[u8; 4] = b"IDCS";
+const DATABASE_CONTROL_SLOT_FRAME_VERSION: u8 = 1;
+const DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES: usize = 13;
+const DATABASE_CONTROL_SLOT_FRAME_LENGTH_OFFSET: usize = 5;
+const DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET: usize = 9;
+const COMMIT_CONTROL_SLOT_OFFSET: u64 =
+    DATABASE_CONTROL_SLOT_FRAME_OFFSET + DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES as u64;
+const WASM_PAGE_BYTES: u64 = 65_536;
 
 impl CommitStore {
     /// Encode one raw commit-control slot payload for recovery tests.
@@ -156,54 +153,58 @@ impl CommitStore {
         encode_commit_control_slot_from_marker(marker)
     }
 
-    /// Initialize one stable-cell-backed commit marker store.
+    /// Open the database control store after format admission.
+    fn open(memory: VirtualMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
+        validate_current_boot_record(&memory)?;
+        let store = Self { memory };
+        if store.control_slot_is_uninitialized() {
+            store.write_control_slot(&encode_empty_commit_control_slot())?;
+        } else {
+            store.read_control_slot()?;
+        }
+        Ok(store)
+    }
+
+    /// Initialize one current-format database control store for direct tests.
+    #[cfg(test)]
     fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        let cell = StableCell::init(memory, RawCommitMarker::empty());
-        Self { cell }
+        initialize_current_database_control_for_tests(&memory);
+        Self::open(memory).expect("test database control store should initialize")
     }
 
     /// Load and decode the current commit marker (if any).
     pub(super) fn load(&self) -> Result<Option<CommitMarker>, InternalError> {
-        let marker_bytes = decode_commit_control_slot(self.cell.get().as_bytes())?;
+        let control_slot = self.read_control_slot()?;
+        let marker_bytes = decode_commit_control_slot(&control_slot)?;
 
         RawCommitMarker(marker_bytes).try_decode()
     }
 
     /// Return whether the marker slot is empty without decoding.
     pub(super) fn is_empty(&self) -> bool {
-        inspect_commit_control_slot(self.cell.get().as_bytes())
-            .is_ok_and(|slot| slot.marker_bytes.is_empty())
+        self.read_control_slot()
+            .and_then(|bytes| {
+                inspect_commit_control_slot(&bytes).map(|slot| slot.marker_bytes.is_empty())
+            })
+            .unwrap_or(false)
     }
 
     /// Return whether the marker payload is empty while still validating the
     /// outer control-slot envelope.
     pub(super) fn marker_is_empty(&self) -> Result<bool, InternalError> {
-        inspect_commit_control_slot(self.cell.get().as_bytes())
-            .map(|slot| slot.marker_bytes.is_empty())
+        self.read_control_slot().and_then(|bytes| {
+            inspect_commit_control_slot(&bytes).map(|slot| slot.marker_bytes.is_empty())
+        })
     }
 
     /// Persist one commit marker while proving the current slot has no marker.
-    pub(super) fn set_if_empty(&mut self, marker: &CommitMarker) -> Result<(), InternalError> {
-        // Phase 1: avoid decoding the canonical control-slot envelope when the
-        // raw slot is physically empty.
-        if self.cell.get().as_bytes().is_empty() {
-            let encoded = encode_commit_control_slot_from_marker(marker)?;
-
-            #[cfg(test)]
-            hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
-            self.cell.set(RawCommitMarker(encoded));
-            mark_commit_marker_may_be_present();
-            #[cfg(test)]
-            hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
-            return Ok(());
-        }
-
+    pub(super) fn set_if_empty(&self, marker: &CommitMarker) -> Result<(), InternalError> {
         self.require_empty_marker_slot()?;
         let encoded = encode_commit_control_slot_from_marker(marker)?;
 
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
-        self.cell.set(RawCommitMarker(encoded));
+        self.write_control_slot(&encoded)?;
         mark_commit_marker_may_be_present();
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
@@ -212,30 +213,16 @@ impl CommitStore {
 
     /// Persist one single-row marker while proving the current slot has no marker.
     pub(super) fn set_single_row_op_if_empty(
-        &mut self,
+        &self,
         marker_id: [u8; 16],
         row_op: &CommitRowOp,
     ) -> Result<(), InternalError> {
-        // Phase 1: most hot write-lane opens happen with a physically empty
-        // control slot, so skip control-slot decode in that common case.
-        if self.cell.get().as_bytes().is_empty() {
-            let encoded = encode_single_row_commit_control_slot(marker_id, row_op)?;
-
-            #[cfg(test)]
-            hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
-            self.cell.set(RawCommitMarker(encoded));
-            mark_commit_marker_may_be_present();
-            #[cfg(test)]
-            hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
-            return Ok(());
-        }
-
         self.require_empty_marker_slot()?;
         let encoded = encode_single_row_commit_control_slot(marker_id, row_op)?;
 
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
-        self.cell.set(RawCommitMarker(encoded));
+        self.write_control_slot(&encoded)?;
         mark_commit_marker_may_be_present();
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
@@ -243,13 +230,12 @@ impl CommitStore {
     }
 
     /// Clear marker bytes after a verified commit/recovery success.
-    pub(super) fn clear_verified(&mut self) -> Result<(), InternalError> {
-        // Phase 1: validate the control-slot envelope before clearing so
-        // malformed persisted bytes cannot be silently discarded.
-        inspect_commit_control_slot(self.cell.get().as_bytes())?;
+    pub(super) fn clear_verified(&self) -> Result<(), InternalError> {
+        let control_slot = self.read_control_slot()?;
+        inspect_commit_control_slot(&control_slot)?;
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::BeforeMarkerClear)?;
-        self.cell.set(RawCommitMarker::empty());
+        self.write_control_slot(&encode_empty_commit_control_slot())?;
         mark_commit_marker_verified_absent();
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::AfterMarkerClear)?;
@@ -259,32 +245,129 @@ impl CommitStore {
 
     /// Clear the marker slot directly for tests that intentionally persist corruption.
     #[cfg(test)]
-    pub(super) fn clear_raw_for_tests(&mut self) {
-        self.cell.set(RawCommitMarker::empty());
+    pub(super) fn clear_raw_for_tests(&self) {
+        self.write_control_slot(&encode_empty_commit_control_slot())
+            .expect("test database control slot should clear");
         mark_commit_marker_verified_absent();
     }
 
     /// Overwrite the raw marker bytes directly for recovery tests.
     #[cfg(test)]
-    pub(super) fn set_raw_marker_bytes_for_tests(&mut self, bytes: Vec<u8>) {
+    pub(super) fn set_raw_marker_bytes_for_tests(&self, bytes: Vec<u8>) {
         if bytes.is_empty() {
             mark_commit_marker_verified_absent();
         } else {
             mark_commit_marker_may_be_present();
         }
 
-        self.cell.set(RawCommitMarker(bytes));
+        self.write_control_slot(&bytes)
+            .expect("test raw commit marker bytes should fit control memory");
     }
 
     // Decode the control slot once and require that no marker bytes are present
     // before commit-window open persists a fresh marker.
     fn require_empty_marker_slot(&self) -> Result<(), InternalError> {
-        let slot = inspect_commit_control_slot(self.cell.get().as_bytes())?;
+        let bytes = self.read_control_slot()?;
+        let slot = inspect_commit_control_slot(&bytes)?;
         if !slot.marker_bytes.is_empty() {
             return Err(InternalError::store_invariant());
         }
 
         Ok(())
+    }
+
+    fn control_slot_is_uninitialized(&self) -> bool {
+        let mut header = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
+        self.memory
+            .read(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &mut header);
+        header.iter().all(|byte| *byte == 0)
+    }
+
+    fn read_control_slot(&self) -> Result<Vec<u8>, InternalError> {
+        validate_current_boot_record(&self.memory)?;
+        let bytes = self.read_framed_control_slot()?;
+        let encoded_len = commit_control_slot_encoded_len(&bytes)?;
+        if encoded_len != bytes.len() {
+            return Err(InternalError::commit_corruption());
+        }
+        Ok(bytes)
+    }
+
+    fn read_framed_control_slot(&self) -> Result<Vec<u8>, InternalError> {
+        let mut header = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
+        self.memory
+            .read(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &mut header);
+        if &header[..DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()] != DATABASE_CONTROL_SLOT_FRAME_MAGIC {
+            return Err(InternalError::commit_corruption());
+        }
+        if header[DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()] != DATABASE_CONTROL_SLOT_FRAME_VERSION {
+            return Err(InternalError::serialize_incompatible_persisted_format());
+        }
+
+        let mut length_bytes = [0_u8; size_of::<u32>()];
+        length_bytes.copy_from_slice(
+            &header[DATABASE_CONTROL_SLOT_FRAME_LENGTH_OFFSET
+                ..DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET],
+        );
+        let encoded_len = u32::from_be_bytes(length_bytes) as usize;
+        if !(COMMIT_CONTROL_HEADER_BYTES..=MAX_COMMIT_BYTES as usize).contains(&encoded_len) {
+            return Err(InternalError::commit_corruption());
+        }
+        let end = COMMIT_CONTROL_SLOT_OFFSET.saturating_add(encoded_len as u64);
+        if end > self.memory.size().saturating_mul(WASM_PAGE_BYTES) {
+            return Err(InternalError::commit_corruption());
+        }
+
+        let mut bytes = vec![0_u8; encoded_len];
+        self.memory.read(COMMIT_CONTROL_SLOT_OFFSET, &mut bytes);
+        let mut checksum_bytes = [0_u8; size_of::<u32>()];
+        checksum_bytes.copy_from_slice(&header[DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET..]);
+        if u32::from_be_bytes(checksum_bytes) != crc32c(&bytes) {
+            return Err(InternalError::commit_corruption());
+        }
+        Ok(bytes)
+    }
+
+    fn write_control_slot(&self, bytes: &[u8]) -> Result<(), InternalError> {
+        let empty;
+        let bytes = if bytes.is_empty() {
+            empty = encode_empty_commit_control_slot();
+            empty.as_slice()
+        } else {
+            bytes
+        };
+        if bytes.len() > MAX_COMMIT_BYTES as usize {
+            return Err(InternalError::commit_marker_exceeds_max_size());
+        }
+
+        let end = COMMIT_CONTROL_SLOT_OFFSET.saturating_add(bytes.len() as u64);
+        let required_pages = end.div_ceil(WASM_PAGE_BYTES);
+        let current_pages = self.memory.size();
+        if required_pages > current_pages && self.memory.grow(required_pages - current_pages) < 0 {
+            return Err(InternalError::commit_control_memory_growth_failed());
+        }
+
+        self.memory.write(COMMIT_CONTROL_SLOT_OFFSET, bytes);
+        let mut header = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
+        header[..DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()]
+            .copy_from_slice(DATABASE_CONTROL_SLOT_FRAME_MAGIC);
+        header[DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()] = DATABASE_CONTROL_SLOT_FRAME_VERSION;
+        let encoded_len = u32::try_from(bytes.len())
+            .map_err(|_| InternalError::commit_control_slot_exceeds_max_size())?;
+        header[DATABASE_CONTROL_SLOT_FRAME_LENGTH_OFFSET
+            ..DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET]
+            .copy_from_slice(&encoded_len.to_be_bytes());
+        header[DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET..]
+            .copy_from_slice(&crc32c(bytes).to_be_bytes());
+        self.memory
+            .write(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &header);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn raw_control_slot_bytes_for_tests(&self) -> Vec<u8> {
+        self.read_framed_control_slot()
+            .expect("test database control frame should decode")
     }
 }
 
@@ -304,7 +387,7 @@ pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
 
 /// Lazily initialize and access the commit marker store.
 pub(super) fn with_commit_store<R>(
-    f: impl FnOnce(&mut CommitStore) -> Result<R, InternalError>,
+    f: impl FnOnce(&CommitStore) -> Result<R, InternalError>,
 ) -> Result<R, InternalError> {
     let allocation = current_commit_memory_allocation()?;
 
@@ -314,17 +397,13 @@ pub(super) fn with_commit_store<R>(
             .iter()
             .position(|entry| entry.allocation == allocation)
         {
-            return f(&mut stores[index].store);
+            return f(&stores[index].store);
         }
 
-        // StableCell::init performs a benign stable write for the empty marker.
-        #[cfg(test)]
-        let store = CommitStore::init(commit_memory_handle(allocation));
-        #[cfg(not(test))]
-        let store = CommitStore::init(commit_memory_handle(allocation)?);
+        let store = CommitStore::open(commit_memory_handle(allocation)?)?;
         stores.push(CommitStoreEntry { allocation, store });
         let index = stores.len().saturating_sub(1);
-        f(&mut stores[index].store)
+        f(&stores[index].store)
     })
 }
 
@@ -408,16 +487,16 @@ fn set_commit_marker_presence_hint(may_be_present: bool) {
 ///
 /// Invariant: caller must ensure `with_commit_store(...)` was called first
 /// on the current thread.
-pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -> R) -> R {
+pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&CommitStore) -> R) -> R {
     let allocation =
         current_commit_memory_allocation().expect("commit memory allocation not configured");
 
     COMMIT_STORES.with(|cell| {
-        let mut stores = cell.borrow_mut();
+        let stores = cell.borrow();
         let store = stores
-            .iter_mut()
+            .iter()
             .find(|entry| entry.allocation == allocation)
-            .map(|entry| &mut entry.store)
+            .map(|entry| &entry.store)
             .expect("commit store not initialized");
         f(store)
     })

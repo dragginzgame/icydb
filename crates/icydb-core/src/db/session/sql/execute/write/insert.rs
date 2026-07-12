@@ -2,33 +2,39 @@ use super::{
     SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
     SqlWriteCandidateRows, SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, sql_insert_candidate_bounds,
-    sql_write_key_from_component_literals, sql_write_patch_set_accepted_field,
-    sql_write_value_for_accepted_field,
+    sql_write_input_for_accepted_field, sql_write_key_from_component_literals,
+    sql_write_patch_set_accepted_field,
 };
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        data::StructuralPatch,
+        data::AuthoredStructuralPatch,
         executor::MutationMode,
         query::intent::StructuralQuery,
         schema::{
-            AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
-            AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
+            AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField, SchemaFieldWritePolicy,
         },
-        session::sql::SqlStatementResult,
-        session::sql::write_policy::{
-            DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-            SqlWriteExecutionBounds, SqlWriteReturningBounds,
+        session::{
+            AcceptedSchemaCatalogContext,
+            sql::{
+                SqlStatementResult,
+                write_policy::{
+                    DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT,
+                    DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES, SqlWriteExecutionBounds,
+                    SqlWriteReturningBounds,
+                },
+            },
         },
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection},
         sql_shared::SqlSyntaxErrorKind,
     },
+    error::InternalError,
     metrics::sink::SqlWriteKind,
     model::field::{FieldInsertGeneration, FieldWriteManagement},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, EntityValue},
     types::{Timestamp, Ulid},
-    value::Value,
+    value::{InputValue, Value},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
@@ -225,9 +231,9 @@ impl<C: CanisterKind> DbSession<C> {
         columns: &[String],
         values: &[Value],
         write_context: SanitizeWriteContext,
-    ) -> Result<(E::Key, StructuralPatch), QueryError>
+    ) -> Result<(E::Key, AuthoredStructuralPatch), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let mut synthesized_fields = Vec::new();
         for accepted_field in descriptor.fields() {
@@ -253,20 +259,22 @@ impl<C: CanisterKind> DbSession<C> {
             sql_insert_primary_key_values(descriptor, columns, values, &synthesized_fields)?;
         let key = sql_write_key_from_component_literals::<E>(descriptor, key_values.as_slice())?;
 
-        let mut patch = StructuralPatch::new();
+        let mut patch = AuthoredStructuralPatch::new();
         for (field_name, synthesized_value) in &synthesized_fields {
             patch = sql_write_patch_set_accepted_field(
                 descriptor,
                 patch,
                 field_name,
-                synthesized_value.clone(),
+                InputValue::try_from_runtime_non_enum(synthesized_value).ok_or_else(|| {
+                    QueryError::execute(InternalError::query_executor_invariant())
+                })?,
             )?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
             reject_explicit_sql_write_to_generated_field(descriptor, field)?;
             reject_explicit_sql_write_to_managed_field(descriptor, field)?;
-            let normalized = sql_write_value_for_accepted_field(descriptor, field, value)?;
-            patch = sql_write_patch_set_accepted_field(descriptor, patch, field, normalized)?;
+            let input = sql_write_input_for_accepted_field(descriptor, field, value)?;
+            patch = sql_write_patch_set_accepted_field(descriptor, patch, field, input)?;
         }
 
         Ok((key, patch))
@@ -278,26 +286,20 @@ impl<C: CanisterKind> DbSession<C> {
     // exposes that materialized source as a separate helper result.
     fn execute_sql_insert_select_source_patches<E>(
         &self,
-        schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         source_query: &StructuralQuery,
         columns: &[String],
         candidate_bounds: SqlWriteCandidateBounds,
         write_context: SanitizeWriteContext,
-    ) -> Result<
-        (
-            crate::db::schema::SchemaInfo,
-            SqlWriteCandidateCollection<E::Key>,
-        ),
-        QueryError,
-    >
+    ) -> Result<SqlWriteCandidateCollection<E::Key>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
-        let (authority, save_schema_info) =
-            Self::accepted_sql_write_authority_schema_info::<E>(schema)?;
+        let (authority, _schema_info) =
+            Self::accepted_sql_write_authority_schema_info::<E>(catalog)?;
         let rows = self.collect_bounded_sql_write_candidate_collection_from_structural_query(
-            schema,
+            catalog.snapshot(),
             authority,
             source_query,
             candidate_bounds,
@@ -312,7 +314,7 @@ impl<C: CanisterKind> DbSession<C> {
             },
         )?;
 
-        Ok((save_schema_info, rows))
+        Ok(rows)
     }
 
     // Convert one already-validated INSERT source row into the structural
@@ -327,7 +329,7 @@ impl<C: CanisterKind> DbSession<C> {
         write_context: SanitizeWriteContext,
     ) -> Result<(), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (key, patch) =
             Self::sql_insert_patch_and_key::<E>(descriptor, columns, values, write_context)?;
@@ -340,11 +342,17 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         statement: &SqlInsertStatement,
         source_query: Option<&StructuralQuery>,
+        catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
-        self.execute_sql_insert_statement_with_execution_bounds::<E>(statement, source_query, None)
+        self.execute_sql_insert_statement_with_execution_bounds::<E>(
+            statement,
+            source_query,
+            catalog,
+            None,
+        )
     }
 
     pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement_with_update_surface_bounds<
@@ -353,13 +361,15 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         statement: &SqlInsertStatement,
         source_query: Option<&StructuralQuery>,
+        catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         self.execute_sql_insert_statement_with_execution_bounds::<E>(
             statement,
             source_query,
+            catalog,
             Some(sql_insert_update_surface_execution_bounds(
                 statement.returning.as_ref(),
             )),
@@ -370,14 +380,16 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         statement: &SqlInsertStatement,
         source_query: Option<&StructuralQuery>,
+        catalog: Option<&AcceptedSchemaCatalogContext>,
         execution_bounds: Option<SqlWriteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+            catalog,
             statement.returning.as_ref(),
-            |schema, descriptor| {
+            |catalog, descriptor| {
                 let columns = sql_insert_columns(&descriptor, statement);
                 ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
                 let write_context =
@@ -385,7 +397,6 @@ impl<C: CanisterKind> DbSession<C> {
                 let candidate_bounds =
                     sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some());
                 let mut collection = SqlWriteCandidateCollection::new();
-                let mut save_schema_info = None;
 
                 match &statement.source {
                     SqlInsertSource::Values(values) => {
@@ -415,17 +426,14 @@ impl<C: CanisterKind> DbSession<C> {
                     }
                     SqlInsertSource::Select(_) => {
                         let source_query = source_query.ok_or_else(QueryError::invariant)?;
-                        let (schema_info, collected_rows) = self
-                            .execute_sql_insert_select_source_patches::<E>(
-                                schema,
-                                &descriptor,
-                                source_query,
-                                columns.as_slice(),
-                                candidate_bounds,
-                                write_context,
-                            )?;
-                        save_schema_info = Some(schema_info);
-                        collection = collected_rows;
+                        collection = self.execute_sql_insert_select_source_patches::<E>(
+                            catalog,
+                            &descriptor,
+                            source_query,
+                            columns.as_slice(),
+                            candidate_bounds,
+                            write_context,
+                        )?;
                     }
                 }
                 let kind = match &statement.source {
@@ -433,7 +441,7 @@ impl<C: CanisterKind> DbSession<C> {
                     SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
                 };
                 self.execute_sql_write_mutation_batch::<E>(
-                    schema,
+                    catalog,
                     &descriptor,
                     SqlWriteMutationExecution::from_bounded_collection(
                         collection,
@@ -442,7 +450,6 @@ impl<C: CanisterKind> DbSession<C> {
                         MutationMode::Insert,
                         write_context,
                         execution_bounds.map(|bounds| bounds.returning),
-                        save_schema_info,
                     )?,
                     statement.returning.as_ref(),
                 )

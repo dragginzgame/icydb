@@ -18,7 +18,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{EntityCreateInput, EntityValue},
+    traits::{AuthoredFieldProjection, EntityCreateInput, EntityValue},
     types::Timestamp,
 };
 
@@ -182,8 +182,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn new(db: Db<E::Canister>, _debug: bool) -> Self {
-        let accepted_row_decode_contract =
-            AcceptedRowDecodeContract::from_generated_model_for_tests(E::MODEL);
         let proposal = crate::db::schema::compiled_schema_proposal_for_model(E::MODEL);
         let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(
             proposal.initial_persisted_schema_snapshot(),
@@ -194,6 +192,17 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let accepted_schema_fingerprint =
             crate::db::schema::accepted_commit_schema_fingerprint(&accepted)
                 .expect("test save executor schema fingerprint should derive");
+        let descriptor =
+            crate::db::schema::AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+                .expect("test save executor runtime contract should build");
+        let catalog =
+            crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[E::MODEL])
+                .expect("test save executor enum catalog should build");
+        let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+            catalog,
+            crate::db::schema::AcceptedSchemaRevision::INITIAL,
+        );
+        let accepted_row_decode_contract = descriptor.row_decode_contract_with_catalog(catalog);
 
         Self {
             db,
@@ -244,7 +253,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // ======================================================================
 
     /// Insert a brand-new entity (errors if the key already exists).
-    pub(in crate::db) fn insert(&self, entity: E) -> Result<E, InternalError> {
+    pub(in crate::db) fn insert(&self, entity: E) -> Result<E, InternalError>
+    where
+        E: AuthoredFieldProjection,
+    {
         self.save_entity(SaveMode::Insert, entity)
     }
 
@@ -252,17 +264,24 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     pub(in crate::db) fn create<I>(&self, input: I) -> Result<E, InternalError>
     where
         I: EntityCreateInput<Entity = E>,
+        E: AuthoredFieldProjection,
     {
         self.save_typed_create_input(input)
     }
 
     /// Update an existing entity (errors if it does not exist).
-    pub(in crate::db) fn update(&self, entity: E) -> Result<E, InternalError> {
+    pub(in crate::db) fn update(&self, entity: E) -> Result<E, InternalError>
+    where
+        E: AuthoredFieldProjection,
+    {
         self.save_entity(SaveMode::Update, entity)
     }
 
     /// Replace an entity, inserting if missing.
-    pub(in crate::db) fn replace(&self, entity: E) -> Result<E, InternalError> {
+    pub(in crate::db) fn replace(&self, entity: E) -> Result<E, InternalError>
+    where
+        E: AuthoredFieldProjection,
+    {
         self.save_entity(SaveMode::Replace, entity)
     }
 }

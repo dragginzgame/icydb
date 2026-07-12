@@ -3,18 +3,18 @@
 //! Does not own: SQL lowering, executor routing, or relation validation policy.
 //! Boundary: exposes narrow persisted-kind facts consumed by schema-adjacent policy layers.
 
-use crate::db::schema::PersistedFieldKind;
+use crate::db::schema::AcceptedFieldKind;
 
 ///
-/// PersistedScalarClass
+/// AcceptedScalarClass
 ///
 /// Schema-owned scalar semantic class for one accepted persisted field kind.
 /// This is narrower than the full schema shape and exists so consumers can ask
-/// semantic questions without rebuilding raw `PersistedFieldKind` ladders.
+/// semantic questions without rebuilding raw `AcceptedFieldKind` ladders.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PersistedScalarClass {
+pub(in crate::db) enum AcceptedScalarClass {
     Account,
     Blob,
     Bool,
@@ -38,7 +38,7 @@ pub(in crate::db) enum PersistedScalarClass {
     Unit,
 }
 
-impl PersistedScalarClass {
+impl AcceptedScalarClass {
     /// Return true when the class carries numeric runtime semantics.
     #[must_use]
     const fn is_numeric(self) -> bool {
@@ -93,7 +93,7 @@ impl PersistedScalarClass {
     /// Return true when this class has stable scalar ordering.
     #[must_use]
     const fn is_orderable(self) -> bool {
-        !matches!(self, Self::Blob | Self::Unit)
+        !matches!(self, Self::Blob | Self::Enum | Self::Unit)
     }
 
     /// Return true when SQL equality predicates may compare this class.
@@ -119,10 +119,25 @@ impl PersistedScalarClass {
                 | Self::Unit
         )
     }
+
+    /// Return true when this coarse kind alone proves stable grouping-key bytes.
+    #[must_use]
+    const fn supports_stable_group_key(self) -> bool {
+        !matches!(self, Self::Enum | Self::Unit)
+    }
+
+    /// Return true when lossless predicate numeric widening supports this class.
+    #[must_use]
+    const fn supports_predicate_numeric_widen(self) -> bool {
+        matches!(
+            self,
+            Self::Decimal | Self::Float32 | Self::Float64 | Self::Signed64 | Self::Unsigned64
+        )
+    }
 }
 
 ///
-/// PersistedFieldKindCategory
+/// AcceptedFieldKindCategory
 ///
 /// Top-level persisted field-kind category. Relation fields retain the
 /// classified scalar semantics of their key kind so consumers can delegate
@@ -130,16 +145,16 @@ impl PersistedScalarClass {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PersistedFieldKindCategory {
-    Scalar(PersistedScalarClass),
-    Relation(Option<PersistedScalarClass>),
+pub(in crate::db) enum AcceptedFieldKindCategory {
+    Scalar(AcceptedScalarClass),
+    Relation(Option<AcceptedScalarClass>),
     Collection,
     Structured { queryable: bool },
 }
 
-impl PersistedFieldKindCategory {
+impl AcceptedFieldKindCategory {
     #[must_use]
-    const fn scalar_class(self) -> Option<PersistedScalarClass> {
+    const fn scalar_class(self) -> Option<AcceptedScalarClass> {
         match self {
             Self::Scalar(class) | Self::Relation(Some(class)) => Some(class),
             Self::Relation(None) | Self::Collection | Self::Structured { .. } => None,
@@ -148,7 +163,7 @@ impl PersistedFieldKindCategory {
 }
 
 ///
-/// PersistedFieldKindSemantics
+/// AcceptedFieldKindSemantics
 ///
 /// Narrow semantic contract for one accepted persisted schema field kind.
 /// The contract describes the persisted kind only; SQL, executor, and relation
@@ -156,26 +171,26 @@ impl PersistedFieldKindCategory {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct PersistedFieldKindSemantics {
-    category: PersistedFieldKindCategory,
+pub(in crate::db) struct AcceptedFieldKindSemantics {
+    category: AcceptedFieldKindCategory,
 }
 
-impl PersistedFieldKindSemantics {
+impl AcceptedFieldKindSemantics {
     #[must_use]
-    const fn new(category: PersistedFieldKindCategory) -> Self {
+    const fn new(category: AcceptedFieldKindCategory) -> Self {
         Self { category }
     }
 
     /// Return the top-level persisted kind category.
     #[must_use]
-    pub(in crate::db) const fn category(self) -> PersistedFieldKindCategory {
+    pub(in crate::db) const fn category(self) -> AcceptedFieldKindCategory {
         self.category
     }
 
     /// Return true when the field kind itself is scalar.
     #[must_use]
     pub(in crate::db) const fn is_scalar(self) -> bool {
-        matches!(self.category, PersistedFieldKindCategory::Scalar(_))
+        matches!(self.category, AcceptedFieldKindCategory::Scalar(_))
     }
 
     /// Return true when the field kind or relation key carries numeric semantics.
@@ -214,6 +229,15 @@ impl PersistedFieldKindSemantics {
         }
     }
 
+    /// Return true when predicate comparison may use lossless numeric widening.
+    #[must_use]
+    pub(in crate::db) const fn supports_predicate_numeric_widen(self) -> bool {
+        match self.category.scalar_class() {
+            Some(class) => class.supports_predicate_numeric_widen(),
+            None => false,
+        }
+    }
+
     /// Return true when the field kind or relation key has stable ordering.
     #[must_use]
     pub(in crate::db) const fn is_orderable(self) -> bool {
@@ -241,117 +265,124 @@ impl PersistedFieldKindSemantics {
         }
     }
 
+    /// Return true when grouping is safe without additional catalog evidence.
+    #[must_use]
+    pub(in crate::db) const fn supports_stable_group_key(self) -> bool {
+        match self.category.scalar_class() {
+            Some(class) => class.supports_stable_group_key(),
+            None => false,
+        }
+    }
+
     /// Return true when the field kind is a collection.
     #[must_use]
     pub(in crate::db) const fn is_collection(self) -> bool {
-        matches!(self.category, PersistedFieldKindCategory::Collection)
+        matches!(self.category, AcceptedFieldKindCategory::Collection)
     }
 
     /// Return true when the field kind is structured.
     #[must_use]
     pub(in crate::db) const fn is_structured(self) -> bool {
-        matches!(self.category, PersistedFieldKindCategory::Structured { .. })
+        matches!(self.category, AcceptedFieldKindCategory::Structured { .. })
     }
 }
 
 /// Classify one accepted persisted schema field kind.
 #[must_use]
-pub(in crate::db) const fn classify_persisted_field_kind(
-    kind: &PersistedFieldKind,
-) -> PersistedFieldKindSemantics {
+pub(in crate::db) const fn classify_accepted_field_kind(
+    kind: &AcceptedFieldKind,
+) -> AcceptedFieldKindSemantics {
     match kind {
-        PersistedFieldKind::Account => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Account),
+        AcceptedFieldKind::Account => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Account),
         ),
-        PersistedFieldKind::Blob { .. } => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Blob),
+        AcceptedFieldKind::Blob { .. } => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Blob),
         ),
-        PersistedFieldKind::Bool => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Bool),
+        AcceptedFieldKind::Bool => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Bool),
         ),
-        PersistedFieldKind::Date => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Date),
+        AcceptedFieldKind::Date => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Date),
         ),
-        PersistedFieldKind::Decimal { .. } => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Decimal),
+        AcceptedFieldKind::Decimal { .. } => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Decimal),
         ),
-        PersistedFieldKind::Duration => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Duration),
+        AcceptedFieldKind::Duration => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Duration),
         ),
-        PersistedFieldKind::Enum { .. } => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Enum),
+        AcceptedFieldKind::Enum { .. } => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Enum),
         ),
-        PersistedFieldKind::Float32 => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Float32),
+        AcceptedFieldKind::Float32 => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Float32),
         ),
-        PersistedFieldKind::Float64 => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Float64),
+        AcceptedFieldKind::Float64 => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Float64),
         ),
-        PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64 => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Signed64),
+        AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64 => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Signed64),
         ),
-        PersistedFieldKind::Int128 => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Signed128),
+        AcceptedFieldKind::Int128 => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Signed128),
         ),
-        PersistedFieldKind::IntBig { .. } => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::SignedBig),
+        AcceptedFieldKind::IntBig { .. } => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::SignedBig),
         ),
-        PersistedFieldKind::Principal => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Principal),
+        AcceptedFieldKind::Principal => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Principal),
         ),
-        PersistedFieldKind::Subaccount => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Subaccount),
+        AcceptedFieldKind::Subaccount => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Subaccount),
         ),
-        PersistedFieldKind::Text { .. } => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Text),
+        AcceptedFieldKind::Text { .. } => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Text),
         ),
-        PersistedFieldKind::Timestamp => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Timestamp),
+        AcceptedFieldKind::Timestamp => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Timestamp),
         ),
-        PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64 => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Unsigned64),
+        AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64 => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unsigned64),
         ),
-        PersistedFieldKind::Nat128 => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Unsigned128),
+        AcceptedFieldKind::Nat128 => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unsigned128),
         ),
-        PersistedFieldKind::NatBig { .. } => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::UnsignedBig),
+        AcceptedFieldKind::NatBig { .. } => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::UnsignedBig),
         ),
-        PersistedFieldKind::Ulid => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Ulid),
+        AcceptedFieldKind::Ulid => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Ulid),
         ),
-        PersistedFieldKind::Unit => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Unit),
+        AcceptedFieldKind::Unit => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unit),
         ),
-        PersistedFieldKind::Relation { key_kind, .. } => PersistedFieldKindSemantics::new(
-            PersistedFieldKindCategory::Relation(classify_relation_scalar_class(key_kind)),
+        AcceptedFieldKind::Relation { key_kind, .. } => AcceptedFieldKindSemantics::new(
+            AcceptedFieldKindCategory::Relation(classify_relation_scalar_class(key_kind)),
         ),
-        PersistedFieldKind::List(_)
-        | PersistedFieldKind::Set(_)
-        | PersistedFieldKind::Map { .. } => {
-            PersistedFieldKindSemantics::new(PersistedFieldKindCategory::Collection)
+        AcceptedFieldKind::List(_) | AcceptedFieldKind::Set(_) | AcceptedFieldKind::Map { .. } => {
+            AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Collection)
         }
-        PersistedFieldKind::Structured { queryable } => {
-            PersistedFieldKindSemantics::new(PersistedFieldKindCategory::Structured {
+        AcceptedFieldKind::Structured { queryable } => {
+            AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Structured {
                 queryable: *queryable,
             })
         }
     }
 }
 
-const fn classify_relation_scalar_class(kind: &PersistedFieldKind) -> Option<PersistedScalarClass> {
-    match classify_persisted_field_kind(kind).category() {
-        PersistedFieldKindCategory::Scalar(class)
-        | PersistedFieldKindCategory::Relation(Some(class)) => Some(class),
-        PersistedFieldKindCategory::Relation(None)
-        | PersistedFieldKindCategory::Collection
-        | PersistedFieldKindCategory::Structured { .. } => None,
+const fn classify_relation_scalar_class(kind: &AcceptedFieldKind) -> Option<AcceptedScalarClass> {
+    match classify_accepted_field_kind(kind).category() {
+        AcceptedFieldKindCategory::Scalar(class)
+        | AcceptedFieldKindCategory::Relation(Some(class)) => Some(class),
+        AcceptedFieldKindCategory::Relation(None)
+        | AcceptedFieldKindCategory::Collection
+        | AcceptedFieldKindCategory::Structured { .. } => None,
     }
 }
 
@@ -361,30 +392,30 @@ const fn classify_relation_scalar_class(kind: &PersistedFieldKind) -> Option<Per
 
 #[cfg(test)]
 mod tests {
-    use super::{PersistedFieldKindCategory, PersistedScalarClass, classify_persisted_field_kind};
+    use super::{AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind};
     use crate::{
-        db::schema::{PersistedFieldKind, PersistedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
         types::EntityTag,
     };
 
-    fn relation_to_key(key_kind: PersistedFieldKind) -> PersistedFieldKind {
-        PersistedFieldKind::Relation {
+    fn relation_to_key(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
+        AcceptedFieldKind::Relation {
             target_path: "target::Entity".into(),
             target_entity_name: "Target".into(),
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            strength: PersistedRelationStrength::Weak,
+            strength: AcceptedRelationStrength::Weak,
         }
     }
 
     #[test]
     fn classify_persisted_numeric_scalar_kind() {
-        let semantics = classify_persisted_field_kind(&PersistedFieldKind::Nat64);
+        let semantics = classify_accepted_field_kind(&AcceptedFieldKind::Nat64);
 
         assert_eq!(
             semantics.category(),
-            PersistedFieldKindCategory::Scalar(PersistedScalarClass::Unsigned64),
+            AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unsigned64),
         );
         assert!(semantics.is_scalar());
         assert!(semantics.is_numeric());
@@ -397,12 +428,12 @@ mod tests {
 
     #[test]
     fn classify_relation_delegates_to_key_semantics_without_becoming_scalar() {
-        let relation = relation_to_key(PersistedFieldKind::Nat128);
-        let semantics = classify_persisted_field_kind(&relation);
+        let relation = relation_to_key(AcceptedFieldKind::Nat128);
+        let semantics = classify_accepted_field_kind(&relation);
 
         assert_eq!(
             semantics.category(),
-            PersistedFieldKindCategory::Relation(Some(PersistedScalarClass::Unsigned128)),
+            AcceptedFieldKindCategory::Relation(Some(AcceptedScalarClass::Unsigned128)),
         );
         assert!(!semantics.is_scalar());
         assert!(semantics.is_numeric());
@@ -414,11 +445,11 @@ mod tests {
 
     #[test]
     fn classify_collection_and_structured_kinds_stay_non_scalar() {
-        let collection = classify_persisted_field_kind(&PersistedFieldKind::List(Box::new(
-            PersistedFieldKind::Text { max_len: None },
+        let collection = classify_accepted_field_kind(&AcceptedFieldKind::List(Box::new(
+            AcceptedFieldKind::Text { max_len: None },
         )));
         let structured =
-            classify_persisted_field_kind(&PersistedFieldKind::Structured { queryable: true });
+            classify_accepted_field_kind(&AcceptedFieldKind::Structured { queryable: true });
 
         assert!(collection.is_collection());
         assert!(!collection.is_scalar());
@@ -431,11 +462,11 @@ mod tests {
 
     #[test]
     fn classify_scalar_edges_match_current_persisted_contracts() {
-        let blob = classify_persisted_field_kind(&PersistedFieldKind::Blob { max_len: None });
-        let unit = classify_persisted_field_kind(&PersistedFieldKind::Unit);
-        let date = classify_persisted_field_kind(&PersistedFieldKind::Date);
-        let timestamp = classify_persisted_field_kind(&PersistedFieldKind::Timestamp);
-        let bigint = classify_persisted_field_kind(&PersistedFieldKind::IntBig { max_bytes: 32 });
+        let blob = classify_accepted_field_kind(&AcceptedFieldKind::Blob { max_len: None });
+        let unit = classify_accepted_field_kind(&AcceptedFieldKind::Unit);
+        let date = classify_accepted_field_kind(&AcceptedFieldKind::Date);
+        let timestamp = classify_accepted_field_kind(&AcceptedFieldKind::Timestamp);
+        let bigint = classify_accepted_field_kind(&AcceptedFieldKind::IntBig { max_bytes: 32 });
 
         assert!(blob.is_sql_comparable());
         assert!(!blob.is_orderable());

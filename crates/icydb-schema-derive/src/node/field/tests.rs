@@ -204,6 +204,61 @@ fn database_default_expr_encodes_supported_literal_schema_default() {
 }
 
 #[test]
+fn database_default_expr_keeps_unit_enum_default_as_authored_names() {
+    let field = Field {
+        ident: format_ident!("status"),
+        value: Value {
+            opt: false,
+            many: false,
+            item: Item {
+                is: Some(parse_quote!(Status)),
+                ..Item::default()
+            },
+        },
+        default: Some(Arg::ConstPath(parse_quote!(Status::Active))),
+        generated: None,
+        write_management: None,
+    };
+
+    field
+        .validate()
+        .expect("unit enum schema default should remain authored proposal input");
+    let tokens = field.database_default_expr().to_string();
+
+    assert!(tokens.contains("FieldDatabaseDefault :: AuthoredEnumUnit"));
+    assert!(tokens.contains("< Status as :: icydb :: traits :: Path > :: PATH"));
+    assert!(tokens.contains("variant : \"Active\""));
+    assert!(!tokens.contains("EncodedSlotPayload"));
+}
+
+#[test]
+fn database_default_rejects_mismatched_enum_default_type() {
+    let field = Field {
+        ident: format_ident!("status"),
+        value: Value {
+            opt: false,
+            many: false,
+            item: Item {
+                is: Some(parse_quote!(Status)),
+                ..Item::default()
+            },
+        },
+        default: Some(Arg::ConstPath(parse_quote!(OtherStatus::Active))),
+        generated: None,
+        write_management: None,
+    };
+
+    let error = field
+        .validate()
+        .expect_err("enum default from another type must reject");
+    assert!(
+        error
+            .to_string()
+            .contains("does not match field type Status")
+    );
+}
+
+#[test]
 fn database_default_expr_encodes_explicit_text_default_payload() {
     let field = Field {
         ident: format_ident!("nickname"),

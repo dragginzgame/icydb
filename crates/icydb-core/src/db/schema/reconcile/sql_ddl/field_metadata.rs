@@ -1,9 +1,6 @@
 use crate::{
     db::{
-        data::{
-            DecodedDataStoreKey, SlotReader, StoreVisit, StructuralRowContract,
-            StructuralSlotReader,
-        },
+        data::{DecodedDataStoreKey, SlotReader, StoreVisit, StructuralSlotReader},
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
@@ -17,7 +14,10 @@ use crate::{
     value::Value,
 };
 
-use super::SqlDdlPublicationEnvelope;
+use super::{
+    super::startup_field_path::{SchemaPublicationGate, catalog_backed_row_contract_for_rebuild},
+    SqlDdlPublicationEnvelope,
+};
 
 /// Execute one metadata-only SQL DDL retained-slot field drop publication.
 pub(in crate::db) fn execute_sql_ddl_field_drop(
@@ -185,6 +185,7 @@ pub(in crate::db) fn execute_sql_ddl_field_nullability_change(
             entity_tag,
             entity_path,
             accepted_before,
+            accepted_before_identity,
             target,
         )?
     } else {
@@ -232,6 +233,7 @@ fn validate_sql_ddl_set_not_null_rows(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     target: &SchemaFieldNullabilityTarget,
 ) -> Result<usize, InternalError> {
     let field = accepted_before
@@ -240,8 +242,12 @@ fn validate_sql_ddl_set_not_null_rows(
         .iter()
         .find(|field| field.id() == target.field_id())
         .ok_or_else(InternalError::store_unsupported)?;
-    let contract =
-        StructuralRowContract::from_accepted_schema_snapshot(entity_path, accepted_before)?;
+    let contract = catalog_backed_row_contract_for_rebuild(
+        store,
+        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
+        entity_path,
+        accepted_before.persisted_snapshot(),
+    )?;
     let required_slot = usize::from(field.slot().get());
 
     store.with_data(|data_store| {

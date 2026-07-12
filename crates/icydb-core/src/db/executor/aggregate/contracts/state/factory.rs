@@ -7,7 +7,7 @@ use crate::db::{
     direction::Direction,
     executor::{
         aggregate::contracts::{
-            plan::{CompiledExpr, FieldSlot},
+            plan::CompiledExpr,
             spec::{AggregateKind, ScalarTerminalKind},
             state::{
                 GroupedAggregateReducerState, GroupedDistinctExecutionMode,
@@ -15,6 +15,7 @@ use crate::db::{
                 ScalarTerminalAggregateState,
             },
         },
+        aggregate::field::FieldSlot as AggregateFieldSlot,
         group::GroupKeySet,
     },
 };
@@ -57,7 +58,7 @@ impl AggregateStateFactory {
         kind: AggregateKind,
         direction: Direction,
         distinct_mode: GroupedDistinctExecutionMode,
-        target_field: Option<FieldSlot>,
+        target_field: Option<AggregateFieldSlot>,
         grouped_input_expr: Option<CompiledExpr>,
         grouped_filter_expr: Option<CompiledExpr>,
         max_distinct_values_per_group: u64,

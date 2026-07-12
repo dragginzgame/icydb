@@ -55,11 +55,7 @@ impl<C: CanisterKind> DbSession<C> {
         if command.facts().is_direct_count_rows() {
             let value = self.execute_direct_count_rows_global_aggregate::<E>(prepared_plan)?;
 
-            return Ok(direct_count_rows_statement_result(
-                projection,
-                value,
-                cache_attribution,
-            ));
+            return direct_count_rows_statement_result(projection, value, cache_attribution);
         }
         let schema_info = catalog.accepted_schema_info_for::<E>();
         let bundle = PreparedAggregateRequestBundle::from_global_command(command, schema_info)?;
@@ -75,7 +71,13 @@ impl<C: CanisterKind> DbSession<C> {
         let (columns, fixed_scales) = projection.into_components();
 
         Ok((
-            sql_projection_statement_result_from_value_rows(columns, fixed_scales, rows, row_count),
+            sql_projection_statement_result_from_value_rows(
+                catalog.enum_catalog(),
+                columns,
+                fixed_scales,
+                rows,
+                row_count,
+            )?,
             cache_attribution,
         ))
     }

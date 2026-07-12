@@ -9,6 +9,7 @@
 //! result payloads, so API surfaces do not depend on runtime execution internals.
 
 mod canonical;
+mod canonical_enum;
 mod coercion;
 mod compare;
 mod hash;
@@ -25,15 +26,15 @@ mod wire;
 mod tests;
 
 use crate::{
-    prelude::*,
-    traits::{EnumValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueMeta},
+    traits::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueMeta},
     types::*,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, de};
 use std::{cmp::Ordering, fmt};
 
 // re-exports
 pub(crate) use canonical::canonicalize_value_set;
+pub(crate) use canonical_enum::{CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId};
 pub use coercion::{CoercionFamily, CoercionFamilyExt};
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;
@@ -267,17 +268,6 @@ impl Value {
         Ok(Self::Map(normalized))
     }
 
-    /// Build a `Value::Enum` from a domain enum using its explicit mapping.
-    pub fn from_enum<E: EnumValue>(value: E) -> Self {
-        Self::Enum(value.to_value_enum())
-    }
-
-    /// Build a strict enum value using the canonical path of `E`.
-    #[must_use]
-    pub fn enum_strict<E: Path>(variant: &str) -> Self {
-        Self::Enum(ValueEnum::strict::<E>(variant))
-    }
-
     ///
     /// TYPES
     ///
@@ -300,6 +290,19 @@ impl Value {
             // definitely not scalar:
             Self::List(_) | Self::Map(_) | Self::Unit => false,
             _ => true,
+        }
+    }
+
+    /// Return whether this runtime value contains canonical enum identity.
+    #[must_use]
+    pub(crate) fn contains_enum(&self) -> bool {
+        match self {
+            Self::Enum(_) => true,
+            Self::List(values) => values.iter().any(Self::contains_enum),
+            Self::Map(entries) => entries
+                .iter()
+                .any(|(key, value)| key.contains_enum() || value.contains_enum()),
+            _ => false,
         }
     }
 
@@ -437,69 +440,95 @@ impl From<()> for Value {
 
 //
 // ValueEnum
-// handles the Enum case; `path` is optional to allow strict (typed) or loose matching.
+// Canonical store-local enum identity. Names exist only at input/output boundaries.
 //
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, PartialOrd)]
-pub struct ValueEnum {
-    variant: String,
-    path: Option<String>,
-    payload: Option<Box<Value>>,
-}
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd)]
+pub struct ValueEnum(CanonicalEnumValue<Value>);
 
 impl ValueEnum {
-    /// Build a strict enum value matching the provided variant and path.
+    #[cfg(test)]
+    pub(crate) const fn test_unit(type_id: u32, variant_id: u32) -> Self {
+        Self::new(
+            EnumTypeId::new(type_id).expect("test enum type ID must be non-zero"),
+            EnumVariantId::new(variant_id).expect("test enum variant ID must be non-zero"),
+            CanonicalEnumBody::Unit,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_payload(type_id: u32, variant_id: u32, payload: Value) -> Self {
+        Self::new(
+            EnumTypeId::new(type_id).expect("test enum type ID must be non-zero"),
+            EnumVariantId::new(variant_id).expect("test enum variant ID must be non-zero"),
+            CanonicalEnumBody::Payload(Box::new(payload)),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_with_payload(self, payload: Value) -> Self {
+        Self::new(
+            self.type_id(),
+            self.variant_id(),
+            CanonicalEnumBody::Payload(Box::new(payload)),
+        )
+    }
+
     #[must_use]
-    pub fn new(variant: &str, path: Option<&str>) -> Self {
-        Self {
-            variant: variant.to_string(),
-            path: path.map(ToString::to_string),
-            payload: None,
+    pub(crate) const fn from_canonical(value: CanonicalEnumValue<Value>) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub(crate) const fn new(
+        type_id: EnumTypeId,
+        variant_id: EnumVariantId,
+        body: CanonicalEnumBody<Value>,
+    ) -> Self {
+        Self(CanonicalEnumValue::new(type_id, variant_id, body))
+    }
+
+    #[must_use]
+    pub(crate) const fn canonical(&self) -> &CanonicalEnumValue<Value> {
+        &self.0
+    }
+
+    #[must_use]
+    pub(crate) const fn type_id(&self) -> EnumTypeId {
+        self.0.type_id()
+    }
+
+    #[must_use]
+    pub(crate) const fn variant_id(&self) -> EnumVariantId {
+        self.0.variant_id()
+    }
+
+    #[must_use]
+    pub(crate) const fn body(&self) -> &CanonicalEnumBody<Value> {
+        self.0.body()
+    }
+
+    #[must_use]
+    pub(crate) fn payload(&self) -> Option<&Value> {
+        match self.body() {
+            CanonicalEnumBody::Unit => None,
+            CanonicalEnumBody::Payload(payload) => Some(payload.as_ref()),
         }
     }
+}
 
-    /// Build a strict enum value using the canonical path of `E`.
-    #[must_use]
-    pub fn strict<E: Path>(variant: &str) -> Self {
-        Self::new(variant, Some(E::PATH))
-    }
-
-    /// Build a strict enum value from a domain enum using its explicit mapping.
-    #[must_use]
-    pub fn from_enum<E: EnumValue>(value: E) -> Self {
-        value.to_value_enum()
-    }
-
-    /// Build an enum value with an unresolved path for filter construction.
-    /// Query normalization resolves this to the schema enum path before validation.
-    #[must_use]
-    pub fn loose(variant: &str) -> Self {
-        Self::new(variant, None)
-    }
-
-    /// Attach an enum payload (used for data-carrying variants).
-    #[must_use]
-    pub fn with_payload(mut self, payload: Value) -> Self {
-        self.payload = Some(Box::new(payload));
-        self
-    }
-
-    #[must_use]
-    pub fn variant(&self) -> &str {
-        &self.variant
-    }
-
-    #[must_use]
-    pub fn path(&self) -> Option<&str> {
-        self.path.as_deref()
-    }
-
-    #[must_use]
-    pub fn payload(&self) -> Option<&Value> {
-        self.payload.as_deref()
-    }
-
-    pub(crate) fn set_path(&mut self, path: Option<String>) {
-        self.path = path;
+impl<'de> Deserialize<'de> for ValueEnum {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let (type_id, variant_id, payload): (u32, u32, Option<Box<Value>>) =
+            Deserialize::deserialize(deserializer)?;
+        let type_id = EnumTypeId::new(type_id)
+            .ok_or_else(|| de::Error::custom("enum type ID must be non-zero"))?;
+        let variant_id = EnumVariantId::new(variant_id)
+            .ok_or_else(|| de::Error::custom("enum variant ID must be non-zero"))?;
+        let body = payload.map_or(CanonicalEnumBody::Unit, CanonicalEnumBody::Payload);
+        Ok(Self::new(type_id, variant_id, body))
     }
 }

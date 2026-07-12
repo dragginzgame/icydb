@@ -9,6 +9,7 @@ use crate::db::{
     GroupedRow, PagedGroupedExecutionWithTrace, QueryError,
     diagnostics::ExecutionTrace,
     executor::{PageCursor, RuntimeGroupedRow, StructuralGroupedProjectionResult},
+    schema::{AcceptedEnumCatalog, output_value_from_runtime},
 };
 
 // Encode one grouped executor cursor into the raw cursor bytes stored by core
@@ -31,16 +32,36 @@ fn encode_grouped_page_cursor(cursor: Option<PageCursor>) -> Result<Option<Vec<u
 // Convert one executor-owned grouped runtime carrier into the public grouped row
 // DTO at the session boundary. This preserves `db::response` as DTO-only while
 // keeping executor internals out of public response construction.
-fn grouped_row_from_runtime_row(row: RuntimeGroupedRow) -> GroupedRow {
+fn grouped_row_from_runtime_row(
+    catalog: &AcceptedEnumCatalog,
+    row: RuntimeGroupedRow,
+) -> Result<GroupedRow, QueryError> {
     let (group_key, aggregate_values) = row.into_group_key_and_aggregate_values();
+    let group_key = group_key
+        .iter()
+        .map(|value| {
+            output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let aggregate_values = aggregate_values
+        .iter()
+        .map(|value| {
+            output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    GroupedRow::new(group_key, aggregate_values)
+    Ok(GroupedRow::new(group_key, aggregate_values))
 }
 
 // Convert one ordered executor grouped page row vector without changing row
 // order. SQL and fluent grouped response finalizers both use this adapter.
-fn grouped_rows_from_runtime_rows(rows: Vec<RuntimeGroupedRow>) -> Vec<GroupedRow> {
-    rows.into_iter().map(grouped_row_from_runtime_row).collect()
+fn grouped_rows_from_runtime_rows(
+    catalog: &AcceptedEnumCatalog,
+    rows: Vec<RuntimeGroupedRow>,
+) -> Result<Vec<GroupedRow>, QueryError> {
+    rows.into_iter()
+        .map(|row| grouped_row_from_runtime_row(catalog, row))
+        .collect()
 }
 
 // Finalize one executor-owned structural grouped projection result for response
@@ -49,11 +70,12 @@ pub(in crate::db) fn finalize_structural_grouped_projection_result(
     result: StructuralGroupedProjectionResult,
     trace: Option<ExecutionTrace>,
 ) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
-    let (rows, next_cursor) = result.into_rows_and_cursor();
+    let (rows, next_cursor, enum_catalog) = result.into_rows_and_cursor();
     let next_cursor = encode_grouped_page_cursor(next_cursor)?;
+    let rows = grouped_rows_from_runtime_rows(enum_catalog.catalog(), rows)?;
 
     Ok(PagedGroupedExecutionWithTrace::new(
-        grouped_rows_from_runtime_rows(rows),
+        rows,
         next_cursor,
         trace,
     ))

@@ -195,13 +195,13 @@ pub(crate) fn finish_commit(
         // Phase 1: successful apply must clear marker authority immediately.
         CommitGuard::clear()?;
         // Internal invariant: successful commit windows must clear the marker.
-        if !with_commit_store_infallible(|store| store.is_empty()) {
+        if !with_commit_store_infallible(super::store::CommitStore::is_empty) {
             return Err(InternalError::commit_corruption());
         }
     } else {
         // Phase 1 (error path): failed apply must preserve marker authority.
         // Internal invariant: failed commit windows must preserve marker authority.
-        if with_commit_store_infallible(|store| store.is_empty()) {
+        if with_commit_store_infallible(super::store::CommitStore::is_empty) {
             return Err(InternalError::commit_corruption());
         }
     }

@@ -3,9 +3,12 @@
 //! Does not own: query planning policy, execution routing, or storage diagnostics.
 //! Boundary: exposes schema-facing contracts consumed by session/query/commit paths.
 
+mod accepted_field_kind;
+pub(in crate::db) mod authored_projection;
 mod capabilities;
 mod codec;
 mod describe;
+pub(in crate::db) mod enum_catalog;
 mod errors;
 mod field_kind_semantics;
 mod fingerprint;
@@ -30,9 +33,12 @@ pub use describe::{
 };
 pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 
-#[cfg(feature = "sql")]
-pub(in crate::db) use capabilities::SqlCapabilities;
+pub(in crate::db) use accepted_field_kind::{AcceptedFieldKind, AcceptedRelationStrength};
 pub(in crate::db) use capabilities::sql_capabilities;
+#[cfg(feature = "sql")]
+pub(in crate::db) use capabilities::{
+    SqlCapabilities, sql_capabilities_for_model_kind, sql_capabilities_with_enum_catalog,
+};
 pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot};
 #[cfg(test)]
 pub(in crate::db) use codec::{
@@ -43,9 +49,19 @@ pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
 };
+pub(in crate::db) use enum_catalog::{
+    AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedSchemaRevision, AcceptedValueContract,
+    CandidateSchemaRevision, ValueAdmissionBudget, encode_unit_enum_equality_key,
+    output_value_from_runtime, validate_canonical_value,
+};
+#[cfg(test)]
+pub(in crate::db) use enum_catalog::{
+    build_initial_accepted_enum_catalog_from_kinds_for_tests,
+    empty_accepted_schema_candidate_for_tests,
+};
 pub(in crate::db) use field_kind_semantics::{
-    PersistedFieldKindCategory, PersistedFieldKindSemantics, PersistedScalarClass,
-    classify_persisted_field_kind,
+    AcceptedFieldKindCategory, AcceptedFieldKindSemantics, AcceptedScalarClass,
+    classify_accepted_field_kind,
 };
 pub(in crate::db) use fingerprint::{
     accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
@@ -61,8 +77,8 @@ pub(in crate::db) use format::{
 };
 pub(in crate::db) use identity::FieldId;
 pub(in crate::db) use info::{
-    SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
-    SchemaIndexInfo, SchemaInfo,
+    AcceptedSchemaFieldContractRef, SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
+    SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo,
 };
 #[cfg(test)]
 pub(in crate::db) use info::{
@@ -143,7 +159,14 @@ pub(in crate::db) use mutation::{
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
-pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_runtime_schemas};
+#[cfg(test)]
+pub(in crate::db) use reconcile::{
+    bootstrap_test_accepted_schema_snapshot, publish_test_accepted_schema_snapshot,
+};
+pub(in crate::db) use reconcile::{
+    ensure_accepted_catalog_snapshot_selection, ensure_accepted_schema_snapshot,
+    reconcile_runtime_schemas,
+};
 #[cfg(feature = "sql")]
 pub(in crate::db) use reconcile::{
     execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
@@ -165,12 +188,11 @@ pub(in crate::db) use runtime::{
     reset_generated_compatible_row_layout_proof_count_for_tests,
 };
 pub(in crate::db) use snapshot::{
-    AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldOrigin,
-    PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
-    PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-    PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-    PersistedRelationEdgeSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-    SchemaFieldDefault, SchemaFieldWritePolicy,
+    AcceptedSchemaSnapshot, PersistedFieldOrigin, PersistedFieldSnapshot,
+    PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
+    PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+    PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldWritePolicy,
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
@@ -182,6 +204,27 @@ pub(in crate::db) use store::{
     latest_raw_snapshots_by_entity_call_count_for_tests,
     reset_latest_raw_snapshots_by_entity_call_count_for_tests,
 };
+
+#[cfg(test)]
+pub(in crate::db) fn validate_raw_schema_snapshot_format_for_tests(
+    bytes: Vec<u8>,
+) -> Result<(), crate::error::InternalError> {
+    store::validate_raw_schema_snapshot_bytes_for_tests(bytes)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn validate_accepted_enum_catalog_format_for_tests(
+    bytes: &[u8],
+) -> Result<(), crate::error::InternalError> {
+    enum_catalog::decode_accepted_enum_catalog(bytes).map(drop)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn validate_accepted_schema_bundle_format_for_tests(
+    bytes: &[u8],
+) -> Result<(), crate::error::InternalError> {
+    enum_catalog::decode_accepted_schema_revision_bundle(bytes).map(drop)
+}
 pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
@@ -189,4 +232,6 @@ pub(in crate::db::schema) use transition::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
+#[cfg(feature = "sql")]
+pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
 pub(crate) use types::{FieldType, ScalarType, field_type_from_model_kind, literal_matches_type};

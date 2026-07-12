@@ -14,6 +14,10 @@ use crate::{
                     AggregateStateFactory, GroupedDistinctExecutionMode,
                     GroupedTerminalAggregateState,
                 },
+                field::{
+                    AggregateFieldValueError, FieldSlot as AggregateFieldSlot,
+                    resolve_aggregate_target_slot_from_planner_slot,
+                },
                 runtime::grouped_fold::{
                     count::materialize_group_key_from_row_view,
                     utils::{
@@ -42,7 +46,7 @@ pub(super) struct GroupedAggregateBundleSpec {
     kind: AggregateKind,
     direction: Direction,
     distinct_mode: GroupedDistinctExecutionMode,
-    target_field: Option<FieldSlot>,
+    target_field: Option<AggregateFieldSlot>,
     grouped_input_expr: Option<CompiledExpr>,
     grouped_filter_expr: Option<CompiledExpr>,
     max_distinct_values_per_group: u64,
@@ -71,6 +75,11 @@ impl GroupedAggregateBundleSpec {
         {
             return Err(Self::unsupported_field_target_aggregate(kind));
         }
+        let target_field = target_field
+            .as_ref()
+            .map(|planned| resolve_aggregate_target_slot_from_planner_slot(kind, planned))
+            .transpose()
+            .map_err(AggregateFieldValueError::into_internal_error)?;
         Ok(Self {
             kind,
             direction,
@@ -88,7 +97,7 @@ impl GroupedAggregateBundleSpec {
             self.kind,
             self.direction,
             self.distinct_mode,
-            self.target_field.clone(),
+            self.target_field,
             self.grouped_input_expr.clone(),
             self.grouped_filter_expr.clone(),
             self.max_distinct_values_per_group,

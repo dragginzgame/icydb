@@ -3,19 +3,20 @@
 //! Does not own: aggregate route planning decisions.
 //! Boundary: field-target aggregate helper surface used by aggregate executors.
 
-use super::contracts::FieldSlot as PlannedFieldSlot;
+use super::contracts::{AggregateKind, FieldSlot as PlannedFieldSlot};
 #[cfg(test)]
-use crate::model::field::FieldModel;
+use crate::model::field::{FieldKind, FieldModel};
 use crate::{
     db::{
         direction::Direction,
         executor::aggregate::capability::{
-            field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
+            accepted_field_kind_supports_aggregate_ordering,
+            accepted_field_kind_supports_numeric_aggregation,
         },
         numeric::{coerce_numeric_decimal, compare_numeric_or_strict_order},
+        schema::AcceptedFieldKind,
     },
     error::InternalError,
-    model::field::FieldKind,
     types::Decimal,
     value::Value,
 };
@@ -50,6 +51,10 @@ pub(in crate::db::executor) enum AggregateFieldValueError {
     IncomparableFieldValues {
         left: AggregateValueKindCode,
         right: AggregateValueKindCode,
+    },
+
+    AcceptedContractUnavailable {
+        slot_index: usize,
     },
 }
 
@@ -89,43 +94,6 @@ impl AggregateFieldKindCode {
     pub(in crate::db::executor) const SET: Self = Self(29);
     pub(in crate::db::executor) const MAP: Self = Self(30);
     pub(in crate::db::executor) const STRUCTURED: Self = Self(31);
-
-    const fn from_field_kind(kind: &FieldKind) -> Self {
-        match kind {
-            FieldKind::Account => Self::ACCOUNT,
-            FieldKind::Blob { .. } => Self::BLOB,
-            FieldKind::Bool => Self::BOOL,
-            FieldKind::Date => Self::DATE,
-            FieldKind::Decimal { .. } => Self::DECIMAL,
-            FieldKind::Duration => Self::DURATION,
-            FieldKind::Enum { .. } => Self::ENUM,
-            FieldKind::Float32 => Self::FLOAT32,
-            FieldKind::Float64 => Self::FLOAT64,
-            FieldKind::Int8 => Self::INT8,
-            FieldKind::Int16 => Self::INT16,
-            FieldKind::Int32 => Self::INT32,
-            FieldKind::Int64 => Self::INT64,
-            FieldKind::Int128 => Self::INT128,
-            FieldKind::IntBig { .. } => Self::INT_BIG,
-            FieldKind::Principal => Self::PRINCIPAL,
-            FieldKind::Subaccount => Self::SUBACCOUNT,
-            FieldKind::Text { .. } => Self::TEXT,
-            FieldKind::Timestamp => Self::TIMESTAMP,
-            FieldKind::Nat8 => Self::NAT8,
-            FieldKind::Nat16 => Self::NAT16,
-            FieldKind::Nat32 => Self::NAT32,
-            FieldKind::Nat64 => Self::NAT64,
-            FieldKind::Nat128 => Self::NAT128,
-            FieldKind::NatBig { .. } => Self::NAT_BIG,
-            FieldKind::Ulid => Self::ULID,
-            FieldKind::Unit => Self::UNIT,
-            FieldKind::Relation { .. } => Self::RELATION,
-            FieldKind::List(_) => Self::LIST,
-            FieldKind::Set(_) => Self::SET,
-            FieldKind::Map { .. } => Self::MAP,
-            FieldKind::Structured { .. } => Self::STRUCTURED,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -187,6 +155,142 @@ impl AggregateValueKindCode {
     }
 }
 
+// Compact runtime representation selected from accepted schema authority.
+// Full bounds, recursive shape, and enum-ID validation already happen at the
+// accepted row boundary; aggregate execution only guards the decoded top-level
+// representation and retains the direct comparison strategy it needs.
+#[derive(Clone, Copy, Debug)]
+enum AggregateRuntimeValueShape {
+    Exact(AggregateValueKindCode),
+    Structured,
+}
+
+impl AggregateRuntimeValueShape {
+    fn accepts_value(self, value: &Value) -> bool {
+        match (self, value) {
+            (Self::Exact(expected), value) => expected == AggregateValueKindCode::from_value(value),
+            (Self::Structured, Value::List(_) | Value::Map(_)) => true,
+            _ => false,
+        }
+    }
+
+    fn direct_compare(self, left: &Value, right: &Value) -> Option<Ordering> {
+        match (self, left, right) {
+            (
+                Self::Exact(AggregateValueKindCode::DECIMAL),
+                Value::Decimal(left),
+                Value::Decimal(right),
+            ) => left.partial_cmp(right),
+            (
+                Self::Exact(AggregateValueKindCode::FLOAT32),
+                Value::Float32(left),
+                Value::Float32(right),
+            ) => left.get().partial_cmp(&right.get()),
+            (
+                Self::Exact(AggregateValueKindCode::FLOAT64),
+                Value::Float64(left),
+                Value::Float64(right),
+            ) => left.get().partial_cmp(&right.get()),
+            (
+                Self::Exact(AggregateValueKindCode::INT64),
+                Value::Int64(left),
+                Value::Int64(right),
+            ) => Some(left.cmp(right)),
+            (
+                Self::Exact(AggregateValueKindCode::INT128),
+                Value::Int128(left),
+                Value::Int128(right),
+            ) => Some(left.cmp(right)),
+            (
+                Self::Exact(AggregateValueKindCode::NAT64),
+                Value::Nat64(left),
+                Value::Nat64(right),
+            ) => Some(left.cmp(right)),
+            (
+                Self::Exact(AggregateValueKindCode::NAT128),
+                Value::Nat128(left),
+                Value::Nat128(right),
+            ) => Some(left.cmp(right)),
+            _ => None,
+        }
+    }
+}
+
+// Executor-owned projection of one accepted field contract. Keeping this
+// projection copyable avoids cloning recursive accepted kinds into every
+// per-group reducer state.
+#[derive(Clone, Copy, Debug)]
+struct AggregateFieldValueContract {
+    diagnostic_kind: AggregateFieldKindCode,
+    runtime_shape: AggregateRuntimeValueShape,
+}
+
+impl AggregateFieldValueContract {
+    const fn exact(
+        diagnostic_kind: AggregateFieldKindCode,
+        runtime_kind: AggregateValueKindCode,
+    ) -> Self {
+        Self {
+            diagnostic_kind,
+            runtime_shape: AggregateRuntimeValueShape::Exact(runtime_kind),
+        }
+    }
+
+    fn from_accepted_field_kind(kind: &AcceptedFieldKind) -> Self {
+        use AcceptedFieldKind as Accepted;
+        use AggregateFieldKindCode as Field;
+        use AggregateValueKindCode as Runtime;
+
+        match kind {
+            Accepted::Account => Self::exact(Field::ACCOUNT, Runtime::ACCOUNT),
+            Accepted::Blob { .. } => Self::exact(Field::BLOB, Runtime::BLOB),
+            Accepted::Bool => Self::exact(Field::BOOL, Runtime::BOOL),
+            Accepted::Date => Self::exact(Field::DATE, Runtime::DATE),
+            Accepted::Decimal { .. } => Self::exact(Field::DECIMAL, Runtime::DECIMAL),
+            Accepted::Duration => Self::exact(Field::DURATION, Runtime::DURATION),
+            Accepted::Enum { .. } => Self::exact(Field::ENUM, Runtime::ENUM),
+            Accepted::Float32 => Self::exact(Field::FLOAT32, Runtime::FLOAT32),
+            Accepted::Float64 => Self::exact(Field::FLOAT64, Runtime::FLOAT64),
+            Accepted::Int8 => Self::exact(Field::INT8, Runtime::INT64),
+            Accepted::Int16 => Self::exact(Field::INT16, Runtime::INT64),
+            Accepted::Int32 => Self::exact(Field::INT32, Runtime::INT64),
+            Accepted::Int64 => Self::exact(Field::INT64, Runtime::INT64),
+            Accepted::Int128 => Self::exact(Field::INT128, Runtime::INT128),
+            Accepted::IntBig { .. } => Self::exact(Field::INT_BIG, Runtime::INT_BIG),
+            Accepted::Principal => Self::exact(Field::PRINCIPAL, Runtime::PRINCIPAL),
+            Accepted::Subaccount => Self::exact(Field::SUBACCOUNT, Runtime::SUBACCOUNT),
+            Accepted::Text { .. } => Self::exact(Field::TEXT, Runtime::TEXT),
+            Accepted::Timestamp => Self::exact(Field::TIMESTAMP, Runtime::TIMESTAMP),
+            Accepted::Nat8 => Self::exact(Field::NAT8, Runtime::NAT64),
+            Accepted::Nat16 => Self::exact(Field::NAT16, Runtime::NAT64),
+            Accepted::Nat32 => Self::exact(Field::NAT32, Runtime::NAT64),
+            Accepted::Nat64 => Self::exact(Field::NAT64, Runtime::NAT64),
+            Accepted::Nat128 => Self::exact(Field::NAT128, Runtime::NAT128),
+            Accepted::NatBig { .. } => Self::exact(Field::NAT_BIG, Runtime::NAT_BIG),
+            Accepted::Ulid => Self::exact(Field::ULID, Runtime::ULID),
+            Accepted::Unit => Self::exact(Field::UNIT, Runtime::UNIT),
+            Accepted::Relation { key_kind, .. } => {
+                let key_contract = Self::from_accepted_field_kind(key_kind);
+                Self {
+                    diagnostic_kind: Field::RELATION,
+                    runtime_shape: key_contract.runtime_shape,
+                }
+            }
+            Accepted::List(_) => Self::exact(Field::LIST, Runtime::LIST),
+            Accepted::Set(_) => Self::exact(Field::SET, Runtime::LIST),
+            Accepted::Map { .. } => Self::exact(Field::MAP, Runtime::MAP),
+            Accepted::Structured { .. } => Self {
+                diagnostic_kind: Field::STRUCTURED,
+                runtime_shape: AggregateRuntimeValueShape::Structured,
+            },
+        }
+    }
+
+    fn accepts_value(self, value: &Value) -> bool {
+        self.runtime_shape.accepts_value(value)
+    }
+}
+
 impl AggregateFieldValueError {
     pub(in crate::db::executor) const fn field_value_type_mismatch(
         field_slot: FieldSlot,
@@ -194,7 +298,7 @@ impl AggregateFieldValueError {
     ) -> Self {
         Self::FieldValueTypeMismatch {
             slot_index: field_slot.index,
-            expected: AggregateFieldKindCode::from_field_kind(&field_slot.kind),
+            expected: field_slot.contract.diagnostic_kind,
             found: AggregateValueKindCode::from_value(found),
         }
     }
@@ -208,7 +312,8 @@ impl AggregateFieldValueError {
                 let _ = (slot_index, kind);
                 InternalError::executor_unsupported()
             }
-            Self::MissingFieldValue { slot_index } => {
+            Self::MissingFieldValue { slot_index }
+            | Self::AcceptedContractUnavailable { slot_index } => {
                 let _ = slot_index;
                 InternalError::query_executor_invariant()
             }
@@ -248,38 +353,68 @@ fn field_model_with_index<'a>(
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db::executor) struct FieldSlot {
     pub(in crate::db::executor) index: usize,
-    pub(in crate::db::executor) kind: FieldKind,
+    contract: AggregateFieldValueContract,
+}
+
+#[cfg(test)]
+impl FieldSlot {
+    pub(in crate::db::executor) fn from_test_model_kind(index: usize, kind: FieldKind) -> Self {
+        let accepted = AcceptedFieldKind::from_model_kind(kind);
+        Self {
+            index,
+            contract: AggregateFieldValueContract::from_accepted_field_kind(&accepted),
+        }
+    }
+
+    const fn diagnostic_kind(self) -> AggregateFieldKindCode {
+        self.contract.diagnostic_kind
+    }
 }
 
 // Build the canonical unknown-field error for aggregate field-slot resolution.
-const fn unknown_aggregate_target_field(_target_field: &str) -> AggregateFieldValueError {
+const fn unknown_aggregate_target_field() -> AggregateFieldValueError {
     AggregateFieldValueError::UnknownField
+}
+
+// Require accepted authority for a known planner slot while preserving the
+// unsupported-field taxonomy for an unresolved slot.
+fn accepted_kind_from_planner_slot(
+    field_slot: &PlannedFieldSlot,
+) -> Result<&AcceptedFieldKind, AggregateFieldValueError> {
+    field_slot.accepted_kind().ok_or_else(|| {
+        if field_slot.is_unresolved() {
+            unknown_aggregate_target_field()
+        } else {
+            AggregateFieldValueError::AcceptedContractUnavailable {
+                slot_index: field_slot.index(),
+            }
+        }
+    })
 }
 
 // Resolve one final field slot from already-known index/kind metadata and
 // optionally enforce one capability gate over the declared field kind.
 fn resolve_aggregate_target_slot(
     index: usize,
-    _target_field: &str,
-    kind: FieldKind,
-    supports_kind: Option<fn(&FieldKind) -> bool>,
+    accepted_kind: &AcceptedFieldKind,
+    supports_kind: Option<fn(&AcceptedFieldKind) -> bool>,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
+    let contract = AggregateFieldValueContract::from_accepted_field_kind(accepted_kind);
     if let Some(supports_kind) = supports_kind
-        && !supports_kind(&kind)
+        && !supports_kind(accepted_kind)
     {
         return Err(AggregateFieldValueError::UnsupportedFieldKind {
             slot_index: index,
-            kind: AggregateFieldKindCode::from_field_kind(&kind),
+            kind: contract.diagnostic_kind,
         });
     }
 
-    Ok(FieldSlot { index, kind })
+    Ok(FieldSlot { index, contract })
 }
 
 // Coerce one already-validated aggregate field payload into Decimal while
 // preserving the canonical type-mismatch error shape for numeric terminals.
 fn coerce_numeric_field_decimal_owned(
-    _target_field: &str,
     field_slot: FieldSlot,
     value: Value,
 ) -> Result<Decimal, AggregateFieldValueError> {
@@ -292,34 +427,6 @@ fn coerce_numeric_field_decimal_owned(
     Ok(decimal)
 }
 
-// Compare exact declared field/value pairs directly before falling back to the
-// wider numeric-or-strict comparator stack.
-fn direct_compare_orderable_field_values(
-    kind: &FieldKind,
-    left: &Value,
-    right: &Value,
-) -> Option<Ordering> {
-    match (kind, left, right) {
-        (FieldKind::Decimal { .. }, Value::Decimal(left), Value::Decimal(right)) => {
-            left.partial_cmp(right)
-        }
-        (FieldKind::Float32, Value::Float32(left), Value::Float32(right)) => {
-            left.get().partial_cmp(&right.get())
-        }
-        (FieldKind::Float64, Value::Float64(left), Value::Float64(right)) => {
-            left.get().partial_cmp(&right.get())
-        }
-        (FieldKind::Int64, Value::Int64(left), Value::Int64(right)) => Some(left.cmp(right)),
-        (FieldKind::Int128, Value::Int128(left), Value::Int128(right)) => Some(left.cmp(right)),
-        (FieldKind::Nat64, Value::Nat64(left), Value::Nat64(right)) => Some(left.cmp(right)),
-        (FieldKind::Nat128, Value::Nat128(left), Value::Nat128(right)) => Some(left.cmp(right)),
-        (FieldKind::Relation { key_kind, .. }, left, right) => {
-            direct_compare_orderable_field_values(key_kind, left, right)
-        }
-        _ => None,
-    }
-}
-
 /// Resolve one orderable aggregate target field into a stable projection slot using structural model data.
 #[cfg(test)]
 pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_fields(
@@ -327,14 +434,13 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_fiel
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(unknown_aggregate_target_field(target_field));
+        return Err(unknown_aggregate_target_field());
     };
 
     resolve_aggregate_target_slot(
         index,
-        target_field,
-        field.kind(),
-        Some(field_kind_supports_aggregate_ordering),
+        &AcceptedFieldKind::from_model_kind(field.kind()),
+        Some(accepted_field_kind_supports_aggregate_ordering),
     )
 }
 
@@ -342,16 +448,12 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_fiel
 pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let target_field = field_slot.field();
-    let Some(kind) = field_slot.kind() else {
-        return Err(unknown_aggregate_target_field(target_field));
-    };
+    let accepted_kind = accepted_kind_from_planner_slot(field_slot)?;
 
     resolve_aggregate_target_slot(
         field_slot.index(),
-        target_field,
-        kind,
-        Some(field_kind_supports_aggregate_ordering),
+        accepted_kind,
+        Some(accepted_field_kind_supports_aggregate_ordering),
     )
 }
 
@@ -362,22 +464,23 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_fields(
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(unknown_aggregate_target_field(target_field));
+        return Err(unknown_aggregate_target_field());
     };
 
-    resolve_aggregate_target_slot(index, target_field, field.kind(), None)
+    resolve_aggregate_target_slot(
+        index,
+        &AcceptedFieldKind::from_model_kind(field.kind()),
+        None,
+    )
 }
 
 /// Resolve one planner field slot into one aggregate projection slot using planner-frozen field metadata.
 pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let target_field = field_slot.field();
-    let Some(kind) = field_slot.kind() else {
-        return Err(unknown_aggregate_target_field(target_field));
-    };
+    let accepted_kind = accepted_kind_from_planner_slot(field_slot)?;
 
-    resolve_aggregate_target_slot(field_slot.index(), target_field, kind, None)
+    resolve_aggregate_target_slot(field_slot.index(), accepted_kind, None)
 }
 
 /// Resolve one numeric aggregate target field into a stable projection slot using structural model data.
@@ -387,14 +490,13 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_fields
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(unknown_aggregate_target_field(target_field));
+        return Err(unknown_aggregate_target_field());
     };
 
     resolve_aggregate_target_slot(
         index,
-        target_field,
-        field.kind(),
-        Some(field_kind_supports_numeric_aggregation),
+        &AcceptedFieldKind::from_model_kind(field.kind()),
+        Some(accepted_field_kind_supports_numeric_aggregation),
     )
 }
 
@@ -402,22 +504,37 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_fields
 pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let target_field = field_slot.field();
-    let Some(kind) = field_slot.kind() else {
-        return Err(unknown_aggregate_target_field(target_field));
-    };
+    let accepted_kind = accepted_kind_from_planner_slot(field_slot)?;
 
     resolve_aggregate_target_slot(
         field_slot.index(),
-        target_field,
-        kind,
-        Some(field_kind_supports_numeric_aggregation),
+        accepted_kind,
+        Some(accepted_field_kind_supports_numeric_aggregation),
     )
+}
+
+/// Resolve one planner field slot through the capability required by its
+/// aggregate family.
+pub(in crate::db::executor) fn resolve_aggregate_target_slot_from_planner_slot(
+    kind: AggregateKind,
+    field_slot: &PlannedFieldSlot,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    match kind {
+        AggregateKind::Sum | AggregateKind::Avg => {
+            resolve_numeric_aggregate_target_slot_from_planner_slot(field_slot)
+        }
+        AggregateKind::Min | AggregateKind::Max => {
+            resolve_orderable_aggregate_target_slot_from_planner_slot(field_slot)
+        }
+        AggregateKind::Count
+        | AggregateKind::Exists
+        | AggregateKind::First
+        | AggregateKind::Last => resolve_any_aggregate_target_slot_from_planner_slot(field_slot),
+    }
 }
 
 /// Extract one field value from a slot reader and enforce the declared runtime field kind.
 pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
-    _target_field: &str,
     field_slot: FieldSlot,
     read_slot: &mut dyn FnMut(usize) -> Option<Value>,
 ) -> Result<Value, AggregateFieldValueError> {
@@ -426,7 +543,7 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
             slot_index: field_slot.index,
         });
     };
-    if !field_slot.kind.accepts_value(&value) {
+    if !field_slot.contract.accepts_value(&value) {
         return Err(AggregateFieldValueError::field_value_type_mismatch(
             field_slot, &value,
         ));
@@ -438,7 +555,6 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
 /// Extract one borrowed field value from a slot reader and enforce the
 /// declared runtime field kind without cloning the underlying slot payload.
 pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_ref_reader<'a>(
-    _target_field: &str,
     field_slot: FieldSlot,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<&'a Value, AggregateFieldValueError> {
@@ -447,7 +563,7 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_ref_reade
             slot_index: field_slot.index,
         });
     };
-    if !field_slot.kind.accepts_value(value) {
+    if !field_slot.contract.accepts_value(value) {
         return Err(AggregateFieldValueError::field_value_type_mismatch(
             field_slot, value,
         ));
@@ -460,61 +576,51 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_ref_reade
 // the declared runtime field kind without rebuilding a slot-reader closure at
 // each retained-slot callsite.
 pub(in crate::db::executor) fn extract_orderable_field_value_from_decoded_slot(
-    target_field: &str,
     field_slot: FieldSlot,
     decoded_value: Option<Value>,
 ) -> Result<Value, AggregateFieldValueError> {
     let mut decoded_value = decoded_value;
 
-    extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |_| {
-        decoded_value.take()
-    })
+    extract_orderable_field_value_with_slot_reader(field_slot, &mut |_| decoded_value.take())
 }
 
 /// Extract one numeric field value as `Decimal` from a slot reader for aggregate arithmetic.
 #[cfg(test)]
 pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
-    target_field: &str,
     field_slot: FieldSlot,
     read_slot: &mut dyn FnMut(usize) -> Option<Value>,
 ) -> Result<Decimal, AggregateFieldValueError> {
-    let value =
-        extract_orderable_field_value_with_slot_reader(target_field, field_slot, read_slot)?;
+    let value = extract_orderable_field_value_with_slot_reader(field_slot, read_slot)?;
 
-    coerce_numeric_field_decimal_owned(target_field, field_slot, value)
+    coerce_numeric_field_decimal_owned(field_slot, value)
 }
 
 /// Extract one numeric field value as `Decimal` from a borrowed slot reader
 /// so aggregate streaming paths avoid cloning validated slot payloads.
 pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_ref_reader<'a>(
-    target_field: &str,
     field_slot: FieldSlot,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Decimal, AggregateFieldValueError> {
-    let value =
-        extract_orderable_field_value_with_slot_ref_reader(target_field, field_slot, read_slot)?;
+    let value = extract_orderable_field_value_with_slot_ref_reader(field_slot, read_slot)?;
 
-    coerce_numeric_field_decimal_owned(target_field, field_slot, value.clone())
+    coerce_numeric_field_decimal_owned(field_slot, value.clone())
 }
 
 // Extract one numeric field value as `Decimal` from one already-decoded
 // retained slot without rebuilding a one-shot slot-reader closure at each
 // retained-slot numeric callsite.
 pub(in crate::db::executor) fn extract_numeric_field_decimal_from_decoded_slot(
-    target_field: &str,
     field_slot: FieldSlot,
     decoded_value: Option<Value>,
 ) -> Result<Decimal, AggregateFieldValueError> {
-    let value =
-        extract_orderable_field_value_from_decoded_slot(target_field, field_slot, decoded_value)?;
+    let value = extract_orderable_field_value_from_decoded_slot(field_slot, decoded_value)?;
 
-    coerce_numeric_field_decimal_owned(target_field, field_slot, value)
+    coerce_numeric_field_decimal_owned(field_slot, value)
 }
 
 /// Compare two extracted field values using shared numeric ordering semantics
 /// first, then strict same-variant ordering fallback.
 pub(in crate::db::executor) fn compare_orderable_field_values(
-    _target_field: &str,
     left: &Value,
     right: &Value,
 ) -> Result<Ordering, AggregateFieldValueError> {
@@ -531,16 +637,19 @@ pub(in crate::db::executor) fn compare_orderable_field_values(
 /// Compare two extracted field values using the declared field slot first,
 /// then fall back to the shared numeric-widen and strict-ordering contract.
 pub(in crate::db::executor) fn compare_orderable_field_values_with_slot(
-    target_field: &str,
     field_slot: FieldSlot,
     left: &Value,
     right: &Value,
 ) -> Result<Ordering, AggregateFieldValueError> {
-    if let Some(ordering) = direct_compare_orderable_field_values(&field_slot.kind, left, right) {
+    if let Some(ordering) = field_slot
+        .contract
+        .runtime_shape
+        .direct_compare(left, right)
+    {
         return Ok(ordering);
     }
 
-    compare_orderable_field_values(target_field, left, right)
+    compare_orderable_field_values(left, right)
 }
 
 /// Apply aggregate direction to one base ordering result.

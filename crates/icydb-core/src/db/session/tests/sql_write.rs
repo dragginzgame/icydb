@@ -6,10 +6,10 @@ use crate::{
         DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
     },
     db::{
-        MutationMode, SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
-        SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan, SqlPublicPrimaryKeyUpdatePlan,
-        SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedDeletePlan,
-        SqlValidatedUpdatePlan, StructuralPatch, classify_sql_delete_policy,
+        AuthoredStructuralPatch, MutationMode, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
+        SqlPublicBoundedDeletePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan,
+        SqlPublicPrimaryKeyUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
+        SqlValidatedDeletePlan, SqlValidatedUpdatePlan, classify_sql_delete_policy,
         classify_sql_update_policy,
     },
     error::InternalError,
@@ -24,7 +24,9 @@ fn assert_statement_count<E>(
     expected_row_count: u32,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let payload = execute_sql_statement_for_tests::<E>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
@@ -46,7 +48,9 @@ fn assert_statement_write_boundary<E>(
     expected_boundary: SqlWriteBoundaryCode,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let err = execute_sql_statement_for_tests::<E>(session, sql).expect_err(context);
 
@@ -83,7 +87,9 @@ fn assert_statement_returning_rows<E>(
     expected_rows: &[Vec<Value>],
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let rows = statement_projection_rows::<E>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should return projection rows: {err}"));
@@ -452,7 +458,9 @@ fn assert_write_update_count_and_rows(
 // it into the compact key list used by update/delete target convergence tests.
 fn statement_nat_ids<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<u64>
 where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     statement_projection_rows::<E>(session, sql)
         .unwrap_or_else(|err| panic!("id-returning SQL should succeed: {err}"))
@@ -586,9 +594,9 @@ fn generated_timestamp_insert_patch(
     name: &str,
     created_on_insert_nanos: i64,
     context: &str,
-) -> StructuralPatch {
+) -> AuthoredStructuralPatch {
     session
-        .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _>([
+        .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _, _>([
             ("id", Value::Nat64(id)),
             (
                 "created_on_insert",
@@ -667,7 +675,7 @@ fn session_structural_patch_resolves_fields_through_accepted_schema_descriptor()
     seed_write_entities(&session, &[(1, "Ada", 21)]);
 
     let patch = session
-        .structural_patch::<SessionSqlWriteEntity, _, _>([
+        .structural_patch::<SessionSqlWriteEntity, _, _, _>([
             ("name", Value::Text("Ari".to_string())),
             ("age", Value::Nat64(31)),
         ])
@@ -1629,7 +1637,7 @@ fn structural_rewrite_rejects_explicit_generated_insert_fields_matrix() {
         seed_generated_timestamp_entity(&session, 1, "Ada", 1);
 
         let patch = session
-            .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _>([(
+            .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _, _>([(
                 "created_on_insert",
                 Value::Timestamp(Timestamp::from_nanos(9)),
             )])

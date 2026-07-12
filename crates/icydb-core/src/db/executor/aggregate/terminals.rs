@@ -250,24 +250,15 @@ where
                 .into_optional_id_terminal(kind)
                 .map(ScalarTerminalBoundaryOutput::Id)
         }
-        PreparedOrderSensitiveTerminalOp::FieldOrder {
-            target_field_name,
-            field_slot,
-            op,
-        } => match op {
+        PreparedOrderSensitiveTerminalOp::FieldOrder { field_slot, op } => match op {
             PreparedFieldOrderSensitiveTerminalOp::Nth { nth } => executor
-                .execute_nth_field_aggregate_with_slot(
-                    prepared,
-                    &target_field_name,
-                    field_slot,
-                    nth,
-                )
+                .execute_nth_field_aggregate_with_slot(prepared, field_slot, nth)
                 .map(ScalarTerminalBoundaryOutput::Id),
             PreparedFieldOrderSensitiveTerminalOp::Median => executor
-                .execute_median_field_aggregate_with_slot(prepared, &target_field_name, field_slot)
+                .execute_median_field_aggregate_with_slot(prepared, field_slot)
                 .map(ScalarTerminalBoundaryOutput::Id),
             PreparedFieldOrderSensitiveTerminalOp::MinMax => executor
-                .execute_min_max_field_aggregate_with_slot(prepared, &target_field_name, field_slot)
+                .execute_min_max_field_aggregate_with_slot(prepared, field_slot)
                 .map(ScalarTerminalBoundaryOutput::IdPair),
         },
     }
@@ -298,11 +289,7 @@ where
         let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
             .map_err(AggregateFieldValueError::into_internal_error)?;
 
-        Ok(PreparedOrderSensitiveTerminalOp::FieldOrder {
-            target_field_name: target_field.field().to_string(),
-            field_slot,
-            op,
-        })
+        Ok(PreparedOrderSensitiveTerminalOp::FieldOrder { field_slot, op })
     }
 
     // Execute one scalar aggregate terminal family request from the typed API

@@ -18,10 +18,10 @@ use crate::db::{
     },
     registry::StoreRegistry,
     schema::{
-        AcceptedFieldDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
-        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-        SchemaRowLayout, SchemaVersion,
+        AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedRelationStrength,
+        AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+        SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
     },
 };
 use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
@@ -45,20 +45,20 @@ thread_local! {
 
 fn test_field_contract<'a>(
     name: &'a str,
-    kind: &'a PersistedFieldKind,
+    kind: &'a AcceptedFieldKind,
     leaf_codec: LeafCodec,
 ) -> AcceptedFieldDecodeContract<'a> {
     AcceptedFieldDecodeContract::new(name, kind, false, FieldStorageDecode::ByKind, leaf_codec)
 }
 
-fn relation(field_index: usize, key_kind: PersistedFieldKind) -> AcceptedStrongRelationInfo {
-    let field_kind = PersistedFieldKind::Relation {
+fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedStrongRelationInfo {
+    let field_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(key_kind.clone()),
-        strength: PersistedRelationStrength::Strong,
+        strength: AcceptedRelationStrength::Strong,
     };
 
     AcceptedStrongRelationInfo {
@@ -84,11 +84,11 @@ fn relation(field_index: usize, key_kind: PersistedFieldKind) -> AcceptedStrongR
 
 #[test]
 fn accepted_relation_target_identity_carries_ordered_primary_key_metadata() {
-    let relation = relation(3, PersistedFieldKind::Nat64);
+    let relation = relation(3, AcceptedFieldKind::Nat64);
 
     assert_eq!(
         relation.target().primary_key().component_kinds(),
-        &[PersistedFieldKind::Nat64],
+        &[AcceptedFieldKind::Nat64],
         "current scalar relation metadata is represented as a one-component target primary key",
     );
 }
@@ -102,13 +102,13 @@ fn accepted_relation_target_identity_can_carry_ordered_composite_metadata() {
         "Target",
         EntityTag::new(77),
         "TargetStore",
-        &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
+        &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
     )
     .expect("target identity should build");
 
     assert_eq!(
         target.primary_key().component_kinds(),
-        &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
+        &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
     );
 }
 
@@ -148,25 +148,25 @@ fn relation_target_keys_make_none_one_and_many_explicit() {
 
 #[test]
 fn accepted_relation_info_carries_ordered_local_component_metadata() {
-    let relation = relation(3, PersistedFieldKind::Nat64);
+    let relation = relation(3, AcceptedFieldKind::Nat64);
     let [component] = relation.local_components().components() else {
         panic!("scalar relation metadata should expose one local component");
     };
 
     assert_eq!(component.field_index(), 3);
     assert_eq!(component.field_name(), "target_id");
-    std::assert_matches!(component.field_kind(), PersistedFieldKind::Relation { .. });
+    std::assert_matches!(component.field_kind(), AcceptedFieldKind::Relation { .. });
 }
 
 #[test]
 fn accepted_strong_relations_use_persisted_relation_edges_when_present() {
-    let relation_kind = PersistedFieldKind::Relation {
+    let relation_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
-        key_kind: Box::new(PersistedFieldKind::Ulid),
-        strength: PersistedRelationStrength::Strong,
+        key_kind: Box::new(AcceptedFieldKind::Ulid),
+        strength: AcceptedRelationStrength::Strong,
     };
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
@@ -185,7 +185,7 @@ fn accepted_strong_relations_use_persisted_relation_edges_when_present() {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -231,8 +231,8 @@ fn accepted_strong_relations_use_persisted_relation_edges_when_present() {
 
 #[test]
 fn accepted_relation_local_components_can_carry_ordered_tuple_metadata() {
-    let tenant_kind = PersistedFieldKind::Nat64;
-    let local_kind = PersistedFieldKind::Ulid;
+    let tenant_kind = AcceptedFieldKind::Nat64;
+    let local_kind = AcceptedFieldKind::Ulid;
 
     let components = AcceptedStrongRelationLocalComponents::try_from_component_specs(&[
         AcceptedStrongRelationLocalComponentSpec {
@@ -259,10 +259,10 @@ fn accepted_relation_local_components_can_carry_ordered_tuple_metadata() {
     };
     assert_eq!(tenant.field_index(), 2);
     assert_eq!(tenant.field_name(), "tenant_id");
-    assert_eq!(tenant.field_kind(), &PersistedFieldKind::Nat64);
+    assert_eq!(tenant.field_kind(), &AcceptedFieldKind::Nat64);
     assert_eq!(local.field_index(), 4);
     assert_eq!(local.field_name(), "local_id");
-    assert_eq!(local.field_kind(), &PersistedFieldKind::Ulid);
+    assert_eq!(local.field_kind(), &AcceptedFieldKind::Ulid);
 }
 
 #[test]
@@ -273,13 +273,13 @@ fn accepted_relation_local_components_reject_empty_metadata() {
 
 #[test]
 fn relation_validation_rejects_local_target_component_arity_mismatch() {
-    let field_kind = PersistedFieldKind::Relation {
+    let field_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
-        key_kind: Box::new(PersistedFieldKind::Nat64),
-        strength: PersistedRelationStrength::Strong,
+        key_kind: Box::new(AcceptedFieldKind::Nat64),
+        strength: AcceptedRelationStrength::Strong,
     };
     let relation = AcceptedStrongRelationInfo {
         relation_name: "target_id".to_string(),
@@ -295,7 +295,7 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
             "Target",
             EntityTag::new(77),
             "TargetStore",
-            &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
+            &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
         )
         .expect("target identity should build"),
         cardinality: AcceptedRelationCardinality::Single,
@@ -307,7 +307,7 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
 
 #[test]
 fn scalar_relation_target_key_kind_validation_accepts_128_bit_lanes() {
-    for key_kind in [PersistedFieldKind::Int128, PersistedFieldKind::Nat128] {
+    for key_kind in [AcceptedFieldKind::Int128, AcceptedFieldKind::Nat128] {
         let relation = relation(3, key_kind);
 
         validate_scalar_relation_target_primary_key_kind(&relation)
@@ -318,9 +318,9 @@ fn scalar_relation_target_key_kind_validation_accepts_128_bit_lanes() {
 #[test]
 fn relation_scalar_slot_fast_path_excludes_structural_128_bit_lanes() {
     for key_kind in [
-        PersistedFieldKind::Int64,
-        PersistedFieldKind::Nat64,
-        PersistedFieldKind::Ulid,
+        AcceptedFieldKind::Int64,
+        AcceptedFieldKind::Nat64,
+        AcceptedFieldKind::Ulid,
     ] {
         let relation = relation(3, key_kind);
         assert!(
@@ -333,7 +333,7 @@ fn relation_scalar_slot_fast_path_excludes_structural_128_bit_lanes() {
         );
     }
 
-    for key_kind in [PersistedFieldKind::Int128, PersistedFieldKind::Nat128] {
+    for key_kind in [AcceptedFieldKind::Int128, AcceptedFieldKind::Nat128] {
         let relation = relation(3, key_kind);
         assert!(
             !relation_scalar_slot_fast_path_key_kind_supported(
@@ -357,12 +357,12 @@ fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
     for (ordinal, key_kind, target_component) in [
         (
             3,
-            PersistedFieldKind::Int128,
+            AcceptedFieldKind::Int128,
             PrimaryKeyComponent::Int128(i128::MIN + 91),
         ),
         (
             4,
-            PersistedFieldKind::Nat128,
+            AcceptedFieldKind::Nat128,
             PrimaryKeyComponent::Nat128(u128::MAX - 91),
         ),
     ] {
@@ -418,7 +418,7 @@ fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
         path: "Source",
         entity_tag: EntityTag::new(9),
     };
-    let relation = relation(5, PersistedFieldKind::Nat64);
+    let relation = relation(5, AcceptedFieldKind::Nat64);
     let source_primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
     let target_key = PrimaryKeyValue::Composite(
         CompositePrimaryKeyValue::try_from_components(&[
@@ -467,7 +467,7 @@ fn reverse_relation_key_size_evidence_is_linear_in_source_and_target_identity() 
         path: "Source",
         entity_tag: EntityTag::new(9),
     };
-    let relation = relation(5, PersistedFieldKind::Nat64);
+    let relation = relation(5, AcceptedFieldKind::Nat64);
     let scalar_target = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7));
     let scalar_source = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
     let composite_target = PrimaryKeyValue::Composite(

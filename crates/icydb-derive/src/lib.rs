@@ -78,6 +78,12 @@ pub fn derive_field_projection(input: TokenStream) -> TokenStream {
     field_projection::derive_field_projection(input.into()).into()
 }
 
+/// Derive authored input projection by stable generated field slot.
+#[proc_macro_derive(AuthoredFieldProjection)]
+pub fn derive_authored_field_projection(input: TokenStream) -> TokenStream {
+    field_projection::derive_authored_field_projection(input.into()).into()
+}
+
 /// Derive persisted-row slot materialization and projection helpers.
 #[proc_macro_derive(PersistedRow, attributes(icydb))]
 pub fn derive_persisted_row(input: TokenStream) -> TokenStream {

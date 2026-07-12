@@ -9,7 +9,7 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
             GroupedPaginationWindow, LoweredAccessError, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, ScalarContinuationContext, lower_access,
+            LoweredIndexRangeSpec, ScalarContinuationContext, lower_access_with_schema_info,
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::{
@@ -738,7 +738,13 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         index_prefix_spec_invalid,
         index_range_specs,
         index_range_spec_invalid,
-    ) = match lower_access(authority.entity_tag(), &plan.access) {
+    ) = match lower_access_with_schema_info(
+        authority.entity_tag(),
+        &plan.access,
+        authority
+            .accepted_schema_info()
+            .ok_or_else(InternalError::query_executor_invariant)?,
+    ) {
         Ok(lowered) => {
             let (_, index_prefix_specs, index_range_specs) =
                 lowered.into_executable_and_index_specs();

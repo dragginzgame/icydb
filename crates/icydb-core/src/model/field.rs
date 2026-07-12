@@ -3,13 +3,13 @@
 //! Does not own: planner-wide query semantics or row-container orchestration.
 //! Boundary: field-level runtime schema surface used by storage and planning layers.
 
-use crate::{
-    traits::RuntimeValueKind,
-    types::{Decimal, EntityTag},
-    value::Value,
-};
+use crate::{traits::RuntimeValueKind, types::EntityTag};
+#[cfg(test)]
+use crate::{types::Decimal, value::Value};
+#[cfg(test)]
 use std::{borrow::Cow, cmp::Ordering};
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FieldStorageValidationError {
     RequiredFieldNull,
@@ -186,6 +186,16 @@ pub enum FieldDatabaseDefault {
     /// Generated schema code may provide this once database defaults are
     /// explicitly authored, but implicit Rust defaults must not flow here.
     EncodedSlotPayload(&'static [u8]),
+    /// Name-based unit-enum default awaiting accepted-catalog admission.
+    ///
+    /// This variant is generated proposal metadata only. It must resolve to
+    /// canonical IDs before an accepted schema snapshot is persisted.
+    AuthoredEnumUnit {
+        /// Generated enum schema path.
+        enum_path: &'static str,
+        /// Generated unit variant name.
+        variant: &'static str,
+    },
 }
 
 ///
@@ -431,6 +441,7 @@ impl FieldModel {
     /// predicate compatibility, so `FieldStorageDecode::Value` can accept
     /// open-ended structured payloads while still enforcing outer collection
     /// shape, decimal scale, and deterministic set/map ordering.
+    #[cfg(test)]
     pub(crate) fn validate_runtime_value_for_storage(
         &self,
         value: &Value,
@@ -463,6 +474,7 @@ impl FieldModel {
     // Normalize decimal payloads to this field's fixed scale before storage
     // encoding. Validation still runs after this step, so malformed shapes and
     // deterministic collection rules remain owned by the normal field contract.
+    #[cfg(test)]
     pub(crate) fn normalize_runtime_value_for_storage<'a>(
         &self,
         value: &'a Value,
@@ -683,6 +695,7 @@ impl FieldKind {
 
     /// Return true when this planner-frozen grouped field kind can stay on the
     /// borrowed grouped-key probe path without owned canonical materialization.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn supports_group_probe(&self) -> bool {
         match self {
@@ -692,44 +705,13 @@ impl FieldKind {
                     .is_none_or(Self::supports_group_probe)
             }),
             Self::Relation { key_kind, .. } => key_kind.supports_group_probe(),
-            Self::List(_)
-            | Self::Set(_)
-            | Self::Map { .. }
-            | Self::Structured { .. }
-            | Self::Unit => false,
-            Self::Account
-            | Self::Blob { .. }
-            | Self::Bool
-            | Self::Date
-            | Self::Decimal { .. }
-            | Self::Duration
-            | Self::Float32
-            | Self::Float64
-            | Self::Int8
-            | Self::Int16
-            | Self::Int32
-            | Self::Int64
-            | Self::Int128
-            | Self::IntBig { .. }
-            | Self::Principal
-            | Self::Subaccount
-            | Self::Text { .. }
-            | Self::Timestamp
-            | Self::Nat8
-            | Self::Nat16
-            | Self::Nat32
-            | Self::Nat64
-            | Self::Nat128
-            | Self::NatBig { .. }
-            | Self::Ulid => true,
+            Self::Decimal { .. } => true,
+            _ => super::field_kind_semantics::field_kind_has_identity_group_canonical_form(*self),
         }
     }
 
-    /// Match one runtime value against this field kind contract.
-    ///
-    /// This is the shared recursive field-kind acceptance boundary used by
-    /// persisted-row encoding, mutation-save validation, and aggregate field
-    /// extraction.
+    /// Match one runtime value against generated model metadata in tests.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn accepts_value(&self, value: &Value) -> bool {
         match (self, value) {
@@ -770,13 +752,10 @@ impl FieldKind {
                 items.iter().all(|item| inner.accepts_value(item))
             }
             (Self::Map { key, value }, Value::Map(entries)) => {
-                if Value::validate_map_entries(entries.as_slice()).is_err() {
-                    return false;
-                }
-
-                entries.iter().all(|(entry_key, entry_value)| {
-                    key.accepts_value(entry_key) && value.accepts_value(entry_value)
-                })
+                Value::validate_map_entries(entries.as_slice()).is_ok()
+                    && entries.iter().all(|(entry_key, entry_value)| {
+                        key.accepts_value(entry_key) && value.accepts_value(entry_value)
+                    })
             }
             _ => false,
         }
@@ -788,6 +767,7 @@ impl FieldKind {
 // `db::schema`. Structured field kinds are intentionally not accepted here;
 // fields that persist open-ended structured payloads use
 // `FieldStorageDecode::Value` instead.
+#[cfg(test)]
 fn by_kind_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> bool {
     match (kind, value) {
         (FieldKind::Relation { key_kind, .. }, value) => {
@@ -820,6 +800,7 @@ fn by_kind_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) ->
 // `FieldStorageDecode::Value` fields persist an opaque runtime `Value` envelope,
 // so `FieldKind::Structured` must stay open-ended while outer collection/map
 // shapes still enforce the recursive structure the model owns.
+#[cfg(test)]
 fn value_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> bool {
     match (kind, value) {
         (FieldKind::Structured { .. }, _) => true,
@@ -851,6 +832,7 @@ fn value_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> b
 
 // Enforce fixed decimal scales through nested collection/map shapes before a
 // field-level runtime value is persisted.
+#[cfg(test)]
 fn ensure_decimal_scale_matches(
     kind: FieldKind,
     value: &Value,
@@ -899,6 +881,7 @@ fn ensure_decimal_scale_matches(
 /// before the field-level payload is encoded. This is write-side
 /// canonicalization; callers that validate already persisted bytes still use
 /// the exact scale check.
+#[cfg(test)]
 pub(crate) fn normalize_decimal_scale_for_storage(
     kind: FieldKind,
     value: &Value,
@@ -948,6 +931,7 @@ pub(crate) fn normalize_decimal_scale_for_storage(
 // Convert one decimal into the exact storage scale. Lower-scale values are
 // padded without changing their numeric value; higher-scale values use the same
 // round-half-away-from-zero policy as SQL/fluent decimal rounding.
+#[cfg(test)]
 fn decimal_with_storage_scale(decimal: Decimal, scale: u32) -> Option<Decimal> {
     match decimal.scale().cmp(&scale) {
         Ordering::Equal => Some(decimal),
@@ -960,6 +944,7 @@ fn decimal_with_storage_scale(decimal: Decimal, scale: u32) -> Option<Decimal> {
 
 // Normalize decimal items while preserving the original list allocation when
 // every item is already canonical for its nested field kind.
+#[cfg(test)]
 fn normalize_decimal_list_items(
     kind: FieldKind,
     items: &[Value],
@@ -979,6 +964,7 @@ fn normalize_decimal_list_items(
 
 // Normalize decimal keys and values while preserving the original map
 // allocation when every entry is already canonical for its nested field kind.
+#[cfg(test)]
 fn normalize_decimal_map_entries(
     key_kind: FieldKind,
     value_kind: FieldKind,
@@ -1006,6 +992,7 @@ fn normalize_decimal_map_entries(
 
 // Enforce bounded text/blob length through nested collection/map shapes before
 // a field-level runtime value is persisted.
+#[cfg(test)]
 fn ensure_scalar_max_len_matches(
     kind: FieldKind,
     value: &Value,
@@ -1061,6 +1048,7 @@ fn ensure_scalar_max_len_matches(
 
 // Enforce the canonical persisted ordering rules for set/map shapes before one
 // field-level runtime value becomes row bytes.
+#[cfg(test)]
 fn ensure_value_is_deterministic_for_storage(
     kind: FieldKind,
     value: &Value,

@@ -39,7 +39,6 @@ use crate::{
 ///
 
 struct GlobalDistinctFieldAggregateDispatcher {
-    field_name: String,
     field_slot: FieldSlot,
     needs_numeric: bool,
 }
@@ -101,10 +100,7 @@ impl GlobalDistinctFieldAggregateDispatcher {
             resolve_any_aggregate_target_slot_from_planner_slot(target_slot)
                 .map_err(AggregateFieldValueError::into_internal_error)?
         };
-        let field_name = target_slot.field().to_string();
-
         Ok(Self {
-            field_name,
             field_slot,
             needs_numeric: reducer_kind.needs_numeric_distinct_payload(),
         })
@@ -113,8 +109,7 @@ impl GlobalDistinctFieldAggregateDispatcher {
     // Extract the canonical distinct value and optional numeric payload from one
     // structural row view using one slot-reader pass.
     fn extract(&self, row_view: &RowView) -> Result<(Value, Option<Decimal>), InternalError> {
-        let distinct_value =
-            row_view.extract_orderable_field_value(self.field_name.as_str(), self.field_slot)?;
+        let distinct_value = row_view.extract_orderable_field_value(self.field_slot)?;
         let numeric_value = if self.needs_numeric {
             let Some(decimal) = coerce_numeric_decimal(&distinct_value) else {
                 return Err(AggregateFieldValueError::field_value_type_mismatch(

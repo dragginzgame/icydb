@@ -6,6 +6,7 @@ use crate::{
     db::executor::{
         aggregate::{
             EffectiveRuntimeFilterProgram, ExecutionContext, FieldSlot,
+            capability::accepted_field_kind_has_identity_group_canonical_form,
             runtime::grouped_fold::{
                 count::GroupedCountState,
                 metrics,
@@ -21,7 +22,6 @@ use crate::{
         pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
     },
     error::InternalError,
-    model::field_kind_has_identity_group_canonical_form,
     value::Value,
 };
 
@@ -277,8 +277,8 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_gro
     if let [field] = group_fields {
         let group_value = row_view.require_slot_owned(field.index())?;
         let identity_canonical_form = field
-            .kind()
-            .is_some_and(field_kind_has_identity_group_canonical_form);
+            .accepted_kind()
+            .is_some_and(accepted_field_kind_has_identity_group_canonical_form);
 
         return match (identity_canonical_form, precomputed_hash) {
             (true, Some(hash)) => Ok(GroupKey::from_single_canonical_group_value_with_hash(

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{LoweredAccess, LoweredAccessError, lower_access},
+        access::{LoweredAccess, LoweredAccessError, lower_access_with_schema_info},
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
@@ -238,16 +238,21 @@ impl PreparedAggregateStreamingInputs<'_> {
     pub(in crate::db::executor) fn lowered_access(
         &self,
     ) -> Result<LoweredAccess<'_, Value>, InternalError> {
-        lower_access(self.authority.entity_tag(), &self.logical_plan.access).map_err(
-            |err| match err {
-                LoweredAccessError::IndexPrefix => {
-                    ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-                }
-                LoweredAccessError::IndexRange => {
-                    ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
-                }
-            },
+        lower_access_with_schema_info(
+            self.authority.entity_tag(),
+            &self.logical_plan.access,
+            self.authority
+                .accepted_schema_info()
+                .ok_or_else(InternalError::query_executor_invariant)?,
         )
+        .map_err(|err| match err {
+            LoweredAccessError::IndexPrefix => {
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            }
+            LoweredAccessError::IndexRange => {
+                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
+            }
+        })
     }
 
     /// Return whether normalized plan semantics prove the aggregate window is empty.
@@ -380,7 +385,6 @@ pub(in crate::db::executor) enum PreparedScalarNumericPayload<'ctx> {
 ///
 
 pub(in crate::db::executor) struct PreparedScalarNumericBoundary<'ctx> {
-    pub(in crate::db::executor) target_field_name: String,
     pub(in crate::db::executor) field_slot: FieldSlot,
     pub(in crate::db::executor) op: PreparedScalarNumericOp,
     pub(in crate::db::executor) payload: PreparedScalarNumericPayload<'ctx>,
@@ -669,7 +673,6 @@ pub(in crate::db::executor) enum PreparedOrderSensitiveTerminalOp {
         kind: AggregateKind,
     },
     FieldOrder {
-        target_field_name: String,
         field_slot: FieldSlot,
         op: PreparedFieldOrderSensitiveTerminalOp,
     },

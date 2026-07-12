@@ -9,8 +9,6 @@ mod identity;
 use crate::db::commit::CommitSchemaFingerprint;
 #[cfg(test)]
 use crate::db::schema::SchemaVersion;
-#[cfg(feature = "sql-explain")]
-use crate::db::schema::accepted_schema_cache_fingerprint;
 use crate::{
     db::{
         DbSession, Query, QueryError, TraceReuseArtifactClass, TraceReuseEvent,
@@ -335,24 +333,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(visibility)
     }
 
-    #[cfg(feature = "sql-explain")]
-    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority(
-        &self,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        query: &StructuralQuery,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let schema_fingerprint =
-            accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
-
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
-            authority,
-            accepted_schema,
-            schema_fingerprint,
-            query,
-        )
-    }
-
     #[cfg(feature = "sql")]
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
         &self,
@@ -616,6 +596,7 @@ impl<C: CanisterKind> DbSession<C> {
         cache_method_version: u8,
     ) -> QueryPlanCacheKey {
         let schema_identity = SchemaCacheIdentity::new(
+            crate::db::schema::AcceptedSchemaRevision::NONE,
             schema_version,
             crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             schema_fingerprint,
@@ -640,6 +621,7 @@ impl<C: CanisterKind> DbSession<C> {
         cache_method_version: u8,
     ) -> QueryPlanCacheKey {
         let schema_identity = SchemaCacheIdentity::new(
+            crate::db::schema::AcceptedSchemaRevision::NONE,
             schema_version,
             schema_fingerprint_method_version,
             schema_fingerprint,

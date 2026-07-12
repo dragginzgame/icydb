@@ -23,9 +23,18 @@ fn field_slot_for_test<E>(field: &str) -> crate::db::query::plan::FieldSlot
 where
     E: EntityKind,
 {
-    crate::db::query::plan::FieldSlot::resolve(E::MODEL, field).unwrap_or_else(|| {
-        crate::db::query::plan::FieldSlot::from_test_slot(usize::MAX, field.to_string())
-    })
+    let Some(index) = E::MODEL.resolve_field_slot(field) else {
+        return crate::db::query::plan::FieldSlot::from_test_slot(usize::MAX, field);
+    };
+    let Some(model_field) = E::MODEL.fields().get(index) else {
+        return crate::db::query::plan::FieldSlot::from_test_slot(index, field);
+    };
+
+    crate::db::query::plan::FieldSlot::from_test_accepted_kind(
+        index,
+        field,
+        crate::db::schema::AcceptedFieldKind::from_model_kind(model_field.kind()),
+    )
 }
 
 fn remove_pushdown_row_data(id: u128) {

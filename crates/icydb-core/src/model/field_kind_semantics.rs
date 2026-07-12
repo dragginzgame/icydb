@@ -6,7 +6,7 @@
 use crate::{
     model::field::FieldKind,
     types::{Account, Decimal, Float32, Float64, IntBig, NatBig, Principal, Ulid},
-    value::{Value, ValueEnum},
+    value::Value,
 };
 use std::str::FromStr;
 
@@ -19,6 +19,7 @@ use std::str::FromStr;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 enum FieldKindNumericClass {
     Signed64,
     Unsigned64,
@@ -39,8 +40,10 @@ enum FieldKindNumericClass {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 enum FieldKindScalarClass {
     Boolean,
+    EqualityOnly,
     Numeric(FieldKindNumericClass),
     Text,
     OrderedOpaque,
@@ -56,6 +59,7 @@ enum FieldKindScalarClass {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 enum FieldKindCategory {
     Scalar(FieldKindScalarClass),
     Relation(FieldKindScalarClass),
@@ -63,8 +67,10 @@ enum FieldKindCategory {
     Structured { queryable: bool },
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl FieldKindCategory {
-    /// Return true when this category participates in numeric aggregates.
+    /// Return true when this generated-only category participates in numeric aggregates.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     const fn supports_aggregate_numeric(self) -> bool {
         matches!(
@@ -74,7 +80,8 @@ impl FieldKindCategory {
         )
     }
 
-    /// Return true when this category supports deterministic aggregate ordering.
+    /// Return true when this generated-only category has deterministic ordering.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     const fn supports_aggregate_ordering(self) -> bool {
         match self {
@@ -84,6 +91,7 @@ impl FieldKindCategory {
     }
 
     /// Return true when this category participates in predicate numeric widening.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     const fn supports_predicate_numeric_widen(self) -> bool {
         matches!(
@@ -112,10 +120,12 @@ impl FieldKindCategory {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "sql"))]
 pub(crate) struct FieldKindSemantics {
     category: FieldKindCategory,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl FieldKindSemantics {
     /// Build one runtime model-owned field-kind semantic contract.
     #[must_use]
@@ -129,19 +139,22 @@ impl FieldKindSemantics {
         self.category
     }
 
-    /// Return true when this field kind participates in numeric aggregates.
+    /// Return true when this generated-only kind participates in numeric aggregates.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(crate) const fn supports_aggregate_numeric(self) -> bool {
         self.category.supports_aggregate_numeric()
     }
 
-    /// Return true when this field kind supports deterministic aggregate ordering.
+    /// Return true when this generated-only kind has deterministic aggregate ordering.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(crate) const fn supports_aggregate_ordering(self) -> bool {
         self.category.supports_aggregate_ordering()
     }
 
     /// Return true when this field kind participates in predicate numeric widening.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(crate) const fn supports_predicate_numeric_widen(self) -> bool {
         self.category.supports_predicate_numeric_widen()
@@ -150,6 +163,7 @@ impl FieldKindSemantics {
 
 /// Return true when one single grouped field kind already arrives in canonical
 /// grouped-equality form.
+#[cfg(test)]
 #[must_use]
 pub(crate) const fn field_kind_has_identity_group_canonical_form(kind: FieldKind) -> bool {
     !matches!(
@@ -211,6 +225,7 @@ pub(crate) fn canonicalize_filter_literal_for_kind(
 
 /// Classify one runtime `FieldKind` through the runtime model-owned semantic contract.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics {
     match kind {
         FieldKind::Account
@@ -256,7 +271,10 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
                 FieldKindNumericClass::UnsignedWide,
             )))
         }
-        FieldKind::Enum { .. } | FieldKind::Text { .. } => {
+        FieldKind::Enum { .. } => FieldKindSemantics::new(FieldKindCategory::Scalar(
+            FieldKindScalarClass::EqualityOnly,
+        )),
+        FieldKind::Text { .. } => {
             FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Text))
         }
         FieldKind::Float32 | FieldKind::Float64 => {
@@ -280,6 +298,7 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
 
 // Reduce one relation key kind onto the scalar semantic class that adjacent
 // planner/executor capabilities are allowed to consume.
+#[cfg(any(test, feature = "sql"))]
 const fn classify_relation_scalar_class(kind: &FieldKind) -> FieldKindScalarClass {
     match classify_field_kind(kind).category() {
         FieldKindCategory::Scalar(class) | FieldKindCategory::Relation(class) => class,
@@ -289,10 +308,12 @@ const fn classify_relation_scalar_class(kind: &FieldKind) -> FieldKindScalarClas
     }
 }
 
-// Keep ordering eligibility derived from one scalar semantic family instead of
-// rebuilding ad hoc field-kind allowlists at each consumer.
+#[cfg(any(test, feature = "sql"))]
 const fn scalar_class_supports_ordering(class: FieldKindScalarClass) -> bool {
-    !matches!(class, FieldKindScalarClass::Opaque)
+    !matches!(
+        class,
+        FieldKindScalarClass::EqualityOnly | FieldKindScalarClass::Opaque
+    )
 }
 
 // Canonicalize one lossless field-key literal while keeping the grouped-key
@@ -320,7 +341,6 @@ fn canonicalize_lossless_field_literal_for_kind(
         },
         FieldKind::Enum { .. } => match value {
             Value::Enum(inner) => Some(Value::Enum(inner.clone())),
-            Value::Text(inner) => Some(Value::Enum(ValueEnum::loose(inner))),
             _ => None,
         },
         FieldKind::Float32 => match value {

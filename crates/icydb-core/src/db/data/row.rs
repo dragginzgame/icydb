@@ -61,7 +61,7 @@ impl CanonicalRow {
         entity: &E,
     ) -> Result<Self, InternalError>
     where
-        E: PersistedRow,
+        E: PersistedRow + crate::traits::EntityValue,
     {
         canonical_row_from_entity_for_generated_model_for_test(entity)
     }

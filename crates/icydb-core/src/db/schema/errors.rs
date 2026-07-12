@@ -57,6 +57,8 @@ pub enum SchemaLiteralValidationReason {
     LiteralTypeMismatch,
     ListElementTypeMismatch,
     EnumPathMismatch,
+    UnknownEnumVariant,
+    EnumBodyMismatch,
 }
 
 impl fmt::Display for SchemaLiteralValidationReason {
@@ -70,6 +72,10 @@ impl fmt::Display for SchemaLiteralValidationReason {
                 f.write_str("list literal does not match field element type")
             }
             Self::EnumPathMismatch => f.write_str("enum path does not match field enum type"),
+            Self::UnknownEnumVariant => f.write_str("enum variant is not accepted for field type"),
+            Self::EnumBodyMismatch => {
+                f.write_str("enum payload does not match the accepted variant contract")
+            }
         }
     }
 }

@@ -63,7 +63,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    pub(in crate::db::session::sql) fn compile_sql_query_with_execution_context<E>(
+    pub(in crate::db) fn compile_sql_query_with_execution_context<E>(
         &self,
         sql: &str,
     ) -> Result<
@@ -82,6 +82,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Compile one SQL update-surface string into the session-owned generic-free
     // semantic command artifact before execution.
+    #[cfg(test)]
     pub(in crate::db) fn compile_sql_update<E>(
         &self,
         sql: &str,
@@ -89,10 +90,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.compile_sql_update_with_cache_attribution::<E>(sql)
-            .map(|(compiled, _, _)| compiled)
+        self.compile_sql_update_with_execution_context::<E>(sql)
+            .map(|(context, _, _)| context.into_command())
     }
 
+    #[cfg(test)]
     pub(in crate::db::session::sql) fn compile_sql_update_with_cache_attribution<E>(
         &self,
         sql: &str,
@@ -107,10 +109,27 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Update)
+        self.compile_sql_update_with_execution_context::<E>(sql)
             .map(|(context, cache_attribution, phase_attribution)| {
                 (context.into_command(), cache_attribution, phase_attribution)
             })
+    }
+
+    pub(in crate::db) fn compile_sql_update_with_execution_context<E>(
+        &self,
+        sql: &str,
+    ) -> Result<
+        (
+            SqlCompiledCommandExecutionContext,
+            SqlCacheAttribution,
+            SqlCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Update)
     }
 
     // Reuse one internal compile shell for both outward SQL surfaces so query
@@ -153,7 +172,7 @@ impl<C: CanisterKind> DbSession<C> {
                 surface,
             )?;
         let context =
-            SqlCompiledCommandExecutionContext::new(compiled, catalog, accepted_authority);
+            SqlCompiledCommandExecutionContext::new(compiled, catalog, accepted_authority, surface);
 
         Ok((context, cache_attribution, phase_attribution))
     }

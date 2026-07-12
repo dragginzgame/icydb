@@ -21,7 +21,7 @@ pub(in crate::db::cursor) const MAX_CURSOR_TOKEN_BYTES: usize = 8 * 1024;
 
 const TOKEN_VARIANT_SCALAR: u8 = 1;
 const TOKEN_VARIANT_GROUPED: u8 = 2;
-const TOKEN_WIRE_VERSION: u8 = 1;
+const TOKEN_WIRE_VERSION: u8 = 2;
 
 const SLOT_MISSING: u8 = 0;
 const SLOT_PRESENT: u8 = 1;

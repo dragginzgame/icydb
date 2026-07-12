@@ -23,7 +23,7 @@ pub(in crate::db) use envelope::{
 };
 pub(in crate::db) use key::{
     EncodedValue, IndexExpressionSourceClass, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
-    derive_index_expression_value,
+    derive_index_expression_value, encode_accepted_index_literal_component,
 };
 #[cfg(test)]
 pub(in crate::db) use pk_equivalence::primary_key_matches_value;
@@ -40,8 +40,9 @@ pub(in crate::db) use predicate::{
 };
 pub(in crate::db) use range::{
     IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode, build_index_bounds_for_arity,
-    build_index_bounds_lowering_for_arity, build_index_prefix_bounds_for_encoded_components,
-    raw_keys_for_component_prefix_with_kind, starts_with_component_bounds,
+    build_index_bounds_lowering_for_arity, build_index_component_range_with_encoded_prefix,
+    build_index_prefix_bounds_for_encoded_components, raw_keys_for_component_prefix_with_kind,
+    starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{
     IndexEntryReader, IndexReadContract, PrimaryRowReader, SealedIndexEntryReader,

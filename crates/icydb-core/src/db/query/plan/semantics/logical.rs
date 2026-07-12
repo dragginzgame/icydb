@@ -11,7 +11,7 @@ use crate::{
         predicate::{IndexCompileTarget, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
-            EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
+            EffectiveRuntimeFilterProgram, ExecutionShapeSignature, FieldSlot, GroupPlan,
             GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedPlanStrategy,
             LogicalPlan, PlannerRouteProfile, PredicatePushdownDiagnostics, QueryMode,
             ResidualFilterContract, ResidualFilterShape, ResolvedOrder, ResolvedOrderField,
@@ -351,9 +351,36 @@ impl AccessPlannedQuery {
         model: &EntityModel,
         schema_info: &SchemaInfo,
     ) -> Result<(), InternalError> {
+        self.bind_group_field_slots_to_schema(schema_info)?;
         self.static_execution_planning_contract = Some(
             project_static_execution_planning_contract_for_model(model, schema_info, self)?,
         );
+
+        Ok(())
+    }
+
+    // Replace authoring-time model-only group slots with the accepted slots
+    // used by the executable plan. Scalar plans and explicit model-only schema
+    // views require no authority transition.
+    fn bind_group_field_slots_to_schema(
+        &mut self,
+        schema_info: &SchemaInfo,
+    ) -> Result<(), InternalError> {
+        if !schema_info.has_accepted_authority() {
+            return Ok(());
+        }
+        let LogicalPlan::Grouped(grouped) = &mut self.logical else {
+            return Ok(());
+        };
+
+        let accepted_slots = grouped
+            .group
+            .group_fields
+            .iter()
+            .map(|field_slot| FieldSlot::resolve_with_schema(schema_info, field_slot.field()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(InternalError::planner_executor_invariant)?;
+        grouped.group.group_fields = accepted_slots;
 
         Ok(())
     }

@@ -7,7 +7,10 @@ use crate::{
     db::key_taxonomy::PrimaryKeyValue,
     db::{
         Db,
-        data::{DecodedDataStoreKey, RawDataStoreKey, StructuralRowContract},
+        data::{
+            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey,
+            StructuralRowContract,
+        },
         direction::Direction,
         registry::StoreHandle,
         relation::{
@@ -20,7 +23,7 @@ use crate::{
                 source_row_references_relation_target_primary_key_value,
             },
         },
-        schema::ensure_accepted_schema_snapshot,
+        schema::ensure_accepted_catalog_snapshot_selection,
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
@@ -233,8 +236,19 @@ fn accepted_source_row_contract<S>(
 where
     S: EntityKind,
 {
-    let accepted = source_store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(schema_store, S::ENTITY_TAG, S::PATH, S::MODEL)
+    let selection = source_store.with_schema_mut(|schema_store| {
+        ensure_accepted_catalog_snapshot_selection(
+            schema_store,
+            S::ENTITY_TAG,
+            S::PATH,
+            S::Store::PATH,
+            S::MODEL,
+        )
     })?;
-    StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)
+    AcceptedStructuralRowAuthority::from_generated_compatible_catalog_selection(
+        S::PATH,
+        S::MODEL,
+        &selection,
+    )
+    .map(AcceptedStructuralRowAuthority::into_row_contract)
 }

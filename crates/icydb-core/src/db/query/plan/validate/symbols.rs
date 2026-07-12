@@ -31,20 +31,14 @@ pub(in crate::db) fn resolve_group_field_slot_with_schema(
     schema: &SchemaInfo,
     field: &str,
 ) -> Result<FieldSlot, PlanError> {
-    let index = schema
-        .field_slot_index(field)
-        .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))?;
     let model_field = model
         .fields()
         .iter()
         .find(|model_field| model_field.name() == field)
         .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))?;
 
-    Ok(FieldSlot {
-        index,
-        field: model_field.name().to_string(),
-        kind: Some(model_field.kind()),
-    })
+    FieldSlot::resolve_with_schema(schema, model_field.name())
+        .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))
 }
 
 /// Resolve one aggregate target field through schema slot authority.
@@ -57,20 +51,14 @@ pub(in crate::db) fn resolve_aggregate_target_field_slot_with_schema(
     schema: &SchemaInfo,
     field: &str,
 ) -> Result<FieldSlot, QueryError> {
-    let index = schema
-        .field_slot_index(field)
-        .ok_or_else(|| QueryError::unknown_aggregate_target_field(field))?;
     let model_field = model
         .fields()
         .iter()
         .find(|model_field| model_field.name() == field)
         .ok_or_else(|| QueryError::unknown_aggregate_target_field(field))?;
 
-    Ok(FieldSlot {
-        index,
-        field: model_field.name().to_string(),
-        kind: Some(model_field.kind()),
-    })
+    FieldSlot::resolve_with_schema(schema, model_field.name())
+        .ok_or_else(|| QueryError::unknown_aggregate_target_field(field))
 }
 
 /// Resolve one grouped aggregate target field into one schema field type.

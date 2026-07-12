@@ -29,7 +29,9 @@ fn capture_mutation_commit_classes<R>(
 
 fn public_projection_rows<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>>
 where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let result = session
         .execute_sql_query::<E>(sql)
@@ -47,7 +49,9 @@ where
 #[cfg(feature = "sql-explain")]
 fn public_explain_text<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
 where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let result = session
         .execute_sql_query::<E>(sql)
@@ -143,7 +147,7 @@ fn journaled_session_write_read_and_index_query_round_trip_while_live() {
 }
 
 #[test]
-fn journaled_session_writes_append_journal_and_leave_canonical_btrees_untouched() {
+fn journaled_session_writes_append_journal_after_schema_bootstrap_is_canonical() {
     reset_journaled_session_sql_store();
     let session = journaled_sql_session();
     seed_journaled_session_entities(&session);
@@ -168,8 +172,8 @@ fn journaled_session_writes_append_journal_and_leave_canonical_btrees_untouched(
         assert_eq!(store.len(), 1);
         assert_eq!(
             store.canonical_len_for_tests(),
-            0,
-            "live schema reconciliation must not fold into canonical schema BTree",
+            3,
+            "catalog bootstrap should persist the entity snapshot, immutable bundle, and current root",
         );
     });
     JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {

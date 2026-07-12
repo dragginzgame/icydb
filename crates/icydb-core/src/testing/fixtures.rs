@@ -368,6 +368,13 @@ macro_rules! __icydb_test_entity_traits {
 macro_rules! __icydb_test_entity_value {
     ($entity:ident, none $(,)?) => {};
     ($entity:ident, id_field($id_field:ident) $(,)?) => {
+        impl $crate::traits::AuthoredFieldProjection for $entity {
+            fn get_input_value_by_index(&self, index: usize) -> Option<$crate::value::InputValue> {
+                $crate::traits::FieldProjection::get_value_by_index(self, index)
+                    .map($crate::value::InputValue::from)
+            }
+        }
+
         impl $crate::traits::EntityValue for $entity {
             fn id(&self) -> $crate::types::Id<Self> {
                 $crate::types::Id::from_key(self.$id_field)
@@ -375,6 +382,13 @@ macro_rules! __icydb_test_entity_value {
         }
     };
     ($entity:ident, key($key_expr:expr) $(,)?) => {
+        impl $crate::traits::AuthoredFieldProjection for $entity {
+            fn get_input_value_by_index(&self, index: usize) -> Option<$crate::value::InputValue> {
+                $crate::traits::FieldProjection::get_value_by_index(self, index)
+                    .map($crate::value::InputValue::from)
+            }
+        }
+
         impl $crate::traits::EntityValue for $entity {
             fn id(&self) -> $crate::types::Id<Self> {
                 $crate::types::Id::from_key(($key_expr)(self))

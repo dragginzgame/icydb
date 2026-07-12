@@ -394,7 +394,9 @@ fn assert_projection_rows_match<E>(
     expected_rows: ProjectedRows,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let rows = statement_projection_rows::<E>(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection rows should execute: {err:?}"));
@@ -411,7 +413,9 @@ fn assert_projection_row_case_matrix<E>(
     session: &DbSession<SessionSqlCanister>,
     cases: &[(&str, ProjectedRows, &str)],
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     for (sql, expected_rows, context) in cases {
         assert_projection_rows_match::<E>(session, sql, expected_rows.clone(), context);

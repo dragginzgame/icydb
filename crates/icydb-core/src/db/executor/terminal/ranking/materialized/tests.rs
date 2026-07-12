@@ -11,16 +11,12 @@ use crate::{
 use std::cmp::Ordering;
 
 fn nat_field_slot() -> FieldSlot {
-    FieldSlot {
-        index: 0,
-        kind: FieldKind::Nat64,
-    }
+    FieldSlot::from_test_model_kind(0, FieldKind::Nat64)
 }
 
 #[test]
 fn compare_ranked_keys_and_values_desc_uses_value_then_key_order() {
     let ordering = compare_ranked_keys_and_values(
-        "score",
         nat_field_slot(),
         &2_u64,
         &Value::Nat64(9),
@@ -32,7 +28,6 @@ fn compare_ranked_keys_and_values_desc_uses_value_then_key_order() {
     assert_eq!(ordering, Ordering::Less);
 
     let tie_break_ordering = compare_ranked_keys_and_values(
-        "score",
         nat_field_slot(),
         &1_u64,
         &Value::Nat64(7),
@@ -54,7 +49,6 @@ fn apply_ranked_take_window_keeps_smallest_bottom_k_in_final_order() {
     ];
 
     apply_ranked_take_window(
-        "score",
         nat_field_slot(),
         &mut ranked_rows,
         2,

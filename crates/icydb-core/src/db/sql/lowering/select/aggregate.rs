@@ -3,7 +3,7 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                canonicalize_grouped_having_numeric_literal_for_field_kind,
+                canonicalize_grouped_having_numeric_literal_for_slot,
                 expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
                 resolve_group_field_slot_with_schema,
             },
@@ -270,8 +270,7 @@ fn canonicalize_grouped_having_compare_literals(
         return None;
     };
     let field_slot = resolve_group_field_slot_with_schema(model, schema, field.as_str()).ok()?;
-    let canonical =
-        canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), value)?;
+    let canonical = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, value)?;
 
     Some(Expr::Literal(canonical))
 }

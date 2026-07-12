@@ -32,7 +32,7 @@ use crate::{
             },
         },
         key_taxonomy::PrimaryKeyValue,
-        schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
+        schema::{AcceptedFieldDecodeContract, AcceptedFieldKind},
     },
     error::InternalError,
     model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
@@ -533,7 +533,7 @@ impl<'a> StructuralSlotReader<'a> {
         view: &ValueStorageView<'view>,
     ) -> Result<Option<ScalarSlotValueRef<'view>>, InternalError> {
         let value = match field.kind() {
-            PersistedFieldKind::Bool if view.is_bool() => {
+            AcceptedFieldKind::Bool if view.is_bool() => {
                 ScalarValueRef::Bool(view.as_bool().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),
@@ -542,7 +542,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            PersistedFieldKind::Blob { .. } if view.is_blob() => {
+            AcceptedFieldKind::Blob { .. } if view.is_blob() => {
                 ScalarValueRef::Blob(view.as_blob().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),
@@ -551,7 +551,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            PersistedFieldKind::Int64 if view.is_i64() => {
+            AcceptedFieldKind::Int64 if view.is_i64() => {
                 ScalarValueRef::Int(view.as_i64().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),
@@ -560,7 +560,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            PersistedFieldKind::Text { .. } if view.is_text() => {
+            AcceptedFieldKind::Text { .. } if view.is_text() => {
                 ScalarValueRef::Text(view.as_text().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),
@@ -569,7 +569,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            PersistedFieldKind::Nat64 if view.is_u64() => {
+            AcceptedFieldKind::Nat64 if view.is_u64() => {
                 ScalarValueRef::Nat(view.as_u64().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),
@@ -769,6 +769,12 @@ impl SlotReader for StructuralSlotReader<'_> {
 
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
         Ok(Some(self.required_cached_value(slot)?.clone()))
+    }
+
+    fn runtime_enum_context(&self) -> Option<&dyn crate::traits::RuntimeEnumContext> {
+        self.contract
+            .accepted_enum_catalog_handle()
+            .map(|handle| handle.catalog() as &dyn crate::traits::RuntimeEnumContext)
     }
 }
 

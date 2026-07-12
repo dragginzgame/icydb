@@ -21,8 +21,9 @@ use crate::{
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
         },
-        schema::{AcceptedSchemaSnapshot, SchemaInfo},
+        schema::SchemaInfo,
         session::{
+            AcceptedSchemaCatalogContext,
             query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
             sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
         },
@@ -89,15 +90,13 @@ impl<C: CanisterKind> DbSession<C> {
     fn try_map_cached_sql_query_explain_plan_for_accepted_authority<T>(
         &self,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         structural: &StructuralQuery,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
     ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
         let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority(
-                authority,
-                accepted_schema,
-                structural,
+            .cached_shared_query_plan_for_accepted_authority_with_catalog(
+                authority, catalog, structural,
             )?;
         let mapped = map(prepared_plan.logical_plan())?;
 
@@ -109,14 +108,12 @@ impl<C: CanisterKind> DbSession<C> {
     fn cached_sql_query_explain_plan_for_accepted_authority(
         &self,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         structural: &StructuralQuery,
     ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError> {
         let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority(
-                authority,
-                accepted_schema,
-                structural,
+            .cached_shared_query_plan_for_accepted_authority_with_catalog(
+                authority, catalog, structural,
             )?;
 
         Ok((prepared_plan.logical_plan().clone(), cache_attribution))
@@ -126,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
         if !lowered.is_explain_lane() {
@@ -136,7 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(rendered) = self.render_lowered_sql_explain_plan_or_json_for_authority(
             lowered,
             authority.clone(),
-            accepted_schema,
+            catalog,
             schema_info,
         )? {
             return Ok(rendered);
@@ -156,7 +153,7 @@ impl<C: CanisterKind> DbSession<C> {
                 verbose,
                 command,
                 authority,
-                accepted_schema,
+                catalog,
                 schema_info,
             );
         }
@@ -170,7 +167,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         schema_info: &SchemaInfo,
     ) -> Result<Option<String>, QueryError> {
         let Some((mode, _, query)) = lowered.explain_query() else {
@@ -192,7 +189,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
         let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority,
-            accepted_schema,
+            catalog,
             &structural,
             |plan| {
                 let explain = plan.explain();
@@ -220,7 +217,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         schema_info: &SchemaInfo,
     ) -> Result<Option<String>, QueryError> {
         let Some((
@@ -243,7 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
             let (mut plan, cache_attribution) = self
                 .cached_sql_query_explain_plan_for_accepted_authority(
                     authority.clone(),
-                    accepted_schema,
+                    catalog,
                     &structural,
                 )?;
             let visible_indexes = self
@@ -271,7 +268,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority.clone(),
-            accepted_schema,
+            catalog,
             &structural,
             |plan| {
                 let route_facts = freeze_load_execution_route_facts_for_authority(&authority, plan)
@@ -312,13 +309,13 @@ impl<C: CanisterKind> DbSession<C> {
     fn try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority<T>(
         &self,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         command: &SqlGlobalAggregateCommand,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
         let (mapped, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority,
-            accepted_schema,
+            catalog,
             command.query(),
             map,
         )?;
@@ -335,7 +332,7 @@ impl<C: CanisterKind> DbSession<C> {
         verbose: bool,
         command: SqlGlobalAggregateCommand,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
         let strategies = command.strategies();
@@ -344,7 +341,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlExplainMode::Plan => self
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
-                    accepted_schema,
+                    catalog,
                     &command,
                     |plan| Ok(plan.explain().render_text_canonical()),
                 ),
@@ -353,7 +350,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 self.try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority.clone(),
-                    accepted_schema,
+                    catalog,
                     &command,
                     |plan| {
                         self.render_global_aggregate_execution_explain(
@@ -371,7 +368,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 self.try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority.clone(),
-                    accepted_schema,
+                    catalog,
                     &command,
                     |plan| {
                         self.render_global_aggregate_execution_explain_json(
@@ -387,7 +384,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlExplainMode::Json => self
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
-                    accepted_schema,
+                    catalog,
                     &command,
                     |plan| Ok(plan.explain().render_json_canonical()),
                 ),

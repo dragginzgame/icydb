@@ -58,7 +58,7 @@ macro_rules! sample_value_for_scalar {
         Value::Duration(Duration::from_secs(1))
     };
     (Enum) => {
-        Value::Enum(ValueEnum::loose("example"))
+        Value::Enum(ValueEnum::test_unit(1, 1))
     };
     (Float32) => {
         Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite"))
@@ -167,7 +167,7 @@ fn canonical_tag_and_rank_are_stable() {
         (Value::Date(Date::new(2024, 1, 2)), 4),
         (Value::Decimal(Decimal::new(123, 2)), 5),
         (Value::Duration(Duration::from_secs(1)), 6),
-        (Value::Enum(ValueEnum::loose("example")), 7),
+        (Value::Enum(ValueEnum::test_unit(1, 1)), 7),
         (
             Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite")),
             8,
@@ -220,7 +220,7 @@ fn canonical_ranks_are_unique_across_value_variants() {
         Value::Date(Date::new(2024, 1, 2)),
         Value::Decimal(Decimal::new(123, 2)),
         Value::Duration(Duration::from_secs(1)),
-        Value::Enum(ValueEnum::loose("example")),
+        Value::Enum(ValueEnum::test_unit(1, 1)),
         Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite")),
         Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite")),
         Value::Int64(-7),
@@ -296,7 +296,7 @@ fn coercion_family_surface_is_stable_for_core_variants() {
         CoercionFamily::Identifier
     );
     assert_eq!(
-        Value::Enum(ValueEnum::loose("V")).coercion_family(),
+        Value::Enum(ValueEnum::test_unit(1, 1)).coercion_family(),
         CoercionFamily::Enum
     );
     assert_eq!(
@@ -464,13 +464,12 @@ fn try_from_map_vec_returns_schema_invariant_error() {
 
 #[test]
 fn canonical_cmp_key_is_total_for_enum_payloads() {
-    let left = Value::Enum(
-        ValueEnum::new("Any", Some("test::Enum")).with_payload(Value::from_slice(&[v_i(1)])),
-    );
-    let right = Value::Enum(
-        ValueEnum::new("Any", Some("test::Enum"))
-            .with_payload(Value::from_map(vec![(v_txt("k"), v_i(1))]).expect("map payload")),
-    );
+    let left = Value::Enum(ValueEnum::test_payload(1, 1, Value::from_slice(&[v_i(1)])));
+    let right = Value::Enum(ValueEnum::test_payload(
+        1,
+        1,
+        Value::from_map(vec![(v_txt("k"), v_i(1))]).expect("map payload"),
+    ));
 
     let forward = Value::canonical_cmp_key(&left, &right);
     let reverse = Value::canonical_cmp_key(&right, &left);

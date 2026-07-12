@@ -7,22 +7,22 @@
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        data::{FieldSlot, StructuralPatch},
+        data::{AuthoredStructuralPatch, FieldSlot},
         executor::EntityAuthority,
         schema::{
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
-            SchemaInfo, accepted_commit_schema_fingerprint,
-            canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
-            literal_matches_type,
+            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
+            SchemaFieldWritePolicy, SchemaInfo, canonicalize_strict_sql_literal_for_persisted_kind,
+            input_value_from_strict_sql_literal_for_persisted_kind,
         },
         session::{
-            accepted_schema::{AcceptedSaveContract, accepted_save_contract_for_descriptor},
+            AcceptedSchemaCatalogContext,
+            accepted_schema::{AcceptedSaveContract, accepted_save_contract_for_catalog_context},
             sql::execute::write_returning::validate_sql_returning_projection_fields,
         },
         sql::parser::SqlReturningProjection,
     },
     traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
-    value::Value,
+    value::{InputValue, Value},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
@@ -128,28 +128,25 @@ pub(super) fn require_sql_write_policy_plan<T>(plan: Option<T>) -> Result<T, Que
 }
 
 pub(super) fn accepted_sql_write_save_contract<E>(
-    schema: &AcceptedSchemaSnapshot,
+    catalog: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    schema_info: Option<SchemaInfo>,
-) -> Result<AcceptedSaveContract, QueryError>
+) -> AcceptedSaveContract
 where
     E: EntityKind,
 {
-    if let Some(schema_info) = schema_info {
-        let row_decode_contract = descriptor.row_decode_contract();
-        let mutation_row_decode_contract = row_decode_contract.clone();
-        let schema_fingerprint =
-            accepted_commit_schema_fingerprint(schema).map_err(QueryError::execute)?;
+    let contract = accepted_save_contract_for_catalog_context::<E>(catalog, descriptor);
+    debug_assert_eq!(
+        contract.0.accepted_schema_revision(),
+        Some(catalog.revision())
+    );
+    debug_assert!(
+        contract
+            .0
+            .enum_catalog()
+            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.enum_catalog()))
+    );
 
-        return Ok((
-            row_decode_contract,
-            mutation_row_decode_contract,
-            schema_info,
-            schema_fingerprint,
-        ));
-    }
-
-    accepted_save_contract_for_descriptor::<E>(schema, descriptor).map_err(QueryError::execute)
+    contract
 }
 
 fn accepted_write_field_slot(
@@ -165,10 +162,10 @@ fn accepted_write_field_slot(
 
 pub(super) fn sql_write_patch_set_accepted_field(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: StructuralPatch,
+    patch: AuthoredStructuralPatch,
     field_name: &str,
-    value: Value,
-) -> Result<StructuralPatch, QueryError> {
+    value: InputValue,
+) -> Result<AuthoredStructuralPatch, QueryError> {
     let slot = accepted_write_field_slot(descriptor, field_name)?;
 
     Ok(patch.set(slot, value))
@@ -185,25 +182,28 @@ fn write_policy_for_accepted_name(
     Ok(field.write_policy())
 }
 
-pub(super) fn sql_write_value_for_accepted_field(
+pub(super) fn sql_write_input_for_accepted_field(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
     value: &Value,
-) -> Result<Value, QueryError> {
+) -> Result<InputValue, QueryError> {
     let accepted_kind = descriptor
         .field_kind_by_name(field_name)
         .ok_or_else(QueryError::invariant)?;
-    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(accepted_kind, value)
-        .unwrap_or_else(|| value.clone());
 
-    let field_type = field_type_from_persisted_kind(accepted_kind);
-    if !literal_matches_type(&normalized, &field_type) {
-        return Err(QueryError::sql_write_boundary(
-            SqlWriteBoundaryCode::InvalidFieldLiteral,
-        ));
-    }
+    sql_write_input_for_accepted_kind(accepted_kind, value)
+}
 
-    Ok(normalized)
+fn invalid_sql_write_field_literal() -> QueryError {
+    QueryError::sql_write_boundary(SqlWriteBoundaryCode::InvalidFieldLiteral)
+}
+
+fn sql_write_input_for_accepted_kind(
+    accepted_kind: &AcceptedFieldKind,
+    value: &Value,
+) -> Result<InputValue, QueryError> {
+    input_value_from_strict_sql_literal_for_persisted_kind(accepted_kind, value)
+        .ok_or_else(invalid_sql_write_field_literal)
 }
 
 pub(super) fn reject_explicit_sql_write_to_managed_field(
@@ -242,37 +242,103 @@ pub(super) fn reject_explicit_sql_write_to_generated_field(
 
 impl<C: CanisterKind> DbSession<C> {
     pub(super) fn accepted_sql_write_authority_schema_info<E>(
-        schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(EntityAuthority, SchemaInfo), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let authority =
-            Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
-        let schema_info = authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?
-            .clone();
-
-        Ok((authority, schema_info))
+        catalog
+            .accepted_entity_authority_and_schema_info_for::<E>()
+            .map_err(QueryError::execute)
     }
 
     pub(super) fn with_checked_accepted_write_descriptor_for_returning<E, T>(
         &self,
+        catalog: Option<&AcceptedSchemaCatalogContext>,
         returning: Option<&SqlReturningProjection>,
         run: impl for<'a> FnOnce(
-            &'a AcceptedSchemaSnapshot,
+            &'a AcceptedSchemaCatalogContext,
             AcceptedRowLayoutRuntimeContract<'a>,
         ) -> Result<T, QueryError>,
     ) -> Result<T, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema = self
-            .ensure_accepted_schema_snapshot::<E>()
-            .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor_for_returning::<E>(&schema, returning)?;
+        if let Some(catalog) = catalog {
+            let descriptor = checked_accepted_write_descriptor_for_returning::<E>(
+                catalog.snapshot(),
+                returning,
+            )?;
+            return run(catalog, descriptor);
+        }
 
-        run(&schema, descriptor)
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
+            .map_err(QueryError::execute)?;
+        let descriptor =
+            checked_accepted_write_descriptor_for_returning::<E>(catalog.snapshot(), returning)?;
+
+        run(&catalog, descriptor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        db::query::intent::QueryExecutionError,
+        error::{ErrorDetail, QueryErrorDetail},
+    };
+
+    const fn enum_kind() -> AcceptedFieldKind {
+        AcceptedFieldKind::Enum {
+            type_id: crate::value::EnumTypeId::new(1).expect("test enum type ID should be valid"),
+        }
+    }
+
+    fn assert_invalid_enum_sql_literal(error: QueryError) {
+        let QueryError::Execute(QueryExecutionError::Unsupported(internal)) = error else {
+            panic!("expected unsupported SQL write boundary error");
+        };
+
+        assert!(matches!(
+            internal.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::SqlWriteBoundary { boundary }))
+                if *boundary == SqlWriteBoundaryCode::InvalidFieldLiteral
+        ));
+    }
+
+    #[test]
+    fn sql_enum_string_literal_remains_unresolved_until_accepted_patch_admission() {
+        let input =
+            sql_write_input_for_accepted_kind(&enum_kind(), &Value::Text("Active".to_string()))
+                .expect("target-typed enum string should become authored input");
+
+        assert_eq!(
+            input,
+            InputValue::Enum(crate::value::InputValueEnum::loose("Active"))
+        );
+    }
+
+    #[test]
+    fn sql_enum_target_rejects_non_label_scalar_literals() {
+        let err = sql_write_input_for_accepted_kind(&enum_kind(), &Value::Nat64(7))
+            .expect_err("numeric literal must not author an enum label");
+
+        assert_invalid_enum_sql_literal(err);
+    }
+
+    #[test]
+    fn sql_enum_target_defers_label_validation_to_accepted_patch_admission() {
+        for variant in ["Missing", "Loaded"] {
+            let input =
+                sql_write_input_for_accepted_kind(&enum_kind(), &Value::Text(variant.to_string()))
+                    .expect("enum text should remain unresolved until catalog admission");
+
+            assert_eq!(
+                input,
+                InputValue::Enum(crate::value::InputValueEnum::loose(variant))
+            );
+        }
     }
 }

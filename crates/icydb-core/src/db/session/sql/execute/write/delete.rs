@@ -8,15 +8,18 @@ use crate::{
         executor::DeleteProjectionBounds,
         query::intent::StructuralQuery,
         schema::SchemaInfo,
-        session::sql::{
-            SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
-            SqlPublicPrimaryKeyDeletePlan, SqlStatementResult, SqlValidatedDeletePlan,
-            classify_sql_delete_policy, combined_optional_row_bound,
-            execute::write_returning::{
-                projection_labels_from_accepted_write_descriptor,
-                sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
+        session::{
+            AcceptedSchemaCatalogContext,
+            sql::{
+                SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+                SqlPublicPrimaryKeyDeletePlan, SqlStatementResult, SqlValidatedDeletePlan,
+                classify_sql_delete_policy, combined_optional_row_bound,
+                execute::write_returning::{
+                    projection_labels_from_accepted_write_descriptor,
+                    sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
+                },
+                write_policy::SqlWriteExecutionBounds,
             },
-            write_policy::SqlWriteExecutionBounds,
         },
         sql::{
             lowering::bind_sql_delete_statement_structural_with_schema,
@@ -71,17 +74,21 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &StructuralQuery,
         returning: Option<&SqlReturningProjection>,
+        catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_sql_delete_statement_with_execution_bounds::<E>(query, returning, None)
+        self.execute_sql_delete_statement_with_execution_bounds::<E>(
+            query, returning, catalog, None,
+        )
     }
 
     fn execute_sql_delete_statement_with_execution_bounds<E>(
         &self,
         query: &StructuralQuery,
         returning: Option<&SqlReturningProjection>,
+        catalog: Option<&AcceptedSchemaCatalogContext>,
         execution_bounds: Option<SqlWriteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
@@ -107,8 +114,9 @@ impl<C: CanisterKind> DbSession<C> {
             }
             Some(returning) => {
                 self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+                    catalog,
                     Some(returning),
-                    |_schema, descriptor| {
+                    |catalog, descriptor| {
                         let columns = projection_labels_from_accepted_write_descriptor(&descriptor);
 
                         // Phase 2: returning deletes reuse the structural projection
@@ -130,6 +138,7 @@ impl<C: CanisterKind> DbSession<C> {
                                                 projection.value_rows(),
                                                 projection.row_count(),
                                                 returning,
+                                                catalog.enum_catalog(),
                                                 execution_bounds.map(|bounds| bounds.returning),
                                             )
                                         },
@@ -140,7 +149,13 @@ impl<C: CanisterKind> DbSession<C> {
                         let rows = rows.into_value_rows();
                         record_sql_write_delete_metrics(E::PATH, row_count, true);
 
-                        sql_returning_statement_projection(columns, rows, row_count, returning)
+                        sql_returning_statement_projection(
+                            catalog.enum_catalog(),
+                            columns,
+                            rows,
+                            row_count,
+                            returning,
+                        )
                     },
                 )
             }
@@ -173,7 +188,8 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             None,
-            |_schema, descriptor| {
+            None,
+            |_catalog, descriptor| {
                 let context =
                     SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
                 let report = classify_sql_delete_policy(sql, policy, context)?;
@@ -191,15 +207,17 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
+            None,
             statement.returning.as_ref(),
-            |schema, _descriptor| {
+            |catalog, _descriptor| {
                 let (_authority, schema_info) =
-                    Self::accepted_sql_write_authority_schema_info::<E>(schema)?;
+                    Self::accepted_sql_write_authority_schema_info::<E>(catalog)?;
                 let query = Self::sql_delete_query_from_statement::<E>(&schema_info, statement)?;
 
                 self.execute_sql_delete_statement_with_execution_bounds::<E>(
                     &query,
                     statement.returning.as_ref(),
+                    Some(catalog),
                     Some(execution_bounds),
                 )
             },

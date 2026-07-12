@@ -1,15 +1,20 @@
 use crate::{
+    db::predicate::{CompareOp, ComparePredicate, Predicate, normalize_enum_literals},
     db::schema::{
-        AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+        AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedRelationStrength,
+        AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
         PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-        SchemaInfo, SchemaRowLayout, SchemaVersion, literal_matches_type,
+        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout,
+        SchemaVersion, enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests,
+        literal_matches_type,
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
+        field::{
+            EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec,
+        },
         index::IndexModel,
     },
     testing::entity_model_from_static,
@@ -67,11 +72,33 @@ static INDEXED_MODEL: EntityModel = entity_model_from_static(
     &FIELDS,
     &INDEXED_INDEXES,
 );
+static ACCEPTED_STATUS_VARIANTS: [EnumVariantModel; 2] = [
+    EnumVariantModel::new("Active", None, FieldStorageDecode::ByKind),
+    EnumVariantModel::new("Draft", None, FieldStorageDecode::ByKind),
+];
+static ACCEPTED_STATUS_KIND: FieldKind = FieldKind::Enum {
+    path: "schema::info::tests::Status",
+    variants: &ACCEPTED_STATUS_VARIANTS,
+};
+
+fn accepted_status_schema_info() -> SchemaInfo {
+    let snapshot =
+        accepted_schema_with_name_kind(AcceptedFieldKind::from_model_kind(ACCEPTED_STATUS_KIND));
+    let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[ACCEPTED_STATUS_KIND])
+        .expect("status catalog should build");
+
+    SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
+        &MODEL,
+        &snapshot,
+        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL),
+        false,
+    )
+}
 
 // Build one accepted schema whose second field deliberately differs from
 // generated metadata so tests can prove `SchemaInfo` follows the persisted
 // top-level authority.
-fn accepted_schema_with_name_kind(kind: PersistedFieldKind) -> AcceptedSchemaSnapshot {
+fn accepted_schema_with_name_kind(kind: AcceptedFieldKind) -> AcceptedSchemaSnapshot {
     accepted_schema_with_name_kind_and_slots(kind, SchemaFieldSlot::new(1), SchemaFieldSlot::new(1))
 }
 
@@ -79,7 +106,7 @@ fn accepted_schema_with_name_kind(kind: PersistedFieldKind) -> AcceptedSchemaSna
 // field-snapshot slots. Owner-local tests use this to prove `SchemaInfo`
 // reads slot facts from accepted row layout, not duplicated field data.
 fn accepted_schema_with_name_kind_and_slots(
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     layout_slot: SchemaFieldSlot,
     field_slot: SchemaFieldSlot,
 ) -> AcceptedSchemaSnapshot {
@@ -100,7 +127,7 @@ fn accepted_schema_with_name_kind_and_slots(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -122,6 +149,125 @@ fn accepted_schema_with_name_kind_and_slots(
     ))
 }
 
+#[test]
+fn accepted_enum_predicate_normalization_uses_catalog_instead_of_generated_kind() {
+    let schema = accepted_status_schema_info();
+    let expected_type_id = schema
+        .enum_catalog()
+        .and_then(|catalog| catalog.type_id("schema::info::tests::Status"))
+        .expect("accepted status type ID");
+    assert!(matches!(
+        schema
+            .accepted_field_contract("name")
+            .map(|contract| contract.kind().clone()),
+        Some(AcceptedFieldKind::Enum { type_id }) if type_id == expected_type_id
+    ));
+    let predicate = Predicate::Compare(ComparePredicate::eq(
+        "name".to_string(),
+        Value::Text("Active".to_string()),
+    ));
+
+    let normalized = normalize_enum_literals(&schema, &predicate)
+        .expect("accepted enum literal should normalize through the catalog");
+    let Predicate::Compare(compare) = normalized else {
+        panic!("normalized predicate should remain a comparison");
+    };
+    let Value::Enum(value) = compare.value else {
+        panic!("normalized value should remain an enum");
+    };
+
+    let selection = schema
+        .enum_catalog()
+        .expect("accepted enum catalog")
+        .resolve_value(value.canonical())
+        .expect("canonical accepted enum value");
+    assert_eq!(selection.path(), "schema::info::tests::Status");
+    assert_eq!(selection.variant_name(), "Active");
+}
+
+#[test]
+fn accepted_enum_membership_normalization_is_catalog_checked_and_canonical() {
+    let schema = accepted_status_schema_info();
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("Draft".to_string()),
+            Value::Text("Active".to_string()),
+            Value::Text("Draft".to_string()),
+        ]),
+        crate::db::predicate::CoercionId::Strict,
+    ));
+
+    let normalized = normalize_enum_literals(&schema, &predicate)
+        .expect("accepted enum membership should normalize through the catalog");
+    let Predicate::Compare(compare) = normalized else {
+        panic!("normalized predicate should remain a comparison");
+    };
+    let Value::List(values) = compare.value else {
+        panic!("normalized membership should remain a list");
+    };
+
+    let catalog = schema.enum_catalog().expect("accepted enum catalog");
+    let names = values
+        .iter()
+        .map(|value| {
+            let Value::Enum(value) = value else {
+                panic!("normalized membership values must be canonical enums");
+            };
+            catalog
+                .resolve_value(value.canonical())
+                .expect("accepted enum value")
+                .variant_name()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["Active".to_string(), "Draft".to_string()]);
+}
+
+#[test]
+fn accepted_enum_predicate_normalization_rejects_unknown_variant() {
+    let schema = accepted_status_schema_info();
+    let predicate = Predicate::Compare(ComparePredicate::eq(
+        "name".to_string(),
+        Value::Text("Missing".to_string()),
+    ));
+
+    let error = normalize_enum_literals(&schema, &predicate)
+        .expect_err("unknown accepted enum variant must reject before planning");
+
+    assert!(matches!(
+        error,
+        crate::db::schema::ValidateError::InvalidLiteral {
+            field,
+            reason: crate::db::schema::SchemaLiteralValidationReason::UnknownEnumVariant,
+        } if field == "name"
+    ));
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn accepted_enum_sql_literal_canonicalization_uses_catalog() {
+    let schema = accepted_status_schema_info();
+
+    let canonical = schema
+        .canonicalize_strict_sql_literal("name", &Value::Text("Active".to_string()))
+        .expect("accepted SQL enum literal");
+    let Value::Enum(value) = canonical else {
+        panic!("accepted SQL enum literal must be canonical");
+    };
+    let selection = schema
+        .enum_catalog()
+        .expect("accepted enum catalog")
+        .resolve_value(value.canonical())
+        .expect("accepted enum value");
+    assert_eq!(selection.variant_name(), "Active");
+    assert_eq!(
+        schema.canonicalize_strict_sql_literal("name", &Value::Text("Missing".to_string())),
+        None,
+    );
+}
+
 fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
     AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),
@@ -140,7 +286,7 @@ fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -151,7 +297,7 @@ fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -168,7 +314,7 @@ fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 SchemaFieldSlot::new(1),
                 vec!["name".to_string()],
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 false,
             )]),
             None,
@@ -195,7 +341,7 @@ fn accepted_schema_with_composite_primary_key() -> AcceptedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -206,7 +352,7 @@ fn accepted_schema_with_composite_primary_key() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -217,7 +363,7 @@ fn accepted_schema_with_composite_primary_key() -> AcceptedSchemaSnapshot {
                 FieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -233,7 +379,7 @@ fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
         FieldId::new(2),
         SchemaFieldSlot::new(1),
         vec!["name".to_string()],
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         false,
     );
 
@@ -254,7 +400,7 @@ fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -265,7 +411,7 @@ fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -282,8 +428,8 @@ fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
                 Box::new(PersistedIndexExpressionSnapshot::new(
                     PersistedIndexExpressionOp::Lower,
                     source,
-                    PersistedFieldKind::Text { max_len: None },
-                    PersistedFieldKind::Text { max_len: None },
+                    AcceptedFieldKind::Text { max_len: None },
+                    AcceptedFieldKind::Text { max_len: None },
                     "expr:v1:LOWER(name)".to_string(),
                 )),
             )]),
@@ -304,7 +450,7 @@ fn cached_for_generated_entity_model_reuses_one_schema_instance() {
 
 #[test]
 fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
-    let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
+    let snapshot = accepted_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let schema = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
     let name_type = schema.field("name").expect("accepted field should exist");
@@ -320,7 +466,7 @@ fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
 #[test]
 fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
-    let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Nat64);
+    let snapshot = accepted_schema_with_name_kind(AcceptedFieldKind::Nat64);
     let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
     assert_eq!(
@@ -337,7 +483,7 @@ fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind(
 #[test]
 fn accepted_snapshot_schema_info_uses_persisted_sql_capabilities() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
-    let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
+    let snapshot = accepted_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
     let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
     let generated_name = generated
@@ -357,7 +503,7 @@ fn accepted_snapshot_schema_info_uses_persisted_sql_capabilities() {
 fn accepted_snapshot_schema_info_uses_row_layout_slot_authority() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
     let snapshot = accepted_schema_with_name_kind_and_slots(
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         SchemaFieldSlot::new(9),
         SchemaFieldSlot::new(1),
     );
@@ -386,7 +532,7 @@ fn accepted_snapshot_schema_info_exposes_ordered_primary_key_names() {
 fn accepted_snapshot_schema_info_uses_persisted_index_membership() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&INDEXED_MODEL);
     let unindexed_snapshot =
-        accepted_schema_with_name_kind(PersistedFieldKind::Text { max_len: None });
+        accepted_schema_with_name_kind(AcceptedFieldKind::Text { max_len: None });
     let indexed_snapshot = accepted_schema_with_name_index();
     let accepted_unindexed =
         SchemaInfo::from_accepted_snapshot_for_model(&INDEXED_MODEL, &unindexed_snapshot);
@@ -425,7 +571,7 @@ fn accepted_snapshot_schema_info_exposes_persisted_field_path_indexes() {
     assert_eq!(fields[0].path(), &["name".to_string()]);
     assert_eq!(
         fields[0].persisted_kind(),
-        Some(&PersistedFieldKind::Text { max_len: None })
+        Some(&AcceptedFieldKind::Text { max_len: None })
     );
     assert!(fields[0].ty().is_text());
     assert!(!fields[0].nullable());
@@ -464,11 +610,11 @@ fn accepted_snapshot_schema_info_exposes_persisted_expression_indexes() {
     assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
     assert_eq!(
         expression.input_kind(),
-        &PersistedFieldKind::Text { max_len: None }
+        &AcceptedFieldKind::Text { max_len: None }
     );
     assert_eq!(
         expression.output_kind(),
-        &PersistedFieldKind::Text { max_len: None }
+        &AcceptedFieldKind::Text { max_len: None }
     );
 
     let source = expression.source();
@@ -486,13 +632,13 @@ fn accepted_snapshot_schema_info_exposes_persisted_expression_indexes() {
 #[test]
 fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
-    let accepted_relation = accepted_schema_with_name_kind(PersistedFieldKind::Relation {
+    let accepted_relation = accepted_schema_with_name_kind(AcceptedFieldKind::Relation {
         target_path: "schema::info::tests::Target".to_string(),
         target_entity_name: "Target".to_string(),
         target_entity_tag: EntityTag::new(7),
         target_store_path: "schema::info::tests::target_store".to_string(),
-        key_kind: Box::new(PersistedFieldKind::Ulid),
-        strength: PersistedRelationStrength::Strong,
+        key_kind: Box::new(AcceptedFieldKind::Ulid),
+        strength: AcceptedRelationStrength::Strong,
     })
     .persisted_snapshot()
     .clone()
@@ -527,7 +673,7 @@ fn accepted_snapshot_schema_info_uses_persisted_nested_leaf_type() {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -538,10 +684,10 @@ fn accepted_snapshot_schema_info_uses_persisted_nested_leaf_type() {
                 FieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Structured { queryable: true },
+                AcceptedFieldKind::Structured { queryable: true },
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["rank".to_string()],
-                    PersistedFieldKind::Blob { max_len: None },
+                    AcceptedFieldKind::Blob { max_len: None },
                     false,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Blob),

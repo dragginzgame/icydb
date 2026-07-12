@@ -7,15 +7,21 @@ mod update;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        data::StructuralPatch,
+        data::AuthoredStructuralPatch,
         executor::{EntityAuthority, MutationMode},
         query::intent::StructuralQuery,
         response::ResponseError,
-        schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo},
-        session::sql::{
-            CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
-            execute::write_returning::{sql_write_statement_result, validate_sql_returning_bounds},
-            write_policy::SqlWriteReturningBounds,
+        schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
+        session::{
+            AcceptedSchemaCatalogContext,
+            sql::{
+                CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandSurface,
+                SqlStatementResult,
+                execute::write_returning::{
+                    sql_write_statement_result, validate_sql_returning_bounds,
+                },
+                write_policy::SqlWriteReturningBounds,
+            },
         },
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlReturningProjection},
     },
@@ -28,8 +34,8 @@ use crate::{
 use authority::{
     accepted_sql_write_save_contract, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
-    sql_write_key_from_component_literals, sql_write_key_from_literal,
-    sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
+    sql_write_input_for_accepted_field, sql_write_key_from_component_literals,
+    sql_write_key_from_literal, sql_write_patch_set_accepted_field,
 };
 use candidate::{
     SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
@@ -92,30 +98,46 @@ where
 pub(super) fn execute_compiled_sql_write_with_default_cache<E, C>(
     session: &DbSession<C>,
     compiled: &CompiledSqlCommand,
+    catalog: Option<&AcceptedSchemaCatalogContext>,
+    surface: Option<SqlCompiledCommandSurface>,
 ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
 where
-    E: PersistedRow<Canister = C> + EntityValue,
+    E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     C: CanisterKind,
 {
     match compiled {
         CompiledSqlCommand::Delete { query, returning } => {
-            let result =
-                session.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
+            let result = session.execute_sql_delete_statement::<E>(
+                query.as_ref(),
+                returning.as_ref(),
+                catalog,
+            );
             Some(sql_write_statement_result_with_default_cache::<E, C>(
                 SqlWriteKind::Delete,
                 result,
             ))
         }
         CompiledSqlCommand::Insert(command) => {
-            let result = session
-                .execute_sql_insert_statement::<E>(command.statement(), command.source_query());
+            let result = if surface == Some(SqlCompiledCommandSurface::Update) {
+                session.execute_sql_insert_statement_with_update_surface_bounds::<E>(
+                    command.statement(),
+                    command.source_query(),
+                    catalog,
+                )
+            } else {
+                session.execute_sql_insert_statement::<E>(
+                    command.statement(),
+                    command.source_query(),
+                    catalog,
+                )
+            };
             Some(sql_write_statement_result_with_default_cache::<E, C>(
                 sql_insert_write_kind(command.statement()),
                 result,
             ))
         }
         CompiledSqlCommand::Update(statement) => {
-            let result = session.execute_sql_update_statement::<E>(statement);
+            let result = session.execute_sql_update_statement::<E>(statement, catalog);
             Some(sql_write_statement_result_with_default_cache::<E, C>(
                 SqlWriteKind::Update,
                 result,
@@ -170,13 +192,19 @@ fn sql_write_mutation_statement_result<E>(
     entities: Vec<E>,
     returning: Option<&SqlReturningProjection>,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    catalog: &AcceptedSchemaCatalogContext,
 ) -> Result<SqlStatementResult, QueryError>
 where
     E: PersistedRow + EntityValue,
 {
     record_sql_write_mutation_metrics(entity_path, kind, staged_rows, entities.len(), returning);
 
-    sql_write_statement_result::<E>(entities, returning, descriptor)
+    sql_write_statement_result::<E>(
+        entities,
+        returning,
+        descriptor,
+        catalog.enum_catalog_handle(),
+    )
 }
 
 struct SqlWriteMutationExecution<E>
@@ -189,7 +217,6 @@ where
     mode: MutationMode,
     context: SanitizeWriteContext,
     returning_bounds: Option<SqlWriteReturningBounds>,
-    save_schema_info: Option<SchemaInfo>,
 }
 
 impl<E> SqlWriteMutationExecution<E>
@@ -203,7 +230,6 @@ where
         mode: MutationMode,
         context: SanitizeWriteContext,
         returning_bounds: Option<SqlWriteReturningBounds>,
-        save_schema_info: Option<SchemaInfo>,
     ) -> Result<Self, QueryError> {
         let staged_rows = collection
             .validate_staged_rows_at(bounds, SqlWriteCandidateBoundCheck::MutationBatchHandoff)?;
@@ -216,7 +242,6 @@ where
             mode,
             context,
             returning_bounds,
-            save_schema_info,
         })
     }
 }
@@ -228,7 +253,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
-        mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
+        mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, AuthoredStructuralPatch), QueryError>,
     ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
         self.collect_sql_write_candidate_collection_from_structural_query_with_bounds(
             schema,
@@ -245,7 +270,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         query: &StructuralQuery,
         bounds: SqlWriteCandidateBounds,
-        row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, StructuralPatch), QueryError>,
+        row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, AuthoredStructuralPatch), QueryError>,
     ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
@@ -271,20 +296,20 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn execute_sql_write_mutation_batch<E>(
         &self,
-        schema: &AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         execution: SqlWriteMutationExecution<E>,
         returning: Option<&SqlReturningProjection>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (
             row_decode_contract,
             mutation_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
-        ) = accepted_sql_write_save_contract::<E>(schema, descriptor, execution.save_schema_info)?;
+        ) = accepted_sql_write_save_contract::<E>(catalog, descriptor);
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,
@@ -302,6 +327,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 entities,
                                 returning,
                                 descriptor,
+                                catalog.enum_catalog_handle(),
                                 execution.returning_bounds,
                             )
                         },
@@ -318,6 +344,7 @@ impl<C: CanisterKind> DbSession<C> {
             entities,
             returning,
             descriptor,
+            catalog,
         )
     }
 }

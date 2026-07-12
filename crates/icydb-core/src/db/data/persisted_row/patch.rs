@@ -1,4 +1,6 @@
 #[cfg(test)]
+use crate::db::data::persisted_row::types::SlotWriter;
+#[cfg(test)]
 use crate::db::data::persisted_row::{
     contract::{
         canonical_row_from_payload_source,
@@ -10,28 +12,36 @@ use crate::{
     db::{
         data::{
             CanonicalRow, RawRow, StructuralRowContract,
+            encode_admitted_value_for_accepted_field_contract,
             persisted_row::{
                 codec::ScalarSlotValueRef,
                 contract::{
                     RETIRED_SLOT_PLACEHOLDER_PAYLOAD,
                     canonical_row_from_runtime_value_source_with_accepted_contract,
                     decode_runtime_value_from_row_contract,
-                    decode_scalar_slot_value_from_row_contract,
+                    decode_scalar_slot_value_from_row_contract, emit_raw_row_from_slot_payloads,
                     encode_runtime_value_for_accepted_field_contract,
                 },
                 reader::StructuralSlotReader,
                 types::{
-                    FieldSlot, PersistedRow, SerializedStructuralFieldUpdate,
-                    SerializedStructuralPatch, SlotReader, StructuralPatch,
+                    AuthoredStructuralPatch, FieldSlot, PersistedRow,
+                    SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
                 },
             },
         },
-        schema::AcceptedRowDecodeContract,
+        schema::{
+            AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
+            authored_projection::AcceptedAuthoredFieldProjection,
+            enum_catalog::{ValueAdmissionBudget, normalize_and_admit_persisted_field_value},
+        },
     },
     error::InternalError,
-    model::{entity::EntityModel, field::FieldModel},
-    traits::EntityValue,
-    value::Value,
+    model::{
+        entity::EntityModel,
+        field::{FieldModel, LeafCodec},
+    },
+    traits::{AuthoredFieldProjection, EntityValue},
+    value::{InputValue, Value},
 };
 use std::borrow::Cow;
 
@@ -261,7 +271,7 @@ pub(in crate::db) fn materialize_entity_from_serialized_structural_patch_for_gen
     patch: &SerializedStructuralPatch,
 ) -> Result<E, InternalError>
 where
-    E: PersistedRow,
+    E: PersistedRow + EntityValue,
 {
     let mut slots = SerializedPatchSlotReader::new(E::MODEL, patch)?;
 
@@ -308,7 +318,7 @@ pub(in crate::db) fn canonical_row_from_entity_for_generated_model_for_test<E>(
     entity: &E,
 ) -> Result<CanonicalRow, InternalError>
 where
-    E: PersistedRow,
+    E: PersistedRow + EntityValue,
 {
     let serialized_slots =
         serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test(entity)?;
@@ -330,18 +340,42 @@ pub(in crate::db) fn canonical_row_from_entity_with_accepted_contract<E>(
     entity: &E,
 ) -> Result<CanonicalRow, InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow + EntityValue + AuthoredFieldProjection,
 {
-    let contract =
-        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
+    let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract)
+        .map_err(|_| InternalError::persisted_row_encode_internal())?;
+    let contract = StructuralRowContract::from_accepted_decode_contract(
+        entity_path,
+        accepted_decode_contract.clone(),
+    );
+    let mut slot_payloads = Vec::with_capacity(contract.field_count());
 
-    canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
-        if let Some(value) = entity.get_value_by_index(slot) {
-            return Ok(Cow::Owned(value));
+    for slot in 0..contract.field_count() {
+        if !contract.has_active_field_slot(slot) {
+            slot_payloads.push(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
+            continue;
+        }
+        let field = accepted_decode_contract
+            .field_for_slot(slot)
+            .ok_or_else(InternalError::persisted_row_encode_internal)?;
+        if field.generated() {
+            let mut budget = ValueAdmissionBudget::standard();
+            slot_payloads.push(
+                authored
+                    .encode_field(entity, slot, &mut budget)
+                    .map_err(|_| InternalError::persisted_row_encode_internal())?,
+            );
+            continue;
         }
 
-        contract.missing_slot_value(slot).map(Cow::Owned)
-    })
+        let value = contract.missing_slot_value(slot)?;
+        slot_payloads.push(encode_runtime_value_for_accepted_field_contract(
+            field.decode_contract(),
+            &value,
+        )?);
+    }
+
+    emit_raw_row_from_slot_payloads(contract.field_count(), slot_payloads.as_slice())
 }
 
 /// Build one canonical row from one generated-contract structural slot reader.
@@ -410,6 +444,41 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
     CanonicalRow::from_canonical_raw_row(raw_row)
 }
 
+// Admit authored values directly whenever the accepted slot has a canonical
+// codec. Recursive `ByKind` structural fields retain their existing non-enum
+// codec until that codec consumes canonical values; unresolved enum input must
+// never enter the runtime `Value` fallback.
+fn encode_authored_value_for_accepted_field_contract(
+    contract: &StructuralRowContract,
+    field: AcceptedFieldDecodeContract<'_>,
+    input: InputValue,
+) -> Result<Vec<u8>, InternalError> {
+    let has_canonical_codec =
+        field.uses_canonical_value_wire() || matches!(field.leaf_codec(), LeafCodec::Scalar(_));
+    if has_canonical_codec {
+        let catalog = contract.accepted_enum_catalog_handle().ok_or_else(|| {
+            InternalError::persisted_row_field_encode_internal(field.field_name())
+        })?;
+        let mut budget = ValueAdmissionBudget::standard();
+        let admitted = normalize_and_admit_persisted_field_value(
+            catalog,
+            field.kind(),
+            field.storage_decode(),
+            field.nullable(),
+            input,
+            &mut budget,
+        )
+        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+
+        return encode_admitted_value_for_accepted_field_contract(catalog, field, &admitted);
+    }
+
+    let runtime = input
+        .try_into_runtime_non_enum()
+        .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    encode_runtime_value_for_accepted_field_contract(field, &runtime)
+}
+
 /// Serialize one structural patch through an accepted row-decode contract.
 ///
 /// This is the accepted-schema counterpart to the generated-only serializer
@@ -419,7 +488,7 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
 pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
     entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
-    patch: &StructuralPatch,
+    patch: &AuthoredStructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
     let contract =
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
@@ -437,7 +506,7 @@ pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
 pub(in crate::db) fn serialize_complete_structural_patch_fields_with_accepted_contract(
     entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
-    patch: &StructuralPatch,
+    patch: &AuthoredStructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
     let contract =
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
@@ -450,7 +519,7 @@ pub(in crate::db) fn serialize_complete_structural_patch_fields_with_accepted_co
 // errors instead of falling back to generated field metadata.
 fn serialize_structural_patch_fields_for_accepted_contract(
     contract: &StructuralRowContract,
-    patch: &StructuralPatch,
+    patch: &AuthoredStructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
     if patch.is_empty() {
         return Ok(SerializedStructuralPatch::default());
@@ -463,7 +532,11 @@ fn serialize_structural_patch_fields_for_accepted_contract(
     for entry in patch.entries() {
         let slot = entry.slot();
         let field = contract.required_accepted_field_decode_contract(slot.index())?;
-        let payload = encode_runtime_value_for_accepted_field_contract(field, entry.value())?;
+        let payload = encode_authored_value_for_accepted_field_contract(
+            contract,
+            field,
+            entry.value().clone(),
+        )?;
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
 
@@ -476,7 +549,7 @@ fn serialize_structural_patch_fields_for_accepted_contract(
 // dense logical row image rather than update-style sparse intent.
 fn serialize_complete_structural_patch_fields_for_accepted_contract(
     contract: &StructuralRowContract,
-    patch: &StructuralPatch,
+    patch: &AuthoredStructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
     let mut payloads = vec![None; contract.field_count()];
 
@@ -485,7 +558,11 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
     for entry in patch.entries() {
         let slot = entry.slot().index();
         let field = contract.required_accepted_field_decode_contract(slot)?;
-        let payload = encode_runtime_value_for_accepted_field_contract(field, entry.value())?;
+        let payload = encode_authored_value_for_accepted_field_contract(
+            contract,
+            field,
+            entry.value().clone(),
+        )?;
         payloads[slot] = Some(payload);
     }
 
@@ -501,8 +578,11 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
         }
         let field = contract.required_accepted_field_decode_contract(slot)?;
         let value = contract.missing_slot_value(slot)?;
-        *payload = Some(encode_runtime_value_for_accepted_field_contract(
-            field, &value,
+        *payload = Some(encode_authored_value_for_accepted_field_contract(
+            contract,
+            field,
+            InputValue::try_from_runtime_non_enum(&value)
+                .ok_or_else(InternalError::persisted_row_encode_internal)?,
         )?);
     }
 
@@ -537,13 +617,17 @@ pub(in crate::db) fn serialize_entity_slots_as_complete_serialized_patch_for_gen
     entity: &E,
 ) -> Result<SerializedStructuralPatch, InternalError>
 where
-    E: PersistedRow,
+    E: PersistedRow + EntityValue,
 {
     let mut writer = CompleteSerializedPatchWriter::for_generated_model_for_test(E::MODEL);
 
-    // Phase 1: let the derive-owned persisted-row writer emit the complete
-    // structural slot image for this entity.
-    entity.write_slots(&mut writer)?;
+    for slot in 0..E::MODEL.fields().len() {
+        let value = entity
+            .get_value_by_index(slot)
+            .ok_or_else(InternalError::persisted_row_encode_internal)?;
+        let payload = crate::db::data::encode_runtime_value_into_slot(E::MODEL, slot, &value)?;
+        writer.write_slot(slot, Some(payload.as_slice()))?;
+    }
 
     // Phase 2: require a dense slot image so save/update replay remains
     // equivalent to the existing full-row write semantics.

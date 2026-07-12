@@ -107,7 +107,7 @@ mod tests {
             },
             direction::Direction,
         },
-        value::Value,
+        value::{CanonicalEnumBody, EnumTypeId, EnumVariantId, Value, ValueEnum},
     };
 
     fn grouped_token_fixture(direction: Direction) -> GroupedContinuationToken {
@@ -161,7 +161,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "01024242424242424242424242424242424242424242424242424242424242424242000000000400000003110000000874656e616e742d611300000000000000070201"
+            "02024242424242424242424242424242424242424242424242424242424242424242000000000400000003110000000874656e616e742d611300000000000000070201"
         );
     }
 
@@ -175,7 +175,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "01024242424242424242424242424242424242424242424242424242424242424242010000000400000003110000000874656e616e742d611300000000000000070201",
+            "02024242424242424242424242424242424242424242424242424242424242424242010000000400000003110000000874656e616e742d611300000000000000070201",
             "grouped continuation token DESC wire encoding must remain stable",
         );
     }
@@ -203,5 +203,27 @@ mod tests {
             .expect_err("oversized grouped cursor payload must fail before emission");
 
         std::assert_matches!(err, TokenWireError::Encode);
+    }
+
+    #[test]
+    fn grouped_continuation_token_unit_enum_wire_vector_is_frozen() {
+        let token = GroupedContinuationToken::new_with_direction(
+            ContinuationSignature::from_bytes([0x33; 32]),
+            vec![Value::Enum(ValueEnum::new(
+                EnumTypeId::new(2).expect("test enum type ID should be valid"),
+                EnumVariantId::new(3).expect("test enum variant ID should be valid"),
+                CanonicalEnumBody::Unit,
+            ))],
+            Direction::Asc,
+            0,
+        );
+        let encoded = token
+            .encode()
+            .expect("grouped unit-enum continuation token should encode");
+        let mut expected = vec![2, 2];
+        expected.extend_from_slice(&[0x33; 32]);
+        expected.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 1, 6, 0, 0, 0, 2, 0, 0, 0, 3, 0]);
+
+        assert_eq!(encoded, expected);
     }
 }

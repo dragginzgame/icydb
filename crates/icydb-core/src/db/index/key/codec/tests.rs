@@ -15,7 +15,7 @@ use crate::{
     },
     traits::Storable,
     types::{Decimal, EntityTag, Float32, Float64, IntBig, Principal},
-    value::{Value, ValueEnum},
+    value::Value,
 };
 use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound as RangeBound};
 
@@ -741,9 +741,7 @@ fn index_key_golden_snapshot_user_max_cardinality_mixed_components() {
             )),
             encode_component(&Value::IntBig(IntBig::from(999i32))),
             encode_component(&Value::IntBig(IntBig::from(-7i32))),
-            encode_component(&Value::Enum(
-                ValueEnum::new("State", Some("MyPath")).with_payload(Value::Int64(7)),
-            )),
+            encode_component(&Value::Bool(true)),
         ],
         vec![0x42, 0x43],
     );
@@ -757,11 +755,8 @@ fn index_key_golden_snapshot_user_max_cardinality_mixed_components() {
     expected.extend_from_slice(&[0x0C, 0x02, 0x00, 0x03, b'9', b'9', b'9']);
     expected.extend_from_slice(&[0x00, 0x05]);
     expected.extend_from_slice(&[0x0C, 0x00, 0xFF, 0xFE, 0xC8]);
-    expected.extend_from_slice(&[0x00, 0x1D]);
-    expected.extend_from_slice(&[
-        0x07, b'S', b't', b'a', b't', b'e', 0x00, 0x00, 0x01, b'M', b'y', b'P', b'a', b't', b'h',
-        0x00, 0x00, 0x01, 0x00, 0x09, 0x0A, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07,
-    ]);
+    expected.extend_from_slice(&[0x00, 0x02]);
+    expected.extend_from_slice(&[0x03, 0x01]);
     expected.extend_from_slice(&[0x00, 0x02, 0x42, 0x43]);
 
     assert_eq!(
@@ -842,22 +837,19 @@ fn index_key_ordering_cartesian_semantic_vs_raw_key_order() {
         Value::Decimal(Decimal::new(10, 1)),
         Value::Decimal(Decimal::new(11, 1)),
     ];
-    let enums = [
-        Value::Enum(ValueEnum::new("A", Some("EnumPath"))),
-        Value::Enum(ValueEnum::new("B", Some("EnumPath")).with_payload(Value::Int64(1))),
-    ];
+    let booleans = [Value::Bool(false), Value::Bool(true)];
 
     let mut fixtures = Vec::new();
     let mut ordinal = 0u8;
     for numeric in numerics {
         for text in &texts {
             for decimal in &decimals {
-                for enum_value in &enums {
+                for boolean in &booleans {
                     let values = vec![
                         numeric.clone(),
                         text.clone(),
                         decimal.clone(),
-                        enum_value.clone(),
+                        boolean.clone(),
                     ];
                     let components = values.iter().map(encode_component).collect::<Vec<_>>();
                     let pk = vec![ordinal];

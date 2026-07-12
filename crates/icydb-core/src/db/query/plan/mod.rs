@@ -34,10 +34,7 @@ use crate::{
 };
 use std::borrow::Cow;
 
-pub(in crate::db) use crate::model::{
-    canonicalize_filter_literal_for_kind,
-    canonicalize_grouped_having_numeric_literal_for_field_kind,
-};
+pub(in crate::db) use crate::model::canonicalize_filter_literal_for_kind;
 pub(in crate::db) use access_choice::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
     AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
@@ -86,6 +83,7 @@ pub(in crate::db::query) use logical_builder::{
     LogicalPlanningInputs, build_logical_plan, canonicalize_order_spec_for_grouping,
     logical_query_from_logical_inputs,
 };
+pub(in crate::db::query::plan) use model::FieldSlotAuthority;
 pub use model::OrderDirection;
 pub(in crate::db) use model::OrderTerm;
 pub(in crate::db) use model::render_scalar_filter_expr_plan_label;
@@ -147,6 +145,7 @@ pub(in crate::db::query) use projection::{
     lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
     lower_projection_identity, lower_projection_intent,
 };
+pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;
 pub(in crate::db) use semantics::global_distinct_group_spec_for_aggregate_identity;
 pub(in crate::db) use semantics::group_aggregate_spec_expr;
 pub(in crate::db) use semantics::{

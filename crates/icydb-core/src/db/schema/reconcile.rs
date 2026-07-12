@@ -14,10 +14,16 @@ use crate::{
         Db, EntityRuntimeHooks,
         registry::StoreHandle,
         schema::{
-            AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
-            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaMutationRunnerCapability,
-            SchemaMutationRunnerContract, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, MutationPublicationBlocker,
+            MutationPublicationPreflight, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaStore,
+            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
+            decide_schema_transition,
+            enum_catalog::{
+                AcceptedEnumCatalog, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
+                CandidateSchemaRevision, build_initial_accepted_enum_catalog,
+                reconcile_accepted_enum_catalog,
+            },
             runtime::AcceptedRowLayoutRuntimeContract,
             transition::{
                 SchemaAdmissionIdentityComparison, SchemaTransitionPlan,
@@ -34,7 +40,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use startup_field_path::{SchemaPublicationGate, execute_supported_field_path_index_addition};
 
@@ -48,19 +54,264 @@ pub(in crate::db) use sql_ddl::{
 
 /// Reconcile registered runtime schemas with the schema metadata store.
 ///
-/// The 0.146 path intentionally supports only exact generated-proposal
-/// equality: first contact writes the generated initial snapshot, and later
-/// contacts load the latest stored snapshot before accepting only exact
-/// matches. Schema evolution comes after this persistence boundary is live.
+/// Initial contact publishes one deterministic store-local enum catalog.
+/// Later contacts reconcile proposals against the current accepted catalog so
+/// existing IDs remain stable and only append-only catalog additions can reach
+/// candidate publication.
 pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
 ) -> Result<(), InternalError> {
+    let catalogs_by_store = build_generated_enum_catalog_candidates(db, entity_runtime_hooks)?;
+    let mut accepted_snapshots_by_store =
+        BTreeMap::<&'static str, BTreeMap<EntityTag, PersistedSchemaSnapshot>>::new();
+
     for hooks in entity_runtime_hooks {
-        reconcile_runtime_schema(db, hooks)?;
+        let enum_catalog = catalogs_by_store
+            .get(hooks.store_path)
+            .ok_or_else(InternalError::store_invariant)?;
+        let accepted = reconcile_runtime_schema(db, hooks, enum_catalog)?;
+        if accepted_snapshots_by_store
+            .entry(hooks.store_path)
+            .or_default()
+            .insert(hooks.entity_tag, accepted.persisted_snapshot().clone())
+            .is_some()
+        {
+            return Err(InternalError::store_invariant());
+        }
+    }
+
+    for (store_path, enum_catalog) in catalogs_by_store {
+        let entity_snapshots = accepted_snapshots_by_store
+            .remove(store_path)
+            .ok_or_else(InternalError::store_invariant)?;
+        publish_generated_accepted_schema_bundle(
+            db.store_handle(store_path)?,
+            store_path,
+            enum_catalog,
+            entity_snapshots,
+        )?;
+    }
+    if !accepted_snapshots_by_store.is_empty() {
+        return Err(InternalError::store_invariant());
     }
 
     Ok(())
+}
+
+// Construct every store-local enum catalog candidate before any entity
+// snapshot is published into the immutable accepted bundle. Existing stores
+// reconcile from accepted IDs; only virgin stores allocate from path order.
+fn build_generated_enum_catalog_candidates<C: CanisterKind>(
+    db: &Db<C>,
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+) -> Result<BTreeMap<&'static str, AcceptedEnumCatalog>, InternalError> {
+    let mut models_by_store = BTreeMap::<&'static str, Vec<&EntityModel>>::new();
+    for hooks in entity_runtime_hooks {
+        models_by_store
+            .entry(hooks.store_path)
+            .or_default()
+            .push(hooks.model);
+    }
+
+    let mut catalogs_by_store = BTreeMap::new();
+    for (store_path, models) in models_by_store {
+        let current = db
+            .store_handle(store_path)?
+            .with_schema(SchemaStore::current_accepted_schema_bundle)?;
+        let catalog = match current {
+            Some(current) => {
+                if current.store_path() != store_path {
+                    return Err(InternalError::store_corruption());
+                }
+                reconcile_accepted_enum_catalog(current.enum_catalog(), &models)
+            }
+            None => build_initial_accepted_enum_catalog(&models),
+        }
+        .map_err(|_error| InternalError::store_unsupported())?;
+        catalogs_by_store.insert(store_path, catalog);
+    }
+
+    Ok(catalogs_by_store)
+}
+
+fn publish_generated_accepted_schema_bundle(
+    store: StoreHandle,
+    store_path: &'static str,
+    enum_catalog: AcceptedEnumCatalog,
+    entity_snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+) -> Result<(), InternalError> {
+    let current = store.with_schema(SchemaStore::current_accepted_schema_bundle)?;
+    if current
+        .as_ref()
+        .is_some_and(|accepted| accepted.store_path() != store_path)
+    {
+        return Err(InternalError::store_corruption());
+    }
+    let expected_revision = current.as_ref().map_or(
+        AcceptedSchemaRevision::NONE,
+        AcceptedSchemaRevisionBundle::revision,
+    );
+    let comparison_revision = current.as_ref().map_or(
+        AcceptedSchemaRevision::INITIAL,
+        AcceptedSchemaRevisionBundle::revision,
+    );
+    let comparison = AcceptedSchemaRevisionBundle::new(
+        comparison_revision,
+        store_path,
+        enum_catalog.clone(),
+        entity_snapshots.clone(),
+    )?;
+    if current.as_ref() == Some(&comparison) {
+        return Ok(());
+    }
+    let candidate_revision = expected_revision
+        .checked_next()
+        .ok_or_else(InternalError::store_unsupported)?;
+    let bundle = AcceptedSchemaRevisionBundle::new(
+        candidate_revision,
+        store_path,
+        enum_catalog,
+        entity_snapshots,
+    )?;
+    let candidate = CandidateSchemaRevision::new(bundle)?;
+    if current.is_none() {
+        return store.with_schema_mut(|schema_store| {
+            schema_store.publish_accepted_schema_candidate(expected_revision, &candidate)
+        });
+    }
+    crate::db::commit::publish_accepted_schema_candidate(
+        store_path,
+        store,
+        expected_revision,
+        &candidate,
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db) fn bootstrap_test_accepted_schema_snapshot(
+    schema_store: &mut SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+    model: &'static EntityModel,
+) -> Result<(), InternalError> {
+    if schema_store
+        .current_accepted_persisted_snapshot(entity_tag)?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    let catalog = build_initial_accepted_enum_catalog(&[model])
+        .map_err(|_| InternalError::store_unsupported())?;
+    let snapshot = compiled_schema_proposal_for_model(model)
+        .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)?;
+    publish_test_accepted_schema_snapshot(
+        schema_store,
+        entity_tag,
+        entity_path,
+        store_path,
+        model,
+        snapshot,
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db) fn publish_test_accepted_schema_snapshot(
+    schema_store: &mut SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+    model: &'static EntityModel,
+    snapshot: PersistedSchemaSnapshot,
+) -> Result<(), InternalError> {
+    let proposed_catalog = build_initial_accepted_enum_catalog(&[model])
+        .map_err(|_error| InternalError::store_unsupported())?;
+    let current = schema_store.current_accepted_schema_bundle()?;
+    let expected_revision = current.as_ref().map_or(
+        AcceptedSchemaRevision::NONE,
+        AcceptedSchemaRevisionBundle::revision,
+    );
+    let catalog = if let Some(current) = &current {
+        if current.store_path() != store_path {
+            return Err(InternalError::store_corruption());
+        }
+        current.enum_catalog().clone()
+    } else {
+        proposed_catalog
+    };
+    let mut entity_snapshots = current
+        .as_ref()
+        .map_or_else(BTreeMap::new, |current| current.entity_snapshots().clone());
+    if snapshot.entity_path() != entity_path {
+        return Err(InternalError::store_invariant());
+    }
+    entity_snapshots.insert(entity_tag, snapshot);
+    let revision = expected_revision
+        .checked_next()
+        .ok_or_else(InternalError::store_unsupported)?;
+    let bundle =
+        AcceptedSchemaRevisionBundle::new(revision, store_path, catalog, entity_snapshots)?;
+    let candidate = CandidateSchemaRevision::new(bundle)?;
+    schema_store.publish_accepted_schema_candidate(expected_revision, &candidate)
+}
+
+#[cfg(feature = "sql")]
+fn publish_accepted_entity_snapshot_revision(
+    store: StoreHandle,
+    expected_identity: crate::db::schema::AcceptedCatalogIdentity,
+    accepted_after: &PersistedSchemaSnapshot,
+) -> Result<(), InternalError> {
+    let current_selection = store
+        .with_schema(|schema_store| {
+            schema_store.current_accepted_catalog_selection(
+                expected_identity.entity_tag(),
+                expected_identity.entity_path(),
+                expected_identity.store_path(),
+            )
+        })?
+        .ok_or_else(InternalError::store_corruption)?;
+    if current_selection.identity() != expected_identity {
+        return Err(InternalError::schema_ddl_publication_race_lost(
+            expected_identity.entity_path(),
+        ));
+    }
+
+    let current = store
+        .with_schema(SchemaStore::current_accepted_schema_bundle)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if current.store_path() != expected_identity.store_path()
+        || accepted_after.entity_path() != expected_identity.entity_path()
+    {
+        return Err(InternalError::store_corruption());
+    }
+    let expected_revision = current.revision();
+    let mut entity_snapshots = current.entity_snapshots().clone();
+    let previous = entity_snapshots.insert(expected_identity.entity_tag(), accepted_after.clone());
+    if previous.is_none() {
+        return Err(InternalError::store_corruption());
+    }
+    if entity_snapshots == *current.entity_snapshots() {
+        return Ok(());
+    }
+
+    let candidate_revision = expected_revision
+        .checked_next()
+        .ok_or_else(InternalError::store_unsupported)?;
+    let bundle = AcceptedSchemaRevisionBundle::new(
+        candidate_revision,
+        expected_identity.store_path(),
+        current.enum_catalog().clone(),
+        entity_snapshots,
+    )?;
+    let candidate = CandidateSchemaRevision::new(bundle)?;
+    crate::db::commit::publish_accepted_schema_candidate(
+        expected_identity.store_path(),
+        store,
+        expected_revision,
+        &candidate,
+    )
 }
 
 fn merge_generated_indexes_with_extra_accepted_indexes(
@@ -99,34 +350,144 @@ fn merge_generated_indexes_with_extra_accepted_indexes(
 fn reconcile_runtime_schema<C: CanisterKind>(
     db: &Db<C>,
     hooks: &EntityRuntimeHooks<C>,
-) -> Result<(), InternalError> {
+    enum_catalog: &AcceptedEnumCatalog,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let store = db.store_handle(hooks.store_path)?;
 
     ensure_accepted_schema_snapshot_for_runtime_store(
         store,
         hooks.entity_tag,
         hooks.entity_path,
+        hooks.store_path,
         hooks.model,
+        enum_catalog,
     )
-    .map(|_| ())
 }
 
-/// Ensure one store contains an accepted persisted schema snapshot for a model.
+/// Load one runtime snapshot from the immutable bundle selected by the current
+/// accepted root.
 ///
-/// This is the shared schema-owned boundary used by runtime-hook reconciliation
-/// and metadata-only session paths. It writes first-create initial snapshots,
-/// loads the latest stored snapshot, accepts exact matches, and rejects drift
-/// until explicit evolution rules exist.
+/// Recovery and startup reconciliation must publish that root before live
+/// execution reaches this boundary. Generated metadata proves compatibility;
+/// it is never used to reconstruct missing accepted state here.
+#[cfg(not(test))]
 pub(in crate::db) fn ensure_accepted_schema_snapshot(
+    schema_store: &SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    _store_path: &'static str,
+    model: &'static EntityModel,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    load_current_accepted_schema_snapshot(schema_store, entity_tag, entity_path, model)
+}
+
+/// Select one entity snapshot and enum catalog from the current accepted root.
+#[cfg(not(test))]
+pub(in crate::db) fn ensure_accepted_catalog_snapshot_selection(
+    schema_store: &SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+    _model: &'static EntityModel,
+) -> Result<AcceptedCatalogSnapshotSelection, InternalError> {
+    load_current_accepted_catalog_snapshot_selection(
+        schema_store,
+        entity_tag,
+        entity_path,
+        store_path,
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db) fn ensure_accepted_schema_snapshot(
+    schema_store: &mut SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+    model: &'static EntityModel,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    bootstrap_test_accepted_schema_snapshot(
+        schema_store,
+        entity_tag,
+        entity_path,
+        store_path,
+        model,
+    )?;
+
+    load_current_accepted_schema_snapshot(schema_store, entity_tag, entity_path, model)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn ensure_accepted_catalog_snapshot_selection(
+    schema_store: &mut SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+    model: &'static EntityModel,
+) -> Result<AcceptedCatalogSnapshotSelection, InternalError> {
+    bootstrap_test_accepted_schema_snapshot(
+        schema_store,
+        entity_tag,
+        entity_path,
+        store_path,
+        model,
+    )?;
+
+    load_current_accepted_catalog_snapshot_selection(
+        schema_store,
+        entity_tag,
+        entity_path,
+        store_path,
+    )
+}
+
+fn load_current_accepted_catalog_snapshot_selection(
+    schema_store: &SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+) -> Result<AcceptedCatalogSnapshotSelection, InternalError> {
+    schema_store
+        .current_accepted_catalog_selection(entity_tag, entity_path, store_path)?
+        .ok_or_else(InternalError::store_corruption)
+}
+
+fn load_current_accepted_schema_snapshot(
+    schema_store: &SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    model: &'static EntityModel,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    let snapshot = schema_store
+        .current_accepted_persisted_snapshot(entity_tag)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if snapshot.entity_path() != entity_path {
+        return Err(InternalError::store_corruption());
+    }
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+    let _runtime_contract =
+        AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&accepted, model)
+            .map_err(|_error| InternalError::store_unsupported())?;
+    validate_accepted_runtime_descriptor(&accepted)?;
+
+    Ok(accepted)
+}
+
+// Build or update the staged entity snapshot used to construct the next
+// immutable accepted bundle. This is deliberately separate from runtime reads.
+#[cfg(test)]
+fn reconcile_staged_schema_snapshot(
     schema_store: &mut SchemaStore,
     entity_tag: EntityTag,
     entity_path: &'static str,
     model: &EntityModel,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
-    let expected = proposal.initial_persisted_schema_snapshot();
+    let catalog = build_initial_accepted_enum_catalog(&[model])
+        .map_err(|_| InternalError::store_unsupported())?;
+    let expected = proposal.initial_persisted_schema_snapshot_with_enum_catalog(&catalog)?;
 
-    let latest = match schema_store.latest_persisted_snapshot(entity_tag) {
+    let latest = match schema_store.latest_staged_persisted_snapshot(entity_tag) {
         Ok(latest) => latest,
         Err(error) => {
             record_schema_store_footprint(schema_store, entity_tag, entity_path);
@@ -195,18 +556,20 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
 
 // Startup reconciliation owns the wider store handle, so it can execute the
 // single supported physical schema mutation before publishing the accepted
-// snapshot. Metadata-only callers keep using `ensure_accepted_schema_snapshot`.
+// root.
 fn ensure_accepted_schema_snapshot_for_runtime_store(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
+    store_path: &'static str,
     model: &EntityModel,
+    enum_catalog: &AcceptedEnumCatalog,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
-    let expected = proposal.initial_persisted_schema_snapshot();
+    let expected = proposal.initial_persisted_schema_snapshot_with_enum_catalog(enum_catalog)?;
 
     let latest = match store
-        .with_schema_mut(|schema_store| schema_store.latest_persisted_snapshot(entity_tag))
+        .with_schema_mut(|schema_store| schema_store.latest_staged_persisted_snapshot(entity_tag))
     {
         Ok(latest) => latest,
         Err(error) => {
@@ -253,7 +616,7 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
             SchemaTransitionPlanKind::AddFieldPathIndex => {
                 execute_supported_field_path_index_addition(
                     store,
-                    SchemaPublicationGate::startup(entity_tag),
+                    SchemaPublicationGate::startup(entity_tag, store_path),
                     entity_path,
                     &actual,
                     &expected,

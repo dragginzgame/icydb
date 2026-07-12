@@ -16,6 +16,7 @@ use crate::{
 };
 
 use super::{
+    publish_accepted_entity_snapshot_revision,
     startup_expression::execute_supported_expression_index_addition,
     startup_field_path::{SchemaPublicationGate, execute_supported_field_path_index_addition},
     validate_publishable_transition_plan,
@@ -250,10 +251,8 @@ fn publish_sql_ddl_accepted_snapshot(
     accepted_before_identity: AcceptedCatalogIdentity,
     after: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
-    store.with_schema_mut(|schema_store| {
-        debug_assert_eq!(entity_tag, accepted_before_identity.entity_tag());
-        schema_store.insert_persisted_snapshot_if_latest_identity(accepted_before_identity, after)
-    })
+    debug_assert_eq!(entity_tag, accepted_before_identity.entity_tag());
+    publish_accepted_entity_snapshot_revision(store, accepted_before_identity, after)
 }
 
 /// Execute one supported SQL DDL secondary-index drop by cleaning the target
@@ -374,8 +373,9 @@ fn validate_sql_ddl_drop_schema_gate(
     accepted_before: &PersistedSchemaSnapshot,
     boundary: &'static str,
 ) -> Result<(), InternalError> {
-    let latest =
-        store.with_schema_mut(|schema_store| schema_store.latest_persisted_snapshot(entity_tag))?;
+    let latest = store.with_schema_mut(|schema_store| {
+        schema_store.current_accepted_persisted_snapshot(entity_tag)
+    })?;
     if latest.as_ref() == Some(accepted_before) {
         return Ok(());
     }

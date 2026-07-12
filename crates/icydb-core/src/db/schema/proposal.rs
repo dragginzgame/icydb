@@ -5,13 +5,18 @@
 
 use crate::{
     db::schema::{
-        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        AcceptedFieldKind, FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
-        SchemaVersion, sql_capabilities,
+        SchemaVersion,
+        enum_catalog::{
+            AcceptedEnumCatalog, encode_unit_enum_default_in_catalog, resolve_model_field_kind,
+        },
+        sql_capabilities,
     },
+    error::InternalError,
     model::{
         entity::{EntityModel, RelationEdgeModel},
         field::{FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
@@ -111,35 +116,70 @@ impl CompiledSchemaProposal {
     /// This is only valid for first initialization when no stored schema exists.
     /// Reconciliation must preserve stored field IDs, retired slots, and defaults
     /// once a live persisted schema has been written.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn initial_persisted_schema_snapshot(&self) -> PersistedSchemaSnapshot {
+        let kinds = self
+            .fields()
+            .iter()
+            .flat_map(|field| {
+                std::iter::once(field.kind()).chain(
+                    field
+                        .nested_leaves()
+                        .iter()
+                        .map(CompiledNestedLeafProposal::kind),
+                )
+            })
+            .collect::<Vec<_>>();
+        let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests(
+            kinds.as_slice(),
+        )
+        .expect("test proposal enum catalog should build");
+        self.initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+            .expect("test proposal should resolve through its enum catalog")
+    }
+
+    /// Build an initial persisted snapshot after catalog-native default admission.
+    pub(in crate::db) fn initial_persisted_schema_snapshot_with_enum_catalog(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedSchemaSnapshot, InternalError> {
+        self.initial_persisted_schema_snapshot_with_catalog(enum_catalog)
+    }
+
+    fn initial_persisted_schema_snapshot_with_catalog(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedSchemaSnapshot, InternalError> {
         let fields = self
             .fields()
             .iter()
-            .map(CompiledFieldProposal::initial_persisted_field_snapshot)
-            .collect::<Vec<_>>();
+            .map(|field| field.initial_persisted_field_snapshot(enum_catalog))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let indexes = self
             .indexes()
             .iter()
-            .map(CompiledIndexProposal::initial_persisted_index_snapshot)
-            .collect::<Vec<_>>();
+            .map(|index| index.initial_persisted_index_snapshot(enum_catalog))
+            .collect::<Result<Vec<_>, _>>()?;
         let relations = self
             .relations()
             .iter()
             .map(CompiledRelationEdgeProposal::initial_persisted_relation_snapshot)
             .collect::<Vec<_>>();
 
-        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            self.declared_schema_version(),
-            self.entity_path().to_string(),
-            self.entity_name().to_string(),
-            self.primary_key_field_ids().to_vec(),
-            self.initial_row_layout(),
-            fields,
-            indexes,
+        Ok(
+            PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+                self.declared_schema_version(),
+                self.entity_path().to_string(),
+                self.entity_name().to_string(),
+                self.primary_key_field_ids().to_vec(),
+                self.initial_row_layout(),
+                fields,
+                indexes,
+            )
+            .with_relations(relations),
         )
-        .with_relations(relations)
     }
 }
 
@@ -157,12 +197,53 @@ pub(in crate::db) struct CompiledFieldProposal {
     name: &'static str,
     slot: SchemaFieldSlot,
     kind: FieldKind,
-    nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+    nested_leaves: Vec<CompiledNestedLeafProposal>,
     nullable: bool,
     database_default: FieldDatabaseDefault,
     write_policy: SchemaFieldWritePolicy,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct CompiledNestedLeafProposal {
+    path: Vec<String>,
+    kind: FieldKind,
+    nullable: bool,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+}
+
+impl CompiledNestedLeafProposal {
+    #[must_use]
+    pub(in crate::db) const fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> FieldKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    fn initial_persisted_nested_leaf_snapshot(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedNestedLeafSnapshot, InternalError> {
+        let kind = resolve_model_field_kind(enum_catalog, self.kind())
+            .map_err(|_| InternalError::store_unsupported())?;
+        Ok(PersistedNestedLeafSnapshot::new(
+            self.path.clone(),
+            kind,
+            self.nullable,
+            self.storage_decode,
+            self.leaf_codec,
+        ))
+    }
 }
 
 impl CompiledFieldProposal {
@@ -192,7 +273,7 @@ impl CompiledFieldProposal {
 
     /// Borrow the nested leaf snapshots generated under this top-level field.
     #[must_use]
-    pub(in crate::db) const fn nested_leaves(&self) -> &[PersistedNestedLeafSnapshot] {
+    pub(in crate::db) const fn nested_leaves(&self) -> &[CompiledNestedLeafProposal] {
         self.nested_leaves.as_slice()
     }
 
@@ -228,23 +309,55 @@ impl CompiledFieldProposal {
 
     /// Build the initial persisted field snapshot implied by this proposal.
     ///
-    /// Database defaults intentionally start as `None`; generated Rust defaults
-    /// remain construction behavior and are not imported into live schema
-    /// authority by this projection.
-    #[must_use]
-    pub(in crate::db) fn initial_persisted_field_snapshot(&self) -> PersistedFieldSnapshot {
-        PersistedFieldSnapshot::new_with_write_policy(
+    /// Name-based enum defaults require the complete store-local catalog.
+    fn initial_persisted_field_snapshot(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedFieldSnapshot, InternalError> {
+        let kind = resolve_model_field_kind(enum_catalog, self.kind())
+            .map_err(|_| InternalError::store_unsupported())?;
+        let default = self.persisted_database_default(enum_catalog, &kind)?;
+        let nested_leaves = self
+            .nested_leaves()
+            .iter()
+            .map(|leaf| leaf.initial_persisted_nested_leaf_snapshot(enum_catalog))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(PersistedFieldSnapshot::new_with_write_policy(
             self.id(),
             self.name().to_string(),
             self.slot(),
-            PersistedFieldKind::from_model_kind(self.kind()),
-            self.nested_leaves().to_vec(),
+            kind,
+            nested_leaves,
             self.nullable(),
-            SchemaFieldDefault::from_model_default(self.database_default()),
+            default,
             self.write_policy(),
             self.storage_decode(),
             self.leaf_codec(),
-        )
+        ))
+    }
+
+    fn persisted_database_default(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+        kind: &AcceptedFieldKind,
+    ) -> Result<SchemaFieldDefault, InternalError> {
+        let (enum_path, variant) = match self.database_default() {
+            FieldDatabaseDefault::None => return Ok(SchemaFieldDefault::None),
+            FieldDatabaseDefault::EncodedSlotPayload(bytes) => {
+                return Ok(SchemaFieldDefault::SlotPayload(Vec::from(bytes)));
+            }
+            FieldDatabaseDefault::AuthoredEnumUnit { enum_path, variant } => (enum_path, variant),
+        };
+        let Some(expected_type_id) = enum_catalog.type_id(enum_path) else {
+            return Err(InternalError::store_unsupported());
+        };
+        if !matches!(kind, AcceptedFieldKind::Enum { type_id } if *type_id == expected_type_id) {
+            return Err(InternalError::store_unsupported());
+        }
+
+        let payload = encode_unit_enum_default_in_catalog(enum_catalog, enum_path, variant)
+            .map_err(|_| InternalError::store_unsupported())?;
+        Ok(SchemaFieldDefault::SlotPayload(payload))
     }
 }
 
@@ -302,16 +415,18 @@ impl CompiledIndexProposal {
     }
 
     /// Build the initial persisted index snapshot implied by this proposal.
-    #[must_use]
-    pub(in crate::db) fn initial_persisted_index_snapshot(&self) -> PersistedIndexSnapshot {
-        PersistedIndexSnapshot::new(
+    pub(in crate::db) fn initial_persisted_index_snapshot(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedIndexSnapshot, InternalError> {
+        Ok(PersistedIndexSnapshot::new(
             self.ordinal(),
             self.name().to_string(),
             self.store().to_string(),
             self.unique(),
-            self.key().initial_persisted_key_snapshot(),
+            self.key().initial_persisted_key_snapshot(enum_catalog)?,
             self.predicate_sql().map(str::to_string),
-        )
+        ))
     }
 }
 
@@ -376,20 +491,23 @@ pub(in crate::db) enum CompiledIndexKeyProposal {
 }
 
 impl CompiledIndexKeyProposal {
-    fn initial_persisted_key_snapshot(&self) -> PersistedIndexKeySnapshot {
+    fn initial_persisted_key_snapshot(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedIndexKeySnapshot, InternalError> {
         match self {
-            Self::FieldPath(fields) => PersistedIndexKeySnapshot::FieldPath(
+            Self::FieldPath(fields) => Ok(PersistedIndexKeySnapshot::FieldPath(
                 fields
                     .iter()
-                    .map(CompiledIndexFieldPathProposal::initial_persisted_field_path_snapshot)
-                    .collect(),
-            ),
-            Self::Items(items) => PersistedIndexKeySnapshot::Items(
+                    .map(|field| field.initial_persisted_field_path_snapshot(enum_catalog))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            Self::Items(items) => Ok(PersistedIndexKeySnapshot::Items(
                 items
                     .iter()
-                    .map(CompiledIndexKeyItemProposal::initial_persisted_key_item_snapshot)
-                    .collect(),
-            ),
+                    .map(|item| item.initial_persisted_key_item_snapshot(enum_catalog))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
         }
     }
 }
@@ -407,13 +525,16 @@ pub(in crate::db) enum CompiledIndexKeyItemProposal {
 }
 
 impl CompiledIndexKeyItemProposal {
-    fn initial_persisted_key_item_snapshot(&self) -> PersistedIndexKeyItemSnapshot {
+    fn initial_persisted_key_item_snapshot(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedIndexKeyItemSnapshot, InternalError> {
         match self {
-            Self::FieldPath(field_path) => PersistedIndexKeyItemSnapshot::FieldPath(
-                field_path.initial_persisted_field_path_snapshot(),
-            ),
-            Self::Expression(expression) => PersistedIndexKeyItemSnapshot::Expression(Box::new(
-                expression.initial_persisted_expression_snapshot(),
+            Self::FieldPath(field_path) => Ok(PersistedIndexKeyItemSnapshot::FieldPath(
+                field_path.initial_persisted_field_path_snapshot(enum_catalog)?,
+            )),
+            Self::Expression(expression) => Ok(PersistedIndexKeyItemSnapshot::Expression(
+                Box::new(expression.initial_persisted_expression_snapshot(enum_catalog)?),
             )),
         }
     }
@@ -431,7 +552,7 @@ pub(in crate::db) struct CompiledIndexFieldPathProposal {
     field_id: FieldId,
     slot: SchemaFieldSlot,
     path: Vec<String>,
-    kind: PersistedFieldKind,
+    kind: FieldKind,
     nullable: bool,
 }
 
@@ -456,8 +577,8 @@ impl CompiledIndexFieldPathProposal {
 
     /// Borrow the accepted persisted field kind at this path.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
-        &self.kind
+    pub(in crate::db) const fn kind(&self) -> FieldKind {
+        self.kind
     }
 
     /// Return whether this field path permits explicit `NULL`.
@@ -466,14 +587,19 @@ impl CompiledIndexFieldPathProposal {
         self.nullable
     }
 
-    fn initial_persisted_field_path_snapshot(&self) -> PersistedIndexFieldPathSnapshot {
-        PersistedIndexFieldPathSnapshot::new(
+    fn initial_persisted_field_path_snapshot(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedIndexFieldPathSnapshot, InternalError> {
+        let kind = resolve_model_field_kind(enum_catalog, self.kind())
+            .map_err(|_| InternalError::store_unsupported())?;
+        Ok(PersistedIndexFieldPathSnapshot::new(
             self.field_id(),
             self.slot(),
             self.path().to_vec(),
-            self.kind().clone(),
+            kind,
             self.nullable(),
-        )
+        ))
     }
 }
 
@@ -488,19 +614,27 @@ impl CompiledIndexFieldPathProposal {
 pub(in crate::db) struct CompiledIndexExpressionProposal {
     op: PersistedIndexExpressionOp,
     source: CompiledIndexFieldPathProposal,
-    output_kind: PersistedFieldKind,
+    output_kind: FieldKind,
     canonical_text: String,
 }
 
 impl CompiledIndexExpressionProposal {
-    fn initial_persisted_expression_snapshot(&self) -> PersistedIndexExpressionSnapshot {
-        PersistedIndexExpressionSnapshot::new(
+    fn initial_persisted_expression_snapshot(
+        &self,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<PersistedIndexExpressionSnapshot, InternalError> {
+        let input_kind = resolve_model_field_kind(enum_catalog, self.source.kind())
+            .map_err(|_| InternalError::store_unsupported())?;
+        let output_kind = resolve_model_field_kind(enum_catalog, self.output_kind)
+            .map_err(|_| InternalError::store_unsupported())?;
+        Ok(PersistedIndexExpressionSnapshot::new(
             self.op,
-            self.source.initial_persisted_field_path_snapshot(),
-            self.source.kind().clone(),
-            self.output_kind.clone(),
+            self.source
+                .initial_persisted_field_path_snapshot(enum_catalog)?,
+            input_kind,
+            output_kind,
             self.canonical_text.clone(),
-        )
+        ))
     }
 }
 
@@ -580,7 +714,17 @@ fn debug_assert_compiled_schema_proposal_invariants(
     );
 
     let layout = proposal.initial_row_layout();
-    let snapshot = proposal.initial_persisted_schema_snapshot();
+    let Ok(catalog) =
+        crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[model])
+    else {
+        debug_assert!(false, "generated enum catalog should build");
+        return;
+    };
+    let Ok(snapshot) = proposal.initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+    else {
+        debug_assert!(false, "generated defaults should admit through the catalog");
+        return;
+    };
     debug_assert_eq!(layout.version(), proposal.declared_schema_version());
     debug_assert_eq!(
         layout.version().get(),
@@ -641,7 +785,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.storage_decode(),
             field.leaf_codec(),
             field.nested_leaves(),
-            field.initial_persisted_field_snapshot(),
+            field.initial_persisted_field_snapshot(&catalog),
         );
     }
 
@@ -653,7 +797,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             index.unique(),
             index.key(),
             index.predicate_sql(),
-            index.initial_persisted_index_snapshot(),
+            index.initial_persisted_index_snapshot(&catalog),
         );
     }
 
@@ -785,27 +929,24 @@ const fn persisted_expression_op_from_index_expression(
     }
 }
 
-fn persisted_expression_output_kind(
+const fn persisted_expression_output_kind(
     op: PersistedIndexExpressionOp,
-    source_kind: &PersistedFieldKind,
-) -> Option<PersistedFieldKind> {
+    source_kind: FieldKind,
+) -> Option<FieldKind> {
     match op {
         PersistedIndexExpressionOp::Lower
         | PersistedIndexExpressionOp::Upper
         | PersistedIndexExpressionOp::Trim
         | PersistedIndexExpressionOp::LowerTrim => {
-            if matches!(source_kind, PersistedFieldKind::Text { .. }) {
-                Some(source_kind.clone())
+            if matches!(source_kind, FieldKind::Text { .. }) {
+                Some(source_kind)
             } else {
                 None
             }
         }
         PersistedIndexExpressionOp::Date => {
-            if matches!(
-                source_kind,
-                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
-            ) {
-                Some(PersistedFieldKind::Date)
+            if matches!(source_kind, FieldKind::Date | FieldKind::Timestamp) {
+                Some(FieldKind::Date)
             } else {
                 None
             }
@@ -813,11 +954,8 @@ fn persisted_expression_output_kind(
         PersistedIndexExpressionOp::Year
         | PersistedIndexExpressionOp::Month
         | PersistedIndexExpressionOp::Day => {
-            if matches!(
-                source_kind,
-                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
-            ) {
-                Some(PersistedFieldKind::Int64)
+            if matches!(source_kind, FieldKind::Date | FieldKind::Timestamp) {
+                Some(FieldKind::Int64)
             } else {
                 None
             }
@@ -855,7 +993,7 @@ fn compiled_index_field_path_proposal_from_name(
             field_id: field.id(),
             slot: field.slot(),
             path,
-            kind: PersistedFieldKind::from_model_kind(field.kind()),
+            kind: field.kind(),
             nullable: field.nullable(),
         });
     }
@@ -869,7 +1007,7 @@ fn compiled_index_field_path_proposal_from_name(
         field_id: field.id(),
         slot: field.slot(),
         path,
-        kind: nested.kind().clone(),
+        kind: nested.kind(),
         nullable: nested.nullable(),
     })
 }
@@ -879,7 +1017,7 @@ fn compiled_index_field_path_proposal_from_name(
 // physical slot; nested entries only carry planning metadata for field paths.
 fn persisted_nested_leaf_snapshots_from_model_fields(
     fields: &[FieldModel],
-) -> Vec<PersistedNestedLeafSnapshot> {
+) -> Vec<CompiledNestedLeafProposal> {
     let mut leaves = Vec::new();
 
     for field in fields {
@@ -894,16 +1032,16 @@ fn persisted_nested_leaf_snapshots_from_model_fields(
 fn push_persisted_nested_leaf_snapshots(
     field: &FieldModel,
     mut path: Vec<String>,
-    leaves: &mut Vec<PersistedNestedLeafSnapshot>,
+    leaves: &mut Vec<CompiledNestedLeafProposal>,
 ) {
     path.push(field.name().to_string());
-    leaves.push(PersistedNestedLeafSnapshot::new(
-        path.clone(),
-        PersistedFieldKind::from_model_kind(field.kind()),
-        field.nullable(),
-        field.storage_decode(),
-        field.leaf_codec(),
-    ));
+    leaves.push(CompiledNestedLeafProposal {
+        path: path.clone(),
+        kind: field.kind(),
+        nullable: field.nullable(),
+        storage_decode: field.storage_decode(),
+        leaf_codec: field.leaf_codec(),
+    });
 
     for nested in field.nested_fields() {
         push_persisted_nested_leaf_snapshots(nested, path.clone(), leaves);

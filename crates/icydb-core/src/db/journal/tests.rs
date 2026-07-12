@@ -8,7 +8,10 @@ use super::{
     store::{JOURNAL_TAIL_CHUNK_BYTES, RawJournalChunk},
 };
 use crate::{
-    db::data::{DecodedDataStoreKey, RawDataStoreKey},
+    db::{
+        data::{DecodedDataStoreKey, RawDataStoreKey},
+        schema::{AcceptedSchemaRevision, empty_accepted_schema_candidate_for_tests},
+    },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
     traits::Storable,
@@ -47,6 +50,18 @@ fn row_delete_record(fill: u64) -> JournalRecord {
 
 fn schema_put_record(fill: u8) -> JournalRecord {
     JournalRecord::schema_put("test::Store", vec![fill; 8]).expect("schema put record should build")
+}
+
+fn accepted_schema_publish_record() -> JournalRecord {
+    let candidate =
+        empty_accepted_schema_candidate_for_tests("test::Store", AcceptedSchemaRevision::new(2));
+    JournalRecord::accepted_schema_publish(
+        "test::Store",
+        AcceptedSchemaRevision::INITIAL,
+        candidate.encoded_bundle().to_vec(),
+        candidate.encoded_root().to_vec(),
+    )
+    .expect("accepted schema publication record should build")
 }
 
 fn batch(sequence: u64) -> JournalBatch {
@@ -93,12 +108,56 @@ fn journal_batch_codec_round_trips_logical_row_and_schema_records() {
 }
 
 #[test]
+fn journal_batch_codec_round_trips_accepted_schema_publication() {
+    let batch = JournalBatch::new(
+        [0x31; 16],
+        [0x41; 16],
+        JournalSequence::new(1),
+        vec![accepted_schema_publish_record()],
+    )
+    .expect("accepted schema journal batch should build");
+
+    let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
+    let decoded = decode_journal_batch(&encoded).expect("journal batch should decode");
+
+    assert_eq!(decoded, batch);
+}
+
+#[test]
+fn accepted_schema_publication_record_rejects_revision_gap() {
+    let candidate =
+        empty_accepted_schema_candidate_for_tests("test::Store", AcceptedSchemaRevision::new(3));
+
+    assert!(
+        JournalRecord::accepted_schema_publish(
+            "test::Store",
+            AcceptedSchemaRevision::INITIAL,
+            candidate.encoded_bundle().to_vec(),
+            candidate.encoded_root().to_vec(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn journal_batch_decode_rejects_future_version() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded[4] = JOURNAL_BATCH_FORMAT_VERSION_CURRENT.saturating_add(1);
 
     let err =
         decode_journal_batch(&encoded).expect_err("future journal batch versions must fail closed");
+
+    assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(err.origin, ErrorOrigin::Serialize);
+}
+
+#[test]
+fn journal_batch_decode_rejects_pre_0_200_version() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded[4] = JOURNAL_BATCH_FORMAT_VERSION_CURRENT.saturating_sub(1);
+
+    let err = decode_journal_batch(&encoded)
+        .expect_err("pre-0.200 journal batch versions must fail closed");
 
     assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(err.origin, ErrorOrigin::Serialize);

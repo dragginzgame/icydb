@@ -1,8 +1,13 @@
 use crate::{
     db::predicate::{
         CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize,
-        normalize::{normalize_compare_value_for_kind, normalize_value_for_kind},
+        normalize::{
+            normalize_accepted_compare_fields_coercion, normalize_compare_value_for_accepted_kind,
+            normalize_compare_value_for_kind, normalize_value_for_accepted_kind,
+            normalize_value_for_kind,
+        },
     },
+    db::schema::AcceptedFieldKind,
     model::field::FieldKind,
     value::Value,
 };
@@ -431,5 +436,85 @@ fn normalize_compare_value_for_not_in_kind_canonicalizes_members() {
         normalized,
         Value::List(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
         "NOT IN literal normalization should sort and deduplicate members",
+    );
+}
+
+#[test]
+fn accepted_numeric_membership_normalization_matches_model_only_shape() {
+    let value = Value::List(vec![
+        Value::Int64(3),
+        Value::Nat64(1),
+        Value::Int64(3),
+        Value::Nat64(2),
+    ]);
+    let coercion = CoercionSpec::new(CoercionId::Strict);
+
+    let accepted = normalize_compare_value_for_accepted_kind(
+        "rank",
+        CompareOp::In,
+        &value,
+        &AcceptedFieldKind::Nat64,
+        &coercion,
+    )
+    .expect("accepted membership normalization should succeed");
+    let model = normalize_compare_value_for_kind(
+        "rank",
+        CompareOp::In,
+        &value,
+        &FieldKind::Nat64,
+        &coercion,
+    )
+    .expect("model-only membership normalization should succeed");
+
+    assert_eq!(accepted, model);
+    assert_eq!(
+        accepted,
+        Value::List(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
+    );
+}
+
+#[test]
+fn accepted_recursive_set_normalization_is_canonical() {
+    let normalized = normalize_value_for_accepted_kind(
+        "tags",
+        &Value::List(vec![
+            Value::Text("beta".to_string()),
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ]),
+        &AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Text { max_len: None })),
+        &CoercionSpec::new(CoercionId::Strict),
+        CompareOp::Eq,
+    )
+    .expect("accepted set normalization should succeed");
+
+    assert_eq!(
+        normalized,
+        Value::List(vec![
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ]),
+    );
+}
+
+#[test]
+fn accepted_field_comparison_coercion_uses_accepted_semantics() {
+    assert_eq!(
+        normalize_accepted_compare_fields_coercion(
+            CompareOp::Eq,
+            &AcceptedFieldKind::Int64,
+            &AcceptedFieldKind::Nat64,
+            CoercionId::Strict,
+        ),
+        CoercionId::NumericWiden,
+    );
+    assert_eq!(
+        normalize_accepted_compare_fields_coercion(
+            CompareOp::Lt,
+            &AcceptedFieldKind::Text { max_len: None },
+            &AcceptedFieldKind::Text { max_len: Some(32) },
+            CoercionId::TextCasefold,
+        ),
+        CoercionId::Strict,
     );
 }

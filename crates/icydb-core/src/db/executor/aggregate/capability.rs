@@ -3,35 +3,66 @@
 //! Does not own: route planning policy or aggregate execution dispatch.
 //! Boundary: reusable field capability checks for aggregate/route modules.
 
-use crate::{
-    db::{
-        access::IndexShapeDetails,
-        direction::Direction,
-        executor::{
-            aggregate::{AccessPlannedQuery, AggregateKind},
-            route::{
-                AggregateRouteShape, count_pushdown_shape_supported,
-                primary_key_stream_window_shape_supported,
-            },
+use crate::db::{
+    access::IndexShapeDetails,
+    direction::Direction,
+    executor::{
+        aggregate::{AccessPlannedQuery, AggregateKind},
+        route::{
+            AggregateRouteShape, count_pushdown_shape_supported,
+            primary_key_stream_window_shape_supported,
         },
     },
-    model::{classify_field_kind, field::FieldKind},
+    schema::{AcceptedFieldKind, classify_accepted_field_kind},
 };
 
-/// Return true when the field kind is eligible for deterministic aggregate ordering.
+/// Return true when an accepted field kind permits deterministic aggregate ordering.
 #[must_use]
-pub(in crate::db::executor) const fn field_kind_supports_aggregate_ordering(
-    kind: &FieldKind,
+pub(in crate::db::executor) const fn accepted_field_kind_supports_aggregate_ordering(
+    kind: &AcceptedFieldKind,
 ) -> bool {
-    classify_field_kind(kind).supports_aggregate_ordering()
+    classify_accepted_field_kind(kind).is_orderable()
 }
 
-/// Return true when the field kind supports numeric aggregate arithmetic.
+/// Return true when an accepted field kind permits numeric aggregate arithmetic.
 #[must_use]
-pub(in crate::db::executor) const fn field_kind_supports_numeric_aggregation(
-    kind: &FieldKind,
+pub(in crate::db::executor) const fn accepted_field_kind_supports_numeric_aggregation(
+    kind: &AcceptedFieldKind,
 ) -> bool {
-    classify_field_kind(kind).supports_aggregate_numeric()
+    classify_accepted_field_kind(kind).supports_arithmetic_numeric()
+}
+
+/// Return true when one accepted grouped field already arrives in canonical
+/// grouped-equality form.
+#[must_use]
+pub(in crate::db::executor) const fn accepted_field_kind_has_identity_group_canonical_form(
+    kind: &AcceptedFieldKind,
+) -> bool {
+    !matches!(
+        kind,
+        AcceptedFieldKind::Decimal { .. }
+            | AcceptedFieldKind::Enum { .. }
+            | AcceptedFieldKind::Relation { .. }
+            | AcceptedFieldKind::List(_)
+            | AcceptedFieldKind::Set(_)
+            | AcceptedFieldKind::Map { .. }
+            | AcceptedFieldKind::Structured { .. }
+            | AcceptedFieldKind::Unit
+    )
+}
+
+/// Return true when one accepted grouped field can use borrowed key probing.
+#[must_use]
+pub(in crate::db::executor) fn accepted_field_kind_supports_group_probe(
+    kind: &AcceptedFieldKind,
+) -> bool {
+    match kind {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            accepted_field_kind_supports_group_probe(key_kind)
+        }
+        AcceptedFieldKind::Decimal { .. } => true,
+        _ => accepted_field_kind_has_identity_group_canonical_form(kind),
+    }
 }
 
 ///

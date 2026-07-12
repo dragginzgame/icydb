@@ -269,25 +269,7 @@ pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query
 where
     K: KeyValueCodec,
 {
-    query.validate_policy_shape()?;
-    let access_inputs = query.planning_access_inputs();
-    let logical_inputs = query.planning_logical_inputs();
-    if access_inputs.order().is_some()
-        || access_inputs.has_key_access_override()
-        || logical_inputs.distinct()
-        || logical_inputs.has_group()
-        || logical_inputs.has_having_expr()
-        || (logical_inputs.has_filter_expr() && !logical_inputs.filter_predicate_covers_expr())
-    {
-        return Ok(None);
-    }
-    let crate::db::query::plan::QueryMode::Load(load_spec) = query.mode() else {
-        return Ok(None);
-    };
-    if load_spec.limit().is_some() || load_spec.offset() > 0 {
-        return Ok(None);
-    }
-    let Some(predicate) = access_inputs.predicate() else {
+    let Some(predicate) = query.direct_count_cardinality_prefix_predicate()? else {
         return Ok(None);
     };
 

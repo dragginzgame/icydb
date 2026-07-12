@@ -1,19 +1,21 @@
 use super::{
+    AcceptedStoreCatalogScope, RAW_SCHEMA_SNAPSHOT_MAGIC, RAW_SCHEMA_SNAPSHOT_VALUE_VERSION,
     RawSchemaKey, RawSchemaSnapshot, SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION,
     SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
     SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION, SchemaStore, SchemaStoreBackend,
-    SchemaStoreVisit,
+    SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests,
+    reset_accepted_schema_bundle_cache_miss_count_for_tests,
 };
 use crate::{
     db::{
         direction::Direction,
         schema::{
-            AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
-            encode_persisted_schema_snapshot, persisted_schema_snapshot_decode_count_for_tests,
-            reset_persisted_schema_snapshot_decode_count_for_tests,
+            AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId,
+            PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
+            PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            accepted_schema_cache_fingerprint, empty_accepted_schema_candidate_for_tests,
+            encode_persisted_schema_snapshot,
         },
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -26,6 +28,28 @@ use std::borrow::Cow;
 use std::convert::Infallible;
 
 #[test]
+fn schema_store_catalog_scope_is_local_and_stable_for_its_lifetime() {
+    let first_store = SchemaStore::init_heap();
+    let second_store = SchemaStore::init_heap();
+
+    let first = first_store
+        .accepted_catalog_scope
+        .get_or_init(AcceptedStoreCatalogScope::new)
+        .clone();
+    let first_again = first_store
+        .accepted_catalog_scope
+        .get_or_init(AcceptedStoreCatalogScope::new)
+        .clone();
+    let second = second_store
+        .accepted_catalog_scope
+        .get_or_init(AcceptedStoreCatalogScope::new)
+        .clone();
+
+    assert_eq!(first, first_again);
+    assert_ne!(first, second);
+}
+
+#[test]
 fn raw_schema_key_round_trips_entity_and_version() {
     let key = RawSchemaKey::from_entity_version(EntityTag::new(0x0102_0304_0506_0708), {
         SchemaVersion::initial()
@@ -33,18 +57,26 @@ fn raw_schema_key_round_trips_entity_and_version() {
     let encoded = key.to_bytes().into_owned();
     let decoded = RawSchemaKey::from_bytes(Cow::Owned(encoded));
 
+    assert_eq!(
+        key.to_bytes().as_ref(),
+        &[
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00,
+            0x00, 0x01,
+        ],
+        "schema-store entity key namespace and big-endian layout are persisted format",
+    );
     assert_eq!(decoded.entity_tag(), EntityTag::new(0x0102_0304_0506_0708));
     assert_eq!(decoded.version(), SchemaVersion::initial().get());
 }
 
 #[test]
-fn raw_schema_snapshot_round_trips_payload_bytes() {
-    let snapshot = RawSchemaSnapshot::from_bytes(vec![1, 2, 3, 5, 8]);
+fn raw_schema_control_record_round_trips_opaque_bytes() {
+    let snapshot = RawSchemaSnapshot::from_encoded_control_record(b"ICYDBASB\x01\x02\x03".to_vec());
     let encoded = snapshot.to_bytes().into_owned();
     let decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(encoded));
 
-    assert_eq!(decoded.as_bytes(), &[1, 2, 3, 5, 8]);
-    assert_eq!(decoded.into_bytes(), vec![1, 2, 3, 5, 8]);
+    assert_eq!(decoded.as_bytes(), b"ICYDBASB\x01\x02\x03");
+    assert_eq!(decoded.into_bytes(), b"ICYDBASB\x01\x02\x03");
 }
 
 #[test]
@@ -82,6 +114,25 @@ fn raw_schema_snapshot_round_trips_identity_header_for_typed_snapshot() {
 }
 
 #[test]
+fn raw_schema_snapshot_rejects_pre_0_200_envelope_before_payload_decode() {
+    let snapshot = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "OldEnvelope");
+    let raw = RawSchemaSnapshot::from_persisted_snapshot(&snapshot)
+        .expect("typed schema snapshot should encode");
+    let mut encoded = raw.to_bytes().into_owned();
+    encoded[RAW_SCHEMA_SNAPSHOT_MAGIC.len()] = RAW_SCHEMA_SNAPSHOT_VALUE_VERSION.saturating_sub(1);
+    let decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(encoded));
+
+    let err = decoded
+        .decode_persisted_snapshot()
+        .expect_err("pre-0.200 raw schema envelopes must fail closed");
+
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+    );
+}
+
+#[test]
 fn schema_store_persists_raw_snapshots_by_entity_version_key() {
     let mut store = SchemaStore::init_journaled(test_memory(251));
     let key = RawSchemaKey::from_entity_version(EntityTag::new(17), SchemaVersion::initial());
@@ -89,7 +140,10 @@ fn schema_store_persists_raw_snapshots_by_entity_version_key() {
     assert!(store.is_empty());
     assert!(!store.contains_raw_snapshot(&key));
 
-    store.insert_raw_snapshot(key, RawSchemaSnapshot::from_bytes(vec![9, 4, 6]));
+    store.insert_raw_snapshot(
+        key,
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![9, 4, 6]),
+    );
 
     assert_eq!(store.len(), 1);
     assert!(store.contains_raw_snapshot(&key));
@@ -123,7 +177,7 @@ fn schema_store_loads_latest_snapshot_for_entity() {
         .expect("newer schema snapshot should encode");
 
     let latest = store
-        .latest_persisted_snapshot(EntityTag::new(41))
+        .latest_staged_persisted_snapshot(EntityTag::new(41))
         .expect("latest schema snapshot should decode")
         .expect("schema snapshot should exist");
 
@@ -136,15 +190,15 @@ fn schema_store_entity_footprint_counts_raw_snapshots_without_decoding() {
     let mut store = SchemaStore::init_journaled(test_memory(242));
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(71), SchemaVersion::initial()),
-        RawSchemaSnapshot::from_bytes(vec![1, 2, 3]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![1, 2, 3]),
     );
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(72), SchemaVersion::new(3)),
-        RawSchemaSnapshot::from_bytes(vec![5, 8]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![5, 8]),
     );
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(71), SchemaVersion::new(2)),
-        RawSchemaSnapshot::from_bytes(vec![13, 21, 34, 55]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![13, 21, 34, 55]),
     );
 
     let footprint = store.entity_footprint(EntityTag::new(71));
@@ -159,15 +213,15 @@ fn schema_store_visit_raw_snapshots_preserves_key_order() {
     let mut store = SchemaStore::init_journaled(test_memory(235));
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(3), SchemaVersion::new(2)),
-        RawSchemaSnapshot::from_bytes(vec![32]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![32]),
     );
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(1), SchemaVersion::new(3)),
-        RawSchemaSnapshot::from_bytes(vec![13]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![13]),
     );
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(1), SchemaVersion::new(1)),
-        RawSchemaSnapshot::from_bytes(vec![11]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![11]),
     );
 
     let mut visited = Vec::new();
@@ -188,11 +242,11 @@ fn schema_store_visit_raw_snapshots_can_stop_without_error() {
     let mut store = SchemaStore::init_journaled(test_memory(234));
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(2), SchemaVersion::new(1)),
-        RawSchemaSnapshot::from_bytes(vec![21]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![21]),
     );
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(2), SchemaVersion::new(2)),
-        RawSchemaSnapshot::from_bytes(vec![22]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![22]),
     );
 
     let mut visited = Vec::new();
@@ -222,7 +276,7 @@ fn heap_schema_store_preserves_order_latest_snapshot_and_early_stop() {
         .expect("newer heap schema snapshot should encode");
 
     let latest = store
-        .latest_persisted_snapshot(EntityTag::new(41))
+        .latest_staged_persisted_snapshot(EntityTag::new(41))
         .expect("latest heap schema snapshot should decode")
         .expect("heap schema snapshot should exist");
     assert_eq!(latest.version(), SchemaVersion::new(2));
@@ -276,7 +330,7 @@ fn journaled_schema_store_streams_overlay_latest_snapshot_and_early_stop() {
         .expect("live newer schema snapshot should encode");
 
     let latest = store
-        .latest_persisted_snapshot(EntityTag::new(61))
+        .latest_staged_persisted_snapshot(EntityTag::new(61))
         .expect("latest journaled schema snapshot should decode")
         .expect("journaled schema snapshot should exist");
     assert_eq!(latest.version(), SchemaVersion::new(3));
@@ -312,7 +366,7 @@ fn journaled_schema_store_streams_overlay_latest_snapshot_and_early_stop() {
     assert!(store.is_empty());
     assert!(
         store
-            .latest_persisted_snapshot(EntityTag::new(61))
+            .latest_staged_persisted_snapshot(EntityTag::new(61))
             .expect("cleared journaled latest snapshot lookup should decode")
             .is_none(),
     );
@@ -360,6 +414,111 @@ fn journaled_schema_store_latest_snapshot_reads_each_overlay_source() {
 }
 
 #[test]
+fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
+    let memory = test_memory(229);
+    let mut store = SchemaStore::init_journaled(memory.clone());
+    let initial = empty_accepted_schema_candidate_for_tests(
+        "test::JournaledSchemaStore",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    store
+        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .expect("initial accepted schema root should bootstrap");
+    assert_eq!(store.canonical_len_for_tests(), 2);
+
+    let second = empty_accepted_schema_candidate_for_tests(
+        "test::JournaledSchemaStore",
+        AcceptedSchemaRevision::new(2),
+    );
+    store
+        .apply_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .expect("journal replay should publish the live root");
+    store
+        .apply_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .expect("replaying an already-current candidate should be idempotent");
+    assert_eq!(
+        store
+            .current_accepted_schema_bundle()
+            .expect("live accepted bundle should decode")
+            .expect("live accepted bundle should exist")
+            .revision(),
+        AcceptedSchemaRevision::new(2),
+    );
+    assert_eq!(store.canonical_len_for_tests(), 2);
+
+    let mut reopened = SchemaStore::init_journaled(memory);
+    assert_eq!(
+        reopened
+            .current_accepted_schema_bundle()
+            .expect("canonical accepted bundle should decode")
+            .expect("canonical accepted bundle should exist")
+            .revision(),
+        AcceptedSchemaRevision::INITIAL,
+    );
+    reopened
+        .apply_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .expect("tail replay should restore the live candidate");
+    reopened
+        .fold_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .expect("committed candidate should fold into the canonical BTree");
+    reopened
+        .fold_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .expect("repeated candidate fold should be idempotent");
+    reopened
+        .reset_journaled_live_projection()
+        .expect("live projection should reset");
+    assert_eq!(
+        reopened
+            .current_accepted_schema_bundle()
+            .expect("folded accepted bundle should decode")
+            .expect("folded accepted bundle should exist")
+            .revision(),
+        AcceptedSchemaRevision::new(2),
+    );
+    assert_eq!(reopened.canonical_len_for_tests(), 4);
+}
+
+#[test]
+fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
+    let mut store = SchemaStore::init_heap();
+    let initial = empty_accepted_schema_candidate_for_tests(
+        "test::CachedSchemaStore",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    store
+        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .expect("initial accepted schema root should bootstrap");
+    reset_accepted_schema_bundle_cache_miss_count_for_tests();
+
+    for _ in 0..2 {
+        assert!(
+            store
+                .current_accepted_persisted_snapshot(EntityTag::new(7))
+                .expect("accepted bundle should decode")
+                .is_none(),
+            "empty accepted bundle should not contain the test entity",
+        );
+    }
+    assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), 1);
+
+    let second = empty_accepted_schema_candidate_for_tests(
+        "test::CachedSchemaStore",
+        AcceptedSchemaRevision::new(2),
+    );
+    store
+        .publish_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .expect("second accepted schema root should publish");
+    assert!(
+        store
+            .current_accepted_persisted_snapshot(EntityTag::new(7))
+            .expect("new accepted bundle should decode")
+            .is_none(),
+        "new empty accepted bundle should not contain the test entity",
+    );
+    assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), 2);
+}
+
+#[test]
 fn journaled_schema_store_descending_range_orders_live_between_canonical_versions() {
     let mut store = SchemaStore::init_journaled(test_memory(228));
     let entity = EntityTag::new(72);
@@ -391,7 +550,7 @@ fn journaled_schema_store_descending_range_orders_live_between_canonical_version
         .expect("live v2 schema snapshot should encode");
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(higher_entity, SchemaVersion::new(1)),
-        RawSchemaSnapshot::from_bytes(vec![0xff]),
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![0xff]),
     );
 
     let visited = visit_journaled_schema_range(&store, entity, Direction::Desc, usize::MAX);
@@ -474,43 +633,6 @@ fn schema_store_catalog_metadata_is_absent_without_accepted_snapshots() {
             .catalog_metadata()
             .expect("empty schema catalog metadata should derive"),
         None
-    );
-}
-
-#[test]
-fn schema_store_latest_catalog_identity_uses_version_neutral_header_without_decoding() {
-    let mut store = SchemaStore::init_journaled(test_memory(239));
-    let entity = EntityTag::new(80);
-    let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Versioned");
-    let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Versioned");
-    let expected_fingerprint = accepted_schema_cache_fingerprint(
-        &AcceptedSchemaSnapshot::try_new(initial.clone())
-            .expect("initial schema snapshot should be accepted"),
-    )
-    .expect("accepted schema fingerprint should derive");
-
-    store
-        .insert_persisted_snapshot(entity, &initial)
-        .expect("initial schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(entity, &newer)
-        .expect("newer schema snapshot should encode");
-
-    reset_persisted_schema_snapshot_decode_count_for_tests();
-    let selection = store
-        .latest_catalog_identity(entity, "entities::Versioned", "schema_store_test")
-        .expect("latest catalog identity should derive from header")
-        .expect("latest catalog identity should exist");
-
-    assert_eq!(persisted_schema_snapshot_decode_count_for_tests(), 0);
-    assert_eq!(
-        selection.identity().accepted_schema_version(),
-        SchemaVersion::new(2)
-    );
-    assert_eq!(
-        selection.identity().accepted_schema_fingerprint(),
-        expected_fingerprint,
-        "accepted catalog identity fingerprint must exclude schema_version",
     );
 }
 
@@ -785,10 +907,13 @@ fn schema_store_does_not_fallback_when_latest_snapshot_is_corrupt() {
     store
         .insert_persisted_snapshot(EntityTag::new(45), &initial)
         .expect("initial schema snapshot should encode");
-    store.insert_raw_snapshot(corrupt_key, RawSchemaSnapshot::from_bytes(vec![0xff, 0x00]));
+    store.insert_raw_snapshot(
+        corrupt_key,
+        RawSchemaSnapshot::from_encoded_control_record(vec![0xff, 0x00]),
+    );
 
     let err = store
-        .latest_persisted_snapshot(EntityTag::new(45))
+        .latest_staged_persisted_snapshot(EntityTag::new(45))
         .expect_err("latest corrupt schema snapshot must fail closed");
 
     assert_eq!(
@@ -820,10 +945,13 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(46), invalid.version());
 
-    store.insert_raw_snapshot(key, RawSchemaSnapshot::from_bytes(raw));
+    store.insert_raw_snapshot(
+        key,
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
+    );
 
     let err = store
-        .latest_persisted_snapshot(EntityTag::new(46))
+        .latest_staged_persisted_snapshot(EntityTag::new(46))
         .expect_err("raw decode should reject divergent field/layout slots");
 
     assert_eq!(
@@ -849,10 +977,13 @@ fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(48), invalid.version());
 
-    store.insert_raw_snapshot(key, RawSchemaSnapshot::from_bytes(raw));
+    store.insert_raw_snapshot(
+        key,
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
+    );
 
     let err = store
-        .latest_persisted_snapshot(EntityTag::new(48))
+        .latest_staged_persisted_snapshot(EntityTag::new(48))
         .expect_err("raw decode should reject snapshots without the primary-key field");
 
     assert_eq!(
@@ -891,10 +1022,13 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(50), invalid.version());
 
-    store.insert_raw_snapshot(key, RawSchemaSnapshot::from_bytes(raw));
+    store.insert_raw_snapshot(
+        key,
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
+    );
 
     let err = store
-        .latest_persisted_snapshot(EntityTag::new(50))
+        .latest_staged_persisted_snapshot(EntityTag::new(50))
         .expect_err("raw decode should reject duplicate field names");
 
     assert_eq!(
@@ -916,7 +1050,7 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
         fields[1].kind().clone(),
         vec![PersistedNestedLeafSnapshot::new(
             Vec::new(),
-            PersistedFieldKind::Blob { max_len: None },
+            AcceptedFieldKind::Blob { max_len: None },
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Blob),
@@ -955,14 +1089,14 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
     let duplicate_leaves = vec![
         PersistedNestedLeafSnapshot::new(
             vec!["bytes".to_string()],
-            PersistedFieldKind::Blob { max_len: None },
+            AcceptedFieldKind::Blob { max_len: None },
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Blob),
         ),
         PersistedNestedLeafSnapshot::new(
             vec!["bytes".to_string()],
-            PersistedFieldKind::Text { max_len: None },
+            AcceptedFieldKind::Text { max_len: None },
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
@@ -992,10 +1126,13 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
     let key = RawSchemaKey::from_entity_version(EntityTag::new(52), invalid.version());
 
-    store.insert_raw_snapshot(key, RawSchemaSnapshot::from_bytes(raw));
+    store.insert_raw_snapshot(
+        key,
+        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
+    );
 
     let err = store
-        .latest_persisted_snapshot(EntityTag::new(52))
+        .latest_staged_persisted_snapshot(EntityTag::new(52))
         .expect_err("raw decode should reject duplicate nested leaf paths");
 
     assert_eq!(
@@ -1028,7 +1165,7 @@ fn assert_latest_schema(
     entity_name: &str,
 ) {
     let latest = store
-        .latest_persisted_snapshot(entity)
+        .latest_staged_persisted_snapshot(entity)
         .expect("latest schema snapshot should decode")
         .expect("latest schema snapshot should exist");
 
@@ -1117,7 +1254,7 @@ fn persisted_schema_snapshot_with_index_for_test(
                 FieldId::new(1),
                 SchemaFieldSlot::new(0),
                 vec!["id".to_string()],
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 false,
             )]),
             None,
@@ -1150,7 +1287,7 @@ fn persisted_schema_snapshot_with_layout_version_for_test(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -1161,15 +1298,13 @@ fn persisted_schema_snapshot_with_layout_version_for_test(
                 FieldId::new(2),
                 "payload".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Map {
-                    key: Box::new(PersistedFieldKind::Text { max_len: None }),
-                    value: Box::new(PersistedFieldKind::List(Box::new(
-                        PersistedFieldKind::Nat64,
-                    ))),
+                AcceptedFieldKind::Map {
+                    key: Box::new(AcceptedFieldKind::Text { max_len: None }),
+                    value: Box::new(AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64))),
                 },
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["bytes".to_string()],
-                    PersistedFieldKind::Blob { max_len: None },
+                    AcceptedFieldKind::Blob { max_len: None },
                     false,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Blob),

@@ -334,6 +334,15 @@ impl Field {
         let Some(default) = self.default.as_ref() else {
             return quote!(::icydb::model::field::FieldDatabaseDefault::None);
         };
+        if let Some((enum_path, variant)) = authored_unit_enum_default(default, &self.value)
+            .expect("field database default should have been validated before code generation")
+        {
+            let variant = variant.to_string();
+            return quote!(::icydb::model::field::FieldDatabaseDefault::AuthoredEnumUnit {
+                enum_path: <#enum_path as ::icydb::traits::Path>::PATH,
+                variant: #variant,
+            });
+        }
         let bytes = database_default_slot_payload_bytes(default, &self.value)
             .expect("field database default should have been validated before code generation");
         let byte_tokens = bytes.iter().map(|byte| quote!(#byte));
@@ -454,10 +463,55 @@ impl Field {
             return Ok(());
         };
 
+        if authored_unit_enum_default(default, &self.value)
+            .map_err(|message| DarlingError::custom(message).with_span(&self.ident))?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         database_default_slot_payload_bytes(default, &self.value)
             .map(|_| ())
             .map_err(|message| DarlingError::custom(message).with_span(&self.ident))
     }
+}
+
+fn authored_unit_enum_default<'a>(
+    default: &'a Arg,
+    value: &'a Value,
+) -> Result<Option<(&'a Path, &'a Ident)>, String> {
+    let Some(enum_path) = value.item.is.as_ref() else {
+        return Ok(None);
+    };
+    if value.many {
+        return Err("default currently supports only single-value fields".to_string());
+    }
+    let Arg::ConstPath(default_path) = default else {
+        return Err(
+            "custom-type defaults must name a unit enum variant such as Status::Active".to_string(),
+        );
+    };
+    let mut segments = default_path.segments.iter().rev();
+    let variant = &segments
+        .next()
+        .ok_or_else(|| "enum default path is empty".to_string())?
+        .ident;
+    let default_type = &segments
+        .next()
+        .ok_or_else(|| "enum defaults must include the enum type and unit variant".to_string())?
+        .ident;
+    let declared_type = &enum_path
+        .segments
+        .last()
+        .ok_or_else(|| "enum field type path is empty".to_string())?
+        .ident;
+    if default_type != declared_type {
+        return Err(format!(
+            "enum default type {default_type} does not match field type {declared_type}"
+        ));
+    }
+
+    Ok(Some((enum_path, variant)))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

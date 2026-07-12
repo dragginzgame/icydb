@@ -29,7 +29,7 @@ use crate::{
             validate_relation_primary_key_component_kind,
         },
         schema::{AcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract},
-        schema::{PersistedFieldKind, PersistedRelationStrength},
+        schema::{AcceptedFieldKind, AcceptedRelationStrength},
     },
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec},
@@ -55,6 +55,11 @@ pub(crate) struct ReverseRelationSourceInfo {
 }
 
 impl ReverseRelationSourceInfo {
+    /// Build structural source authority from an accepted runtime entity identity.
+    pub(in crate::db) const fn new(path: &'static str, entity_tag: EntityTag) -> Self {
+        Self { path, entity_tag }
+    }
+
     /// Lower one typed source entity into the resolved authority used by reverse-index prep.
     pub(crate) const fn for_type<S>() -> Self
     where
@@ -142,7 +147,7 @@ impl AcceptedStrongRelationInfo {
     }
 
     #[must_use]
-    fn scalar_relation_field_kind(&self) -> Option<&PersistedFieldKind> {
+    fn scalar_relation_field_kind(&self) -> Option<&AcceptedFieldKind> {
         self.scalar_local_component()
             .map(AcceptedStrongRelationLocalComponent::field_kind)
     }
@@ -234,7 +239,7 @@ struct AcceptedStrongRelationLocalComponentSpec<'a> {
 struct AcceptedStrongRelationLocalComponent {
     index: usize,
     name: String,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
@@ -252,7 +257,7 @@ impl AcceptedStrongRelationLocalComponent {
     }
 
     #[must_use]
-    const fn field_kind(&self) -> &PersistedFieldKind {
+    const fn field_kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
 
@@ -283,7 +288,7 @@ impl AcceptedStrongRelationTargetIdentity {
         target_entity_name: &str,
         target_entity_tag: EntityTag,
         target_store_path: &str,
-        key_kinds: &[PersistedFieldKind],
+        key_kinds: &[AcceptedFieldKind],
     ) -> Result<Self, InternalError> {
         Ok(Self {
             authority: AcceptedRelationTargetAuthority::try_new(
@@ -353,12 +358,12 @@ impl AcceptedStrongRelationTargetIdentity {
 
 #[derive(Clone, Debug)]
 struct AcceptedStrongRelationTargetPrimaryKey {
-    component_kinds: Vec<PersistedFieldKind>,
+    component_kinds: Vec<AcceptedFieldKind>,
 }
 
 impl AcceptedStrongRelationTargetPrimaryKey {
     fn try_from_component_kinds(
-        component_kinds: &[PersistedFieldKind],
+        component_kinds: &[AcceptedFieldKind],
     ) -> Result<Self, InternalError> {
         if component_kinds.is_empty() {
             return Err(InternalError::relation_source_row_unsupported_key_kind(
@@ -372,12 +377,12 @@ impl AcceptedStrongRelationTargetPrimaryKey {
     }
 
     #[must_use]
-    const fn component_kinds(&self) -> &[PersistedFieldKind] {
+    const fn component_kinds(&self) -> &[AcceptedFieldKind] {
         self.component_kinds.as_slice()
     }
 
     #[must_use]
-    fn single_component_kind(&self) -> Option<&PersistedFieldKind> {
+    fn single_component_kind(&self) -> Option<&AcceptedFieldKind> {
         let [key_kind] = self.component_kinds.as_slice() else {
             return None;
         };
@@ -556,7 +561,7 @@ fn accepted_strong_relation_from_field(
     let Some(target) = accepted_relation_target_metadata_from_kind(field.kind()) else {
         return Ok(None);
     };
-    if target.strength != PersistedRelationStrength::Strong {
+    if target.strength != AcceptedRelationStrength::Strong {
         return Ok(None);
     }
     if target_path_filter.is_some_and(|filter| filter != target.target_path) {
@@ -942,7 +947,7 @@ fn relation_target_keys_from_scalar_slot(
     let Some(field_kind) = relation.scalar_relation_field_kind() else {
         return Ok(None);
     };
-    if !matches!(field_kind, PersistedFieldKind::Relation { .. }) {
+    if !matches!(field_kind, AcceptedFieldKind::Relation { .. }) {
         return Ok(None);
     }
     if !relation_scalar_slot_fast_path_key_kind_supported(field_kind) {
@@ -974,26 +979,26 @@ fn relation_target_keys_from_scalar_slot(
     }
 }
 
-fn relation_scalar_slot_fast_path_key_kind_supported(kind: &PersistedFieldKind) -> bool {
-    let PersistedFieldKind::Relation { key_kind, .. } = kind else {
+fn relation_scalar_slot_fast_path_key_kind_supported(kind: &AcceptedFieldKind) -> bool {
+    let AcceptedFieldKind::Relation { key_kind, .. } = kind else {
         return false;
     };
 
     matches!(
         key_kind.as_ref(),
-        PersistedFieldKind::Int8
-            | PersistedFieldKind::Int16
-            | PersistedFieldKind::Int32
-            | PersistedFieldKind::Int64
-            | PersistedFieldKind::Principal
-            | PersistedFieldKind::Subaccount
-            | PersistedFieldKind::Timestamp
-            | PersistedFieldKind::Nat8
-            | PersistedFieldKind::Nat16
-            | PersistedFieldKind::Nat32
-            | PersistedFieldKind::Nat64
-            | PersistedFieldKind::Ulid
-            | PersistedFieldKind::Unit
+        AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64
+            | AcceptedFieldKind::Principal
+            | AcceptedFieldKind::Subaccount
+            | AcceptedFieldKind::Timestamp
+            | AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64
+            | AcceptedFieldKind::Ulid
+            | AcceptedFieldKind::Unit
     )
 }
 

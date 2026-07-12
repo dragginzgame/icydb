@@ -13,7 +13,7 @@ use crate::{
         DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription,
         EntitySchemaDescription, IntegrityReport, StorageReport, StoreCatalogDescription,
         schema::{
-            PersistedFieldKind, PersistedFieldSnapshot, SchemaInfo, describe_entity_fields,
+            AcceptedFieldKind, PersistedFieldSnapshot, SchemaInfo, describe_entity_fields,
             describe_entity_fields_with_persisted_schema, describe_entity_model,
             describe_entity_model_with_persisted_schema, show_indexes_for_model,
             show_indexes_for_model_with_runtime_state,
@@ -32,11 +32,11 @@ fn relation_field_count(fields: &[PersistedFieldSnapshot]) -> usize {
         .count()
 }
 
-fn persisted_kind_is_relation_field(kind: &PersistedFieldKind) -> bool {
+fn persisted_kind_is_relation_field(kind: &AcceptedFieldKind) -> bool {
     match kind {
-        PersistedFieldKind::Relation { .. } => true,
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
-            matches!(inner.as_ref(), PersistedFieldKind::Relation { .. })
+        AcceptedFieldKind::Relation { .. } => true,
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+            matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. })
         }
         _ => false,
     }

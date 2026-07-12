@@ -17,7 +17,7 @@ use crate::{
             },
         },
         schema::{
-            AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId as SchemaFieldId,
             PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
             SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
         },
@@ -88,7 +88,7 @@ fn schema() -> &'static SchemaInfo {
     SchemaInfo::cached_for_generated_entity_model(model)
 }
 
-fn accepted_profile_schema_with_nested_rank(kind: PersistedFieldKind) -> SchemaInfo {
+fn accepted_profile_schema_with_nested_rank(kind: AcceptedFieldKind) -> SchemaInfo {
     let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         PROFILE_MODEL.path().to_string(),
@@ -106,7 +106,7 @@ fn accepted_profile_schema_with_nested_rank(kind: PersistedFieldKind) -> SchemaI
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -117,7 +117,7 @@ fn accepted_profile_schema_with_nested_rank(kind: PersistedFieldKind) -> SchemaI
                 SchemaFieldId::new(2),
                 "profile".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Structured { queryable: true },
+                AcceptedFieldKind::Structured { queryable: true },
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["rank".to_string()],
                     kind,
@@ -173,7 +173,7 @@ fn infer_field_type_uses_accepted_schema_field_type() {
             SchemaFieldId::new(2),
             "rank".to_string(),
             SchemaFieldSlot::new(1),
-            PersistedFieldKind::Blob { max_len: None },
+            AcceptedFieldKind::Blob { max_len: None },
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -192,7 +192,7 @@ fn infer_field_type_uses_accepted_schema_field_type() {
 #[test]
 fn infer_field_path_type_uses_accepted_nested_leaf_type() {
     let schema =
-        accepted_profile_schema_with_nested_rank(PersistedFieldKind::Blob { max_len: None });
+        accepted_profile_schema_with_nested_rank(AcceptedFieldKind::Blob { max_len: None });
     let expr = Expr::FieldPath(FieldPath::new(
         FieldId::new("profile"),
         vec!["rank".to_string()],

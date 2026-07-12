@@ -16,6 +16,7 @@ use crate::{
             CommitRowOp, arm_commit_failpoint_for_tests, begin_commit,
             clear_commit_failpoint_for_tests, clear_recovery_runtime_state_for_tests,
             commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
+            mark_schema_reconciliation_dirty_for_tests,
             marker::{
                 COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload,
                 encode_single_row_commit_marker_payload,
@@ -37,12 +38,12 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
             SchemaRowLayout, SchemaStore, SchemaVersion, accepted_commit_schema_fingerprint,
-            compiled_schema_proposal_for_model,
+            compiled_schema_proposal_for_model, publish_test_accepted_schema_snapshot,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
-        field::{FieldKind, FieldStorageDecode},
+        field::{EnumVariantModel, FieldKind, FieldStorageDecode},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -300,7 +301,7 @@ struct RecoveryStatus(ValueEnum);
 impl FieldTypeMeta for RecoveryStatus {
     const KIND: FieldKind = FieldKind::Enum {
         path: RECOVERY_STATUS_ENUM_PATH,
-        variants: &[],
+        variants: &RECOVERY_STATUS_VARIANTS,
     };
     const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
@@ -618,7 +619,7 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { status: RecoveryStatus => FieldKind::Enum {
             path: RECOVERY_STATUS_ENUM_PATH,
-            variants: &[],
+            variants: &RECOVERY_STATUS_VARIANTS,
         }, options = crate::testing::TestFieldModelOptions::DEFAULT
             .with_storage_decode(crate::model::field::FieldStorageDecode::Value) },
         crate::test_field! { active: bool => FieldKind::Bool },
@@ -632,7 +633,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -640,7 +640,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryIndexedEntity as EntitySchema>::MODEL,
         RecoveryIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -648,7 +647,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <HeapRecoveryIndexedEntity as EntitySchema>::MODEL,
         HeapRecoveryIndexedEntity::PATH,
         HeapRecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<HeapRecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<HeapRecoveryIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -656,7 +654,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryNullableIndexedEntity as EntitySchema>::MODEL,
         RecoveryNullableIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryNullableIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryNullableIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -664,7 +661,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryUniqueEntity as EntitySchema>::MODEL,
         RecoveryUniqueEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryUniqueEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUniqueEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -672,7 +668,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryUniqueCasefoldEntity as EntitySchema>::MODEL,
         RecoveryUniqueCasefoldEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryUniqueCasefoldEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUniqueCasefoldEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -680,7 +675,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryUpperExpressionEntity as EntitySchema>::MODEL,
         RecoveryUpperExpressionEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryUpperExpressionEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUpperExpressionEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -688,7 +682,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalEntity as EntitySchema>::MODEL,
         RecoveryConditionalEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryConditionalEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -696,7 +689,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalUniqueEntity as EntitySchema>::MODEL,
         RecoveryConditionalUniqueEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryConditionalUniqueEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -704,9 +696,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalUniqueCasefoldEntity as EntitySchema>::MODEL,
         RecoveryConditionalUniqueCasefoldEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<
-            RecoveryConditionalUniqueCasefoldEntity,
-        >,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueCasefoldEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -714,7 +703,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalUniqueEnumEntity as EntitySchema>::MODEL,
         RecoveryConditionalUniqueEnumEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryConditionalUniqueEnumEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEnumEntity>,
     ),
 ];
@@ -725,7 +713,6 @@ static PEER_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryPeerCanister>] =
         <RecoveryPeerEntity as EntitySchema>::MODEL,
         RecoveryPeerEntity::PATH,
         RecoveryPeerDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryPeerEntity>,
         validate_delete_strong_relations_for_source::<RecoveryPeerEntity>,
     )];
 
@@ -804,27 +791,12 @@ static DB: Db<RecoveryTestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY
 static PEER_DB: Db<RecoveryPeerCanister> =
     Db::new_with_hooks(&PEER_STORE_REGISTRY, PEER_ENTITY_RUNTIME_HOOKS);
 
-// Intentionally miswired runtime hooks used only to verify dispatch invariants.
-static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] =
-    &[EntityRuntimeHooks::new(
-        RecoveryTestEntity::ENTITY_TAG,
-        <RecoveryTestEntity as EntitySchema>::MODEL,
-        RecoveryTestEntity::PATH,
-        RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
-        validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
-    )];
-
-static MISWIRED_DB: Db<RecoveryTestCanister> =
-    Db::new_with_hooks(&STORE_REGISTRY, MISWIRED_ENTITY_RUNTIME_HOOKS);
-
 static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -832,7 +804,6 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
 ];
@@ -843,7 +814,6 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -851,7 +821,6 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         <RecoveryIndexedEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
 ];
@@ -884,6 +853,9 @@ fn init_peer_commit_store_for_tests() -> Result<(), InternalError> {
         RecoveryPeerCanister::COMMIT_MEMORY_ID,
         RecoveryPeerCanister::COMMIT_STABLE_KEY,
     )?;
+    let allocation = super::memory::current_commit_memory_allocation()?;
+    let control_memory = super::memory::commit_memory_handle(allocation)?;
+    crate::db::database_format::initialize_current_database_control_for_tests(&control_memory);
     store::with_commit_store(|_| Ok(()))
 }
 
@@ -911,6 +883,9 @@ fn reset_recovery_state() {
         store.with_index_mut(IndexStore::clear);
         store.with_schema_mut(SchemaStore::clear);
     });
+    clear_recovery_runtime_state_for_tests(&DB)
+        .expect("recovery fixture reset should clear volatile schema authority");
+    ensure_recovered(&DB).expect("recovery fixture reset should publish accepted schema root");
 }
 
 fn reset_peer_recovery_state() {
@@ -929,6 +904,10 @@ fn reset_peer_recovery_state() {
             journal_store.with_borrow_mut(JournalTailStore::clear);
         }
     });
+    clear_recovery_runtime_state_for_tests(&PEER_DB)
+        .expect("peer recovery fixture reset should clear volatile schema authority");
+    ensure_recovered(&PEER_DB)
+        .expect("peer recovery fixture reset should publish accepted schema root");
 }
 
 fn row_op_for_path_with_schema(
@@ -1696,13 +1675,6 @@ fn conditional_unique_casefold_data_key(id: Ulid) -> RawDataStoreKey {
         .expect("conditional-unique-casefold key should encode")
 }
 
-fn conditional_unique_enum_data_key(id: Ulid) -> RawDataStoreKey {
-    DecodedDataStoreKey::try_new::<RecoveryConditionalUniqueEnumEntity>(id)
-        .expect("conditional-unique-enum key should build")
-        .to_raw()
-        .expect("conditional-unique-enum key should encode")
-}
-
 fn indexed_row_bytes(entity: &RecoveryIndexedEntity) -> Vec<u8> {
     canonical_row_bytes(entity)
 }
@@ -1729,11 +1701,9 @@ fn conditional_unique_casefold_row_bytes(
     canonical_row_bytes(entity)
 }
 
-fn conditional_unique_enum_row_bytes(entity: &RecoveryConditionalUniqueEnumEntity) -> Vec<u8> {
-    canonical_row_bytes(entity)
-}
-
-fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
+fn canonical_row_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
+    entity: &E,
+) -> Vec<u8> {
     CanonicalRow::from_generated_entity_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row()
@@ -1741,7 +1711,9 @@ fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
         .to_vec()
 }
 
-fn canonical_row_payload_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
+fn canonical_row_payload_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
+    entity: &E,
+) -> Vec<u8> {
     let row = CanonicalRow::from_generated_entity_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row();
@@ -1856,9 +1828,14 @@ fn model_recovery_failpoint_case(target_batch_index: usize) -> RecoveryFailpoint
 }
 
 const RECOVERY_STATUS_ENUM_PATH: &str = "db::commit::tests::RecoveryConditionalStatus";
+static RECOVERY_STATUS_VARIANTS: [EnumVariantModel; 1] = [EnumVariantModel::new(
+    "Pending",
+    None,
+    FieldStorageDecode::ByKind,
+)];
 
-fn enum_status(variant: &str) -> RecoveryStatus {
-    RecoveryStatus(ValueEnum::new(variant, Some(RECOVERY_STATUS_ENUM_PATH)))
+fn enum_status(_variant: &str) -> RecoveryStatus {
+    RecoveryStatus(ValueEnum::test_unit(1, 1))
 }
 
 // Build one deterministic seed snapshot used by forward/replay equivalence checks.
@@ -2172,7 +2149,12 @@ fn commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_mark
     let marker =
         CommitMarker::new(marker_ops).expect("mixed marker sequence should build for replay path");
     begin_commit(marker).expect("replay marker begin_commit should persist marker");
-    ensure_recovered(&DB).expect("replay marker should recover successfully");
+    ensure_recovered(&DB).unwrap_or_else(|err| {
+        panic!(
+            "replay marker should recover successfully: class={:?} origin={:?} detail={:?}",
+            err.class, err.origin, err.detail,
+        )
+    });
     let replay_snapshot = recovery_store_snapshot();
 
     assert_eq!(
@@ -3090,78 +3072,6 @@ fn conditional_unique_expression_index_skips_unique_validation_when_predicate_is
 }
 
 #[test]
-fn conditional_unique_index_rejects_duplicate_active_enum_variant() {
-    reset_recovery_state();
-
-    let first_active = RecoveryConditionalUniqueEnumEntity {
-        id: Ulid::from_u128(9_943),
-        status: enum_status("Paid"),
-        active: true,
-    };
-    let second_inactive = RecoveryConditionalUniqueEnumEntity {
-        id: Ulid::from_u128(9_944),
-        status: first_active.status.clone(),
-        active: false,
-    };
-    let second_active = RecoveryConditionalUniqueEnumEntity {
-        id: second_inactive.id,
-        status: second_inactive.status.clone(),
-        active: true,
-    };
-    let third_active_distinct = RecoveryConditionalUniqueEnumEntity {
-        id: Ulid::from_u128(9_945),
-        status: enum_status("Pending"),
-        active: true,
-    };
-
-    // Phase 1: baseline active enum variant reserves the unique conditional slot.
-    apply_row_ops_forward(&[row_op_for_path(
-        RecoveryConditionalUniqueEnumEntity::PATH,
-        conditional_unique_enum_data_key(first_active.id)
-            .as_bytes()
-            .to_vec(),
-        None,
-        Some(conditional_unique_enum_row_bytes(&first_active)),
-    )])
-    .expect("active conditional-unique enum insert should succeed");
-
-    // Phase 2: predicate-false duplicate variant should bypass unique checks.
-    apply_row_ops_forward(&[row_op_for_path(
-        RecoveryConditionalUniqueEnumEntity::PATH,
-        conditional_unique_enum_data_key(second_inactive.id)
-            .as_bytes()
-            .to_vec(),
-        None,
-        Some(conditional_unique_enum_row_bytes(&second_inactive)),
-    )])
-    .expect("inactive duplicate enum variant should bypass conditional unique validation");
-
-    // Phase 3: distinct active enum variant should still be accepted.
-    apply_row_ops_forward(&[row_op_for_path(
-        RecoveryConditionalUniqueEnumEntity::PATH,
-        conditional_unique_enum_data_key(third_active_distinct.id)
-            .as_bytes()
-            .to_vec(),
-        None,
-        Some(conditional_unique_enum_row_bytes(&third_active_distinct)),
-    )])
-    .expect("distinct active enum variant should remain insertable");
-
-    // Phase 4: activating duplicate enum variant must enforce unique ownership.
-    let err = apply_row_ops_forward(&[row_op_for_path(
-        RecoveryConditionalUniqueEnumEntity::PATH,
-        conditional_unique_enum_data_key(second_inactive.id)
-            .as_bytes()
-            .to_vec(),
-        Some(conditional_unique_enum_row_bytes(&second_inactive)),
-        Some(conditional_unique_enum_row_bytes(&second_active)),
-    )])
-    .expect_err("active duplicate enum variant should violate conditional unique index");
-    assert_eq!(err.class, ErrorClass::Conflict);
-    assert_eq!(err.origin, ErrorOrigin::Index);
-}
-
-#[test]
 fn commit_marker_round_trip_clears_after_finish() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     let marker = CommitMarker::new(Vec::new()).expect("commit marker creation should succeed");
@@ -3628,50 +3538,6 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
     );
 
     // Cleanup so unrelated tests do not observe this intentionally-unsupported marker.
-    store::with_commit_store(|store| {
-        store.clear_raw_for_tests();
-        Ok(())
-    })
-    .expect("commit marker cleanup should succeed");
-}
-
-#[test]
-fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
-    reset_recovery_state();
-
-    let entity = RecoveryTestEntity {
-        id: Ulid::from_u128(912),
-    };
-    let raw_key = DecodedDataStoreKey::try_new::<RecoveryTestEntity>(entity.id)
-        .expect("data key should build")
-        .to_raw()
-        .expect("data key should encode");
-    let row_bytes = canonical_row_bytes(&entity);
-    let marker = CommitMarker::new(vec![row_op_for_path(
-        RecoveryTestEntity::PATH,
-        raw_key.as_bytes().to_vec(),
-        None,
-        Some(row_bytes),
-    )])
-    .expect("commit marker creation should succeed");
-
-    begin_commit(marker).expect("begin_commit should persist marker");
-
-    let err = ensure_recovered(&MISWIRED_DB)
-        .expect_err("miswired hook dispatch should fail with path mismatch corruption");
-    assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Recovery);
-    assert!(
-        commit_marker_present().expect("commit marker check should succeed"),
-        "marker should remain present when recovery dispatch detects hook mismatch"
-    );
-    assert_eq!(
-        row_bytes_for(&raw_key),
-        None,
-        "recovery must not partially apply rows when hook/entity dispatch mismatches"
-    );
-
-    // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.
     store::with_commit_store(|store| {
         store.clear_raw_for_tests();
         Ok(())
@@ -4697,7 +4563,6 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
             index_store.insert(stale_key, stale_entry);
         });
     });
-
     let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
     ensure_recovered(&DB).expect("recovery should rebuild indexes from data rows");
@@ -5319,7 +5184,6 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
             );
         });
     });
-
     let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
     let err = ensure_recovered(&DB).expect_err("recovery should reject future row formats");
@@ -5379,9 +5243,15 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
 
     with_recovery_store(|store| {
         store.with_schema_mut(|schema_store| {
-            schema_store
-                .insert_persisted_snapshot(RecoveryIndexedEntity::ENTITY_TAG, &changed)
-                .expect("changed schema snapshot should encode");
+            publish_test_accepted_schema_snapshot(
+                schema_store,
+                RecoveryIndexedEntity::ENTITY_TAG,
+                RecoveryIndexedEntity::PATH,
+                RecoveryTestDataStore::PATH,
+                RecoveryIndexedEntity::MODEL,
+                changed,
+            )
+            .expect("changed schema snapshot should publish");
         });
         store.with_data_mut(|data_store| {
             seed_canonical_data_row_for_recovery(
@@ -5392,6 +5262,7 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
             );
         });
     });
+    mark_schema_reconciliation_dirty_for_tests(&DB);
 
     let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");

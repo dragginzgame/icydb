@@ -5,7 +5,8 @@
 
 use crate::{
     db::schema::{
-        AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedNestedLeafSnapshot,
+        AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
+        AcceptedSchemaSnapshot, FieldId, PersistedNestedLeafSnapshot,
         PersistedRelationEdgeSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
         SchemaVersion,
     },
@@ -64,7 +65,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeField<'a> {
     field_id: FieldId,
     name: &'a str,
     slot: SchemaFieldSlot,
-    kind: &'a PersistedFieldKind,
+    kind: &'a AcceptedFieldKind,
     nested_leaves: &'a [PersistedNestedLeafSnapshot],
     nullable: bool,
     default: &'a SchemaFieldDefault,
@@ -96,7 +97,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
 
     /// Borrow the accepted persisted field kind.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &'a PersistedFieldKind {
+    pub(in crate::db) const fn kind(&self) -> &'a AcceptedFieldKind {
         self.kind
     }
 
@@ -163,7 +164,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedFieldDecodeContract<'a> {
     field_name: &'a str,
-    kind: &'a PersistedFieldKind,
+    kind: &'a AcceptedFieldKind,
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
@@ -175,7 +176,7 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
     #[must_use]
     pub(in crate::db) const fn new(
         field_name: &'a str,
-        kind: &'a PersistedFieldKind,
+        kind: &'a AcceptedFieldKind,
         nullable: bool,
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
@@ -197,7 +198,7 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
 
     /// Borrow the accepted persisted field kind for decode.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &'a PersistedFieldKind {
+    pub(in crate::db) const fn kind(&self) -> &'a AcceptedFieldKind {
         self.kind
     }
 
@@ -218,6 +219,17 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
     pub(in crate::db) const fn leaf_codec(&self) -> LeafCodec {
         self.leaf_codec
     }
+
+    /// Return whether this field uses the canonical recursive value wire.
+    ///
+    /// Schema-native enums and generated structured values use the canonical
+    /// recursive wire even when proposal metadata classifies their dispatch
+    /// lane as `ByKind`.
+    #[must_use]
+    pub(in crate::db) fn uses_canonical_value_wire(&self) -> bool {
+        self.kind.requires_canonical_value_wire()
+            || matches!(self.storage_decode, FieldStorageDecode::Value)
+    }
 }
 
 ///
@@ -232,7 +244,7 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
     field_name: String,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
@@ -299,7 +311,7 @@ impl OwnedAcceptedFieldDecodeContract {
 
     /// Borrow the owned accepted persisted field kind.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
 
@@ -382,6 +394,17 @@ pub(in crate::db) struct AcceptedRowDecodeContract {
     primary_key_slot_indices: Vec<usize>,
     fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
+    catalog_authority: Option<AcceptedRowDecodeCatalogAuthority>,
+}
+
+/// Accepted catalog provenance retained by a row-decode contract.
+///
+/// Keeping the revision and shared catalog handle together prevents row
+/// decoding from combining a catalog with layout facts admitted under another
+/// immutable schema revision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AcceptedRowDecodeCatalogAuthority {
+    enum_catalog: AcceptedEnumCatalogHandle,
 }
 
 impl AcceptedRowDecodeContract {
@@ -401,7 +424,13 @@ impl AcceptedRowDecodeContract {
             primary_key_slot_indices: descriptor.primary_key_slot_indices().to_vec(),
             fields_by_slot,
             relation_edges: descriptor.relation_edges().to_vec(),
+            catalog_authority: None,
         }
+    }
+
+    fn with_catalog_authority(mut self, enum_catalog: AcceptedEnumCatalogHandle) -> Self {
+        self.catalog_authority = Some(AcceptedRowDecodeCatalogAuthority { enum_catalog });
+        self
     }
 
     /// Build a generated-compatible accepted row contract for executor tests.
@@ -451,6 +480,30 @@ impl AcceptedRowDecodeContract {
     #[must_use]
     pub(in crate::db) const fn relation_edges(&self) -> &[OwnedAcceptedRelationEdgeContract] {
         self.relation_edges.as_slice()
+    }
+
+    /// Borrow the immutable enum catalog admitted with this row contract.
+    #[must_use]
+    pub(in crate::db) fn enum_catalog(&self) -> Option<&AcceptedEnumCatalog> {
+        self.catalog_authority
+            .as_ref()
+            .map(|authority| authority.enum_catalog.catalog())
+    }
+
+    /// Borrow the immutable catalog handle and its store/revision authority.
+    #[must_use]
+    pub(in crate::db) fn enum_catalog_handle(&self) -> Option<&AcceptedEnumCatalogHandle> {
+        self.catalog_authority
+            .as_ref()
+            .map(|authority| &authority.enum_catalog)
+    }
+
+    /// Return the accepted revision that admitted this row contract's catalog.
+    #[must_use]
+    pub(in crate::db) fn accepted_schema_revision(&self) -> Option<AcceptedSchemaRevision> {
+        self.catalog_authority
+            .as_ref()
+            .map(|authority| authority.enum_catalog.revision())
     }
 
     /// Borrow one accepted field decode contract by physical row slot.
@@ -521,7 +574,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeContract<'a> {
     required_slot_count: usize,
     max_physical_slot_count: usize,
     primary_key_names: Vec<&'a str>,
-    primary_key_kinds: Vec<&'a PersistedFieldKind>,
+    primary_key_kinds: Vec<&'a AcceptedFieldKind>,
     primary_key_slot_indices: Vec<usize>,
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
@@ -659,14 +712,14 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     /// coercion paths. Composite-aware code must read `primary_key_kinds`.
     #[must_use]
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn first_primary_key_kind(&self) -> &'a PersistedFieldKind {
+    pub(in crate::db) fn first_primary_key_kind(&self) -> &'a AcceptedFieldKind {
         self.primary_key_kinds[0]
     }
 
     /// Borrow accepted primary-key persisted field kinds in key order.
     #[cfg(any(test, feature = "sql"))]
     #[must_use]
-    pub(in crate::db) const fn primary_key_kinds(&self) -> &[&'a PersistedFieldKind] {
+    pub(in crate::db) const fn primary_key_kinds(&self) -> &[&'a AcceptedFieldKind] {
         self.primary_key_kinds.as_slice()
     }
 
@@ -750,15 +803,25 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     /// Borrow one runtime field's accepted persisted kind by name.
     #[must_use]
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&PersistedFieldKind> {
+    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&AcceptedFieldKind> {
         self.field_by_name(name)
             .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
     /// Build the owned accepted row-decode contract for this contract.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn row_decode_contract(&self) -> AcceptedRowDecodeContract {
         AcceptedRowDecodeContract::from_runtime_contract(self)
+    }
+
+    /// Build the owned row-decode contract with immutable catalog authority.
+    #[must_use]
+    pub(in crate::db) fn row_decode_contract_with_catalog(
+        &self,
+        enum_catalog: AcceptedEnumCatalogHandle,
+    ) -> AcceptedRowDecodeContract {
+        AcceptedRowDecodeContract::from_runtime_contract(self).with_catalog_authority(enum_catalog)
     }
 
     /// Return the proof that this accepted layout can still use generated field codecs.
@@ -838,8 +901,10 @@ fn ensure_generated_field_decode_contract_compatible(
     generated_field: &FieldModel,
 ) -> Result<(), InternalError> {
     let accepted_contract = accepted_field.decode_contract();
-    let generated_kind = PersistedFieldKind::from_model_kind(generated_field.kind());
-    if accepted_contract.kind() != &generated_kind {
+    if !accepted_contract
+        .kind()
+        .matches_generated_storage_shape(generated_field.kind())
+    {
         return Err(InternalError::store_invariant());
     }
 

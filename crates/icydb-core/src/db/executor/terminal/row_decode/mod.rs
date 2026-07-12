@@ -9,8 +9,6 @@ mod tests;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::data::SlotReader;
 #[cfg(test)]
-use crate::model::field::EnumVariantModel;
-#[cfg(test)]
 use crate::types::Ulid;
 use crate::{
     db::{

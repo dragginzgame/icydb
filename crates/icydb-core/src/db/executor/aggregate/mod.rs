@@ -209,7 +209,6 @@ impl ExecutionKernel {
                 rows,
                 &row_layout,
                 kind,
-                target_field.target_field_name(),
                 target_field.field_slot(),
             );
         }
@@ -273,7 +272,6 @@ impl ExecutionKernel {
             return Self::execute_field_target_extrema_aggregate(
                 &prepared,
                 kind,
-                target_field.target_field_name(),
                 target_field.field_slot(),
                 dispatch.direction,
                 &dispatch.route_plan,

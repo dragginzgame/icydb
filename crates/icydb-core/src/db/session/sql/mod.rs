@@ -122,7 +122,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// returns SQL-shaped statement output instead of typed entities.
     pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
 
@@ -141,7 +141,7 @@ impl<C: CanisterKind> DbSession<C> {
         policy: &QueryAdmissionPolicy,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
 
@@ -157,7 +157,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<(SqlStatementResult, SqlQueryExecutionAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
         // Phase 1: measure the compile side of the new seam, including parse,
         // surface validation, and semantic command construction.
@@ -207,10 +207,10 @@ impl<C: CanisterKind> DbSession<C> {
     /// returns SQL-shaped mutation output such as counts or `RETURNING` rows.
     pub fn execute_sql_update<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
-        let compiled = self.compile_sql_update::<E>(sql)?;
+        let (compiled, _, _) = self.compile_sql_update_with_execution_context::<E>(sql)?;
 
-        self.execute_update_surface_compiled_sql_owned::<E>(compiled)
+        self.execute_compiled_sql_context_owned::<E>(compiled)
     }
 }

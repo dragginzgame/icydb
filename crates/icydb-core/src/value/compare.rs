@@ -122,12 +122,12 @@ fn canonical_cmp_value_map(left: &[(Value, Value)], right: &[(Value, Value)]) ->
 }
 
 fn canonical_cmp_value_enum(left: &ValueEnum, right: &ValueEnum) -> Ordering {
-    let cmp = left.variant().cmp(right.variant());
+    let cmp = left.type_id().cmp(&right.type_id());
     if cmp != Ordering::Equal {
         return cmp;
     }
 
-    let cmp = left.path().cmp(&right.path());
+    let cmp = left.variant_id().cmp(&right.variant_id());
     if cmp != Ordering::Equal {
         return cmp;
     }

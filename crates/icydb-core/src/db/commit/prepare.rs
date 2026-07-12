@@ -3,6 +3,8 @@
 //! Does not own: marker persistence, commit-window lifecycle, or recovery orchestration.
 //! Boundary: commit::marker -> commit::prepare -> commit::apply (one-way).
 
+#[cfg(test)]
+use crate::db::schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot};
 use crate::{
     db::{
         Db,
@@ -11,9 +13,9 @@ use crate::{
             PreparedRowCommitOp,
         },
         data::{
-            CanonicalRow, CanonicalSlotReader, DataStore, DecodedDataStoreKey, RawDataStoreKey,
-            RawRow, StructuralRowContract, StructuralSlotReader,
-            canonical_row_from_structural_slot_reader_with_accepted_contract,
+            AcceptedStructuralRowAuthority, CanonicalRow, CanonicalSlotReader, DataStore,
+            DecodedDataStoreKey, RawDataStoreKey, RawRow, StructuralRowContract,
+            StructuralSlotReader, canonical_row_from_structural_slot_reader_with_accepted_contract,
         },
         index::{
             IndexDelta, IndexDeltaGroup, IndexEntryValue, IndexMembershipDelta, IndexMutationPlan,
@@ -26,7 +28,7 @@ use crate::{
             ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
-        schema::{SchemaInfo, accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
+        schema::{SchemaInfo, ensure_accepted_catalog_snapshot_selection},
     },
     error::{ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
@@ -42,6 +44,7 @@ use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 /// Resolved authority needed by nongeneric commit-preparation stages.
 ///
 
+#[derive(Clone, Copy)]
 struct CommitPrepareAuthority {
     entity_path: &'static str,
     entity_tag: EntityTag,
@@ -54,6 +57,12 @@ struct CommitPrepareAuthority {
 struct AcceptedCommitSchemaContracts {
     row_contract: StructuralRowContract,
     schema_info: Option<SchemaInfo>,
+}
+
+/// Immutable accepted-schema authority shared by every row in one commit batch.
+pub(in crate::db) struct CommitPrepareContext {
+    authority: CommitPrepareAuthority,
+    schema_contracts: AcceptedCommitSchemaContracts,
 }
 
 impl CommitPrepareAuthority {
@@ -71,6 +80,23 @@ impl CommitPrepareAuthority {
             data_store_path: E::Store::PATH,
             relation_source: ReverseRelationSourceInfo::for_type::<E>(),
             model: E::MODEL,
+        }
+    }
+
+    const fn from_runtime_parts(
+        entity_path: &'static str,
+        entity_tag: EntityTag,
+        schema_fingerprint: CommitSchemaFingerprint,
+        data_store_path: &'static str,
+        model: &'static EntityModel,
+    ) -> Self {
+        Self {
+            entity_path,
+            entity_tag,
+            schema_fingerprint,
+            data_store_path,
+            relation_source: ReverseRelationSourceInfo::new(entity_path, entity_tag),
+            model,
         }
     }
 }
@@ -183,6 +209,7 @@ where
 }
 
 /// Prepare a typed row-level commit op against nongeneric structural readers.
+#[cfg(test)]
 pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
     E: EntityKind + EntityValue,
 >(
@@ -202,6 +229,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
     )
 }
 
+#[cfg(test)]
 fn accepted_commit_schema_fingerprint_for_entity<E>(
     db: &Db<E::Canister>,
 ) -> Result<CommitSchemaFingerprint, InternalError>
@@ -210,7 +238,13 @@ where
 {
     let store = db.with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
     let accepted = store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+        ensure_accepted_schema_snapshot(
+            schema_store,
+            E::ENTITY_TAG,
+            E::PATH,
+            E::Store::PATH,
+            E::MODEL,
+        )
     })?;
 
     accepted_commit_schema_fingerprint(&accepted)
@@ -227,13 +261,68 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers_and_s
     index_reader: &dyn StructuralIndexEntryReader,
     schema_fingerprint: CommitSchemaFingerprint,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    prepare_row_commit_for_entity_impl(
+    let context =
+        prepare_commit_context_for_entity_with_schema_fingerprint::<E>(db, schema_fingerprint)?;
+
+    prepare_row_commit_with_context(db, op, &context, row_reader, index_reader)
+}
+
+/// Resolve immutable accepted-schema commit authority once for one typed batch.
+pub(in crate::db) fn prepare_commit_context_for_entity_with_schema_fingerprint<E>(
+    db: &Db<E::Canister>,
+    schema_fingerprint: CommitSchemaFingerprint,
+) -> Result<CommitPrepareContext, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    prepare_commit_context(
         db,
-        op,
         CommitPrepareAuthority::for_type_with_schema_fingerprint::<E>(schema_fingerprint),
-        row_reader,
-        index_reader,
     )
+}
+
+/// Resolve immutable accepted-schema commit authority from runtime hook metadata.
+pub(in crate::db) fn prepare_commit_context_for_runtime_entity<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    data_store_path: &'static str,
+    model: &'static EntityModel,
+    schema_fingerprint: CommitSchemaFingerprint,
+) -> Result<CommitPrepareContext, InternalError> {
+    prepare_commit_context(
+        db,
+        CommitPrepareAuthority::from_runtime_parts(
+            entity_path,
+            entity_tag,
+            schema_fingerprint,
+            data_store_path,
+            model,
+        ),
+    )
+}
+
+fn prepare_commit_context<C: CanisterKind>(
+    db: &Db<C>,
+    authority: CommitPrepareAuthority,
+) -> Result<CommitPrepareContext, InternalError> {
+    let schema_contracts = accepted_commit_schema_contracts(db, &authority)?;
+
+    Ok(CommitPrepareContext {
+        authority,
+        schema_contracts,
+    })
+}
+
+/// Prepare one row while borrowing batch-resolved accepted-schema authority.
+pub(in crate::db) fn prepare_row_commit_with_context<C: CanisterKind>(
+    db: &Db<C>,
+    op: &CommitRowOp,
+    context: &CommitPrepareContext,
+    row_reader: &dyn StructuralPrimaryRowReader,
+    index_reader: &dyn StructuralIndexEntryReader,
+) -> Result<PreparedRowCommitOp, InternalError> {
+    prepare_row_commit_for_entity_impl(db, op, context, row_reader, index_reader)
 }
 
 // Decode both optional commit-marker row images through the structural row
@@ -261,7 +350,7 @@ fn decode_commit_marker_rows_for_preflight<'a>(
 fn prepare_row_commit_for_entity_impl<C>(
     db: &Db<C>,
     op: &CommitRowOp,
-    authority: CommitPrepareAuthority,
+    context: &CommitPrepareContext,
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError>
@@ -270,8 +359,9 @@ where
 {
     // Phase 1: resolve nongeneric marker authority before any model-driven row
     // decode runs so miswired hooks fail on path/schema mismatch first.
-    let structural = prepare_row_commit_structural_inputs(op, &authority)?;
-    let schema_contracts = accepted_commit_schema_contracts(db, &authority)?;
+    let authority = &context.authority;
+    let schema_contracts = &context.schema_contracts;
+    let structural = prepare_row_commit_structural_inputs(op, authority)?;
 
     // Phase 2: decode the persisted row images once through the structural
     // slot-reader boundary before any forward-index planning runs.
@@ -288,10 +378,10 @@ where
         let index_plan = if schema_contracts.schema_info.is_some() {
             prepare_forward_index_commit_leaf(
                 db,
-                &authority,
+                authority,
                 row_reader,
                 index_reader,
-                &schema_contracts,
+                schema_contracts,
                 &structural.data_key,
                 &mut decoded,
             )?
@@ -320,7 +410,7 @@ where
 
     finalize_row_commit_structural(
         db,
-        authority,
+        *authority,
         structural.raw_key,
         forward_index_ops,
         reverse_index_ops,
@@ -436,19 +526,24 @@ where
     C: CanisterKind,
 {
     let store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
-    let accepted = store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
+    let selection = store.with_schema_mut(|schema_store| {
+        ensure_accepted_catalog_snapshot_selection(
             schema_store,
             authority.entity_tag,
             authority.entity_path,
+            authority.data_store_path,
             authority.model,
         )
     })?;
-    Ok(AcceptedCommitSchemaContracts {
-        row_contract: StructuralRowContract::from_accepted_schema_snapshot(
+    let accepted_authority =
+        AcceptedStructuralRowAuthority::from_generated_compatible_catalog_selection(
             authority.entity_path,
-            &accepted,
-        )?,
+            authority.model,
+            &selection,
+        )?;
+    let (accepted, row_contract) = accepted_authority.into_parts();
+    Ok(AcceptedCommitSchemaContracts {
+        row_contract,
         schema_info: (!accepted.persisted_snapshot().indexes().is_empty()).then(|| {
             SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
                 authority.model,

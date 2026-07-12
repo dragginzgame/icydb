@@ -46,14 +46,13 @@ use std::cmp::Ordering;
 ///
 
 #[derive(Clone, Copy)]
-struct FieldExtremaFoldSpec<'a> {
-    target_field: &'a str,
+struct FieldExtremaFoldSpec {
     field_slot: FieldSlot,
     kind: AggregateKind,
     direction: Direction,
 }
 
-impl FieldExtremaFoldSpec<'_> {
+impl FieldExtremaFoldSpec {
     // Build the canonical materialized reducer invariant for non-extrema kinds.
     fn materialized_reduction_requires_extrema() -> InternalError {
         InternalError::query_executor_invariant()
@@ -114,7 +113,6 @@ impl ExecutionKernel {
         rows: Vec<DataRow>,
         row_layout: &RowLayout,
         kind: AggregateKind,
-        target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<ScalarAggregateOutput, InternalError> {
         if !kind.is_extrema() {
@@ -133,16 +131,12 @@ impl ExecutionKernel {
                 &data_key,
                 field_slot.index,
             )?;
-            let candidate_value = extract_orderable_field_value_from_decoded_slot(
-                target_field,
-                field_slot,
-                candidate_value,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+            let candidate_value =
+                extract_orderable_field_value_from_decoded_slot(field_slot, candidate_value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
             let should_replace = match selected.as_ref() {
                 Some((current_key, current_value)) => {
                     let field_order = compare_orderable_field_values_with_slot(
-                        target_field,
                         field_slot,
                         &candidate_value,
                         current_value,
@@ -173,7 +167,6 @@ impl ExecutionKernel {
     pub(in crate::db::executor::aggregate) fn execute_field_target_extrema_aggregate(
         prepared: &PreparedAggregateStreamingInputs<'_>,
         kind: AggregateKind,
-        target_field: &str,
         field_slot: crate::db::executor::aggregate::field::FieldSlot,
         direction: Direction,
         route_plan: &crate::db::executor::ExecutionPlan,
@@ -192,7 +185,6 @@ impl ExecutionKernel {
         // Validate the field target before any stream execution work so
         // unsupported targets fail without scan-budget consumption.
         let spec = FieldExtremaFoldSpec {
-            target_field,
             field_slot,
             kind,
             direction,
@@ -242,7 +234,7 @@ impl ExecutionKernel {
         prepared: &PreparedAggregateStreamingInputs<'_>,
         consistency: MissingRowPolicy,
         route_plan: &ExecutionPlan,
-        spec: &FieldExtremaFoldSpec<'_>,
+        spec: &FieldExtremaFoldSpec,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         let row_layout = prepared.authority.row_layout()?;
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime(
@@ -288,7 +280,7 @@ impl ExecutionKernel {
         row_layout: &RowLayout,
         consistency: MissingRowPolicy,
         key_stream: &mut S,
-        spec: &FieldExtremaFoldSpec<'_>,
+        spec: &FieldExtremaFoldSpec,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError>
     where
         S: crate::db::executor::OrderedKeyStream + ?Sized,
@@ -328,7 +320,7 @@ impl ExecutionKernel {
         row_layout: &RowLayout,
         consistency: MissingRowPolicy,
         data_key: DecodedDataStoreKey,
-        spec: &FieldExtremaFoldSpec<'_>,
+        spec: &FieldExtremaFoldSpec,
         keys_scanned: &mut usize,
         selected: &mut Option<(PrimaryKeyValue, Value)>,
     ) -> Result<KeyStreamLoopControl, InternalError> {
@@ -346,18 +338,13 @@ impl ExecutionKernel {
             &data_key,
             spec.field_slot.index,
         )?;
-        let value = extract_orderable_field_value_from_decoded_slot(
-            spec.target_field,
-            spec.field_slot,
-            value,
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let value = extract_orderable_field_value_from_decoded_slot(spec.field_slot, value)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
 
         let selected_was_empty = selected.is_none();
         let candidate_replaces = match selected.as_ref() {
             Some((current_key, current_value)) => {
                 let field_order = compare_orderable_field_values_with_slot(
-                    spec.target_field,
                     spec.field_slot,
                     &value,
                     current_value,
@@ -385,13 +372,9 @@ impl ExecutionKernel {
         let Some((_, current_value)) = selected.as_ref() else {
             return Ok(KeyStreamLoopControl::Emit);
         };
-        let field_order = compare_orderable_field_values_with_slot(
-            spec.target_field,
-            spec.field_slot,
-            &value,
-            current_value,
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let field_order =
+            compare_orderable_field_values_with_slot(spec.field_slot, &value, current_value)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
         let directional_field_order = apply_aggregate_direction(field_order, spec.direction);
 
         // Once traversal leaves the winning field-value group, the ordered

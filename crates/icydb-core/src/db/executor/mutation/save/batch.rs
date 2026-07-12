@@ -1,7 +1,10 @@
 use crate::{
     db::{
         PersistedRow,
-        commit::prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
+        commit::{
+            prepare_commit_context_for_entity_with_schema_fingerprint,
+            prepare_row_commit_with_context,
+        },
         data::DecodedDataStoreKey,
         executor::mutation::save::shared::accumulate_prepared_row_op_delta,
         executor::mutation::{
@@ -10,7 +13,7 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
-    traits::EntityValue,
+    traits::{AuthoredFieldProjection, EntityValue},
     types::Timestamp,
 };
 use std::collections::HashSet;
@@ -19,7 +22,7 @@ use crate::db::executor::mutation::save::{SaveExecutor, SaveMode, SavePreflightI
 
 const SAVE_BATCH_INITIAL_RESERVE_ROWS: usize = 64;
 
-impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow + EntityValue + AuthoredFieldProjection> SaveExecutor<E> {
     /// Save a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: this helper is fail-fast and non-atomic. If one element fails,
@@ -35,6 +38,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let save_rule = SaveRule::from_mode(mode);
         let schema = self.accepted_schema_info();
         let schema_fingerprint = self.accepted_schema_fingerprint();
+        let commit_context = prepare_commit_context_for_entity_with_schema_fingerprint::<E>(
+            &self.db,
+            schema_fingerprint,
+        )?;
         let validate_relations = schema.has_any_strong_relations();
         let write_context = Self::save_write_context(mode, Timestamp::now());
         let preflight = SavePreflightInputs {
@@ -60,10 +67,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             let result = (|| {
                 let (saved, marker_row_op) =
                     self.prepare_entity_save_row_op(&ctx, save_rule, preflight, entity)?;
-                let prepared_row_op =
-                    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<
-                        E,
-                    >(&self.db, &marker_row_op, &ctx, &ctx, schema_fingerprint)?;
+                let prepared_row_op = prepare_row_commit_with_context(
+                    &self.db,
+                    &marker_row_op,
+                    &commit_context,
+                    &ctx,
+                    &ctx,
+                )?;
                 Self::commit_prepared_single_row(
                     &self.db,
                     marker_row_op,

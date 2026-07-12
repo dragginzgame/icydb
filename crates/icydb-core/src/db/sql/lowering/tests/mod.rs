@@ -18,7 +18,7 @@ use crate::{
         },
         query::{builder::FieldRef, expr::FilterExpr, intent::Query},
         schema::{
-            AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId as SchemaFieldId,
             PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
             SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
         },
@@ -372,7 +372,7 @@ fn lower_sql_delete_shape_for_test(
 // the `name` field deliberately changed. This lets binding tests prove the
 // explicit-schema SQL lane follows accepted metadata rather than generated
 // Rust field kinds for top-level capability checks.
-fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaInfo {
+fn accepted_sql_lower_schema_with_name_kind(kind: AcceptedFieldKind) -> SchemaInfo {
     let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         SqlLowerEntity::MODEL.path().to_string(),
@@ -391,7 +391,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -413,7 +413,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -447,7 +447,7 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -458,7 +458,7 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -473,12 +473,12 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
 
 // Build an accepted schema variant where the `name` field exposes one nested
 // leaf whose capability facts deliberately differ from generated metadata.
-fn accepted_sql_lower_schema_with_name_nested_leaf_kind(kind: PersistedFieldKind) -> SchemaInfo {
+fn accepted_sql_lower_schema_with_name_nested_leaf_kind(kind: AcceptedFieldKind) -> SchemaInfo {
     accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(kind, true)
 }
 
 fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     parent_queryable: bool,
 ) -> SchemaInfo {
     let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
@@ -499,7 +499,7 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
                 SchemaFieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -510,7 +510,7 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
                 SchemaFieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Structured {
+                AcceptedFieldKind::Structured {
                     queryable: parent_queryable,
                 },
                 vec![PersistedNestedLeafSnapshot::new(
@@ -529,7 +529,7 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Nat64,
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -3773,7 +3773,7 @@ fn bind_sql_select_with_schema_allows_structured_parent_projection() {
         "accepted structured parent projection",
     );
     let schema = accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         false,
     );
 
@@ -3811,7 +3811,7 @@ fn bind_sql_select_with_schema_allows_selectable_accepted_nested_leaf() {
         "SELECT name.leaf FROM SqlLowerEntity",
         "accepted selectable nested projection",
     );
-    let schema = accepted_sql_lower_schema_with_name_nested_leaf_kind(PersistedFieldKind::Text {
+    let schema = accepted_sql_lower_schema_with_name_nested_leaf_kind(AcceptedFieldKind::Text {
         max_len: None,
     });
 
@@ -3850,7 +3850,7 @@ fn bind_sql_select_with_schema_rejects_non_selectable_accepted_nested_leaf() {
         "accepted non-selectable nested projection",
     );
     let schema =
-        accepted_sql_lower_schema_with_name_nested_leaf_kind(PersistedFieldKind::Structured {
+        accepted_sql_lower_schema_with_name_nested_leaf_kind(AcceptedFieldKind::Structured {
             queryable: false,
         });
 
@@ -3928,7 +3928,7 @@ fn bind_sql_select_with_schema_derives_predicate_from_bound_filter_expr() {
         "SELECT name FROM SqlLowerEntity WHERE name = 7",
         "accepted-schema numeric name filter",
     );
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Nat64);
+    let schema = accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Nat64);
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -3967,7 +3967,7 @@ fn bind_sql_select_with_schema_derives_in_predicate_from_bound_filter_expr() {
         "SELECT name FROM SqlLowerEntity WHERE name IN (7, 9)",
         "accepted-schema numeric name IN filter",
     );
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Nat64);
+    let schema = accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Nat64);
 
     let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -4010,8 +4010,8 @@ fn bind_sql_select_with_schema_rejects_non_groupable_accepted_field() {
         "SELECT name, COUNT(*) FROM SqlLowerEntity GROUP BY name",
         "accepted non-groupable grouped projection",
     );
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::List(Box::new(
-        PersistedFieldKind::Text { max_len: None },
+    let schema = accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::List(Box::new(
+        AcceptedFieldKind::Text { max_len: None },
     )));
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
@@ -4032,7 +4032,7 @@ fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
         "accepted non-orderable ordered projection",
     );
     let schema =
-        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
+        accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -4052,7 +4052,7 @@ fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
         "accepted non-orderable delete tail",
     );
     let schema =
-        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
+        accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_lowered_sql_delete_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -4074,7 +4074,7 @@ fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
         panic!("accepted non-orderable update selector should parse as UPDATE");
     };
     let schema =
-        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
+        accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_sql_update_selector_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -5914,7 +5914,7 @@ fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_fie
     let prepared = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
         .expect("schema-aware aggregate SQL should prepare");
     let schema =
-        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
+        accepted_sql_lower_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
     let err =
         crate::db::sql::lowering::compile_sql_global_aggregate_command_from_prepared_with_schema(

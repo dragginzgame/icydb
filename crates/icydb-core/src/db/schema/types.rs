@@ -5,10 +5,12 @@
 
 #[cfg(feature = "sql")]
 use crate::types::{IntBig, NatBig, Ulid};
+#[cfg(feature = "sql")]
+use crate::value::{InputValue, InputValueEnum};
 use crate::{
     db::schema::{
-        PersistedFieldKind, PersistedFieldKindCategory, PersistedScalarClass,
-        classify_persisted_field_kind,
+        AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedScalarClass,
+        classify_accepted_field_kind,
     },
     model::field::FieldKind,
     traits::RuntimeValueKind,
@@ -299,20 +301,20 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
 #[cfg(feature = "sql")]
 #[must_use]
 pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     value: &Value,
 ) -> Option<Value> {
-    let semantics = classify_persisted_field_kind(kind);
+    let semantics = classify_accepted_field_kind(kind);
     match semantics.category() {
-        PersistedFieldKindCategory::Relation(_) => {
-            let PersistedFieldKind::Relation { key_kind, .. } = kind else {
+        AcceptedFieldKindCategory::Relation(_) => {
+            let AcceptedFieldKind::Relation { key_kind, .. } = kind else {
                 unreachable!("persisted kind invariant")
             };
 
             canonicalize_strict_sql_literal_for_persisted_kind(key_kind, value)
         }
-        PersistedFieldKindCategory::Collection => match kind {
-            PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => match value {
+        AcceptedFieldKindCategory::Collection => match kind {
+            AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match value {
                 Value::List(values) => values
                     .iter()
                     .map(|item| canonicalize_strict_sql_literal_for_persisted_kind(inner, item))
@@ -320,73 +322,99 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
                     .map(Value::List),
                 _ => None,
             },
-            PersistedFieldKind::Map { .. } => None,
+            AcceptedFieldKind::Map { .. } => None,
             _ => unreachable!("persisted kind invariant"),
         },
-        PersistedFieldKindCategory::Structured { .. }
-        | PersistedFieldKindCategory::Scalar(
-            PersistedScalarClass::Account
-            | PersistedScalarClass::Blob
-            | PersistedScalarClass::Bool
-            | PersistedScalarClass::Date
-            | PersistedScalarClass::Decimal
-            | PersistedScalarClass::Duration
-            | PersistedScalarClass::Enum
-            | PersistedScalarClass::Float32
-            | PersistedScalarClass::Float64
-            | PersistedScalarClass::Principal
-            | PersistedScalarClass::Subaccount
-            | PersistedScalarClass::Text
-            | PersistedScalarClass::Timestamp
-            | PersistedScalarClass::Unit,
+        AcceptedFieldKindCategory::Structured { .. }
+        | AcceptedFieldKindCategory::Scalar(
+            AcceptedScalarClass::Account
+            | AcceptedScalarClass::Blob
+            | AcceptedScalarClass::Bool
+            | AcceptedScalarClass::Date
+            | AcceptedScalarClass::Decimal
+            | AcceptedScalarClass::Duration
+            | AcceptedScalarClass::Enum
+            | AcceptedScalarClass::Float32
+            | AcceptedScalarClass::Float64
+            | AcceptedScalarClass::Principal
+            | AcceptedScalarClass::Subaccount
+            | AcceptedScalarClass::Text
+            | AcceptedScalarClass::Timestamp
+            | AcceptedScalarClass::Unit,
         ) => None,
-        PersistedFieldKindCategory::Scalar(PersistedScalarClass::Signed64) => {
+        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Signed64) => {
             canonicalize_signed64_persisted_literal(kind, value)
         }
-        PersistedFieldKindCategory::Scalar(PersistedScalarClass::Unsigned64) => {
+        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unsigned64) => {
             canonicalize_unsigned64_persisted_literal(kind, value)
         }
-        PersistedFieldKindCategory::Scalar(PersistedScalarClass::Signed128) => {
+        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Signed128) => {
             canonicalize_int128_persisted_literal(value)
         }
-        PersistedFieldKindCategory::Scalar(PersistedScalarClass::SignedBig) => {
-            let PersistedFieldKind::IntBig { max_bytes } = kind else {
+        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::SignedBig) => {
+            let AcceptedFieldKind::IntBig { max_bytes } = kind else {
                 unreachable!("persisted kind invariant")
             };
 
             canonicalize_int_big_persisted_literal(value, *max_bytes)
         }
-        PersistedFieldKindCategory::Scalar(PersistedScalarClass::Unsigned128) => {
+        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unsigned128) => {
             canonicalize_nat128_persisted_literal(value)
         }
-        PersistedFieldKindCategory::Scalar(PersistedScalarClass::UnsignedBig) => {
-            let PersistedFieldKind::NatBig { max_bytes } = kind else {
+        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::UnsignedBig) => {
+            let AcceptedFieldKind::NatBig { max_bytes } = kind else {
                 unreachable!("persisted kind invariant")
             };
 
             canonicalize_nat_big_persisted_literal(value, *max_bytes)
         }
-        PersistedFieldKindCategory::Scalar(PersistedScalarClass::Ulid) => match value {
+        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Ulid) => match value {
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
         },
     }
 }
 
+/// Target-type one strict SQL literal against accepted persisted metadata.
+///
+/// Enum labels remain unresolved authored input until catalog admission. Other
+/// field kinds retain the existing strict SQL canonicalization rules.
+#[cfg(feature = "sql")]
+#[must_use]
+pub(in crate::db) fn input_value_from_strict_sql_literal_for_persisted_kind(
+    kind: &AcceptedFieldKind,
+    value: &Value,
+) -> Option<InputValue> {
+    if matches!(kind, AcceptedFieldKind::Enum { .. }) {
+        let Value::Text(variant_name) = value else {
+            return None;
+        };
+        return Some(InputValue::Enum(InputValueEnum::loose(
+            variant_name.clone(),
+        )));
+    }
+
+    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(kind, value)
+        .unwrap_or_else(|| value.clone());
+    literal_matches_type(&normalized, &field_type_from_persisted_kind(kind))
+        .then(|| InputValue::try_from_runtime_non_enum(&normalized))
+        .flatten()
+}
+
 #[cfg(feature = "sql")]
 fn canonicalize_signed64_persisted_literal(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     value: &Value,
 ) -> Option<Value> {
     match kind {
-        PersistedFieldKind::Int64 => canonicalize_int_persisted_literal(value, i64::MIN, i64::MAX),
-        PersistedFieldKind::Int8 => {
+        AcceptedFieldKind::Int64 => canonicalize_int_persisted_literal(value, i64::MIN, i64::MAX),
+        AcceptedFieldKind::Int8 => {
             canonicalize_int_persisted_literal(value, i64::from(i8::MIN), i64::from(i8::MAX))
         }
-        PersistedFieldKind::Int16 => {
+        AcceptedFieldKind::Int16 => {
             canonicalize_int_persisted_literal(value, i64::from(i16::MIN), i64::from(i16::MAX))
         }
-        PersistedFieldKind::Int32 => {
+        AcceptedFieldKind::Int32 => {
             canonicalize_int_persisted_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
         }
         _ => unreachable!("persisted kind invariant"),
@@ -395,22 +423,22 @@ fn canonicalize_signed64_persisted_literal(
 
 #[cfg(feature = "sql")]
 fn canonicalize_unsigned64_persisted_literal(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     value: &Value,
 ) -> Option<Value> {
     match kind {
-        PersistedFieldKind::Nat64 => canonicalize_nat_persisted_literal(value, u64::MAX),
-        PersistedFieldKind::Nat8 => canonicalize_nat_persisted_literal(value, u64::from(u8::MAX)),
-        PersistedFieldKind::Nat16 => canonicalize_nat_persisted_literal(value, u64::from(u16::MAX)),
-        PersistedFieldKind::Nat32 => canonicalize_nat_persisted_literal(value, u64::from(u32::MAX)),
+        AcceptedFieldKind::Nat64 => canonicalize_nat_persisted_literal(value, u64::MAX),
+        AcceptedFieldKind::Nat8 => canonicalize_nat_persisted_literal(value, u64::from(u8::MAX)),
+        AcceptedFieldKind::Nat16 => canonicalize_nat_persisted_literal(value, u64::from(u16::MAX)),
+        AcceptedFieldKind::Nat32 => canonicalize_nat_persisted_literal(value, u64::from(u32::MAX)),
         _ => unreachable!("persisted kind invariant"),
     }
 }
 
-pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -> FieldType {
-    let semantics = classify_persisted_field_kind(kind);
+pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) -> FieldType {
+    let semantics = classify_accepted_field_kind(kind);
     match semantics.category() {
-        PersistedFieldKindCategory::Scalar(class) => {
+        AcceptedFieldKindCategory::Scalar(class) => {
             debug_assert!(semantics.is_scalar());
             debug_assert_eq!(semantics.is_signed_numeric(), scalar_class_is_signed(class));
             debug_assert_eq!(
@@ -419,7 +447,7 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
             );
             return FieldType::Scalar(scalar_type_from_persisted_class(class));
         }
-        PersistedFieldKindCategory::Relation(Some(class)) => {
+        AcceptedFieldKindCategory::Relation(Some(class)) => {
             debug_assert!(!semantics.is_scalar());
             debug_assert_eq!(semantics.is_signed_numeric(), scalar_class_is_signed(class));
             debug_assert_eq!(
@@ -428,109 +456,109 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
             );
             return FieldType::Scalar(scalar_type_from_persisted_class(class));
         }
-        PersistedFieldKindCategory::Relation(None) => {
-            let PersistedFieldKind::Relation { key_kind, .. } = kind else {
+        AcceptedFieldKindCategory::Relation(None) => {
+            let AcceptedFieldKind::Relation { key_kind, .. } = kind else {
                 unreachable!("persisted kind invariant")
             };
 
             return field_type_from_persisted_kind(key_kind);
         }
-        PersistedFieldKindCategory::Collection => {
+        AcceptedFieldKindCategory::Collection => {
             debug_assert!(semantics.is_collection());
         }
-        PersistedFieldKindCategory::Structured { .. } => {
+        AcceptedFieldKindCategory::Structured { .. } => {
             debug_assert!(semantics.is_structured());
         }
     }
 
     match kind {
-        PersistedFieldKind::List(inner) => {
+        AcceptedFieldKind::List(inner) => {
             FieldType::List(Box::new(field_type_from_persisted_kind(inner)))
         }
-        PersistedFieldKind::Set(inner) => {
+        AcceptedFieldKind::Set(inner) => {
             FieldType::Set(Box::new(field_type_from_persisted_kind(inner)))
         }
-        PersistedFieldKind::Map { key, value } => FieldType::Map {
+        AcceptedFieldKind::Map { key, value } => FieldType::Map {
             key: Box::new(field_type_from_persisted_kind(key)),
             value: Box::new(field_type_from_persisted_kind(value)),
         },
-        PersistedFieldKind::Structured { queryable } => FieldType::Structured {
+        AcceptedFieldKind::Structured { queryable } => FieldType::Structured {
             queryable: *queryable,
         },
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Blob { .. }
-        | PersistedFieldKind::Bool
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Decimal { .. }
-        | PersistedFieldKind::Duration
-        | PersistedFieldKind::Enum { .. }
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig { .. }
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Text { .. }
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig { .. }
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit
-        | PersistedFieldKind::Relation { .. } => {
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::Relation { .. } => {
             unreachable!("persisted kind invariant")
         }
     }
 }
 
-const fn scalar_class_is_signed(class: PersistedScalarClass) -> bool {
+const fn scalar_class_is_signed(class: AcceptedScalarClass) -> bool {
     matches!(
         class,
-        PersistedScalarClass::Signed64
-            | PersistedScalarClass::Signed128
-            | PersistedScalarClass::SignedBig
+        AcceptedScalarClass::Signed64
+            | AcceptedScalarClass::Signed128
+            | AcceptedScalarClass::SignedBig
     )
 }
 
-const fn scalar_class_is_unsigned(class: PersistedScalarClass) -> bool {
+const fn scalar_class_is_unsigned(class: AcceptedScalarClass) -> bool {
     matches!(
         class,
-        PersistedScalarClass::Unsigned64
-            | PersistedScalarClass::Unsigned128
-            | PersistedScalarClass::UnsignedBig
+        AcceptedScalarClass::Unsigned64
+            | AcceptedScalarClass::Unsigned128
+            | AcceptedScalarClass::UnsignedBig
     )
 }
 
-const fn scalar_type_from_persisted_class(class: PersistedScalarClass) -> ScalarType {
+const fn scalar_type_from_persisted_class(class: AcceptedScalarClass) -> ScalarType {
     match class {
-        PersistedScalarClass::Account => ScalarType::Account,
-        PersistedScalarClass::Blob => ScalarType::Blob,
-        PersistedScalarClass::Bool => ScalarType::Bool,
-        PersistedScalarClass::Date => ScalarType::Date,
-        PersistedScalarClass::Decimal => ScalarType::Decimal,
-        PersistedScalarClass::Duration => ScalarType::Duration,
-        PersistedScalarClass::Enum => ScalarType::Enum,
-        PersistedScalarClass::Float32 => ScalarType::Float32,
-        PersistedScalarClass::Float64 => ScalarType::Float64,
-        PersistedScalarClass::Signed64 => ScalarType::SignedNumeric,
-        PersistedScalarClass::Signed128 => ScalarType::Int128,
-        PersistedScalarClass::SignedBig => ScalarType::IntBig,
-        PersistedScalarClass::Principal => ScalarType::Principal,
-        PersistedScalarClass::Subaccount => ScalarType::Subaccount,
-        PersistedScalarClass::Text => ScalarType::Text,
-        PersistedScalarClass::Timestamp => ScalarType::Timestamp,
-        PersistedScalarClass::Unsigned64 => ScalarType::UnsignedNumeric,
-        PersistedScalarClass::Unsigned128 => ScalarType::Nat128,
-        PersistedScalarClass::UnsignedBig => ScalarType::NatBig,
-        PersistedScalarClass::Ulid => ScalarType::Ulid,
-        PersistedScalarClass::Unit => ScalarType::Unit,
+        AcceptedScalarClass::Account => ScalarType::Account,
+        AcceptedScalarClass::Blob => ScalarType::Blob,
+        AcceptedScalarClass::Bool => ScalarType::Bool,
+        AcceptedScalarClass::Date => ScalarType::Date,
+        AcceptedScalarClass::Decimal => ScalarType::Decimal,
+        AcceptedScalarClass::Duration => ScalarType::Duration,
+        AcceptedScalarClass::Enum => ScalarType::Enum,
+        AcceptedScalarClass::Float32 => ScalarType::Float32,
+        AcceptedScalarClass::Float64 => ScalarType::Float64,
+        AcceptedScalarClass::Signed64 => ScalarType::SignedNumeric,
+        AcceptedScalarClass::Signed128 => ScalarType::Int128,
+        AcceptedScalarClass::SignedBig => ScalarType::IntBig,
+        AcceptedScalarClass::Principal => ScalarType::Principal,
+        AcceptedScalarClass::Subaccount => ScalarType::Subaccount,
+        AcceptedScalarClass::Text => ScalarType::Text,
+        AcceptedScalarClass::Timestamp => ScalarType::Timestamp,
+        AcceptedScalarClass::Unsigned64 => ScalarType::UnsignedNumeric,
+        AcceptedScalarClass::Unsigned128 => ScalarType::Nat128,
+        AcceptedScalarClass::UnsignedBig => ScalarType::NatBig,
+        AcceptedScalarClass::Ulid => ScalarType::Ulid,
+        AcceptedScalarClass::Unit => ScalarType::Unit,
     }
 }
 
@@ -632,32 +660,66 @@ impl fmt::Display for FieldType {
 mod tests {
     use super::*;
 
+    const fn enum_kind() -> AcceptedFieldKind {
+        AcceptedFieldKind::Enum {
+            type_id: crate::value::EnumTypeId::new(1).expect("test enum type ID should be valid"),
+        }
+    }
+
+    #[test]
+    fn strict_sql_target_typing_keeps_unit_enum_labels_unresolved() {
+        assert_eq!(
+            input_value_from_strict_sql_literal_for_persisted_kind(
+                &enum_kind(),
+                &Value::Text("Active".to_string()),
+            ),
+            Some(InputValue::Enum(InputValueEnum::loose("Active"))),
+        );
+    }
+
+    #[test]
+    fn strict_sql_target_typing_defers_enum_label_validation_to_catalog_admission() {
+        assert_eq!(
+            input_value_from_strict_sql_literal_for_persisted_kind(&enum_kind(), &Value::Nat64(7),),
+            None,
+        );
+        for variant in ["Missing", "Loaded"] {
+            assert_eq!(
+                input_value_from_strict_sql_literal_for_persisted_kind(
+                    &enum_kind(),
+                    &Value::Text(variant.to_string()),
+                ),
+                Some(InputValue::Enum(InputValueEnum::loose(variant))),
+            );
+        }
+    }
+
     #[test]
     fn strict_sql_literal_canonicalization_enforces_explicit_integer_bounds() {
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Int8,
+                &AcceptedFieldKind::Int8,
                 &Value::Int64(i64::from(i8::MAX)),
             ),
             Some(Value::Int64(i64::from(i8::MAX))),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Int8,
+                &AcceptedFieldKind::Int8,
                 &Value::Int64(i64::from(i8::MAX) + 1),
             ),
             None,
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Nat8,
+                &AcceptedFieldKind::Nat8,
                 &Value::Nat64(u64::from(u8::MAX)),
             ),
             Some(Value::Nat64(u64::from(u8::MAX))),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Nat8,
+                &AcceptedFieldKind::Nat8,
                 &Value::Int64(-1),
             ),
             None,
@@ -668,14 +730,14 @@ mod tests {
     fn strict_sql_literal_canonicalization_supports_128_bit_integer_bounds() {
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Int128,
+                &AcceptedFieldKind::Int128,
                 &Value::Text(i128::MAX.to_string()),
             ),
             Some(Value::Int128(i128::MAX)),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Int128,
+                &AcceptedFieldKind::Int128,
                 &Value::Text(
                     (u128::try_from(i128::MAX).expect("i128 max fits u128") + 1).to_string()
                 ),
@@ -684,14 +746,14 @@ mod tests {
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Nat128,
+                &AcceptedFieldKind::Nat128,
                 &Value::Text(u128::MAX.to_string()),
             ),
             Some(Value::Nat128(u128::MAX)),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::Nat128,
+                &AcceptedFieldKind::Nat128,
                 &Value::Text("-1".to_string()),
             ),
             None,
@@ -702,21 +764,21 @@ mod tests {
     fn strict_sql_literal_canonicalization_enforces_big_integer_byte_bounds() {
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::IntBig { max_bytes: 1 },
+                &AcceptedFieldKind::IntBig { max_bytes: 1 },
                 &Value::Text("0".to_string()),
             ),
             Some(Value::IntBig(IntBig::from(0_i64))),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::IntBig { max_bytes: 1 },
+                &AcceptedFieldKind::IntBig { max_bytes: 1 },
                 &Value::Text("128".to_string()),
             ),
             None,
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
-                &PersistedFieldKind::NatBig { max_bytes: 1 },
+                &AcceptedFieldKind::NatBig { max_bytes: 1 },
                 &Value::Text("-1".to_string()),
             ),
             None,

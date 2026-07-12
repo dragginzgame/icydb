@@ -8,7 +8,7 @@ use crate::{
         codec::MAX_ROW_BYTES,
         commit::{CommitSchemaFingerprint, MAX_COMMIT_BYTES},
         data::RawDataStoreKey,
-        schema::MAX_SCHEMA_SNAPSHOT_BYTES,
+        schema::{AcceptedSchemaRevision, CandidateSchemaRevision, MAX_SCHEMA_SNAPSHOT_BYTES},
     },
     error::InternalError,
     traits::Storable,
@@ -16,7 +16,7 @@ use crate::{
 use ic_memory::stable_structures::storable::Bound;
 use std::borrow::Cow;
 
-pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 1;
+pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 2;
 pub(in crate::db) const MAX_JOURNAL_BATCH_BYTES: u32 = MAX_COMMIT_BYTES;
 const MAX_JOURNAL_BATCH_RECORDS: usize = 16 * 1024;
 const MAX_JOURNAL_PATH_BYTES: usize = 4 * 1024;
@@ -28,6 +28,7 @@ const JOURNAL_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 const JOURNAL_RECORD_ROW_PUT: u8 = 1;
 const JOURNAL_RECORD_ROW_DELETE: u8 = 2;
 const JOURNAL_RECORD_SCHEMA_PUT: u8 = 3;
+const JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH: u8 = 4;
 
 pub(in crate::db) type JournalBatchId = [u8; JOURNAL_BATCH_ID_BYTES];
 pub(in crate::db) type JournalCommitMarkerId = [u8; JOURNAL_COMMIT_MARKER_ID_BYTES];
@@ -109,6 +110,13 @@ pub(in crate::db) enum JournalRecord {
         store_path: String,
         schema_snapshot_bytes: Vec<u8>,
     },
+    /// Atomic accepted-schema bundle and root publication for one store.
+    AcceptedSchemaPublish {
+        store_path: String,
+        expected_revision: AcceptedSchemaRevision,
+        schema_bundle_bytes: Vec<u8>,
+        schema_root_bytes: Vec<u8>,
+    },
 }
 
 impl JournalRecord {
@@ -154,6 +162,22 @@ impl JournalRecord {
         };
         validate_journal_record(&record)?;
 
+        Ok(record)
+    }
+
+    pub(in crate::db) fn accepted_schema_publish(
+        store_path: impl Into<String>,
+        expected_revision: AcceptedSchemaRevision,
+        schema_bundle_bytes: Vec<u8>,
+        schema_root_bytes: Vec<u8>,
+    ) -> Result<Self, InternalError> {
+        let record = Self::AcceptedSchemaPublish {
+            store_path: store_path.into(),
+            expected_revision,
+            schema_bundle_bytes,
+            schema_root_bytes,
+        };
+        validate_journal_record(&record)?;
         Ok(record)
     }
 }
@@ -354,6 +378,22 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
                 "journal schema snapshot payload",
             )?;
         }
+        JournalRecord::AcceptedSchemaPublish {
+            store_path,
+            expected_revision,
+            schema_bundle_bytes,
+            schema_root_bytes,
+        } => {
+            out.push(JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal accepted schema store_path",
+            )?;
+            out.extend_from_slice(&expected_revision.get().to_le_bytes());
+            write_len_prefixed_bytes(out, schema_bundle_bytes, "journal accepted schema bundle")?;
+            write_len_prefixed_bytes(out, schema_root_bytes, "journal accepted schema root")?;
+        }
     }
 
     Ok(())
@@ -393,6 +433,24 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
                 read_len_prefixed_bytes(bytes, cursor, "journal schema snapshot payload")?.to_vec();
 
             JournalRecord::schema_put(store_path, schema_snapshot_bytes)
+        }
+        JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH => {
+            let store_path = read_utf8_path(bytes, cursor, "journal accepted schema store_path")?;
+            let expected_revision = AcceptedSchemaRevision::new(read_u64_le(
+                bytes,
+                cursor,
+                "journal accepted schema expected revision",
+            )?);
+            let schema_bundle_bytes =
+                read_len_prefixed_bytes(bytes, cursor, "journal accepted schema bundle")?.to_vec();
+            let schema_root_bytes =
+                read_len_prefixed_bytes(bytes, cursor, "journal accepted schema root")?.to_vec();
+            JournalRecord::accepted_schema_publish(
+                store_path,
+                expected_revision,
+                schema_bundle_bytes,
+                schema_root_bytes,
+            )
         }
         _ => Err(journal_batch_corruption()),
     }
@@ -447,6 +505,16 @@ fn journal_record_payload_len(record: &JournalRecord) -> usize {
         } => 1usize
             .saturating_add(size_of::<u32>() + store_path.len())
             .saturating_add(size_of::<u32>() + schema_snapshot_bytes.len()),
+        JournalRecord::AcceptedSchemaPublish {
+            store_path,
+            schema_bundle_bytes,
+            schema_root_bytes,
+            ..
+        } => 1usize
+            .saturating_add(size_of::<u32>() + store_path.len())
+            .saturating_add(size_of::<u64>())
+            .saturating_add(size_of::<u32>() + schema_bundle_bytes.len())
+            .saturating_add(size_of::<u32>() + schema_root_bytes.len()),
     }
 }
 
@@ -493,6 +561,24 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
         } => {
             validate_path(store_path, "journal schema store_path")?;
             if schema_snapshot_bytes.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
+                return Err(journal_batch_corruption());
+            }
+        }
+        JournalRecord::AcceptedSchemaPublish {
+            store_path,
+            expected_revision,
+            schema_bundle_bytes,
+            schema_root_bytes,
+        } => {
+            validate_path(store_path, "journal accepted schema store_path")?;
+            let candidate = CandidateSchemaRevision::from_encoded(
+                schema_bundle_bytes.clone(),
+                schema_root_bytes.clone(),
+            )
+            .map_err(|_| journal_batch_corruption())?;
+            if candidate.store_path() != store_path
+                || expected_revision.checked_next() != Some(candidate.revision())
+            {
                 return Err(journal_batch_corruption());
             }
         }

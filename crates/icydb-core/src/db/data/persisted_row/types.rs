@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::model::entity::EntityModel;
 use crate::{
     db::data::{
         StructuralFieldDecodeContract,
@@ -7,18 +9,16 @@ use crate::{
         },
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldModel, LeafCodec},
-    },
+    model::field::{FieldModel, LeafCodec},
     traits::EntityKind,
-    value::Value,
+    value::{InputValue, Value},
 };
 
 // Resolve one generated-compatible field model entry by stable slot index.
 // This is a transitional helper for runtime adapters that still need today's
 // generated `FieldModel` validation surface after slot authority has already
 // been checked elsewhere.
+#[cfg(test)]
 pub(in crate::db::data::persisted_row) fn generated_compatible_field_model_for_slot(
     model: &'static EntityModel,
     slot: usize,
@@ -78,22 +78,22 @@ impl FieldSlot {
 ///
 /// StructuralFieldUpdate
 ///
-/// StructuralFieldUpdate carries one ordered structural field assignment before
+/// AuthoredStructuralFieldUpdate carries one ordered structural field assignment before
 /// persisted-row slot serialization.
-/// `StructuralPatch` applies these entries in order and last write wins for the
+/// `AuthoredStructuralPatch` applies these entries in order and last write wins for the
 /// same slot, but row-existence semantics remain owned by the mutation mode.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct StructuralFieldUpdate {
+pub(in crate::db) struct AuthoredStructuralFieldUpdate {
     slot: FieldSlot,
-    value: Value,
+    value: InputValue,
 }
 
-impl StructuralFieldUpdate {
+impl AuthoredStructuralFieldUpdate {
     /// Build one field-level structural update.
     #[must_use]
-    pub(in crate::db) const fn new(slot: FieldSlot, value: Value) -> Self {
+    pub(in crate::db) const fn new(slot: FieldSlot, value: InputValue) -> Self {
         Self { slot, value }
     }
 
@@ -103,31 +103,31 @@ impl StructuralFieldUpdate {
         self.slot
     }
 
-    /// Return the runtime value payload for this update.
+    /// Return the unresolved authored value payload for this update.
     #[must_use]
-    pub(in crate::db) const fn value(&self) -> &Value {
+    pub(in crate::db) const fn value(&self) -> &InputValue {
         &self.value
     }
 }
 
 ///
-/// StructuralPatch
+/// AuthoredStructuralPatch
 ///
 ///
-/// StructuralPatch is the ordered structural field patch applied by structural
-/// write lanes before persisted-row slot serialization.
-/// It carries caller/runtime `Value` payloads only; insert, update, and replace
+/// AuthoredStructuralPatch is the ordered unresolved field patch applied by
+/// structural write lanes before accepted-schema admission and slot serialization.
+/// It carries caller `InputValue` payloads only; insert, update, and replace
 /// semantics remain owned by `MutationMode`, not by the patch container.
 /// Field-name resolution is owned by session/schema boundaries; this container
 /// only records already validated slot assignments.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct StructuralPatch {
-    entries: Vec<StructuralFieldUpdate>,
+pub struct AuthoredStructuralPatch {
+    entries: Vec<AuthoredStructuralFieldUpdate>,
 }
 
-impl StructuralPatch {
+impl AuthoredStructuralPatch {
     /// Build one empty patch.
     #[must_use]
     pub const fn new() -> Self {
@@ -138,14 +138,15 @@ impl StructuralPatch {
 
     /// Append one structural field update in declaration order.
     #[must_use]
-    pub(in crate::db) fn set(mut self, slot: FieldSlot, value: Value) -> Self {
-        self.entries.push(StructuralFieldUpdate::new(slot, value));
+    pub(in crate::db) fn set(mut self, slot: FieldSlot, value: impl Into<InputValue>) -> Self {
+        self.entries
+            .push(AuthoredStructuralFieldUpdate::new(slot, value.into()));
         self
     }
 
     /// Borrow the ordered field updates carried by this patch.
     #[must_use]
-    pub(in crate::db) const fn entries(&self) -> &[StructuralFieldUpdate] {
+    pub(in crate::db) const fn entries(&self) -> &[AuthoredStructuralFieldUpdate] {
         self.entries.as_slice()
     }
 
@@ -195,7 +196,7 @@ impl SerializedStructuralFieldUpdate {
 ///
 /// SerializedStructuralPatch
 ///
-/// SerializedStructuralPatch is the canonical serialized form of `StructuralPatch`
+/// SerializedStructuralPatch is the canonical serialized form of `AuthoredStructuralPatch`
 /// over persisted-row slot payload bytes.
 /// This is the structural patch artifact later write-path stages can stage or
 /// replay without re-entering field-contract encode logic.
@@ -251,6 +252,12 @@ pub trait SlotReader {
 
     /// Decode one slot value on demand using the generated-compatible field model bridge.
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError>;
+
+    /// Borrow the accepted catalog context used to decode canonical enum IDs.
+    #[doc(hidden)]
+    fn runtime_enum_context(&self) -> Option<&dyn crate::traits::RuntimeEnumContext> {
+        None
+    }
 }
 
 ///
@@ -371,7 +378,4 @@ pub trait SlotWriter {
 pub trait PersistedRow: EntityKind + Sized {
     /// Materialize one typed entity from one slot reader.
     fn materialize_from_slots(slots: &mut dyn SlotReader) -> Result<Self, InternalError>;
-
-    /// Write one typed entity into one slot writer.
-    fn write_slots(&self, out: &mut dyn SlotWriter) -> Result<(), InternalError>;
 }

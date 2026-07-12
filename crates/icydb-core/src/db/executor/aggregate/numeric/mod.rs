@@ -107,7 +107,6 @@ where
         )?;
 
         Ok(PreparedScalarNumericBoundary {
-            target_field_name,
             field_slot,
             op,
             payload,
@@ -135,7 +134,6 @@ where
                     PreparedScalarNumericAggregateStrategy::Streaming => {
                         Self::aggregate_numeric_field_from_streaming(
                             prepared,
-                            &prepared_boundary.target_field_name,
                             prepared_boundary.field_slot,
                             prepared_boundary.op,
                         )
@@ -146,7 +144,6 @@ where
                         Self::aggregate_numeric_field_from_materialized(
                             rows,
                             &row_layout,
-                            &prepared_boundary.target_field_name,
                             prepared_boundary.field_slot,
                             prepared_boundary.op,
                         )
@@ -167,18 +164,13 @@ where
     fn aggregate_numeric_field_from_materialized(
         rows: Vec<DataRow>,
         row_layout: &RowLayout,
-        target_field: &str,
         field_slot: FieldSlot,
         kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
         let mut accumulator = NumericAggregateAccumulator::new();
         for (data_key, raw_row) in rows {
             accumulator.add(Self::decode_numeric_materialized_row_decimal(
-                row_layout,
-                &data_key,
-                &raw_row,
-                target_field,
-                field_slot,
+                row_layout, &data_key, &raw_row, field_slot,
             )?)?;
         }
 
@@ -239,7 +231,6 @@ where
     // materializing the full response window.
     fn aggregate_numeric_field_from_streaming(
         prepared: PreparedAggregateStreamingInputs<'_>,
-        target_field: &str,
         field_slot: FieldSlot,
         kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
@@ -247,12 +238,9 @@ where
         let mut accumulator = NumericAggregateAccumulator::new();
         Self::for_each_existing_stream_row(prepared, direction, |row| {
             let mut read_slot = |index: usize| row.slot_ref(index);
-            let value = extract_numeric_field_decimal_with_slot_ref_reader(
-                target_field,
-                field_slot,
-                &mut read_slot,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+            let value =
+                extract_numeric_field_decimal_with_slot_ref_reader(field_slot, &mut read_slot)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
             accumulator.add(value)?;
             Ok(())
         })?;
@@ -316,7 +304,6 @@ where
         row_layout: &RowLayout,
         data_key: &DecodedDataStoreKey,
         raw_row: &RawRow,
-        target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Decimal, InternalError> {
         let value = RowLayout::decode_required_value_from_data_key(
@@ -325,7 +312,7 @@ where
             data_key,
             field_slot.index,
         )?;
-        extract_numeric_field_decimal_from_decoded_slot(target_field, field_slot, value)
+        extract_numeric_field_decimal_from_decoded_slot(field_slot, value)
             .map_err(AggregateFieldValueError::into_internal_error)
     }
 }

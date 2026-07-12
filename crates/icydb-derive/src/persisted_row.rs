@@ -37,13 +37,15 @@ pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
     let materializers = parsed_fields.iter().enumerate().map(|(slot, field)| {
         let field_ident = field.ident.as_ref().expect("named field");
         let field_name = field_ident.to_string();
+        let field_ty = &field.ty;
 
-        if let Some(inner_ty) = option_inner_type(&field.ty) {
+        if option_inner_type(field_ty).is_some() {
             quote! {
-                #field_ident: match slots.get_bytes(#slot) {
-                    Some(bytes) => {
-                        <#inner_ty as ::icydb::__macro::PersistedFieldSlotCodec>::decode_persisted_option_slot(
-                            bytes,
+                #field_ident: match slots.get_value(#slot)? {
+                    Some(value) => {
+                        ::icydb::__macro::decode_generated_runtime_field_value::<#field_ty>(
+                            &value,
+                            slots.runtime_enum_context(),
                             #field_name,
                         )?
                     }
@@ -51,12 +53,12 @@ pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
                 }
             }
         } else {
-            let field_ty = &field.ty;
             quote! {
-                #field_ident: match slots.get_bytes(#slot) {
-                    Some(bytes) => {
-                        <#field_ty as ::icydb::__macro::PersistedFieldSlotCodec>::decode_persisted_slot(
-                            bytes,
+                #field_ident: match slots.get_value(#slot)? {
+                    Some(value) => {
+                        ::icydb::__macro::decode_generated_runtime_field_value::<#field_ty>(
+                            &value,
+                            slots.runtime_enum_context(),
                             #field_name,
                         )?
                     }
@@ -64,32 +66,6 @@ pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
                         return Err(::icydb::__macro::InternalError::missing_persisted_slot(#field_name));
                     }
                 }
-            }
-        }
-    });
-
-    let slot_writes = parsed_fields.iter().enumerate().map(|(slot, field)| {
-        let field_ident = field.ident.as_ref().expect("named field");
-        let field_name = field_ident.to_string();
-
-        if let Some(inner_ty) = option_inner_type(&field.ty) {
-            quote! {
-                let payload =
-                    <#inner_ty as ::icydb::__macro::PersistedFieldSlotCodec>::encode_persisted_option_slot(
-                        &self.#field_ident,
-                        #field_name,
-                    )?;
-                out.write_slot(#slot, Some(payload.as_slice()))?;
-            }
-        } else {
-            let field_ty = &field.ty;
-            quote! {
-                let payload =
-                    <#field_ty as ::icydb::__macro::PersistedFieldSlotCodec>::encode_persisted_slot(
-                        &self.#field_ident,
-                        #field_name,
-                    )?;
-                out.write_slot(#slot, Some(payload.as_slice()))?;
             }
         }
     });
@@ -104,15 +80,6 @@ pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
                 Ok(Self {
                     #(#materializers),*
                 })
-            }
-
-            fn write_slots(
-                &self,
-                out: &mut dyn ::icydb::__macro::SlotWriter,
-            ) -> Result<(), ::icydb::__macro::InternalError> {
-                #(#slot_writes)*
-
-                Ok(())
             }
         }
     }
@@ -142,13 +109,13 @@ fn named_struct_fields(
 // named generated symbol instead of a generic helper bound error.
 fn persisted_field_codec_assertion(field: &Field) -> TokenStream {
     let field_ident = field.ident.as_ref().expect("named field");
-    let asserted_ty = option_inner_type(&field.ty).unwrap_or(&field.ty);
+    let asserted_ty = &field.ty;
 
     emit_persisted_trait_assertion(
         field_ident,
-        quote!(::icydb::__macro::PersistedFieldSlotCodec),
+        quote!(::icydb::__macro::RuntimeValueDecode),
         asserted_ty,
-        "PERSISTED_FIELD_SLOT_CODEC",
+        "RUNTIME_VALUE_DECODE",
     )
 }
 

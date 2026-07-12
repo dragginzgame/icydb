@@ -402,7 +402,6 @@ where
                 Self::project_distinct_values_from_materialized_structural(
                     rows,
                     &row_layout,
-                    target_field_name,
                     field_slot,
                 )
                 .map(ScalarProjectionBoundaryOutput::Values)
@@ -411,7 +410,6 @@ where
                 Self::count_distinct_values_from_materialized_structural(
                     rows,
                     &row_layout,
-                    target_field_name,
                     field_slot,
                 )
                 .map(ScalarProjectionBoundaryOutput::Count)
@@ -469,14 +467,8 @@ where
         };
 
         let key = DecodedDataStoreKey::new_primary_key_value(entity_tag, &selected_key);
-        let Some(value) = Self::read_field_value_for_aggregate(
-            store,
-            &row_layout,
-            consistency,
-            key,
-            target_field,
-            field_slot,
-        )?
+        let Some(value) =
+            Self::read_field_value_for_aggregate(store, &row_layout, consistency, key, field_slot)?
         else {
             return Ok(None);
         };
@@ -519,12 +511,8 @@ where
                     field_slot.index,
                 )?;
 
-                let value = extract_orderable_field_value_from_decoded_slot(
-                    target_field,
-                    field_slot,
-                    value,
-                )
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+                let value = extract_orderable_field_value_from_decoded_slot(field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
                 let value = project_scalar_value(target_field, projection, value)?;
 
                 Ok((data_key, value))
@@ -550,12 +538,8 @@ where
                     field_slot.index,
                 )?;
 
-                let value = extract_orderable_field_value_from_decoded_slot(
-                    target_field,
-                    field_slot,
-                    value,
-                )
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+                let value = extract_orderable_field_value_from_decoded_slot(field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
 
                 project_scalar_value(target_field, projection, value)
             })
@@ -569,7 +553,6 @@ where
     fn project_distinct_values_from_materialized_structural(
         rows: Vec<DataRow>,
         row_layout: &RowLayout,
-        target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<Value>, InternalError> {
         let mut distinct_values = GroupKeySet::default();
@@ -584,9 +567,8 @@ where
                 &data_key,
                 field_slot.index,
             )?;
-            let value =
-                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+            let value = extract_orderable_field_value_from_decoded_slot(field_slot, value)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
 
             if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
                 continue;
@@ -603,7 +585,6 @@ where
     fn count_distinct_values_from_materialized_structural(
         rows: Vec<DataRow>,
         row_layout: &RowLayout,
-        target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u32, InternalError> {
         let mut distinct_values = GroupKeySet::default();
@@ -618,9 +599,8 @@ where
                 &data_key,
                 field_slot.index,
             )?;
-            let value =
-                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+            let value = extract_orderable_field_value_from_decoded_slot(field_slot, value)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
 
             if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
                 continue;

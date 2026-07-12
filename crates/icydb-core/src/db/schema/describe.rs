@@ -9,8 +9,8 @@ use crate::{
             RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
         },
         schema::{
-            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
+            AcceptedFieldKind, AcceptedRelationStrength, AcceptedSchemaSnapshot,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
             SchemaFieldDefault, SchemaFieldSlot, field_type_from_persisted_kind,
         },
     },
@@ -808,13 +808,13 @@ struct PersistedRelationDescriptionMetadata<'a> {
 }
 
 fn persisted_relation_description_metadata(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Option<PersistedRelationDescriptionMetadata<'_>> {
     const fn from_relation_kind(
-        kind: &PersistedFieldKind,
+        kind: &AcceptedFieldKind,
         cardinality: EntityRelationCardinality,
     ) -> Option<PersistedRelationDescriptionMetadata<'_>> {
-        let PersistedFieldKind::Relation {
+        let AcceptedFieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
@@ -835,23 +835,23 @@ fn persisted_relation_description_metadata(
     }
 
     match kind {
-        PersistedFieldKind::Relation { .. } => {
+        AcceptedFieldKind::Relation { .. } => {
             from_relation_kind(kind, EntityRelationCardinality::Single)
         }
-        PersistedFieldKind::List(inner) => {
+        AcceptedFieldKind::List(inner) => {
             from_relation_kind(inner, EntityRelationCardinality::List)
         }
-        PersistedFieldKind::Set(inner) => from_relation_kind(inner, EntityRelationCardinality::Set),
+        AcceptedFieldKind::Set(inner) => from_relation_kind(inner, EntityRelationCardinality::Set),
         _ => None,
     }
 }
 
 const fn entity_relation_strength_from_persisted(
-    strength: PersistedRelationStrength,
+    strength: AcceptedRelationStrength,
 ) -> EntityRelationStrength {
     match strength {
-        PersistedRelationStrength::Strong => EntityRelationStrength::Strong,
-        PersistedRelationStrength::Weak => EntityRelationStrength::Weak,
+        AcceptedRelationStrength::Strong => EntityRelationStrength::Strong,
+        AcceptedRelationStrength::Weak => EntityRelationStrength::Weak,
     }
 }
 
@@ -1052,11 +1052,19 @@ fn write_model_default_summary(out: &mut String, default: FieldDatabaseDefault) 
         FieldDatabaseDefault::EncodedSlotPayload(payload) => {
             write_encoded_default_payload_summary(out, payload);
         }
+        FieldDatabaseDefault::AuthoredEnumUnit { enum_path, variant } => {
+            out.push_str(" default=enum_unit(");
+            out.push_str(enum_path);
+            out.push_str("::");
+            out.push_str(variant);
+            out.push(')');
+        }
     }
 }
 
-// Append accepted-schema database-default metadata in the same format as the
-// generated-model path so DESCRIBE and SHOW COLUMNS remain visually aligned.
+// Append accepted-schema database-default metadata from its persisted payload.
+// Generated authored enum defaults remain name-based proposal metadata until
+// catalog admission, so only accepted schema exposes their durable byte shape.
 fn write_schema_default_summary(out: &mut String, default: &SchemaFieldDefault) {
     if let Some(payload) = default.slot_payload() {
         write_encoded_default_payload_summary(out, payload);
@@ -1088,7 +1096,7 @@ fn short_default_payload_fingerprint(payload: &[u8]) -> String {
     doc,
     doc = "Render one stable field-kind label from accepted persisted schema metadata."
 )]
-fn summarize_persisted_field_kind(kind: &PersistedFieldKind) -> String {
+fn summarize_persisted_field_kind(kind: &AcceptedFieldKind) -> String {
     let mut out = String::new();
     write_persisted_field_kind_summary(&mut out, kind);
 
@@ -1098,31 +1106,29 @@ fn summarize_persisted_field_kind(kind: &PersistedFieldKind) -> String {
 // Stream the accepted persisted field-kind label in the same public format as
 // generated `FieldKind` summaries. Top-level live-schema metadata can then
 // drive DESCRIBE output without converting back into generated static types.
-fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKind) {
+fn write_persisted_field_kind_summary(out: &mut String, kind: &AcceptedFieldKind) {
     if let Some(name) = kind.describe_kind_name() {
         out.push_str(name);
         return;
     }
 
     match kind {
-        PersistedFieldKind::Blob { max_len } => {
+        AcceptedFieldKind::Blob { max_len } => {
             write_length_bounded_field_kind_summary(out, "blob", *max_len);
         }
-        PersistedFieldKind::Decimal { scale } => {
+        AcceptedFieldKind::Decimal { scale } => {
             let _ = write!(out, "decimal(scale={scale})");
         }
-        PersistedFieldKind::IntBig { max_bytes } => {
+        AcceptedFieldKind::IntBig { max_bytes } => {
             write_byte_bounded_field_kind_summary(out, "int_big", *max_bytes);
         }
-        PersistedFieldKind::Enum { path, .. } => {
-            out.push_str("enum(");
-            out.push_str(path);
-            out.push(')');
+        AcceptedFieldKind::Enum { type_id } => {
+            let _ = write!(out, "enum(type_id={})", type_id.get());
         }
-        PersistedFieldKind::Text { max_len } => {
+        AcceptedFieldKind::Text { max_len } => {
             write_length_bounded_field_kind_summary(out, "text", *max_len);
         }
-        PersistedFieldKind::Relation {
+        AcceptedFieldKind::Relation {
             target_entity_name,
             key_kind,
             strength,
@@ -1136,54 +1142,54 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKin
             out.push_str(summarize_persisted_relation_strength(*strength));
             out.push(')');
         }
-        PersistedFieldKind::List(inner) => {
+        AcceptedFieldKind::List(inner) => {
             out.push_str("list<");
             write_persisted_field_kind_summary(out, inner);
             out.push('>');
         }
-        PersistedFieldKind::Set(inner) => {
+        AcceptedFieldKind::Set(inner) => {
             out.push_str("set<");
             write_persisted_field_kind_summary(out, inner);
             out.push('>');
         }
-        PersistedFieldKind::Map { key, value } => {
+        AcceptedFieldKind::Map { key, value } => {
             out.push_str("map<");
             write_persisted_field_kind_summary(out, key);
             out.push_str(", ");
             write_persisted_field_kind_summary(out, value);
             out.push('>');
         }
-        PersistedFieldKind::Structured { .. } => {
+        AcceptedFieldKind::Structured { .. } => {
             out.push_str("structured");
         }
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Bool
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Duration
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => unreachable!("schema describe invariant"),
-        PersistedFieldKind::NatBig { max_bytes } => {
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit => unreachable!("schema describe invariant"),
+        AcceptedFieldKind::NatBig { max_bytes } => {
             write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }
     }
 }
 
-impl DescribeKindName for PersistedFieldKind {
+impl DescribeKindName for AcceptedFieldKind {
     fn describe_kind_name(&self) -> Option<&'static str> {
         Some(match self {
             Self::Account => "account",
@@ -1226,12 +1232,10 @@ impl DescribeKindName for PersistedFieldKind {
     doc,
     doc = "Render one stable relation-strength label from persisted schema metadata."
 )]
-const fn summarize_persisted_relation_strength(
-    strength: PersistedRelationStrength,
-) -> &'static str {
+const fn summarize_persisted_relation_strength(strength: AcceptedRelationStrength) -> &'static str {
     match strength {
-        PersistedRelationStrength::Strong => "strong",
-        PersistedRelationStrength::Weak => "weak",
+        AcceptedRelationStrength::Strong => "strong",
+        AcceptedRelationStrength::Weak => "weak",
     }
 }
 

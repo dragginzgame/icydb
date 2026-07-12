@@ -4,7 +4,7 @@
 //! Does not own: core trait implementation semantics.
 //! Boundary: re-exports stable trait names and narrows facade-only contracts.
 
-use icydb_core::traits::EntityValue;
+use icydb_core::traits::{AuthoredFieldProjection, EntityValue};
 
 pub use icydb_core::traits::{
     Add, AddAssign, CanisterKind, Collection, Debug, Default, Deserialize, DeserializeOwned, Div,
@@ -27,9 +27,9 @@ pub use icydb_core::traits::{
 /// or execute persisted rows.
 ///
 
-pub trait Entity: icydb_core::db::PersistedRow + EntityValue {}
+pub trait Entity: icydb_core::db::PersistedRow + EntityValue + AuthoredFieldProjection {}
 
-impl<T> Entity for T where T: icydb_core::db::PersistedRow + EntityValue {}
+impl<T> Entity for T where T: icydb_core::db::PersistedRow + EntityValue + AuthoredFieldProjection {}
 
 ///
 /// EntityFor

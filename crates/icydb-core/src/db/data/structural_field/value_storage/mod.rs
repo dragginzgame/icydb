@@ -3,6 +3,7 @@
 //! Does not own: top-level `ByKind` dispatch, typed wrapper payload definitions, or storage-key policy.
 //! Boundary: `FieldStorageDecode::Value` routes through this module without widening authority over sibling structural lanes.
 
+mod canonical;
 mod decode;
 mod encode;
 mod primitives;
@@ -28,9 +29,12 @@ fn reserve_one_value_storage_item<T>(items: &mut Vec<T>) -> Result<(), FieldDeco
     items.try_reserve(1).map_err(|_| FieldDecodeError::new())
 }
 
+pub(in crate::db) use canonical::{
+    decode_canonical_value_storage_bytes, encode_canonical_value_storage_bytes,
+};
 pub(in crate::db) use decode::{
-    ValueStorageView, decode_account, decode_decimal, decode_enum, decode_int, decode_int128,
-    decode_nat, decode_nat128, decode_structural_value_storage_blob_bytes,
+    ValueStorageView, decode_account, decode_decimal, decode_int, decode_int128, decode_nat,
+    decode_nat128, decode_structural_value_storage_blob_bytes,
     decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
     decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
     decode_structural_value_storage_float32_bytes, decode_structural_value_storage_float64_bytes,
@@ -43,13 +47,12 @@ pub(in crate::db) use decode::{
     value_storage_bytes_are_null,
 };
 pub(in crate::db) use encode::{
-    encode_account, encode_decimal, encode_enum, encode_int, encode_int128, encode_nat,
-    encode_nat128, encode_structural_value_storage_blob_bytes,
-    encode_structural_value_storage_bool_bytes, encode_structural_value_storage_bytes,
-    encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
-    encode_structural_value_storage_float32_bytes, encode_structural_value_storage_float64_bytes,
-    encode_structural_value_storage_i64_bytes, encode_structural_value_storage_null_bytes,
-    encode_structural_value_storage_principal_bytes,
+    encode_account, encode_decimal, encode_int, encode_int128, encode_nat, encode_nat128,
+    encode_structural_value_storage_blob_bytes, encode_structural_value_storage_bool_bytes,
+    encode_structural_value_storage_bytes, encode_structural_value_storage_date_bytes,
+    encode_structural_value_storage_duration_bytes, encode_structural_value_storage_float32_bytes,
+    encode_structural_value_storage_float64_bytes, encode_structural_value_storage_i64_bytes,
+    encode_structural_value_storage_null_bytes, encode_structural_value_storage_principal_bytes,
     encode_structural_value_storage_subaccount_bytes,
     encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
     encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,

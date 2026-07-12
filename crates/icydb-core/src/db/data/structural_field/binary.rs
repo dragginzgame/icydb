@@ -24,8 +24,6 @@ pub(super) const TAG_FLOAT32: u8 = 0x14;
 pub(super) const TAG_FLOAT64: u8 = 0x15;
 pub(super) const TAG_LIST: u8 = 0x20;
 pub(super) const TAG_MAP: u8 = 0x21;
-pub(super) const TAG_VARIANT_UNIT: u8 = 0x30;
-pub(super) const TAG_VARIANT_PAYLOAD: u8 = 0x31;
 
 const WORD32_LEN: usize = 4;
 const WORD64_LEN: usize = 8;
@@ -117,30 +115,6 @@ pub(super) fn push_binary_map_len(out: &mut Vec<u8>, len: usize) {
     );
 }
 
-/// Append one unit variant envelope containing only the variant label.
-pub(super) fn push_binary_variant_unit(out: &mut Vec<u8>, label: &str) {
-    out.push(TAG_VARIANT_UNIT);
-    out.extend_from_slice(
-        &u32::try_from(label.len())
-            .expect("structural binary invariant")
-            .to_be_bytes(),
-    );
-    out.extend_from_slice(label.as_bytes());
-}
-
-/// Append one payload-bearing variant envelope containing the variant label
-/// followed by one nested payload.
-pub(super) fn push_binary_variant_payload(out: &mut Vec<u8>, label: &str, payload: &[u8]) {
-    out.push(TAG_VARIANT_PAYLOAD);
-    out.extend_from_slice(
-        &u32::try_from(label.len())
-            .expect("structural binary invariant")
-            .to_be_bytes(),
-    );
-    out.extend_from_slice(label.as_bytes());
-    out.extend_from_slice(payload);
-}
-
 type ListItemVisitor<'a> = dyn FnMut(&[u8]) -> Result<(), FieldDecodeError> + 'a;
 type MapEntryVisitor<'a> = dyn FnMut(&[u8], &[u8]) -> Result<(), FieldDecodeError> + 'a;
 
@@ -176,9 +150,7 @@ pub(super) fn parse_binary_head(
             u32::try_from(WORD64_LEN).expect("structural binary invariant")
         }
         TAG_FLOAT32 => u32::try_from(WORD32_LEN).expect("structural binary invariant"),
-        TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP | TAG_VARIANT_UNIT | TAG_VARIANT_PAYLOAD => {
-            decode_u32(bytes, payload_offset)?
-        }
+        TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP => decode_u32(bytes, payload_offset)?,
         _ => {
             return Err(FieldDecodeError::new());
         }
@@ -187,11 +159,9 @@ pub(super) fn parse_binary_head(
     let payload_offset = match tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE | TAG_NAT64 | TAG_INT64 | TAG_FLOAT32
         | TAG_FLOAT64 => payload_offset,
-        TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP | TAG_VARIANT_UNIT | TAG_VARIANT_PAYLOAD => {
-            payload_offset
-                .checked_add(WORD32_LEN)
-                .ok_or_else(FieldDecodeError::new)?
-        }
+        TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP => payload_offset
+            .checked_add(WORD32_LEN)
+            .ok_or_else(FieldDecodeError::new)?,
         _ => unreachable!("unknown tags are rejected above"),
     };
 
@@ -234,8 +204,6 @@ fn skip_binary_value_at_depth(
         ),
         TAG_LIST => skip_list_payload(bytes, head, depth),
         TAG_MAP => skip_map_payload(bytes, head, depth),
-        TAG_VARIANT_UNIT => skip_variant_unit_payload(bytes, head),
-        TAG_VARIANT_PAYLOAD => skip_variant_payload(bytes, head, depth),
         _ => unreachable!("unknown tags are rejected above"),
     }
 }
@@ -305,42 +273,6 @@ pub(super) fn walk_binary_map_entries(
     Ok(())
 }
 
-// Split one tagged variant envelope into its ASCII variant label and optional payload slice.
-pub(super) fn split_binary_variant_payload(
-    raw_bytes: &[u8],
-) -> Result<(&[u8], Option<&[u8]>), FieldDecodeError> {
-    let Some((tag, len, payload_offset)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let head = BinaryHead {
-        payload_offset,
-        tag,
-        len,
-    };
-
-    match head.tag {
-        TAG_VARIANT_UNIT => {
-            let label = decode_variant_label_bytes(raw_bytes, head)?;
-            if variant_payload_end(head, label.len())? != raw_bytes.len() {
-                return Err(FieldDecodeError::new());
-            }
-
-            Ok((label, None))
-        }
-        TAG_VARIANT_PAYLOAD => {
-            let label = decode_variant_label_bytes(raw_bytes, head)?;
-            let payload_start = variant_payload_end(head, label.len())?;
-            let payload_end = skip_binary_value_at_depth(raw_bytes, payload_start, 1)?;
-            if payload_end != raw_bytes.len() {
-                return Err(FieldDecodeError::new());
-            }
-
-            Ok((label, Some(&raw_bytes[payload_start..payload_end])))
-        }
-        _ => Err(FieldDecodeError::new()),
-    }
-}
-
 // Decode one big-endian u32 from the requested byte offset.
 fn decode_u32(bytes: &[u8], offset: usize) -> Result<u32, FieldDecodeError> {
     let slice = bytes
@@ -388,42 +320,6 @@ fn skip_map_payload(
     }
 
     Ok(cursor)
-}
-
-// Skip one unit-variant payload containing only its label bytes.
-fn skip_variant_unit_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, FieldDecodeError> {
-    let label_len = usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?;
-
-    checked_advance(bytes, head.payload_offset, label_len)
-}
-
-// Skip one payload-bearing variant by advancing over the label bytes and then one nested payload.
-fn skip_variant_payload(
-    bytes: &[u8],
-    head: BinaryHead,
-    depth: usize,
-) -> Result<usize, FieldDecodeError> {
-    let label_len = usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?;
-    let payload_start = checked_advance(bytes, head.payload_offset, label_len)?;
-
-    skip_binary_value_at_depth(bytes, payload_start, depth)
-}
-
-// Decode one raw variant label slice from a previously parsed variant head.
-fn decode_variant_label_bytes(bytes: &[u8], head: BinaryHead) -> Result<&[u8], FieldDecodeError> {
-    let label_len = usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?;
-    let label_end = checked_advance(bytes, head.payload_offset, label_len)?;
-
-    bytes
-        .get(head.payload_offset..label_end)
-        .ok_or_else(FieldDecodeError::new)
-}
-
-// Compute the payload start immediately after the previously decoded variant label.
-fn variant_payload_end(head: BinaryHead, label_len: usize) -> Result<usize, FieldDecodeError> {
-    head.payload_offset
-        .checked_add(label_len)
-        .ok_or_else(FieldDecodeError::new)
 }
 
 // Decode one definite-length Structural Binary text payload from the enclosing field bytes.

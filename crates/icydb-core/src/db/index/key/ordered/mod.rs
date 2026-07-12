@@ -36,6 +36,12 @@ pub(crate) struct EncodedValue {
 }
 
 impl EncodedValue {
+    /// Wrap bytes produced by another accepted canonical component encoder.
+    #[must_use]
+    pub(in crate::db) const fn from_canonical_bytes(encoded: Vec<u8>) -> Self {
+        Self { encoded }
+    }
+
     /// Encode a value once into canonical index-component bytes.
     pub(crate) fn try_new(raw: &Value) -> Result<Self, OrderedValueEncodeError> {
         let encoded = encode_canonical_index_component(raw)?;
@@ -171,7 +177,7 @@ fn encode_component_payload(
         Value::Date(v) => v.encode_ordered(out),
         Value::Decimal(v) => normalize::push_decimal_payload(out, *v),
         Value::Duration(v) => v.encode_ordered(out),
-        Value::Enum(v) => segments::push_enum_payload(out, v),
+        Value::Enum(_) => Err(OrderedValueEncodeError::UnsupportedValueKind),
         Value::Float32(v) => {
             out.extend_from_slice(&semantics::ordered_f32_bytes(v.get()));
             Ok(())

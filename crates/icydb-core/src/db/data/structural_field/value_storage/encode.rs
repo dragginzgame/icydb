@@ -19,10 +19,10 @@ use crate::{
         },
         value_storage::tags::{
             VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
-            VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_FLOAT32,
-            VALUE_BINARY_TAG_FLOAT64, VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128,
-            VALUE_BINARY_TAG_NAT_BIG, VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL,
-            VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
+            VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_FLOAT32, VALUE_BINARY_TAG_FLOAT64,
+            VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128, VALUE_BINARY_TAG_NAT_BIG,
+            VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
+            VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
         },
     },
     error::InternalError,
@@ -30,7 +30,7 @@ use crate::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
-    value::{Value, ValueEnum},
+    value::Value,
 };
 
 /// Encode one persisted `FieldStorageDecode::Value` payload through the
@@ -283,29 +283,6 @@ pub(in crate::db) fn encode_value_storage_owned_map_entries(
     encoded
 }
 
-/// Encode one canonical enum payload from its variant, optional strict path,
-/// and already encoded nested payload bytes without constructing `Value`.
-pub(in crate::db) fn encode_enum(
-    variant: &str,
-    path: Option<&str>,
-    payload: Option<&[u8]>,
-) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    push_binary_tag(&mut encoded, VALUE_BINARY_TAG_ENUM);
-    push_binary_list_len(&mut encoded, 3);
-    push_binary_text(&mut encoded, variant);
-    match path {
-        Some(path) => push_binary_text(&mut encoded, path),
-        None => push_binary_null(&mut encoded),
-    }
-    match payload {
-        Some(payload) => encoded.extend_from_slice(payload),
-        None => push_binary_null(&mut encoded),
-    }
-
-    encoded
-}
-
 // Encode one runtime `Value` into the parallel Structural Binary v1 envelope.
 fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
     match value {
@@ -322,7 +299,7 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         Value::Date(value) => push_date_payload(out, *value),
         Value::Decimal(value) => push_decimal_payload(out, *value),
         Value::Duration(value) => push_duration_payload(out, *value),
-        Value::Enum(value) => push_binary_enum_value(out, value)?,
+        Value::Enum(_) => return Err(InternalError::serialize_unsupported()),
         Value::Float32(value) => push_float32_payload(out, *value),
         Value::Float64(value) => push_float64_payload(out, *value),
         Value::Int128(value) => push_int128_payload(out, *value),
@@ -474,24 +451,6 @@ fn push_tagged_i64_payload(out: &mut Vec<u8>, tag: u8, value: i64) {
 fn push_tagged_u64_payload(out: &mut Vec<u8>, tag: u8, value: u64) {
     push_binary_tag(out, tag);
     push_binary_nat64(out, value);
-}
-
-// Encode one binary `Value::Enum` payload using a fixed positional tuple:
-// `(variant, path, payload)`.
-fn push_binary_enum_value(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), InternalError> {
-    push_binary_tag(out, VALUE_BINARY_TAG_ENUM);
-    push_binary_list_len(out, 3);
-    push_binary_text(out, value.variant());
-    match value.path() {
-        Some(path) => push_binary_text(out, path),
-        None => push_binary_null(out),
-    }
-    match value.payload() {
-        Some(payload) => encode_value_storage_binary_into(out, payload)?,
-        None => push_binary_null(out),
-    }
-
-    Ok(())
 }
 
 // Encode one binary `Value::IntBig` payload as `(sign, limbs)`.

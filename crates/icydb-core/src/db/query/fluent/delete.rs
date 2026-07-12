@@ -16,6 +16,7 @@ use crate::{
     },
     traits::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
+    value::OutputValue,
 };
 
 ///
@@ -39,6 +40,20 @@ impl<'a, E> FluentDeleteQuery<'a, E>
 where
     E: PersistedRow,
 {
+    /// Project typed deleted rows through the accepted catalog pinned to this
+    /// session.
+    #[doc(hidden)]
+    pub fn project_entity_output_values(
+        &self,
+        entity: &E,
+        slots: &[usize],
+    ) -> Result<Vec<OutputValue>, crate::error::InternalError>
+    where
+        E: EntityValue,
+    {
+        self.session.project_entity_output_values(entity, slots)
+    }
+
     pub(in crate::db) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
         Self { session, query }
     }

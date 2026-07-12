@@ -10,7 +10,7 @@ use crate::{
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
         schema::{
-            AcceptedSchemaSnapshot, PersistedSchemaSnapshot, SchemaExpressionIndexRebuildRow,
+            PersistedSchemaSnapshot, SchemaExpressionIndexRebuildRow,
             SchemaExpressionIndexRebuildTarget, SchemaExpressionIndexStagedEntry,
             SchemaExpressionIndexStagedRebuild, SchemaMutationExecutionStep,
             SchemaMutationRunnerInput, SchemaTransitionPlanKind, transition::SchemaTransitionPlan,
@@ -23,7 +23,8 @@ use sha2::{Digest, Sha256};
 
 use super::startup_field_path::{
     SchemaPublicationGate, StartupDecodedFieldPathRebuildRow, StartupFieldPathRebuildRow,
-    decode_field_path_rebuild_rows, field_path_rebuild_raw_rows_for_entity,
+    catalog_backed_row_contract_for_rebuild, decode_field_path_rebuild_rows,
+    field_path_rebuild_raw_rows_for_entity,
 };
 
 pub(super) fn execute_supported_expression_index_addition(
@@ -43,9 +44,12 @@ pub(super) fn execute_supported_expression_index_addition(
     let input =
         SchemaMutationRunnerInput::new(accepted_before, accepted_after, plan.execution_plan())
             .map_err(|_error| InternalError::store_unsupported())?;
-    let accepted = AcceptedSchemaSnapshot::try_new(accepted_before.clone())?;
-    let row_contract =
-        StructuralRowContract::from_accepted_schema_snapshot(entity_path, &accepted)?;
+    let row_contract = catalog_backed_row_contract_for_rebuild(
+        store,
+        publication_gate,
+        entity_path,
+        accepted_before,
+    )?;
     let predicate_program = expression_rebuild_predicate_program(target, &row_contract)?;
     let raw_rows = field_path_rebuild_raw_rows_for_entity(store, entity_tag, entity_path)?;
     let rebuild_gate = StartupExpressionRebuildGate::from_raw_rows(
@@ -77,9 +81,7 @@ pub(super) fn execute_supported_expression_index_addition(
         target,
         index_keys_written,
     )?;
-    store.with_schema_mut(|schema_store| {
-        publication_gate.publish_accepted_snapshot(schema_store, accepted_after)
-    })?;
+    publication_gate.publish_accepted_snapshot(store, accepted_after)?;
 
     Ok((rows_scanned, index_keys_written))
 }
@@ -428,7 +430,7 @@ impl StartupExpressionRebuildGate {
         }
 
         let latest = store.with_schema_mut(|schema_store| {
-            schema_store.latest_persisted_snapshot(self.entity_tag)
+            schema_store.latest_staged_persisted_snapshot(self.entity_tag)
         })?;
         if latest.as_ref() != Some(&self.accepted_before) {
             return Err(InternalError::store_unsupported());

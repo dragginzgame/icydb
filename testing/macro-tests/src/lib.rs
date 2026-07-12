@@ -15,8 +15,6 @@ pub(crate) mod prelude {
     pub(crate) use crate::{assert_invalid, assert_valid, test_ulid};
 
     #[cfg(test)]
-    pub use icydb::base;
-
     #[cfg(test)]
     pub use icydb::design::prelude::*;
 }

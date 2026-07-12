@@ -5,8 +5,8 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{
-            CanonicalRow, DecodedDataStoreKey, PersistedRow, RawRow, SerializedStructuralPatch,
-            StructuralPatch, StructuralRowContract, StructuralSlotReader,
+            AuthoredStructuralPatch, CanonicalRow, DecodedDataStoreKey, PersistedRow, RawRow,
+            SerializedStructuralPatch, StructuralRowContract, StructuralSlotReader,
             apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
             canonical_row_from_entity_with_accepted_contract,
             canonical_row_from_raw_row_with_accepted_decode_contract,
@@ -23,7 +23,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
-    traits::{EntityValue, KeyValueCodec, Storable},
+    traits::{AuthoredFieldProjection, EntityValue, KeyValueCodec, Storable},
     types::Timestamp,
 };
 #[cfg(feature = "sql")]
@@ -41,7 +41,7 @@ use std::collections::HashSet;
 struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
     mode: MutationMode,
     key: E::Key,
-    patch: StructuralPatch,
+    patch: AuthoredStructuralPatch,
     write_context: SanitizeWriteContext,
     accepted_row_decode_contract: AcceptedRowDecodeContract,
 }
@@ -57,14 +57,14 @@ struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
 #[cfg(feature = "sql")]
 struct StructuralMutationBatchItem<E: PersistedRow + EntityValue> {
     key: E::Key,
-    patch: StructuralPatch,
+    patch: AuthoredStructuralPatch,
 }
 
 #[cfg(feature = "sql")]
 impl<E: PersistedRow + EntityValue> StructuralMutationBatchItem<E> {
     // Build one internally lowered structural batch item after the caller has
     // crossed its admission boundary and selected the batch mutation mode.
-    const fn internal_lowered(key: E::Key, patch: StructuralPatch) -> Self {
+    const fn internal_lowered(key: E::Key, patch: AuthoredStructuralPatch) -> Self {
         Self { key, patch }
     }
 }
@@ -74,7 +74,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
     const fn public_authored(
         mode: MutationMode,
         key: E::Key,
-        patch: StructuralPatch,
+        patch: AuthoredStructuralPatch,
         write_context: SanitizeWriteContext,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
@@ -94,7 +94,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
     const fn internal_lowered(
         mode: MutationMode,
         key: E::Key,
-        patch: StructuralPatch,
+        patch: AuthoredStructuralPatch,
         write_context: SanitizeWriteContext,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
@@ -108,7 +108,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
     }
 }
 
-impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow + EntityValue + AuthoredFieldProjection> SaveExecutor<E> {
     // Build one canonical write preflight context for one structural save mode.
     const fn structural_write_context(mode: MutationMode, now: Timestamp) -> SanitizeWriteContext {
         SanitizeWriteContext::new(mode.sanitize_write_mode(), now)
@@ -119,7 +119,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         &self,
         mode: MutationMode,
         key: E::Key,
-        patch: StructuralPatch,
+        patch: AuthoredStructuralPatch,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<E, InternalError> {
         let write_context = Self::structural_write_context(mode, Timestamp::now());
@@ -140,7 +140,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     pub(in crate::db) fn apply_internal_lowered_structural_mutation_batch_with_precommit<F>(
         &self,
         mode: MutationMode,
-        rows: Vec<(E::Key, StructuralPatch)>,
+        rows: Vec<(E::Key, AuthoredStructuralPatch)>,
         write_context: SanitizeWriteContext,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
         precommit: F,

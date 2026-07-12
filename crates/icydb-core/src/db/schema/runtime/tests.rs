@@ -6,9 +6,14 @@ use crate::{
             decode_runtime_value_from_accepted_field_contract, encode_persisted_scalar_slot_payload,
         },
         schema::{
-            AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
+            AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
+            AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+            SchemaRowLayout, SchemaVersion,
+            authored_projection::{AcceptedAuthoredFieldProjection, AuthoredFieldAdmissionError},
+            enum_catalog::{
+                ValueAdmissionBudget, ValueAdmissionError, build_initial_accepted_enum_catalog,
+            },
             runtime::{AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract},
         },
     },
@@ -22,8 +27,16 @@ use crate::{
         index::IndexModel,
     },
     testing::entity_model_from_static,
+    types::Ulid,
     value::Value,
 };
+use icydb_derive::AuthoredFieldProjection;
+
+#[derive(AuthoredFieldProjection, Clone)]
+struct AuthoredRuntimeEntity {
+    id: Ulid,
+    nickname: String,
+}
 
 static RUNTIME_ENTITY_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
@@ -86,7 +99,7 @@ fn accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -97,7 +110,7 @@ fn accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: Some(32) },
+                AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 true,
                 SchemaFieldDefault::None,
@@ -126,7 +139,7 @@ fn generated_compatible_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -137,7 +150,7 @@ fn generated_compatible_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: Some(32) },
+                AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -166,7 +179,7 @@ fn accepted_composite_primary_key_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -177,7 +190,7 @@ fn accepted_composite_primary_key_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: Some(32) },
+                AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -223,7 +236,7 @@ fn generated_slot_compatible_accepted_schema_with_nickname_decode(
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -234,7 +247,7 @@ fn generated_slot_compatible_accepted_schema_with_nickname_decode(
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: Some(32) },
+                AcceptedFieldKind::Text { max_len: Some(32) },
                 Vec::new(),
                 nullable,
                 SchemaFieldDefault::None,
@@ -264,7 +277,7 @@ fn write_policy_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -275,7 +288,7 @@ fn write_policy_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(2),
                 "token".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -290,7 +303,7 @@ fn write_policy_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
                 FieldId::new(3),
                 "updated_at".to_string(),
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Timestamp,
+                AcceptedFieldKind::Timestamp,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -343,7 +356,7 @@ fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
     );
     std::assert_matches!(
         nickname.kind(),
-        PersistedFieldKind::Text { max_len: Some(32) },
+        AcceptedFieldKind::Text { max_len: Some(32) },
     );
     assert_eq!(
         descriptor
@@ -369,7 +382,7 @@ fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
     assert_eq!(descriptor.field_slot_index_by_name("nickname"), Some(9));
     std::assert_matches!(
         descriptor.field_kind_by_name("nickname"),
-        Some(PersistedFieldKind::Text { max_len: Some(32) }),
+        Some(AcceptedFieldKind::Text { max_len: Some(32) }),
     );
     assert!(nickname.nested_leaves().is_empty());
     assert!(nickname.nullable());
@@ -393,8 +406,8 @@ fn accepted_row_layout_runtime_contract_exposes_ordered_primary_key_fields() {
     assert_eq!(
         descriptor.primary_key_kinds(),
         [
-            &PersistedFieldKind::Ulid,
-            &PersistedFieldKind::Text { max_len: Some(32) },
+            &AcceptedFieldKind::Ulid,
+            &AcceptedFieldKind::Text { max_len: Some(32) },
         ],
     );
 }
@@ -419,7 +432,74 @@ fn accepted_row_decode_contract_owns_slot_indexed_field_contracts() {
     );
     std::assert_matches!(
         nickname.kind(),
-        PersistedFieldKind::Text { max_len: Some(32) },
+        AcceptedFieldKind::Text { max_len: Some(32) },
+    );
+}
+
+#[test]
+fn accepted_row_decode_contract_retains_revision_scoped_catalog_authority() {
+    let accepted = accepted_schema_fixture();
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted runtime contract should build");
+    let catalog =
+        build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
+    let catalog =
+        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+    let contract = descriptor.row_decode_contract_with_catalog(catalog.clone());
+
+    assert_eq!(
+        contract.accepted_schema_revision(),
+        Some(AcceptedSchemaRevision::INITIAL),
+    );
+    assert!(
+        contract
+            .enum_catalog()
+            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.catalog())),
+        "row decode should retain the shared catalog instead of cloning definitions",
+    );
+}
+
+#[test]
+fn accepted_authored_projection_admits_fields_against_row_catalog_authority() {
+    let accepted = generated_compatible_accepted_schema_fixture();
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted runtime contract should build");
+    let catalog =
+        build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
+    let catalog =
+        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+    let row_contract = descriptor.row_decode_contract_with_catalog(catalog);
+    let projection = AcceptedAuthoredFieldProjection::new(&row_contract)
+        .expect("catalog-backed authored projection should bind");
+    let entity = AuthoredRuntimeEntity {
+        id: Ulid::nil(),
+        nickname: "alpha".to_string(),
+    };
+    let mut budget = ValueAdmissionBudget::standard();
+    let admitted = projection
+        .admit_field(&entity, 1, &mut budget)
+        .expect("accepted text input should admit");
+    assert_eq!(admitted.revision(), AcceptedSchemaRevision::INITIAL);
+    let mut encode_budget = ValueAdmissionBudget::standard();
+    let encoded = projection
+        .encode_field(&entity, 1, &mut encode_budget)
+        .expect("accepted text input should encode through its scalar slot codec");
+    assert_eq!(
+        encoded,
+        encode_persisted_scalar_slot_payload(&entity.nickname, "nickname")
+            .expect("typed scalar slot should encode"),
+    );
+
+    let too_long = AuthoredRuntimeEntity {
+        id: Ulid::nil(),
+        nickname: "x".repeat(33),
+    };
+    let mut rejected_budget = ValueAdmissionBudget::standard();
+    assert_eq!(
+        projection.admit_field(&too_long, 1, &mut rejected_budget),
+        Err(AuthoredFieldAdmissionError::Admission(
+            ValueAdmissionError::ScalarConstraint,
+        )),
     );
 }
 
@@ -498,7 +578,7 @@ fn accepted_row_layout_runtime_contract_builds_descriptor_and_row_compatibility_
     assert_eq!(descriptor.primary_key_names(), ["id"]);
     assert_eq!(
         descriptor.first_primary_key_kind(),
-        &PersistedFieldKind::Ulid
+        &AcceptedFieldKind::Ulid
     );
     assert_eq!(proof.required_slot_count(), 2);
     assert_eq!(proof.first_primary_key_slot_index(), 0);
@@ -631,7 +711,7 @@ fn accepted_row_layout_runtime_contract_rejects_extra_generated_field_layout() {
         FieldId::new(3),
         "generated_extra".to_string(),
         SchemaFieldSlot::new(2),
-        PersistedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Text { max_len: None },
         Vec::new(),
         true,
         SchemaFieldDefault::None,
@@ -751,7 +831,7 @@ fn accepted_row_layout_runtime_contract_rejects_missing_layout_slot() {
                 FieldId::new(1),
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Ulid,
+                AcceptedFieldKind::Ulid,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -762,7 +842,7 @@ fn accepted_row_layout_runtime_contract_rejects_missing_layout_slot() {
                 FieldId::new(2),
                 "nickname".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
                 Vec::new(),
                 true,
                 SchemaFieldDefault::None,

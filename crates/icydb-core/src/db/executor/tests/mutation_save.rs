@@ -9,13 +9,12 @@ use crate::{
         codec::serialize_row_payload,
         commit::{
             CommitRowOp, commit_marker_present, ensure_recovered, init_commit_store_for_tests,
-            prepare_row_commit_for_entity_with_structural_readers,
             reset_commit_marker_test_journal_sequence,
         },
         data::{
-            CanonicalRow, DataStore, DecodedDataStoreKey, RawRow, StructuralPatch,
+            AuthoredStructuralPatch, CanonicalRow, DataStore, DecodedDataStoreKey, RawRow,
             decode_persisted_scalar_slot_payload, decode_persisted_structured_many_slot_payload,
-            encode_persisted_scalar_slot_payload, encode_persisted_structured_many_slot_payload,
+            encode_persisted_scalar_slot_payload,
         },
         executor::{
             DeleteExecutor, SaveExecutor,
@@ -36,6 +35,7 @@ use crate::{
             AcceptedRowDecodeContract, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
             SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint,
             compiled_schema_proposal_for_model, ensure_accepted_schema_snapshot,
+            publish_test_accepted_schema_snapshot,
         },
     },
     error::{ErrorClass, ErrorOrigin},
@@ -51,7 +51,7 @@ use crate::{
         RuntimeValueMeta,
     },
     types::{Account, Decimal, EntityTag, Principal, Subaccount, Ulid},
-    value::Value,
+    value::{InputValue, InputValueEnum, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -598,20 +598,6 @@ impl crate::db::PersistedRow for StructuredSelectionEntity {
             },
         })
     }
-
-    fn write_slots(
-        &self,
-        out: &mut dyn crate::db::SlotWriter,
-    ) -> Result<(), crate::error::InternalError> {
-        let id_payload = encode_persisted_scalar_slot_payload(&self.id, "id")?;
-        out.write_slot(0, Some(id_payload.as_slice()))?;
-
-        let selected_parts_payload =
-            encode_persisted_structured_many_slot_payload(&self.selected_parts, "selected_parts")?;
-        out.write_slot(1, Some(selected_parts_payload.as_slice()))?;
-
-        Ok(())
-    }
 }
 
 fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntity> {
@@ -726,22 +712,6 @@ impl crate::db::PersistedRow for StructuredSelectionSetEntity {
                 }
             },
         })
-    }
-
-    fn write_slots(
-        &self,
-        out: &mut dyn crate::db::SlotWriter,
-    ) -> Result<(), crate::error::InternalError> {
-        let id_payload = encode_persisted_scalar_slot_payload(&self.id, "id")?;
-        out.write_slot(0, Some(id_payload.as_slice()))?;
-
-        let selected_parts_payload = crate::db::encode_persisted_structured_slot_payload(
-            &self.selected_parts,
-            "selected_parts",
-        )?;
-        out.write_slot(1, Some(selected_parts_payload.as_slice()))?;
-
-        Ok(())
     }
 }
 
@@ -882,22 +852,6 @@ impl crate::db::PersistedRow for StructuredSelectionMapEntity {
             },
         })
     }
-
-    fn write_slots(
-        &self,
-        out: &mut dyn crate::db::SlotWriter,
-    ) -> Result<(), crate::error::InternalError> {
-        let id_payload = encode_persisted_scalar_slot_payload(&self.id, "id")?;
-        out.write_slot(0, Some(id_payload.as_slice()))?;
-
-        let selected_parts_by_layer_payload = crate::db::encode_persisted_structured_slot_payload(
-            &self.selected_parts_by_layer,
-            "selected_parts_by_layer",
-        )?;
-        out.write_slot(1, Some(selected_parts_by_layer_payload.as_slice()))?;
-
-        Ok(())
-    }
 }
 
 fn load_structured_selection_map_entity(id: Ulid) -> Option<StructuredSelectionMapEntity> {
@@ -992,18 +946,22 @@ fn load_database_default_write_entity(id: Ulid) -> Option<DatabaseDefaultWriteEn
 fn accepted_structural_patch<E, I, S>(
     session: &DbSession<TestCanister>,
     fields: I,
-) -> StructuralPatch
+) -> AuthoredStructuralPatch
 where
     E: PersistedRow<Canister = TestCanister> + EntityValue,
     I: IntoIterator<Item = (S, Value)>,
     S: AsRef<str>,
 {
     session
-        .structural_patch::<E, _, _>(fields)
+        .structural_patch::<E, _, _, _>(fields)
         .expect("accepted-schema structural fields should resolve")
 }
 
-fn unique_email_patch(session: &DbSession<TestCanister>, id: Ulid, email: &str) -> StructuralPatch {
+fn unique_email_patch(
+    session: &DbSession<TestCanister>,
+    id: Ulid,
+    email: &str,
+) -> AuthoredStructuralPatch {
     accepted_structural_patch::<UniqueEmailEntity, _, _>(
         session,
         [
@@ -1033,10 +991,17 @@ fn install_unique_email_old_accepted_schema_prefix() {
         vec![expected.fields()[0].clone()],
     );
     SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(UniqueEmailEntity::ENTITY_TAG, &stored_prefix)
-            .expect("unsupported but well-formed old schema snapshot should persist");
+        publish_test_accepted_schema_snapshot(
+            store,
+            UniqueEmailEntity::ENTITY_TAG,
+            UniqueEmailEntity::PATH,
+            SourceStore::PATH,
+            <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+            stored_prefix,
+        )
+        .expect("unsupported but well-formed old schema snapshot should publish");
     });
+    DbSession::<TestCanister>::clear_accepted_schema_query_cache_for_tests();
 }
 
 fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
@@ -1315,7 +1280,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <TargetEntity as crate::traits::EntitySchema>::MODEL,
         TargetEntity::PATH,
         TargetStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<TargetEntity>,
         validate_delete_strong_relations_for_source::<TargetEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1323,7 +1287,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <SourceEntity as crate::traits::EntitySchema>::MODEL,
         SourceEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<SourceEntity>,
         validate_delete_strong_relations_for_source::<SourceEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1331,7 +1294,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <InvalidRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
         InvalidRelationMetadataEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<InvalidRelationMetadataEntity>,
         validate_delete_strong_relations_for_source::<InvalidRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1339,7 +1301,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <WrongTagRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
         WrongTagRelationMetadataEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<WrongTagRelationMetadataEntity>,
         validate_delete_strong_relations_for_source::<WrongTagRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1347,7 +1308,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <WrongStoreRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
         WrongStoreRelationMetadataEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<WrongStoreRelationMetadataEntity>,
         validate_delete_strong_relations_for_source::<WrongStoreRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1355,7 +1315,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <SourceSetEntity as crate::traits::EntitySchema>::MODEL,
         SourceSetEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<SourceSetEntity>,
         validate_delete_strong_relations_for_source::<SourceSetEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1363,7 +1322,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <SelfRelationEntity as crate::traits::EntitySchema>::MODEL,
         SelfRelationEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<SelfRelationEntity>,
         validate_delete_strong_relations_for_source::<SelfRelationEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1371,7 +1329,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
         UniqueEmailEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<UniqueEmailEntity>,
         validate_delete_strong_relations_for_source::<UniqueEmailEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1379,7 +1336,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <MismatchedPkEntity as crate::traits::EntitySchema>::MODEL,
         MismatchedPkEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<MismatchedPkEntity>,
         validate_delete_strong_relations_for_source::<MismatchedPkEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1387,7 +1343,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <DecimalScaleEntity as crate::traits::EntitySchema>::MODEL,
         DecimalScaleEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<DecimalScaleEntity>,
         validate_delete_strong_relations_for_source::<DecimalScaleEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1395,7 +1350,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <BoundedTextEntity as crate::traits::EntitySchema>::MODEL,
         BoundedTextEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<BoundedTextEntity>,
         validate_delete_strong_relations_for_source::<BoundedTextEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1403,7 +1357,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <DatabaseDefaultWriteEntity as crate::traits::EntitySchema>::MODEL,
         DatabaseDefaultWriteEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<DatabaseDefaultWriteEntity>,
         validate_delete_strong_relations_for_source::<DatabaseDefaultWriteEntity>,
     ),
     EntityRuntimeHooks::new(
@@ -1411,7 +1364,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <NullableAccountEventEntity as crate::traits::EntitySchema>::MODEL,
         NullableAccountEventEntity::PATH,
         SourceStore::PATH,
-        prepare_row_commit_for_entity_with_structural_readers::<NullableAccountEventEntity>,
         validate_delete_strong_relations_for_source::<NullableAccountEventEntity>,
     ),
 ];
@@ -1930,6 +1882,7 @@ fn unique_email_accepted_commit_schema_fingerprint() -> crate::db::commit::Commi
             schema_store,
             UniqueEmailEntity::ENTITY_TAG,
             UniqueEmailEntity::PATH,
+            SourceStore::PATH,
             <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
         )
         .expect("unique email accepted schema should initialize");
@@ -3083,7 +3036,7 @@ fn structural_patch_rejects_unknown_accepted_schema_field_names() {
 
     let session = DbSession::new(DB);
     let err = session
-        .structural_patch::<UniqueEmailEntity, _, _>([(
+        .structural_patch::<UniqueEmailEntity, _, _, _>([(
             "missing_email",
             Value::Text("grace@example.com".to_string()),
         )])
@@ -3096,6 +3049,21 @@ fn structural_patch_rejects_unknown_accepted_schema_field_names() {
         icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
         "unknown structural field",
     );
+}
+
+#[test]
+fn structural_patch_retains_unresolved_enum_input_for_accepted_admission() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let input = InputValue::Enum(InputValueEnum::loose("Active"));
+    let patch = session
+        .structural_patch::<UniqueEmailEntity, _, _, _>([("email", input.clone())])
+        .expect("the authored patch should retain unresolved input until admission");
+
+    assert_eq!(patch.entries().len(), 1);
+    assert_eq!(patch.entries()[0].value(), &input);
 }
 
 #[test]

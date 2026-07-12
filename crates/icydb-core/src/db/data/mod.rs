@@ -18,9 +18,24 @@ pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_contract;
 pub(in crate::db) use key::{DecodedDataStoreKey, primary_key_value_from_structural_value};
-pub(in crate::db) use persisted_row::decode_runtime_value_from_accepted_field_contract;
+pub(in crate::db) use persisted_row::encode_admitted_value_for_accepted_field_contract;
 #[cfg(feature = "sql")]
 pub(in crate::db) use persisted_row::encode_runtime_value_for_accepted_field_contract;
+#[cfg(test)]
+pub(in crate::db) use persisted_row::encode_runtime_value_into_slot;
+pub(in crate::db) use persisted_row::validate_default_payload_for_accepted_field_contract;
+pub use persisted_row::{
+    AuthoredStructuralPatch, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
+    SlotReader, SlotWriter, decode_persisted_many_slot_payload_by_meta,
+    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
+    decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
+    decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
+    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
+    encode_persisted_many_slot_payload_by_meta, encode_persisted_option_scalar_slot_payload,
+    encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
+    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
+};
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, FieldSlot, SerializedStructuralPatch, StructuralSlotReader,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
@@ -34,18 +49,8 @@ pub(in crate::db) use persisted_row::{
     serialize_complete_structural_patch_fields_with_accepted_contract,
     serialize_structural_patch_fields_with_accepted_contract,
 };
-pub use persisted_row::{
-    PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
-    StructuralPatch, decode_persisted_many_slot_payload_by_meta,
-    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-    decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
-    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-    decode_slot_into_runtime_value, encode_persisted_many_slot_payload_by_meta,
-    encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
-    encode_persisted_slot_payload_by_meta, encode_persisted_structured_many_slot_payload,
-    encode_persisted_structured_slot_payload, encode_runtime_value_into_slot,
+pub(in crate::db) use persisted_row::{
+    decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
 pub(in crate::db) use row::CanonicalRow;
 pub(in crate::db) use row::{DataRow, RawRow};
@@ -53,25 +58,29 @@ pub use store::DataStore;
 pub(in crate::db) use store::StoreVisit;
 pub(in crate::db) use structural_field::{
     FieldDecodeError, ValueStorageView, accepted_kind_supports_primary_key_component_binary,
-    decode_accepted_relation_target_primary_key_components_bytes, decode_enum,
+    decode_accepted_relation_target_primary_key_components_bytes,
     decode_primary_key_component_binary_value_bytes,
     decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
     decode_structural_value_storage_bytes, decode_value_storage_list_item_slices,
-    decode_value_storage_map_entry_slices, decode_value_storage_text, encode_enum,
-    encode_primary_key_component_binary_value_bytes,
-    encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
-    encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
-    encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
-    encode_value_storage_text, supports_primary_key_component_binary_kind,
-    validate_primary_key_component_binary_value_bytes,
+    decode_value_storage_map_entry_slices, decode_value_storage_text,
+    encode_structural_field_by_accepted_kind_bytes, encode_structural_value_storage_bytes,
+    encode_structural_value_storage_null_bytes, encode_value_storage_list_item_slices,
+    encode_value_storage_map_entry_slices, encode_value_storage_text,
+    supports_primary_key_component_binary_kind, validate_primary_key_component_binary_value_bytes,
     validate_structural_field_by_accepted_kind_bytes, validate_structural_field_by_kind_bytes,
     validate_structural_value_storage_bytes, value_storage_bytes_are_null,
 };
-pub(in crate::db::data) use structural_row::{
-    SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,
+#[cfg(test)]
+pub(in crate::db) use structural_field::{
+    decode_canonical_value_storage_bytes, encode_primary_key_component_binary_value_bytes,
+    encode_structural_field_by_kind_bytes,
 };
 pub(in crate::db) use structural_row::{
-    StructuralFieldDecodeContract, StructuralRowContract, decode_structural_row_payload,
+    AcceptedStructuralRowAuthority, StructuralFieldDecodeContract, StructuralRowContract,
+    decode_structural_row_payload,
+};
+pub(in crate::db::data) use structural_row::{
+    SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,
 };
 
 #[cfg(test)]

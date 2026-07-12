@@ -21,7 +21,7 @@ use crate::{
                 VisibleIndexes, build_query_model_plan_for_model_only,
                 build_query_model_plan_with_indexes_for_model_only,
                 build_query_model_plan_with_indexes_from_scalar_planning_state,
-                canonicalize_grouped_having_numeric_literal_for_field_kind,
+                canonicalize_grouped_having_numeric_literal_for_slot,
                 expr::{
                     Expr, FieldId, ProjectionSelection, is_normalized_bool_expr,
                     normalize_bool_expr,
@@ -100,6 +100,35 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     #[must_use]
     pub(in crate::db::query) fn planning_logical_inputs(&self) -> LogicalPlanningInputs {
         self.intent.planning_logical_inputs()
+    }
+
+    // Return the normalized predicate only when this complete query intent can
+    // use direct COUNT prefix cardinality without changing visible semantics.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) fn direct_count_cardinality_prefix_predicate(
+        &self,
+    ) -> Result<Option<&Predicate>, QueryError> {
+        self.validate_policy_shape()?;
+
+        let access_inputs = self.planning_access_inputs();
+        let logical_inputs = self.planning_logical_inputs();
+        let scalar_shape_supported = access_inputs.order().is_none()
+            && !access_inputs.has_key_access_override()
+            && !logical_inputs.distinct()
+            && !logical_inputs.has_group()
+            && !logical_inputs.has_having_expr();
+        let visible_filter_fully_covered =
+            !logical_inputs.has_filter_expr() || logical_inputs.filter_predicate_covers_expr();
+        let unbounded_load_window = matches!(
+            self.mode(),
+            QueryMode::Load(load_spec)
+                if load_spec.limit().is_none() && load_spec.offset() == 0
+        );
+        if !scalar_shape_supported || !visible_filter_fully_covered || !unbounded_load_window {
+            return Ok(None);
+        }
+
+        Ok(access_inputs.predicate())
     }
 
     #[must_use]
@@ -353,9 +382,8 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         }
 
         let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
-        let value =
-            canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), &value)
-                .unwrap_or(value);
+        let value = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, &value)
+            .unwrap_or(value);
         let expr =
             grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value);
 
@@ -377,9 +405,8 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
 
         let field_slot = resolve_group_field_slot_with_schema(self.model, schema, field)
             .map_err(QueryError::from)?;
-        let value =
-            canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), &value)
-                .unwrap_or(value);
+        let value = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, &value)
+            .unwrap_or(value);
         let expr =
             grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value);
 

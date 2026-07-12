@@ -8,83 +8,78 @@ use crate::{
         data::structural_field::{
             FieldDecodeError,
             binary::{
-                push_binary_list_len, push_binary_map_len, push_binary_variant_payload,
-                push_binary_variant_unit, split_binary_variant_payload, walk_binary_list_items,
+                push_binary_list_len, push_binary_map_len, walk_binary_list_items,
                 walk_binary_map_entries,
             },
-            decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
-            encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
-            validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
+            decode_structural_field_by_kind_bytes, encode_structural_field_by_kind_bytes,
+            validate_structural_field_by_kind_bytes,
         },
-        schema::{PersistedEnumVariant, PersistedFieldKind},
+        schema::AcceptedFieldKind,
     },
     error::InternalError,
-    model::field::{FieldKind, FieldStorageDecode},
-    value::{Value, ValueEnum},
+    model::field::FieldKind,
+    value::Value,
 };
-use std::str;
 
 // Decode one accepted-schema by-kind field payload. Simple non-recursive kinds
 // still reuse the existing generated-compatible decoder because their runtime
 // shape has no borrowed nested metadata. Recursive kinds stay on accepted
-// `PersistedFieldKind` references throughout the traversal.
+// `AcceptedFieldKind` references throughout the traversal.
 pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
     raw_bytes: &[u8],
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
     if let Some(runtime_kind) = generated_compatible_simple_kind_from_accepted_kind(kind) {
         return decode_structural_field_by_kind_bytes(raw_bytes, runtime_kind);
     }
 
     match kind {
-        PersistedFieldKind::Enum { path, variants } => {
-            decode_accepted_enum_bytes(raw_bytes, path, variants.as_slice())
-        }
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+        AcceptedFieldKind::Enum { .. } => Err(FieldDecodeError::new()),
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             decode_accepted_list_bytes(raw_bytes, inner.as_ref())
         }
-        PersistedFieldKind::Map { key, value } => {
+        AcceptedFieldKind::Map { key, value } => {
             decode_accepted_map_bytes(raw_bytes, key.as_ref(), value.as_ref())
         }
-        PersistedFieldKind::Relation { key_kind, .. } => {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
             decode_structural_field_by_accepted_kind_bytes(raw_bytes, key_kind.as_ref())
         }
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Blob { .. }
-        | PersistedFieldKind::Bool
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Decimal { .. }
-        | PersistedFieldKind::Duration
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig { .. }
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Structured { .. }
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Text { .. }
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig { .. }
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are decoded above"),
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Structured { .. }
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit => unreachable!("simple accepted kinds are decoded above"),
     }
 }
 
 // Encode one accepted-schema by-kind field payload. Simple non-recursive kinds
 // reuse the generated-compatible structural encoder after the accepted
-// `PersistedFieldKind` has selected the kind. Recursive shapes stay on
+// `AcceptedFieldKind` has selected the kind. Recursive shapes stay on
 // accepted metadata throughout traversal.
 pub(in crate::db) fn encode_structural_field_by_accepted_kind_bytes(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     value: &Value,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -103,52 +98,50 @@ pub(in crate::db) fn encode_structural_field_by_accepted_kind_bytes(
 // deciding whether to materialize the final runtime `Value`.
 pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
     raw_bytes: &[u8],
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Result<(), FieldDecodeError> {
     if let Some(runtime_kind) = generated_compatible_simple_kind_from_accepted_kind(kind) {
         return validate_structural_field_by_kind_bytes(raw_bytes, runtime_kind);
     }
 
     match kind {
-        PersistedFieldKind::Enum { variants, .. } => {
-            validate_accepted_enum_bytes(raw_bytes, variants.as_slice())
-        }
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+        AcceptedFieldKind::Enum { .. } => Err(FieldDecodeError::new()),
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             validate_accepted_list_bytes(raw_bytes, inner.as_ref())
         }
-        PersistedFieldKind::Map { key, value } => {
+        AcceptedFieldKind::Map { key, value } => {
             validate_accepted_map_bytes(raw_bytes, key.as_ref(), value.as_ref())
         }
-        PersistedFieldKind::Relation { key_kind, .. } => {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
             validate_structural_field_by_accepted_kind_bytes(raw_bytes, key_kind.as_ref())
         }
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Blob { .. }
-        | PersistedFieldKind::Bool
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Decimal { .. }
-        | PersistedFieldKind::Duration
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig { .. }
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Structured { .. }
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Text { .. }
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig { .. }
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are validated above"),
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Structured { .. }
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit => unreachable!("simple accepted kinds are validated above"),
     }
 }
 
@@ -156,28 +149,28 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
 // This mirrors the generated-kind lane so nullable structural-null detection
 // can avoid treating storage-key nulls as value-storage null sentinels.
 pub(in crate::db) fn accepted_kind_supports_primary_key_component_binary(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> bool {
     match kind {
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => true,
-        PersistedFieldKind::Relation { key_kind, .. } => {
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit => true,
+        AcceptedFieldKind::Relation { key_kind, .. } => {
             accepted_kind_supports_primary_key_component_binary(key_kind)
         }
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
-            matches!(inner.as_ref(), PersistedFieldKind::Relation { .. })
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+            matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. })
                 && accepted_kind_supports_primary_key_component_binary(inner)
         }
         _ => false,
@@ -186,58 +179,58 @@ pub(in crate::db) fn accepted_kind_supports_primary_key_component_binary(
 
 // Adapt accepted field kinds that carry no borrowed nested metadata into the
 // existing generated-compatible field-codec shape. The accepted
-// `PersistedFieldKind` remains the authority; this is only a leaf-codec reuse
+// `AcceptedFieldKind` remains the authority; this is only a leaf-codec reuse
 // seam, not Rust-type inference. Recursive collections, relations, and enums
 // stay in accepted-kind form throughout traversal.
 const fn generated_compatible_simple_kind_from_accepted_kind(
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
 ) -> Option<FieldKind> {
     match kind {
-        PersistedFieldKind::Account => Some(FieldKind::Account),
-        PersistedFieldKind::Blob { max_len } => Some(FieldKind::Blob { max_len: *max_len }),
-        PersistedFieldKind::Bool => Some(FieldKind::Bool),
-        PersistedFieldKind::Date => Some(FieldKind::Date),
-        PersistedFieldKind::Decimal { scale } => Some(FieldKind::Decimal { scale: *scale }),
-        PersistedFieldKind::Duration => Some(FieldKind::Duration),
-        PersistedFieldKind::Float32 => Some(FieldKind::Float32),
-        PersistedFieldKind::Float64 => Some(FieldKind::Float64),
-        PersistedFieldKind::Int64 => Some(FieldKind::Int64),
-        PersistedFieldKind::Int8 => Some(FieldKind::Int8),
-        PersistedFieldKind::Int16 => Some(FieldKind::Int16),
-        PersistedFieldKind::Int32 => Some(FieldKind::Int32),
-        PersistedFieldKind::Int128 => Some(FieldKind::Int128),
-        PersistedFieldKind::IntBig { max_bytes } => Some(FieldKind::IntBig {
+        AcceptedFieldKind::Account => Some(FieldKind::Account),
+        AcceptedFieldKind::Blob { max_len } => Some(FieldKind::Blob { max_len: *max_len }),
+        AcceptedFieldKind::Bool => Some(FieldKind::Bool),
+        AcceptedFieldKind::Date => Some(FieldKind::Date),
+        AcceptedFieldKind::Decimal { scale } => Some(FieldKind::Decimal { scale: *scale }),
+        AcceptedFieldKind::Duration => Some(FieldKind::Duration),
+        AcceptedFieldKind::Float32 => Some(FieldKind::Float32),
+        AcceptedFieldKind::Float64 => Some(FieldKind::Float64),
+        AcceptedFieldKind::Int64 => Some(FieldKind::Int64),
+        AcceptedFieldKind::Int8 => Some(FieldKind::Int8),
+        AcceptedFieldKind::Int16 => Some(FieldKind::Int16),
+        AcceptedFieldKind::Int32 => Some(FieldKind::Int32),
+        AcceptedFieldKind::Int128 => Some(FieldKind::Int128),
+        AcceptedFieldKind::IntBig { max_bytes } => Some(FieldKind::IntBig {
             max_bytes: *max_bytes,
         }),
-        PersistedFieldKind::Principal => Some(FieldKind::Principal),
-        PersistedFieldKind::Structured { queryable } => Some(FieldKind::Structured {
+        AcceptedFieldKind::Principal => Some(FieldKind::Principal),
+        AcceptedFieldKind::Structured { queryable } => Some(FieldKind::Structured {
             queryable: *queryable,
         }),
-        PersistedFieldKind::Subaccount => Some(FieldKind::Subaccount),
-        PersistedFieldKind::Text { max_len } => Some(FieldKind::Text { max_len: *max_len }),
-        PersistedFieldKind::Timestamp => Some(FieldKind::Timestamp),
-        PersistedFieldKind::Nat64 => Some(FieldKind::Nat64),
-        PersistedFieldKind::Nat8 => Some(FieldKind::Nat8),
-        PersistedFieldKind::Nat16 => Some(FieldKind::Nat16),
-        PersistedFieldKind::Nat32 => Some(FieldKind::Nat32),
-        PersistedFieldKind::Nat128 => Some(FieldKind::Nat128),
-        PersistedFieldKind::NatBig { max_bytes } => Some(FieldKind::NatBig {
+        AcceptedFieldKind::Subaccount => Some(FieldKind::Subaccount),
+        AcceptedFieldKind::Text { max_len } => Some(FieldKind::Text { max_len: *max_len }),
+        AcceptedFieldKind::Timestamp => Some(FieldKind::Timestamp),
+        AcceptedFieldKind::Nat64 => Some(FieldKind::Nat64),
+        AcceptedFieldKind::Nat8 => Some(FieldKind::Nat8),
+        AcceptedFieldKind::Nat16 => Some(FieldKind::Nat16),
+        AcceptedFieldKind::Nat32 => Some(FieldKind::Nat32),
+        AcceptedFieldKind::Nat128 => Some(FieldKind::Nat128),
+        AcceptedFieldKind::NatBig { max_bytes } => Some(FieldKind::NatBig {
             max_bytes: *max_bytes,
         }),
-        PersistedFieldKind::Ulid => Some(FieldKind::Ulid),
-        PersistedFieldKind::Unit => Some(FieldKind::Unit),
-        PersistedFieldKind::Enum { .. }
-        | PersistedFieldKind::List(_)
-        | PersistedFieldKind::Map { .. }
-        | PersistedFieldKind::Relation { .. }
-        | PersistedFieldKind::Set(_) => None,
+        AcceptedFieldKind::Ulid => Some(FieldKind::Ulid),
+        AcceptedFieldKind::Unit => Some(FieldKind::Unit),
+        AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::List(_)
+        | AcceptedFieldKind::Map { .. }
+        | AcceptedFieldKind::Relation { .. }
+        | AcceptedFieldKind::Set(_) => None,
     }
 }
 
 // Encode one accepted recursive field into Structural Binary v1 bytes.
 fn encode_accepted_binary_field_into(
     out: &mut Vec<u8>,
-    kind: &PersistedFieldKind,
+    kind: &AcceptedFieldKind,
     value: &Value,
     field_name: &str,
 ) -> Result<(), InternalError> {
@@ -248,57 +241,57 @@ fn encode_accepted_binary_field_into(
     }
 
     match kind {
-        PersistedFieldKind::Enum { path, variants } => {
-            encode_accepted_enum_bytes(out, path, variants.as_slice(), value, field_name)
-        }
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+        AcceptedFieldKind::Enum { .. } => Err(InternalError::persisted_row_field_encode_internal(
+            field_name,
+        )),
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
             encode_accepted_list_bytes(out, inner.as_ref(), value, field_name)
         }
-        PersistedFieldKind::Map { key, value: item } => {
+        AcceptedFieldKind::Map { key, value: item } => {
             encode_accepted_map_bytes(out, key.as_ref(), item.as_ref(), value, field_name)
         }
-        PersistedFieldKind::Relation { key_kind, .. } => {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
             encode_accepted_binary_field_into(out, key_kind.as_ref(), value, field_name)
         }
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Blob { .. }
-        | PersistedFieldKind::Bool
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Decimal { .. }
-        | PersistedFieldKind::Duration
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig { .. }
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Structured { .. }
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Text { .. }
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig { .. }
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are encoded above"),
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Structured { .. }
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit => unreachable!("simple accepted kinds are encoded above"),
     }
 }
 
 // Decode one accepted list or set by recursively decoding each item slice.
 fn decode_accepted_list_bytes(
     raw_bytes: &[u8],
-    inner: &PersistedFieldKind,
+    inner: &AcceptedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
     let mut items = Vec::new();
     walk_binary_list_items(raw_bytes, &mut |item_bytes| {
         let item = decode_structural_field_by_accepted_kind_bytes(item_bytes, inner)?;
-        if matches!(inner, PersistedFieldKind::Relation { .. }) && matches!(item, Value::Null) {
+        if matches!(inner, AcceptedFieldKind::Relation { .. }) && matches!(item, Value::Null) {
             return Ok(());
         }
         items.push(item);
@@ -314,7 +307,7 @@ fn decode_accepted_list_bytes(
 // skipping explicit null items.
 fn encode_accepted_list_bytes(
     out: &mut Vec<u8>,
-    inner: &PersistedFieldKind,
+    inner: &AcceptedFieldKind,
     value: &Value,
     field_name: &str,
 ) -> Result<(), InternalError> {
@@ -323,7 +316,7 @@ fn encode_accepted_list_bytes(
             field_name,
         ));
     };
-    let skip_null_items = matches!(inner, PersistedFieldKind::Relation { .. });
+    let skip_null_items = matches!(inner, AcceptedFieldKind::Relation { .. });
     let encoded_len = if skip_null_items {
         items
             .iter()
@@ -347,7 +340,7 @@ fn encode_accepted_list_bytes(
 // Validate one accepted list or set by recursively validating each item slice.
 fn validate_accepted_list_bytes(
     raw_bytes: &[u8],
-    inner: &PersistedFieldKind,
+    inner: &AcceptedFieldKind,
 ) -> Result<(), FieldDecodeError> {
     walk_binary_list_items(raw_bytes, &mut |item_bytes| {
         validate_structural_field_by_accepted_kind_bytes(item_bytes, inner)
@@ -357,8 +350,8 @@ fn validate_accepted_list_bytes(
 // Encode one accepted map by recursively encoding each key/value pair.
 fn encode_accepted_map_bytes(
     out: &mut Vec<u8>,
-    key_kind: &PersistedFieldKind,
-    value_kind: &PersistedFieldKind,
+    key_kind: &AcceptedFieldKind,
+    value_kind: &AcceptedFieldKind,
     value: &Value,
     field_name: &str,
 ) -> Result<(), InternalError> {
@@ -380,8 +373,8 @@ fn encode_accepted_map_bytes(
 // Decode one accepted map by recursively decoding each key/value slice pair.
 fn decode_accepted_map_bytes(
     raw_bytes: &[u8],
-    key_kind: &PersistedFieldKind,
-    value_kind: &PersistedFieldKind,
+    key_kind: &AcceptedFieldKind,
+    value_kind: &AcceptedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
     let mut entries = Vec::new();
     walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
@@ -400,117 +393,13 @@ fn decode_accepted_map_bytes(
 // pair.
 fn validate_accepted_map_bytes(
     raw_bytes: &[u8],
-    key_kind: &PersistedFieldKind,
-    value_kind: &PersistedFieldKind,
+    key_kind: &AcceptedFieldKind,
+    value_kind: &AcceptedFieldKind,
 ) -> Result<(), FieldDecodeError> {
     walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
         validate_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?;
         validate_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)
     })
-}
-
-// Encode one accepted enum payload using persisted variant metadata rather
-// than generated static enum descriptors.
-fn encode_accepted_enum_bytes(
-    out: &mut Vec<u8>,
-    path: &str,
-    variants: &[PersistedEnumVariant],
-    value: &Value,
-    field_name: &str,
-) -> Result<(), InternalError> {
-    let Value::Enum(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    };
-
-    if let Some(actual_path) = value.path()
-        && actual_path != path
-    {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    }
-
-    let Some(payload) = value.payload() else {
-        push_binary_variant_unit(out, value.variant());
-        return Ok(());
-    };
-    let Some(variant_model) = variants.iter().find(|item| item.ident() == value.variant()) else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    };
-    let Some(payload_kind) = variant_model.payload_kind() else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
-    };
-    let payload_bytes = match variant_model.payload_storage_decode() {
-        FieldStorageDecode::ByKind => {
-            encode_structural_field_by_accepted_kind_bytes(payload_kind, payload, field_name)?
-        }
-        FieldStorageDecode::Value => encode_structural_value_storage_bytes(payload)?,
-    };
-    push_binary_variant_payload(out, value.variant(), payload_bytes.as_slice());
-
-    Ok(())
-}
-
-// Decode one accepted enum payload using persisted variant metadata rather
-// than generated static enum descriptors.
-fn decode_accepted_enum_bytes(
-    raw_bytes: &[u8],
-    path: &str,
-    variants: &[PersistedEnumVariant],
-) -> Result<Value, FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
-    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
-
-    let Some(payload_bytes) = payload_bytes else {
-        return Ok(Value::Enum(ValueEnum::new(variant, Some(path))));
-    };
-    let Some(variant_model) = variants.iter().find(|item| item.ident() == variant) else {
-        return Err(FieldDecodeError::new());
-    };
-    let Some(payload_kind) = variant_model.payload_kind() else {
-        return Err(FieldDecodeError::new());
-    };
-    let payload = match variant_model.payload_storage_decode() {
-        FieldStorageDecode::ByKind => {
-            decode_structural_field_by_accepted_kind_bytes(payload_bytes, payload_kind)?
-        }
-        FieldStorageDecode::Value => decode_structural_value_storage_bytes(payload_bytes)?,
-    };
-
-    Ok(Value::Enum(
-        ValueEnum::new(variant, Some(path)).with_payload(payload),
-    ))
-}
-
-// Validate one accepted enum payload using persisted variant metadata rather
-// than generated static enum descriptors.
-fn validate_accepted_enum_bytes(
-    raw_bytes: &[u8],
-    variants: &[PersistedEnumVariant],
-) -> Result<(), FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
-    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
-    let Some(payload_bytes) = payload_bytes else {
-        return Ok(());
-    };
-    if let Some(variant_model) = variants.iter().find(|item| item.ident() == variant)
-        && let Some(payload_kind) = variant_model.payload_kind()
-    {
-        return match variant_model.payload_storage_decode() {
-            FieldStorageDecode::ByKind => {
-                validate_structural_field_by_accepted_kind_bytes(payload_bytes, payload_kind)
-            }
-            FieldStorageDecode::Value => validate_structural_value_storage_bytes(payload_bytes),
-        };
-    }
-
-    Err(FieldDecodeError::new())
 }
 
 ///

@@ -1303,7 +1303,7 @@ fn representative_predicates() -> Vec<Predicate> {
         Predicate::Compare(ComparePredicate::with_coercion(
             "stage",
             crate::db::predicate::CompareOp::Eq,
-            Value::Enum(ValueEnum::loose("Active")),
+            Value::Enum(ValueEnum::test_unit(1, 1)),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(

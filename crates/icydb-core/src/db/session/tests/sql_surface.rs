@@ -7,12 +7,13 @@ use crate::{
         executor::EntityAuthority,
         response::Row,
         schema::{
-            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldOrigin,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+            AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+            PersistedFieldOrigin, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
             SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
             SchemaVersion, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
             execute_sql_ddl_field_addition, persisted_schema_snapshot_decode_count_for_tests,
+            publish_test_accepted_schema_snapshot,
             reset_persisted_schema_snapshot_decode_count_for_tests,
         },
         session::sql::{
@@ -207,35 +208,25 @@ fn encode_sql_surface_slot_payload_for_test(slots: &[&[u8]]) -> Vec<u8> {
     row_payload
 }
 
-// Install the accepted schema snapshot that represents `SessionNullableSqlEntity`
-// before `nickname` was added. The generated proposal remains current, so
-// reconciliation must perform the append-only nullable transition.
-fn install_nullable_sql_old_accepted_schema_prefix() {
+// Publish the post-transition accepted schema while row fixtures retain the
+// old two-slot layout. Runtime reads must use accepted nullable-slot semantics.
+fn install_nullable_sql_post_transition_schema() {
     let proposal =
         compiled_schema_proposal_for_model(<SessionNullableSqlEntity as EntitySchema>::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
-    let stored_version =
-        crate::db::schema::SchemaVersion::new(expected.version().get().saturating_sub(1));
-    let stored_prefix = PersistedSchemaSnapshot::new(
-        stored_version,
-        expected.entity_path().to_string(),
-        expected.entity_name().to_string(),
-        expected.first_primary_key_field_id(),
-        SchemaRowLayout::new(
-            stored_version,
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
-        expected.fields()[..2].to_vec(),
-    );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(SessionNullableSqlEntity::ENTITY_TAG, &stored_prefix)
-            .expect("old nullable SQL schema prefix should persist");
+        publish_test_accepted_schema_snapshot(
+            store,
+            SessionNullableSqlEntity::ENTITY_TAG,
+            SessionNullableSqlEntity::PATH,
+            SessionSqlStore::PATH,
+            <SessionNullableSqlEntity as EntitySchema>::MODEL,
+            expected,
+        )
+        .expect("post-transition nullable SQL schema should publish");
     });
+    DbSession::<SessionSqlCanister>::clear_accepted_schema_query_cache_for_tests();
 }
 
 // Seed one old two-slot row directly into the data store so the SQL surface can
@@ -338,7 +329,9 @@ fn assert_compiled_select_query_matches_lowered_identity_for_entity<E>(
     sql: &str,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let lowered = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
         .unwrap_or_else(|err| panic!("{context} should lower into one canonical query: {err:?}"));
@@ -404,7 +397,9 @@ fn assert_distinct_compiled_selects_execute_through_shared_query_plan_for_entity
     left: &crate::db::session::sql::CompiledSqlCommand,
     right: &crate::db::session::sql::CompiledSqlCommand,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let _ = session
         .execute_compiled_sql::<E>(left)
@@ -1563,7 +1558,7 @@ fn execute_sql_statement_rejects_unsupported_schema_transition_before_select_com
 fn execute_sql_statement_reads_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1480);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -1600,7 +1595,7 @@ fn execute_sql_statement_reads_old_rows_after_nullable_additive_schema_transitio
 fn compiled_sql_query_reads_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     insert_old_nullable_sql_row_for_test(Ulid::from_u128(1493), "Ada");
 
@@ -1639,7 +1634,7 @@ fn compiled_sql_query_reads_old_rows_after_nullable_additive_schema_transition()
 fn execute_sql_statement_filters_old_rows_by_added_nullable_field_null_semantics() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     insert_old_nullable_sql_row_for_test(Ulid::from_u128(1497), "Ada");
 
@@ -1685,7 +1680,7 @@ fn execute_sql_statement_filters_old_rows_by_added_nullable_field_null_semantics
 fn compiled_sql_query_filters_old_rows_by_added_nullable_field_null_semantics() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     insert_old_nullable_sql_row_for_test(Ulid::from_u128(1498), "Ada");
 
@@ -1712,7 +1707,7 @@ fn compiled_sql_query_filters_old_rows_by_added_nullable_field_null_semantics() 
 fn sql_metadata_surfaces_show_added_nullable_field_after_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
 
     let described = statement_describe_sql::<SessionNullableSqlEntity>(
@@ -1765,7 +1760,7 @@ fn sql_metadata_surfaces_show_added_nullable_field_after_schema_transition() {
 fn compiled_sql_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1494);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -1797,7 +1792,7 @@ fn compiled_sql_update_rewrites_old_rows_after_nullable_additive_schema_transiti
 fn compiled_sql_delete_removes_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1495);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -1831,7 +1826,7 @@ fn compiled_sql_delete_removes_old_rows_after_nullable_additive_schema_transitio
 fn compiled_sql_delete_returning_projects_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1496);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -1881,7 +1876,7 @@ fn compiled_sql_delete_returning_projects_old_rows_after_nullable_additive_schem
 fn fluent_load_reads_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1484);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -1912,7 +1907,7 @@ fn fluent_load_reads_old_rows_after_nullable_additive_schema_transition() {
 fn fluent_take_reads_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1486);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -1943,7 +1938,7 @@ fn fluent_take_reads_old_rows_after_nullable_additive_schema_transition() {
 fn fluent_paged_load_reads_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1487);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -1979,7 +1974,7 @@ fn fluent_paged_load_reads_old_rows_after_nullable_additive_schema_transition() 
 fn fluent_top_k_reads_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1488);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2010,7 +2005,7 @@ fn fluent_top_k_reads_old_rows_after_nullable_additive_schema_transition() {
 fn fluent_delete_returns_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1485);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2051,7 +2046,7 @@ fn fluent_delete_returns_old_rows_after_nullable_additive_schema_transition() {
 fn fluent_delete_count_removes_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1491);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2079,13 +2074,13 @@ fn fluent_delete_count_removes_old_rows_after_nullable_additive_schema_transitio
 fn structural_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1490);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let patch = session
-        .structural_patch::<SessionNullableSqlEntity, _, _>([(
+        .structural_patch::<SessionNullableSqlEntity, _, _, _>([(
             "name",
             Value::Text("Ada Byron".to_string()),
         )])
@@ -2125,13 +2120,13 @@ fn structural_update_rewrites_old_rows_after_nullable_additive_schema_transition
 fn structural_update_sets_appended_nullable_field_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1492);
     insert_old_nullable_sql_row_for_test(id, "Ada");
 
     let patch = session
-        .structural_patch::<SessionNullableSqlEntity, _, _>([(
+        .structural_patch::<SessionNullableSqlEntity, _, _, _>([(
             "nickname",
             Value::Text("Countess".to_string()),
         )])
@@ -2171,7 +2166,7 @@ fn structural_update_sets_appended_nullable_field_after_nullable_additive_schema
 fn typed_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1497);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2215,7 +2210,7 @@ fn typed_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
 fn typed_replace_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1498);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2259,7 +2254,7 @@ fn typed_replace_rewrites_old_rows_after_nullable_additive_schema_transition() {
 fn typed_insert_writes_current_layout_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1504);
 
@@ -2292,7 +2287,7 @@ fn typed_insert_writes_current_layout_after_nullable_additive_schema_transition(
 fn typed_insert_existing_old_row_reports_conflict_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1499);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2329,7 +2324,7 @@ fn typed_insert_existing_old_row_reports_conflict_after_nullable_additive_schema
 fn typed_update_many_atomic_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let first_id = Ulid::from_u128(1500);
     let second_id = Ulid::from_u128(1501);
@@ -2370,7 +2365,7 @@ fn typed_update_many_atomic_rewrites_old_rows_after_nullable_additive_schema_tra
 fn typed_replace_many_non_atomic_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let first_id = Ulid::from_u128(1502);
     let second_id = Ulid::from_u128(1503);
@@ -2411,7 +2406,7 @@ fn typed_replace_many_non_atomic_rewrites_old_rows_after_nullable_additive_schem
 fn execute_sql_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1481);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2455,7 +2450,7 @@ fn execute_sql_update_rewrites_old_rows_after_nullable_additive_schema_transitio
 fn execute_sql_delete_removes_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1482);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -2493,7 +2488,7 @@ fn execute_sql_delete_removes_old_rows_after_nullable_additive_schema_transition
 fn execute_sql_delete_returning_projects_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
+    install_nullable_sql_post_transition_schema();
     let session = sql_session();
     let id = Ulid::from_u128(1483);
     insert_old_nullable_sql_row_for_test(id, "Ada");
@@ -4253,7 +4248,7 @@ fn sql_ddl_alter_table_add_nullable_column_binds_against_accepted_catalog() {
     assert_eq!(add_column.field().name(), "nickname");
     assert_eq!(
         add_column.field().kind(),
-        &PersistedFieldKind::Text { max_len: None },
+        &AcceptedFieldKind::Text { max_len: None },
     );
     assert_eq!(add_column.field().origin(), PersistedFieldOrigin::SqlDdl);
     assert!(add_column.field().nullable());
@@ -4277,7 +4272,7 @@ fn sql_ddl_alter_table_add_defaulted_column_binds_against_accepted_catalog() {
 
     assert_eq!(add_column.entity_name(), "SessionSqlEntity");
     assert_eq!(add_column.field().name(), "score");
-    assert_eq!(add_column.field().kind(), &PersistedFieldKind::Nat64);
+    assert_eq!(add_column.field().kind(), &AcceptedFieldKind::Nat64);
     assert_eq!(add_column.field().origin(), PersistedFieldOrigin::SqlDdl);
     assert!(!add_column.field().nullable());
     assert!(!add_column.field().default().is_none());
@@ -4321,7 +4316,7 @@ fn sql_ddl_alter_table_add_big_int_column_binds_max_bytes_contract() {
     assert_eq!(add_column.field().name(), "score");
     assert_eq!(
         add_column.field().kind(),
-        &PersistedFieldKind::NatBig { max_bytes: 512 },
+        &AcceptedFieldKind::NatBig { max_bytes: 512 },
     );
     assert!(add_column.field().nullable());
     assert!(add_column.field().default().is_none());
@@ -5165,7 +5160,7 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let nickname = latest
@@ -5176,7 +5171,7 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
 
         assert_eq!(latest.version(), SchemaVersion::new(2));
         assert_eq!(nickname.origin(), PersistedFieldOrigin::SqlDdl);
-        assert_eq!(nickname.kind(), &PersistedFieldKind::Text { max_len: None });
+        assert_eq!(nickname.kind(), &AcceptedFieldKind::Text { max_len: None });
         assert!(nickname.nullable());
         assert!(nickname.default().is_none());
     });
@@ -5456,7 +5451,7 @@ fn execute_sql_ddl_maps_schema_version_contract_rejections_to_public_detail() {
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema store lookup should stay readable after rejected DDL");
         assert!(
             latest.as_ref().is_none_or(|snapshot| snapshot
@@ -5490,7 +5485,7 @@ fn execute_sql_ddl_maps_schema_version_rollback_to_public_detail() {
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema store lookup should stay readable after rejected rollback DDL")
             .expect("setup DDL should leave an accepted snapshot");
         assert_eq!(latest.version(), SchemaVersion::new(2));
@@ -5566,7 +5561,7 @@ fn execute_sql_ddl_publication_rechecks_bound_accepted_identity() {
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema store lookup should stay readable after race-lost DDL")
             .expect("competing DDL should leave an accepted snapshot");
         assert_eq!(latest.version(), SchemaVersion::new(2));
@@ -5609,7 +5604,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let score = latest
@@ -5619,7 +5614,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
             .expect("DDL-published schema should include the defaulted field");
 
         assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
-        assert_eq!(score.kind(), &PersistedFieldKind::Nat64);
+        assert_eq!(score.kind(), &AcceptedFieldKind::Nat64);
         assert!(!score.nullable());
         assert!(!score.default().is_none());
     });
@@ -5703,7 +5698,7 @@ fn execute_sql_ddl_publishes_supported_set_default() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let score = latest
@@ -5713,7 +5708,7 @@ fn execute_sql_ddl_publishes_supported_set_default() {
             .expect("DDL-published schema should include the altered field");
 
         assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
-        assert_eq!(score.kind(), &PersistedFieldKind::Nat64);
+        assert_eq!(score.kind(), &AcceptedFieldKind::Nat64);
         assert!(!score.default().is_none());
     });
     let columns =
@@ -5779,7 +5774,7 @@ fn execute_sql_ddl_rejects_unencodable_set_default_without_publication() {
     assert_sql_ddl_admission_detail(err, SchemaDdlAdmissionError::InvalidAlterColumnDefault);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should remain readable after rejected SET DEFAULT")
             .expect("schema should remain published after setup ADD COLUMN");
         let score = latest
@@ -5821,7 +5816,7 @@ fn execute_sql_ddl_publishes_supported_nullable_drop_default() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let nickname = latest
@@ -5876,7 +5871,7 @@ fn execute_sql_ddl_rejects_required_drop_default_without_publication() {
     assert_sql_ddl_admission_detail(err, SchemaDdlAdmissionError::RequiredDropDefaultUnsupported);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should remain readable after rejected DROP DEFAULT")
             .expect("schema should remain published after setup ADD COLUMN");
         let score = latest
@@ -5918,7 +5913,7 @@ fn execute_sql_ddl_publishes_supported_drop_not_null() {
     assert_eq!(report.rows_scanned(), 0);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let score = latest
@@ -5998,7 +5993,7 @@ fn execute_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
     assert_eq!(report.rows_scanned(), 1);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let nickname = latest
@@ -6041,7 +6036,7 @@ fn execute_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
     assert_sql_ddl_admission_detail(err, SchemaDdlAdmissionError::SetNotNullValidationFailed);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should remain readable after rejected SET NOT NULL")
             .expect("schema should remain published after setup ADD COLUMN");
         let nickname = latest
@@ -6075,7 +6070,7 @@ fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
         .expect("typed inserts should remain valid before DROP COLUMN");
     let nickname_slot = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should remain readable after setup ADD COLUMN")
             .expect("schema should be published after setup ADD COLUMN")
             .fields()
@@ -6115,7 +6110,7 @@ fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
     );
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should remain readable after DROP COLUMN")
             .expect("schema should remain published after DROP COLUMN");
 
@@ -6184,7 +6179,7 @@ fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
         .expect("setup ADD COLUMN should publish before DROP COLUMN");
     let nickname_slot = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should be readable after ADD COLUMN")
             .expect("schema should be published after ADD COLUMN")
             .fields()
@@ -6208,7 +6203,7 @@ fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should be readable after second ADD COLUMN")
             .expect("schema should remain published after second ADD COLUMN");
         let handle = latest
@@ -6260,7 +6255,7 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
         .expect("typed insert should fill DDL-owned nullable fields before DROP COLUMN");
     let (nickname_slot, handle_slot) = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should be readable after setup ADD COLUMN")
             .expect("schema should remain published after setup ADD COLUMN");
         let nickname = latest
@@ -6307,7 +6302,7 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
     assert_eq!(row_count, 1);
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("schema should be readable after non-trailing DROP COLUMN")
             .expect("schema should remain published after non-trailing DROP COLUMN");
         let handle = latest
@@ -6701,7 +6696,7 @@ fn execute_sql_ddl_publishes_supported_expression_index() {
     };
     let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
@@ -7132,7 +7127,7 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
     };
     let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
@@ -7200,7 +7195,7 @@ fn execute_sql_ddl_publishes_supported_filtered_field_path_index() {
     };
     let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-published schema should remain readable")
             .expect("DDL execution should publish an accepted snapshot");
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
@@ -7553,7 +7548,7 @@ fn execute_sql_ddl_drops_supported_ddl_published_index() {
     };
     let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
         let latest = store
-            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
             .expect("DDL-dropped schema should remain readable")
             .expect("DDL drop should publish an accepted snapshot");
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
@@ -7742,6 +7737,13 @@ fn execute_sql_ddl_publication_invalidates_shared_query_plan_cache_key() {
         1,
         "repeated pre-DDL execution should reuse the schema-scoped query plan",
     );
+    let revision_before = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_schema_bundle()
+            .expect("accepted bundle should decode before DDL")
+            .expect("accepted bundle should exist before DDL")
+            .revision()
+    });
 
     let _ = session
         .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
@@ -7749,6 +7751,14 @@ fn execute_sql_ddl_publication_invalidates_shared_query_plan_cache_key() {
             1,
         ))
         .expect("DDL execution should publish the supported field-path index");
+    let revision_after = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .current_accepted_schema_bundle()
+            .expect("accepted bundle should decode after DDL")
+            .expect("accepted bundle should exist after DDL")
+            .revision()
+    });
+    assert_eq!(revision_before.checked_next(), Some(revision_after));
 
     let _ = session
         .execute_query_result(&query)
@@ -7909,6 +7919,42 @@ fn execute_sql_field_ddl_publication_invalidates_compiled_sql_cache_key() {
         session.sql_compiled_command_cache_len(),
         2,
         "post-field-DDL compile should keep a distinct schema-scoped SQL artifact",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_compiled_sql_context_rejects_stale_accepted_schema_revision() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    let (context, _, _) = session
+        .compile_sql_query_with_execution_context::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("pre-DDL SQL execution context should compile");
+
+    let _ = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+            1,
+        ))
+        .expect("DDL execution should publish a new accepted schema revision");
+
+    let err = session
+        .execute_compiled_sql_context_owned::<SessionSqlEntity>(context)
+        .expect_err("pre-DDL execution context must reject under the post-DDL revision");
+    let QueryError::Execute(execution) = &err else {
+        panic!("stale accepted revision should be an execution conflict");
+    };
+    assert!(matches!(
+        execution.as_internal().detail(),
+        Some(ErrorDetail::Query(QueryErrorDetail::StaleSchemaRevision)),
+    ));
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
     );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -8488,7 +8534,9 @@ fn assert_compiled_select_executes_through_shared_query_plan_for_entity<E>(
     session: &DbSession<SessionSqlCanister>,
     compiled: &crate::db::session::sql::CompiledSqlCommand,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let _ = session
         .execute_compiled_sql::<E>(compiled)
@@ -8512,7 +8560,9 @@ fn assert_latest_catalog_identity_fingerprint_matches_decoded_schema<E>(
     session: &DbSession<SessionSqlCanister>,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::AuthoredFieldProjection,
 {
     let catalog = session
         .accepted_schema_catalog_context_for_query::<E>()
@@ -8705,7 +8755,7 @@ fn filterless_shared_query_plan_cache_hit_uses_identity_without_schema_projectio
 fn accepted_schema_info_for_entity_reuses_query_catalog_context() {
     reset_session_sql_store();
     let session = sql_session();
-    let _ = session
+    let catalog = session
         .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
         .expect("accepted schema bootstrap should publish a cached query catalog");
 
@@ -8717,6 +8767,12 @@ fn accepted_schema_info_for_entity_reuses_query_catalog_context() {
         DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
 
     assert_eq!(schema.entity_name(), Some("SessionSqlEntity"));
+    assert!(
+        schema
+            .enum_catalog()
+            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.enum_catalog())),
+        "accepted SchemaInfo should retain the query context's shared enum catalog",
+    );
     assert_eq!(
         counters.schema_info_projections, 1,
         "schema-info helper should build the accepted planner projection once",
@@ -8732,6 +8788,59 @@ fn accepted_schema_info_for_entity_reuses_query_catalog_context() {
     assert_eq!(
         counters.latest_by_entity_calls, 0,
         "schema-info helper should not materialize all-entity schema metadata",
+    );
+}
+
+#[test]
+fn accepted_save_contract_retains_query_catalog_revision_authority() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema bootstrap should publish a query catalog");
+    let (row_contract, schema_info, fingerprint) = session
+        .ensure_generated_compatible_accepted_save_schema::<SessionSqlEntity>()
+        .expect("accepted save contract should resolve from the query catalog");
+
+    assert_eq!(
+        row_contract.accepted_schema_revision(),
+        Some(catalog.revision()),
+    );
+    assert_eq!(fingerprint, catalog.fingerprint());
+    assert!(
+        row_contract
+            .enum_catalog()
+            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.enum_catalog())),
+        "accepted save decode should retain the shared query catalog",
+    );
+    assert!(
+        schema_info
+            .enum_catalog()
+            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.enum_catalog())),
+        "save schema projection should retain the same shared query catalog",
+    );
+}
+
+#[test]
+fn compiled_sql_write_reuses_its_revision_checked_catalog_context() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let (context, _, _) = session
+        .compile_sql_update_with_execution_context::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        )
+        .expect("SQL INSERT should compile with accepted catalog authority");
+
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let _ = session
+        .execute_compiled_sql_context_owned::<SessionSqlWriteEntity>(context)
+        .expect("compiled SQL INSERT should execute under its accepted revision");
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    assert_eq!(
+        counters.schema_info_projections, 0,
+        "compiled SQL write execution should reuse its catalog-backed SchemaInfo",
     );
 }
 
@@ -9679,6 +9788,28 @@ fn sql_cache_key_schema_version_mismatch_fails_closed() {
     assert!(
         !compiled_cache.contains(&compiled_v2),
         "compiled SQL cache must not reuse entries across accepted schema versions",
+    );
+}
+
+#[test]
+fn sql_cache_key_schema_revision_mismatch_fails_closed() {
+    let sql = "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1";
+    let compiled_v1 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_revision::<
+        SessionSqlEntity,
+    >(sql, AcceptedSchemaRevision::INITIAL, 3);
+    let compiled_v2 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_revision::<
+        SessionSqlEntity,
+    >(sql, AcceptedSchemaRevision::new(2), 3);
+    let mut compiled_cache = HashSet::new();
+    compiled_cache.insert(compiled_v1.clone());
+
+    assert_ne!(
+        compiled_v1, compiled_v2,
+        "compiled SQL cache identity must carry accepted schema revision",
+    );
+    assert!(
+        !compiled_cache.contains(&compiled_v2),
+        "compiled SQL cache must not reuse entries across accepted schema revisions",
     );
 }
 

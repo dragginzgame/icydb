@@ -3,10 +3,16 @@
 //! Does not own: SQL lowering, query planning, or executor routing.
 //! Boundary: classifies what SQL may request from accepted live schema fields.
 
+#[cfg(feature = "sql")]
+use crate::db::schema::AcceptedEnumCatalog;
+#[cfg(feature = "sql")]
+use crate::db::schema::enum_catalog::{EqualityCapability, enum_equality_capability};
 use crate::db::schema::{
-    PersistedFieldKind, PersistedFieldKindCategory, PersistedFieldKindSemantics,
-    classify_persisted_field_kind,
+    AcceptedFieldKind, AcceptedFieldKindCategory, AcceptedFieldKindSemantics,
+    classify_accepted_field_kind,
 };
+#[cfg(feature = "sql")]
+use crate::model::{classify_field_kind, field::FieldKind};
 
 const SQL_CAPABILITY_SELECTABLE: u8 = 1 << 0;
 const SQL_CAPABILITY_COMPARABLE: u8 = 1 << 1;
@@ -71,6 +77,8 @@ impl SqlAggregateInputCapabilities {
 pub(in crate::db) struct SqlCapabilities {
     flags: u8,
     aggregate_input: SqlAggregateInputCapabilities,
+    #[cfg(feature = "sql")]
+    enum_equality: Option<EqualityCapability>,
 }
 
 impl SqlCapabilities {
@@ -80,7 +88,16 @@ impl SqlCapabilities {
         Self {
             flags,
             aggregate_input,
+            #[cfg(feature = "sql")]
+            enum_equality: None,
         }
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    const fn with_enum_equality(mut self, capability: EqualityCapability) -> Self {
+        self.enum_equality = Some(capability);
+        self
     }
 
     /// Return true when SQL result projection may transport this field.
@@ -112,24 +129,31 @@ impl SqlCapabilities {
     pub(in crate::db) const fn aggregate_input(self) -> SqlAggregateInputCapabilities {
         self.aggregate_input
     }
+
+    /// Return accepted enum equality-key capability when this field is an enum.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db) const fn enum_equality(self) -> Option<EqualityCapability> {
+        self.enum_equality
+    }
 }
 
 /// Return the SQL capability projection for one persisted schema field kind.
 #[must_use]
-pub(in crate::db) fn sql_capabilities(kind: &PersistedFieldKind) -> SqlCapabilities {
-    let semantics = classify_persisted_field_kind(kind);
+pub(in crate::db) fn sql_capabilities(kind: &AcceptedFieldKind) -> SqlCapabilities {
+    let semantics = classify_accepted_field_kind(kind);
     match semantics.category() {
-        PersistedFieldKindCategory::Scalar(_) | PersistedFieldKindCategory::Relation(Some(_)) => {
+        AcceptedFieldKindCategory::Scalar(_) | AcceptedFieldKindCategory::Relation(Some(_)) => {
             sql_capabilities_for_scalar_semantics(semantics)
         }
-        PersistedFieldKindCategory::Relation(None) => {
+        AcceptedFieldKindCategory::Relation(None) => {
             unreachable!("schema capability invariant")
         }
-        PersistedFieldKindCategory::Collection => SqlCapabilities::new(
+        AcceptedFieldKindCategory::Collection => SqlCapabilities::new(
             SQL_CAPABILITY_SELECTABLE,
             SqlAggregateInputCapabilities::new(false, false, false),
         ),
-        PersistedFieldKindCategory::Structured { queryable } => SqlCapabilities::new(
+        AcceptedFieldKindCategory::Structured { queryable } => SqlCapabilities::new(
             if queryable {
                 SQL_CAPABILITY_SELECTABLE
             } else {
@@ -140,12 +164,71 @@ pub(in crate::db) fn sql_capabilities(kind: &PersistedFieldKind) -> SqlCapabilit
     }
 }
 
+/// Return coarse SQL capabilities for generated model-only schema views.
+/// Accepted runtime views use `sql_capabilities` with catalog-resolved kinds.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn sql_capabilities_for_model_kind(kind: &FieldKind) -> SqlCapabilities {
+    match kind {
+        FieldKind::List(_) | FieldKind::Set(_) | FieldKind::Map { .. } => SqlCapabilities::new(
+            SQL_CAPABILITY_SELECTABLE,
+            SqlAggregateInputCapabilities::new(false, false, false),
+        ),
+        FieldKind::Structured { queryable } => SqlCapabilities::new(
+            if *queryable {
+                SQL_CAPABILITY_SELECTABLE
+            } else {
+                0
+            },
+            SqlAggregateInputCapabilities::new(false, false, false),
+        ),
+        FieldKind::Relation { key_kind, .. } => sql_capabilities_for_model_kind(key_kind),
+        _ => {
+            let semantics = classify_field_kind(kind);
+            let comparable = !matches!(kind, FieldKind::Unit);
+            let numeric = semantics.supports_aggregate_numeric();
+            let orderable = semantics.supports_aggregate_ordering();
+            let groupable = comparable && !matches!(kind, FieldKind::Enum { .. });
+            let mut flags = SQL_CAPABILITY_SELECTABLE;
+            if comparable {
+                flags |= SQL_CAPABILITY_COMPARABLE;
+            }
+            if orderable {
+                flags |= SQL_CAPABILITY_ORDERABLE;
+            }
+            if groupable {
+                flags |= SQL_CAPABILITY_GROUPABLE;
+            }
+            SqlCapabilities::new(
+                flags,
+                SqlAggregateInputCapabilities::new(comparable, numeric, orderable),
+            )
+        }
+    }
+}
+
+/// Return SQL capabilities enriched by one verified accepted enum catalog.
+#[cfg(feature = "sql")]
+#[must_use]
+pub(in crate::db) fn sql_capabilities_with_enum_catalog(
+    kind: &AcceptedFieldKind,
+    catalog: &AcceptedEnumCatalog,
+) -> SqlCapabilities {
+    let capabilities = sql_capabilities(kind);
+    let AcceptedFieldKind::Enum { type_id } = kind else {
+        return capabilities;
+    };
+    let capability =
+        enum_equality_capability(catalog, *type_id).unwrap_or(EqualityCapability::PairwiseOnly);
+
+    capabilities.with_enum_equality(capability)
+}
+
 const fn sql_capabilities_for_scalar_semantics(
-    semantics: PersistedFieldKindSemantics,
+    semantics: AcceptedFieldKindSemantics,
 ) -> SqlCapabilities {
     let comparable = semantics.is_sql_comparable();
     let orderable = semantics.is_orderable();
-    let groupable = comparable;
+    let groupable = comparable && semantics.supports_stable_group_key();
     let numeric = semantics.is_numeric() && semantics.supports_arithmetic_numeric();
     let mut flags = SQL_CAPABILITY_SELECTABLE;
     if comparable {
@@ -171,26 +254,26 @@ const fn sql_capabilities_for_scalar_semantics(
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::schema::{PersistedFieldKind, PersistedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
         types::EntityTag,
     };
 
     use crate::db::schema::capabilities::sql_capabilities;
 
-    fn relation_to_key(key_kind: PersistedFieldKind) -> PersistedFieldKind {
-        PersistedFieldKind::Relation {
+    fn relation_to_key(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
+        AcceptedFieldKind::Relation {
             target_path: "target::Entity".into(),
             target_entity_name: "Target".into(),
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            strength: PersistedRelationStrength::Weak,
+            strength: AcceptedRelationStrength::Weak,
         }
     }
 
     #[test]
     fn sql_capabilities_keep_blob_selectable_and_comparable_but_not_orderable() {
-        let capabilities = sql_capabilities(&PersistedFieldKind::Blob { max_len: None });
+        let capabilities = sql_capabilities(&AcceptedFieldKind::Blob { max_len: None });
 
         assert!(capabilities.selectable());
         assert!(capabilities.comparable());
@@ -203,8 +286,8 @@ mod tests {
 
     #[test]
     fn sql_capabilities_keep_numeric_arithmetic_and_extrema_distinct() {
-        let amount = sql_capabilities(&PersistedFieldKind::Decimal { scale: 3 });
-        let timestamp = sql_capabilities(&PersistedFieldKind::Timestamp);
+        let amount = sql_capabilities(&AcceptedFieldKind::Decimal { scale: 3 });
+        let timestamp = sql_capabilities(&AcceptedFieldKind::Timestamp);
 
         assert!(amount.aggregate_input().numeric());
         assert!(amount.aggregate_input().extrema());
@@ -213,11 +296,28 @@ mod tests {
     }
 
     #[test]
+    fn sql_capabilities_keep_enum_equality_only_without_catalog_key_proof() {
+        let capabilities = sql_capabilities(&AcceptedFieldKind::Enum {
+            type_id: crate::value::EnumTypeId::new(1).expect("test enum type ID should be valid"),
+        });
+
+        assert!(capabilities.selectable());
+        assert!(capabilities.comparable());
+        assert!(!capabilities.orderable());
+        assert!(!capabilities.groupable());
+        #[cfg(feature = "sql")]
+        assert_eq!(capabilities.enum_equality(), None);
+        assert!(capabilities.aggregate_input().count());
+        assert!(!capabilities.aggregate_input().numeric());
+        assert!(!capabilities.aggregate_input().extrema());
+    }
+
+    #[test]
     fn sql_capabilities_reject_collection_and_structured_predicates() {
-        let list = sql_capabilities(&PersistedFieldKind::List(Box::new(
-            PersistedFieldKind::Text { max_len: None },
+        let list = sql_capabilities(&AcceptedFieldKind::List(Box::new(
+            AcceptedFieldKind::Text { max_len: None },
         )));
-        let structured = sql_capabilities(&PersistedFieldKind::Structured { queryable: false });
+        let structured = sql_capabilities(&AcceptedFieldKind::Structured { queryable: false });
 
         assert!(list.selectable());
         assert!(!list.comparable());
@@ -229,7 +329,7 @@ mod tests {
 
     #[test]
     fn sql_capabilities_relation_inherits_key_capabilities() {
-        let relation = sql_capabilities(&relation_to_key(PersistedFieldKind::Nat64));
+        let relation = sql_capabilities(&relation_to_key(AcceptedFieldKind::Nat64));
 
         assert!(relation.selectable());
         assert!(relation.comparable());

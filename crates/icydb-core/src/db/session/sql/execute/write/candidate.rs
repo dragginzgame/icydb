@@ -9,7 +9,7 @@
 use crate::{
     db::{
         QueryError,
-        data::StructuralPatch,
+        data::AuthoredStructuralPatch,
         session::sql::{combined_optional_row_bound, write_policy::SqlWriteExecutionBounds},
         sql::parser::SqlReturningProjection,
     },
@@ -226,7 +226,7 @@ impl SqlWriteCandidateAccounting {
 }
 
 pub(super) struct SqlWriteMutationBatch<K> {
-    rows: Vec<(K, StructuralPatch)>,
+    rows: Vec<(K, AuthoredStructuralPatch)>,
 }
 
 impl<K> SqlWriteMutationBatch<K> {
@@ -244,7 +244,7 @@ impl<K> SqlWriteMutationBatch<K> {
         self.rows.reserve(additional);
     }
 
-    pub(super) fn push(&mut self, key: K, patch: StructuralPatch) {
+    pub(super) fn push(&mut self, key: K, patch: AuthoredStructuralPatch) {
         self.rows.push((key, patch));
     }
 
@@ -252,7 +252,7 @@ impl<K> SqlWriteMutationBatch<K> {
         SqlWriteCandidateRows(self.rows.len())
     }
 
-    pub(super) fn into_rows(self) -> Vec<(K, StructuralPatch)> {
+    pub(super) fn into_rows(self) -> Vec<(K, AuthoredStructuralPatch)> {
         self.rows
     }
 }
@@ -281,7 +281,7 @@ impl<K> SqlWriteCandidateCollection<K> {
         self.rows.reserve(additional);
     }
 
-    pub(super) fn push(&mut self, key: K, patch: StructuralPatch) {
+    pub(super) fn push(&mut self, key: K, patch: AuthoredStructuralPatch) {
         self.rows.push(key, patch);
         self.diagnostics.semantic_candidates = self.staged_rows();
     }
@@ -332,7 +332,7 @@ mod tests {
         SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
         SqlWriteCandidateCollection, SqlWriteCandidateRows, SqlWriteProjectedSourceRows,
     };
-    use crate::db::data::StructuralPatch;
+    use crate::db::data::AuthoredStructuralPatch;
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
 
     #[test]
@@ -393,8 +393,8 @@ mod tests {
     #[test]
     fn sql_write_candidate_collection_validates_staged_rows_from_buffer() {
         let mut rows = SqlWriteCandidateCollection::<u64>::new();
-        rows.push(1, StructuralPatch::new());
-        rows.push(2, StructuralPatch::new());
+        rows.push(1, AuthoredStructuralPatch::new());
+        rows.push(2, AuthoredStructuralPatch::new());
 
         let staged_rows = rows
             .validate_staged_rows_at(
@@ -418,8 +418,8 @@ mod tests {
     fn sql_write_candidate_collection_tracks_projected_source_rows() {
         let mut rows = SqlWriteCandidateCollection::<u64>::with_capacity(3);
         rows.record_projected_source_rows(SqlWriteProjectedSourceRows::from_len(3));
-        rows.push(1, StructuralPatch::new());
-        rows.push(2, StructuralPatch::new());
+        rows.push(1, AuthoredStructuralPatch::new());
+        rows.push(2, AuthoredStructuralPatch::new());
 
         rows.validate_staged_rows_at(
             SqlWriteCandidateBounds::from_max_rows(Some(2)),

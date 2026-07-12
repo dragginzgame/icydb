@@ -648,7 +648,7 @@ fn prefix_cardinality_count_entrypoints_share_proof_and_terminal_authority() {
             ".cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(",
             "direct_count_cardinality_prefix_specs_from_planned_query(",
             "fn direct_count_cardinality_prefix_specs_from_planned_query(",
-            "lower_access(authority.entity_tag(), &plan.access)",
+            "lower_access_with_schema_info(",
             "exact_count_cardinality_prefixes_for_plan(",
             "lowered_access.index_prefix_specs()",
             "lowered_index_prefix_cardinality_specs_from_plan(",

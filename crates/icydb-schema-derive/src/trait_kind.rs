@@ -54,8 +54,8 @@ pub enum TraitKind {
     FieldTypeMeta,
 
     // value
+    AuthoredFieldProjection,
     EntityValue,
-    EnumValue,
     PersistedStructuredFieldCodec,
     RuntimeValue,
     RuntimeValueDecode,
@@ -115,8 +115,8 @@ impl FromStr for TraitKind {
             "EntityPlacement" => Ok(Self::EntityPlacement),
             "EntityKind" => Ok(Self::EntityKind),
             "FieldTypeMeta" => Ok(Self::FieldTypeMeta),
+            "AuthoredFieldProjection" => Ok(Self::AuthoredFieldProjection),
             "EntityValue" => Ok(Self::EntityValue),
-            "EnumValue" => Ok(Self::EnumValue),
             "PersistedStructuredFieldCodec" => Ok(Self::PersistedStructuredFieldCodec),
             "RuntimeValue" => Ok(Self::RuntimeValue),
             "RuntimeValueDecode" => Ok(Self::RuntimeValueDecode),
@@ -180,6 +180,9 @@ impl TraitKind {
         match self {
             Self::Add => Some(quote!(::icydb::__reexports::icydb_derive::Add)),
             Self::AddAssign => Some(quote!(::icydb::__reexports::icydb_derive::AddAssign)),
+            Self::AuthoredFieldProjection => Some(quote!(
+                ::icydb::__reexports::icydb_derive::AuthoredFieldProjection
+            )),
             Self::CandidType => Some(quote!(::icydb::__reexports::candid::CandidType)),
             Self::Clone => Some(quote!(Clone)),
             Self::Copy => Some(quote!(Copy)),
@@ -235,7 +238,7 @@ impl FromMeta for TraitKind {
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            Self::EnumValue
+            Self::AuthoredFieldProjection
             | Self::FieldProjection
             | Self::EntityValue
             | Self::PersistedStructuredFieldCodec

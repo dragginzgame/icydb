@@ -69,6 +69,11 @@ pub(in crate::db) struct PreparedExecutionPlan<E: EntityKind> {
 }
 
 impl<E: EntityKind> PreparedExecutionPlan<E> {
+    #[must_use]
+    pub(in crate::db::executor) const fn authority_ref(&self) -> &EntityAuthority {
+        &self.authority
+    }
+
     #[cfg(test)]
     pub(in crate::db) fn new(plan: AccessPlannedQuery) -> Self {
         Self::build(plan)
@@ -76,10 +81,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     #[cfg(test)]
     fn build(mut plan: AccessPlannedQuery) -> Self {
-        let authority = EntityAuthority::for_generated_type_for_test::<E>()
-            .with_cursor_schema_info_for_test(
-                crate::db::schema::SchemaInfo::cached_for_generated_entity_model(E::MODEL).clone(),
-            );
+        let authority = EntityAuthority::for_accepted_generated_type_for_test::<E>();
         authority
             .finalize_planner_route_profile(&mut plan)
             .expect("test prepared execution plan route profile should finalize");

@@ -221,7 +221,6 @@ fn write_map_entries_to_hasher(
 }
 
 #[expect(clippy::cast_possible_truncation)]
-#[expect(clippy::too_many_lines)]
 fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
     feed_u8(h, value.canonical_tag().to_u8());
 
@@ -253,22 +252,13 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             feed_u64(h, t.repr());
         }
         Value::Enum(v) => {
-            match v.path() {
-                Some(path) => {
-                    feed_u8(h, 0x01); // path present
-                    feed_u32(h, path.len() as u32);
-                    feed_bytes(h, path.as_bytes());
-                }
-                None => feed_u8(h, 0x00), // path absent -> loose match
-            }
-
-            feed_u32(h, v.variant().len() as u32);
-            feed_bytes(h, v.variant().as_bytes());
+            feed_u32(h, v.type_id().get());
+            feed_u32(h, v.variant_id().get());
 
             match v.payload() {
                 Some(payload) => {
-                    feed_u8(h, 0x01); // payload present
-                    write_to_hasher(payload, h)?; // include nested value
+                    feed_u8(h, 0x01);
+                    write_to_hasher(payload, h)?;
                 }
                 None => feed_u8(h, 0x00),
             }

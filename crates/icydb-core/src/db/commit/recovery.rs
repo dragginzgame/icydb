@@ -33,6 +33,7 @@ use crate::{
             },
         },
         data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
+        database_format::ensure_database_format_admitted,
         diagnostics::integrity_report_after_recovery,
         index::IndexStore,
         journal::{
@@ -57,6 +58,8 @@ use std::{
 
 #[cfg(test)]
 use crate::db::commit::failpoint::{CommitFailpoint, hit_commit_failpoint};
+#[cfg(test)]
+use crate::db::database_format::clear_database_format_admission_for_tests;
 
 static RECOVERED_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
 #[cfg(not(test))]
@@ -99,6 +102,7 @@ struct RecoveryDomainKey {
 pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    ensure_database_format_admitted(db)?;
     let recovery_key =
         recovery_domain_key(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
@@ -151,6 +155,7 @@ pub(in crate::db) fn clear_recovery_runtime_state_for_tests<C: CanisterKind>(
     SCHEMA_RECONCILED_KEYS.with(|keys| {
         keys.borrow_mut().retain(|existing| *existing != schema_key);
     });
+    clear_database_format_admission_for_tests();
 
     Ok(())
 }
@@ -173,7 +178,7 @@ fn recover_domain<C: CanisterKind>(
 }
 
 fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    let marker = with_commit_store(|store| store.load())
+    let marker = with_commit_store(super::store::CommitStore::load)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
@@ -488,6 +493,29 @@ fn apply_journal_record<C: CanisterKind>(
                 }
             })
         }
+        JournalRecord::AcceptedSchemaPublish {
+            store_path,
+            expected_revision,
+            schema_bundle_bytes,
+            schema_root_bytes,
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption());
+            }
+            let candidate = crate::db::schema::CandidateSchemaRevision::from_encoded(
+                schema_bundle_bytes.clone(),
+                schema_root_bytes.clone(),
+            )?;
+            if candidate.store_path() != expected_store_path {
+                return Err(InternalError::store_corruption());
+            }
+            expected_handle.with_schema_mut(|schema_store| match mode {
+                JournalRecordApplyMode::Replay => schema_store
+                    .apply_journaled_accepted_schema_candidate(*expected_revision, &candidate),
+                JournalRecordApplyMode::Fold => schema_store
+                    .fold_journaled_accepted_schema_candidate(*expected_revision, &candidate),
+            })
+        }
     }
 }
 
@@ -557,6 +585,31 @@ fn validate_journal_batch_records<C: CanisterKind>(
                     return Err(InternalError::store_corruption());
                 }
             }
+            JournalRecord::AcceptedSchemaPublish {
+                store_path,
+                expected_revision,
+                schema_bundle_bytes,
+                schema_root_bytes,
+            } => {
+                if store_path != expected_store_path {
+                    return Err(InternalError::store_corruption());
+                }
+                let candidate = crate::db::schema::CandidateSchemaRevision::from_encoded(
+                    schema_bundle_bytes.clone(),
+                    schema_root_bytes.clone(),
+                )?;
+                if candidate.store_path() != expected_store_path
+                    || expected_revision.checked_next() != Some(candidate.revision())
+                {
+                    return Err(InternalError::store_corruption());
+                }
+                for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
+                    let hooks = db.runtime_hook_for_entity_path(snapshot.entity_path())?;
+                    if hooks.store_path != expected_store_path || hooks.entity_tag != *entity_tag {
+                        return Err(InternalError::store_corruption());
+                    }
+                }
+            }
         }
     }
 
@@ -585,6 +638,7 @@ fn validate_journal_row_record<C: CanisterKind>(
                     schema_store,
                     hooks.entity_tag,
                     hooks.entity_path,
+                    hooks.store_path,
                     hooks.model,
                 )
             })?
@@ -707,7 +761,8 @@ fn journal_record_store_handle<C: CanisterKind>(
         | JournalRecord::RowDelete { entity_path, .. } => {
             journal_row_record_store_handle(db, entity_path.as_str(), record)
         }
-        JournalRecord::SchemaPut { store_path, .. } => {
+        JournalRecord::SchemaPut { store_path, .. }
+        | JournalRecord::AcceptedSchemaPublish { store_path, .. } => {
             registry_store_handle_for_path(db, store_path)
         }
     }
@@ -743,7 +798,9 @@ fn journal_row_record_store_handle<C: CanisterKind>(
     let primary_key = match record {
         JournalRecord::RowPut { primary_key, .. }
         | JournalRecord::RowDelete { primary_key, .. } => primary_key,
-        JournalRecord::SchemaPut { .. } => return Err(InternalError::store_corruption()),
+        JournalRecord::SchemaPut { .. } | JournalRecord::AcceptedSchemaPublish { .. } => {
+            return Err(InternalError::store_corruption());
+        }
     };
     let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
         .map_err(|_| InternalError::store_corruption())?;
@@ -765,7 +822,7 @@ fn resolve_no_hook_journaled_store_for_entity<C: CanisterKind>(
                 continue;
             }
             let Some(snapshot) = handle.with_schema_mut(|schema_store| {
-                schema_store.latest_persisted_snapshot(entity_tag)
+                schema_store.current_accepted_persisted_snapshot(entity_tag)
             })?
             else {
                 continue;
@@ -790,7 +847,9 @@ fn accepted_snapshot_for_no_hook_journal_row(
     entity_path: &str,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let snapshot = expected_handle
-        .with_schema_mut(|schema_store| schema_store.latest_persisted_snapshot(entity_tag))?
+        .with_schema_mut(|schema_store| {
+            schema_store.current_accepted_persisted_snapshot(entity_tag)
+        })?
         .ok_or_else(InternalError::store_corruption)?;
     if snapshot.entity_path() != entity_path {
         return Err(InternalError::store_corruption());
@@ -927,6 +986,13 @@ fn mark_schema_reconciliation_clean(key: SchemaReconciliationKey) {
             keys.push(key);
         }
     });
+}
+
+#[cfg(test)]
+pub(in crate::db::commit) fn mark_schema_reconciliation_dirty_for_tests<C: CanisterKind>(
+    db: &Db<C>,
+) {
+    mark_schema_reconciliation_dirty(db);
 }
 
 fn mark_schema_reconciliation_dirty<C: CanisterKind>(db: &Db<C>) {

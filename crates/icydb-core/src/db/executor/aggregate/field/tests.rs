@@ -9,14 +9,21 @@ use super::{
     extract_numeric_field_decimal_with_slot_reader, extract_orderable_field_value_with_slot_reader,
     resolve_any_aggregate_target_slot_from_fields,
     resolve_numeric_aggregate_target_slot_from_fields,
+    resolve_numeric_aggregate_target_slot_from_planner_slot,
     resolve_orderable_aggregate_target_slot_from_fields,
 };
 use crate::{
-    db::{direction::Direction, numeric::compare_numeric_order},
+    db::{
+        direction::Direction, numeric::compare_numeric_order,
+        query::plan::FieldSlot as PlannedFieldSlot, schema::AcceptedFieldKind,
+    },
     model::field::FieldKind,
-    traits::{EntitySchema, FieldProjection as FieldProjectionTrait},
+    traits::{
+        AuthoredFieldProjection as AuthoredFieldProjectionTrait, EntitySchema,
+        FieldProjection as FieldProjectionTrait,
+    },
     types::{Decimal, Ulid},
-    value::Value,
+    value::{InputValue, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -27,39 +34,31 @@ static SCORE_LIST_KIND: FieldKind = FieldKind::Nat64;
 fn compare_entity_slot(
     left: &AggregateFieldEntity,
     right: &AggregateFieldEntity,
-    target_field: &str,
     field_slot: FieldSlot,
 ) -> Result<Ordering, AggregateFieldValueError> {
-    let left_value =
-        extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |index| {
-            left.get_value_by_index(index)
-        })?;
-    let right_value =
-        extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |index| {
-            right.get_value_by_index(index)
-        })?;
+    let left_value = extract_orderable_field_value_with_slot_reader(field_slot, &mut |index| {
+        left.get_value_by_index(index)
+    })?;
+    let right_value = extract_orderable_field_value_with_slot_reader(field_slot, &mut |index| {
+        right.get_value_by_index(index)
+    })?;
 
-    compare_orderable_field_values(target_field, &left_value, &right_value)
+    compare_orderable_field_values(&left_value, &right_value)
 }
 
 fn compare_entity_field_extrema(
     left: &AggregateFieldEntity,
     right: &AggregateFieldEntity,
-    target_field: &str,
     field_slot: FieldSlot,
     direction: Direction,
 ) -> Result<Ordering, AggregateFieldValueError> {
-    let field_order = compare_entity_slot(left, right, target_field, field_slot)?;
+    let field_order = compare_entity_slot(left, right, field_slot)?;
     let directional_field_order = apply_aggregate_direction(field_order, direction);
     if directional_field_order != Ordering::Equal {
         return Ok(directional_field_order);
     }
 
-    compare_orderable_field_values(
-        AggregateFieldEntity::MODEL.primary_key.name,
-        &Value::Ulid(left.id),
-        &Value::Ulid(right.id),
-    )
+    compare_orderable_field_values(&Value::Ulid(left.id), &Value::Ulid(right.id))
 }
 
 crate::test_canister! {
@@ -78,6 +77,37 @@ struct AggregateFieldEntity {
     rank: u32,
     label: String,
     scores: Vec<u32>,
+}
+
+#[test]
+fn authored_field_projection_preserves_stable_slots_and_cardinality() {
+    let entity = AggregateFieldEntity {
+        id: Ulid::nil(),
+        rank: 7,
+        label: "alpha".to_string(),
+        scores: vec![3, 5],
+    };
+
+    assert_eq!(
+        entity.get_input_value_by_index(0),
+        Some(InputValue::Ulid(Ulid::nil())),
+    );
+    assert_eq!(
+        entity.get_input_value_by_index(1),
+        Some(InputValue::Nat64(7)),
+    );
+    assert_eq!(
+        entity.get_input_value_by_index(2),
+        Some(InputValue::Text("alpha".to_string())),
+    );
+    assert_eq!(
+        entity.get_input_value_by_index(3),
+        Some(InputValue::List(vec![
+            InputValue::Nat64(3),
+            InputValue::Nat64(5),
+        ])),
+    );
+    assert_eq!(entity.get_input_value_by_index(4), None);
 }
 
 crate::test_entity! {
@@ -105,7 +135,7 @@ fn resolve_orderable_target_slot_accepts_scalar_field() {
     )
     .expect("rank should be accepted as orderable target");
 
-    std::assert_matches!(slot.kind, FieldKind::Nat64);
+    assert_eq!(slot.diagnostic_kind(), AggregateFieldKindCode::NAT64);
 }
 
 #[test]
@@ -117,7 +147,7 @@ fn resolve_orderable_target_slot_matches_schema_index() {
     .expect("rank slot should resolve");
 
     assert_eq!(slot.index, 1);
-    std::assert_matches!(slot.kind, FieldKind::Nat64);
+    assert_eq!(slot.diagnostic_kind(), AggregateFieldKindCode::NAT64);
 }
 
 #[test]
@@ -129,7 +159,7 @@ fn resolve_any_target_slot_supports_non_orderable_field_kind() {
     .expect("any-target slot should resolve list field");
 
     assert_eq!(slot.index, 3);
-    std::assert_matches!(slot.kind, FieldKind::List(_));
+    assert_eq!(slot.diagnostic_kind(), AggregateFieldKindCode::LIST);
 }
 
 #[test]
@@ -162,7 +192,7 @@ fn resolve_orderable_target_slot_rejects_non_orderable_field_kind() {
 
 #[test]
 fn compare_orderable_field_values_rejects_mismatched_variants() {
-    let err = compare_orderable_field_values("rank", &Value::Nat64(7), &Value::Text("x".into()))
+    let err = compare_orderable_field_values(&Value::Nat64(7), &Value::Text("x".into()))
         .expect_err("mismatched value variants must be rejected");
 
     std::assert_matches!(
@@ -180,7 +210,7 @@ fn compare_orderable_field_values_uses_shared_numeric_widen_authority() {
     let right = Value::Nat64(7);
 
     let ordering =
-        compare_orderable_field_values("rank", &left, &right).expect("numeric compare should work");
+        compare_orderable_field_values(&left, &right).expect("numeric compare should work");
 
     assert_eq!(
         Some(ordering),
@@ -192,7 +222,6 @@ fn compare_orderable_field_values_uses_shared_numeric_widen_authority() {
 #[test]
 fn compare_orderable_field_values_falls_back_to_strict_for_non_numeric_values() {
     let ordering = compare_orderable_field_values(
-        "label",
         &Value::Text("a".to_string()),
         &Value::Text("b".to_string()),
     )
@@ -219,11 +248,7 @@ fn compare_entities_by_orderable_field_returns_deterministic_ordering() {
     let asc = compare_entity_slot(
         &low,
         &high,
-        "rank",
-        FieldSlot {
-            index: 1,
-            kind: FieldKind::Nat64,
-        },
+        FieldSlot::from_test_model_kind(1, FieldKind::Nat64),
     )
     .expect("typed field comparison should succeed");
     let desc = apply_aggregate_direction(asc, Direction::Desc);
@@ -249,12 +274,8 @@ fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
     let err = compare_entity_slot(
         &left,
         &right,
-        "rank",
         // Deliberate mismatch: expected Text but runtime field emits Nat.
-        FieldSlot {
-            index: 1,
-            kind: FieldKind::Text { max_len: None },
-        },
+        FieldSlot::from_test_model_kind(1, FieldKind::Text { max_len: None }),
     )
     .expect_err("runtime type mismatch must be rejected");
 
@@ -286,11 +307,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_asc() {
     let ordering = compare_entity_field_extrema(
         &higher_id,
         &lower_id,
-        "rank",
-        FieldSlot {
-            index: 1,
-            kind: FieldKind::Nat64,
-        },
+        FieldSlot::from_test_model_kind(1, FieldKind::Nat64),
         Direction::Asc,
     )
     .expect("field-extrema comparator should apply canonical PK tie-break");
@@ -316,11 +333,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_desc() {
     let ordering = compare_entity_field_extrema(
         &higher_id,
         &lower_id,
-        "rank",
-        FieldSlot {
-            index: 1,
-            kind: FieldKind::Nat64,
-        },
+        FieldSlot::from_test_model_kind(1, FieldKind::Nat64),
         Direction::Desc,
     )
     .expect("field-extrema comparator should apply canonical PK tie-break");
@@ -336,7 +349,65 @@ fn resolve_numeric_target_slot_accepts_numeric_field() {
     )
     .expect("numeric target field should be accepted");
 
-    std::assert_matches!(slot.kind, FieldKind::Nat64);
+    assert_eq!(slot.diagnostic_kind(), AggregateFieldKindCode::NAT64);
+}
+
+#[test]
+fn resolve_numeric_planner_slot_requires_accepted_kind_authority() {
+    let err = resolve_numeric_aggregate_target_slot_from_planner_slot(
+        &PlannedFieldSlot::from_model_kind(1, "rank", FieldKind::Nat64),
+    )
+    .expect_err("runtime aggregate slots must carry accepted kind authority");
+
+    std::assert_matches!(
+        err,
+        AggregateFieldValueError::AcceptedContractUnavailable { slot_index: 1 }
+    );
+}
+
+#[test]
+fn resolve_numeric_planner_slot_preserves_unknown_field_taxonomy() {
+    let err = resolve_numeric_aggregate_target_slot_from_planner_slot(
+        &PlannedFieldSlot::from_test_slot(0, "missing"),
+    )
+    .expect_err("unresolved planner slot must remain an unknown field");
+
+    std::assert_matches!(err, AggregateFieldValueError::UnknownField);
+}
+
+#[test]
+fn resolve_numeric_planner_slot_uses_accepted_kind() {
+    let err = resolve_numeric_aggregate_target_slot_from_planner_slot(
+        &PlannedFieldSlot::from_test_accepted_kind(
+            1,
+            "rank",
+            AcceptedFieldKind::Text { max_len: None },
+        ),
+    )
+    .expect_err("accepted text authority must reject numeric aggregation");
+
+    std::assert_matches!(
+        err,
+        AggregateFieldValueError::UnsupportedFieldKind {
+            slot_index: 1,
+            kind: AggregateFieldKindCode::TEXT,
+        }
+    );
+}
+
+#[test]
+fn accepted_numeric_slot_uses_only_accepted_authority() {
+    let slot = resolve_numeric_aggregate_target_slot_from_planner_slot(
+        &PlannedFieldSlot::from_test_accepted_kind(1, "rank", AcceptedFieldKind::Nat8),
+    )
+    .expect("accepted numeric authority must select aggregate capability");
+
+    let decimal =
+        extract_numeric_field_decimal_with_slot_reader(slot, &mut |_| Some(Value::Nat64(7)))
+            .expect("accepted runtime representation must drive extraction");
+
+    assert_eq!(slot.diagnostic_kind(), AggregateFieldKindCode::NAT8);
+    assert_eq!(decimal, Decimal::from_num(7u64).expect("u64 -> decimal"));
 }
 
 #[test]
@@ -366,11 +437,7 @@ fn extract_numeric_field_decimal_coerces_numeric_values() {
     };
 
     let value = extract_numeric_field_decimal_with_slot_reader(
-        "rank",
-        FieldSlot {
-            index: 1,
-            kind: FieldKind::Nat64,
-        },
+        FieldSlot::from_test_model_kind(1, FieldKind::Nat64),
         &mut |index| entity.get_value_by_index(index),
     )
     .expect("numeric field extraction should succeed");

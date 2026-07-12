@@ -157,6 +157,7 @@ fn rebuild_secondary_indexes_in_place(
                     schema_store,
                     hooks.entity_tag,
                     hooks.entity_path,
+                    hooks.store_path,
                     hooks.model,
                 )
             })?;

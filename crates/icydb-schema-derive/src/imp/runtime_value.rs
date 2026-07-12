@@ -23,32 +23,19 @@ pub struct PersistedStructuredFieldCodecTrait {}
 
 impl Imp<Enum> for RuntimeValueTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        let to_value_enum_arms = enum_to_value_enum_arms(node);
-        let enum_value = quote! {
-            fn to_value_enum(&self) -> ::icydb::__macro::ValueEnum {
-                use ::icydb::__macro::ValueEnum;
-
-                match self {
-                    #(#to_value_enum_arms),*
-                }
-            }
-        };
-
-        let (runtime_value_meta, runtime_value_encode, runtime_value_decode) =
-            enum_runtime_value_tokens(node);
+        let (runtime_value_meta, runtime_value_decode) = enum_runtime_value_tokens(node);
 
         let mut tokens = TokenStream::new();
         tokens.extend(
-            Implementor::new(node.def(), TraitKind::EnumValue)
-                .set_tokens(enum_value)
+            Implementor::new(node.def(), TraitKind::RuntimeValueMeta)
+                .set_tokens(runtime_value_meta)
                 .to_token_stream(),
         );
-        tokens.extend(runtime_value_impl_tokens(
-            node.def(),
-            runtime_value_meta,
-            runtime_value_encode,
-            runtime_value_decode,
-        ));
+        tokens.extend(
+            Implementor::new(node.def(), TraitKind::RuntimeValueDecode)
+                .set_tokens(runtime_value_decode)
+                .to_token_stream(),
+        );
         tokens.extend(enum_input_value_tokens(node));
 
         Some(TraitStrategy::from_impl(tokens))
@@ -56,36 +43,9 @@ impl Imp<Enum> for RuntimeValueTrait {
 }
 
 impl Imp<Enum> for PersistedStructuredFieldCodecTrait {
-    fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        Some(persisted_field_codec_strategy(
-            node.def(),
-            enum_direct_persisted_structured_codec_tokens(node),
-        ))
+    fn strategy(_node: &Enum) -> Option<TraitStrategy> {
+        None
     }
-}
-
-fn enum_to_value_enum_arms(node: &Enum) -> Vec<TokenStream> {
-    node.variants
-        .iter()
-        .map(|variant| {
-            let variant_match = enum_variant_match_pattern(variant);
-            let variant_name = variant.name_const_ident();
-            let payload_tokens = if variant.value.is_some() {
-                quote!(.with_payload(::icydb::__macro::runtime_value_to_value(v)))
-            } else {
-                quote!()
-            };
-
-            quote! {
-                Self::#variant_match => {
-                    ValueEnum::new(
-                        Self::#variant_name,
-                        Some(Self::PATH)
-                    ) #payload_tokens
-                }
-            }
-        })
-        .collect()
 }
 
 fn enum_variant_match_pattern(variant: &EnumVariant) -> TokenStream {
@@ -98,7 +58,7 @@ fn enum_variant_match_pattern(variant: &EnumVariant) -> TokenStream {
     }
 }
 
-fn enum_runtime_value_tokens(node: &Enum) -> (TokenStream, TokenStream, TokenStream) {
+fn enum_runtime_value_tokens(node: &Enum) -> (TokenStream, TokenStream) {
     let from_arms = enum_from_value_arms(node);
 
     (
@@ -108,23 +68,24 @@ fn enum_runtime_value_tokens(node: &Enum) -> (TokenStream, TokenStream, TokenStr
             }
         },
         quote! {
-            fn to_value(&self) -> ::icydb::__macro::Value {
-                ::icydb::__macro::Value::Enum(::icydb::__macro::EnumValue::to_value_enum(self))
-            }
-        },
-        quote! {
-
             fn from_value(value: &::icydb::__macro::Value) -> Option<Self> {
+                let _ = value;
+                None
+            }
+
+            fn from_value_with_enum_context(
+                value: &::icydb::__macro::Value,
+                context: &dyn ::icydb::__macro::RuntimeEnumContext,
+            ) -> Option<Self> {
                 let ::icydb::__macro::Value::Enum(v) = value else {
                     return None;
                 };
-                if let Some(path) = v.path()
-                    && path != <Self as ::icydb::traits::Path>::PATH
-                {
+                let selection = context.resolve_enum(v)?;
+                if selection.path != <Self as ::icydb::traits::Path>::PATH {
                     return None;
                 }
 
-                match v.variant() {
+                match selection.variant {
                     #(#from_arms),*,
                     _ => None,
                 }
@@ -145,9 +106,12 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
 
                 quote! {
                     Self::#variant_name => {
-                        let payload = v.payload()?;
+                        let payload = selection.payload?;
                         let value =
-                            ::icydb::__macro::runtime_value_from_value::<#payload_ty>(payload)?;
+                            ::icydb::__macro::runtime_value_from_value_with_enum_context::<#payload_ty>(
+                                payload,
+                                context,
+                            )?;
                         Some(Self::#variant_ident(value))
                     }
                 }
@@ -160,132 +124,79 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
         .collect()
 }
 
-// Generated enums already define the canonical runtime Value bridge. The
-// public input bridge delegates to that path so fluent query literals keep the
-// same variant, payload, and path semantics as persistence/runtime encoding.
+// Generated authoring values stay name-based until accepted-catalog admission.
+// Build InputValue recursively here without constructing the legacy runtime
+// enum representation as an intermediate value.
 fn enum_input_value_tokens(node: &Enum) -> TokenStream {
     let ident = node.def.ident();
+    let arms = node.variants.iter().map(|variant| {
+        let variant_match = enum_variant_match_pattern(variant);
+        let variant_name = variant.name_const_ident();
+        let payload = variant
+            .value
+            .as_ref()
+            .map_or_else(TokenStream::new, |value| {
+                let input = owned_value_to_input_expr(value, quote!(v));
+                quote!(.with_payload(#input))
+            });
+
+        quote! {
+            #ident::#variant_match => {
+                ::icydb::__macro::InputValue::Enum(
+                    ::icydb::__macro::InputValueEnum::new(
+                        #ident::#variant_name,
+                        Some(<#ident as ::icydb::traits::Path>::PATH),
+                    ) #payload
+                )
+            }
+        }
+    });
+
+    input_value_impl_tokens(
+        node.def(),
+        quote! {
+            match value {
+                #(#arms),*
+            }
+        },
+    )
+}
+
+fn input_value_impl_tokens(def: &Def, conversion: TokenStream) -> TokenStream {
+    let ident = def.ident();
 
     quote! {
         impl From<#ident> for ::icydb::__macro::InputValue {
             fn from(value: #ident) -> Self {
-                Self::from(::icydb::__macro::runtime_value_to_value(&value))
+                #conversion
             }
         }
 
         impl From<&#ident> for ::icydb::__macro::InputValue {
             fn from(value: &#ident) -> Self {
-                Self::from(::icydb::__macro::runtime_value_to_value(value))
+                Self::from(value.clone())
             }
         }
     }
 }
 
-// Enums can leave the Value bridge only when every payload-bearing variant
-// already targets a direct persisted bytes codec.
-fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
-    let encode_arms = node.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_name = variant.name_const_ident();
-
-        if let Some(value) = &variant.value {
-            let payload_ty = value.type_expr();
-
-            quote! {
-                Self::#variant_ident(value) => {
-                    let payload = <#payload_ty as ::icydb::__macro::PersistedStructuredFieldCodec>
-                        ::encode_persisted_structured_payload(value)?;
-                    ::icydb::__macro::encode_generated_structural_enum_payload_bytes(
-                        Self::#variant_name,
-                        Some(Self::PATH),
-                        Some(payload.as_slice()),
-                    )
-                }
+fn owned_value_to_input_expr(value: &crate::node::Value, access: TokenStream) -> TokenStream {
+    match value.cardinality() {
+        Cardinality::One => quote!(::icydb::__macro::InputValue::from(#access)),
+        Cardinality::Opt => quote! {
+            match #access {
+                Some(inner) => ::icydb::__macro::InputValue::from(inner),
+                None => ::icydb::__macro::InputValue::Null,
             }
-        } else {
-            quote! {
-                Self::#variant_ident => {
-                    ::icydb::__macro::encode_generated_structural_enum_payload_bytes(
-                        Self::#variant_name,
-                        Some(Self::PATH),
-                        None,
-                    )
-                }
-            }
-        }
-    });
-    let decode_arms = node.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_name = variant.name_const_ident();
-
-        if let Some(value) = &variant.value {
-            let payload_ty = value.type_expr();
-
-            quote! {
-                Self::#variant_name => {
-                    let payload = payload.ok_or_else(|| {
-                        ::icydb::__macro::generated_persisted_structured_payload_decode_failed(
-                            format!(
-                                "structured enum payload missing payload for variant `{}`",
-                                Self::#variant_name,
-                            ),
-                        )
-                    })?;
-                    let value = <#payload_ty as ::icydb::__macro::PersistedStructuredFieldCodec>
-                        ::decode_persisted_structured_payload(payload)?;
-
-                    Ok(Self::#variant_ident(value))
-                }
-            }
-        } else {
-            quote! {
-                Self::#variant_name => {
-                    if payload.is_some() {
-                        return Err(::icydb::__macro::generated_persisted_structured_payload_decode_failed(
-                            format!(
-                                "structured enum payload must not carry payload for variant `{}`",
-                                Self::#variant_name,
-                            ),
-                        ));
-                    }
-
-                    Ok(Self::#variant_ident)
-                }
-            }
-        }
-    });
-
-    quote! {
-        fn encode_persisted_structured_payload(
-            &self,
-        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
-            Ok(match self {
-                #(#encode_arms),*
-            })
-        }
-
-        fn decode_persisted_structured_payload(
-            bytes: &[u8],
-        ) -> Result<Self, ::icydb::__macro::InternalError> {
-            let (variant, path, payload) =
-                ::icydb::__macro::decode_generated_structural_enum_payload_bytes(bytes)?;
-            if path.as_deref() != Some(Self::PATH) {
-                return Err(::icydb::__macro::generated_persisted_structured_payload_decode_failed(
-                    format!(
-                        "structured enum payload path mismatch: expected `{}`, got {:?}",
-                        Self::PATH,
-                        path,
-                    ),
-                ));
-            }
-
-            match variant.as_str() {
-                #(#decode_arms),*,
-                _ => Err(::icydb::__macro::generated_persisted_structured_payload_decode_failed(
-                    format!("structured enum payload contains unknown variant `{}`", variant),
-                )),
-            }
-        }
+        },
+        Cardinality::Many => quote! {
+            ::icydb::__macro::InputValue::List(
+                #access
+                    .into_iter()
+                    .map(::icydb::__macro::InputValue::from)
+                    .collect(),
+            )
+        },
     }
 }
 
@@ -356,6 +267,17 @@ fn newtype_runtime_value_tokens(item: &TokenStream) -> (TokenStream, TokenStream
                 let inner = ::icydb::__macro::runtime_value_from_value::<#item>(value)?;
                 Some(Self(inner))
             }
+
+            fn from_value_with_enum_context(
+                value: &::icydb::__macro::Value,
+                context: &dyn ::icydb::__macro::RuntimeEnumContext,
+            ) -> Option<Self> {
+                let inner = ::icydb::__macro::runtime_value_from_value_with_enum_context::<#item>(
+                    value,
+                    context,
+                )?;
+                Some(Self(inner))
+            }
         },
     )
 }
@@ -393,6 +315,19 @@ fn field_from_value_expr(value: &crate::node::Value, source: TokenStream) -> Tok
     }
 }
 
+fn field_from_value_with_enum_context_expr(
+    value: &crate::node::Value,
+    source: TokenStream,
+) -> TokenStream {
+    let ty = value.type_expr();
+    quote! {
+        ::icydb::__macro::runtime_value_from_value_with_enum_context::<#ty>(
+            #source,
+            context,
+        )?
+    }
+}
+
 fn record_runtime_value_tokens(node: &Record) -> (TokenStream, TokenStream, TokenStream) {
     let to_entries = node.fields.iter().map(|field| {
         let ident = &field.ident;
@@ -421,9 +356,24 @@ fn record_runtime_value_tokens(node: &Record) -> (TokenStream, TokenStream, Toke
 
         quote!(#ident: #decode_expr)
     });
+    let contextual_from_fields = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        let decode_expr = field_from_value_with_enum_context_expr(
+            &field.value,
+            quote! {
+                normalized.iter().find_map(|(entry_key, entry_value)| match entry_key {
+                    ::icydb::__macro::Value::Text(entry_key) if entry_key == #name => Some(entry_value),
+                    _ => None,
+                })?
+            },
+        );
+
+        quote!(#ident: #decode_expr)
+    });
     let field_count = node.fields.len();
 
-    structured_collection_runtime_value_tokens(
+    let (meta, encode, decode) = structured_collection_runtime_value_tokens(
         quote!(::icydb::__macro::RuntimeValueKind::Structured { queryable: false }),
         quote! {
             {
@@ -455,7 +405,27 @@ fn record_runtime_value_tokens(node: &Record) -> (TokenStream, TokenStream, Toke
                 })
             }
         },
-    )
+    );
+    let contextual_decode = quote! {
+        fn from_value_with_enum_context(
+            value: &::icydb::__macro::Value,
+            context: &dyn ::icydb::__macro::RuntimeEnumContext,
+        ) -> Option<Self> {
+            let ::icydb::__macro::Value::Map(entries) = value else {
+                return None;
+            };
+            let normalized = ::icydb::__macro::Value::normalize_map_entries(entries.clone()).ok()?;
+            if normalized.len() != #field_count {
+                return None;
+            }
+
+            Some(Self {
+                #(#contextual_from_fields),*
+            })
+        }
+    };
+
+    (meta, encode, quote!(#decode #contextual_decode))
 }
 
 fn tuple_runtime_value_tokens(node: &Tuple) -> (TokenStream, TokenStream, TokenStream) {
@@ -473,9 +443,19 @@ fn tuple_runtime_value_tokens(node: &Tuple) -> (TokenStream, TokenStream, TokenS
 
         quote!(#decode_expr)
     });
+    let contextual_from_items = node.values.iter().enumerate().map(|(index, value)| {
+        let decode_expr = field_from_value_with_enum_context_expr(
+            value,
+            quote! {
+                items.get(#index)?
+            },
+        );
+
+        quote!(#decode_expr)
+    });
     let item_count = node.values.len();
 
-    structured_collection_runtime_value_tokens(
+    let (meta, encode, decode) = structured_collection_runtime_value_tokens(
         quote!(::icydb::__macro::RuntimeValueKind::Structured { queryable: false }),
         quote!(::icydb::__macro::Value::List(vec![#(#to_items),*])),
         quote! {
@@ -490,6 +470,112 @@ fn tuple_runtime_value_tokens(node: &Tuple) -> (TokenStream, TokenStream, TokenS
                 Some(Self(#(#from_items),*))
             }
         },
+    );
+    let contextual_decode = quote! {
+        fn from_value_with_enum_context(
+            value: &::icydb::__macro::Value,
+            context: &dyn ::icydb::__macro::RuntimeEnumContext,
+        ) -> Option<Self> {
+            let ::icydb::__macro::Value::List(items) = value else {
+                return None;
+            };
+            if items.len() != #item_count {
+                return None;
+            }
+
+            Some(Self(#(#contextual_from_items),*))
+        }
+    };
+
+    (meta, encode, quote!(#decode #contextual_decode))
+}
+
+fn list_input_value_tokens(node: &List) -> TokenStream {
+    input_value_impl_tokens(
+        node.def(),
+        quote! {
+            ::icydb::__macro::InputValue::List(
+                value
+                    .0
+                    .into_iter()
+                    .map(::icydb::__macro::InputValue::from)
+                    .collect(),
+            )
+        },
+    )
+}
+
+fn map_input_value_tokens(node: &Map) -> TokenStream {
+    input_value_impl_tokens(
+        node.def(),
+        quote! {
+            ::icydb::__macro::InputValue::Map(
+                value
+                    .0
+                    .into_iter()
+                    .map(|(key, value)| {
+                        (
+                            ::icydb::__macro::InputValue::from(key),
+                            ::icydb::__macro::InputValue::from(value),
+                        )
+                    })
+                    .collect(),
+            )
+        },
+    )
+}
+
+fn newtype_input_value_tokens(node: &Newtype) -> TokenStream {
+    input_value_impl_tokens(
+        node.def(),
+        quote!(::icydb::__macro::InputValue::from(value.0)),
+    )
+}
+
+fn set_input_value_tokens(node: &Set) -> TokenStream {
+    input_value_impl_tokens(
+        node.def(),
+        quote! {
+            ::icydb::__macro::InputValue::List(
+                value
+                    .0
+                    .into_iter()
+                    .map(::icydb::__macro::InputValue::from)
+                    .collect(),
+            )
+        },
+    )
+}
+
+fn record_input_value_tokens(node: &Record) -> TokenStream {
+    let entries = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        let input = owned_value_to_input_expr(&field.value, quote!(value.#ident));
+
+        quote! {
+            (
+                ::icydb::__macro::InputValue::Text(#name.to_string()),
+                #input,
+            )
+        }
+    });
+
+    input_value_impl_tokens(
+        node.def(),
+        quote!(::icydb::__macro::InputValue::Map(vec![#(#entries),*])),
+    )
+}
+
+fn tuple_input_value_tokens(node: &Tuple) -> TokenStream {
+    let items = node.values.iter().enumerate().map(|(index, value)| {
+        let slot = syn::Index::from(index);
+        owned_value_to_input_expr(value, quote!(value.#slot))
+    });
+
+    input_value_impl_tokens(
+        node.def(),
+        quote!(::icydb::__macro::InputValue::List(vec![#(#items),*])),
     )
 }
 
@@ -726,12 +812,36 @@ impl Imp<List> for RuntimeValueTrait {
                 quote!(::icydb::__macro::runtime_value_collection_to_value(self)),
                 quote!(::icydb::__macro::runtime_value_vec_from_value::<#item>(value).map(Self)),
             );
+        let runtime_value_decode = quote! {
+            #runtime_value_decode
 
+            fn from_value_with_enum_context(
+                value: &::icydb::__macro::Value,
+                context: &dyn ::icydb::__macro::RuntimeEnumContext,
+            ) -> Option<Self> {
+                ::icydb::__macro::runtime_value_from_value_with_enum_context::<Vec<#item>>(
+                    value,
+                    context,
+                )
+                .map(Self)
+            }
+        };
+
+        let input = list_input_value_tokens(node);
+        if node.item.is.is_some() {
+            return Some(runtime_value_strategy_without_encode(
+                node.def(),
+                runtime_value_meta,
+                runtime_value_decode,
+                input,
+            ));
+        }
         Some(runtime_value_strategy(
             node.def(),
             runtime_value_meta,
             runtime_value_encode,
             runtime_value_decode,
+            input,
         ))
     }
 }
@@ -783,12 +893,35 @@ impl Imp<Map> for RuntimeValueTrait {
                         .map(Self)
                 ),
             );
+        let runtime_value_decode = quote! {
+            #runtime_value_decode
 
+            fn from_value_with_enum_context(
+                value: &::icydb::__macro::Value,
+                context: &dyn ::icydb::__macro::RuntimeEnumContext,
+            ) -> Option<Self> {
+                ::icydb::__macro::runtime_value_from_value_with_enum_context::<
+                    ::std::collections::BTreeMap<#key_type, #value_type>
+                >(value, context)
+                .map(Self)
+            }
+        };
+
+        let input = map_input_value_tokens(node);
+        if node.key.is.is_some() || node.value.item.is.is_some() {
+            return Some(runtime_value_strategy_without_encode(
+                node.def(),
+                runtime_value_meta,
+                runtime_value_decode,
+                input,
+            ));
+        }
         Some(runtime_value_strategy(
             node.def(),
             runtime_value_meta,
             runtime_value_encode,
             runtime_value_decode,
+            input,
         ))
     }
 }
@@ -831,11 +964,20 @@ impl Imp<Newtype> for RuntimeValueTrait {
         let (runtime_value_meta, runtime_value_encode, runtime_value_decode) =
             newtype_runtime_value_tokens(&item);
 
+        if node.item.is.is_some() {
+            return Some(runtime_value_strategy_without_encode(
+                node.def(),
+                runtime_value_meta,
+                runtime_value_decode,
+                newtype_input_value_tokens(node),
+            ));
+        }
         Some(runtime_value_strategy(
             node.def(),
             runtime_value_meta,
             runtime_value_encode,
             runtime_value_decode,
+            newtype_input_value_tokens(node),
         ))
     }
 }
@@ -880,12 +1022,35 @@ impl Imp<Set> for RuntimeValueTrait {
                 quote!(::icydb::__macro::runtime_value_collection_to_value(self)),
                 quote!(::icydb::__macro::runtime_value_btree_set_from_value::<#item>(value).map(Self)),
             );
+        let runtime_value_decode = quote! {
+            #runtime_value_decode
 
+            fn from_value_with_enum_context(
+                value: &::icydb::__macro::Value,
+                context: &dyn ::icydb::__macro::RuntimeEnumContext,
+            ) -> Option<Self> {
+                ::icydb::__macro::runtime_value_from_value_with_enum_context::<
+                    ::std::collections::BTreeSet<#item>
+                >(value, context)
+                .map(Self)
+            }
+        };
+
+        let input = set_input_value_tokens(node);
+        if node.item.is.is_some() {
+            return Some(runtime_value_strategy_without_encode(
+                node.def(),
+                runtime_value_meta,
+                runtime_value_decode,
+                input,
+            ));
+        }
         Some(runtime_value_strategy(
             node.def(),
             runtime_value_meta,
             runtime_value_encode,
             runtime_value_decode,
+            input,
         ))
     }
 }
@@ -925,11 +1090,25 @@ impl Imp<Record> for RuntimeValueTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
         let (runtime_value_meta, runtime_value_encode, runtime_value_decode) =
             record_runtime_value_tokens(node);
+        let input = record_input_value_tokens(node);
+        if node
+            .fields
+            .iter()
+            .any(|field| field.value.item.is.is_some())
+        {
+            return Some(runtime_value_strategy_without_encode(
+                node.def(),
+                runtime_value_meta,
+                runtime_value_decode,
+                input,
+            ));
+        }
         Some(runtime_value_strategy(
             node.def(),
             runtime_value_meta,
             runtime_value_encode,
             runtime_value_decode,
+            input,
         ))
     }
 }
@@ -951,11 +1130,21 @@ impl Imp<Tuple> for RuntimeValueTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
         let (runtime_value_meta, runtime_value_encode, runtime_value_decode) =
             tuple_runtime_value_tokens(node);
+        let input = tuple_input_value_tokens(node);
+        if node.values.iter().any(|value| value.item.is.is_some()) {
+            return Some(runtime_value_strategy_without_encode(
+                node.def(),
+                runtime_value_meta,
+                runtime_value_decode,
+                input,
+            ));
+        }
         Some(runtime_value_strategy(
             node.def(),
             runtime_value_meta,
             runtime_value_encode,
             runtime_value_decode,
+            input,
         ))
     }
 }
@@ -974,13 +1163,37 @@ fn runtime_value_strategy(
     runtime_value_meta: TokenStream,
     runtime_value_encode: TokenStream,
     runtime_value_decode: TokenStream,
+    input_value: TokenStream,
 ) -> TraitStrategy {
-    TraitStrategy::from_impl(runtime_value_impl_tokens(
+    let mut tokens = runtime_value_impl_tokens(
         def,
         runtime_value_meta,
         runtime_value_encode,
         runtime_value_decode,
-    ))
+    );
+    tokens.extend(input_value);
+    TraitStrategy::from_impl(tokens)
+}
+
+fn runtime_value_strategy_without_encode(
+    def: &Def,
+    runtime_value_meta: TokenStream,
+    runtime_value_decode: TokenStream,
+    input_value: TokenStream,
+) -> TraitStrategy {
+    let mut tokens = TokenStream::new();
+    tokens.extend(
+        Implementor::new(def, TraitKind::RuntimeValueMeta)
+            .set_tokens(runtime_value_meta)
+            .to_token_stream(),
+    );
+    tokens.extend(
+        Implementor::new(def, TraitKind::RuntimeValueDecode)
+            .set_tokens(runtime_value_decode)
+            .to_token_stream(),
+    );
+    tokens.extend(input_value);
+    TraitStrategy::from_impl(tokens)
 }
 
 fn persisted_field_codec_strategy(

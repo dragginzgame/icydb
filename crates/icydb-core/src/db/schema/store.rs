@@ -13,12 +13,20 @@ use crate::{
         direction::Direction,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
         schema::{
-            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexKeyItemSnapshot,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedSchemaSnapshot, SchemaVersion,
             accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_persisted_schema_snapshot,
-            encode_persisted_schema_snapshot, schema_snapshot_integrity_detail,
+            encode_persisted_schema_snapshot,
+            enum_catalog::{
+                AcceptedEnumCatalogHandle, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
+                AcceptedSchemaRevisionBundle, AcceptedSchemaRootSelection,
+                AcceptedStoreCatalogScope, CandidateSchemaRevision,
+                decode_verified_accepted_schema_revision_bundle,
+                prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
+            },
+            schema_snapshot_integrity_detail,
         },
     },
     error::InternalError,
@@ -33,12 +41,16 @@ use sha2::Digest;
 use std::borrow::Cow;
 #[cfg(test)]
 use std::cell::Cell;
+use std::cell::{OnceCell, Ref, RefCell};
 use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ops::Bound as RangeBound;
 
-const SCHEMA_KEY_BYTES_USIZE: usize = 12;
-const SCHEMA_KEY_BYTES: u32 = 12;
+const SCHEMA_KEY_BYTES_USIZE: usize = 16;
+const SCHEMA_KEY_BYTES: u32 = 16;
+const SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT: u8 = 0;
+const SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE: u8 = 1;
+const SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT: u8 = 2;
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 const SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION: u8 = 1;
 const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION: u8 = 2;
@@ -50,6 +62,7 @@ const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
 #[cfg(test)]
 thread_local! {
     static LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS: Cell<u64> = const { Cell::new(0) };
+    static ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES: Cell<u64> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -60,6 +73,16 @@ pub(in crate::db) fn reset_latest_raw_snapshots_by_entity_call_count_for_tests()
 #[cfg(test)]
 pub(in crate::db) fn latest_raw_snapshots_by_entity_call_count_for_tests() -> u64 {
     LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS.with(Cell::get)
+}
+
+#[cfg(test)]
+fn reset_accepted_schema_bundle_cache_miss_count_for_tests() {
+    ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES.with(|misses| misses.set(0));
+}
+
+#[cfg(test)]
+fn accepted_schema_bundle_cache_miss_count_for_tests() -> u64 {
+    ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES.with(Cell::get)
 }
 
 ///
@@ -78,17 +101,36 @@ impl RawSchemaKey {
     #[must_use]
     fn from_entity_version(entity: EntityTag, version: SchemaVersion) -> Self {
         let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
-        out[..size_of::<u64>()].copy_from_slice(&entity.value().to_be_bytes());
-        out[size_of::<u64>()..].copy_from_slice(&version.get().to_be_bytes());
+        out[0] = SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT;
+        out[4..12].copy_from_slice(&entity.value().to_be_bytes());
+        out[12..].copy_from_slice(&version.get().to_be_bytes());
 
         Self(out)
+    }
+
+    fn from_accepted_bundle(bundle_key: super::enum_catalog::AcceptedSchemaBundleKey) -> Self {
+        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        out[0] = SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE;
+        out[4..12].copy_from_slice(&bundle_key.get().to_be_bytes());
+        Self(out)
+    }
+
+    fn from_accepted_root_slot(slot: usize) -> Result<Self, InternalError> {
+        let slot = u32::try_from(slot).map_err(|_| InternalError::store_invariant())?;
+        if slot > 1 {
+            return Err(InternalError::store_invariant());
+        }
+        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        out[0] = SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT;
+        out[12..].copy_from_slice(&slot.to_be_bytes());
+        Ok(Self(out))
     }
 
     /// Return the entity tag encoded in this schema key.
     #[must_use]
     fn entity_tag(self) -> EntityTag {
         let mut bytes = [0u8; size_of::<u64>()];
-        bytes.copy_from_slice(&self.0[..size_of::<u64>()]);
+        bytes.copy_from_slice(&self.0[4..12]);
 
         EntityTag::new(u64::from_be_bytes(bytes))
     }
@@ -97,7 +139,7 @@ impl RawSchemaKey {
     #[must_use]
     fn version(self) -> u32 {
         let mut bytes = [0u8; size_of::<u32>()];
-        bytes.copy_from_slice(&self.0[size_of::<u64>()..]);
+        bytes.copy_from_slice(&self.0[12..]);
 
         u32::from_be_bytes(bytes)
     }
@@ -110,6 +152,20 @@ impl RawSchemaKey {
                 SchemaVersion::new(u32::MAX),
             )),
         )
+    }
+
+    const fn all_entity_range_bounds() -> (RangeBound<Self>, RangeBound<Self>) {
+        let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
+        end[0] = SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT;
+        (
+            RangeBound::Included(Self([0; SCHEMA_KEY_BYTES_USIZE])),
+            RangeBound::Included(Self(end)),
+        )
+    }
+
+    #[cfg(test)]
+    const fn is_entity_snapshot(self) -> bool {
+        self.0[0] == SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT
     }
 }
 
@@ -147,10 +203,11 @@ impl Storable for RawSchemaKey {
 ///
 /// RawSchemaSnapshot
 ///
-/// Raw persisted schema snapshot payload.
-/// This wrapper stores the encoded `PersistedSchemaSnapshot` payload while
-/// keeping the stable-memory value boundary independent from the typed schema
-/// DTOs used by reconciliation.
+/// Raw persisted value in the schema metadata store.
+///
+/// Entity snapshots carry this wrapper's identity header. Accepted catalog
+/// bundles and root slots are already-versioned control records and remain
+/// opaque here. Key-specific readers decide which representation is required.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -174,13 +231,23 @@ impl RawSchemaSnapshot {
         })
     }
 
-    /// Build one raw schema snapshot from already-encoded bytes.
+    /// Store one already-versioned accepted-catalog control record.
     #[must_use]
-    #[cfg(test)]
-    const fn from_bytes(payload: Vec<u8>) -> Self {
+    const fn from_encoded_control_record(payload: Vec<u8>) -> Self {
         Self {
             payload,
             accepted_schema_fingerprint: None,
+        }
+    }
+
+    /// Build a framed entity snapshot around deliberately untrusted payload
+    /// bytes so decode-boundary tests can exercise current-format corruption.
+    #[cfg(test)]
+    #[must_use]
+    const fn from_unchecked_persisted_snapshot_payload(payload: Vec<u8>) -> Self {
+        Self {
+            payload,
+            accepted_schema_fingerprint: Some([0; size_of::<CommitSchemaFingerprint>()]),
         }
     }
 
@@ -205,8 +272,19 @@ impl RawSchemaSnapshot {
 
     /// Decode this raw store payload into a typed persisted-schema snapshot.
     fn decode_persisted_snapshot(&self) -> Result<PersistedSchemaSnapshot, InternalError> {
+        // The identity header is the outer format gate. Do not pass a legacy
+        // headerless value or a control record into the schema payload codec.
+        let _fingerprint = self.accepted_schema_fingerprint()?;
         decode_persisted_schema_snapshot(self.as_bytes())
     }
+}
+
+#[cfg(test)]
+pub(in crate::db::schema) fn validate_raw_schema_snapshot_bytes_for_tests(
+    bytes: Vec<u8>,
+) -> Result<(), InternalError> {
+    let raw = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(bytes));
+    raw.decode_persisted_snapshot().map(drop)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,6 +292,7 @@ pub(in crate::db) struct AcceptedCatalogIdentity {
     entity_tag: EntityTag,
     entity_path: &'static str,
     store_path: &'static str,
+    accepted_schema_revision: AcceptedSchemaRevision,
     accepted_schema_version: SchemaVersion,
     fingerprint_method_version: u8,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
@@ -225,6 +304,7 @@ impl AcceptedCatalogIdentity {
         entity_tag: EntityTag,
         entity_path: &'static str,
         store_path: &'static str,
+        accepted_schema_revision: AcceptedSchemaRevision,
         accepted_schema_version: SchemaVersion,
         accepted_schema_fingerprint: CommitSchemaFingerprint,
     ) -> Self {
@@ -232,6 +312,7 @@ impl AcceptedCatalogIdentity {
             entity_tag,
             entity_path,
             store_path,
+            accepted_schema_revision,
             accepted_schema_version,
             fingerprint_method_version: accepted_schema_cache_fingerprint_method_version(),
             accepted_schema_fingerprint,
@@ -254,6 +335,11 @@ impl AcceptedCatalogIdentity {
     }
 
     #[must_use]
+    pub(in crate::db) const fn accepted_schema_revision(self) -> AcceptedSchemaRevision {
+        self.accepted_schema_revision
+    }
+
+    #[must_use]
     pub(in crate::db) const fn accepted_schema_version(self) -> SchemaVersion {
         self.accepted_schema_version
     }
@@ -272,14 +358,20 @@ impl AcceptedCatalogIdentity {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedCatalogSnapshotSelection {
     identity: AcceptedCatalogIdentity,
+    enum_catalog: AcceptedEnumCatalogHandle,
     raw_snapshot: Vec<u8>,
 }
 
 impl AcceptedCatalogSnapshotSelection {
     #[must_use]
-    const fn new(identity: AcceptedCatalogIdentity, raw_snapshot: Vec<u8>) -> Self {
+    const fn new(
+        identity: AcceptedCatalogIdentity,
+        enum_catalog: AcceptedEnumCatalogHandle,
+        raw_snapshot: Vec<u8>,
+    ) -> Self {
         Self {
             identity,
+            enum_catalog,
             raw_snapshot,
         }
     }
@@ -287,6 +379,26 @@ impl AcceptedCatalogSnapshotSelection {
     #[must_use]
     pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
         self.identity
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn enum_catalog(&self) -> &AcceptedEnumCatalogHandle {
+        &self.enum_catalog
+    }
+
+    /// Re-encode a cached accepted snapshot under its verified catalog identity.
+    pub(in crate::db) fn from_accepted_snapshot(
+        identity: AcceptedCatalogIdentity,
+        enum_catalog: AcceptedEnumCatalogHandle,
+        snapshot: &AcceptedSchemaSnapshot,
+    ) -> Result<Self, InternalError> {
+        let raw_snapshot =
+            RawSchemaSnapshot::from_persisted_snapshot(snapshot.persisted_snapshot())?;
+        if raw_snapshot.accepted_schema_fingerprint()? != identity.accepted_schema_fingerprint() {
+            return Err(InternalError::store_invariant());
+        }
+
+        Ok(Self::new(identity, enum_catalog, raw_snapshot.into_bytes()))
     }
 
     pub(in crate::db) fn decode_verified(&self) -> Result<AcceptedSchemaSnapshot, InternalError> {
@@ -550,6 +662,13 @@ impl SchemaStoreFootprint {
 
 pub struct SchemaStore {
     backend: SchemaStoreBackend,
+    accepted_bundle_cache: RefCell<Option<AcceptedSchemaBundleCache>>,
+    accepted_catalog_scope: OnceCell<AcceptedStoreCatalogScope>,
+}
+
+struct AcceptedSchemaBundleCache {
+    selection: AcceptedSchemaRootSelection,
+    bundle: AcceptedSchemaRevisionBundle,
 }
 
 enum SchemaStoreBackend {
@@ -581,6 +700,8 @@ impl SchemaStore {
     pub const fn init_heap() -> Self {
         Self {
             backend: SchemaStoreBackend::Heap(StdBTreeMap::new()),
+            accepted_bundle_cache: RefCell::new(None),
+            accepted_catalog_scope: OnceCell::new(),
         }
     }
 
@@ -596,6 +717,8 @@ impl SchemaStore {
                 live: StdBTreeMap::new(),
                 tombstones: BTreeSet::new(),
             },
+            accepted_bundle_cache: RefCell::new(None),
+            accepted_catalog_scope: OnceCell::new(),
         }
     }
 
@@ -612,32 +735,6 @@ impl SchemaStore {
         Ok(())
     }
 
-    /// Insert one typed persisted schema snapshot only if the current live
-    /// accepted catalog identity still matches the identity captured before
-    /// schema mutation planning.
-    pub(in crate::db) fn insert_persisted_snapshot_if_latest_identity(
-        &mut self,
-        expected: AcceptedCatalogIdentity,
-        snapshot: &PersistedSchemaSnapshot,
-    ) -> Result<(), InternalError> {
-        let live = self.latest_catalog_identity(
-            expected.entity_tag(),
-            expected.entity_path(),
-            expected.store_path(),
-        )?;
-        if live
-            .as_ref()
-            .map(AcceptedCatalogSnapshotSelection::identity)
-            != Some(expected)
-        {
-            return Err(InternalError::schema_ddl_publication_race_lost(
-                expected.entity_path(),
-            ));
-        }
-
-        self.insert_persisted_snapshot(expected.entity_tag(), snapshot)
-    }
-
     /// Reset the volatile projection for journaled recovery without mutating
     /// the canonical stable schema base.
     pub(in crate::db) fn reset_journaled_live_projection(&mut self) -> Result<(), InternalError> {
@@ -650,6 +747,7 @@ impl SchemaStore {
 
         live.clear();
         tombstones.clear();
+        self.accepted_bundle_cache.get_mut().take();
 
         Ok(())
     }
@@ -671,6 +769,195 @@ impl SchemaStore {
         Ok(())
     }
 
+    /// Return the current accepted store root selected from its two checksummed slots.
+    pub(in crate::db) fn current_accepted_schema_root(
+        &self,
+    ) -> Result<Option<AcceptedSchemaRootSelection>, InternalError> {
+        let first = self.accepted_root_slot_bytes(0)?;
+        let second = self.accepted_root_slot_bytes(1)?;
+        select_current_accepted_schema_root([first.as_deref(), second.as_deref()])
+    }
+
+    /// Load and verify the immutable bundle referenced by the current root.
+    pub(in crate::db) fn current_accepted_schema_bundle(
+        &self,
+    ) -> Result<Option<AcceptedSchemaRevisionBundle>, InternalError> {
+        let Some(selection) = self.current_accepted_schema_root()? else {
+            return Ok(None);
+        };
+        let key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
+        let raw = self
+            .get_raw_snapshot(&key)
+            .ok_or_else(InternalError::store_corruption)?;
+        decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes()).map(Some)
+    }
+
+    /// Return the current accepted revision without decoding its bundle.
+    pub(in crate::db) fn current_accepted_schema_revision(
+        &self,
+    ) -> Result<Option<AcceptedSchemaRevision>, InternalError> {
+        Ok(self
+            .current_accepted_schema_root()?
+            .map(|selection| selection.root().revision()))
+    }
+
+    /// Bootstrap an immutable candidate directly into the schema allocation.
+    ///
+    /// Journaled online revisions must use `apply_journaled_accepted_schema_candidate`.
+    pub(in crate::db) fn publish_accepted_schema_candidate(
+        &mut self,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<(), InternalError> {
+        let first = self.accepted_root_slot_bytes(0)?;
+        let second = self.accepted_root_slot_bytes(1)?;
+        prepare_accepted_schema_root_publication(
+            [first.as_deref(), second.as_deref()],
+            expected_revision,
+            candidate,
+        )
+        .map_err(map_schema_publication_error)?;
+
+        self.insert_durable_candidate_snapshots(candidate)?;
+        let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
+        self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec());
+        let persisted_bundle = self
+            .get_raw_snapshot(&bundle_key)
+            .ok_or_else(InternalError::store_corruption)?;
+        let _verified = decode_verified_accepted_schema_revision_bundle(
+            candidate.root(),
+            persisted_bundle.as_bytes(),
+        )?;
+
+        // Re-read the root immediately before the inactive-slot write. This is
+        // the compare-and-swap check after candidate persistence.
+        let first = self.accepted_root_slot_bytes(0)?;
+        let second = self.accepted_root_slot_bytes(1)?;
+        let publication = prepare_accepted_schema_root_publication(
+            [first.as_deref(), second.as_deref()],
+            expected_revision,
+            candidate,
+        )
+        .map_err(map_schema_publication_error)?;
+        let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
+        self.insert_durable_raw_value(root_key, publication.encoded_root().to_vec());
+
+        let selected = self
+            .current_accepted_schema_root()?
+            .ok_or_else(InternalError::store_corruption)?;
+        if selected.root() != candidate.root() {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(())
+    }
+
+    /// Apply one marker-bound schema candidate to the journaled live projection.
+    pub(in crate::db) fn apply_journaled_accepted_schema_candidate(
+        &mut self,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<(), InternalError> {
+        if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
+            return Err(InternalError::store_invariant());
+        }
+        if self.current_root_matches_candidate(candidate)? {
+            return Ok(());
+        }
+
+        let first = self.accepted_root_slot_bytes(0)?;
+        let second = self.accepted_root_slot_bytes(1)?;
+        prepare_accepted_schema_root_publication(
+            [first.as_deref(), second.as_deref()],
+            expected_revision,
+            candidate,
+        )
+        .map_err(map_schema_publication_error)?;
+
+        for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
+            self.insert_persisted_snapshot(*entity_tag, snapshot)?;
+        }
+        let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
+        self.insert_raw_snapshot(
+            bundle_key,
+            RawSchemaSnapshot::from_encoded_control_record(candidate.encoded_bundle().to_vec()),
+        );
+        let persisted_bundle = self
+            .get_raw_snapshot(&bundle_key)
+            .ok_or_else(InternalError::store_corruption)?;
+        let _verified = decode_verified_accepted_schema_revision_bundle(
+            candidate.root(),
+            persisted_bundle.as_bytes(),
+        )?;
+
+        let first = self.accepted_root_slot_bytes(0)?;
+        let second = self.accepted_root_slot_bytes(1)?;
+        let publication = prepare_accepted_schema_root_publication(
+            [first.as_deref(), second.as_deref()],
+            expected_revision,
+            candidate,
+        )
+        .map_err(map_schema_publication_error)?;
+        let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
+        self.insert_raw_snapshot(
+            root_key,
+            RawSchemaSnapshot::from_encoded_control_record(publication.encoded_root().to_vec()),
+        );
+
+        if !self.current_root_matches_candidate(candidate)? {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(())
+    }
+
+    /// Fold one committed schema candidate into the canonical schema BTree.
+    pub(in crate::db) fn fold_journaled_accepted_schema_candidate(
+        &mut self,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<(), InternalError> {
+        if self.canonical_root_matches_candidate(candidate)? {
+            return Ok(());
+        }
+
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        prepare_accepted_schema_root_publication(
+            [first.as_deref(), second.as_deref()],
+            expected_revision,
+            candidate,
+        )
+        .map_err(map_schema_publication_error)?;
+
+        for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
+            self.fold_persisted_snapshot(*entity_tag, snapshot)?;
+        }
+        let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
+        self.insert_canonical_raw_value(bundle_key, candidate.encoded_bundle().to_vec())?;
+        let persisted_bundle = self
+            .get_canonical_raw_value(&bundle_key)?
+            .ok_or_else(InternalError::store_corruption)?;
+        let _verified = decode_verified_accepted_schema_revision_bundle(
+            candidate.root(),
+            persisted_bundle.as_bytes(),
+        )?;
+
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        let publication = prepare_accepted_schema_root_publication(
+            [first.as_deref(), second.as_deref()],
+            expected_revision,
+            candidate,
+        )
+        .map_err(map_schema_publication_error)?;
+        let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
+        self.insert_canonical_raw_value(root_key, publication.encoded_root().to_vec())?;
+
+        if !self.canonical_root_matches_candidate(candidate)? {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(())
+    }
+
     /// Load and decode one typed persisted schema snapshot.
     #[cfg(test)]
     pub(in crate::db) fn get_persisted_snapshot(
@@ -684,8 +971,11 @@ impl SchemaStore {
             .transpose()
     }
 
-    /// Load and decode the highest stored schema snapshot version for one entity.
-    pub(in crate::db) fn latest_persisted_snapshot(
+    /// Load and decode the highest staged schema snapshot for one entity.
+    ///
+    /// Candidate construction and publication gates use this view. Runtime
+    /// execution must use `current_accepted_persisted_snapshot` instead.
+    pub(in crate::db) fn latest_staged_persisted_snapshot(
         &self,
         entity: EntityTag,
     ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
@@ -694,23 +984,63 @@ impl SchemaStore {
             .transpose()
     }
 
-    /// Return the latest accepted catalog identity for one entity without
-    /// decoding the selected schema snapshot.
-    pub(in crate::db) fn latest_catalog_identity(
+    /// Load one entity snapshot from the immutable bundle selected by the
+    /// current accepted root.
+    pub(in crate::db) fn current_accepted_persisted_snapshot(
+        &self,
+        entity: EntityTag,
+    ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(None);
+        };
+
+        Ok(bundle.entity_snapshots().get(&entity).cloned())
+    }
+
+    /// Return one accepted catalog selection from the current immutable root.
+    pub(in crate::db) fn current_accepted_catalog_selection(
         &self,
         entity: EntityTag,
         entity_path: &'static str,
         store_path: &'static str,
     ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError> {
-        let Some((version, raw_snapshot)) = self.latest_raw_snapshot_entry(entity) else {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
             return Ok(None);
         };
+        if bundle.store_path() != store_path {
+            return Err(InternalError::store_corruption());
+        }
+        let Some(snapshot) = bundle.entity_snapshots().get(&entity) else {
+            return Ok(None);
+        };
+        if snapshot.entity_path() != entity_path {
+            return Err(InternalError::store_corruption());
+        }
+
+        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
         let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
-        let identity =
-            AcceptedCatalogIdentity::new(entity, entity_path, store_path, version, fingerprint);
+        let identity = AcceptedCatalogIdentity::new(
+            entity,
+            entity_path,
+            store_path,
+            bundle.revision(),
+            snapshot.version(),
+            fingerprint,
+        );
 
         Ok(Some(AcceptedCatalogSnapshotSelection::new(
             identity,
+            AcceptedEnumCatalogHandle::new(
+                bundle.enum_catalog().clone(),
+                self.accepted_catalog_scope
+                    .get_or_init(AcceptedStoreCatalogScope::new)
+                    .clone(),
+                bundle.revision(),
+                self.current_accepted_schema_root()?
+                    .ok_or_else(InternalError::store_corruption)?
+                    .root()
+                    .fingerprint(),
+            ),
             raw_snapshot.into_bytes(),
         )))
     }
@@ -808,12 +1138,135 @@ impl SchemaStore {
 
     /// Load one raw schema snapshot by key.
     #[must_use]
-    #[cfg(test)]
     fn get_raw_snapshot(&self, key: &RawSchemaKey) -> Option<RawSchemaSnapshot> {
         match &self.backend {
             SchemaStoreBackend::Heap(map) => map.get(key).cloned(),
             SchemaStoreBackend::Journaled { .. } => self.get_raw_snapshot_for_backend(key),
         }
+    }
+
+    fn accepted_root_slot_bytes(&self, slot: usize) -> Result<Option<Vec<u8>>, InternalError> {
+        let key = RawSchemaKey::from_accepted_root_slot(slot)?;
+        Ok(self
+            .get_raw_snapshot(&key)
+            .map(RawSchemaSnapshot::into_bytes))
+    }
+
+    fn canonical_root_slot_bytes(&self, slot: usize) -> Result<Option<Vec<u8>>, InternalError> {
+        let key = RawSchemaKey::from_accepted_root_slot(slot)?;
+        Ok(self
+            .get_canonical_raw_value(&key)?
+            .map(RawSchemaSnapshot::into_bytes))
+    }
+
+    fn current_root_matches_candidate(
+        &self,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<bool, InternalError> {
+        let Some(selection) = self.current_accepted_schema_root()? else {
+            return Ok(false);
+        };
+        if selection.root() != candidate.root() {
+            return Ok(false);
+        }
+        let key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
+        let bundle = self
+            .get_raw_snapshot(&key)
+            .ok_or_else(InternalError::store_corruption)?;
+        let _verified =
+            decode_verified_accepted_schema_revision_bundle(candidate.root(), bundle.as_bytes())?;
+        Ok(true)
+    }
+
+    fn canonical_root_matches_candidate(
+        &self,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<bool, InternalError> {
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        let Some(selection) =
+            select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
+        else {
+            return Ok(false);
+        };
+        if selection.root() != candidate.root() {
+            return Ok(false);
+        }
+        let key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
+        let bundle = self
+            .get_canonical_raw_value(&key)?
+            .ok_or_else(InternalError::store_corruption)?;
+        let _verified =
+            decode_verified_accepted_schema_revision_bundle(candidate.root(), bundle.as_bytes())?;
+        Ok(true)
+    }
+
+    fn get_canonical_raw_value(
+        &self,
+        key: &RawSchemaKey,
+    ) -> Result<Option<RawSchemaSnapshot>, InternalError> {
+        match &self.backend {
+            SchemaStoreBackend::Journaled { canonical, .. } => Ok(canonical.get(key)),
+            SchemaStoreBackend::Heap(_) => Err(InternalError::store_invariant()),
+        }
+    }
+
+    fn insert_canonical_raw_value(
+        &mut self,
+        key: RawSchemaKey,
+        bytes: Vec<u8>,
+    ) -> Result<(), InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        canonical.insert(key, RawSchemaSnapshot::from_encoded_control_record(bytes));
+        Ok(())
+    }
+
+    // Initial accepted-catalog bootstrap persists immutable bundle/root values
+    // directly in the schema allocation. Later online schema mutation will
+    // carry the same values through the journal before calling this primitive.
+    fn insert_durable_raw_value(&mut self, key: RawSchemaKey, bytes: Vec<u8>) {
+        let value = RawSchemaSnapshot::from_encoded_control_record(bytes);
+        match &mut self.backend {
+            SchemaStoreBackend::Heap(map) => {
+                map.insert(key, value);
+            }
+            SchemaStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => {
+                live.remove(&key);
+                tombstones.remove(&key);
+                canonical.insert(key, value);
+            }
+        }
+    }
+
+    fn insert_durable_candidate_snapshots(
+        &mut self,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<(), InternalError> {
+        for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
+            let key = RawSchemaKey::from_entity_version(*entity_tag, snapshot.version());
+            let value = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
+            match &mut self.backend {
+                SchemaStoreBackend::Heap(map) => {
+                    map.insert(key, value);
+                }
+                SchemaStoreBackend::Journaled {
+                    canonical,
+                    live,
+                    tombstones,
+                } => {
+                    live.remove(&key);
+                    tombstones.remove(&key);
+                    canonical.insert(key, value);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Return whether one schema snapshot key is present.
@@ -865,6 +1318,7 @@ impl SchemaStore {
     /// Clear all schema metadata entries from the store.
     #[cfg(test)]
     pub(in crate::db) fn clear(&mut self) {
+        self.accepted_bundle_cache.get_mut().take();
         match &mut self.backend {
             SchemaStoreBackend::Heap(map) => map.clear(),
             SchemaStoreBackend::Journaled {
@@ -874,11 +1328,67 @@ impl SchemaStore {
             } => {
                 live.clear();
                 tombstones.clear();
-                for entry in canonical.iter() {
-                    tombstones.insert(*entry.key());
+                let keys = canonical
+                    .iter()
+                    .map(|entry| *entry.key())
+                    .collect::<Vec<_>>();
+                for key in keys {
+                    if key.is_entity_snapshot() {
+                        tombstones.insert(key);
+                    } else {
+                        canonical.remove(&key);
+                    }
                 }
             }
         }
+    }
+
+    fn current_accepted_schema_bundle_ref(
+        &self,
+    ) -> Result<Option<Ref<'_, AcceptedSchemaRevisionBundle>>, InternalError> {
+        let Some(selection) = self.current_accepted_schema_root()? else {
+            self.accepted_bundle_cache
+                .try_borrow_mut()
+                .map_err(|_| InternalError::store_invariant())?
+                .take();
+            return Ok(None);
+        };
+
+        let cache_matches = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?
+            .as_ref()
+            .is_some_and(|cached| cached.selection == selection);
+        if !cache_matches {
+            let key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
+            let raw = self
+                .get_raw_snapshot(&key)
+                .ok_or_else(InternalError::store_corruption)?;
+            let bundle =
+                decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
+            #[cfg(test)]
+            ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES
+                .with(|misses| misses.set(misses.get().saturating_add(1)));
+            *self
+                .accepted_bundle_cache
+                .try_borrow_mut()
+                .map_err(|_| InternalError::store_invariant())? =
+                Some(AcceptedSchemaBundleCache { selection, bundle });
+        }
+
+        let cache = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?;
+        Ref::filter_map(cache, |cache| {
+            cache
+                .as_ref()
+                .filter(|cached| cached.selection == selection)
+                .map(|cached| &cached.bundle)
+        })
+        .map(Some)
+        .map_err(|_| InternalError::store_invariant())
     }
 
     fn latest_raw_snapshots_by_entity(
@@ -914,10 +1424,11 @@ impl SchemaStore {
         &self,
         visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
+        let bounds = RawSchemaKey::all_entity_range_bounds();
         match &self.backend {
             SchemaStoreBackend::Heap(map) => {
                 let mut visitor = visitor;
-                for (key, snapshot) in map {
+                for (key, snapshot) in map.range((bounds.0, bounds.1)) {
                     if visitor(key, snapshot)?.should_stop() {
                         break;
                     }
@@ -931,7 +1442,7 @@ impl SchemaStore {
                 canonical,
                 live,
                 tombstones,
-                (RangeBound::Unbounded, RangeBound::Unbounded),
+                bounds,
                 Direction::Asc,
                 visitor,
             )?,
@@ -1058,6 +1569,15 @@ impl SchemaStore {
                 },
             ),
         }
+    }
+}
+
+fn map_schema_publication_error(error: AcceptedSchemaPublicationError) -> InternalError {
+    match error {
+        AcceptedSchemaPublicationError::StaleSchemaRevision { .. }
+        | AcceptedSchemaPublicationError::RevisionExhausted => InternalError::store_unsupported(),
+        AcceptedSchemaPublicationError::InvalidCandidate => InternalError::store_invariant(),
+        AcceptedSchemaPublicationError::CorruptRootSlots => InternalError::store_corruption(),
     }
 }
 
@@ -1213,8 +1733,8 @@ fn hash_persisted_index_key(hasher: &mut sha2::Sha256, key: &PersistedIndexKeySn
                         write_hash_tag_u8(hasher, 2);
                         write_hash_str_u32(hasher, persisted_expression_op_name(expression.op()));
                         hash_persisted_index_field_path(hasher, expression.source());
-                        hash_persisted_field_kind(hasher, expression.input_kind());
-                        hash_persisted_field_kind(hasher, expression.output_kind());
+                        hash_accepted_field_kind(hasher, expression.input_kind());
+                        hash_accepted_field_kind(hasher, expression.output_kind());
                         write_hash_str_u32(hasher, expression.canonical_text());
                     }
                 }
@@ -1233,73 +1753,58 @@ fn hash_persisted_index_field_path(
     for segment in path.path() {
         write_hash_str_u32(hasher, segment);
     }
-    hash_persisted_field_kind(hasher, path.kind());
+    hash_accepted_field_kind(hasher, path.kind());
     write_hash_tag_u8(hasher, u8::from(path.nullable()));
 }
 
-fn hash_persisted_field_kind(hasher: &mut sha2::Sha256, kind: &PersistedFieldKind) {
+fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind) {
     match kind {
-        PersistedFieldKind::Account => write_hash_tag_u8(hasher, 1),
-        PersistedFieldKind::Blob { max_len } => {
+        AcceptedFieldKind::Account => write_hash_tag_u8(hasher, 1),
+        AcceptedFieldKind::Blob { max_len } => {
             write_hash_tag_u8(hasher, 2);
             hash_optional_u32(hasher, *max_len);
         }
-        PersistedFieldKind::Bool => write_hash_tag_u8(hasher, 3),
-        PersistedFieldKind::Date => write_hash_tag_u8(hasher, 4),
-        PersistedFieldKind::Decimal { scale } => {
+        AcceptedFieldKind::Bool => write_hash_tag_u8(hasher, 3),
+        AcceptedFieldKind::Date => write_hash_tag_u8(hasher, 4),
+        AcceptedFieldKind::Decimal { scale } => {
             write_hash_tag_u8(hasher, 5);
             write_hash_u32(hasher, *scale);
         }
-        PersistedFieldKind::Duration => write_hash_tag_u8(hasher, 6),
-        PersistedFieldKind::Enum { path, variants } => {
+        AcceptedFieldKind::Duration => write_hash_tag_u8(hasher, 6),
+        AcceptedFieldKind::Enum { type_id } => {
             write_hash_tag_u8(hasher, 7);
-            write_hash_str_u32(hasher, path);
-            write_hash_len_u32(hasher, variants.len());
-            for variant in variants {
-                write_hash_str_u32(hasher, variant.ident());
-                match variant.payload_kind() {
-                    Some(payload_kind) => {
-                        write_hash_tag_u8(hasher, 1);
-                        hash_persisted_field_kind(hasher, payload_kind);
-                    }
-                    None => write_hash_tag_u8(hasher, 0),
-                }
-                write_hash_str_u32(
-                    hasher,
-                    field_storage_decode_name(variant.payload_storage_decode()),
-                );
-            }
+            write_hash_u32(hasher, type_id.get());
         }
-        PersistedFieldKind::Float32 => write_hash_tag_u8(hasher, 8),
-        PersistedFieldKind::Float64 => write_hash_tag_u8(hasher, 9),
-        PersistedFieldKind::Int8 => write_hash_tag_u8(hasher, 10),
-        PersistedFieldKind::Int16 => write_hash_tag_u8(hasher, 11),
-        PersistedFieldKind::Int32 => write_hash_tag_u8(hasher, 12),
-        PersistedFieldKind::Int64 => write_hash_tag_u8(hasher, 13),
-        PersistedFieldKind::Int128 => write_hash_tag_u8(hasher, 14),
-        PersistedFieldKind::IntBig { max_bytes } => {
+        AcceptedFieldKind::Float32 => write_hash_tag_u8(hasher, 8),
+        AcceptedFieldKind::Float64 => write_hash_tag_u8(hasher, 9),
+        AcceptedFieldKind::Int8 => write_hash_tag_u8(hasher, 10),
+        AcceptedFieldKind::Int16 => write_hash_tag_u8(hasher, 11),
+        AcceptedFieldKind::Int32 => write_hash_tag_u8(hasher, 12),
+        AcceptedFieldKind::Int64 => write_hash_tag_u8(hasher, 13),
+        AcceptedFieldKind::Int128 => write_hash_tag_u8(hasher, 14),
+        AcceptedFieldKind::IntBig { max_bytes } => {
             write_hash_tag_u8(hasher, 15);
             write_hash_u32(hasher, *max_bytes);
         }
-        PersistedFieldKind::Principal => write_hash_tag_u8(hasher, 16),
-        PersistedFieldKind::Subaccount => write_hash_tag_u8(hasher, 17),
-        PersistedFieldKind::Text { max_len } => {
+        AcceptedFieldKind::Principal => write_hash_tag_u8(hasher, 16),
+        AcceptedFieldKind::Subaccount => write_hash_tag_u8(hasher, 17),
+        AcceptedFieldKind::Text { max_len } => {
             write_hash_tag_u8(hasher, 18);
             hash_optional_u32(hasher, *max_len);
         }
-        PersistedFieldKind::Timestamp => write_hash_tag_u8(hasher, 19),
-        PersistedFieldKind::Nat8 => write_hash_tag_u8(hasher, 20),
-        PersistedFieldKind::Nat16 => write_hash_tag_u8(hasher, 21),
-        PersistedFieldKind::Nat32 => write_hash_tag_u8(hasher, 22),
-        PersistedFieldKind::Nat64 => write_hash_tag_u8(hasher, 23),
-        PersistedFieldKind::Nat128 => write_hash_tag_u8(hasher, 24),
-        PersistedFieldKind::NatBig { max_bytes } => {
+        AcceptedFieldKind::Timestamp => write_hash_tag_u8(hasher, 19),
+        AcceptedFieldKind::Nat8 => write_hash_tag_u8(hasher, 20),
+        AcceptedFieldKind::Nat16 => write_hash_tag_u8(hasher, 21),
+        AcceptedFieldKind::Nat32 => write_hash_tag_u8(hasher, 22),
+        AcceptedFieldKind::Nat64 => write_hash_tag_u8(hasher, 23),
+        AcceptedFieldKind::Nat128 => write_hash_tag_u8(hasher, 24),
+        AcceptedFieldKind::NatBig { max_bytes } => {
             write_hash_tag_u8(hasher, 25);
             write_hash_u32(hasher, *max_bytes);
         }
-        PersistedFieldKind::Ulid => write_hash_tag_u8(hasher, 26),
-        PersistedFieldKind::Unit => write_hash_tag_u8(hasher, 27),
-        PersistedFieldKind::Relation {
+        AcceptedFieldKind::Ulid => write_hash_tag_u8(hasher, 26),
+        AcceptedFieldKind::Unit => write_hash_tag_u8(hasher, 27),
+        AcceptedFieldKind::Relation {
             target_path,
             target_entity_name,
             target_entity_tag,
@@ -1312,23 +1817,23 @@ fn hash_persisted_field_kind(hasher: &mut sha2::Sha256, kind: &PersistedFieldKin
             write_hash_str_u32(hasher, target_entity_name);
             write_hash_u64(hasher, target_entity_tag.value());
             write_hash_str_u32(hasher, target_store_path);
-            hash_persisted_field_kind(hasher, key_kind);
-            write_hash_str_u32(hasher, persisted_relation_strength_name(*strength));
+            hash_accepted_field_kind(hasher, key_kind);
+            write_hash_str_u32(hasher, accepted_relation_strength_name(*strength));
         }
-        PersistedFieldKind::List(inner) => {
+        AcceptedFieldKind::List(inner) => {
             write_hash_tag_u8(hasher, 29);
-            hash_persisted_field_kind(hasher, inner);
+            hash_accepted_field_kind(hasher, inner);
         }
-        PersistedFieldKind::Set(inner) => {
+        AcceptedFieldKind::Set(inner) => {
             write_hash_tag_u8(hasher, 30);
-            hash_persisted_field_kind(hasher, inner);
+            hash_accepted_field_kind(hasher, inner);
         }
-        PersistedFieldKind::Map { key, value } => {
+        AcceptedFieldKind::Map { key, value } => {
             write_hash_tag_u8(hasher, 31);
-            hash_persisted_field_kind(hasher, key);
-            hash_persisted_field_kind(hasher, value);
+            hash_accepted_field_kind(hasher, key);
+            hash_accepted_field_kind(hasher, value);
         }
-        PersistedFieldKind::Structured { queryable } => {
+        AcceptedFieldKind::Structured { queryable } => {
             write_hash_tag_u8(hasher, 32);
             write_hash_tag_u8(hasher, u8::from(*queryable));
         }
@@ -1369,21 +1874,12 @@ const fn persisted_expression_op_name(
     }
 }
 
-const fn persisted_relation_strength_name(
-    strength: crate::db::schema::PersistedRelationStrength,
+const fn accepted_relation_strength_name(
+    strength: crate::db::schema::AcceptedRelationStrength,
 ) -> &'static str {
     match strength {
-        crate::db::schema::PersistedRelationStrength::Strong => "strong",
-        crate::db::schema::PersistedRelationStrength::Weak => "weak",
-    }
-}
-
-const fn field_storage_decode_name(
-    decode: crate::model::field::FieldStorageDecode,
-) -> &'static str {
-    match decode {
-        crate::model::field::FieldStorageDecode::ByKind => "by_kind",
-        crate::model::field::FieldStorageDecode::Value => "value",
+        crate::db::schema::AcceptedRelationStrength::Strong => "strong",
+        crate::db::schema::AcceptedRelationStrength::Weak => "weak",
     }
 }
 

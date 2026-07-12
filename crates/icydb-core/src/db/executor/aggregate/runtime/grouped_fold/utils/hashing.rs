@@ -4,12 +4,11 @@
 
 use crate::{
     db::executor::{
-        aggregate::FieldSlot,
+        aggregate::{FieldSlot, capability::accepted_field_kind_has_identity_group_canonical_form},
         group::{StableHash, stable_hash_from_digest},
         pipeline::runtime::RowView,
     },
     error::InternalError,
-    model::field_kind_has_identity_group_canonical_form,
     value::{Value, ValueHashWriter, hash_single_list_identity_canonical_value},
 };
 
@@ -22,8 +21,8 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn stable_hash_gro
 ) -> Result<StableHash, InternalError> {
     if let [field] = group_fields
         && field
-            .kind()
-            .is_some_and(field_kind_has_identity_group_canonical_form)
+            .accepted_kind()
+            .is_some_and(accepted_field_kind_has_identity_group_canonical_form)
     {
         return row_view.with_required_slot(field.index(), stable_hash_single_group_value);
     }

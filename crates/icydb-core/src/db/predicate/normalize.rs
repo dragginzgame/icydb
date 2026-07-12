@@ -3,6 +3,8 @@
 //! Does not own: runtime evaluation or schema field-slot resolution.
 //! Boundary: normalize before validation/planning/fingerprinting.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::model::{classify_field_kind, field::FieldKind};
 use crate::{
     db::{
         predicate::{
@@ -10,11 +12,17 @@ use crate::{
             Predicate, canonical_membership_value_list, collapse_membership_compare_leaves,
             encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
         },
-        schema::{SchemaInfo, SchemaLiteralValidationReason, ValidateError},
+        schema::{
+            AcceptedFieldKind, AcceptedSchemaFieldContractRef, SchemaInfo,
+            SchemaLiteralValidationReason, ValidateError, classify_accepted_field_kind,
+            enum_catalog::{
+                AcceptedValueContract, ValueAdmissionBudget, ValueAdmissionError,
+                validate_canonical_value,
+            },
+        },
     },
-    model::{classify_field_kind, field::FieldKind},
     types::{IntBig, NatBig},
-    value::{Value, canonicalize_value_set},
+    value::{InputValue, InputValueEnum, Value, canonicalize_value_set},
 };
 
 /// Normalize a predicate into a canonical, deterministic form.
@@ -171,49 +179,219 @@ fn normalize_compare_with_schema(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> Result<ComparePredicate, ValidateError> {
-    let Some(field_kind) = schema.field_kind(&cmp.field) else {
-        return Ok(cmp.clone());
-    };
+    if let Some(contract) = schema.accepted_field_contract(&cmp.field) {
+        let value = if contract.kind().contains_enum() {
+            normalize_compare_value_for_accepted_contract(
+                &cmp.field, cmp.op, &cmp.value, &contract,
+            )?
+        } else {
+            normalize_compare_value_for_accepted_kind(
+                &cmp.field,
+                cmp.op,
+                &cmp.value,
+                contract.kind(),
+                cmp.coercion(),
+            )?
+        };
+        return Ok(ComparePredicate {
+            field: cmp.field.clone(),
+            op: cmp.op,
+            value,
+            coercion: cmp.coercion.clone(),
+        });
+    }
 
-    let value = normalize_compare_value_for_kind(
-        &cmp.field,
-        cmp.op,
-        &cmp.value,
-        field_kind,
-        cmp.coercion(),
-    )?;
-    Ok(ComparePredicate {
-        field: cmp.field.clone(),
-        op: cmp.op,
-        value,
-        coercion: cmp.coercion.clone(),
-    })
+    #[cfg(any(test, feature = "sql"))]
+    if !schema.has_accepted_authority()
+        && let Some(field_kind) = schema.field_kind(&cmp.field)
+    {
+        let value = normalize_compare_value_for_kind(
+            &cmp.field,
+            cmp.op,
+            &cmp.value,
+            field_kind,
+            cmp.coercion(),
+        )?;
+        return Ok(ComparePredicate {
+            field: cmp.field.clone(),
+            op: cmp.op,
+            value,
+            coercion: cmp.coercion.clone(),
+        });
+    }
+
+    Ok(cmp.clone())
+}
+
+fn normalize_compare_value_for_accepted_contract(
+    field: &str,
+    op: CompareOp,
+    value: &Value,
+    contract: &AcceptedSchemaFieldContractRef<'_>,
+) -> Result<Value, ValidateError> {
+    let mut budget = ValueAdmissionBudget::standard();
+    match op {
+        CompareOp::In | CompareOp::NotIn => {
+            let Value::List(values) = value else {
+                return Ok(value.clone());
+            };
+            let mut normalized = Vec::with_capacity(values.len());
+            for value in values {
+                normalized.push(normalize_accepted_predicate_value(
+                    field,
+                    value,
+                    contract.value_contract(),
+                    contract.nullable(),
+                    contract,
+                    &mut budget,
+                )?);
+            }
+            Ok(canonical_membership_value_list(normalized))
+        }
+        CompareOp::Contains => {
+            let Some(element_contract) = contract.collection_element_contract() else {
+                return Ok(value.clone());
+            };
+            normalize_accepted_predicate_value(
+                field,
+                value,
+                &element_contract,
+                false,
+                contract,
+                &mut budget,
+            )
+        }
+        _ => normalize_accepted_predicate_value(
+            field,
+            value,
+            contract.value_contract(),
+            contract.nullable(),
+            contract,
+            &mut budget,
+        ),
+    }
+}
+
+fn normalize_accepted_predicate_value(
+    field: &str,
+    value: &Value,
+    value_contract: &AcceptedValueContract,
+    nullable: bool,
+    contract: &AcceptedSchemaFieldContractRef<'_>,
+    budget: &mut ValueAdmissionBudget,
+) -> Result<Value, ValidateError> {
+    if value.contains_enum() {
+        validate_canonical_value(contract.enum_catalog(), value_contract, value, budget)
+            .map_err(|error| predicate_admission_error(field, error))?;
+        return Ok(value.clone());
+    }
+    let input = match (value_contract.kind(), value) {
+        (AcceptedFieldKind::Enum { .. }, Value::Text(variant)) => {
+            InputValue::Enum(InputValueEnum::loose(variant.clone()))
+        }
+        _ => InputValue::try_from_runtime_non_enum(value).ok_or_else(|| {
+            ValidateError::invalid_literal(
+                field,
+                SchemaLiteralValidationReason::LiteralTypeMismatch,
+            )
+        })?,
+    };
+    contract
+        .normalize_contract_input_to_runtime(value_contract, nullable, input, budget)
+        .map_err(|error| predicate_admission_error(field, error))
+}
+
+fn predicate_admission_error(field: &str, error: ValueAdmissionError) -> ValidateError {
+    let reason = match error {
+        ValueAdmissionError::EnumPathMismatch => SchemaLiteralValidationReason::EnumPathMismatch,
+        ValueAdmissionError::UnknownEnumVariant => {
+            SchemaLiteralValidationReason::UnknownEnumVariant
+        }
+        ValueAdmissionError::EnumBodyMismatch => SchemaLiteralValidationReason::EnumBodyMismatch,
+        ValueAdmissionError::DepthExceeded
+        | ValueAdmissionError::SizeExceeded
+        | ValueAdmissionError::TypeMismatch
+        | ValueAdmissionError::ScalarConstraint
+        | ValueAdmissionError::EnumPathRequired
+        | ValueAdmissionError::EnumTypeMismatch
+        | ValueAdmissionError::UnknownEnumType
+        | ValueAdmissionError::DuplicateSetItem
+        | ValueAdmissionError::DuplicateMapKey
+        | ValueAdmissionError::InvalidAcceptedContract
+        | ValueAdmissionError::MissingSchemaRevision => {
+            SchemaLiteralValidationReason::LiteralTypeMismatch
+        }
+    };
+    ValidateError::invalid_literal(field, reason)
 }
 
 fn normalize_compare_fields_with_schema(
     schema: &SchemaInfo,
     cmp: &crate::db::predicate::CompareFieldsPredicate,
 ) -> crate::db::predicate::CompareFieldsPredicate {
-    let Some(left_kind) = schema.field_kind(&cmp.left_field) else {
-        return cmp.clone();
-    };
-    let Some(right_kind) = schema.field_kind(&cmp.right_field) else {
-        return cmp.clone();
-    };
+    if let (Some(left), Some(right)) = (
+        schema.accepted_field_contract(&cmp.left_field),
+        schema.accepted_field_contract(&cmp.right_field),
+    ) {
+        return crate::db::predicate::CompareFieldsPredicate::with_coercion(
+            cmp.left_field.clone(),
+            cmp.op,
+            cmp.right_field.clone(),
+            normalize_accepted_compare_fields_coercion(
+                cmp.op,
+                left.kind(),
+                right.kind(),
+                cmp.coercion.id,
+            ),
+        );
+    }
 
-    let left_field = cmp.left_field.clone();
-    let right_field = cmp.right_field.clone();
-    let coercion =
-        normalize_compare_fields_coercion(cmp.op, left_kind, right_kind, cmp.coercion.id);
+    #[cfg(any(test, feature = "sql"))]
+    if !schema.has_accepted_authority()
+        && let (Some(left_kind), Some(right_kind)) = (
+            schema.field_kind(&cmp.left_field),
+            schema.field_kind(&cmp.right_field),
+        )
+    {
+        return crate::db::predicate::CompareFieldsPredicate::with_coercion(
+            cmp.left_field.clone(),
+            cmp.op,
+            cmp.right_field.clone(),
+            normalize_compare_fields_coercion(cmp.op, left_kind, right_kind, cmp.coercion.id),
+        );
+    }
 
-    crate::db::predicate::CompareFieldsPredicate::with_coercion(
-        left_field,
-        cmp.op,
-        right_field,
-        coercion,
-    )
+    cmp.clone()
 }
 
+const fn normalize_accepted_compare_fields_coercion(
+    op: CompareOp,
+    left_kind: &AcceptedFieldKind,
+    right_kind: &AcceptedFieldKind,
+    current: CoercionId,
+) -> CoercionId {
+    if op.is_equality_family() {
+        if classify_accepted_field_kind(left_kind).supports_predicate_numeric_widen()
+            && classify_accepted_field_kind(right_kind).supports_predicate_numeric_widen()
+        {
+            CoercionId::NumericWiden
+        } else {
+            current
+        }
+    } else if op.is_ordering_family() {
+        if matches!(left_kind, AcceptedFieldKind::Text { .. })
+            && matches!(right_kind, AcceptedFieldKind::Text { .. })
+        {
+            CoercionId::Strict
+        } else {
+            current
+        }
+    } else {
+        current
+    }
+}
+
+#[cfg(any(test, feature = "sql"))]
 const fn normalize_compare_fields_coercion(
     op: CompareOp,
     left_kind: &FieldKind,
@@ -221,7 +399,9 @@ const fn normalize_compare_fields_coercion(
     current: CoercionId,
 ) -> CoercionId {
     if op.is_equality_family() {
-        if field_kinds_support_numeric_widen(left_kind, right_kind) {
+        if classify_field_kind(left_kind).supports_predicate_numeric_widen()
+            && classify_field_kind(right_kind).supports_predicate_numeric_widen()
+        {
             CoercionId::NumericWiden
         } else {
             current
@@ -239,11 +419,148 @@ const fn normalize_compare_fields_coercion(
     }
 }
 
-const fn field_kinds_support_numeric_widen(left_kind: &FieldKind, right_kind: &FieldKind) -> bool {
-    classify_field_kind(left_kind).supports_predicate_numeric_widen()
-        && classify_field_kind(right_kind).supports_predicate_numeric_widen()
+fn normalize_compare_value_for_accepted_kind(
+    field: &str,
+    op: CompareOp,
+    value: &Value,
+    field_kind: &AcceptedFieldKind,
+    coercion: &CoercionSpec,
+) -> Result<Value, ValidateError> {
+    match op {
+        CompareOp::In | CompareOp::NotIn => {
+            let Value::List(values) = value else {
+                return Ok(value.clone());
+            };
+            let Value::List(normalized) = normalize_accepted_list_value_for_kind(
+                field,
+                values.as_slice(),
+                field_kind,
+                coercion,
+                op,
+            )?
+            else {
+                unreachable!("accepted predicate normalize invariant");
+            };
+            Ok(canonical_membership_value_list(normalized))
+        }
+        CompareOp::Contains => {
+            let element_kind = match field_kind {
+                AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => inner.as_ref(),
+                _ => return Ok(value.clone()),
+            };
+            normalize_value_for_accepted_kind(field, value, element_kind, coercion, op)
+        }
+        _ => normalize_value_for_accepted_kind(field, value, field_kind, coercion, op),
+    }
 }
 
+fn normalize_value_for_accepted_kind(
+    field: &str,
+    value: &Value,
+    expected_kind: &AcceptedFieldKind,
+    coercion: &CoercionSpec,
+    op: CompareOp,
+) -> Result<Value, ValidateError> {
+    match expected_kind {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            normalize_value_for_accepted_kind(field, value, key_kind, coercion, op)
+        }
+        AcceptedFieldKind::List(inner) => {
+            let Value::List(values) = value else {
+                return Ok(value.clone());
+            };
+            normalize_accepted_list_value_for_kind(field, values.as_slice(), inner, coercion, op)
+        }
+        AcceptedFieldKind::Set(inner) => {
+            let Value::List(values) = value else {
+                return Ok(value.clone());
+            };
+            let Value::List(mut normalized) = normalize_accepted_list_value_for_kind(
+                field,
+                values.as_slice(),
+                inner,
+                coercion,
+                op,
+            )?
+            else {
+                unreachable!("accepted predicate normalize invariant");
+            };
+            canonicalize_value_set(&mut normalized);
+            Ok(Value::List(normalized))
+        }
+        AcceptedFieldKind::Map {
+            key,
+            value: map_value,
+        } => {
+            let Value::Map(entries) = value else {
+                return Ok(value.clone());
+            };
+            let mut normalized = Vec::with_capacity(entries.len());
+            for (entry_key, entry_value) in entries {
+                normalized.push((
+                    normalize_value_for_accepted_kind(field, entry_key, key, coercion, op)?,
+                    normalize_value_for_accepted_kind(field, entry_value, map_value, coercion, op)?,
+                ));
+            }
+            Ok(Value::Map(normalized))
+        }
+        AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. } => Ok(normalize_numeric_value_for_accepted_kind(
+            value,
+            expected_kind,
+            coercion,
+            op,
+        )),
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::Structured { .. } => Ok(value.clone()),
+    }
+}
+
+fn normalize_accepted_list_value_for_kind(
+    field: &str,
+    values: &[Value],
+    expected_kind: &AcceptedFieldKind,
+    coercion: &CoercionSpec,
+    op: CompareOp,
+) -> Result<Value, ValidateError> {
+    let mut normalized = Vec::with_capacity(values.len());
+    for item in values {
+        normalized.push(normalize_value_for_accepted_kind(
+            field,
+            item,
+            expected_kind,
+            coercion,
+            op,
+        )?);
+    }
+    Ok(Value::List(normalized))
+}
+
+#[cfg(any(test, feature = "sql"))]
 fn normalize_compare_value_for_kind(
     field: &str,
     op: CompareOp,
@@ -280,6 +597,7 @@ fn normalize_compare_value_for_kind(
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn normalize_value_for_kind(
     field: &str,
     value: &Value,
@@ -288,7 +606,6 @@ fn normalize_value_for_kind(
     op: CompareOp,
 ) -> Result<Value, ValidateError> {
     match expected_kind {
-        FieldKind::Enum { path, .. } => normalize_enum_value(field, value, path),
         FieldKind::Relation { key_kind, .. } => {
             normalize_value_for_kind(field, value, key_kind, coercion, op)
         }
@@ -333,7 +650,8 @@ fn normalize_value_for_kind(
 
             Ok(Value::Map(normalized))
         }
-        FieldKind::Account
+        FieldKind::Enum { .. }
+        | FieldKind::Account
         | FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Date
@@ -372,9 +690,56 @@ fn normalize_value_for_kind(
 // planner identity does not depend on parser-chosen integer wrappers. Ordered
 // NumericWiden comparisons keep their original transport shape because their
 // literal wrapper is still part of the current planner contract.
+#[cfg(any(test, feature = "sql"))]
 fn normalize_numeric_value_for_kind(
     value: &Value,
     expected_kind: &FieldKind,
+    coercion: &CoercionSpec,
+    op: CompareOp,
+) -> Value {
+    let target = match expected_kind {
+        FieldKind::Int64 => Some(PredicateNumericTarget::Int64),
+        FieldKind::Int128 => Some(PredicateNumericTarget::Int128),
+        FieldKind::IntBig { .. } => Some(PredicateNumericTarget::IntBig),
+        FieldKind::Nat64 => Some(PredicateNumericTarget::Nat64),
+        FieldKind::Nat128 => Some(PredicateNumericTarget::Nat128),
+        FieldKind::NatBig { .. } => Some(PredicateNumericTarget::NatBig),
+        _ => None,
+    };
+    normalize_numeric_value_for_target(value, target, coercion, op)
+}
+
+fn normalize_numeric_value_for_accepted_kind(
+    value: &Value,
+    expected_kind: &AcceptedFieldKind,
+    coercion: &CoercionSpec,
+    op: CompareOp,
+) -> Value {
+    let target = match expected_kind {
+        AcceptedFieldKind::Int64 => Some(PredicateNumericTarget::Int64),
+        AcceptedFieldKind::Int128 => Some(PredicateNumericTarget::Int128),
+        AcceptedFieldKind::IntBig { .. } => Some(PredicateNumericTarget::IntBig),
+        AcceptedFieldKind::Nat64 => Some(PredicateNumericTarget::Nat64),
+        AcceptedFieldKind::Nat128 => Some(PredicateNumericTarget::Nat128),
+        AcceptedFieldKind::NatBig { .. } => Some(PredicateNumericTarget::NatBig),
+        _ => None,
+    };
+    normalize_numeric_value_for_target(value, target, coercion, op)
+}
+
+#[derive(Clone, Copy)]
+enum PredicateNumericTarget {
+    Int64,
+    Int128,
+    IntBig,
+    Nat64,
+    Nat128,
+    NatBig,
+}
+
+fn normalize_numeric_value_for_target(
+    value: &Value,
+    target: Option<PredicateNumericTarget>,
     coercion: &CoercionSpec,
     op: CompareOp,
 ) -> Value {
@@ -391,32 +756,32 @@ fn normalize_numeric_value_for_kind(
         return value.clone();
     }
 
-    let normalized = match expected_kind {
-        FieldKind::Int64 => value
+    let normalized = match target {
+        Some(PredicateNumericTarget::Int64) => value
             .to_numeric_decimal()
             .and_then(<i64 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Int64),
-        FieldKind::Int128 => value
+        Some(PredicateNumericTarget::Int128) => value
             .to_numeric_decimal()
             .and_then(<i128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Int128),
-        FieldKind::IntBig { .. } => value
+        Some(PredicateNumericTarget::IntBig) => value
             .to_numeric_decimal()
             .and_then(<IntBig as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::IntBig),
-        FieldKind::Nat64 => value
+        Some(PredicateNumericTarget::Nat64) => value
             .to_numeric_decimal()
             .and_then(<u64 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Nat64),
-        FieldKind::Nat128 => value
+        Some(PredicateNumericTarget::Nat128) => value
             .to_numeric_decimal()
             .and_then(<u128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Nat128),
-        FieldKind::NatBig { .. } => value
+        Some(PredicateNumericTarget::NatBig) => value
             .to_numeric_decimal()
             .and_then(<NatBig as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::NatBig),
-        _ => None,
+        None => None,
     };
 
     normalized.unwrap_or_else(|| value.clone())
@@ -424,6 +789,7 @@ fn normalize_numeric_value_for_kind(
 
 // Normalize one list-shaped literal by recursively rewriting each item against
 // the expected element kind while preserving list cardinality and order.
+#[cfg(any(test, feature = "sql"))]
 fn normalize_list_value_for_kind(
     field: &str,
     values: &[Value],
@@ -443,31 +809,6 @@ fn normalize_list_value_for_kind(
     }
 
     Ok(Value::List(normalized))
-}
-
-fn normalize_enum_value(
-    field: &str,
-    value: &Value,
-    expected_path: &str,
-) -> Result<Value, ValidateError> {
-    let Value::Enum(enum_value) = value else {
-        return Ok(value.clone());
-    };
-
-    if let Some(path) = enum_value.path() {
-        if path != expected_path {
-            return Err(ValidateError::invalid_literal(
-                field,
-                SchemaLiteralValidationReason::EnumPathMismatch,
-            ));
-        }
-
-        return Ok(value.clone());
-    }
-
-    let mut normalized = enum_value.clone();
-    normalized.set_path(Some(expected_path.to_string()));
-    Ok(Value::Enum(normalized))
 }
 
 ///

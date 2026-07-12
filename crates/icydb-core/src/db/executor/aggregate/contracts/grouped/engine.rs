@@ -28,6 +28,10 @@ use crate::{
                 spec::AggregateKind,
                 state::{GroupedDistinctExecutionMode, GroupedTerminalAggregateState},
             },
+            aggregate::field::{
+                AggregateFieldValueError, FieldSlot as AggregateFieldSlot,
+                resolve_aggregate_target_slot_from_planner_slot,
+            },
             group::{GroupKey, StableHash},
             pipeline::runtime::RowView,
         },
@@ -75,7 +79,7 @@ pub(in crate::db::executor) struct GroupedAggregateState {
     kind: AggregateKind,
     direction: Direction,
     distinct: bool,
-    target_field: Option<FieldSlot>,
+    target_field: Option<AggregateFieldSlot>,
     max_distinct_values_per_group: u64,
     groups: HashMap<GroupKey, GroupedTerminalAggregateState>,
 }
@@ -101,6 +105,11 @@ impl GroupedAggregateState {
         if target_field.is_some() && !kind.supports_field_target_v1() {
             return Err(Self::unsupported_field_target_aggregate(kind));
         }
+        let target_field = target_field
+            .as_ref()
+            .map(|planned| resolve_aggregate_target_slot_from_planner_slot(kind, planned))
+            .transpose()
+            .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(Self {
             kind,
@@ -200,7 +209,7 @@ impl GroupedAggregateState {
             self.kind,
             self.direction,
             distinct_mode,
-            self.target_field.clone(),
+            self.target_field,
             None,
             None,
             self.max_distinct_values_per_group,

@@ -79,6 +79,20 @@ pub(super) fn inspect_commit_control_slot(
     if bytes.len() > MAX_COMMIT_BYTES as usize {
         return Err(control_slot_exceeds_max_size());
     }
+    let encoded_len = commit_control_slot_encoded_len(bytes)?;
+    if bytes.len() != encoded_len {
+        return Err(control_slot_canonical_envelope_required());
+    }
+
+    let marker_bytes = bytes
+        .get(COMMIT_CONTROL_HEADER_BYTES..encoded_len)
+        .ok_or_else(control_slot_canonical_envelope_required)?;
+
+    Ok(CommitControlSlotRef { marker_bytes })
+}
+
+/// Return the total encoded control-slot length from a bounded header prefix.
+pub(super) fn commit_control_slot_encoded_len(bytes: &[u8]) -> Result<usize, InternalError> {
     if bytes.len() < COMMIT_CONTROL_HEADER_BYTES {
         return Err(control_slot_canonical_envelope_required());
     }
@@ -101,17 +115,20 @@ pub(super) fn inspect_commit_control_slot(
 
     let mut cursor = COMMIT_CONTROL_MAGIC.len() + 1;
     let marker_len = read_u32_le(bytes, &mut cursor, "commit control-slot")? as usize;
-    let remaining = bytes.len().saturating_sub(cursor);
-    if remaining != marker_len {
-        return Err(control_slot_canonical_envelope_required());
+    let encoded_len = cursor.saturating_add(marker_len);
+    if encoded_len > MAX_COMMIT_BYTES as usize {
+        return Err(control_slot_exceeds_max_size());
     }
 
-    let marker_end = cursor.saturating_add(marker_len);
-    let marker_bytes = bytes
-        .get(cursor..marker_end)
-        .ok_or_else(control_slot_canonical_envelope_required)?;
+    Ok(encoded_len)
+}
 
-    Ok(CommitControlSlotRef { marker_bytes })
+/// Encode the canonical empty commit-control slot.
+pub(super) fn encode_empty_commit_control_slot() -> [u8; COMMIT_CONTROL_HEADER_BYTES] {
+    let mut encoded = [0_u8; COMMIT_CONTROL_HEADER_BYTES];
+    encoded[..COMMIT_CONTROL_MAGIC.len()].copy_from_slice(&COMMIT_CONTROL_MAGIC);
+    encoded[COMMIT_CONTROL_MAGIC.len()] = COMMIT_CONTROL_STATE_VERSION_CURRENT;
+    encoded
 }
 
 // Encode marker payload bytes into the persisted control-slot format.

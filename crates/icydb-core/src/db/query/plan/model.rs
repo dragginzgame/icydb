@@ -16,6 +16,7 @@ use crate::{
                 semantics::LogicalPushdownEligibility,
             },
         },
+        schema::AcceptedFieldKind,
     },
     model::field::FieldKind,
 };
@@ -690,15 +691,22 @@ impl GroupedPlanAggregateFamily {
 /// Canonical resolved field reference used by logical planning.
 /// `index` is the stable slot in `EntityModel::fields`; `field` is retained
 /// for diagnostics and explain surfaces.
-/// `kind` freezes planner-resolved field metadata so executor boundaries do
-/// not need to reopen `EntityModel` just to recover type/capability shape.
+/// `authority` freezes exactly one planner metadata source so accepted runtime
+/// slots cannot also carry generated fallback metadata.
 ///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::query::plan) enum FieldSlotAuthority {
+    Unresolved,
+    ModelOnly(FieldKind),
+    Accepted(AcceptedFieldKind),
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct FieldSlot {
     pub(in crate::db) index: usize,
     pub(in crate::db) field: String,
-    pub(in crate::db) kind: Option<FieldKind>,
+    pub(in crate::db::query::plan) authority: FieldSlotAuthority,
 }
 
 impl PartialEq for FieldSlot {

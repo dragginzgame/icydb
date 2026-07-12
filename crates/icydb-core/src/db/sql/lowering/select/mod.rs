@@ -568,7 +568,9 @@ fn validate_group_by_sql_capabilities(
         let Some(capabilities) = schema.sql_capabilities(field) else {
             return Err(SqlLoweringError::unknown_field(field.as_str()));
         };
-        if !capabilities.groupable() {
+        // Keep enum grouping closed until the canonical-ID runtime/key route
+        // consumes the catalog capability recorded on accepted SchemaInfo.
+        if capabilities.enum_equality().is_some() || !capabilities.groupable() {
             return Err(SqlLoweringError::unsupported_select_group_by());
         }
     }

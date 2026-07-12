@@ -1,15 +1,10 @@
 use super::{
-    TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE,
-    TAG_VARIANT_PAYLOAD, TAG_VARIANT_UNIT, parse_binary_head, push_binary_bool, skip_binary_value,
-    split_binary_variant_payload, walk_binary_list_items, walk_binary_map_entries,
+    TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_TEXT, TAG_TRUE, parse_binary_head,
+    push_binary_bool, skip_binary_value, walk_binary_list_items, walk_binary_map_entries,
 };
 
 type ListState = Vec<Vec<u8>>;
 type MapState = Vec<(Vec<u8>, Vec<u8>)>;
-
-fn encode_null() -> Vec<u8> {
-    vec![TAG_NULL]
-}
 
 fn encode_bool(value: bool) -> Vec<u8> {
     vec![if value { TAG_TRUE } else { TAG_FALSE }]
@@ -62,29 +57,6 @@ fn encode_map(entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
         out.extend_from_slice(key);
         out.extend_from_slice(value);
     }
-    out
-}
-
-fn encode_variant_unit(label: &str) -> Vec<u8> {
-    let mut out = vec![TAG_VARIANT_UNIT];
-    out.extend_from_slice(
-        &u32::try_from(label.len())
-            .expect("label len fits u32")
-            .to_be_bytes(),
-    );
-    out.extend_from_slice(label.as_bytes());
-    out
-}
-
-fn encode_variant_payload(label: &str, payload: &[u8]) -> Vec<u8> {
-    let mut out = vec![TAG_VARIANT_PAYLOAD];
-    out.extend_from_slice(
-        &u32::try_from(label.len())
-            .expect("label len fits u32")
-            .to_be_bytes(),
-    );
-    out.extend_from_slice(label.as_bytes());
-    out.extend_from_slice(payload);
     out
 }
 
@@ -162,29 +134,4 @@ fn walk_binary_map_entries_yields_raw_entry_slices() {
         state,
         vec![(left_key, left_value), (right_key, right_value)],
     );
-}
-
-#[test]
-fn split_binary_variant_payload_handles_unit_and_payload_variants() {
-    let unit = encode_variant_unit("Loaded");
-    let payload_value = encode_nat64(7);
-    let payload = encode_variant_payload("Loaded", &payload_value);
-
-    let (unit_label, unit_payload) =
-        split_binary_variant_payload(&unit).expect("unit variant split should succeed");
-    let (payload_label, payload_payload) =
-        split_binary_variant_payload(&payload).expect("payload variant split should succeed");
-
-    assert_eq!(unit_label, b"Loaded");
-    assert!(unit_payload.is_none());
-    assert_eq!(payload_label, b"Loaded");
-    assert_eq!(payload_payload, Some(payload_value.as_slice()));
-}
-
-#[test]
-fn split_binary_variant_payload_rejects_trailing_bytes() {
-    let mut bytes = encode_variant_unit("Loaded");
-    bytes.extend_from_slice(&encode_null());
-
-    assert!(split_binary_variant_payload(&bytes).is_err());
 }

@@ -1,7 +1,7 @@
 //! Schema-owned field allocation helpers for DDL-authored field candidates.
 
 use crate::db::schema::{
-    AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldOrigin,
+    AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldOrigin,
     PersistedFieldSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
 };
 use crate::model::field::{FieldStorageDecode, LeafCodec};
@@ -40,7 +40,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_addition_name_candidate(
 pub(in crate::db) fn build_sql_ddl_field_addition_candidate(
     accepted_before: &AcceptedSchemaSnapshot,
     name: String,
-    kind: PersistedFieldKind,
+    kind: AcceptedFieldKind,
     nullable: bool,
     default: SchemaFieldDefault,
     storage_decode: FieldStorageDecode,
