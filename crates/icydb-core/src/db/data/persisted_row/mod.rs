@@ -42,10 +42,10 @@ pub(in crate::db) use patch::{
 };
 #[cfg(test)]
 pub(in crate::db) use patch::{
-    canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test,
-    canonical_row_from_entity_for_generated_model_for_test,
-    materialize_entity_from_serialized_structural_patch_for_generated_model_for_test,
-    serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test,
+    canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
+    canonical_row_from_entity_for_model_proposal_for_test,
+    materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test,
+    serialize_entity_slots_as_complete_serialized_patch_for_model_proposal_for_test,
 };
 #[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};

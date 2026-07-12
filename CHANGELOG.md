@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-## [0.200.0] ⚠️ - 2026-07-12 - Schema-Native Enums
+## [0.200.x] ⚠️ - 2026-07-12 - Schema-Native Enums
 
 Detailed notes: [docs/changelog/0.200.md](docs/changelog/0.200.md)
+
+### 🧹 Cleanup
+
+- `0.200.1` finishes accepted-schema row authority by removing the remaining
+  generated-model codec branch, tightening current-format value validation,
+  and reducing the measured wasm footprint without changing public APIs.
 
 ### ⚠️ Breaking
 

@@ -433,23 +433,30 @@ impl AcceptedRowDecodeContract {
         self
     }
 
-    /// Build a generated-compatible accepted row contract for executor tests.
+    /// Build an accepted row contract from one generated model proposal for tests.
     ///
     /// Production code must source this contract from the accepted schema store.
     /// This helper exists only so low-level executor tests can keep exercising
     /// save mechanics without bootstrapping a session/schema store around every
     /// fixture.
     #[cfg(test)]
-    pub(in crate::db) fn from_generated_model_for_tests(model: &'static EntityModel) -> Self {
+    pub(in crate::db) fn from_model_proposal_for_test(model: &'static EntityModel) -> Self {
         let proposal = crate::db::schema::compiled_schema_proposal_for_model(model);
-        let accepted =
-            AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
-                .expect("generated model proposal should produce an accepted test schema");
+        let catalog =
+            crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[model])
+                .expect("model proposal enum catalog should build for tests");
+        let snapshot = proposal
+            .initial_persisted_schema_snapshot_with_enum_catalog(&catalog)
+            .expect("model proposal should resolve through its test enum catalog");
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect("model proposal should produce an accepted test schema");
         let (descriptor, _) =
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&accepted, model)
-                .expect("generated model accepted test schema should be generated-compatible");
+                .expect("accepted test schema should match its model proposal");
+        let catalog =
+            AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
 
-        descriptor.row_decode_contract()
+        descriptor.row_decode_contract_with_catalog(catalog)
     }
 
     /// Return the accepted physical slot count required by this row contract.

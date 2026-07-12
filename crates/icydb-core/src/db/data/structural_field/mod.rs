@@ -61,7 +61,7 @@ pub(in crate::db) use primary_key_component::{
     decode_optional_primary_key_component_field_bytes,
     decode_primary_key_component_binary_value_bytes,
     encode_primary_key_component_binary_value_bytes, encode_primary_key_component_field_bytes,
-    supports_primary_key_component_binary_kind, validate_primary_key_component_binary_value_bytes,
+    supports_primary_key_component_binary_kind,
 };
 pub(in crate::db) use value_storage::{
     ValueStorageView, decode_account, decode_canonical_value_storage_bytes, decode_decimal,

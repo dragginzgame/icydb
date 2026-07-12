@@ -283,7 +283,7 @@ crate::test_entity! {
 fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {
     let key = crate::db::data::DecodedDataStoreKey::try_new::<OrderWindowEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = CanonicalRow::from_generated_entity_for_test(entity)
+    let row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
 
@@ -345,7 +345,7 @@ fn direct_data_row_order_window_uses_sparse_direct_field_decode() {
     let (_result, metrics) = with_structural_read_metrics(|| {
         apply_structural_order_window_to_data_rows(
             &mut rows,
-            RowLayout::from_generated_model_for_test(OrderWindowEntity::MODEL),
+            RowLayout::from_model_proposal_for_test(OrderWindowEntity::MODEL),
             &resolved_order(&[(1, OrderDirection::Asc)]),
             None,
         )
@@ -354,14 +354,14 @@ fn direct_data_row_order_window_uses_sparse_direct_field_decode() {
     assert_eq!(
         rows[0]
             .1
-            .try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+            .try_decode_with_model_proposal_for_test::<OrderWindowEntity>()
             .unwrap(),
         alpha
     );
     assert_eq!(
         rows[1]
             .1
-            .try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+            .try_decode_with_model_proposal_for_test::<OrderWindowEntity>()
             .unwrap(),
         beta
     );
@@ -415,7 +415,7 @@ fn direct_data_row_order_window_respects_mixed_field_directions() {
 
     apply_structural_order_window_to_data_rows(
         &mut rows,
-        RowLayout::from_generated_model_for_test(OrderWindowEntity::MODEL),
+        RowLayout::from_model_proposal_for_test(OrderWindowEntity::MODEL),
         &resolved_order(&[(4, OrderDirection::Asc), (5, OrderDirection::Desc)]),
         Some(2),
     )
@@ -424,7 +424,7 @@ fn direct_data_row_order_window_respects_mixed_field_directions() {
     let ordered = rows
         .iter()
         .map(|(_, row)| {
-            row.try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+            row.try_decode_with_model_proposal_for_test::<OrderWindowEntity>()
                 .unwrap()
                 .title
         })

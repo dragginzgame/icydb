@@ -15,10 +15,7 @@ use crate::{
         },
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-    },
+    model::{entity::EntityModel, field::LeafCodec},
     value::Value,
 };
 use std::{borrow::Cow, rc::Rc};
@@ -115,86 +112,43 @@ impl AcceptedStructuralRowAuthority {
 ///
 /// StructuralRowContract is the compact static row-shape authority used by
 /// structural row readers that do not need the full semantic `EntityModel`.
-/// It keeps the entity path, generated-compatible field bridge, declared field
-/// count, and primary-key slot required to open canonical persisted rows
-/// through the data-layer decode boundary.
+/// It keeps the entity path and accepted row-decode contract required to open
+/// canonical persisted rows through the data-layer decode boundary.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralRowContract {
     entity_path: &'static str,
-    generated_fields: &'static [FieldModel],
     field_count: usize,
     max_physical_slot_count: usize,
     primary_key_slot: usize,
-    accepted_decode_contract: Option<Rc<AcceptedRowDecodeContract>>,
+    accepted_decode_contract: Rc<AcceptedRowDecodeContract>,
 }
 
 impl StructuralRowContract {
-    /// Build one structural row contract from the generated entity model.
+    /// Build an accepted structural row contract from one model proposal for tests.
     #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn from_generated_model_for_test(
+    pub(in crate::db) fn from_model_proposal_for_test(
         model: &'static crate::model::entity::EntityModel,
     ) -> Self {
-        Self {
-            entity_path: model.path(),
-            generated_fields: model.fields(),
-            field_count: model.fields().len(),
-            max_physical_slot_count: model.fields().len(),
-            primary_key_slot: model.primary_key_slot(),
-            accepted_decode_contract: None,
-        }
-    }
-
-    /// Build one structural row contract from a generated model plus an owned
-    /// accepted row-decode contract for generated-bridge compatibility tests.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn from_generated_model_with_accepted_decode_contract_for_test(
-        model: &'static crate::model::entity::EntityModel,
-        accepted_decode_contract: AcceptedRowDecodeContract,
-    ) -> Self {
-        Self::from_accepted_decode_contract_with_generated_bridge(
+        Self::from_accepted_decode_contract(
             model.path(),
-            model.fields(),
-            accepted_decode_contract,
+            AcceptedRowDecodeContract::from_model_proposal_for_test(model),
         )
     }
 
     /// Build one structural row contract from accepted persisted schema only.
-    ///
-    /// Accepted runtime callers use this constructor when generated field
-    /// metadata must not be reopened. The generated field bridge remains empty
-    /// by design; any fallback to `field_decode_contract(...)` will fail closed
-    /// instead of silently using generated schema authority.
     #[must_use]
     pub(in crate::db) fn from_accepted_decode_contract(
         entity_path: &'static str,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
-        Self::from_accepted_decode_contract_with_generated_bridge(
-            entity_path,
-            &[],
-            accepted_decode_contract,
-        )
-    }
-
-    /// Build one accepted row contract while explicitly retaining a generated
-    /// field bridge for typed compatibility surfaces that still need it.
-    #[must_use]
-    fn from_accepted_decode_contract_with_generated_bridge(
-        entity_path: &'static str,
-        generated_fields: &'static [FieldModel],
-        accepted_decode_contract: AcceptedRowDecodeContract,
-    ) -> Self {
         Self {
             entity_path,
-            generated_fields,
             field_count: accepted_decode_contract.required_slot_count(),
             max_physical_slot_count: accepted_decode_contract.max_physical_slot_count(),
             primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
-            accepted_decode_contract: Some(Rc::new(accepted_decode_contract)),
+            accepted_decode_contract: Rc::new(accepted_decode_contract),
         }
     }
 
@@ -223,21 +177,6 @@ impl StructuralRowContract {
         self.entity_path
     }
 
-    /// Borrow one generated-compatible field model by structural slot.
-    ///
-    /// This remains a transitional adapter for the public `SlotReader`
-    /// materialization trait and write-side generated codecs. Runtime decode
-    /// code should prefer accepted-first row contract helpers whenever it only
-    /// needs field names, leaf codecs, or missing-slot policy.
-    pub(in crate::db) fn generated_compatible_field_model(
-        &self,
-        slot: usize,
-    ) -> Result<&'static FieldModel, InternalError> {
-        self.generated_fields.get(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
-        })
-    }
-
     /// Return the declared structural field count.
     #[must_use]
     pub(in crate::db) const fn field_count(&self) -> usize {
@@ -246,18 +185,11 @@ impl StructuralRowContract {
 
     /// Return the maximum physical slot count this row contract can accept.
     ///
-    /// Generated-only contracts remain exact. Accepted contracts may allow
-    /// older rows to carry trailing retired slots that are no longer visible
-    /// through the active schema.
+    /// Accepted contracts may allow current-format rows to carry trailing
+    /// retired slots that are no longer visible through the active schema.
     #[must_use]
     pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
         self.max_physical_slot_count
-    }
-
-    /// Return whether this contract was built from accepted persisted schema.
-    #[must_use]
-    pub(in crate::db) const fn has_accepted_decode_contract(&self) -> bool {
-        self.accepted_decode_contract.is_some()
     }
 
     /// Return the authoritative primary-key slot.
@@ -268,12 +200,8 @@ impl StructuralRowContract {
 
     /// Borrow ordered primary-key physical slots in key order.
     #[must_use]
-    pub(in crate::db) fn primary_key_slot_indices(&self) -> Cow<'_, [usize]> {
-        if let Some(contract) = &self.accepted_decode_contract {
-            return Cow::Borrowed(contract.primary_key_slot_indices());
-        }
-
-        Cow::Owned(vec![self.primary_key_slot])
+    pub(in crate::db) fn primary_key_slot_indices(&self) -> &[usize] {
+        self.accepted_decode_contract.primary_key_slot_indices()
     }
 
     pub(in crate::db) fn required_accepted_field_decode_contract(
@@ -282,10 +210,6 @@ impl StructuralRowContract {
     ) -> Result<AcceptedFieldDecodeContract<'_>, InternalError> {
         Ok(self
             .accepted_decode_contract
-            .as_ref()
-            .ok_or_else(|| {
-                InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
-            })?
             .required_field_for_slot(self.entity_path(), slot)?
             .decode_contract())
     }
@@ -295,17 +219,13 @@ impl StructuralRowContract {
     pub(in crate::db) fn accepted_enum_catalog_handle(
         &self,
     ) -> Option<&crate::db::schema::AcceptedEnumCatalogHandle> {
-        self.accepted_decode_contract
-            .as_ref()
-            .and_then(|contract| contract.enum_catalog_handle())
+        self.accepted_decode_contract.enum_catalog_handle()
     }
 
     /// Borrow accepted relation-edge metadata declared on this source row.
     #[must_use]
     pub(in crate::db) fn accepted_relation_edges(&self) -> &[OwnedAcceptedRelationEdgeContract] {
-        self.accepted_decode_contract
-            .as_ref()
-            .map_or(&[], |contract| contract.relation_edges())
+        self.accepted_decode_contract.relation_edges()
     }
 
     /// Return whether a physical slot is active in this row contract.
@@ -315,79 +235,40 @@ impl StructuralRowContract {
     /// longer active fields and must be skipped by dense validation/emission.
     #[must_use]
     pub(in crate::db) fn has_active_field_slot(&self, slot: usize) -> bool {
-        match &self.accepted_decode_contract {
-            Some(contract) => contract.field_for_slot(slot).is_some(),
-            None => self.generated_fields.get(slot).is_some(),
-        }
-    }
-
-    /// Return the field-level decode contract for one structural slot.
-    pub(in crate::db) fn field_decode_contract(
-        &self,
-        slot: usize,
-    ) -> Result<StructuralFieldDecodeContract, InternalError> {
-        self.generated_compatible_field_model(slot)
-            .map(StructuralFieldDecodeContract::from_field_model)
+        self.accepted_decode_contract.field_for_slot(slot).is_some()
     }
 
     /// Return the leaf codec for one structural slot.
     ///
-    /// Accepted saved-schema contracts own this lookup when present. Generated
-    /// field metadata remains available only for generated-only readers and
-    /// compatibility bridges.
     pub(in crate::db) fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
-        if self.accepted_decode_contract.is_some() {
-            let field = self.required_accepted_field_decode_contract(slot)?;
-            return Ok(field.leaf_codec());
-        }
-
-        self.field_decode_contract(slot)
-            .map(StructuralFieldDecodeContract::leaf_codec)
+        self.required_accepted_field_decode_contract(slot)
+            .map(|field| field.leaf_codec())
     }
 
     /// Return the persisted field name for diagnostics at one row slot.
     pub(in crate::db) fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
-        if self.accepted_decode_contract.is_some() {
-            let field = self.required_accepted_field_decode_contract(slot)?;
-            return Ok(field.field_name());
-        }
-
-        self.field_decode_contract(slot)
-            .map(StructuralFieldDecodeContract::name)
+        self.required_accepted_field_decode_contract(slot)
+            .map(|field| field.field_name())
     }
 
     /// Return one field's physical row slot by persisted field name.
     ///
-    /// Accepted contracts own this lookup when present. Generated field
-    /// metadata remains a compatibility fallback only for generated-only row
-    /// readers and tests.
     pub(in crate::db) fn field_slot_index_by_name(
         &self,
         field_name: &str,
     ) -> Result<usize, InternalError> {
-        if self.accepted_decode_contract.is_some() {
-            for slot in 0..self.field_count() {
-                let Some(field) = self
-                    .accepted_decode_contract
-                    .as_ref()
-                    .and_then(|contract| contract.field_for_slot(slot))
-                else {
-                    continue;
-                };
-                if field.field_name() == field_name {
-                    return Ok(slot);
-                }
+        for slot in 0..self.field_count() {
+            let Some(field) = self.accepted_decode_contract.field_for_slot(slot) else {
+                continue;
+            };
+            if field.field_name() == field_name {
+                return Ok(slot);
             }
-
-            return Err(InternalError::persisted_row_declared_field_missing(
-                field_name,
-            ));
         }
 
-        self.generated_fields
-            .iter()
-            .position(|field| field.name() == field_name)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+        Err(InternalError::persisted_row_declared_field_missing(
+            field_name,
+        ))
     }
 
     /// Return the missing-slot policy for one accepted physical slot.
@@ -396,10 +277,7 @@ impl StructuralRowContract {
         &self,
         slot: usize,
     ) -> Option<AcceptedFieldAbsencePolicy> {
-        let field = self
-            .accepted_decode_contract
-            .as_ref()?
-            .field_for_slot(slot)?;
+        let field = self.accepted_decode_contract.field_for_slot(slot)?;
 
         Some(field.absence_policy())
     }
@@ -417,8 +295,6 @@ impl StructuralRowContract {
             Some(AcceptedFieldAbsencePolicy::DefaultIfMissing) => {
                 let field = self
                     .accepted_decode_contract
-                    .as_ref()
-                    .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))?
                     .required_field_for_slot(self.entity_path(), slot)?;
                 let Some(default_payload) = field.default().slot_payload() else {
                     return Err(InternalError::persisted_row_declared_field_missing(
@@ -435,14 +311,10 @@ impl StructuralRowContract {
     }
 
     // Validate that one physical row slot count can be read through this
-    // structural contract. Generated rows stay exact; accepted rows may be
-    // short when trailing additions can materialize from schema metadata, or
-    // long when trailing retired slots still exist in older physical rows.
+    // structural contract. Rows may be short when trailing additions can
+    // materialize from schema metadata, or long when trailing retired slots
+    // still exist in older physical rows from the current format.
     fn validate_physical_slot_count(&self, physical_count: usize) -> Result<(), InternalError> {
-        if physical_count != self.field_count() && self.accepted_decode_contract.is_none() {
-            return Err(InternalError::persisted_row_decode_corruption());
-        }
-
         if physical_count > self.max_physical_slot_count() {
             return Err(InternalError::persisted_row_decode_corruption());
         }
@@ -455,69 +327,6 @@ impl StructuralRowContract {
         }
 
         Ok(())
-    }
-}
-
-///
-/// StructuralFieldDecodeContract
-///
-/// StructuralFieldDecodeContract is the narrow field-level decode shape used
-/// by structural row readers once the owning row layout has already selected a
-/// physical slot. It exists to keep value materialization on decode facts
-/// instead of requiring every consumer to depend on the full generated
-/// `FieldModel`.
-///
-
-#[derive(Clone, Copy, Debug)]
-pub(in crate::db) struct StructuralFieldDecodeContract {
-    field_name: &'static str,
-    kind: FieldKind,
-    storage_decode: FieldStorageDecode,
-    leaf_codec: LeafCodec,
-    nullable: bool,
-}
-
-impl StructuralFieldDecodeContract {
-    /// Build one decode contract from today's generated field metadata.
-    #[must_use]
-    pub(in crate::db::data) const fn from_field_model(field: &FieldModel) -> Self {
-        Self {
-            field_name: field.name(),
-            kind: field.kind,
-            storage_decode: field.storage_decode(),
-            leaf_codec: field.leaf_codec(),
-            nullable: field.nullable(),
-        }
-    }
-
-    /// Borrow the field name used for diagnostics.
-    #[must_use]
-    pub(in crate::db) const fn name(self) -> &'static str {
-        self.field_name
-    }
-
-    /// Return the field kind used by structural decoders.
-    #[must_use]
-    pub(in crate::db) const fn kind(self) -> FieldKind {
-        self.kind
-    }
-
-    /// Return the storage decode lane for this field.
-    #[must_use]
-    pub(in crate::db) const fn storage_decode(self) -> FieldStorageDecode {
-        self.storage_decode
-    }
-
-    /// Return the leaf codec for this field.
-    #[must_use]
-    pub(in crate::db) const fn leaf_codec(self) -> LeafCodec {
-        self.leaf_codec
-    }
-
-    /// Return whether this field permits explicit persisted `NULL`.
-    #[must_use]
-    pub(in crate::db) const fn nullable(self) -> bool {
-        self.nullable
     }
 }
 
@@ -767,8 +576,7 @@ fn decode_sparse_required_row_field_spans<'payload>(
 
 // Decode the shared slot-table header and validate that the physical row slot
 // count matches the structural contract before any full or sparse slot scanner
-// walks the table. This keeps raw-row shape authority in one place for both
-// generated-only and accepted-layout row contracts.
+// walks the table. This keeps accepted raw-row shape authority in one place.
 fn decode_slot_table_sections<'bytes>(
     bytes: &'bytes [u8],
     contract: &StructuralRowContract,

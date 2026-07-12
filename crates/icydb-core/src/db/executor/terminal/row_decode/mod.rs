@@ -44,14 +44,14 @@ pub(in crate::db) struct RowLayout {
 }
 
 impl RowLayout {
-    /// Build one structural row layout from model metadata.
+    /// Build one accepted structural row layout from a model proposal.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_generated_model_for_test(
+    pub(in crate::db) fn from_model_proposal_for_test(
         model: &'static crate::model::entity::EntityModel,
     ) -> Self {
         Self {
-            contract: StructuralRowContract::from_generated_model_for_test(model),
+            contract: StructuralRowContract::from_model_proposal_for_test(model),
         }
     }
 
@@ -59,7 +59,7 @@ impl RowLayout {
     ///
     /// The proof object is consumed here so callers cannot attach accepted
     /// decode facts to an executor row layout without first proving the saved
-    /// row layout is still readable by the current generated bridge. The
+    /// row layout still exactly matches the current typed model. The
     /// resulting layout keeps accepted decode authority only.
     #[must_use]
     pub(in crate::db) fn from_generated_compatible_accepted_decode_contract(

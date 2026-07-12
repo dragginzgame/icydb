@@ -3,11 +3,11 @@
 //! Does not own: planner-wide query semantics or row-container orchestration.
 //! Boundary: field-level runtime schema surface used by storage and planning layers.
 
+#[cfg(test)]
+use crate::value::Value;
 use crate::{traits::RuntimeValueKind, types::EntityTag};
 #[cfg(test)]
-use crate::{types::Decimal, value::Value};
-#[cfg(test)]
-use std::{borrow::Cow, cmp::Ordering};
+use std::cmp::Ordering;
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -470,17 +470,6 @@ impl FieldModel {
         ensure_scalar_max_len_matches(self.kind(), value)?;
         ensure_value_is_deterministic_for_storage(self.kind(), value)
     }
-
-    // Normalize decimal payloads to this field's fixed scale before storage
-    // encoding. Validation still runs after this step, so malformed shapes and
-    // deterministic collection rules remain owned by the normal field contract.
-    #[cfg(test)]
-    pub(crate) fn normalize_runtime_value_for_storage<'a>(
-        &self,
-        value: &'a Value,
-    ) -> Result<Cow<'a, Value>, FieldStorageValidationError> {
-        normalize_decimal_scale_for_storage(self.kind(), value)
-    }
 }
 
 // Resolve the canonical leaf codec from semantic field kind plus storage
@@ -875,119 +864,6 @@ fn ensure_decimal_scale_matches(
         }
         _ => Ok(()),
     }
-}
-
-/// Normalize fixed-scale decimal values through nested collection/map shapes
-/// before the field-level payload is encoded. This is write-side
-/// canonicalization; callers that validate already persisted bytes still use
-/// the exact scale check.
-#[cfg(test)]
-pub(crate) fn normalize_decimal_scale_for_storage(
-    kind: FieldKind,
-    value: &Value,
-) -> Result<Cow<'_, Value>, FieldStorageValidationError> {
-    if matches!(value, Value::Null) {
-        return Ok(Cow::Borrowed(value));
-    }
-
-    match (kind, value) {
-        (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-            let normalized = decimal_with_storage_scale(*decimal, scale)
-                .ok_or(FieldStorageValidationError::DecimalScaleMismatch)?;
-
-            if normalized.scale() == decimal.scale() {
-                Ok(Cow::Borrowed(value))
-            } else {
-                Ok(Cow::Owned(Value::Decimal(normalized)))
-            }
-        }
-        (FieldKind::Relation { key_kind, .. }, value) => {
-            normalize_decimal_scale_for_storage(*key_kind, value)
-        }
-        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
-            normalize_decimal_list_items(*inner, items.as_slice()).map(|items| {
-                items.map_or_else(
-                    || Cow::Borrowed(value),
-                    |items| Cow::Owned(Value::List(items)),
-                )
-            })
-        }
-        (
-            FieldKind::Map {
-                key,
-                value: map_value,
-            },
-            Value::Map(entries),
-        ) => normalize_decimal_map_entries(*key, *map_value, entries.as_slice()).map(|entries| {
-            entries.map_or_else(
-                || Cow::Borrowed(value),
-                |entries| Cow::Owned(Value::Map(entries)),
-            )
-        }),
-        _ => Ok(Cow::Borrowed(value)),
-    }
-}
-
-// Convert one decimal into the exact storage scale. Lower-scale values are
-// padded without changing their numeric value; higher-scale values use the same
-// round-half-away-from-zero policy as SQL/fluent decimal rounding.
-#[cfg(test)]
-fn decimal_with_storage_scale(decimal: Decimal, scale: u32) -> Option<Decimal> {
-    match decimal.scale().cmp(&scale) {
-        Ordering::Equal => Some(decimal),
-        Ordering::Less => decimal
-            .scale_to_integer(scale)
-            .and_then(|mantissa| Decimal::try_from_i128_with_scale(mantissa, scale)),
-        Ordering::Greater => Some(decimal.round_dp(scale)),
-    }
-}
-
-// Normalize decimal items while preserving the original list allocation when
-// every item is already canonical for its nested field kind.
-#[cfg(test)]
-fn normalize_decimal_list_items(
-    kind: FieldKind,
-    items: &[Value],
-) -> Result<Option<Vec<Value>>, FieldStorageValidationError> {
-    let mut normalized_items = None;
-
-    for (index, item) in items.iter().enumerate() {
-        let normalized = normalize_decimal_scale_for_storage(kind, item)?;
-        if let Cow::Owned(value) = normalized {
-            let items = normalized_items.get_or_insert_with(|| items.to_vec());
-            items[index] = value;
-        }
-    }
-
-    Ok(normalized_items)
-}
-
-// Normalize decimal keys and values while preserving the original map
-// allocation when every entry is already canonical for its nested field kind.
-#[cfg(test)]
-fn normalize_decimal_map_entries(
-    key_kind: FieldKind,
-    value_kind: FieldKind,
-    entries: &[(Value, Value)],
-) -> Result<Option<Vec<(Value, Value)>>, FieldStorageValidationError> {
-    let mut normalized_entries = None;
-
-    for (index, (entry_key, entry_value)) in entries.iter().enumerate() {
-        let normalized_key = normalize_decimal_scale_for_storage(key_kind, entry_key)?;
-        let normalized_value = normalize_decimal_scale_for_storage(value_kind, entry_value)?;
-
-        if matches!(normalized_key, Cow::Owned(_)) || matches!(normalized_value, Cow::Owned(_)) {
-            let entries = normalized_entries.get_or_insert_with(|| entries.to_vec());
-            if let Cow::Owned(value) = normalized_key {
-                entries[index].0 = value;
-            }
-            if let Cow::Owned(value) = normalized_value {
-                entries[index].1 = value;
-            }
-        }
-    }
-
-    Ok(normalized_entries)
 }
 
 // Enforce bounded text/blob length through nested collection/map shapes before

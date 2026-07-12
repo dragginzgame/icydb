@@ -385,7 +385,7 @@ fn insert_integrity_entity_row(entity: &IntegrityIndexedEntity) {
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(entity)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("integrity test row should encode");
 
     with_data_store_mut(STORE_A_PATH, |store| {
@@ -398,7 +398,7 @@ fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEnti
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
-    let row = CanonicalRow::from_generated_entity_for_test(entity)
+    let row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("integrity test row should encode")
         .into_raw_row();
     let payload = decode_row_payload_bytes(row.as_bytes())
@@ -418,7 +418,7 @@ fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(entity)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("integrity test row should encode")
         .into_raw_row();
     let proposal = compiled_schema_proposal_for_model(IntegrityIndexedEntity::MODEL);

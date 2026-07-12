@@ -26,10 +26,7 @@ use crate::{
         schema::SchemaInfo,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::{
-        field::{FieldKind, FieldModel, FieldStorageDecode},
-        index::IndexModel,
-    },
+    model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     traits::{
         EntitySchema, EntityValue, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
         RuntimeValueEncode,
@@ -69,14 +66,6 @@ use crate::db::{
     },
     query::plan::expr::compile_scalar_projection_expr_for_model_only,
 };
-
-const EMPTY_INDEX_FIELDS: [&str; 0] = [];
-const EMPTY_INDEX: IndexModel = IndexModel::generated(
-    "query::executor::projection::idx_empty",
-    "query::executor::projection::Store",
-    &EMPTY_INDEX_FIELDS,
-    false,
-);
 
 #[cfg(feature = "sql")]
 fn output(value: Value) -> OutputValue {
@@ -121,8 +110,25 @@ struct ProjectionEvalProfile {
     details_flag: bool,
 }
 
+static PROJECTION_EVAL_DETAILS_FIELDS: [FieldModel; 1] =
+    [FieldModel::generated("flag", FieldKind::Bool)];
+
+static PROJECTION_EVAL_PROFILE_FIELDS: [FieldModel; 4] = [
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
+    FieldModel::generated("rank", FieldKind::Int64),
+    FieldModel::generated("score", FieldKind::Nat64),
+    crate::testing::test_field_model(
+        "details",
+        FieldKind::Structured { queryable: false },
+        crate::testing::TestFieldModelOptions::DEFAULT
+            .with_storage_decode(FieldStorageDecode::Value)
+            .with_nested_fields(&PROJECTION_EVAL_DETAILS_FIELDS),
+    ),
+];
+
 impl FieldTypeMeta for ProjectionEvalProfile {
     const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const NESTED_FIELDS: &'static [FieldModel] = &PROJECTION_EVAL_PROFILE_FIELDS;
     const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 
@@ -241,10 +247,11 @@ crate::test_entity! {
         crate::test_field! {
             profile: ProjectionEvalProfile => FieldKind::Structured { queryable: false },
             options = crate::testing::TestFieldModelOptions::DEFAULT
-                .with_storage_decode(FieldStorageDecode::Value),
+                .with_storage_decode(FieldStorageDecode::Value)
+                .with_nested_fields(&PROJECTION_EVAL_PROFILE_FIELDS),
         },
     ],
-    indexes = [&EMPTY_INDEX],
+    indexes = [],
 }
 
 fn row(
@@ -270,7 +277,7 @@ fn row(
 
 #[cfg(feature = "sql")]
 pub(in crate::db) fn projection_eval_row_layout_for_materialize_tests() -> RowLayout {
-    RowLayout::from_generated_model_for_test(ProjectionEvalEntity::MODEL)
+    RowLayout::from_model_proposal_for_test(ProjectionEvalEntity::MODEL)
 }
 
 #[cfg(feature = "sql")]
@@ -282,7 +289,7 @@ pub(in crate::db) fn projection_eval_data_row_for_materialize_tests(
     let (entity_id, entity) = row(id, rank, flag);
     let data_key = DecodedDataStoreKey::try_new::<ProjectionEvalEntity>(entity_id.key())
         .expect("projection eval test key should encode");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&entity)
         .expect("projection eval test row should encode")
         .into_raw_row();
 
@@ -404,10 +411,10 @@ fn eval_scalar_expr_for_row(
 ) -> Result<Value, InternalError> {
     let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(row)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(row)
         .expect("persisted row should encode")
         .into_raw_row();
-    let mut row_fields = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let mut row_fields = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         &raw_row,
         ProjectionEvalEntity::MODEL,
     )
@@ -422,10 +429,10 @@ fn eval_canonical_scalar_expr_for_row(
 ) -> Result<Value, InternalError> {
     let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(row)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(row)
         .expect("persisted row should encode")
         .into_raw_row();
-    let row_fields = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let row_fields = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         &raw_row,
         ProjectionEvalEntity::MODEL,
     )
@@ -446,10 +453,10 @@ fn eval_scalar_filter_expr_for_row(
 ) -> Result<bool, InternalError> {
     let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("filter expression should compile onto scalar projection seam");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(row)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(row)
         .expect("persisted row should encode")
         .into_raw_row();
-    let row_fields = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let row_fields = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         &raw_row,
         ProjectionEvalEntity::MODEL,
     )
@@ -500,18 +507,6 @@ fn grouped_execution_specs<const N: usize>(
 struct ProjectionMissingDeclaredSlotReader;
 
 impl SlotReader for ProjectionMissingDeclaredSlotReader {
-    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        ProjectionEvalEntity::MODEL
-            .fields()
-            .get(slot)
-            .ok_or_else(|| {
-                InternalError::persisted_row_slot_lookup_out_of_bounds(
-                    ProjectionEvalEntity::MODEL.path(),
-                    slot,
-                )
-            })
-    }
-
     fn has(&self, _slot: usize) -> bool {
         false
     }
@@ -532,4 +527,36 @@ impl SlotReader for ProjectionMissingDeclaredSlotReader {
     }
 }
 
-impl CanonicalSlotReader for ProjectionMissingDeclaredSlotReader {}
+impl CanonicalSlotReader for ProjectionMissingDeclaredSlotReader {
+    fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
+        ProjectionEvalEntity::MODEL
+            .fields()
+            .get(slot)
+            .map(FieldModel::name)
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(
+                    ProjectionEvalEntity::MODEL.path(),
+                    slot,
+                )
+            })
+    }
+
+    fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
+        ProjectionEvalEntity::MODEL
+            .fields()
+            .get(slot)
+            .map(FieldModel::leaf_codec)
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(
+                    ProjectionEvalEntity::MODEL.path(),
+                    slot,
+                )
+            })
+    }
+
+    fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
+        Err(InternalError::persisted_row_declared_field_missing(
+            self.field_name(slot)?,
+        ))
+    }
+}

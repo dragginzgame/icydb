@@ -496,7 +496,7 @@ mod tests {
         error::{ErrorClass, ErrorOrigin, InternalError},
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel},
+            field::{FieldKind, FieldModel, LeafCodec},
             index::{IndexExpression, IndexKeyItem},
         },
         types::Timestamp,
@@ -525,18 +525,6 @@ mod tests {
     }
 
     impl SlotReader for TestSlotReader {
-        fn generated_compatible_field_model(
-            &self,
-            slot: usize,
-        ) -> Result<&FieldModel, InternalError> {
-            SCALAR_EXPR_MODEL.fields().get(slot).ok_or_else(|| {
-                InternalError::persisted_row_slot_lookup_out_of_bounds(
-                    SCALAR_EXPR_MODEL.path(),
-                    slot,
-                )
-            })
-        }
-
         fn has(&self, slot: usize) -> bool {
             match slot {
                 1 => self.name.is_some(),
@@ -562,7 +550,37 @@ mod tests {
         }
     }
 
-    impl CanonicalSlotReader for TestSlotReader {}
+    impl CanonicalSlotReader for TestSlotReader {
+        fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
+            SCALAR_EXPR_MODEL
+                .fields()
+                .get(slot)
+                .map(FieldModel::name)
+                .ok_or_else(|| {
+                    InternalError::persisted_row_slot_lookup_out_of_bounds(
+                        SCALAR_EXPR_MODEL.path(),
+                        slot,
+                    )
+                })
+        }
+
+        fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
+            SCALAR_EXPR_MODEL
+                .fields()
+                .get(slot)
+                .map(FieldModel::leaf_codec)
+                .ok_or_else(|| {
+                    InternalError::persisted_row_slot_lookup_out_of_bounds(
+                        SCALAR_EXPR_MODEL.path(),
+                        slot,
+                    )
+                })
+        }
+
+        fn required_value_by_contract(&self, _slot: usize) -> Result<Value, InternalError> {
+            panic!("test scalar expr reader should stay on scalar access")
+        }
+    }
 
     #[test]
     fn scalar_expr_compiles_field_and_index_programs_on_scalar_slots_only() {

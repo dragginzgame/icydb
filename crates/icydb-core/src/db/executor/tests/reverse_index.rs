@@ -13,7 +13,7 @@ use crate::db::{
 
 // Build canonical persisted row bytes for relation-source replay markers.
 fn relation_source_row_bytes(entity: &RelationSourceEntity) -> Vec<u8> {
-    crate::db::data::CanonicalRow::from_generated_entity_for_test(entity)
+    crate::db::data::CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("relation source row should serialize canonically")
         .into_raw_row()
         .as_bytes()
@@ -885,11 +885,12 @@ fn recovery_replays_reverse_relation_index_mutations() {
         .expect("source data key should build")
         .to_raw()
         .expect("source data key should encode");
-    let row_bytes = crate::db::data::CanonicalRow::from_generated_entity_for_test(&source)
-        .expect("source row should serialize")
-        .into_raw_row()
-        .as_bytes()
-        .to_vec();
+    let row_bytes =
+        crate::db::data::CanonicalRow::from_entity_with_model_proposal_for_test(&source)
+            .expect("source row should serialize")
+            .into_raw_row()
+            .as_bytes()
+            .to_vec();
 
     let marker = relation_source_recovery_marker(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
@@ -1492,7 +1493,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         .expect("source store access should succeed")
         .expect("source row should still exist after rollback");
     let source_after_failure = source_after_failure
-        .try_decode_with_generated_model_for_test::<RelationSourceEntity>()
+        .try_decode_with_model_proposal_for_test::<RelationSourceEntity>()
         .expect("source row decode should succeed after rollback");
     assert_eq!(
         source_after_failure.target, target_a,

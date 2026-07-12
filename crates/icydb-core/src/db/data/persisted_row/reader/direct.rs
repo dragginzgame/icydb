@@ -1,19 +1,17 @@
 use crate::{
     db::{
         data::{
-            RawRow, SparseRequiredRowFieldBytes, StructuralFieldDecodeContract,
-            StructuralRowContract, StructuralRowDecodeError, StructuralRowFieldBytes,
+            RawRow, SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowDecodeError,
+            StructuralRowFieldBytes,
             persisted_row::{
                 codec::{ScalarSlotValueRef, decode_scalar_slot_value},
                 contract::{
                     decode_runtime_value_from_accepted_field_contract,
-                    decode_runtime_value_from_field_contract,
-                    decode_runtime_value_from_row_contract, validate_non_scalar_slot_value,
+                    decode_runtime_value_from_row_contract,
                 },
                 reader::{
                     metrics::{StructuralReadProbe, finish_direct_probe},
                     primary_key::{
-                        materialize_primary_key_slot_value_from_expected_component,
                         materialize_primary_key_slot_value_from_expected_component_with_accepted_field,
                         validate_primary_key_component_from_slot_bytes_with_contract,
                         validate_primary_key_value_from_field_bytes,
@@ -266,8 +264,7 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract(
 }
 
 // Decode one selected slot directly from persisted bytes through the owning
-// row contract, keeping accepted-vs-generated field selection in the data
-// layer for all sparse required-slot readers.
+// accepted row contract for all sparse required-slot readers.
 fn decode_sparse_required_slot(
     raw_row: &RawRow,
     contract: &StructuralRowContract,
@@ -334,37 +331,8 @@ fn decode_selected_slot_value(
     )
 }
 
-// Decode one caller-selected slot after choosing the row-shape authority once.
-// Accepted rows use accepted field contracts only; generated rows use the
-// generated-compatible field contract lane below.
+// Decode one caller-selected slot through accepted field authority.
 fn decode_slot_with_contract(
-    contract: &StructuralRowContract,
-    slot: usize,
-    raw_value: &[u8],
-    expected_primary_key_component: Option<PrimaryKeyComponent>,
-    probe: &StructuralReadProbe,
-) -> Result<Value, InternalError> {
-    if contract.has_accepted_decode_contract() {
-        return decode_slot_with_accepted_contract(
-            contract,
-            slot,
-            raw_value,
-            expected_primary_key_component,
-            probe,
-        );
-    }
-
-    decode_slot_with_generated_contract(
-        contract,
-        slot,
-        raw_value,
-        expected_primary_key_component,
-        probe,
-    )
-}
-
-// Decode one caller-selected slot through accepted field contracts only.
-fn decode_slot_with_accepted_contract(
     contract: &StructuralRowContract,
     slot: usize,
     raw_value: &[u8],
@@ -390,19 +358,6 @@ fn decode_slot_with_accepted_contract(
     decode_slot_with_accepted_field(accepted_field, raw_value, probe)
 }
 
-// Decode one caller-selected slot through generated-compatible field metadata.
-fn decode_slot_with_generated_contract(
-    contract: &StructuralRowContract,
-    slot: usize,
-    raw_value: &[u8],
-    expected_primary_key_component: Option<PrimaryKeyComponent>,
-    probe: &StructuralReadProbe,
-) -> Result<Value, InternalError> {
-    let field = contract.field_decode_contract(slot)?;
-
-    decode_slot_with_field(field, raw_value, expected_primary_key_component, probe)
-}
-
 // Decode one caller-selected slot from raw bytes using accepted row-layout
 // metadata only. Direct readers enter here after the row contract has already
 // selected the accepted branch for the slot.
@@ -426,45 +381,6 @@ fn decode_slot_with_accepted_field(
             probe.record_materialized_non_scalar();
 
             decode_runtime_value_from_accepted_field_contract(field, raw_value)
-        }
-    }
-}
-
-// Decode one caller-selected slot from raw field bytes once the caller has
-// already resolved the field contract and primary-key role for that slot.
-fn decode_slot_with_field(
-    field: StructuralFieldDecodeContract,
-    raw_value: &[u8],
-    expected_primary_key_component: Option<PrimaryKeyComponent>,
-    probe: &StructuralReadProbe,
-) -> Result<Value, InternalError> {
-    // The direct row-decode helpers already validated the primary-key slot
-    // against `expected_key` before they enter the per-slot decode loop.
-    // Reconstruct the semantic PK value from that authoritative key instead of
-    // decoding the same slot bytes again when the caller also projects `id`.
-    if let Some(expected_key) = expected_primary_key_component {
-        return materialize_primary_key_slot_value_from_expected_component(
-            field,
-            expected_key,
-            probe,
-        );
-    }
-    match field.leaf_codec() {
-        LeafCodec::Scalar(codec) => {
-            probe.record_validated_slot();
-
-            match decode_scalar_slot_value(raw_value, codec, field.name())? {
-                ScalarSlotValueRef::Null => Ok(Value::Null),
-                ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
-            }
-        }
-        LeafCodec::StructuralFallback => {
-            probe.record_validated_slot();
-            probe.record_validated_non_scalar();
-            probe.record_materialized_non_scalar();
-            validate_non_scalar_slot_value(raw_value, field)?;
-
-            decode_runtime_value_from_field_contract(field, raw_value)
         }
     }
 }

@@ -1704,7 +1704,7 @@ fn conditional_unique_casefold_row_bytes(
 fn canonical_row_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
     entity: &E,
 ) -> Vec<u8> {
-    CanonicalRow::from_generated_entity_for_test(entity)
+    CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row()
         .as_bytes()
@@ -1714,7 +1714,7 @@ fn canonical_row_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
 fn canonical_row_payload_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
     entity: &E,
 ) -> Vec<u8> {
-    let row = CanonicalRow::from_generated_entity_for_test(entity)
+    let row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row();
 

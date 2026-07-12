@@ -38,12 +38,6 @@ struct PredicateTestSlotReader {
 }
 
 impl SlotReader for PredicateTestSlotReader {
-    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        PREDICATE_MODEL.fields().get(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(PREDICATE_MODEL.path(), slot)
-        })
-    }
-
     fn has(&self, slot: usize) -> bool {
         match slot {
             1 => self.score.is_some(),
@@ -67,7 +61,34 @@ impl SlotReader for PredicateTestSlotReader {
     crate::db::data::impl_scalar_only_test_slot_reader_get_value!();
 }
 
-impl CanonicalSlotReader for PredicateTestSlotReader {}
+impl CanonicalSlotReader for PredicateTestSlotReader {
+    fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
+        PREDICATE_MODEL
+            .fields()
+            .get(slot)
+            .map(FieldModel::name)
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(PREDICATE_MODEL.path(), slot)
+            })
+    }
+
+    fn field_leaf_codec(
+        &self,
+        slot: usize,
+    ) -> Result<crate::model::field::LeafCodec, InternalError> {
+        PREDICATE_MODEL
+            .fields()
+            .get(slot)
+            .map(FieldModel::leaf_codec)
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(PREDICATE_MODEL.path(), slot)
+            })
+    }
+
+    fn required_value_by_contract(&self, _slot: usize) -> Result<Value, InternalError> {
+        panic!("test predicate reader should stay on scalar access")
+    }
+}
 
 #[test]
 fn scalar_compare_fast_path_matches_value_semantics_for_strict_int_and_text() {

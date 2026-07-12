@@ -168,22 +168,14 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
     }
 }
 
-// Decode a payload-backed scalar after scalar validation has already proved the
-// slot shape. Accepted row-layout contracts remain the first authority for
-// saved-schema rows, while generated-compatible contracts are retained only for
-// generated-only readers.
+// Decode a payload-backed scalar after accepted scalar validation has already
+// proved the slot shape.
 fn decode_payload_backed_validated_scalar_slot_value<'raw>(
     contract: &StructuralRowContract,
     raw_value: &'raw [u8],
     slot: usize,
 ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
-    decode_scalar_slot_value_from_row_contract(
-        contract,
-        slot,
-        raw_value,
-        "accepted validated scalar cache routed through non-scalar field contract",
-        "validated scalar cache routed through non-scalar field contract",
-    )
+    decode_scalar_slot_value_from_row_contract(contract, slot, raw_value)
 }
 
 // Materialize one validated scalar slot into the runtime `Value` enum.

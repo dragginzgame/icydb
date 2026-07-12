@@ -59,25 +59,21 @@ pub(in crate::db) use store::StoreVisit;
 pub(in crate::db) use structural_field::{
     FieldDecodeError, ValueStorageView, accepted_kind_supports_primary_key_component_binary,
     decode_accepted_relation_target_primary_key_components_bytes,
-    decode_primary_key_component_binary_value_bytes,
-    decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
-    decode_structural_value_storage_bytes, decode_value_storage_list_item_slices,
-    decode_value_storage_map_entry_slices, decode_value_storage_text,
-    encode_structural_field_by_accepted_kind_bytes, encode_structural_value_storage_bytes,
-    encode_structural_value_storage_null_bytes, encode_value_storage_list_item_slices,
-    encode_value_storage_map_entry_slices, encode_value_storage_text,
-    supports_primary_key_component_binary_kind, validate_primary_key_component_binary_value_bytes,
-    validate_structural_field_by_accepted_kind_bytes, validate_structural_field_by_kind_bytes,
+    decode_structural_field_by_accepted_kind_bytes, decode_structural_value_storage_bytes,
+    decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
+    decode_value_storage_text, encode_structural_field_by_accepted_kind_bytes,
+    encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
+    encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
+    encode_value_storage_text, validate_structural_field_by_accepted_kind_bytes,
     validate_structural_value_storage_bytes, value_storage_bytes_are_null,
 };
 #[cfg(test)]
 pub(in crate::db) use structural_field::{
-    decode_canonical_value_storage_bytes, encode_primary_key_component_binary_value_bytes,
-    encode_structural_field_by_kind_bytes,
+    decode_canonical_value_storage_bytes, decode_structural_field_by_kind_bytes,
+    encode_structural_field_by_kind_bytes, validate_structural_field_by_kind_bytes,
 };
 pub(in crate::db) use structural_row::{
-    AcceptedStructuralRowAuthority, StructuralFieldDecodeContract, StructuralRowContract,
-    decode_structural_row_payload,
+    AcceptedStructuralRowAuthority, StructuralRowContract, decode_structural_row_payload,
 };
 pub(in crate::db::data) use structural_row::{
     SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,

@@ -141,7 +141,7 @@ impl EntityAuthority {
     #[must_use]
     pub(in crate::db) fn with_generated_row_layout_for_test(self) -> Self {
         Self {
-            row_layout: Some(RowLayout::from_generated_model_for_test(self.model)),
+            row_layout: Some(RowLayout::from_model_proposal_for_test(self.model)),
             ..self
         }
     }

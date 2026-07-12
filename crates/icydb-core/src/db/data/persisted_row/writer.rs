@@ -66,7 +66,7 @@ pub(super) struct CompleteSerializedPatchWriter {
 
 impl CompleteSerializedPatchWriter {
     /// Build one empty serialized patch writer for one entity model.
-    pub(super) fn for_generated_model_for_test(model: &'static EntityModel) -> Self {
+    pub(super) fn for_model_proposal_for_test(model: &'static EntityModel) -> Self {
         Self {
             model,
             slots: vec![StagedSlotPayload::Missing; model.fields().len()],

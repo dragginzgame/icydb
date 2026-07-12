@@ -1,33 +1,12 @@
 #[cfg(test)]
 use crate::model::entity::EntityModel;
 use crate::{
-    db::data::{
-        StructuralFieldDecodeContract,
-        persisted_row::{
-            codec::{ScalarSlotValueRef, encode_scalar_slot_value},
-            contract::decode_runtime_value_from_field_contract,
-        },
-    },
+    db::data::persisted_row::codec::{ScalarSlotValueRef, encode_scalar_slot_value},
     error::InternalError,
-    model::field::{FieldModel, LeafCodec},
+    model::field::LeafCodec,
     traits::EntityKind,
     value::{InputValue, Value},
 };
-
-// Resolve one generated-compatible field model entry by stable slot index.
-// This is a transitional helper for runtime adapters that still need today's
-// generated `FieldModel` validation surface after slot authority has already
-// been checked elsewhere.
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) fn generated_compatible_field_model_for_slot(
-    model: &'static EntityModel,
-    slot: usize,
-) -> Result<&'static FieldModel, InternalError> {
-    model
-        .fields()
-        .get(slot)
-        .ok_or_else(|| InternalError::persisted_row_slot_lookup_out_of_bounds(model.path(), slot))
-}
 
 ///
 /// FieldSlot
@@ -51,24 +30,23 @@ impl FieldSlot {
         model: &'static EntityModel,
         index: usize,
     ) -> Result<Self, InternalError> {
-        generated_compatible_field_model_for_slot(model, index)?;
+        model.fields().get(index).ok_or_else(|| {
+            InternalError::persisted_row_slot_lookup_out_of_bounds(model.path(), index)
+        })?;
 
         Ok(Self { index })
     }
 
     /// Build one stable field slot from a non-generated authority.
     ///
-    /// Accepted-schema write paths use this after the session has already
-    /// validated that the accepted row layout is generated-compatible. Keeping
-    /// this constructor explicit prevents those paths from re-resolving the
-    /// slot through `EntityModel` while still making the trust boundary visible
-    /// at the call site.
+    /// Accepted-schema write paths use this after the session has validated the
+    /// slot against the current accepted row layout.
     #[must_use]
     pub(in crate::db) const fn from_validated_index(index: usize) -> Self {
         Self { index }
     }
 
-    /// Return the stable slot index inside `EntityModel::fields`.
+    /// Return the accepted stable slot index.
     #[must_use]
     pub(in crate::db) const fn index(self) -> usize {
         self.index
@@ -234,13 +212,6 @@ impl SerializedStructuralPatch {
 ///
 
 pub trait SlotReader {
-    /// Resolve one generated-compatible field model by stable slot index.
-    ///
-    /// This is a typed materialization compatibility bridge. Runtime decode
-    /// paths that only need payload decode facts should use
-    /// `field_decode_contract`.
-    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError>;
-
     /// Return whether the given slot is present in the persisted row.
     fn has(&self, slot: usize) -> bool;
 
@@ -250,7 +221,7 @@ pub trait SlotReader {
     /// Decode one slot as a scalar leaf when the field contract declares a scalar codec.
     fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError>;
 
-    /// Decode one slot value on demand using the generated-compatible field model bridge.
+    /// Decode one slot value on demand through the reader's accepted contract.
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError>;
 
     /// Borrow the accepted catalog context used to decode canonical enum IDs.
@@ -270,45 +241,28 @@ pub trait SlotReader {
 ///
 
 pub(in crate::db) trait CanonicalSlotReader: SlotReader {
-    /// Resolve one field decode contract by stable slot index.
-    ///
-    /// The default implementation adapts from the generated-compatible
-    /// `FieldModel` surface so test readers and compatibility readers can stay
-    /// minimal. Structural readers override this when they can provide decode
-    /// facts without reopening the generated field model.
-    fn field_decode_contract(
-        &self,
-        slot: usize,
-    ) -> Result<StructuralFieldDecodeContract, InternalError> {
-        self.generated_compatible_field_model(slot)
-            .map(StructuralFieldDecodeContract::from_field_model)
-    }
+    /// Borrow the accepted field name for one stable slot.
+    fn field_name(&self, slot: usize) -> Result<&str, InternalError>;
 
     /// Return the declared leaf codec for one slot.
-    ///
-    /// Structural readers override this when accepted row contracts can answer
-    /// scalar-vs-structural shape without reopening generated field metadata.
-    fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
-        self.field_decode_contract(slot)
-            .map(StructuralFieldDecodeContract::leaf_codec)
-    }
+    fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError>;
 
     /// Borrow one declared slot payload, erroring when the persisted row is not canonical.
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
-        let field = self.field_decode_contract(slot)?;
+        let field_name = self.field_name(slot)?;
 
         self.get_bytes(slot)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
+            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
     }
 
     /// Read one scalar slot through the structural fast path without allowing
     /// declared-slot absence.
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-        let field = self.field_decode_contract(slot)?;
-        debug_assert!(matches!(field.leaf_codec(), LeafCodec::Scalar(_)));
+        let field_name = self.field_name(slot)?;
+        debug_assert!(matches!(self.field_leaf_codec(slot)?, LeafCodec::Scalar(_)));
 
         self.get_scalar(slot)?
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
+            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
     }
 
     /// Read one value-storage scalar when a concrete reader can expose it without full decode.
@@ -321,14 +275,7 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
 
     /// Decode one declared slot through the owning field contract without
     /// allowing absent payloads.
-    fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
-        let field = self.field_decode_contract(slot)?;
-        let raw_value = self
-            .get_bytes(slot)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
-
-        decode_runtime_value_from_field_contract(field, raw_value)
-    }
+    fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError>;
 
     /// Borrow one declared slot value when the concrete reader already owns a
     /// validated decoded cache, while preserving the existing owned fallback

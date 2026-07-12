@@ -345,7 +345,7 @@ fn insert_indexed_schema_row(id: u128, name: &str) {
     let data_key =
         DecodedDataStoreKey::try_new::<IndexedSchemaEntity>(id).expect("test key should encode");
     let raw_key = data_key.to_raw().expect("test key should encode to raw");
-    let row = CanonicalRow::from_generated_entity_for_test(&IndexedSchemaEntity {
+    let row = CanonicalRow::from_entity_with_model_proposal_for_test(&IndexedSchemaEntity {
         id,
         name: name.to_string(),
     })
@@ -826,7 +826,7 @@ fn reconcile_runtime_schemas_executes_supported_field_path_index_addition() {
     let data_key =
         DecodedDataStoreKey::try_new::<IndexedSchemaEntity>(id).expect("test key should encode");
     let raw_key = data_key.to_raw().expect("test key should encode to raw");
-    let row = CanonicalRow::from_generated_entity_for_test(&IndexedSchemaEntity {
+    let row = CanonicalRow::from_entity_with_model_proposal_for_test(&IndexedSchemaEntity {
         id,
         name: "Ada".to_string(),
     })

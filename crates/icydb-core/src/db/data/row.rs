@@ -8,11 +8,12 @@ use crate::{
     db::data::{
         PersistedRow, SerializedStructuralPatch, StructuralSlotReader,
         persisted_row::{
-            canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test,
-            canonical_row_from_entity_for_generated_model_for_test,
+            canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
+            canonical_row_from_entity_for_model_proposal_for_test,
         },
     },
     model::entity::EntityModel,
+    traits::AuthoredFieldProjection,
 };
 use crate::{
     db::{codec::MAX_ROW_BYTES, data::DecodedDataStoreKey},
@@ -57,22 +58,22 @@ impl CanonicalRow {
 
     /// Encode one full typed entity into canonical persisted row bytes.
     #[cfg(test)]
-    pub(in crate::db) fn from_generated_entity_for_test<E>(
+    pub(in crate::db) fn from_entity_with_model_proposal_for_test<E>(
         entity: &E,
     ) -> Result<Self, InternalError>
     where
-        E: PersistedRow + crate::traits::EntityValue,
+        E: PersistedRow + AuthoredFieldProjection,
     {
-        canonical_row_from_entity_for_generated_model_for_test(entity)
+        canonical_row_from_entity_for_model_proposal_for_test(entity)
     }
 
     /// Build one canonical row from one complete serialized slot image.
     #[cfg(test)]
-    pub(in crate::db) fn from_complete_serialized_structural_patch_for_generated_model_for_test(
+    pub(in crate::db) fn from_complete_serialized_structural_patch_for_model_proposal_for_test(
         model: &'static EntityModel,
         patch: &SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
-        canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test(
+        canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
             model, patch,
         )
     }
@@ -141,11 +142,11 @@ impl RawRow {
 
     /// Build one raw row from one complete serialized slot image.
     #[cfg(test)]
-    pub(in crate::db) fn from_complete_serialized_structural_patch_for_generated_model_for_test(
+    pub(in crate::db) fn from_complete_serialized_structural_patch_for_model_proposal_for_test(
         model: &'static EntityModel,
         patch: &SerializedStructuralPatch,
     ) -> Result<CanonicalRow, InternalError> {
-        CanonicalRow::from_complete_serialized_structural_patch_for_generated_model_for_test(
+        CanonicalRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
             model, patch,
         )
     }
@@ -163,13 +164,13 @@ impl RawRow {
 
     /// Decode into an entity.
     #[cfg(test)]
-    pub(in crate::db) fn try_decode_with_generated_model_for_test<E: PersistedRow>(
+    pub(in crate::db) fn try_decode_with_model_proposal_for_test<E: PersistedRow>(
         &self,
     ) -> Result<E, RowDecodeError> {
         // Keep deserialize failures structured so callers can classify decode
         // boundary errors without parsing free-form strings.
         let mut slots =
-            StructuralSlotReader::from_raw_row_with_generated_model_for_test(self, E::MODEL)
+            StructuralSlotReader::from_raw_row_with_model_proposal_for_test(self, E::MODEL)
                 .map_err(|source| {
                     let _ = source;
                     RowDecodeError::Deserialize

@@ -1,15 +1,15 @@
 use super::{
     AuthoredStructuralPatch, SlotReader, SlotWriter,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
-    canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test,
+    canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
     canonical_row_from_raw_row_with_structural_contract, decode_persisted_slot_payload_by_kind,
     decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
     decode_sparse_required_slot_with_contract, encode_persisted_slot_payload_by_kind,
     encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
-    materialize_entity_from_serialized_structural_patch_for_generated_model_for_test,
+    materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test,
     materialize_entity_from_serialized_structural_patch_with_accepted_contract,
     serialize_complete_structural_patch_fields_with_accepted_contract,
-    serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test,
+    serialize_entity_slots_as_complete_serialized_patch_for_model_proposal_for_test,
     serialize_structural_patch_fields_with_accepted_contract, with_structural_read_metrics,
 };
 use super::{
@@ -664,9 +664,7 @@ fn raw_row_from_dense_slot_payloads_for_tests(
         .expect("build raw row")
 }
 
-// Build one structural row contract from the accepted schema path so tests can
-// exercise row decode against saved-schema field contracts instead of the
-// generated-only fallback.
+// Build one accepted row-decode contract from a model proposal for tests.
 fn accepted_row_decode_contract_for_model(
     model: &'static EntityModel,
 ) -> AcceptedRowDecodeContract {
@@ -686,12 +684,10 @@ fn accepted_row_decode_contract_for_model(
     descriptor.row_decode_contract_with_catalog(catalog)
 }
 
-// Build one structural row contract from the accepted schema path so tests can
-// exercise row decode against saved-schema field contracts instead of the
-// generated-only fallback.
+// Build one accepted structural row contract from a model proposal for tests.
 fn accepted_row_contract_for_model(model: &'static EntityModel) -> StructuralRowContract {
-    StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
-        model,
+    StructuralRowContract::from_accepted_decode_contract(
+        model.path(),
         accepted_row_decode_contract_for_model(model),
     )
 }
@@ -788,8 +784,8 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
 fn accepted_defaulted_required_score_row_contract_for_tests(
     score_payload: Vec<u8>,
 ) -> StructuralRowContract {
-    StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
-        &ADDITIVE_REQUIRED_MODEL,
+    StructuralRowContract::from_accepted_decode_contract(
+        ADDITIVE_REQUIRED_MODEL.path(),
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload),
     )
 }
@@ -827,8 +823,8 @@ fn generated_default_model_with_no_accepted_default_contract_for_tests() -> Stru
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted no-default runtime contract should build");
 
-    StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
-        &ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL,
+    StructuralRowContract::from_accepted_decode_contract(
+        ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL.path(),
         descriptor.row_decode_contract(),
     )
 }
@@ -1510,7 +1506,7 @@ fn structural_slot_reader_accepts_null_for_optional_account_slots() {
     let raw_row =
         raw_row_from_dense_slot_payloads_for_tests(&OPTIONAL_ACCOUNT_MODEL, &[payload.as_slice()]);
 
-    let mut reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let mut reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         &raw_row,
         &OPTIONAL_ACCOUNT_MODEL,
     )
@@ -1543,12 +1539,12 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
 
     let direct_slots = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
+        StructuralRowContract::from_model_proposal_for_test(&TEST_MODEL),
     )
     .expect("decode row");
     let mut cached_slots = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
+        StructuralRowContract::from_model_proposal_for_test(&TEST_MODEL),
     )
     .expect("decode row");
 
@@ -1632,11 +1628,10 @@ fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
     let id = Ulid::from_u128(148);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
     let accepted_decode_contract = accepted_row_decode_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
-    let contract =
-        StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
-            &ADDITIVE_NULLABLE_MODEL,
-            accepted_decode_contract.clone(),
-        );
+    let contract = StructuralRowContract::from_accepted_decode_contract(
+        ADDITIVE_NULLABLE_MODEL.path(),
+        accepted_decode_contract.clone(),
+    );
     let canonical_from_reader =
         canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
             .expect("accepted structural contract should re-emit the current slot count");
@@ -1678,11 +1673,10 @@ fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
     let accepted_decode_contract =
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
-    let contract =
-        StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
-            &ADDITIVE_REQUIRED_MODEL,
-            accepted_decode_contract.clone(),
-        );
+    let contract = StructuralRowContract::from_accepted_decode_contract(
+        ADDITIVE_REQUIRED_MODEL.path(),
+        accepted_decode_contract.clone(),
+    );
     let canonical_from_reader =
         canonical_row_from_raw_row_with_structural_contract(&raw_row, &contract)
             .expect("accepted structural contract should re-emit defaulted slot count");
@@ -1831,7 +1825,7 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
 
     let mut reader = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
+        StructuralRowContract::from_model_proposal_for_test(&TEST_MODEL),
     )
     .expect("row-open structural envelope decode should succeed");
 
@@ -1909,7 +1903,7 @@ fn structural_slot_reader_direct_projection_decodes_value_storage_scalar_without
     );
 
     let reader =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&raw_row, &TEST_MODEL)
+        StructuralSlotReader::from_raw_row_with_model_proposal_for_test(&raw_row, &TEST_MODEL)
             .expect("row-open structural envelope decode should succeed");
 
     assert_eq!(
@@ -1933,7 +1927,7 @@ fn structural_slot_reader_direct_projection_decodes_value_storage_scalar_without
 }
 
 #[test]
-fn structural_slot_reader_direct_projection_preserves_value_storage_mismatch_fallback() {
+fn structural_slot_reader_rejects_value_storage_kind_mismatch() {
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Int64(42));
@@ -1942,29 +1936,13 @@ fn structural_slot_reader_direct_projection_preserves_value_storage_mismatch_fal
         &[name_payload.as_slice(), payload.as_slice()],
     );
 
-    let reader =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&raw_row, &TEST_MODEL)
-            .expect("row-open structural envelope decode should succeed");
+    let Err(err) =
+        StructuralSlotReader::from_raw_row_with_model_proposal_for_test(&raw_row, &TEST_MODEL)
+    else {
+        panic!("accepted text field must reject an integer value-storage payload");
+    };
 
-    assert_eq!(
-        reader
-            .required_direct_projection_value(1)
-            .expect("mismatched value-storage scalar should use canonical fallback"),
-        Value::Int64(42)
-    );
-
-    match &reader.cached_values[1] {
-        CachedSlotValue::Deferred { materialized } => {
-            assert_eq!(
-                materialized.get(),
-                Some(&Value::Int64(42)),
-                "fallback path should preserve the existing materialized cache behavior",
-            );
-        }
-        other @ CachedSlotValue::Scalar { .. } => {
-            panic!("expected deferred cache for slot 1, found {other:?}")
-        }
-    }
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1983,7 +1961,7 @@ fn structural_slot_reader_predicate_compares_value_storage_scalar_without_cache_
     let program = PredicateProgram::compile_for_model_only(&TEST_MODEL, &predicate);
 
     let reader =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&raw_row, &TEST_MODEL)
+        StructuralSlotReader::from_raw_row_with_model_proposal_for_test(&raw_row, &TEST_MODEL)
             .expect("row-open structural envelope decode should succeed");
 
     assert!(
@@ -2018,7 +1996,7 @@ fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_sc
     let (_scalar_read, metrics) = with_structural_read_metrics(|| {
         let reader = StructuralSlotReader::from_raw_row_with_contract(
             &raw_row,
-            StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
+            StructuralRowContract::from_model_proposal_for_test(&TEST_MODEL),
         )
         .expect("row-open structural envelope decode should succeed");
 
@@ -2053,7 +2031,7 @@ fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first
     let (_value, metrics) = with_structural_read_metrics(|| {
         let mut reader = StructuralSlotReader::from_raw_row_with_contract(
             &raw_row,
-            StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
+            StructuralRowContract::from_model_proposal_for_test(&TEST_MODEL),
         )
         .expect("row-open structural envelope decode should succeed");
 
@@ -2083,7 +2061,7 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_a
 
     let mut reader = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
+        StructuralRowContract::from_model_proposal_for_test(&TEST_MODEL),
     )
     .expect("row-open structural envelope decode should succeed");
     let err = reader
@@ -2115,7 +2093,7 @@ fn apply_structural_patch_to_raw_row_updates_only_targeted_slots() {
         &serialized,
     )
     .expect("apply patch");
-    let mut reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let mut reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         patched.as_raw_row(),
         &TEST_MODEL,
     )
@@ -2281,7 +2259,7 @@ fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_data
 
 #[test]
 fn serialized_patch_writer_rejects_clear_slots() {
-    let mut writer = CompleteSerializedPatchWriter::for_generated_model_for_test(&TEST_MODEL);
+    let mut writer = CompleteSerializedPatchWriter::for_model_proposal_for_test(&TEST_MODEL);
 
     let err = writer
         .write_slot(0, None)
@@ -2312,7 +2290,7 @@ fn apply_structural_patch_to_raw_row_uses_last_write_wins() {
         &serialized,
     )
     .expect("apply patch");
-    let mut reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let mut reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         patched.as_raw_row(),
         &TEST_MODEL,
     )
@@ -2421,7 +2399,7 @@ fn structural_slot_reader_rejects_slot_count_mismatch() {
             .expect("build raw row");
 
     let err =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&raw_row, &TEST_MODEL)
+        StructuralSlotReader::from_raw_row_with_model_proposal_for_test(&raw_row, &TEST_MODEL)
             .err()
             .expect("slot-count drift must fail closed");
 
@@ -2447,7 +2425,7 @@ fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
             .expect("build raw row");
 
     let err =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&raw_row, &TEST_MODEL)
+        StructuralSlotReader::from_raw_row_with_model_proposal_for_test(&raw_row, &TEST_MODEL)
             .err()
             .expect("slot span drift must fail closed");
 
@@ -2476,7 +2454,7 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_primary
     )
     .expect("build raw row");
 
-    let contract = StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL);
+    let contract = StructuralRowContract::from_model_proposal_for_test(&RELATION_PK_MODEL);
     let decoded = super::decode_dense_raw_row_with_contract(
         &raw_row,
         &contract,
@@ -2510,7 +2488,7 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
     )
     .expect("build raw row");
 
-    let contract = StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL);
+    let contract = StructuralRowContract::from_model_proposal_for_test(&RELATION_PK_MODEL);
     let decoded = decode_sparse_required_slot_with_contract(
         &raw_row,
         &contract,
@@ -2545,7 +2523,7 @@ fn sparse_indexed_slot_decode_materializes_relation_primary_key_from_authoritati
     )
     .expect("build raw row");
 
-    let contract = StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL);
+    let contract = StructuralRowContract::from_model_proposal_for_test(&RELATION_PK_MODEL);
     let decoded = super::decode_sparse_indexed_raw_row_with_contract(
         &raw_row,
         &contract,
@@ -2578,7 +2556,7 @@ fn apply_serialized_structural_patch_to_raw_row_replays_preencoded_slots() {
         &serialized,
     )
     .expect("apply serialized patch");
-    let mut reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let mut reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         patched.as_raw_row(),
         &TEST_MODEL,
     )
@@ -2600,18 +2578,18 @@ fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_
         id: crate::types::Ulid::from_u128(7),
         name: "Grace".to_string(),
     };
-    let raw_row = CanonicalRow::from_generated_entity_for_test(&old_entity)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&old_entity)
         .expect("encode old row")
         .into_raw_row();
     let old_decoded = raw_row
-        .try_decode_with_generated_model_for_test::<PersistedRowPatchBridgeEntity>()
+        .try_decode_with_model_proposal_for_test::<PersistedRowPatchBridgeEntity>()
         .expect("decode old entity");
     let serialized =
-        serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test(
+        serialize_entity_slots_as_complete_serialized_patch_for_model_proposal_for_test(
             &new_entity,
         )
         .expect("serialize complete entity slot image");
-    let direct = RawRow::from_complete_serialized_structural_patch_for_generated_model_for_test(
+    let direct = RawRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
         PersistedRowPatchBridgeEntity::MODEL,
         &serialized,
     )
@@ -2625,7 +2603,7 @@ fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_
     .expect("apply serialized patch");
     let decoded = patched
         .as_raw_row()
-        .try_decode_with_generated_model_for_test::<PersistedRowPatchBridgeEntity>()
+        .try_decode_with_model_proposal_for_test::<PersistedRowPatchBridgeEntity>()
         .expect("decode patched entity");
 
     assert_eq!(
@@ -2647,10 +2625,10 @@ fn persisted_row_typed_meta_field_uses_field_slot_contract() {
     let expected_payload =
         crate::db::encode_persisted_slot_payload_by_meta(&entity.payload, "payload")
             .expect("typed payload bytes should encode through field metadata");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&entity)
         .expect("derived entity should encode")
         .into_raw_row();
-    let reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         &raw_row,
         PersistedRowTypedMetaEntity::MODEL,
     )
@@ -2691,7 +2669,7 @@ fn typed_meta_field_decodes_matching_field_slot_payload() {
         RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
             .expect("test row should encode");
     let decoded = raw_row
-        .try_decode_with_generated_model_for_test::<PersistedRowTypedMetaEntity>()
+        .try_decode_with_model_proposal_for_test::<PersistedRowTypedMetaEntity>()
         .expect("derived typed metadata field should decode matching field payload");
 
     assert_eq!(
@@ -2722,10 +2700,10 @@ fn persisted_row_many_typed_meta_uses_container_slot_contract() {
         "payloads",
     )
     .expect("typed payload list bytes should encode through static item metadata");
-    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&entity)
         .expect("derived entity should encode")
         .into_raw_row();
-    let reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+    let reader = StructuralSlotReader::from_raw_row_with_model_proposal_for_test(
         &raw_row,
         PersistedRowManyTypedMetaEntity::MODEL,
     )
@@ -2775,7 +2753,7 @@ fn many_typed_meta_decodes_matching_container_slot_payload() {
         RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
             .expect("test row should encode");
     let decoded = raw_row
-        .try_decode_with_generated_model_for_test::<PersistedRowManyTypedMetaEntity>()
+        .try_decode_with_model_proposal_for_test::<PersistedRowManyTypedMetaEntity>()
         .expect("derived many typed field should decode matching container payload");
 
     assert_eq!(
@@ -2799,7 +2777,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_missing_required_
     )
     .expect("serialize sparse patch");
 
-    let err = materialize_entity_from_serialized_structural_patch_for_generated_model_for_test::<
+    let err = materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
         PersistedRowPatchBridgeEntity,
     >(&serialized)
     .expect_err("sparse typed bridge must fail closed when a required slot is absent");
@@ -2808,7 +2786,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_missing_required_
 }
 
 #[test]
-fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_matches_generated_bridge()
+fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_matches_model_proposal()
  {
     let patch = AuthoredStructuralPatch::new()
         .set(
@@ -2825,11 +2803,11 @@ fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_ma
     )
     .expect("serialize accepted patch");
 
-    let generated =
-        materialize_entity_from_serialized_structural_patch_for_generated_model_for_test::<
+    let projected =
+        materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
             PersistedRowPatchBridgeEntity,
         >(&serialized)
-        .expect("generated bridge should materialize the accepted patch");
+        .expect("model proposal should project to the accepted patch contract");
     let accepted = materialize_entity_from_serialized_structural_patch_with_accepted_contract::<
         PersistedRowPatchBridgeEntity,
     >(
@@ -2838,7 +2816,7 @@ fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_ma
     )
     .expect("accepted bridge should materialize the accepted patch");
 
-    assert_eq!(accepted, generated);
+    assert_eq!(accepted, projected);
 }
 
 #[test]
@@ -2868,7 +2846,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_noncanonical_scal
         ),
     ]);
 
-    let err = materialize_entity_from_serialized_structural_patch_for_generated_model_for_test::<
+    let err = materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
         PersistedRowPatchBridgeEntity,
     >(&serialized)
     .expect_err("typed sparse patch bridge must reject malformed scalar payloads");
@@ -2903,7 +2881,7 @@ fn canonical_row_from_complete_serialized_structural_patch_rejects_noncanonical_
         ),
     ]);
 
-    let err = canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test(
+    let err = canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
         PersistedRowPatchBridgeEntity::MODEL,
         &serialized,
     )
@@ -2924,7 +2902,7 @@ fn canonical_row_from_complete_serialized_structural_patch_rejects_incomplete_sl
     )
     .expect("serialize sparse patch");
 
-    let err = canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test(
+    let err = canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
         PersistedRowPatchBridgeEntity::MODEL,
         &serialized,
     )
@@ -2973,11 +2951,10 @@ fn materialize_entity_from_serialized_structural_patch_duplicate_slot_prefers_la
         ),
     ]);
 
-    let entity =
-        materialize_entity_from_serialized_structural_patch_for_generated_model_for_test::<
-            PersistedRowPatchBridgeEntity,
-        >(&serialized)
-        .expect("duplicate sparse patch slot should keep the last payload");
+    let entity = materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
+        PersistedRowPatchBridgeEntity,
+    >(&serialized)
+    .expect("duplicate sparse patch slot should keep the last payload");
 
     assert_eq!(
         entity,
@@ -2994,7 +2971,7 @@ fn canonical_row_from_raw_row_replays_canonical_full_image_bytes() {
         id: crate::types::Ulid::from_u128(11),
         name: "Ada".to_string(),
     };
-    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
+    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&entity)
         .expect("encode canonical row")
         .into_raw_row();
     let canonical = canonical_row_from_raw_row_for_accepted_test_model(
@@ -3036,7 +3013,7 @@ fn raw_row_from_complete_serialized_structural_patch_rejects_noncanonical_scalar
         ),
     ]);
 
-    let err = RawRow::from_complete_serialized_structural_patch_for_generated_model_for_test(
+    let err = RawRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
         &TEST_MODEL,
         &serialized,
     )
@@ -3052,7 +3029,7 @@ fn raw_row_from_complete_serialized_structural_patch_rejects_incomplete_slot_ima
         encode_value_storage_payload(&Value::Text("payload".to_string())),
     )]);
 
-    let err = RawRow::from_complete_serialized_structural_patch_for_generated_model_for_test(
+    let err = RawRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
         &TEST_MODEL,
         &serialized,
     )

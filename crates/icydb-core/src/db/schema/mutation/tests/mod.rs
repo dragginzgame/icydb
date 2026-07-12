@@ -2,9 +2,7 @@ use super::*;
 
 use crate::{
     db::{
-        data::{
-            CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StructuralFieldDecodeContract,
-        },
+        data::{CanonicalSlotReader, ScalarSlotValueRef, SlotReader},
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
@@ -23,7 +21,6 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::FieldModel,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     testing::test_memory,
     traits::Storable,
@@ -137,10 +134,6 @@ impl super::SchemaMutationAcceptedSnapshotPublicationSink
 }
 
 impl SlotReader for RebuildSlotReader {
-    fn generated_compatible_field_model(&self, _slot: usize) -> Result<&FieldModel, InternalError> {
-        panic!("rebuild key test reader should not reopen generated field models")
-    }
-
     fn has(&self, slot: usize) -> bool {
         self.values.get(slot).is_some_and(Option::is_some)
     }
@@ -159,11 +152,20 @@ impl SlotReader for RebuildSlotReader {
 }
 
 impl CanonicalSlotReader for RebuildSlotReader {
-    fn field_decode_contract(
-        &self,
-        _slot: usize,
-    ) -> Result<StructuralFieldDecodeContract, InternalError> {
+    fn field_name(&self, _slot: usize) -> Result<&str, InternalError> {
+        Ok("test")
+    }
+
+    fn field_leaf_codec(&self, _slot: usize) -> Result<LeafCodec, InternalError> {
         panic!("rebuild key test reader should not decode through field contracts")
+    }
+
+    fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
+        self.values
+            .get(slot)
+            .and_then(Option::as_ref)
+            .cloned()
+            .ok_or_else(|| InternalError::persisted_row_declared_field_missing("test"))
     }
 
     fn required_value_by_contract_cow(&self, slot: usize) -> Result<Cow<'_, Value>, InternalError> {
