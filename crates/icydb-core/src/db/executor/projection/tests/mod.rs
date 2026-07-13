@@ -27,10 +27,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-    traits::{
-        EntitySchema, EntityValue, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
-        RuntimeValueEncode,
-    },
+    traits::{EntitySchema, EntityValue, FieldTypeMeta, RuntimeValueDecode, RuntimeValueEncode},
     types::Ulid,
     value::Value,
 };
@@ -184,33 +181,6 @@ impl RuntimeValueDecode for ProjectionEvalProfile {
             score: *score,
             details_flag: *details_flag,
         })
-    }
-}
-
-impl PersistedFieldSlotCodec for ProjectionEvalProfile {
-    fn encode_persisted_slot(&self, field_name: &'static str) -> Result<Vec<u8>, InternalError> {
-        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
-    }
-
-    fn decode_persisted_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
-    }
-
-    fn decode_persisted_option_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, InternalError> {
-        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
     }
 }
 

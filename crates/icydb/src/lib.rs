@@ -204,17 +204,15 @@ pub mod __macro {
     pub use icydb_core::__macro::{
         GeneratedStructuralMapPayloadSlices, decode_generated_structural_list_payload_bytes,
         decode_generated_structural_map_payload_bytes,
-        decode_generated_structural_text_payload_bytes, decode_persisted_many_slot_payload_by_meta,
+        decode_generated_structural_text_payload_bytes,
         decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-        decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
-        decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
+        decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
         decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
         encode_generated_structural_list_payload_bytes,
         encode_generated_structural_map_payload_bytes,
-        encode_generated_structural_text_payload_bytes, encode_persisted_many_slot_payload_by_meta,
-        encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
-        encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
-        encode_persisted_slot_payload_by_meta, encode_persisted_structured_many_slot_payload,
+        encode_generated_structural_text_payload_bytes,
+        encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
+        encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
         encode_persisted_structured_slot_payload,
         generated_persisted_structured_payload_decode_failed,
     };
@@ -225,9 +223,8 @@ pub mod __macro {
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
         DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, JournalTailStore, PersistedRow,
-        PrimaryKeyComponent, PrimaryKeyValue, SchemaStore, SlotReader, SlotWriter,
-        StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
-        StoreRuntimeStorageCapabilities,
+        PrimaryKeyComponent, PrimaryKeyValue, SchemaStore, SlotReader, StoreAllocationIdentities,
+        StoreAllocationIdentity, StoreRegistry, StoreRuntimeStorageCapabilities,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{
@@ -237,10 +234,9 @@ pub mod __macro {
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{
         AuthoredFieldProjection, EntityKeyBytes, EntityValue, FieldProjection, KeyValueCodec,
-        PersistedByKindCodec, PersistedFieldMetaCodec, PersistedFieldSlotCodec,
-        PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
-        RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode, RuntimeValueEncode,
-        RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
+        PersistedByKindCodec, PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode,
+        PrimaryKeyEncodeError, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
+        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
         ScalarRelationTargetKeyMatchesDeclaredPrimitive, runtime_value_btree_map_from_value,
         runtime_value_btree_set_from_value, runtime_value_collection_to_value,
         runtime_value_from_value, runtime_value_from_value_with_enum_context,

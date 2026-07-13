@@ -46,9 +46,8 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntityKind, EntityValue, FieldTypeMeta, Path, PersistedFieldSlotCodec,
-        PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-        RuntimeValueMeta,
+        EntityKind, EntityValue, FieldTypeMeta, Path, PersistedStructuredFieldCodec,
+        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
     },
     types::{Account, Decimal, EntityTag, Principal, Subaccount, Ulid},
     value::{InputValue, InputValueEnum, Value},
@@ -1120,36 +1119,6 @@ impl RuntimeValueDecode for SaveScale2Decimal {
         };
 
         Some(Self(*decimal))
-    }
-}
-
-impl PersistedFieldSlotCodec for SaveScale2Decimal {
-    fn encode_persisted_slot(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
-    }
-
-    fn decode_persisted_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, crate::error::InternalError> {
-        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
-    }
-
-    fn decode_persisted_option_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, crate::error::InternalError> {
-        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
     }
 }
 

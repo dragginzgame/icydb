@@ -59,7 +59,6 @@ pub(in crate::db) use primary_key_component::decode_relation_target_primary_key_
 pub(in crate::db) use primary_key_component::{
     decode_accepted_relation_target_primary_key_components_bytes,
     decode_optional_primary_key_component_field_bytes,
-    decode_primary_key_component_binary_value_bytes,
     encode_primary_key_component_binary_value_bytes, encode_primary_key_component_field_bytes,
     supports_primary_key_component_binary_kind,
 };

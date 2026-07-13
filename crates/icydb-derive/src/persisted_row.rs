@@ -1,7 +1,7 @@
 //! Module: persisted_row
-//! Responsibility: generated persisted-row slot bridge for named structs.
-//! Does not own: slot codec implementations, store layout authority, or migrations.
-//! Boundary: maps Rust fields to persisted slot read/write calls.
+//! Responsibility: generated persisted-row materialization bridge for named structs.
+//! Does not own: field persistence policy, store layout authority, or migrations.
+//! Boundary: maps accepted runtime slot values into Rust fields.
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -13,8 +13,7 @@ use syn::{
 /// Derive the low-level persisted-row bridge for one named-field struct.
 ///
 /// This macro is intentionally mechanical: it maps fields to slot indexes and
-/// delegates every storage decision to `PersistedFieldSlotCodec` on the field
-/// type.
+/// decodes the accepted runtime values supplied by `SlotReader`.
 pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(input) {
         Ok(input) => input,
@@ -30,9 +29,9 @@ pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
     };
 
     let parsed_fields: Vec<&Field> = fields.iter().collect();
-    let field_codec_assertions = parsed_fields
+    let field_decode_assertions = parsed_fields
         .iter()
-        .map(|field| persisted_field_codec_assertion(field));
+        .map(|field| runtime_value_decode_assertion(field));
 
     let materializers = parsed_fields.iter().enumerate().map(|(slot, field)| {
         let field_ident = field.ident.as_ref().expect("named field");
@@ -71,7 +70,7 @@ pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
     });
 
     quote! {
-        #(#field_codec_assertions)*
+        #(#field_decode_assertions)*
 
         impl #impl_generics ::icydb::__macro::PersistedRow for #ident #ty_generics #where_clause {
             fn materialize_from_slots(
@@ -105,9 +104,9 @@ fn named_struct_fields(
     Ok(&named.named)
 }
 
-// Emit one field-local trait assertion so missing persisted codecs fail with a
-// named generated symbol instead of a generic helper bound error.
-fn persisted_field_codec_assertion(field: &Field) -> TokenStream {
+// Emit one field-local assertion so unsupported runtime materialization fails
+// with a named generated symbol instead of a generic helper bound error.
+fn runtime_value_decode_assertion(field: &Field) -> TokenStream {
     let field_ident = field.ident.as_ref().expect("named field");
     let asserted_ty = &field.ty;
 
@@ -120,7 +119,7 @@ fn persisted_field_codec_assertion(field: &Field) -> TokenStream {
 }
 
 // Generate a descriptive compile-time assertion symbol for one persisted-row
-// field contract so trait failures point at the owning storage lane.
+// field contract so trait failures point at the owning decode boundary.
 fn emit_persisted_trait_assertion(
     field_ident: &syn::Ident,
     trait_path: TokenStream,

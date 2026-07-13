@@ -1,5 +1,5 @@
 use super::{
-    AuthoredStructuralPatch, SlotReader, SlotWriter,
+    AuthoredStructuralPatch, SlotReader,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
     canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
     canonical_row_from_raw_row_with_structural_contract, decode_persisted_slot_payload_by_kind,
@@ -9,7 +9,6 @@ use super::{
     materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test,
     materialize_entity_from_serialized_structural_patch_with_accepted_contract,
     serialize_complete_structural_patch_fields_with_accepted_contract,
-    serialize_entity_slots_as_complete_serialized_patch_for_model_proposal_for_test,
     serialize_structural_patch_fields_with_accepted_contract, with_structural_read_metrics,
 };
 use super::{
@@ -20,7 +19,6 @@ use super::{
     },
     reader::{CachedSlotValue, StructuralSlotReader},
     types::{FieldSlot, SerializedStructuralFieldUpdate, SerializedStructuralPatch},
-    writer::CompleteSerializedPatchWriter,
 };
 use crate::{
     db::key_taxonomy::PrimaryKeyComponent,
@@ -51,8 +49,8 @@ use crate::{
     },
     testing::SIMPLE_ENTITY_TAG,
     traits::{
-        EntitySchema, FieldTypeMeta, PersistedByKindCodec, PersistedFieldSlotCodec,
-        PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode,
+        EntitySchema, FieldTypeMeta, PersistedByKindCodec, PersistedStructuredFieldCodec,
+        RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
@@ -83,10 +81,8 @@ crate::test_store! {
 /// PersistedRowPatchBridgeEntity
 ///
 ///
-/// PersistedRowPatchBridgeEntity is the smallest derive-owned entity used
-/// to validate the typed-entity -> serialized-patch bridge.
-/// It lets the persisted-row tests exercise the same dense slot writer the
-/// save/update path now uses.
+/// PersistedRowPatchBridgeEntity is the smallest derive-owned entity used to
+/// validate accepted-contract typed materialization and structural patches.
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -99,7 +95,7 @@ struct PersistedRowPatchBridgeEntity {
 /// PersistedRowTypedMetaEntity
 ///
 /// PersistedRowTypedMetaEntity proves that the metadata-free `PersistedRow`
-/// derive can reuse a typed field's own slot codec directly.
+/// derive can materialize a typed field from its accepted runtime value.
 /// It intentionally uses a schema-like wrapper instead of the runtime-only
 /// `Value` union so persisted fields stay statically contracted.
 ///
@@ -235,33 +231,6 @@ impl RuntimeValueDecode for PersistedRowProfileValue {
             }
             _ => None,
         })
-    }
-}
-
-impl PersistedFieldSlotCodec for PersistedRowProfileValue {
-    fn encode_persisted_slot(&self, field_name: &'static str) -> Result<Vec<u8>, InternalError> {
-        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
-    }
-
-    fn decode_persisted_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
-    }
-
-    fn decode_persisted_option_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, InternalError> {
-        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
     }
 }
 
@@ -2274,17 +2243,6 @@ fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_data
 }
 
 #[test]
-fn serialized_patch_writer_rejects_clear_slots() {
-    let mut writer = CompleteSerializedPatchWriter::for_model_proposal_for_test(&TEST_MODEL);
-
-    let err = writer
-        .write_slot(0, None)
-        .expect_err("0.65 patch staging must reject missing-slot clears");
-
-    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
-}
-
-#[test]
 fn apply_structural_patch_to_raw_row_uses_last_write_wins() {
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
@@ -2585,62 +2543,19 @@ fn apply_serialized_structural_patch_to_raw_row_replays_preencoded_slots() {
 }
 
 #[test]
-fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_image() {
-    let old_entity = PersistedRowPatchBridgeEntity {
-        id: crate::types::Ulid::from_u128(7),
-        name: "Ada".to_string(),
-    };
-    let new_entity = PersistedRowPatchBridgeEntity {
-        id: crate::types::Ulid::from_u128(7),
-        name: "Grace".to_string(),
-    };
-    let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&old_entity)
-        .expect("encode old row")
-        .into_raw_row();
-    let old_decoded = raw_row
-        .try_decode_with_model_proposal_for_test::<PersistedRowPatchBridgeEntity>()
-        .expect("decode old entity");
-    let serialized =
-        serialize_entity_slots_as_complete_serialized_patch_for_model_proposal_for_test(
-            &new_entity,
-        )
-        .expect("serialize complete entity slot image");
-    let direct = RawRow::from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &serialized,
-    )
-    .expect("direct row emission should succeed");
-
-    let patched = apply_serialized_structural_patch_to_raw_row_for_accepted_test_model(
-        PersistedRowPatchBridgeEntity::MODEL,
-        &raw_row,
-        &serialized,
-    )
-    .expect("apply serialized patch");
-    let decoded = patched
-        .as_raw_row()
-        .try_decode_with_model_proposal_for_test::<PersistedRowPatchBridgeEntity>()
-        .expect("decode patched entity");
-
-    assert_eq!(
-        direct, patched,
-        "fresh row emission and replayed full-image patch must converge on identical bytes",
-    );
-    assert_eq!(old_decoded, old_entity);
-    assert_eq!(decoded, new_entity);
-}
-
-#[test]
-fn persisted_row_typed_meta_field_uses_field_slot_contract() {
+fn persisted_row_typed_meta_field_uses_accepted_field_contract() {
     let entity = PersistedRowTypedMetaEntity {
         id: crate::types::Ulid::from_u128(81),
         payload: PersistedRowProfileValue {
             bio: "meta".to_string(),
         },
     };
-    let expected_payload =
-        crate::db::encode_persisted_slot_payload_by_meta(&entity.payload, "payload")
-            .expect("typed payload bytes should encode through field metadata");
+    let expected_payload = encode_value_with_model_proposal_for_test(
+        PersistedRowTypedMetaEntity::MODEL,
+        1,
+        &entity.payload.to_value(),
+    )
+    .expect("typed payload bytes should encode through the accepted field contract");
     let raw_row = CanonicalRow::from_entity_with_model_proposal_for_test(&entity)
         .expect("derived entity should encode")
         .into_raw_row();
@@ -2664,8 +2579,12 @@ fn typed_meta_field_decodes_matching_field_slot_payload() {
     let payload_value = PersistedRowProfileValue {
         bio: "field-meta".to_string(),
     };
-    let payload_bytes = crate::db::encode_persisted_slot_payload_by_meta(&payload_value, "payload")
-        .expect("matching typed field bytes should encode");
+    let payload_bytes = encode_value_with_model_proposal_for_test(
+        PersistedRowTypedMetaEntity::MODEL,
+        1,
+        &payload_value.to_value(),
+    )
+    .expect("matching typed field bytes should encode through the accepted field contract");
     let payload = encode_slot_payload_from_table_and_bytes(
         2,
         &[

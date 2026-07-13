@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.201.md](docs/changelog/0.201.md)
 
+- `0.201.1` removes retired field-owned persistence traits and the test-only
+  slot writer, leaving accepted field contracts as the sole row authority.
+  Potentially breaking: direct users of the removed traits and helpers must
+  move to accepted, scalar, structural, or by-kind contracts.
+
 - `0.201.0` makes visitor traversal the sole owner of `Option` and `Vec` child
   recursion, so sanitize and validation hooks run exactly once at the correct
   paths while transparent `Box` forwarding remains unchanged.

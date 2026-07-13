@@ -155,9 +155,8 @@ pub enum TextMode {
 // projection materialization, predicates, cursor payloads, and intermediate
 // execution state.
 //
-// Value is intentionally not a persisted field type. It must not implement the
-// persisted-row slot codec or field metadata contracts; schema persistence must
-// use primitive fields or schema-defined wrapper types with static contracts.
+// Value is intentionally not a persisted field type. Schema persistence must
+// admit it through an accepted field contract before selecting a storage codec.
 //
 // Null        → the field’s value is Option::None (i.e., SQL NULL).
 // Unit        → internal placeholder for RHS; not a real value.

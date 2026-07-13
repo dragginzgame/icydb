@@ -118,8 +118,8 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, PersistedFieldSlotCodec,
-        RuntimeValueDecode, RuntimeValueEncode,
+        EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, RuntimeValueDecode,
+        RuntimeValueEncode,
     },
     types::{Blob, Date, Duration, EntityTag, Float64, Id, Principal, Timestamp, Ulid},
     value::{OutputValue, Value},
@@ -902,36 +902,6 @@ impl RuntimeValueDecode for SessionSqlFieldPathProfile {
     }
 }
 
-impl PersistedFieldSlotCodec for SessionSqlFieldPathProfile {
-    fn encode_persisted_slot(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
-    }
-
-    fn decode_persisted_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, crate::error::InternalError> {
-        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
-    }
-
-    fn decode_persisted_option_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, crate::error::InternalError> {
-        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
-    }
-}
-
 ///
 /// SessionSqlProfileRecord
 ///
@@ -988,36 +958,6 @@ impl RuntimeValueDecode for SessionSqlProfileRecord {
             rank: *rank,
             nickname: nickname.clone(),
         })
-    }
-}
-
-impl PersistedFieldSlotCodec for SessionSqlProfileRecord {
-    fn encode_persisted_slot(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
-    }
-
-    fn decode_persisted_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, crate::error::InternalError> {
-        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError> {
-        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
-    }
-
-    fn decode_persisted_option_slot(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, crate::error::InternalError> {
-        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
     }
 }
 

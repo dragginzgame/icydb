@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::model::entity::EntityModel;
 use crate::{
-    db::data::persisted_row::codec::{ScalarSlotValueRef, encode_scalar_slot_value},
+    db::data::persisted_row::codec::ScalarSlotValueRef,
     error::InternalError,
     model::field::LeafCodec,
     traits::EntityKind,
@@ -287,29 +287,6 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
         Ok(std::borrow::Cow::Owned(
             self.required_value_by_contract(slot)?,
         ))
-    }
-}
-
-///
-/// SlotWriter
-///
-/// SlotWriter is the canonical row-container output seam used by persisted-row
-/// writers.
-///
-
-pub trait SlotWriter {
-    /// Record one slot payload for the current row.
-    fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError>;
-
-    /// Record one scalar slot payload using the canonical scalar leaf envelope.
-    fn write_scalar(
-        &mut self,
-        slot: usize,
-        value: ScalarSlotValueRef<'_>,
-    ) -> Result<(), InternalError> {
-        let payload = encode_scalar_slot_value(value);
-
-        self.write_slot(slot, Some(payload.as_slice()))
     }
 }
 

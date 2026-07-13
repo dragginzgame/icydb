@@ -1,8 +1,4 @@
 #[cfg(test)]
-use crate::db::data::persisted_row::types::SlotWriter;
-#[cfg(test)]
-use crate::db::data::persisted_row::writer::CompleteSerializedPatchWriter;
-#[cfg(test)]
 use crate::model::entity::EntityModel;
 use crate::{
     db::{
@@ -274,7 +270,7 @@ pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch_for
     canonical_row_from_raw_row_with_structural_contract(&staged, &patch_payloads.contract)
 }
 
-/// Build one canonical row directly from one typed entity slot writer.
+/// Build one canonical row from a model proposal through accepted field contracts.
 #[cfg(test)]
 pub(in crate::db) fn canonical_row_from_entity_for_model_proposal_for_test<E>(
     entity: &E,
@@ -282,12 +278,13 @@ pub(in crate::db) fn canonical_row_from_entity_for_model_proposal_for_test<E>(
 where
     E: PersistedRow + AuthoredFieldProjection,
 {
-    let serialized_slots =
-        serialize_entity_slots_as_complete_serialized_patch_for_model_proposal_for_test(entity)?;
+    let accepted_decode_contract =
+        AcceptedRowDecodeContract::from_model_proposal_for_test(E::MODEL);
 
-    canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
-        E::MODEL,
-        &serialized_slots,
+    canonical_row_from_entity_with_accepted_contract(
+        E::MODEL.path(),
+        accepted_decode_contract,
+        entity,
     )
 }
 
@@ -508,39 +505,6 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
         .collect::<Result<Vec<_>, InternalError>>()?;
 
     Ok(SerializedStructuralPatch::new(entries))
-}
-
-/// Serialize one full typed entity image into one complete serialized slot
-/// image used by the typed save bridge.
-///
-/// This keeps typed save/update APIs on the existing surface while making it
-/// explicit that the typed lane is staging a complete after-image, not a sparse
-/// structural update patch.
-#[cfg(test)]
-pub(in crate::db) fn serialize_entity_slots_as_complete_serialized_patch_for_model_proposal_for_test<
-    E,
->(
-    entity: &E,
-) -> Result<SerializedStructuralPatch, InternalError>
-where
-    E: PersistedRow + AuthoredFieldProjection,
-{
-    let mut writer = CompleteSerializedPatchWriter::for_model_proposal_for_test(E::MODEL);
-    let accepted_decode_contract =
-        AcceptedRowDecodeContract::from_model_proposal_for_test(E::MODEL);
-    let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract);
-
-    for slot in 0..E::MODEL.fields().len() {
-        let mut budget = ValueAdmissionBudget::standard();
-        let payload = authored
-            .encode_field(entity, slot, &mut budget)
-            .map_err(|_| InternalError::persisted_row_encode_internal())?;
-        writer.write_slot(slot, Some(payload.as_slice()))?;
-    }
-
-    // Phase 2: require a dense slot image so save/update replay remains
-    // equivalent to the existing full-row write semantics.
-    writer.finish_dense_slot_image()
 }
 
 /// Apply one serialized structural patch through an accepted row-decode contract.

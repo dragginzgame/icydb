@@ -3,28 +3,17 @@
 //! families owned by this directory module.
 
 mod by_kind;
-mod meta;
 mod scalar;
-mod slot;
 pub(super) mod strategy;
 mod structured;
 mod traversal;
 
 use crate::db::data::persisted_row::codec::strategy::StorageStrategy;
-use crate::{
-    db::data::storage::{decode as storage_decode, encode as storage_encode},
-    error::InternalError,
-    value::Value,
-};
+use crate::{db::data::storage::encode as storage_encode, error::InternalError, value::Value};
 
 pub use by_kind::{
     decode_persisted_option_slot_payload_by_kind, decode_persisted_slot_payload_by_kind,
     encode_persisted_slot_payload_by_kind,
-};
-pub use meta::{
-    decode_persisted_many_slot_payload_by_meta, decode_persisted_option_slot_payload_by_meta,
-    decode_persisted_slot_payload_by_meta, encode_persisted_many_slot_payload_by_meta,
-    encode_persisted_option_slot_payload_by_meta, encode_persisted_slot_payload_by_meta,
 };
 pub use scalar::{
     PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
@@ -103,47 +92,4 @@ pub(in crate::db::data::persisted_row::codec) fn require_decoded<T>(
     err: impl FnOnce() -> InternalError,
 ) -> Result<T, InternalError> {
     value.ok_or_else(err)
-}
-
-// Encode a runtime `Value` through the selected storage lane. Scalar is
-// intentionally excluded because scalar slots use typed scalar payload codecs
-// rather than the runtime `Value` union.
-pub(in crate::db::data::persisted_row::codec) fn encode_runtime_value_with_strategy(
-    strategy: StorageStrategy,
-    value: &Value,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError> {
-    match strategy {
-        StorageStrategy::Scalar => Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        )),
-        StorageStrategy::ByKind(kind) => by_kind::encode_explicit_value(kind, value, field_name),
-        StorageStrategy::Structured => storage_encode::value(value)
-            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
-    }
-}
-
-// Decode one optional runtime `Value` through the selected storage lane. Both
-// structural null encodings and explicit runtime Value::Null collapse to `None`
-// here so higher-level decode paths do not repeat that policy.
-pub(in crate::db::data::persisted_row::codec) fn decode_runtime_value_option_with_strategy(
-    strategy: StorageStrategy,
-    bytes: &[u8],
-    field_name: &'static str,
-) -> Result<Option<Value>, InternalError> {
-    let runtime_value = match strategy {
-        StorageStrategy::Scalar => {
-            return Err(InternalError::persisted_row_field_decode_failed(
-                field_name,
-                "scalar strategy does not decode runtime values",
-            ));
-        }
-        StorageStrategy::ByKind(kind) => by_kind::decode_explicit_value(bytes, kind, field_name)?,
-        StorageStrategy::Structured => Some(
-            storage_decode::value(bytes)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?,
-        ),
-    };
-
-    Ok(runtime_value.filter(|value| !matches!(value, Value::Null)))
 }

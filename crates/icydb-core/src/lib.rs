@@ -83,15 +83,14 @@ pub mod __macro {
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError,
         GeneratedStructuralMapPayloadSlices, JournalTailStore, PersistedRow, PersistedScalar,
         PrimaryKeyComponent, PrimaryKeyValue, ScalarSlotValueRef, ScalarValueRef, SlotReader,
-        SlotWriter, StoreRuntimeStorageCapabilities,
+        StoreRuntimeStorageCapabilities,
     };
     pub use crate::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use crate::traits::{
         AuthoredFieldProjection, EntityKeyBytes, FieldProjection, KeyValueCodec,
-        PersistedByKindCodec, PersistedFieldMetaCodec, PersistedFieldSlotCodec,
-        PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
-        RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode, RuntimeValueEncode,
-        RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
+        PersistedByKindCodec, PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode,
+        PrimaryKeyEncodeError, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
+        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
         ScalarRelationTargetKeyMatchesDeclaredPrimitive, runtime_value_btree_map_from_value,
         runtime_value_btree_set_from_value, runtime_value_collection_to_value,
         runtime_value_from_value, runtime_value_from_value_with_enum_context,
@@ -288,71 +287,5 @@ pub mod __macro {
         T: crate::traits::PersistedByKindCodec,
     {
         crate::db::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)
-    }
-
-    #[doc(hidden)]
-    pub fn encode_persisted_option_slot_payload_by_meta<T>(
-        value: &Option<T>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError>
-    where
-        T: crate::traits::PersistedFieldMetaCodec,
-    {
-        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
-    }
-
-    #[doc(hidden)]
-    pub fn decode_persisted_option_slot_payload_by_meta<T>(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<T>, crate::error::InternalError>
-    where
-        T: crate::traits::PersistedFieldMetaCodec,
-    {
-        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
-    }
-
-    #[doc(hidden)]
-    pub fn encode_persisted_many_slot_payload_by_meta<T>(
-        value: &[T],
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError>
-    where
-        T: crate::traits::FieldTypeMeta + crate::traits::RuntimeValueEncode,
-    {
-        crate::db::encode_persisted_many_slot_payload_by_meta(value, field_name)
-    }
-
-    #[doc(hidden)]
-    pub fn decode_persisted_many_slot_payload_by_meta<T>(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Vec<T>, crate::error::InternalError>
-    where
-        T: crate::traits::FieldTypeMeta + crate::traits::RuntimeValueDecode,
-    {
-        crate::db::decode_persisted_many_slot_payload_by_meta(bytes, field_name)
-    }
-
-    #[doc(hidden)]
-    pub fn encode_persisted_slot_payload_by_meta<T>(
-        value: &T,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, crate::error::InternalError>
-    where
-        T: crate::traits::PersistedFieldMetaCodec,
-    {
-        crate::db::encode_persisted_slot_payload_by_meta(value, field_name)
-    }
-
-    #[doc(hidden)]
-    pub fn decode_persisted_slot_payload_by_meta<T>(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<T, crate::error::InternalError>
-    where
-        T: crate::traits::PersistedFieldMetaCodec,
-    {
-        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
     }
 }

@@ -12,7 +12,6 @@ use crate::{
             decode_float64_field_by_kind_bytes, decode_int_big_field_by_kind_bytes,
             decode_int128_field_by_kind_bytes, decode_nat_big_field_by_kind_bytes,
             decode_nat128_field_by_kind_bytes, decode_optional_primary_key_component_field_bytes,
-            decode_primary_key_component_binary_value_bytes, decode_structural_field_by_kind_bytes,
             decode_text_field_by_kind_bytes, encode_blob_field_by_kind_bytes,
             encode_bool_field_by_kind_bytes, encode_date_field_by_kind_bytes,
             encode_decimal_field_by_kind_bytes, encode_duration_field_by_kind_bytes,
@@ -358,40 +357,6 @@ pub(in crate::db::data::persisted_row::codec) fn encode_explicit_value(
 
     encode_structural_field_by_kind_bytes(kind, value, field_name)
         .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
-}
-
-// Decode one explicit by-kind owner through the current field-kind structural
-// contract.
-pub(in crate::db::data::persisted_row::codec) fn decode_explicit_value(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Option<Value>, InternalError> {
-    if storage_decode::is_null(bytes)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-    {
-        return Ok(None);
-    }
-
-    let value = if supports_primary_key_component_binary_kind(kind) {
-        decode_primary_key_component_binary_value_bytes(bytes, kind)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-            .ok_or_else(|| {
-                InternalError::persisted_row_field_decode_failed(
-                    field_name,
-                    "storage-key binary lane rejected a supported field kind",
-                )
-            })?
-    } else {
-        decode_structural_field_by_kind_bytes(bytes, kind)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-    };
-
-    if matches!(value, Value::Null) {
-        return Ok(None);
-    }
-
-    Ok(Some(value))
 }
 
 // Detect the explicit structural null sentinel without materializing the
