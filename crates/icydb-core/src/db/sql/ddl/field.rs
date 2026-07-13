@@ -13,6 +13,7 @@ use crate::db::{
         resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
         resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
         resolve_sql_ddl_field_set_default_candidate, resolve_sql_ddl_field_type_contract,
+        validate_sql_ddl_field_default_change_candidate,
     },
     sql::{
         identifier::identifiers_tail_match,
@@ -289,50 +290,18 @@ pub(super) fn bind_alter_table_alter_column_statement(
     }
 
     match &statement.action {
-        SqlAlterColumnAction::SetDefault(default) => {
-            let field = resolve_sql_ddl_field_set_default_candidate(
-                accepted_before,
-                statement.column_name.as_str(),
-            )
-            .map_err(|error| {
-                sql_field_default_candidate_error(
-                    entity_name,
-                    statement.column_name.as_str(),
-                    error,
-                )
-            })?;
-            let default = schema_field_default_for_alter_column_default(
-                entity_name,
-                &field,
-                default,
-                schema.enum_catalog_handle(),
-            )?;
-            Ok(bind_alter_table_alter_column_default(
-                entity_name,
-                &field,
-                default,
-                SqlDdlMutationKind::SetFieldDefault,
-            ))
-        }
-        SqlAlterColumnAction::DropDefault => {
-            let field = resolve_sql_ddl_field_drop_default_candidate(
-                accepted_before,
-                statement.column_name.as_str(),
-            )
-            .map_err(|error| {
-                sql_field_default_candidate_error(
-                    entity_name,
-                    statement.column_name.as_str(),
-                    error,
-                )
-            })?;
-            Ok(bind_alter_table_alter_column_default(
-                entity_name,
-                &field,
-                SchemaFieldDefault::None,
-                SqlDdlMutationKind::DropFieldDefault,
-            ))
-        }
+        SqlAlterColumnAction::SetDefault(default) => bind_alter_column_set_default(
+            entity_name,
+            statement.column_name.as_str(),
+            default,
+            accepted_before,
+            schema,
+        ),
+        SqlAlterColumnAction::DropDefault => bind_alter_column_drop_default(
+            entity_name,
+            statement.column_name.as_str(),
+            accepted_before,
+        ),
         SqlAlterColumnAction::SetNotNull => {
             let field = resolve_sql_ddl_field_nullability_candidate(
                 accepted_before,
@@ -374,6 +343,48 @@ pub(super) fn bind_alter_table_alter_column_statement(
             ))
         }
     }
+}
+
+fn bind_alter_column_set_default(
+    entity_name: &str,
+    column_name: &str,
+    authored_default: &crate::value::Value,
+    accepted_before: &AcceptedSchemaSnapshot,
+    schema: &SchemaInfo,
+) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+    let field = resolve_sql_ddl_field_set_default_candidate(accepted_before, column_name)
+        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
+    let default = schema_field_default_for_alter_column_default(
+        entity_name,
+        &field,
+        authored_default,
+        schema.enum_catalog_handle(),
+    )?;
+    validate_sql_ddl_field_default_change_candidate(accepted_before, &field, &default)
+        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
+
+    Ok(bind_alter_table_alter_column_default(
+        entity_name,
+        &field,
+        default,
+        SqlDdlMutationKind::SetFieldDefault,
+    ))
+}
+
+fn bind_alter_column_drop_default(
+    entity_name: &str,
+    column_name: &str,
+    accepted_before: &AcceptedSchemaSnapshot,
+) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+    let field = resolve_sql_ddl_field_drop_default_candidate(accepted_before, column_name)
+        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
+
+    Ok(bind_alter_table_alter_column_default(
+        entity_name,
+        &field,
+        SchemaFieldDefault::None,
+        SqlDdlMutationKind::DropFieldDefault,
+    ))
 }
 
 pub(super) fn bind_alter_table_drop_column_statement(
@@ -598,6 +609,13 @@ fn sql_field_default_candidate_error(
             SqlDdlBindError::UnsupportedAlterTableDropDefaultRequired {
                 entity_name: entity_name.to_string(),
                 column_name: column_name.to_string(),
+            }
+        }
+        SchemaDdlFieldDefaultCandidateError::Indexed(index_name) => {
+            SqlDdlBindError::IndexedFieldDefaultChangeRejected {
+                entity_name: entity_name.to_string(),
+                column_name: column_name.to_string(),
+                index_name,
             }
         }
     }

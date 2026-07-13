@@ -52,6 +52,20 @@ pub(in crate::db) enum AcceptedFieldAbsencePolicy {
     Required,
 }
 
+/// Return whether an insert may omit one accepted field.
+///
+/// Accepted null/default policy and database-owned generation are the only
+/// omission authorities. Rust `Default` and generated construction values do
+/// not participate.
+pub(in crate::db) const fn accepted_insert_field_is_omittable(
+    absence_policy: AcceptedFieldAbsencePolicy,
+    write_policy: SchemaFieldWritePolicy,
+) -> bool {
+    !matches!(absence_policy, AcceptedFieldAbsencePolicy::Required)
+        || write_policy.insert_generation().is_some()
+        || write_policy.write_management().is_some()
+}
+
 ///
 /// AcceptedRowLayoutRuntimeField
 ///
@@ -853,14 +867,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     pub(in crate::db) fn field_slot_index_by_name(&self, name: &str) -> Option<usize> {
         self.field_by_name(name)
             .map(|field| usize::from(field.slot().get()))
-    }
-
-    /// Borrow one runtime field's accepted persisted kind by name.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&AcceptedFieldKind> {
-        self.field_by_name(name)
-            .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
     /// Build the owned row-decode contract with immutable catalog authority.

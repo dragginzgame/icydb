@@ -7,10 +7,12 @@ use crate::{
         },
         data::{
             AuthoredStructuralPatch, CanonicalRow, DecodedDataStoreKey, PersistedRow, RawRow,
-            SerializedStructuralPatch, StructuralRowContract, StructuralSlotReader,
+            StructuralRowContract, StructuralSlotReader,
             apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
+            canonical_row_from_complete_serialized_structural_patch_with_accepted_contract,
             canonical_row_from_entity_with_accepted_contract,
             canonical_row_from_raw_row_with_accepted_decode_contract,
+            merge_non_generated_slots_into_canonical_row_with_accepted_contract,
         },
         executor::{
             Context,
@@ -329,43 +331,50 @@ impl<E: PersistedRow> SaveExecutor<E> {
             self.accepted_schema_info(),
         )?;
 
-        // Phase 1: materialize and preflight the structural after-image under
-        // the same save contract as typed writes.
-        let entity = match mode {
+        // Phase 1: construct one complete canonical structural after-image for
+        // every mode. Insert/replace patches are already complete after
+        // accepted omission materialization; updates overlay the accepted
+        // baseline first.
+        let structural_after_image = match mode {
             MutationMode::Update => {
                 let baseline_row = Self::structural_update_baseline_row(old_raw.as_ref())?;
-                let raw_after_image =
-                    Self::build_structural_update_after_image_row_with_accepted_contract(
-                        &mutation,
-                        baseline_row,
-                        accepted_row_decode_contract.clone(),
-                    )?;
-                self.validate_structural_after_image(
-                    &data_key,
-                    raw_after_image.as_raw_row(),
+                Self::build_structural_update_after_image_row_with_accepted_contract(
+                    &mutation,
+                    baseline_row,
                     accepted_row_decode_contract.clone(),
-                    schema,
-                    validate_relations,
-                    write_context,
                 )?
             }
-            MutationMode::Insert | MutationMode::Replace => self
-                .validate_structural_after_image_from_patch(
-                    &data_key,
-                    mutation.serialized_slots(),
+            MutationMode::Insert | MutationMode::Replace => {
+                canonical_row_from_complete_serialized_structural_patch_with_accepted_contract(
+                    E::PATH,
                     accepted_row_decode_contract.clone(),
-                    schema,
-                    validate_relations,
-                    write_context,
-                )?,
+                    mutation.serialized_slots(),
+                )?
+            }
         };
-
-        // Phase 2: emit the normalized typed entity through the accepted row
-        // contract so final persisted bytes do not reopen generated slot
-        // writers after structural validation has completed.
-        let row_bytes = Self::build_normalized_structural_after_image_row_with_accepted_contract(
-            &entity,
+        let entity = self.validate_structural_after_image(
+            &data_key,
+            structural_after_image.as_raw_row(),
             accepted_row_decode_contract.clone(),
+            schema,
+            validate_relations,
+            write_context,
+        )?;
+
+        // Phase 2: retain normalized generated fields from typed preflight and
+        // accepted non-generated slots from the structural after-image. DDL
+        // fields have no Rust entity slot and must not collapse back to their
+        // missing/default policy during re-emission.
+        let normalized_entity_row =
+            Self::build_normalized_structural_after_image_row_with_accepted_contract(
+                &entity,
+                accepted_row_decode_contract.clone(),
+            )?;
+        let row_bytes = merge_non_generated_slots_into_canonical_row_with_accepted_contract(
+            E::PATH,
+            accepted_row_decode_contract.clone(),
+            normalized_entity_row.as_raw_row(),
+            structural_after_image.as_raw_row(),
         )?;
         let row_bytes = row_bytes.into_raw_row().into_bytes();
         let before_bytes = old_raw
@@ -466,56 +475,6 @@ impl<E: PersistedRow> SaveExecutor<E> {
         })?;
         let mut entity = E::materialize_from_slots(&mut slots).map_err(|err| {
             InternalError::mutation_structural_after_image_invalid(E::PATH, data_key, err)
-        })?;
-        let identity_key = entity.id().key();
-        if identity_key != expected_key {
-            let field_name = Self::primary_key_label_from_schema(schema)?;
-            let field_value = KeyValueCodec::to_key_value(&identity_key);
-            let identity_value = KeyValueCodec::to_key_value(&expected_key);
-
-            return Err(InternalError::mutation_entity_primary_key_mismatch(
-                E::PATH,
-                field_name.as_str(),
-                &field_value,
-                &identity_value,
-            ));
-        }
-
-        self.preflight_entity_with_cached_schema(
-            &mut entity,
-            schema,
-            validate_relations,
-            write_context,
-            None,
-        )?;
-
-        Ok(entity)
-    }
-
-    // Validate one structural insert/replace after-image by materializing the
-    // sparse patch directly so derive-owned missing-slot semantics run before
-    // save preflight emits the final dense row image.
-    fn validate_structural_after_image_from_patch(
-        &self,
-        data_key: &DecodedDataStoreKey,
-        patch: &SerializedStructuralPatch,
-        accepted_row_decode_contract: AcceptedRowDecodeContract,
-        schema: &SchemaInfo,
-        validate_relations: bool,
-        write_context: SanitizeWriteContext,
-    ) -> Result<E, InternalError> {
-        let expected_key = data_key.try_key::<E>()?;
-        let mut entity =
-            crate::db::data::materialize_entity_from_serialized_structural_patch_with_accepted_contract::<E>(
-                patch,
-                accepted_row_decode_contract,
-            )
-            .map_err(|err| {
-                InternalError::mutation_structural_after_image_invalid(
-                    E::PATH,
-                    data_key,
-                    err,
-                )
         })?;
         let identity_key = entity.id().key();
         if identity_key != expected_key {

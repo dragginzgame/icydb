@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.202.x] ⚠️ - 2026-07-13 - Explicit Rust Defaults
+
+Detailed notes: [docs/changelog/0.202.md](docs/changelog/0.202.md)
+
+- `0.202.0` makes Rust `Default` explicit for generated domain types, removes
+  the enum `Unspecified` sentinel, and hardens accepted database-default
+  behavior across write paths. Potentially breaking: schemas must opt in with
+  `traits(add(Default))`, and retired enum directives and metadata accessors
+  have no compatibility aliases.
+
 ## [0.201.x] 🩹 - 2026-07-13 - Trait Contract Hardening
 
 Detailed notes: [docs/changelog/0.201.md](docs/changelog/0.201.md)

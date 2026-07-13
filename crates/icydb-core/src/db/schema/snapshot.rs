@@ -4,7 +4,7 @@
 //! Boundary: schema-owned DTOs that can become the `icydb_schema` payload.
 
 #[cfg(any(test, feature = "sql"))]
-use crate::db::predicate::relabel_sql_predicate_field_root;
+use crate::db::predicate::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
 use crate::{
     db::schema::{
         AcceptedFieldKind, FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
@@ -577,6 +577,19 @@ impl PersistedIndexSnapshot {
             Some(sql) => Some(sql.as_str()),
             None => None,
         }
+    }
+
+    /// Return whether this index depends on one accepted field.
+    ///
+    /// Both key components and filtered-index predicates participate. A
+    /// malformed accepted predicate fails closed as a dependency because a
+    /// metadata-only field mutation must not risk stale physical index state.
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn references_field(&self, field_id: FieldId, field_name: &str) -> bool {
+        self.key.references_field(field_id)
+            || self.predicate_sql().is_some_and(|predicate_sql| {
+                sql_predicate_references_field_root(predicate_sql, field_name).unwrap_or(true)
+            })
     }
 
     /// Clone this accepted index with display metadata updated for a renamed

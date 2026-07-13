@@ -28,6 +28,27 @@ pub(in crate::db) fn relabel_sql_predicate_field_root(
     render_sql_predicate(&predicate)
 }
 
+/// Return whether one reduced SQL predicate references a field root.
+///
+/// The check parses the predicate and visits structural field operands, so
+/// schema dependency checks never rely on substring matching.
+pub(in crate::db) fn sql_predicate_references_field_root(
+    predicate_sql: &str,
+    field_root: &str,
+) -> Option<bool> {
+    let predicate = parse_sql_predicate(predicate_sql).ok()?;
+    let mut references = false;
+    let _ = rewrite_field_identifiers(predicate, |field| {
+        references |= field == field_root
+            || field
+                .strip_prefix(field_root)
+                .is_some_and(|tail| tail.starts_with('.'));
+        field
+    });
+
+    Some(references)
+}
+
 fn relabel_field_root(field: String, old_name: &str, new_name: &str) -> String {
     if field == old_name {
         return new_name.to_string();
@@ -190,7 +211,22 @@ const fn hex_digit(nibble: u8) -> char {
 
 #[cfg(test)]
 mod tests {
-    use super::relabel_sql_predicate_field_root;
+    use super::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
+
+    #[test]
+    fn sql_predicate_field_root_dependencies_are_structural() {
+        assert_eq!(
+            sql_predicate_references_field_root(
+                "profile.rank >= 7 AND status = 'active'",
+                "profile",
+            ),
+            Some(true),
+        );
+        assert_eq!(
+            sql_predicate_references_field_root("profile.rank >= 7 AND status = 'active'", "file",),
+            Some(false),
+        );
+    }
 
     #[test]
     fn relabel_sql_predicate_field_root_updates_literal_predicate_fields() {

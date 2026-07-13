@@ -50,20 +50,9 @@ impl ValidateNode for Enum {
             variant.validate()?;
         }
 
-        // Phase 2: validate unspecified/default ordering rules.
-        let mut unspecified_index = None;
+        // Phase 2: validate Rust default selection rules.
         let mut default_count = 0;
-        for (index, variant) in self.variants.iter().enumerate() {
-            if variant.unspecified {
-                if unspecified_index.is_none() {
-                    unspecified_index = Some((index, variant));
-                } else {
-                    return Err(DarlingError::custom(
-                        "there should not be more than one unspecified variant",
-                    )
-                    .with_span(&variant.ident));
-                }
-            }
+        for variant in &self.variants {
             if variant.default {
                 default_count += 1;
                 if default_count > 1 {
@@ -75,20 +64,20 @@ impl ValidateNode for Enum {
             }
         }
 
-        if let Some((index, variant)) = unspecified_index
-            && index != 0
-        {
-            return Err(DarlingError::custom(
-                "the unspecified variant must be the first in the list",
-            )
-            .with_span(&variant.ident));
+        let default_requested = self.traits.explicitly_adds(TraitKind::Default);
+        if default_requested && self.default_variant().is_none() {
+            return Err(DarlingError::custom(format!(
+                "Default was requested for enum {}, but no variant is marked `default`",
+                self.def.ident()
+            ))
+            .with_span(&self.def.ident()));
         }
-
-        let traits = self.traits.with_type_traits().build();
-        if traits.contains(TraitKind::Default) && self.default_variant().is_none() {
-            return Err(DarlingError::custom(
-                "default variant is required when Default is enabled",
-            ));
+        if !default_requested && let Some(default_variant) = self.default_variant() {
+            return Err(DarlingError::custom(format!(
+                "enum {} marks a Rust default variant but does not enable `traits(add(Default))`",
+                self.def.ident()
+            ))
+            .with_span(&default_variant.ident));
         }
 
         Ok(())
@@ -175,7 +164,6 @@ impl ToTokens for Enum {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct EnumVariant {
-    #[darling(default = EnumVariant::unspecified_ident)]
     pub(crate) ident: Ident,
 
     #[darling(default)]
@@ -183,28 +171,12 @@ pub struct EnumVariant {
 
     #[darling(default)]
     pub(crate) default: bool,
-
-    #[darling(default)]
-    pub(crate) unspecified: bool,
 }
 
 impl EnumVariant {
-    fn unspecified_ident() -> Ident {
-        format_ident!("Unspecified")
-    }
-
-    /// Pick the effective identifier for codegen
-    pub fn effective_ident(&self) -> Ident {
-        if self.unspecified {
-            Self::unspecified_ident()
-        } else {
-            self.ident.clone()
-        }
-    }
-
     pub(crate) fn name_const_ident(&self) -> Ident {
         let constant = self.ident.to_string().to_case(Case::Constant);
-        let variant_ident = self.effective_ident().to_string();
+        let variant_ident = self.ident.to_string();
         let constant = if constant == variant_ident {
             format!("{constant}_NAME")
         } else {
@@ -245,11 +217,6 @@ impl EnumVariant {
 
 impl HasSchemaPart for EnumVariant {
     fn schema_part(&self) -> TokenStream {
-        let Self {
-            default,
-            unspecified,
-            ..
-        } = self;
         let ident = quote_one(&self.ident, to_str_lit);
         let value = quote_option(self.value.as_ref(), Value::schema_part);
 
@@ -258,8 +225,6 @@ impl HasSchemaPart for EnumVariant {
             ::icydb::schema::node::EnumVariant::new(
                 #ident,
                 #value,
-                #default,
-                #unspecified,
             )
         }
     }
@@ -267,11 +232,6 @@ impl HasSchemaPart for EnumVariant {
 
 impl EnumVariant {
     fn schema_part_for_enum(&self, enum_ident: &Ident) -> TokenStream {
-        let Self {
-            default,
-            unspecified,
-            ..
-        } = self;
         let name_const_ident = self.name_const_ident();
         let value = quote_option(self.value.as_ref(), Value::schema_part);
 
@@ -280,8 +240,6 @@ impl EnumVariant {
             ::icydb::schema::node::EnumVariant::new(
                 #enum_ident::#name_const_ident,
                 #value,
-                #default,
-                #unspecified,
             )
         }
     }
@@ -289,7 +247,7 @@ impl EnumVariant {
 
 impl HasTypeExpr for EnumVariant {
     fn type_expr(&self) -> TokenStream {
-        let ident = self.effective_ident();
+        let ident = &self.ident;
 
         let body = if let Some(value) = &self.value {
             let value = value.type_expr();

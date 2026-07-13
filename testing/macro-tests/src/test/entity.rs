@@ -11,7 +11,7 @@ mod tests {
         db::DbSession,
         model::field::{FieldDatabaseDefault, FieldKind},
         traits::{EntityDeclaration, EntityKey, SingletonEntity},
-        types::Ulid,
+        types::{Timestamp, Ulid},
     };
     use icydb_core::{
         db::{
@@ -119,7 +119,9 @@ mod tests {
         let entity = CompositePrimaryKeyEntity {
             tenant_id: 31,
             local_id: 42,
-            ..Default::default()
+            rank: 7,
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         };
 
         assert_eq!(

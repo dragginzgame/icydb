@@ -6,7 +6,10 @@
 use crate::{
     db::{
         codec::decode_row_payload_bytes,
-        data::{RawRow, decode_runtime_value_from_row_contract},
+        data::{
+            RawRow, decode_runtime_value_from_row_contract,
+            encode_canonical_value_for_accepted_field_contract,
+        },
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedFieldAbsencePolicy,
             AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
@@ -24,6 +27,11 @@ type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
 type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
 type RowSlotTableSections<'a> = (usize, usize, &'a [u8], &'a [u8]);
+
+enum MissingSlotMaterialization<'a> {
+    Null,
+    DefaultPayload(&'a [u8]),
+}
 
 /// Accepted snapshot and structural row contract selected from one catalog root.
 #[derive(Clone, Debug)]
@@ -259,17 +267,6 @@ impl StructuralRowContract {
         ))
     }
 
-    /// Return the missing-slot policy for one accepted physical slot.
-    #[must_use]
-    pub(in crate::db) fn accepted_field_absence_policy(
-        &self,
-        slot: usize,
-    ) -> Option<AcceptedFieldAbsencePolicy> {
-        let field = self.accepted_decode_contract.field_for_slot(slot)?;
-
-        Some(field.absence_policy())
-    }
-
     /// Materialize the logical runtime value for an absent accepted slot.
     ///
     /// Only accepted-schema row contracts may synthesize missing fields.
@@ -277,23 +274,50 @@ impl StructuralRowContract {
     /// defaults materialize through the accepted default payload, and required
     /// accepted slots remain fail-closed.
     pub(in crate::db) fn missing_slot_value(&self, slot: usize) -> Result<Value, InternalError> {
-        let field_name = self.field_name(slot)?;
-        match self.accepted_field_absence_policy(slot) {
-            Some(AcceptedFieldAbsencePolicy::NullIfMissing) => Ok(Value::Null),
-            Some(AcceptedFieldAbsencePolicy::DefaultIfMissing) => {
-                let field = self
-                    .accepted_decode_contract
-                    .required_field_for_slot(self.entity_path(), slot)?;
-                let Some(default_payload) = field.default().slot_payload() else {
-                    return Err(InternalError::persisted_row_declared_field_missing(
-                        field_name,
-                    ));
-                };
-
-                decode_runtime_value_from_row_contract(self, slot, default_payload)
+        match self.missing_slot_materialization(slot)? {
+            MissingSlotMaterialization::Null => Ok(Value::Null),
+            MissingSlotMaterialization::DefaultPayload(payload) => {
+                decode_runtime_value_from_row_contract(self, slot, payload)
             }
-            Some(AcceptedFieldAbsencePolicy::Required) | None => Err(
-                InternalError::persisted_row_declared_field_missing(field_name),
+        }
+    }
+
+    /// Materialize the physical payload for an absent accepted slot.
+    ///
+    /// Accepted default bytes are already canonical and bundle-validated, so
+    /// complete writes reuse them directly. Nullable omissions are encoded
+    /// through the accepted persistence contract.
+    pub(in crate::db) fn missing_slot_payload(
+        &self,
+        slot: usize,
+    ) -> Result<Vec<u8>, InternalError> {
+        match self.missing_slot_materialization(slot)? {
+            MissingSlotMaterialization::Null => {
+                let encoding = self.required_accepted_field_persistence_contract(slot)?;
+                encode_canonical_value_for_accepted_field_contract(encoding, &Value::Null)
+            }
+            MissingSlotMaterialization::DefaultPayload(payload) => Ok(payload.to_vec()),
+        }
+    }
+
+    fn missing_slot_materialization(
+        &self,
+        slot: usize,
+    ) -> Result<MissingSlotMaterialization<'_>, InternalError> {
+        let field = self
+            .accepted_decode_contract
+            .required_field_for_slot(self.entity_path(), slot)?;
+        match field.absence_policy() {
+            AcceptedFieldAbsencePolicy::NullIfMissing => Ok(MissingSlotMaterialization::Null),
+            AcceptedFieldAbsencePolicy::DefaultIfMissing => field
+                .default()
+                .slot_payload()
+                .map(MissingSlotMaterialization::DefaultPayload)
+                .ok_or_else(|| {
+                    InternalError::persisted_row_declared_field_missing(field.field_name())
+                }),
+            AcceptedFieldAbsencePolicy::Required => Err(
+                InternalError::persisted_row_declared_field_missing(field.field_name()),
             ),
         }
     }

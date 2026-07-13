@@ -18,7 +18,7 @@ use crate::{
         schema::{
             AcceptedFieldAbsencePolicy, AcceptedFieldKind, AcceptedFieldKindCategory,
             AcceptedRowDecodeContract, AcceptedScalarClass, SchemaInfo,
-            classify_accepted_field_kind, literal_matches_type,
+            accepted_insert_field_is_omittable, classify_accepted_field_kind, literal_matches_type,
         },
     },
     error::InternalError,
@@ -27,6 +27,29 @@ use crate::{
     value::Value,
 };
 use std::cmp::Ordering;
+
+// Resolve typed-create omissions exclusively from the accepted insert
+// contract. Generated create DTOs retain authored-slot provenance, but they do
+// not decide whether an omitted field is legal at runtime.
+fn missing_create_authored_fields(
+    accepted_contract: &AcceptedRowDecodeContract,
+    authored_create_slots: &[usize],
+) -> Vec<String> {
+    let mut missing = Vec::new();
+    for slot in 0..accepted_contract.required_slot_count() {
+        let Some(field) = accepted_contract.field_for_slot(slot) else {
+            continue;
+        };
+        if accepted_insert_field_is_omittable(field.absence_policy(), field.write_policy()) {
+            continue;
+        }
+        if !authored_create_slots.contains(&slot) {
+            missing.push(field.field_name().to_string());
+        }
+    }
+
+    missing
+}
 
 impl<E: PersistedRow> SaveExecutor<E> {
     // Enforce accepted-contract scalar bounds before structural patch values are
@@ -124,8 +147,8 @@ impl<E: PersistedRow> SaveExecutor<E> {
     }
 
     // Enforce the typed create authorship contract for generated create-input
-    // payloads. Every user-authorable create field must be explicitly present;
-    // only generated or managed fields may be omitted by the create type.
+    // payloads. Accepted null/default policy and database-owned generation may
+    // satisfy an omission; every other user-authorable field must be present.
     fn validate_create_authorship(
         &self,
         authored_create_slots: Option<&[usize]>,
@@ -134,7 +157,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             return Ok(());
         };
 
-        let missing_fields = Self::missing_authored_fields_with_accepted_contract(
+        let missing_fields = missing_create_authored_fields(
             self.accepted_row_decode_contract(),
             authored_create_slots,
         );
@@ -147,36 +170,6 @@ impl<E: PersistedRow> SaveExecutor<E> {
             E::PATH,
             &missing_fields.join(", "),
         ))
-    }
-
-    // Resolve missing authored fields from accepted schema write policy when
-    // the save lane has an accepted row contract. This keeps typed create
-    // authorship on persisted schema facts instead of generated `FieldModel`
-    // write policy metadata.
-    fn missing_authored_fields_with_accepted_contract(
-        accepted_contract: &AcceptedRowDecodeContract,
-        authored_create_slots: &[usize],
-    ) -> Vec<String> {
-        let mut missing = Vec::new();
-        for slot in 0..accepted_contract.required_slot_count() {
-            let Some(field) = accepted_contract.field_for_slot(slot) else {
-                continue;
-            };
-            if !field.generated()
-                && !matches!(field.absence_policy(), AcceptedFieldAbsencePolicy::Required)
-            {
-                continue;
-            }
-            let write_policy = field.write_policy();
-            let requires_authorship = write_policy.insert_generation().is_none()
-                && write_policy.write_management().is_none();
-
-            if requires_authorship && !authored_create_slots.contains(&slot) {
-                missing.push(field.field_name().to_string());
-            }
-        }
-
-        missing
     }
 
     // Enforce trait boundary invariants for user-provided entities.
@@ -901,12 +894,63 @@ fn persisted_collection_kind_accepts_value(kind: &AcceptedFieldKind, value: &Val
 
 #[cfg(test)]
 mod tests {
-    use super::{persisted_field_kind_accepts_value, persisted_field_kind_is_queryable};
+    use super::{
+        missing_create_authored_fields, persisted_field_kind_accepts_value,
+        persisted_field_kind_is_queryable,
+    };
     use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
+        db::schema::{AcceptedFieldKind, AcceptedRelationStrength, AcceptedRowDecodeContract},
+        model::{
+            EntityModel, IndexModel,
+            field::{
+                FieldDatabaseDefault, FieldInsertGeneration, FieldKind, FieldModel,
+                FieldStorageDecode,
+            },
+        },
         types::EntityTag,
         value::Value,
     };
+
+    static CREATE_DEFAULT_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
+    static CREATE_FIELDS: [FieldModel; 4] = [
+        FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+            "id",
+            FieldKind::Ulid,
+            FieldStorageDecode::ByKind,
+            false,
+            Some(FieldInsertGeneration::Ulid),
+            None,
+            FieldDatabaseDefault::None,
+            &[],
+        ),
+        FieldModel::generated("name", FieldKind::Text { max_len: None }),
+        FieldModel::generated_with_storage_decode_and_nullability(
+            "note",
+            FieldKind::Text { max_len: None },
+            FieldStorageDecode::ByKind,
+            true,
+        ),
+        FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+            "score",
+            FieldKind::Nat64,
+            FieldStorageDecode::ByKind,
+            false,
+            None,
+            None,
+            FieldDatabaseDefault::EncodedSlotPayload(CREATE_DEFAULT_PAYLOAD),
+            &[],
+        ),
+    ];
+    static CREATE_INDEXES: [&IndexModel; 0] = [];
+    static CREATE_MODEL: EntityModel = EntityModel::generated(
+        "tests::CreateDefaultEntity",
+        "create_default_entity",
+        1,
+        &CREATE_FIELDS[0],
+        0,
+        &CREATE_FIELDS,
+        &CREATE_INDEXES,
+    );
 
     fn relation_to_key(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
         AcceptedFieldKind::Relation {
@@ -917,6 +961,17 @@ mod tests {
             key_kind: Box::new(key_kind),
             strength: AcceptedRelationStrength::Weak,
         }
+    }
+
+    #[test]
+    fn typed_create_omissions_follow_accepted_insert_policy() {
+        let contract = AcceptedRowDecodeContract::from_model_proposal_for_test(&CREATE_MODEL);
+
+        assert!(missing_create_authored_fields(&contract, &[1]).is_empty());
+        assert_eq!(
+            missing_create_authored_fields(&contract, &[]),
+            vec!["name".to_string()],
+        );
     }
 
     #[test]

@@ -58,43 +58,7 @@ impl Imp<Record> for ValidateAutoTrait {
     }
 }
 
-///
-/// ---------------------------------------------------------------------------
-/// Enum
-/// ---------------------------------------------------------------------------
-/// Any variants marked `unspecified` are invalid if selected.
-///
-
-impl ValidateAutoFn for Enum {
-    fn self_tokens(node: &Self) -> TokenStream {
-        let invalid_arms: TokenStream = node
-            .variants
-            .iter()
-            .filter(|v| v.unspecified)
-            .map(|v| {
-                let ident = v.effective_ident();
-                quote! {
-                    Self::#ident => {
-                        ctx.issue("unspecified enum variant is not valid");
-                    }
-                }
-            })
-            .collect();
-
-        if invalid_arms.is_empty() {
-            quote!()
-        } else {
-            wrap_validate_self_fn(Some(quote! {
-                match self {
-                    #invalid_arms
-                    _ => {
-                        // NOTE: Only unspecified variants emit diagnostics.
-                    }
-                }
-            }))
-        }
-    }
-}
+impl ValidateAutoFn for Enum {}
 
 ///
 /// ---------------------------------------------------------------------------

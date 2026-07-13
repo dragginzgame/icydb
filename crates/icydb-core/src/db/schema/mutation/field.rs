@@ -231,6 +231,9 @@ pub(in crate::db) enum SchemaDdlFieldDefaultCandidateError {
     Generated,
     /// The requested accepted field is required and currently has a default.
     Required,
+    /// The requested accepted field is referenced by an accepted index whose
+    /// physical entries would require rebuilding after a default change.
+    Indexed(String),
 }
 
 /// Field nullability candidate resolution failures for SQL DDL-authored schema
@@ -314,15 +317,15 @@ pub(in crate::db) fn admit_sql_ddl_field_rename_candidate(
     }
 }
 
-fn resolve_sql_ddl_field_drop_dependent_index(
+fn resolve_sql_ddl_field_dependent_index(
     accepted_before: &AcceptedSchemaSnapshot,
-    field_id: FieldId,
+    field: &PersistedFieldSnapshot,
 ) -> Option<String> {
     accepted_before
         .persisted_snapshot()
         .indexes()
         .iter()
-        .find(|index| index.key().references_field(field_id))
+        .find(|index| index.references_field(field.id(), field.name()))
         .map(|index| index.name().to_string())
 }
 
@@ -348,17 +351,16 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_candidate(
         return Err(SchemaDdlFieldDropCandidateError::Generated);
     }
 
-    if let Some(index_name) =
-        resolve_sql_ddl_field_drop_dependent_index(accepted_before, field.id())
-    {
+    if let Some(index_name) = resolve_sql_ddl_field_dependent_index(accepted_before, field) {
         return Err(SchemaDdlFieldDropCandidateError::Indexed(index_name));
     }
 
     Ok(field.clone())
 }
 
-/// Resolve one accepted SQL DDL SET DEFAULT candidate and reject
-/// generated-owned fields before default encoding or mutation derivation.
+/// Resolve one accepted SQL DDL SET DEFAULT field before the authored default
+/// is encoded. Ownership and index dependencies are checked once the exact
+/// candidate payload is known, preserving true no-ops.
 pub(in crate::db) fn resolve_sql_ddl_field_set_default_candidate(
     accepted_before: &AcceptedSchemaSnapshot,
     field_name: &str,
@@ -370,11 +372,33 @@ pub(in crate::db) fn resolve_sql_ddl_field_set_default_candidate(
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlFieldDefaultCandidateError::Unknown)?;
 
+    Ok(field.clone())
+}
+
+/// Validate one actual accepted field-default change.
+///
+/// Exact no-ops remain legal. Real changes reject generated-owned fields,
+/// required fields losing their only absence policy, and fields whose logical
+/// missing-slot value participates in an accepted index.
+pub(in crate::db) fn validate_sql_ddl_field_default_change_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field: &PersistedFieldSnapshot,
+    default: &SchemaFieldDefault,
+) -> Result<(), SchemaDdlFieldDefaultCandidateError> {
+    if field.default() == default {
+        return Ok(());
+    }
     if field.generated() {
         return Err(SchemaDdlFieldDefaultCandidateError::Generated);
     }
+    if default.is_none() && !field.nullable() {
+        return Err(SchemaDdlFieldDefaultCandidateError::Required);
+    }
+    if let Some(index_name) = resolve_sql_ddl_field_dependent_index(accepted_before, field) {
+        return Err(SchemaDdlFieldDefaultCandidateError::Indexed(index_name));
+    }
 
-    Ok(field.clone())
+    Ok(())
 }
 
 /// Resolve one accepted SQL DDL DROP DEFAULT candidate. Missing defaults are
@@ -391,17 +415,11 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_default_candidate(
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlFieldDefaultCandidateError::Unknown)?;
 
-    if field.default().is_none() {
-        return Ok(field.clone());
-    }
-
-    if field.generated() {
-        return Err(SchemaDdlFieldDefaultCandidateError::Generated);
-    }
-
-    if !field.nullable() {
-        return Err(SchemaDdlFieldDefaultCandidateError::Required);
-    }
+    validate_sql_ddl_field_default_change_candidate(
+        accepted_before,
+        field,
+        &SchemaFieldDefault::None,
+    )?;
 
     Ok(field.clone())
 }
@@ -549,6 +567,8 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
         .iter()
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    validate_sql_ddl_field_default_change_candidate(accepted_before, before_field, &default)
+        .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
     let fields = before
         .fields()
         .iter()

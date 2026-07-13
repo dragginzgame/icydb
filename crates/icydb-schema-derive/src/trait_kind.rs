@@ -147,7 +147,6 @@ static DEFAULT_TRAITS: LazyLock<Vec<TraitKind>> =
 static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
     vec![
         TraitKind::CandidType,
-        TraitKind::Default,
         TraitKind::Deserialize,
         TraitKind::Eq,
         TraitKind::From,
@@ -327,10 +326,6 @@ impl TraitSet {
         self.0.remove(&tr)
     }
 
-    pub(crate) fn contains(&self, tr: TraitKind) -> bool {
-        self.0.contains(&tr)
-    }
-
     pub(crate) fn extend<I: IntoIterator<Item = TraitKind>>(&mut self, traits: I) {
         self.0.extend(traits);
     }
@@ -381,6 +376,10 @@ pub struct TraitBuilder {
 }
 
 impl TraitBuilder {
+    pub(crate) fn explicitly_adds(&self, tr: TraitKind) -> bool {
+        self.add.iter().any(|candidate| *candidate == tr)
+    }
+
     pub(crate) fn with_type_traits(&self) -> Self {
         let mut clone = self.clone();
         clone.add.extend(TYPE_TRAITS.iter().copied());
@@ -403,7 +402,7 @@ impl TraitBuilder {
         for tr in self.remove.iter() {
             if !set.remove(*tr) {
                 return Err(DarlingError::custom(format!(
-                    "cannot remove trait {tr:?} from {set:?}"
+                    "cannot remove trait '{tr:?}' because it is not enabled"
                 )));
             }
         }

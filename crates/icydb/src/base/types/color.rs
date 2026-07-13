@@ -40,7 +40,8 @@ pub struct Rgba {}
     ty(
         sanitizer(path = "base::sanitizer::text::color::RgbHex"),
         validator(path = "base::validator::text::color::RgbHex")
-    )
+    ),
+    traits(add(Default))
 )]
 pub struct RgbHex {}
 
@@ -56,6 +57,6 @@ pub struct RgbHex {}
         sanitizer(path = "base::sanitizer::text::color::RgbaHex"),
         validator(path = "base::validator::text::color::RgbaHex")
     ),
-    traits(remove(From))
+    traits(add(Default), remove(From))
 )]
 pub struct RgbaHex {}

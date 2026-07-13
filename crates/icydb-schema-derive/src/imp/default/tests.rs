@@ -3,7 +3,7 @@
 //! Does not own: production behavior.
 //! Boundary: test-only contracts.
 
-use super::{default_strategy_entity, record_default_strategy};
+use super::{default_strategy_entity, record_default_strategy, validate_struct_default_request};
 use crate::{
     node::{
         Arg, Def, Entity, Field, FieldList, Item, PrimaryKey, PrimaryKeySource, Record, Type, Value,
@@ -93,17 +93,15 @@ fn entity_defaults_derive_when_explicit_defaults_match_implicit_defaults() {
 }
 
 #[test]
-fn entity_defaults_are_not_generated_for_required_fields_without_defaults() {
+fn entity_default_request_rejects_required_fields_without_construction_values() {
     let mut entity = redundant_default_entity();
     entity
         .fields
         .fields
         .push(required_field_without_default("score", Primitive::Int32));
 
-    let strategy = default_strategy_entity(&entity);
-
-    assert!(strategy.derive.is_none());
-    assert!(strategy.imp.is_none());
+    validate_struct_default_request("entity", &entity.def, &entity.fields)
+        .expect_err("an explicit entity Default request must reject missing construction values");
 }
 
 #[test]
@@ -159,7 +157,7 @@ fn records_follow_the_same_redundant_default_rule() {
 }
 
 #[test]
-fn record_defaults_are_not_generated_for_required_fields_without_defaults() {
+fn record_default_request_rejects_required_fields_without_construction_values() {
     let fields = FieldList {
         fields: vec![required_field_without_default("score", Primitive::Int32)],
     };
@@ -172,8 +170,6 @@ fn record_defaults_are_not_generated_for_required_fields_without_defaults() {
         ty: Type::default(),
     };
 
-    let strategy = record_default_strategy(&record.def, &record.fields);
-
-    assert!(strategy.derive.is_none());
-    assert!(strategy.imp.is_none());
+    validate_struct_default_request("record", &record.def, &record.fields)
+        .expect_err("an explicit record Default request must reject missing construction values");
 }

@@ -167,6 +167,7 @@ impl SqlDdlBindError {
             | Self::PrimaryKeyFieldDropRejected { .. }
             | Self::GeneratedFieldDropRejected { .. }
             | Self::IndexedFieldDropRejected { .. }
+            | Self::IndexedFieldDefaultChangeRejected { .. }
             | Self::GeneratedFieldRenameRejected { .. } => {
                 SchemaDdlAdmissionError::UnsupportedTransitionClass
             }

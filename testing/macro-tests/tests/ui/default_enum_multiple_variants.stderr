@@ -1,0 +1,5 @@
+error: exactly one variant must be marked as default, found 2
+ --> tests/ui/default_enum_multiple_variants.rs:5:21
+  |
+5 |     variant(ident = "Active", default),
+  |                     ^^^^^^^^

@@ -5681,6 +5681,27 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
         ]],
     );
     assert_eq!(row_count, 1);
+
+    let SqlStatementResult::Count { row_count } =
+        execute_sql_statement_for_tests::<SessionSqlEntity>(
+            &session,
+            "INSERT INTO SessionSqlEntity (name, age) VALUES ('Bea', 37)",
+        )
+        .expect("SQL INSERT should omit a field owned by the accepted database default")
+    else {
+        panic!("SQL INSERT without RETURNING should return a row count");
+    };
+    assert_eq!(row_count, 1);
+
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT score FROM SessionSqlEntity WHERE name = 'Bea'",
+        )
+        .expect("SQL reads should observe the accepted default applied by SQL INSERT")
+    else {
+        panic!("SQL SELECT over the inserted defaulted field should emit projection rows");
+    };
+    assert_eq!(rows, vec![vec![output(Value::Nat64(0))]]);
 }
 
 #[test]
@@ -5733,6 +5754,135 @@ fn execute_sql_ddl_publishes_supported_set_default() {
             && field.kind().starts_with("nat64 default=slot_payload(")
             && field.origin() == "ddl"),
         "metadata surfaces should expose the DDL-published default change",
+    );
+}
+
+#[test]
+fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7",
+            1,
+        ))
+        .expect("nullable defaulted field should publish");
+
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) VALUES ('OmittedDefault', 38)",
+    )
+    .expect("omitted nullable field should use its accepted database default");
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age, score) VALUES ('ExplicitNull', 39, NULL)",
+    )
+    .expect("explicit NULL should remain distinct from default omission");
+
+    let omitted = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT score FROM SessionSqlEntity WHERE name = 'OmittedDefault'",
+        )
+        .expect("omitted default row should remain readable");
+    let explicit_null = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT score FROM SessionSqlEntity WHERE name = 'ExplicitNull'",
+        )
+        .expect("explicit NULL row should remain readable");
+
+    let SqlStatementResult::Projection { rows, .. } = omitted else {
+        panic!("omitted default SELECT should return projection rows");
+    };
+    assert_eq!(rows, vec![vec![output(Value::Nat64(7))]]);
+    let SqlStatementResult::Projection { rows, .. } = explicit_null else {
+        panic!("explicit NULL SELECT should return projection rows");
+    };
+    assert_eq!(rows, vec![vec![output(Value::Null)]]);
+
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "UPDATE SessionSqlEntity SET age = 40 WHERE name = 'ExplicitNull'",
+    )
+    .expect("an unrelated update should preserve the accepted DDL field payload");
+    execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "UPDATE SessionSqlEntity SET score = 9 WHERE name = 'OmittedDefault'",
+    )
+    .expect("an authored update should persist the accepted DDL field payload");
+
+    let explicit_null = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT score FROM SessionSqlEntity WHERE name = 'ExplicitNull'",
+        )
+        .expect("updated explicit NULL row should remain readable");
+    let SqlStatementResult::Projection { rows, .. } = explicit_null else {
+        panic!("updated explicit NULL SELECT should return projection rows");
+    };
+    assert_eq!(rows, vec![vec![output(Value::Null)]]);
+
+    let authored = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT score FROM SessionSqlEntity WHERE name = 'OmittedDefault'",
+        )
+        .expect("updated authored DDL value should remain readable");
+    let SqlStatementResult::Projection { rows, .. } = authored else {
+        panic!("updated authored DDL SELECT should return projection rows");
+    };
+    assert_eq!(rows, vec![vec![output(Value::Nat64(9))]]);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_index_predicate_default_changes_without_rebuild() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'anonymous'",
+            1,
+        ))
+        .expect("setup defaulted field should publish");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_age_for_anonymous_idx ON SessionSqlEntity (age) WHERE nickname = 'anonymous'",
+            2,
+        ))
+        .expect("setup predicate-dependent index should publish");
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET DEFAULT 'anonymous'",
+            3,
+        ))
+        .expect("an exact predicate-field default should remain a no-op")
+    else {
+        panic!("matching SET DEFAULT should return a DDL report");
+    };
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+
+    let set_error = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET DEFAULT 'guest'",
+            3,
+        ))
+        .expect_err("predicate-field SET DEFAULT should require a future index rebuild path");
+    assert_sql_ddl_admission_detail(
+        set_error,
+        SchemaDdlAdmissionError::UnsupportedTransitionClass,
+    );
+
+    let drop_error = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname DROP DEFAULT",
+            3,
+        ))
+        .expect_err("predicate-field DROP DEFAULT should require a future index rebuild path");
+    assert_sql_ddl_admission_detail(
+        drop_error,
+        SchemaDdlAdmissionError::UnsupportedTransitionClass,
     );
 }
 

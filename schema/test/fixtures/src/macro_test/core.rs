@@ -33,26 +33,13 @@ pub struct Set;
 ///
 
 #[enum_(
-    variant(ident = "A", default),
+    variant(ident = "A"),
     variant(ident = "B"),
     variant(ident = "C"),
     variant(ident = "D"),
     traits(add(Sorted))
 )]
 pub struct EnumSorted {}
-
-///
-/// EnumUnspecified
-///
-
-#[enum_(
-    variant(unspecified, default),
-    variant(ident = "A"),
-    variant(ident = "B"),
-    variant(ident = "C"),
-    variant(ident = "D")
-)]
-pub struct EnumUnspecified {}
 
 ///
 /// Negative

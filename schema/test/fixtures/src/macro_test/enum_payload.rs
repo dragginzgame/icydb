@@ -5,10 +5,7 @@ use icydb::design::prelude::*;
 /// EnumWithPayload
 ///
 
-#[enum_(
-    variant(unspecified, default),
-    variant(ident = "Icp", value(item(is = "base::types::ic::icp::Tokens")))
-)]
+#[enum_(variant(ident = "Icp", value(item(is = "base::types::ic::icp::Tokens"))))]
 pub struct EnumWithPayload {}
 
 ///

@@ -46,7 +46,9 @@ pub(in crate::db) use coercion::supports_coercion;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(in crate::db) use parser::parse_sql_predicate;
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db) use render::relabel_sql_predicate_field_root;
+pub(in crate::db) use render::{
+    relabel_sql_predicate_field_root, sql_predicate_references_field_root,
+};
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use rewrite::rewrite_field_identifiers;
 

@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use std::ops::Not;
 
 ///
 /// Enum
@@ -70,28 +69,12 @@ pub struct EnumVariant {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<Value>,
-
-    #[serde(skip_serializing_if = "Not::not")]
-    default: bool,
-
-    #[serde(skip_serializing_if = "Not::not")]
-    unspecified: bool,
 }
 
 impl EnumVariant {
     #[must_use]
-    pub const fn new(
-        ident: &'static str,
-        value: Option<Value>,
-        default: bool,
-        unspecified: bool,
-    ) -> Self {
-        Self {
-            ident,
-            value,
-            default,
-            unspecified,
-        }
+    pub const fn new(ident: &'static str, value: Option<Value>) -> Self {
+        Self { ident, value }
     }
 
     #[must_use]
@@ -102,16 +85,6 @@ impl EnumVariant {
     #[must_use]
     pub const fn value(&self) -> Option<&Value> {
         self.value.as_ref()
-    }
-
-    #[must_use]
-    pub const fn default(&self) -> bool {
-        self.default
-    }
-
-    #[must_use]
-    pub const fn unspecified(&self) -> bool {
-        self.unspecified
     }
 }
 

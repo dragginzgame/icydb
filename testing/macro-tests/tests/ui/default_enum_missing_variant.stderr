@@ -1,0 +1,5 @@
+error: Default was requested for enum MissingEnumDefault, but no variant is marked `default`
+ --> tests/ui/default_enum_missing_variant.rs:8:12
+  |
+8 | pub struct MissingEnumDefault;
+  |            ^^^^^^^^^^^^^^^^^^

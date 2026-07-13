@@ -273,6 +273,12 @@ pub(in crate::db) enum SqlDdlBindError {
         column_name: String,
     },
 
+    IndexedFieldDefaultChangeRejected {
+        entity_name: String,
+        column_name: String,
+        index_name: String,
+    },
+
     GeneratedFieldNullabilityChangeRejected {
         entity_name: String,
         column_name: String,

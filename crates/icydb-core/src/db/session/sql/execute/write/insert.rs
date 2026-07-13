@@ -12,7 +12,8 @@ use crate::{
         executor::MutationMode,
         query::intent::StructuralQuery,
         schema::{
-            AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField, SchemaFieldWritePolicy,
+            AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
+            SchemaFieldWritePolicy, accepted_insert_field_is_omittable,
         },
         session::{
             AcceptedSchemaCatalogContext,
@@ -82,18 +83,8 @@ const fn sql_write_managed_field_value(
     }
 }
 
-const fn sql_insert_field_is_omittable(policy: SchemaFieldWritePolicy) -> bool {
-    if policy.insert_generation().is_some() {
-        return true;
-    }
-
-    policy.write_management().is_some()
-}
-
 const fn sql_insert_accepted_field_is_omittable(field: &AcceptedRowLayoutRuntimeField<'_>) -> bool {
-    let policy = write_policy_for_accepted_field(field);
-
-    sql_insert_field_is_omittable(policy)
+    accepted_insert_field_is_omittable(field.absence_policy(), field.write_policy())
 }
 
 fn ensure_sql_insert_required_fields(

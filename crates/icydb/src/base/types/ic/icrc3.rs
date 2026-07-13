@@ -12,7 +12,6 @@ use crate::design::prelude::*;
 ///
 
 #[enum_(
-    variant(unspecified, default),
     variant(ident = "Array", value(many, item(is = "Value", indirect))),
     variant(ident = "Blob", value(item(prim = "Blob", unbounded))),
     variant(ident = "Int", value(item(prim = "Int64"))),
@@ -32,7 +31,6 @@ impl Value {
 impl icydb_core::value::RuntimeValueEncode for Value {
     fn to_value(&self) -> icydb_core::value::Value {
         match self {
-            Self::Unspecified => icydb_core::value::Value::Unit,
             Self::Array(values) => icydb_core::value::Value::List(
                 values
                     .iter()
@@ -81,7 +79,6 @@ impl icydb_core::db::PersistedStructuralValueCodec for Value {
 impl Value {
     fn from_protocol_value(value: icydb_core::value::Value) -> Option<Self> {
         match value {
-            icydb_core::value::Value::Unit => Some(Self::Unspecified),
             icydb_core::value::Value::List(values) => values
                 .into_iter()
                 .map(Self::from_protocol_value)
@@ -126,10 +123,7 @@ pub mod value {
 #[cfg(test)]
 mod tests {
     use super::{Value, value::Map};
-    use crate::{
-        traits::Path,
-        value::{InputValue, InputValueEnum},
-    };
+    use crate::{traits::Path, value::InputValue};
     use icydb_core::db::PersistedStructuralValueCodec;
 
     #[test]
@@ -179,12 +173,6 @@ mod tests {
                     && matches!(value.payload(), Some(InputValue::Text(text)) if text == "nested")
         ));
 
-        let unit = InputValue::from(Value::Unspecified);
-        assert_eq!(
-            unit,
-            InputValue::Enum(InputValueEnum::new("Unspecified", Some(Value::PATH))),
-        );
-
         let mapped = InputValue::from(Value::Map(Box::new(Map::from(vec![(
             "answer",
             Value::Nat(42),
@@ -204,5 +192,10 @@ mod tests {
                         )
                 )
         ));
+    }
+
+    #[test]
+    fn protocol_unit_is_not_an_icrc3_value() {
+        assert!(Value::from_protocol_value(icydb_core::value::Value::Unit).is_none());
     }
 }

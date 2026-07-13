@@ -15,14 +15,17 @@ mod tests {
     };
     use std::{collections::BTreeMap, fmt::Debug};
 
-    #[record(fields(
-        field(
-            ident = "bio",
-            value(item(prim = "Text", unbounded)),
-            default = "String::new"
+    #[record(
+        fields(
+            field(
+                ident = "bio",
+                value(item(prim = "Text", unbounded)),
+                default = "String::new"
+            ),
+            field(ident = "visits", value(item(prim = "Nat32")), default = 0u32)
         ),
-        field(ident = "visits", value(item(prim = "Nat32")), default = 0u32)
-    ))]
+        traits(add(Default))
+    )]
     pub struct StructuredProfileHarness {}
 
     #[record(fields(

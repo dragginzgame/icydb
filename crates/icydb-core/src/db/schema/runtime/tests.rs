@@ -388,7 +388,9 @@ fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
     );
     assert_eq!(descriptor.field_slot_index_by_name("nickname"), Some(9));
     std::assert_matches!(
-        descriptor.field_kind_by_name("nickname"),
+        descriptor
+            .field_by_name("nickname")
+            .map(AcceptedRowLayoutRuntimeField::kind),
         Some(AcceptedFieldKind::Text { max_len: Some(32) }),
     );
     assert!(nickname.nested_leaves().is_empty());

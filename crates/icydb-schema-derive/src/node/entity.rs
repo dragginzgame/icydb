@@ -296,6 +296,9 @@ impl ValidateNode for Entity {
         self.traits.with_type_traits().validate()?;
         self.fields.validate()?;
         self.validate_schema_version()?;
+        if self.traits.explicitly_adds(TraitKind::Default) {
+            validate_struct_default_request("entity", self.def(), &self.fields)?;
+        }
 
         // Phase 2: validate entity name and index definitions.
         let def_ident = self.def.ident();

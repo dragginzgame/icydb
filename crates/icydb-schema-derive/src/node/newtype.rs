@@ -42,6 +42,14 @@ impl ValidateNode for Newtype {
         self.traits.with_type_traits().validate()?;
         self.item.validate()?;
 
+        if self.traits.explicitly_adds(TraitKind::Default) && self.default.is_none() {
+            return Err(DarlingError::custom(format!(
+                "Default was requested for newtype {}, but no `default = ...` constructor is configured",
+                self.def.ident()
+            ))
+            .with_span(&self.def.ident()));
+        }
+
         match (self.primitive, self.item.primitive) {
             (Some(a), Some(b)) if a != b => Err(DarlingError::custom(format!(
                 "invalid #[newtype] config: conflicting primitive ({a:?}) and item({b:?})"

@@ -34,6 +34,9 @@ impl ValidateNode for Record {
     fn validate(&self) -> Result<(), DarlingError> {
         self.traits.with_type_traits().validate()?;
         self.fields.validate()?;
+        if self.traits.explicitly_adds(TraitKind::Default) {
+            validate_struct_default_request("record", self.def(), &self.fields)?;
+        }
 
         Ok(())
     }

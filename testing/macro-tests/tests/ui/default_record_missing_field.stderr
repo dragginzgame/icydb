@@ -1,0 +1,5 @@
+error: Default was requested for record MissingRecordDefault, but required fields `name`, `region` have no Rust construction values
+  --> tests/ui/default_record_missing_field.rs:10:12
+   |
+10 | pub struct MissingRecordDefault;
+   |            ^^^^^^^^^^^^^^^^^^^^

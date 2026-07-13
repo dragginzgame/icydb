@@ -105,13 +105,19 @@ pub struct Nat32WW {}
 #[newtype(primitive = "Account", item(prim = "Account"))]
 pub struct AccountD {}
 
-#[newtype(primitive = "Bool", item(prim = "Bool"), default = true)]
+#[newtype(
+    primitive = "Bool",
+    item(prim = "Bool"),
+    default = true,
+    traits(add(Default))
+)]
 pub struct BoolD {}
 
 #[newtype(
     primitive = "Date",
     item(prim = "Date"),
-    default = "icydb::types::Date::EPOCH"
+    default = "icydb::types::Date::EPOCH",
+    traits(add(Default))
 )]
 pub struct DateD {}
 
@@ -148,7 +154,8 @@ pub struct Nat128D;
 #[newtype(
     primitive = "Principal",
     item(prim = "Principal"),
-    default = "icydb::types::Principal::anonymous"
+    default = "icydb::types::Principal::anonymous",
+    traits(add(Default))
 )]
 pub struct PrincipalD;
 
@@ -161,13 +168,15 @@ pub struct TextD;
 #[newtype(
     primitive = "Timestamp",
     item(prim = "Timestamp"),
-    default = "icydb::types::Timestamp::EPOCH"
+    default = "icydb::types::Timestamp::EPOCH",
+    traits(add(Default))
 )]
 pub struct TimestampD;
 
 #[newtype(
     primitive = "Ulid",
     item(prim = "Ulid"),
-    default = "icydb::types::Ulid::nil"
+    default = "icydb::types::Ulid::nil",
+    traits(add(Default))
 )]
 pub struct UlidD;

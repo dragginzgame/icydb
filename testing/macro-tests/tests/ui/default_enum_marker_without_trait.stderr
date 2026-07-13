@@ -1,0 +1,5 @@
+error: enum UnusedEnumDefault marks a Rust default variant but does not enable `traits(add(Default))`
+ --> tests/ui/default_enum_marker_without_trait.rs:3:25
+  |
+3 | #[enum_(variant(ident = "Pending", default), variant(ident = "Active"))]
+  |                         ^^^^^^^^^

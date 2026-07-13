@@ -103,6 +103,7 @@ impl HasSchemaPart for Map {
 impl HasTraits for Map {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
+        traits.add(TraitKind::Default);
         traits.add(TraitKind::PersistedStructuralValueCodec);
         traits.add(TraitKind::RuntimeValue);
         traits.add(TraitKind::MapCollection);

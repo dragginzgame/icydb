@@ -73,6 +73,7 @@ impl HasTraits for Tuple {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
+            TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::PersistedStructuralValueCodec => {
                 PersistedStructuralValueCodecTrait::strategy(self)
             }

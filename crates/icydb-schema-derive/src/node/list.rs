@@ -62,6 +62,7 @@ impl HasTraits for List {
         let mut traits = self.traits.with_type_traits().build();
         traits.extend([
             TraitKind::Collection,
+            TraitKind::Default,
             TraitKind::Deref,
             TraitKind::DerefMut,
             TraitKind::PersistedStructuralValueCodec,

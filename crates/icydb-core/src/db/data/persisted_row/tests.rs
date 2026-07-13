@@ -2,12 +2,12 @@ use super::{
     AuthoredStructuralPatch, PersistedByKindCodec, PersistedStructuralValueCodec, SlotReader,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
     canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
+    canonical_row_from_complete_serialized_structural_patch_with_accepted_contract,
     canonical_row_from_raw_row_with_structural_contract, decode_persisted_slot_payload_by_kind,
     decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
     decode_sparse_required_slot_with_contract, encode_persisted_slot_payload_by_kind,
     encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
     materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test,
-    materialize_entity_from_serialized_structural_patch_with_accepted_contract,
     serialize_complete_structural_patch_fields_with_accepted_contract,
     serialize_structural_patch_fields_with_accepted_contract, with_structural_read_metrics,
 };
@@ -338,6 +338,11 @@ static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
     Some(&FieldKind::Nat64),
     FieldStorageDecode::ByKind,
 )];
+static DEFAULTED_STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
+    "Pending",
+    None,
+    FieldStorageDecode::ByKind,
+)];
 static FIELD_MODELS: [FieldModel; 2] = [
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated_with_storage_decode(
@@ -398,6 +403,24 @@ static ENUM_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
         variants: STATE_VARIANTS,
     },
 )];
+static DEFAULTED_ENUM_FIELD_MODELS: [FieldModel; 1] = [
+    FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+        "state",
+        FieldKind::Enum {
+            path: "tests::DefaultState",
+            variants: DEFAULTED_STATE_VARIANTS,
+        },
+        FieldStorageDecode::ByKind,
+        false,
+        None,
+        None,
+        FieldDatabaseDefault::AuthoredEnumUnit {
+            enum_path: "tests::DefaultState",
+            variant: "Pending",
+        },
+        &[],
+    ),
+];
 static ACCOUNT_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated("owner", FieldKind::Account)];
 static OPTIONAL_ACCOUNT_FIELD_MODELS: [FieldModel; 1] =
     [FieldModel::generated_with_storage_decode_and_nullability(
@@ -495,6 +518,15 @@ static ENUM_MODEL: EntityModel = EntityModel::generated(
     &ENUM_FIELD_MODELS[0],
     0,
     &ENUM_FIELD_MODELS,
+    &INDEX_MODELS,
+);
+static DEFAULTED_ENUM_MODEL: EntityModel = EntityModel::generated(
+    "tests::PersistedRowDefaultedEnumFieldCodecEntity",
+    "persisted_row_defaulted_enum_field_codec_entity",
+    1,
+    &DEFAULTED_ENUM_FIELD_MODELS[0],
+    0,
+    &DEFAULTED_ENUM_FIELD_MODELS,
     &INDEX_MODELS,
 );
 static ACCOUNT_MODEL: EntityModel = EntityModel::generated(
@@ -2241,6 +2273,26 @@ fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_data
 }
 
 #[test]
+fn serialize_complete_structural_patch_reuses_catalog_backed_enum_default_payload() {
+    let accepted_decode_contract = accepted_row_decode_contract_for_model(&DEFAULTED_ENUM_MODEL);
+    let expected_payload = accepted_decode_contract
+        .field_for_slot(0)
+        .and_then(|field| field.default().slot_payload())
+        .expect("accepted enum field should carry its catalog-backed default")
+        .to_vec();
+
+    let serialized = serialize_complete_structural_patch_fields_with_accepted_contract(
+        DEFAULTED_ENUM_MODEL.path(),
+        accepted_decode_contract,
+        &AuthoredStructuralPatch::new(),
+    )
+    .expect("complete structural patch should fill the omitted enum default");
+
+    assert_eq!(serialized.entries().len(), 1);
+    assert_eq!(serialized.entries()[0].payload(), expected_payload);
+}
+
+#[test]
 fn apply_structural_patch_to_raw_row_uses_last_write_wins() {
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
@@ -2719,7 +2771,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_missing_required_
 }
 
 #[test]
-fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_matches_model_proposal()
+fn canonical_row_from_complete_serialized_structural_patch_with_accepted_contract_matches_model_proposal()
  {
     let patch = AuthoredStructuralPatch::new()
         .set(
@@ -2737,17 +2789,17 @@ fn materialize_entity_from_serialized_structural_patch_with_accepted_contract_ma
     .expect("serialize accepted patch");
 
     let projected =
-        materialize_entity_from_serialized_structural_patch_for_model_proposal_for_test::<
-            PersistedRowPatchBridgeEntity,
-        >(&serialized)
-        .expect("model proposal should project to the accepted patch contract");
-    let accepted = materialize_entity_from_serialized_structural_patch_with_accepted_contract::<
-        PersistedRowPatchBridgeEntity,
-    >(
-        &serialized,
+        canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test(
+            PersistedRowPatchBridgeEntity::MODEL,
+            &serialized,
+        )
+        .expect("model proposal should emit one canonical patch row");
+    let accepted = canonical_row_from_complete_serialized_structural_patch_with_accepted_contract(
+        PersistedRowPatchBridgeEntity::MODEL.path(),
         accepted_row_decode_contract_for_model(PersistedRowPatchBridgeEntity::MODEL),
+        &serialized,
     )
-    .expect("accepted bridge should materialize the accepted patch");
+    .expect("accepted contract should emit one canonical patch row");
 
     assert_eq!(accepted, projected);
 }

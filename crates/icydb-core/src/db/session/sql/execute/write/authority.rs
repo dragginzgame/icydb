@@ -183,11 +183,18 @@ pub(super) fn sql_write_input_for_accepted_field(
     field_name: &str,
     value: &Value,
 ) -> Result<InputValue, QueryError> {
-    let accepted_kind = descriptor
-        .field_kind_by_name(field_name)
+    let accepted_field = descriptor
+        .field_by_name(field_name)
         .ok_or_else(QueryError::invariant)?;
+    if matches!(value, Value::Null) {
+        return accepted_field
+            .decode_contract()
+            .nullable()
+            .then_some(InputValue::Null)
+            .ok_or_else(invalid_sql_write_field_literal);
+    }
 
-    sql_write_input_for_accepted_kind(accepted_kind, value)
+    sql_write_input_for_accepted_kind(accepted_field.kind(), value)
 }
 
 fn invalid_sql_write_field_literal() -> QueryError {

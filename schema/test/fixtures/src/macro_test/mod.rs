@@ -12,4 +12,4 @@ pub mod store;
 pub mod validate;
 pub mod view_into;
 
-pub use core::{EnumSorted, EnumUnspecified, List, Map, Negative, NewtypeValidated, Record, Set};
+pub use core::{EnumSorted, List, Map, Negative, NewtypeValidated, Record, Set};

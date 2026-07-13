@@ -173,7 +173,7 @@ pub struct RecordC {}
 ///
 
 #[enum_(
-    variant(ident = "A", default),
+    variant(ident = "A"),
     variant(ident = "B", value(item(prim = "Text", unbounded))),
     variant(ident = "C", value(item(is = "RecordB"))),
     variant(ident = "D", value(item(is = "RecordC")))
@@ -184,7 +184,7 @@ pub struct EnumA {}
 /// EnumB
 ///
 
-#[enum_(variant(ident = "F", default), variant(ident = "G"))]
+#[enum_(variant(ident = "F"), variant(ident = "G"))]
 pub struct EnumB {}
 
 ///
@@ -192,7 +192,6 @@ pub struct EnumB {}
 ///
 
 #[enum_(
-    variant(unspecified, default),
     variant(ident = "F", value(item(prim = "Text", unbounded))),
     variant(ident = "I", value(item(is = "RecordB")))
 )]

@@ -10,7 +10,7 @@ use crate::{
         DbSession, PersistedRow, WriteBatchResponse,
         data::{AuthoredStructuralPatch, FieldSlot},
         executor::MutationMode,
-        schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeContract},
+        schema::{AcceptedRowLayoutRuntimeContract, accepted_insert_field_is_omittable},
     },
     entity::EntityCreateInput,
     error::InternalError,
@@ -63,16 +63,16 @@ where
         }
     }
 
-    // Every omitted field must be allowed by accepted schema absence policy.
-    // Future database defaults should extend `AcceptedFieldAbsencePolicy`; this
-    // check must not inspect `Default` impls or generated construction values.
+    // Every omitted field must be allowed by the accepted insert contract.
+    // This check must not inspect Rust `Default` impls or derive-local
+    // construction values.
     for field in descriptor.fields() {
         let slot = usize::from(field.slot().get());
         if provided_slots.get(slot).copied().unwrap_or(false) {
             continue;
         }
 
-        if matches!(field.absence_policy(), AcceptedFieldAbsencePolicy::Required) {
+        if !accepted_insert_field_is_omittable(field.absence_policy(), field.write_policy()) {
             return Err(
                 InternalError::mutation_structural_patch_required_field_missing(
                     E::PATH,

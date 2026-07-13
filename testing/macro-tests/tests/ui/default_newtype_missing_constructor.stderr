@@ -1,0 +1,5 @@
+error: Default was requested for newtype MissingNewtypeDefault, but no `default = ...` constructor is configured
+ --> tests/ui/default_newtype_missing_constructor.rs:8:12
+  |
+8 | pub struct MissingNewtypeDefault;
+  |            ^^^^^^^^^^^^^^^^^^^^^

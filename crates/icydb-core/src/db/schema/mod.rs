@@ -137,6 +137,7 @@ pub(in crate::db) use mutation::{
     resolve_sql_ddl_field_set_default_candidate, resolve_sql_ddl_field_type_contract,
     resolve_sql_ddl_secondary_index_addition_candidate,
     resolve_sql_ddl_secondary_index_drop_candidate, validate_schema_ddl_version_contract_preflight,
+    validate_sql_ddl_field_default_change_candidate,
 };
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::{
@@ -183,7 +184,7 @@ pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
     AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
     AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
-    OwnedAcceptedRelationEdgeContract,
+    OwnedAcceptedRelationEdgeContract, accepted_insert_field_is_omittable,
 };
 #[cfg(test)]
 pub(in crate::db) use runtime::{

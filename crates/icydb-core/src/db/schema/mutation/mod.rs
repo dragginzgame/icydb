@@ -29,6 +29,7 @@ pub(in crate::db) use field::{
     derive_sql_ddl_field_rename_accepted_after, resolve_sql_ddl_field_drop_candidate,
     resolve_sql_ddl_field_drop_default_candidate, resolve_sql_ddl_field_nullability_candidate,
     resolve_sql_ddl_field_rename_candidate, resolve_sql_ddl_field_set_default_candidate,
+    validate_sql_ddl_field_default_change_candidate,
 };
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use field::{
