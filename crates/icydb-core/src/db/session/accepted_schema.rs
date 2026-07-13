@@ -21,8 +21,9 @@ use crate::{
             output_value_from_runtime,
         },
     },
+    entity::EntityKind,
     error::InternalError,
-    traits::{AuthoredFieldProjection, CanisterKind, EntityKind, Path},
+    traits::{AuthoredFieldProjection, CanisterKind, Path},
     value::OutputValue,
 };
 use std::{

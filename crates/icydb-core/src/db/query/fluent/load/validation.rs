@@ -11,7 +11,7 @@ use crate::{
             validate_fluent_non_paged_mode, validate_fluent_paged_mode,
         },
     },
-    traits::EntityKind,
+    entity::EntityKind,
 };
 
 impl<E> FluentLoadQuery<'_, E>

@@ -24,13 +24,14 @@ pub(in crate::db) use persisted_row::encode_input_value_for_accepted_field_contr
 pub(in crate::db) use persisted_row::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use persisted_row::validate_default_payload_for_accepted_field_contract;
 pub use persisted_row::{
-    AuthoredStructuralPatch, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
-    SlotReader, decode_persisted_option_scalar_slot_payload,
-    decode_persisted_option_slot_payload_by_kind, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload_by_kind, decode_persisted_structured_many_slot_payload,
-    decode_persisted_structured_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
-    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
+    AuthoredStructuralPatch, PersistedByKindCodec, PersistedRow, PersistedScalar,
+    PersistedStructuralValueCodec, ScalarSlotValueRef, ScalarValueRef, SlotReader,
+    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
+    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
+    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
+    encode_persisted_structured_slot_payload,
 };
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, FieldSlot, SerializedStructuralPatch, StructuralSlotReader,

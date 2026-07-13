@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db, DbSession, EntityRuntimeHooks, PersistedRow, QueryError,
+        Db, DbSession, EntityRuntimeHooks, PersistedRow, PersistedStructuralValueCodec, QueryError,
         codec::serialize_row_payload,
         commit::{
             CommitRowOp, commit_marker_present, ensure_recovered, init_commit_store_for_tests,
@@ -38,6 +38,7 @@ use crate::{
             publish_test_accepted_schema_snapshot,
         },
     },
+    entity::EntityKind,
     error::{ErrorClass, ErrorOrigin},
     metrics::{metrics_report, metrics_reset_all},
     model::{
@@ -45,7 +46,7 @@ use crate::{
         index::IndexModel,
     },
     testing::test_memory,
-    traits::{EntityKind, FieldTypeMeta, Path, PersistedStructuredFieldCodec},
+    traits::{FieldTypeMeta, Path},
     types::{Account, Decimal, EntityTag, Principal, Subaccount, Ulid},
     value::{
         InputValue, InputValueEnum, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
@@ -225,7 +226,7 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: TargetEntity::PATH,
-            target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+            target_entity_name: <TargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
@@ -289,7 +290,7 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: TargetEntity::PATH,
-            target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+            target_entity_name: <TargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
             target_entity_tag: SourceEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
@@ -321,7 +322,7 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: TargetEntity::PATH,
-            target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+            target_entity_name: <TargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: SourceStore::PATH,
             key_kind: &FieldKind::Ulid,
@@ -343,7 +344,7 @@ struct SourceSetEntity {
 
 static SOURCE_SET_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_path: TargetEntity::PATH,
-    target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+    target_entity_name: <TargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
     target_entity_tag: TargetEntity::ENTITY_TAG,
     target_store_path: TargetStore::PATH,
     key_kind: &FieldKind::Ulid,
@@ -465,7 +466,7 @@ impl RuntimeValueDecode for SaveSelectedPart {
     }
 }
 
-impl PersistedStructuredFieldCodec for SaveSelectedPart {
+impl PersistedStructuralValueCodec for SaveSelectedPart {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
         let layer_key = crate::db::encode_generated_structural_text_payload_bytes("layer_id");
         let layer_value = Ulid::encode_persisted_structured_payload(&self.layer_id)?;
@@ -642,7 +643,7 @@ impl RuntimeValueDecode for SaveSelectedPartSet {
     }
 }
 
-impl PersistedStructuredFieldCodec for SaveSelectedPartSet {
+impl PersistedStructuralValueCodec for SaveSelectedPartSet {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
         self.0.encode_persisted_structured_payload()
     }
@@ -778,7 +779,7 @@ impl RuntimeValueDecode for SaveSelectedPartMap {
     }
 }
 
-impl PersistedStructuredFieldCodec for SaveSelectedPartMap {
+impl PersistedStructuralValueCodec for SaveSelectedPartMap {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
         self.0.encode_persisted_structured_payload()
     }
@@ -974,7 +975,7 @@ fn unique_email_patch(
 // paths must reject the unsupported transition before decoding or staging rows.
 fn install_unique_email_old_accepted_schema_prefix() {
     let proposal = compiled_schema_proposal_for_model(
-        <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+        <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
     );
     let expected = proposal.initial_persisted_schema_snapshot();
     let stored_prefix_row_layout = SchemaRowLayout::new(
@@ -995,7 +996,7 @@ fn install_unique_email_old_accepted_schema_prefix() {
             UniqueEmailEntity::ENTITY_TAG,
             UniqueEmailEntity::PATH,
             SourceStore::PATH,
-            <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+            <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
             stored_prefix,
         )
         .expect("unsupported but well-formed old schema snapshot should publish");
@@ -1246,91 +1247,91 @@ crate::test_entity! {
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
     EntityRuntimeHooks::new(
         TargetEntity::ENTITY_TAG,
-        <TargetEntity as crate::traits::EntitySchema>::MODEL,
+        <TargetEntity as crate::entity::EntityDeclaration>::MODEL,
         TargetEntity::PATH,
         TargetStore::PATH,
         validate_delete_strong_relations_for_source::<TargetEntity>,
     ),
     EntityRuntimeHooks::new(
         SourceEntity::ENTITY_TAG,
-        <SourceEntity as crate::traits::EntitySchema>::MODEL,
+        <SourceEntity as crate::entity::EntityDeclaration>::MODEL,
         SourceEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<SourceEntity>,
     ),
     EntityRuntimeHooks::new(
         InvalidRelationMetadataEntity::ENTITY_TAG,
-        <InvalidRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
+        <InvalidRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
         InvalidRelationMetadataEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<InvalidRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
         WrongTagRelationMetadataEntity::ENTITY_TAG,
-        <WrongTagRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
+        <WrongTagRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
         WrongTagRelationMetadataEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<WrongTagRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
         WrongStoreRelationMetadataEntity::ENTITY_TAG,
-        <WrongStoreRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
+        <WrongStoreRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
         WrongStoreRelationMetadataEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<WrongStoreRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
         SourceSetEntity::ENTITY_TAG,
-        <SourceSetEntity as crate::traits::EntitySchema>::MODEL,
+        <SourceSetEntity as crate::entity::EntityDeclaration>::MODEL,
         SourceSetEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<SourceSetEntity>,
     ),
     EntityRuntimeHooks::new(
         SelfRelationEntity::ENTITY_TAG,
-        <SelfRelationEntity as crate::traits::EntitySchema>::MODEL,
+        <SelfRelationEntity as crate::entity::EntityDeclaration>::MODEL,
         SelfRelationEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<SelfRelationEntity>,
     ),
     EntityRuntimeHooks::new(
         UniqueEmailEntity::ENTITY_TAG,
-        <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+        <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
         UniqueEmailEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<UniqueEmailEntity>,
     ),
     EntityRuntimeHooks::new(
         MismatchedPkEntity::ENTITY_TAG,
-        <MismatchedPkEntity as crate::traits::EntitySchema>::MODEL,
+        <MismatchedPkEntity as crate::entity::EntityDeclaration>::MODEL,
         MismatchedPkEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<MismatchedPkEntity>,
     ),
     EntityRuntimeHooks::new(
         DecimalScaleEntity::ENTITY_TAG,
-        <DecimalScaleEntity as crate::traits::EntitySchema>::MODEL,
+        <DecimalScaleEntity as crate::entity::EntityDeclaration>::MODEL,
         DecimalScaleEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<DecimalScaleEntity>,
     ),
     EntityRuntimeHooks::new(
         BoundedTextEntity::ENTITY_TAG,
-        <BoundedTextEntity as crate::traits::EntitySchema>::MODEL,
+        <BoundedTextEntity as crate::entity::EntityDeclaration>::MODEL,
         BoundedTextEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<BoundedTextEntity>,
     ),
     EntityRuntimeHooks::new(
         DatabaseDefaultWriteEntity::ENTITY_TAG,
-        <DatabaseDefaultWriteEntity as crate::traits::EntitySchema>::MODEL,
+        <DatabaseDefaultWriteEntity as crate::entity::EntityDeclaration>::MODEL,
         DatabaseDefaultWriteEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<DatabaseDefaultWriteEntity>,
     ),
     EntityRuntimeHooks::new(
         NullableAccountEventEntity::ENTITY_TAG,
-        <NullableAccountEventEntity as crate::traits::EntitySchema>::MODEL,
+        <NullableAccountEventEntity as crate::entity::EntityDeclaration>::MODEL,
         NullableAccountEventEntity::PATH,
         SourceStore::PATH,
         validate_delete_strong_relations_for_source::<NullableAccountEventEntity>,
@@ -1852,7 +1853,7 @@ fn unique_email_accepted_commit_schema_fingerprint() -> crate::db::commit::Commi
             UniqueEmailEntity::ENTITY_TAG,
             UniqueEmailEntity::PATH,
             SourceStore::PATH,
-            <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+            <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
         )
         .expect("unique email accepted schema should initialize");
 
@@ -3042,7 +3043,7 @@ fn structural_insert_rejects_missing_required_rust_default_fields() {
 
     let session = DbSession::new(DB);
     let id = Ulid::from_u128(24);
-    let email_field = <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL
+    let email_field = <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL
         .fields()
         .iter()
         .find(|field| field.name() == "email")

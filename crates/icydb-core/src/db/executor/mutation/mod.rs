@@ -24,8 +24,8 @@ use crate::{
         query::plan::AccessPlannedQuery,
         schema::AcceptedRowDecodeContract,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 pub(super) use commit_window::{

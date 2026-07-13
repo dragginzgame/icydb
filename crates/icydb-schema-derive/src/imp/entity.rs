@@ -58,7 +58,11 @@ fn entity_kind_strategy_tokens(
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
     tokens.extend(entity_key_impl_tokens(ident, pk_key_type));
-    tokens.extend(entity_schema_impl_tokens(node, resolved_entity_name, store));
+    tokens.extend(entity_declaration_impl_tokens(
+        node,
+        resolved_entity_name,
+        store,
+    ));
     tokens.extend(entity_placement_impl_tokens(&node.def, store));
     tokens.extend(entity_kind_impl_tokens(&node.def, resolved_entity_name));
     tokens.extend(quote! {
@@ -71,20 +75,20 @@ fn entity_kind_strategy_tokens(
 
 fn entity_key_impl_tokens(ident: &Ident, pk_key_type: &TokenStream) -> TokenStream {
     quote! {
-        impl ::icydb::traits::EntityKey for #ident {
+        impl ::icydb::__macro::EntityKey for #ident {
             type Key = #pk_key_type;
         }
     }
 }
 
-fn entity_schema_impl_tokens(
+fn entity_declaration_impl_tokens(
     node: &Entity,
     resolved_entity_name: &str,
     _store: &Path,
 ) -> TokenStream {
     let model_ident = entity_model_ident(&node.def.ident());
 
-    Implementor::new(&node.def, TraitKind::EntitySchema)
+    Implementor::new(&node.def, TraitKind::EntityDeclaration)
         .set_tokens(quote! {
             const NAME: &'static str = #resolved_entity_name;
             const MODEL: &'static ::icydb::model::entity::EntityModel =
@@ -98,7 +102,7 @@ fn entity_placement_impl_tokens(def: &Def, store: &Path) -> TokenStream {
         .set_tokens(quote! {
             type Store = #store;
             type Canister =
-                <Self::Store as ::icydb::traits::StoreKind>::Canister;
+                <Self::Store as ::icydb::__macro::StoreKind>::Canister;
         })
         .to_token_stream()
 }
@@ -149,7 +153,7 @@ fn model_consistency_test_tokens(node: &Entity, ident: &Ident) -> TokenStream {
 
             #[test]
             fn model_consistency() {
-                let model = <#ident as ::icydb::traits::EntitySchema>::MODEL;
+                let model = <#ident as ::icydb::__macro::EntityDeclaration>::MODEL;
 
                 assert_eq!(
                     model.declared_schema_version(),
@@ -214,7 +218,7 @@ fn relation_key_type_assertions(node: &Entity) -> Vec<TokenStream> {
                     }
 
                     __icydb_assert_relation_target_key::<
-                        <#relation as ::icydb::traits::EntityKey>::Key,
+                        <#relation as ::icydb::__macro::EntityKey>::Key,
                         #key_ty,
                     >();
                 };

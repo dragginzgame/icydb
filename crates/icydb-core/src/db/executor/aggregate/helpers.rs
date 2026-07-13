@@ -26,8 +26,8 @@ use crate::{
         predicate::MissingRowPolicy,
         registry::StoreHandle,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 use std::cmp::Ordering;

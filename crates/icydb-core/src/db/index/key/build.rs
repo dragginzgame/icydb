@@ -335,7 +335,7 @@ impl IndexKey {
     /// Build an index key from a typed entity for test-only parity checks.
     /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
     #[cfg(test)]
-    pub(crate) fn new<E: crate::traits::EntityKind + crate::traits::EntityValue>(
+    pub(crate) fn new<E: crate::entity::EntityKind + crate::entity::EntityValue>(
         entity: &E,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {

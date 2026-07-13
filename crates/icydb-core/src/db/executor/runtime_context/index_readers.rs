@@ -14,8 +14,8 @@ use crate::{
         },
         key_taxonomy::PrimaryKeyValue,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};

@@ -3,9 +3,8 @@
 //! ISO-8601 wire conversion.
 
 use crate::{
-    traits::NumericValue,
     types::{
-        Decimal, TypeParseError,
+        Decimal, NumericValue, TypeParseError,
         parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
     },
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},

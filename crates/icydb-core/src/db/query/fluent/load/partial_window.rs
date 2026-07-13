@@ -13,7 +13,7 @@ use crate::{
             trace::QueryTracePlan,
         },
     },
-    traits::{EntityKind, EntityValue},
+    entity::{EntityKind, EntityValue},
 };
 
 #[cfg(feature = "diagnostics")]

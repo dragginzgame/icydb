@@ -18,8 +18,8 @@ use crate::{
         },
         response::EntityResponse,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     types::{Id, Ulid},
     value::Value,
 };

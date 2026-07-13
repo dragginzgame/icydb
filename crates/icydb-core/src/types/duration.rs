@@ -3,8 +3,8 @@
 //! numeric value conversion.
 
 use crate::{
-    traits::{NumericValue, Repr},
-    types::{Decimal, TypeParseError},
+    traits::Repr,
+    types::{Decimal, NumericValue, TypeParseError},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
     visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };

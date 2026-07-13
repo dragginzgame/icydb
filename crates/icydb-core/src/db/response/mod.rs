@@ -11,7 +11,7 @@ mod paged;
 
 #[cfg(test)]
 use crate::value::Value;
-use crate::{prelude::*, traits::EntityValue, types::Id, value::OutputValue};
+use crate::{entity::EntityValue, prelude::*, types::Id, value::OutputValue};
 
 mod private {
     ///

@@ -23,10 +23,10 @@ use crate::{
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     testing::test_memory,
-    traits::Storable,
     types::EntityTag,
     value::Value,
 };
+use ic_memory::stable_structures::Storable;
 use std::{borrow::Cow, collections::BTreeMap};
 
 struct RebuildSlotReader {

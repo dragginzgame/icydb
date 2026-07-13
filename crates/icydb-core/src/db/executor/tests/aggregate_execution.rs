@@ -28,8 +28,8 @@ use crate::{
             },
         },
     },
+    entity::{EntityKind, EntityValue},
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::{EntityKind, EntityValue},
     types::{Id, Ulid},
     value::Value,
 };
@@ -1961,7 +1961,7 @@ fn aggregate_execution_grouped_having_non_boolean_expr_fails_closed_when_planner
             crate::db::query::plan::GroupSpec {
                 group_fields: vec![
                     crate::db::query::plan::FieldSlot::resolve(
-                        <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                        <PushdownParityEntity as crate::entity::EntityDeclaration>::MODEL,
                         "group",
                     )
                     .expect("group field should resolve for bypass fixture"),
@@ -2018,7 +2018,7 @@ fn aggregate_execution_grouped_global_distinct_unsupported_kind_fails_without_sc
         });
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
         grouped.finalize_static_execution_planning_contract_for_model_only(
-            <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+            <PushdownParityEntity as crate::entity::EntityDeclaration>::MODEL,
         )
     });
     let err = result.expect_err("unsupported global DISTINCT grouped aggregate kind should fail during static planning freeze");
@@ -2044,7 +2044,7 @@ fn aggregate_execution_grouped_scalar_distinct_policy_violation_fails_without_sc
         .into_grouped(crate::db::query::plan::GroupSpec {
             group_fields: vec![
                 crate::db::query::plan::FieldSlot::resolve(
-                    <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                    <PushdownParityEntity as crate::entity::EntityDeclaration>::MODEL,
                     "group",
                 )
                 .expect("group field should resolve for bypass fixture"),
@@ -2091,7 +2091,7 @@ fn aggregate_execution_grouped_field_target_aggregate_fails_without_scan() {
         .into_grouped(crate::db::query::plan::GroupSpec {
             group_fields: vec![
                 crate::db::query::plan::FieldSlot::resolve(
-                    <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                    <PushdownParityEntity as crate::entity::EntityDeclaration>::MODEL,
                     "group",
                 )
                 .expect("group field should resolve for bypass fixture"),

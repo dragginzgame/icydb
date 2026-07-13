@@ -17,9 +17,10 @@ use crate::{
         direction::Direction, numeric::compare_numeric_order,
         query::plan::FieldSlot as PlannedFieldSlot, schema::AcceptedFieldKind,
     },
+    entity::EntityDeclaration,
     model::field::FieldKind,
     traits::{
-        AuthoredFieldProjection as AuthoredFieldProjectionTrait, EntitySchema,
+        AuthoredFieldProjection as AuthoredFieldProjectionTrait,
         FieldProjection as FieldProjectionTrait,
     },
     types::{Decimal, Ulid},

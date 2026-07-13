@@ -16,12 +16,12 @@ use crate::{
             LogicalPushdownEligibility, OrderDirection, OrderSpec, PlannerRouteProfile, QueryMode,
         },
     },
+    entity::EntityDeclaration,
     model::{
         entity::EntityModel,
         field::FieldKind,
         index::{IndexExpression, IndexKeyItem, IndexModel},
     },
-    traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
@@ -75,11 +75,11 @@ crate::test_schema_entity! {
 }
 
 fn model_with_index() -> &'static EntityModel {
-    <PlanValidatePushdownEntity as EntitySchema>::MODEL
+    <PlanValidatePushdownEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_expression_index() -> &'static EntityModel {
-    <PlanValidateExpressionPushdownEntity as EntitySchema>::MODEL
+    <PlanValidateExpressionPushdownEntity as EntityDeclaration>::MODEL
 }
 
 fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery {

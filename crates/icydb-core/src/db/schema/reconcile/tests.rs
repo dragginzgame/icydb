@@ -27,6 +27,7 @@ use crate::{
             compiled_schema_proposal_for_model, enum_catalog::build_initial_accepted_enum_catalog,
         },
     },
+    entity::{EntityDeclaration, EntityKind},
     error::ErrorClass,
     metrics::{metrics_report, metrics_reset_all},
     model::{
@@ -35,7 +36,7 @@ use crate::{
         index::IndexModel,
     },
     testing::{entity_model_from_static, test_memory},
-    traits::{EntityKind, EntitySchema, Path},
+    traits::Path,
     types::{EntityTag, Ulid},
 };
 use icydb_derive::{FieldProjection, PersistedRow};

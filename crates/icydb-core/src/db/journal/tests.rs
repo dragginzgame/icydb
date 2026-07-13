@@ -14,11 +14,10 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
-    traits::Storable,
     types::EntityTag,
 };
 use ic_memory::stable_structures::{
-    Memory, VectorMemory,
+    Memory, Storable, VectorMemory,
     memory_manager::{MemoryId, MemoryManager},
 };
 use std::borrow::Cow;

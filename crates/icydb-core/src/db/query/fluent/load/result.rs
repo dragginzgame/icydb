@@ -1,6 +1,6 @@
 use crate::{
     db::{EntityResponse, PagedGroupedExecutionWithTrace, query::intent::QueryError},
-    traits::EntityKind,
+    entity::EntityKind,
 };
 use icydb_diagnostic_code::QueryResultShapeCode;
 

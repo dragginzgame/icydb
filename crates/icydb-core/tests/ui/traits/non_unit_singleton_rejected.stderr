@@ -1,10 +1,10 @@
 error[E0119]: conflicting implementations of trait `SingletonEntity` for type `MultiRowEntity`
-  --> tests/ui/traits/non_unit_singleton_rejected.rs:36:1
+  --> tests/ui/traits/non_unit_singleton_rejected.rs:35:1
    |
-36 | impl SingletonEntity for MultiRowEntity {}
+35 | impl SingletonEntity for MultiRowEntity {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: conflicting implementation in crate `icydb_core`:
            - impl<E> SingletonEntity for E
-             where E: EntityValue, E: traits::singleton::Sealed;
-   = note: upstream crates may add a new impl of trait `icydb_core::traits::singleton::Key` for type `u64` in future versions
+             where E: EntityValue, E: entity::singleton::Sealed;
+   = note: upstream crates may add a new impl of trait `icydb_core::entity::singleton::Key` for type `u64` in future versions

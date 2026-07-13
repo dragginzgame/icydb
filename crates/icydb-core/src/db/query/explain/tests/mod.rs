@@ -19,8 +19,8 @@ use crate::db::query::plan::{
     GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, QueryMode,
     group_aggregate_spec_expr, grouped_having_compare_expr,
 };
+use crate::entity::EntityDeclaration;
 use crate::model::{field::FieldKind, index::IndexModel};
-use crate::traits::EntitySchema;
 use crate::types::Ulid;
 use crate::value::Value;
 use std::ops::Bound;

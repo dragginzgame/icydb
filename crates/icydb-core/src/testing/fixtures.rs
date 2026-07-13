@@ -214,7 +214,7 @@ macro_rules! __icydb_test_entity_runtime_surface {
             const PATH: &'static str = concat!(module_path!(), "::", stringify!($entity));
         }
 
-        impl $crate::traits::EntitySchema for $entity {
+        impl $crate::entity::EntityDeclaration for $entity {
             const NAME: &'static str = $entity_name;
             const MODEL: &'static $crate::model::entity::EntityModel = &Self::$model_ident;
         }
@@ -348,12 +348,12 @@ macro_rules! __icydb_test_entity_traits {
     ) => {
         $crate::__icydb_test_entity_runtime_surface!($entity, $key_ty, $entity_name, $model_ident);
 
-        impl $crate::traits::EntityPlacement for $entity {
+        impl $crate::entity::EntityPlacement for $entity {
             type Store = $store_ty;
             type Canister = $canister_ty;
         }
 
-        impl $crate::traits::EntityKind for $entity {
+        impl $crate::entity::EntityKind for $entity {
             const ENTITY_TAG: $crate::types::EntityTag = $entity_tag;
         }
 
@@ -375,7 +375,7 @@ macro_rules! __icydb_test_entity_value {
             }
         }
 
-        impl $crate::traits::EntityValue for $entity {
+        impl $crate::entity::EntityValue for $entity {
             fn id(&self) -> $crate::types::Id<Self> {
                 $crate::types::Id::from_key(self.$id_field)
             }
@@ -389,7 +389,7 @@ macro_rules! __icydb_test_entity_value {
             }
         }
 
-        impl $crate::traits::EntityValue for $entity {
+        impl $crate::entity::EntityValue for $entity {
             fn id(&self) -> $crate::types::Id<Self> {
                 $crate::types::Id::from_key(($key_expr)(self))
             }
@@ -866,7 +866,7 @@ macro_rules! test_singleton_entity {
 ///
 /// test_schema_entity
 ///
-/// Test-only helper for model-only entity fixtures that need `EntitySchema`
+/// Test-only helper for model-only entity fixtures that need `EntityDeclaration`
 /// without runtime placement or value hooks.
 ///
 #[macro_export]

@@ -18,9 +18,10 @@ use crate::{
         registry::StoreRegistry,
         schema::SchemaStore,
     },
+    entity::EntityKind,
     model::field::FieldKind,
     testing::test_memory,
-    traits::{EntityKind, Path},
+    traits::Path,
     types::Ulid,
 };
 use icydb_derive::{FieldProjection, PersistedRow};

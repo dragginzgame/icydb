@@ -195,7 +195,7 @@ pub use error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind}
 pub use icydb_diagnostic_code::ErrorCode;
 
 /// Generic create-input alias for one entity type.
-pub type Create<E> = <E as icydb_core::traits::EntityCreateType>::Create;
+pub type Create<E> = <E as icydb_core::entity::EntityCreateType>::Create;
 
 // Macro/runtime wiring surface used by generated code.
 // This is intentionally narrow and not semver-stable.
@@ -204,7 +204,15 @@ pub mod __macro {
     pub use crate::db::execute_generated_storage_report;
     pub use icydb_core::__macro::decode_generated_runtime_field_value;
     pub use icydb_core::__macro::{
-        GeneratedStructuralMapPayloadSlices, decode_generated_structural_list_payload_bytes,
+        Add, AddAssign, AuthoredFieldProjection, CanisterKind, Clone, Copy, Debug, Default, Deref,
+        DerefMut, Deserialize, Display, Div, DivAssign, EntityKey, Eq, FieldProjection,
+        FieldTypeMeta, From, Hash, Inner, Mul, MulAssign, NumericValue, Ord, PartialEq, PartialOrd,
+        Path, PersistedScalar, Rem, ScalarSlotValueRef, ScalarValueRef, StoreKind, Sub, SubAssign,
+        Sum,
+    };
+    pub use icydb_core::__macro::{
+        GeneratedStructuralMapPayloadSlices, PersistedByKindCodec, PersistedStructuralValueCodec,
+        decode_generated_structural_list_payload_bytes,
         decode_generated_structural_map_payload_bytes,
         decode_generated_structural_text_payload_bytes,
         decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
@@ -218,7 +226,6 @@ pub mod __macro {
         encode_persisted_structured_slot_payload,
         generated_persisted_structured_payload_decode_failed,
     };
-    pub use icydb_core::__macro::{PersistedScalar, ScalarSlotValueRef, ScalarValueRef};
     pub use icydb_core::__macro::{
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };
@@ -236,11 +243,11 @@ pub mod __macro {
         LoweredSqlCommand, identifiers_tail_match, sql_statement_dispatch,
         sql_statement_entity_name,
     };
-    pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
-    pub use icydb_core::traits::{
-        AuthoredFieldProjection, EntityValue, FieldProjection, PersistedByKindCodec,
-        PersistedStructuredFieldCodec,
+    pub use icydb_core::entity::{
+        EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityDeclaration,
+        EntityKind, EntityPlacement, EntityValue,
     };
+    pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::value::{InputValue, InputValueEnum, Value, ValueEnum};
     pub use icydb_core::value::{
         RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode, RuntimeValueEncode,
@@ -316,14 +323,15 @@ pub mod design {
             macros::*,
             traits::{
                 Collection as _, Entity as _, EntityKind, Inner as _, MapCollection as _,
-                Path as _, Sanitize as _, Sanitizer, Serialize as _, Validate as _, ValidateCustom,
-                Validator, Visitable as _,
+                Path as _, Sanitize as _, Sanitizer, Validate as _, ValidateCustom, Validator,
+                Visitable as _,
             },
             types::*,
             value::{InputValue, OutputValue},
             visitor::{Issue, VisitorContext},
             visitor::{SanitizeWriteContext, SanitizeWriteMode},
         };
+        pub use ::serde::Serialize as _;
     }
 }
 

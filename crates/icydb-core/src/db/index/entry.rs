@@ -3,14 +3,11 @@
 //! Does not own: commit ordering or unique-policy decisions.
 //! Boundary: commit/index-store consume raw entries after prevalidation.
 
-use crate::{
-    db::{
-        index::{IndexKey, RawIndexStoreKey},
-        key_taxonomy::{IndexEntryValue, PrimaryKeyValue},
-    },
-    traits::Storable,
+use crate::db::{
+    index::{IndexKey, RawIndexStoreKey},
+    key_taxonomy::{IndexEntryValue, PrimaryKeyValue},
 };
-use ic_memory::stable_structures::storable::Bound;
+use ic_memory::stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 
 ///

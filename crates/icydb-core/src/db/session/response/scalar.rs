@@ -9,7 +9,7 @@ use crate::{
         diagnostics::ExecutionTrace,
         executor::{CursorPage, PageCursor},
     },
-    traits::EntityKind,
+    entity::EntityKind,
 };
 
 // Encode one scalar executor cursor into the raw cursor bytes stored by core

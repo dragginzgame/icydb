@@ -1,8 +1,7 @@
 use icydb_core::{
     db::EntityKey,
-    traits::{
-        AuthoredFieldProjection, EntityValue, FieldProjection, SingletonEntity,
-    },
+    entity::{EntityValue, SingletonEntity},
+    traits::{AuthoredFieldProjection, FieldProjection},
     types::Id,
     value::{InputValue, Value},
 };

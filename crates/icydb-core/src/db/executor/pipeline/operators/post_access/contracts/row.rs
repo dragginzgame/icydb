@@ -5,7 +5,7 @@
 
 use crate::{
     db::executor::{OrderReadableRow, delete::DeleteRow},
-    traits::{EntityKind, EntityValue},
+    entity::{EntityKind, EntityValue},
     types::Id,
     value::Value,
 };

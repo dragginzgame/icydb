@@ -13,7 +13,7 @@ pub mod test {
     use icydb::{
         __macro::{Value, runtime_value_to_value},
         db::query::FilterExpr,
-        traits::EntitySchema,
+        traits::EntityDeclaration,
         value::InputValue,
     };
 

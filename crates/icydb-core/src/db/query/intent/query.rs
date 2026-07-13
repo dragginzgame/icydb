@@ -27,7 +27,7 @@ use crate::{
         },
         schema::{SchemaInfo, SchemaLiteralValidationReason, ValidateError},
     },
-    traits::{EntityKind, SingletonEntity},
+    entity::{EntityKind, SingletonEntity},
     value::{InputValue, Value},
 };
 use std::sync::OnceLock;

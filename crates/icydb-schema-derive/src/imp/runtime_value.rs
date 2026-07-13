@@ -12,10 +12,10 @@ use crate::prelude::*;
 pub struct RuntimeValueTrait {}
 
 ///
-/// PersistedStructuredFieldCodecTrait
+/// PersistedStructuralValueCodecTrait
 ///
 
-pub struct PersistedStructuredFieldCodecTrait {}
+pub struct PersistedStructuralValueCodecTrait {}
 
 ///
 /// Enum
@@ -42,7 +42,7 @@ impl Imp<Enum> for RuntimeValueTrait {
     }
 }
 
-impl Imp<Enum> for PersistedStructuredFieldCodecTrait {
+impl Imp<Enum> for PersistedStructuralValueCodecTrait {
     fn strategy(_node: &Enum) -> Option<TraitStrategy> {
         None
     }
@@ -81,7 +81,7 @@ fn enum_runtime_value_tokens(node: &Enum) -> (TokenStream, TokenStream) {
                     return None;
                 };
                 let selection = context.resolve_enum(v)?;
-                if selection.path != <Self as ::icydb::traits::Path>::PATH {
+                if selection.path != <Self as ::icydb::__macro::Path>::PATH {
                     return None;
                 }
 
@@ -145,7 +145,7 @@ fn enum_input_value_tokens(node: &Enum) -> TokenStream {
                 ::icydb::__macro::InputValue::Enum(
                     ::icydb::__macro::InputValueEnum::new(
                         #ident::#variant_name,
-                        Some(<#ident as ::icydb::traits::Path>::PATH),
+                        Some(<#ident as ::icydb::__macro::Path>::PATH),
                     ) #payload
                 )
             }
@@ -686,7 +686,7 @@ fn record_direct_persisted_encode_entries(node: &Record) -> Vec<TokenStream> {
             quote! {
                 (
                     ::icydb::__macro::encode_generated_structural_text_payload_bytes(#name),
-                    <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                    <#ty as ::icydb::__macro::PersistedStructuralValueCodec>
                         ::encode_persisted_structured_payload(&self.#ident)?,
                 )
             }
@@ -723,7 +723,7 @@ fn record_direct_persisted_decode_match_arms(node: &Record) -> Vec<TokenStream> 
                     }
 
                     #ident = ::std::option::Option::Some(
-                        <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        <#ty as ::icydb::__macro::PersistedStructuralValueCodec>
                             ::decode_persisted_structured_payload(entry_value)?,
                     );
                 }
@@ -756,7 +756,7 @@ fn tuple_direct_persisted_structured_codec_tokens(node: &Tuple) -> TokenStream {
         let ty = value.type_expr();
 
         quote! {
-            <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+            <#ty as ::icydb::__macro::PersistedStructuralValueCodec>
                 ::encode_persisted_structured_payload(&self.#slot)?
         }
     });
@@ -764,7 +764,7 @@ fn tuple_direct_persisted_structured_codec_tokens(node: &Tuple) -> TokenStream {
         let ty = value.type_expr();
 
         quote! {
-            <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+            <#ty as ::icydb::__macro::PersistedStructuralValueCodec>
                 ::decode_persisted_structured_payload(item_bytes[#index])?
         }
     });
@@ -846,7 +846,7 @@ impl Imp<List> for RuntimeValueTrait {
     }
 }
 
-impl Imp<List> for PersistedStructuredFieldCodecTrait {
+impl Imp<List> for PersistedStructuralValueCodecTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
 
@@ -856,7 +856,7 @@ impl Imp<List> for PersistedStructuredFieldCodecTrait {
                 fn encode_persisted_structured_payload(
                     &self,
                 ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
-                    <Vec<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                    <Vec<#item> as ::icydb::__macro::PersistedStructuralValueCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
@@ -864,7 +864,7 @@ impl Imp<List> for PersistedStructuredFieldCodecTrait {
                     bytes: &[u8],
                 ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
-                        <Vec<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        <Vec<#item> as ::icydb::__macro::PersistedStructuralValueCodec>
                             ::decode_persisted_structured_payload(bytes)?,
                     ))
                 }
@@ -886,7 +886,7 @@ impl Imp<Map> for RuntimeValueTrait {
                 quote!(::icydb::__macro::RuntimeValueKind::Structured { queryable: false }),
                 quote!(::icydb::__macro::runtime_value_map_collection_to_value(
                     self,
-                    <Self as ::icydb::traits::Path>::PATH,
+                    <Self as ::icydb::__macro::Path>::PATH,
                 )),
                 quote!(
                     ::icydb::__macro::runtime_value_btree_map_from_value::<#key_type, #value_type>(value)
@@ -926,7 +926,7 @@ impl Imp<Map> for RuntimeValueTrait {
     }
 }
 
-impl Imp<Map> for PersistedStructuredFieldCodecTrait {
+impl Imp<Map> for PersistedStructuralValueCodecTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
         let key_type = node.key.type_expr();
         let value_type = node.value.type_expr();
@@ -937,7 +937,7 @@ impl Imp<Map> for PersistedStructuredFieldCodecTrait {
                 fn encode_persisted_structured_payload(
                     &self,
                 ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
-                    <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                    <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuralValueCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
@@ -945,7 +945,7 @@ impl Imp<Map> for PersistedStructuredFieldCodecTrait {
                     bytes: &[u8],
                 ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
-                        <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuralValueCodec>
                             ::decode_persisted_structured_payload(bytes)?,
                     ))
                 }
@@ -982,7 +982,7 @@ impl Imp<Newtype> for RuntimeValueTrait {
     }
 }
 
-impl Imp<Newtype> for PersistedStructuredFieldCodecTrait {
+impl Imp<Newtype> for PersistedStructuralValueCodecTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
 
@@ -992,7 +992,7 @@ impl Imp<Newtype> for PersistedStructuredFieldCodecTrait {
                 fn encode_persisted_structured_payload(
                     &self,
                 ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
-                    <#item as ::icydb::__macro::PersistedStructuredFieldCodec>
+                    <#item as ::icydb::__macro::PersistedStructuralValueCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
@@ -1000,7 +1000,7 @@ impl Imp<Newtype> for PersistedStructuredFieldCodecTrait {
                     bytes: &[u8],
                 ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
-                        <#item as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        <#item as ::icydb::__macro::PersistedStructuralValueCodec>
                             ::decode_persisted_structured_payload(bytes)?,
                     ))
                 }
@@ -1055,7 +1055,7 @@ impl Imp<Set> for RuntimeValueTrait {
     }
 }
 
-impl Imp<Set> for PersistedStructuredFieldCodecTrait {
+impl Imp<Set> for PersistedStructuralValueCodecTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
 
@@ -1065,7 +1065,7 @@ impl Imp<Set> for PersistedStructuredFieldCodecTrait {
                 fn encode_persisted_structured_payload(
                     &self,
                 ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
-                    <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                    <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuralValueCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
@@ -1073,7 +1073,7 @@ impl Imp<Set> for PersistedStructuredFieldCodecTrait {
                     bytes: &[u8],
                 ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
-                        <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuralValueCodec>
                             ::decode_persisted_structured_payload(bytes)?,
                     ))
                 }
@@ -1113,7 +1113,7 @@ impl Imp<Record> for RuntimeValueTrait {
     }
 }
 
-impl Imp<Record> for PersistedStructuredFieldCodecTrait {
+impl Imp<Record> for PersistedStructuralValueCodecTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
         Some(persisted_field_codec_strategy(
             node.def(),
@@ -1149,7 +1149,7 @@ impl Imp<Tuple> for RuntimeValueTrait {
     }
 }
 
-impl Imp<Tuple> for PersistedStructuredFieldCodecTrait {
+impl Imp<Tuple> for PersistedStructuralValueCodecTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
         Some(persisted_field_codec_strategy(
             node.def(),
@@ -1201,7 +1201,7 @@ fn persisted_field_codec_strategy(
     persisted_structured_field_codec: TokenStream,
 ) -> TraitStrategy {
     TraitStrategy::from_impl(
-        Implementor::new(def, TraitKind::PersistedStructuredFieldCodec)
+        Implementor::new(def, TraitKind::PersistedStructuralValueCodec)
             .set_tokens(persisted_structured_field_codec)
             .to_token_stream(),
     )

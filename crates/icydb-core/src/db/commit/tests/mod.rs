@@ -41,13 +41,14 @@ use crate::{
             compiled_schema_proposal_for_model, publish_test_accepted_schema_snapshot,
         },
     },
+    entity::{EntityDeclaration, EntityKind},
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
         field::{EnumVariantModel, FieldKind, FieldStorageDecode},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{CanisterKind, EntityKind, EntitySchema, FieldTypeMeta, Path},
+    traits::{CanisterKind, FieldTypeMeta, Path},
     types::{EntityTag, Ulid},
     value::{RuntimeValueDecode, RuntimeValueEncode, Value, ValueEnum},
 };
@@ -600,77 +601,77 @@ crate::test_entity! {
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        <RecoveryTestEntity as EntitySchema>::MODEL,
+        <RecoveryTestEntity as EntityDeclaration>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryIndexedEntity::ENTITY_TAG,
-        <RecoveryIndexedEntity as EntitySchema>::MODEL,
+        <RecoveryIndexedEntity as EntityDeclaration>::MODEL,
         RecoveryIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         HeapRecoveryIndexedEntity::ENTITY_TAG,
-        <HeapRecoveryIndexedEntity as EntitySchema>::MODEL,
+        <HeapRecoveryIndexedEntity as EntityDeclaration>::MODEL,
         HeapRecoveryIndexedEntity::PATH,
         HeapRecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<HeapRecoveryIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryNullableIndexedEntity::ENTITY_TAG,
-        <RecoveryNullableIndexedEntity as EntitySchema>::MODEL,
+        <RecoveryNullableIndexedEntity as EntityDeclaration>::MODEL,
         RecoveryNullableIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryNullableIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryUniqueEntity::ENTITY_TAG,
-        <RecoveryUniqueEntity as EntitySchema>::MODEL,
+        <RecoveryUniqueEntity as EntityDeclaration>::MODEL,
         RecoveryUniqueEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryUniqueEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryUniqueCasefoldEntity::ENTITY_TAG,
-        <RecoveryUniqueCasefoldEntity as EntitySchema>::MODEL,
+        <RecoveryUniqueCasefoldEntity as EntityDeclaration>::MODEL,
         RecoveryUniqueCasefoldEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryUniqueCasefoldEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryUpperExpressionEntity::ENTITY_TAG,
-        <RecoveryUpperExpressionEntity as EntitySchema>::MODEL,
+        <RecoveryUpperExpressionEntity as EntityDeclaration>::MODEL,
         RecoveryUpperExpressionEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryUpperExpressionEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalEntity::ENTITY_TAG,
-        <RecoveryConditionalEntity as EntitySchema>::MODEL,
+        <RecoveryConditionalEntity as EntityDeclaration>::MODEL,
         RecoveryConditionalEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryConditionalEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalUniqueEntity::ENTITY_TAG,
-        <RecoveryConditionalUniqueEntity as EntitySchema>::MODEL,
+        <RecoveryConditionalUniqueEntity as EntityDeclaration>::MODEL,
         RecoveryConditionalUniqueEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalUniqueCasefoldEntity::ENTITY_TAG,
-        <RecoveryConditionalUniqueCasefoldEntity as EntitySchema>::MODEL,
+        <RecoveryConditionalUniqueCasefoldEntity as EntityDeclaration>::MODEL,
         RecoveryConditionalUniqueCasefoldEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueCasefoldEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalUniqueEnumEntity::ENTITY_TAG,
-        <RecoveryConditionalUniqueEnumEntity as EntitySchema>::MODEL,
+        <RecoveryConditionalUniqueEnumEntity as EntityDeclaration>::MODEL,
         RecoveryConditionalUniqueEnumEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEnumEntity>,
@@ -680,7 +681,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
 static PEER_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryPeerCanister>] =
     &[EntityRuntimeHooks::new(
         RecoveryPeerEntity::ENTITY_TAG,
-        <RecoveryPeerEntity as EntitySchema>::MODEL,
+        <RecoveryPeerEntity as EntityDeclaration>::MODEL,
         RecoveryPeerEntity::PATH,
         RecoveryPeerDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryPeerEntity>,
@@ -764,14 +765,14 @@ static PEER_DB: Db<RecoveryPeerCanister> =
 static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        <RecoveryTestEntity as EntitySchema>::MODEL,
+        <RecoveryTestEntity as EntityDeclaration>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        <RecoveryTestEntity as EntitySchema>::MODEL,
+        <RecoveryTestEntity as EntityDeclaration>::MODEL,
         RecoveryIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
@@ -781,14 +782,14 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
 static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        <RecoveryTestEntity as EntitySchema>::MODEL,
+        <RecoveryTestEntity as EntityDeclaration>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryIndexedEntity::ENTITY_TAG,
-        <RecoveryIndexedEntity as EntitySchema>::MODEL,
+        <RecoveryIndexedEntity as EntityDeclaration>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
@@ -1063,8 +1064,9 @@ fn encode_commit_test_slot_payload(slots: &[&[u8]]) -> Vec<u8> {
 // `RecoveryNullableIndexedEntity` before `nickname` was added. Reconciliation
 // must accept this as an append-only nullable transition during startup.
 fn install_nullable_indexed_old_accepted_schema_prefix() {
-    let proposal =
-        compiled_schema_proposal_for_model(<RecoveryNullableIndexedEntity as EntitySchema>::MODEL);
+    let proposal = compiled_schema_proposal_for_model(
+        <RecoveryNullableIndexedEntity as EntityDeclaration>::MODEL,
+    );
     let expected = proposal.initial_persisted_schema_snapshot();
     let stored_version = SchemaVersion::new(expected.version().get().saturating_sub(1));
     let stored_prefix = PersistedSchemaSnapshot::new(
@@ -1150,14 +1152,14 @@ fn upper_expression_indexed_ids_for(
 
 fn encoded_index_key_bytes<E>(entity: &E, index: &IndexModel) -> Vec<u8>
 where
-    E: crate::traits::EntityKind + crate::traits::EntityValue,
+    E: crate::entity::EntityKind + crate::entity::EntityValue,
 {
     encoded_index_key(entity, index).as_bytes().to_vec()
 }
 
 fn encoded_index_key<E>(entity: &E, index: &IndexModel) -> RawIndexStoreKey
 where
-    E: crate::traits::EntityKind + crate::traits::EntityValue,
+    E: crate::entity::EntityKind + crate::entity::EntityValue,
 {
     IndexKey::new(entity, index)
         .expect("characterization index key should build")

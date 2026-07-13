@@ -47,8 +47,9 @@ use crate::{
         executor::Context,
         registry::StoreHandle,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::CanisterKind,
     types::EntityTag,
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
@@ -67,13 +68,13 @@ pub use runtime_hooks::EntityRuntimeHooks;
 pub use data::{AuthoredStructuralPatch, DataStore, PersistedRow, SlotReader};
 #[doc(hidden)]
 pub use data::{
-    PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
-    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
-    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-    encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
-    encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
-    encode_persisted_structured_slot_payload,
+    PersistedByKindCodec, PersistedScalar, PersistedStructuralValueCodec, ScalarSlotValueRef,
+    ScalarValueRef, decode_persisted_option_scalar_slot_payload,
+    decode_persisted_option_slot_payload_by_kind, decode_persisted_scalar_slot_payload,
+    decode_persisted_slot_payload_by_kind, decode_persisted_structured_many_slot_payload,
+    decode_persisted_structured_slot_payload, encode_persisted_option_scalar_slot_payload,
+    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
+    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
 };
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]

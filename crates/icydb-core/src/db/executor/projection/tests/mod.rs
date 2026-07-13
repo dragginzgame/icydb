@@ -25,9 +25,10 @@ use crate::{
         data::{CanonicalRow, CanonicalSlotReader, SlotReader, StructuralSlotReader},
         schema::SchemaInfo,
     },
+    entity::{EntityDeclaration, EntityValue},
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-    traits::{EntitySchema, EntityValue, FieldTypeMeta},
+    traits::FieldTypeMeta,
     types::Ulid,
     value::{RuntimeValueDecode, RuntimeValueEncode, Value},
 };

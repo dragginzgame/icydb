@@ -14,7 +14,7 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::intent::Query,
     },
-    traits::{EntityKind, EntityValue},
+    entity::{EntityKind, EntityValue},
     types::{Decimal, Ulid},
     value::Value,
 };

@@ -3,8 +3,7 @@
 //! numeric arithmetic helpers.
 
 use crate::{
-    traits::NumericValue,
-    types::Decimal,
+    types::{Decimal, NumericValue},
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
     visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };

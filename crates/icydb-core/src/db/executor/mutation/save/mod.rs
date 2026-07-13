@@ -15,10 +15,11 @@ use crate::{
         data::PersistedRow,
         schema::{AcceptedRowDecodeContract, SchemaInfo},
     },
+    entity::EntityCreateInput,
     error::InternalError,
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{AuthoredFieldProjection, EntityCreateInput},
+    traits::AuthoredFieldProjection,
     types::Timestamp,
 };
 

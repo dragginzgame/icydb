@@ -9,9 +9,9 @@ use crate::db::schema::{
     enum_catalog::build_initial_accepted_enum_catalog,
 };
 #[cfg(test)]
-use crate::model::field::FieldModel;
+use crate::entity::EntityKind;
 #[cfg(test)]
-use crate::traits::EntityKind;
+use crate::model::field::FieldModel;
 #[cfg(test)]
 use crate::traits::Path;
 use crate::{

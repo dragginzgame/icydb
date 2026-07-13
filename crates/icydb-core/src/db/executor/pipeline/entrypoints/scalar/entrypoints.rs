@@ -39,8 +39,9 @@ use crate::{
         query::plan::{AccessPlannedQuery, OrderSpec, PageSpec},
         registry::StoreHandle,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::CanisterKind,
 };
 
 #[cfg(feature = "diagnostics")]

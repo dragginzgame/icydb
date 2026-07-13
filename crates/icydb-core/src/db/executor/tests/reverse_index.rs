@@ -31,7 +31,7 @@ fn relation_source_accepted_commit_schema_fingerprint() -> CommitSchemaFingerpri
                 RelationSourceEntity::ENTITY_TAG,
                 RelationSourceEntity::PATH,
                 RelationSourceStore::PATH,
-                <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+                <RelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
             )
         })
         .expect("relation source accepted schema should initialize");

@@ -9,7 +9,7 @@ use crate::{
         query::read_intent::ReadIntentKind,
         response::{EntityResponse, Row},
     },
-    traits::EntityKind,
+    entity::EntityKind,
 };
 
 ///

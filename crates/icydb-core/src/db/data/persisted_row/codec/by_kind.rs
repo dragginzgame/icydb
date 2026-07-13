@@ -26,7 +26,6 @@ use crate::{
     db::key_taxonomy::PrimaryKeyComponent,
     error::InternalError,
     model::field::FieldKind,
-    traits::PersistedByKindCodec,
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
         Subaccount, Timestamp, Ulid, Unit,
@@ -34,6 +33,28 @@ use crate::{
     value::Value,
 };
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Persisted payload codec selected by an explicit accepted field kind.
+///
+/// This contract is persistence-only. It does not depend on runtime value
+/// conversion, generic fallback bridges, or generated model authority.
+pub trait PersistedByKindCodec: Sized {
+    /// Encode one field payload through the explicit `ByKind` storage lane.
+    fn encode_persisted_slot_payload_by_kind(
+        &self,
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError>;
+
+    /// Decode one optional field payload through the explicit `ByKind`
+    /// storage lane, preserving the null sentinel for wrapper-owned optional
+    /// handling.
+    fn decode_persisted_option_slot_payload_by_kind(
+        bytes: &[u8],
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError>;
+}
 
 /// Encode one persisted slot payload using the stricter schema-owned `ByKind`
 /// storage contract.

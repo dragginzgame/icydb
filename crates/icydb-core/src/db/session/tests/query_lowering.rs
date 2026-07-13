@@ -8,7 +8,7 @@ fn assert_query_lowering_matches_fluent_intent<E>(
     fluent_query: crate::db::query::intent::Query<E>,
     context: &str,
 ) where
-    E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
+    E: crate::entity::EntityKind<Canister = SessionSqlCanister>,
 {
     let sql_query = lower_select_query_for_tests::<E>(&session, sql)
         .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err}"));

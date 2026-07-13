@@ -20,8 +20,8 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
     },
+    entity::EntityKind,
     error::InternalError,
-    traits::EntityKind,
 };
 use std::sync::Arc;
 

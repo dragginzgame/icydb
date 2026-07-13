@@ -11,9 +11,9 @@ mod strategy;
 
 use crate::{
     db::executor::{LoadCursorInput, PreparedLoadPlan, pipeline::contracts::LoadExecutor},
+    entity::{EntityKind, EntityValue},
     error::InternalError,
     metrics::sink::{ExecKind, record_exec_error_for_path},
-    traits::{EntityKind, EntityValue},
 };
 pub(in crate::db::executor) use contracts::{
     LoadExecutionSurface, LoadSurfaceMode, LoadTracingMode,

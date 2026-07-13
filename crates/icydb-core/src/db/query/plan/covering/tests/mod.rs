@@ -13,11 +13,11 @@ use crate::{
             expr::{FieldId, ProjectionSelection},
         },
     },
+    entity::EntityDeclaration,
     model::{
         field::FieldKind,
         index::{IndexExpression, IndexKeyItem, IndexModel},
     },
-    traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
@@ -53,7 +53,7 @@ crate::test_schema_entity! {
 }
 
 fn covering_read_model() -> &'static crate::model::entity::EntityModel {
-    <CoveringReadEntity as EntitySchema>::MODEL
+    <CoveringReadEntity as EntityDeclaration>::MODEL
 }
 
 fn finalized_covering_read_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {

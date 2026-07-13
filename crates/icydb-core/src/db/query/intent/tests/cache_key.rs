@@ -19,9 +19,9 @@ use crate::{
             },
         },
     },
+    entity::EntityDeclaration,
     model::{entity::EntityModel, field::FieldKind},
     testing::PLAN_ENTITY_TAG,
-    traits::EntitySchema,
     types::Ulid,
     value::{RuntimeValueEncode, Value},
 };
@@ -60,7 +60,7 @@ crate::test_entity! {
 }
 
 fn basic_model() -> &'static EntityModel {
-    <CacheKeyEntity as EntitySchema>::MODEL
+    <CacheKeyEntity as EntityDeclaration>::MODEL
 }
 
 #[test]

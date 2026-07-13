@@ -21,7 +21,8 @@ use crate::{
         },
         sql::parser::SqlReturningProjection,
     },
-    traits::{CanisterKind, EntityKind},
+    entity::EntityKind,
+    traits::CanisterKind,
     value::{InputValue, Value},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;

@@ -1,6 +1,6 @@
 use icydb_core::{
     db::EntityResponse,
-    traits::EntityKind,
+    entity::EntityKind,
 };
 
 fn dto_boundary_guard<E: EntityKind>(response: EntityResponse<E>) {

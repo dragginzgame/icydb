@@ -25,9 +25,10 @@ use crate::{
         },
         schema::ensure_accepted_catalog_snapshot_selection,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
-    traits::{CanisterKind, EntityKind, EntityValue, Path},
+    traits::{CanisterKind, Path},
 };
 use std::{collections::BTreeSet, ops::Bound};
 

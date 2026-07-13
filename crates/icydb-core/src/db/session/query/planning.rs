@@ -8,7 +8,8 @@ use crate::{
         DbSession, Query, QueryError,
         query::intent::{CompiledQuery, PlannedQuery},
     },
-    traits::{CanisterKind, EntityKind},
+    entity::EntityKind,
+    traits::CanisterKind,
 };
 
 impl<C: CanisterKind> DbSession<C> {

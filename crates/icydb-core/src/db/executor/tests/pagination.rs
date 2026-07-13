@@ -74,7 +74,7 @@ impl PaginationTestEntityId for UniqueIndexRangeEntity {
 
 fn ids_from_items<E>(response: &EntityResponse<E>) -> Vec<Ulid>
 where
-    E: PaginationTestEntityId + crate::traits::EntityKind,
+    E: PaginationTestEntityId + crate::entity::EntityKind,
 {
     response
         .iter()
@@ -1397,8 +1397,8 @@ fn assert_resume_from_terminal_entity_exhausts_range(
 fn execute_full_query<E>(query: Query<E>) -> Vec<Ulid>
 where
     E: crate::db::PersistedRow
-        + crate::traits::EntityPlacement<Canister = TestCanister>
-        + crate::traits::EntityValue
+        + crate::entity::EntityPlacement<Canister = TestCanister>
+        + crate::entity::EntityValue
         + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {
@@ -1422,8 +1422,8 @@ fn execute_paged_query_ids<E>(
 ) -> Vec<Ulid>
 where
     E: crate::db::PersistedRow
-        + crate::traits::EntityPlacement<Canister = TestCanister>
-        + crate::traits::EntityValue
+        + crate::entity::EntityPlacement<Canister = TestCanister>
+        + crate::entity::EntityValue
         + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {
@@ -1461,8 +1461,8 @@ where
 fn assert_limit_matrix<E>(build_query: impl Fn() -> Query<E>, limits: &[u32], max_pages: usize)
 where
     E: crate::db::PersistedRow
-        + crate::traits::EntityPlacement<Canister = TestCanister>
-        + crate::traits::EntityValue
+        + crate::entity::EntityPlacement<Canister = TestCanister>
+        + crate::entity::EntityValue
         + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {
@@ -1487,8 +1487,8 @@ fn assert_pushdown_parity<E>(
     order: impl Fn(Query<E>) -> Query<E>,
 ) where
     E: crate::db::PersistedRow
-        + crate::traits::EntityPlacement<Canister = TestCanister>
-        + crate::traits::EntityValue
+        + crate::entity::EntityPlacement<Canister = TestCanister>
+        + crate::entity::EntityValue
         + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {

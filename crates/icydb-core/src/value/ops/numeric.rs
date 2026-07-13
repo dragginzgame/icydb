@@ -5,8 +5,8 @@
 //! Boundary: low-level helpers consumed by database numeric semantics.
 
 use crate::{
-    traits::{NumericValue, Repr},
-    types::Decimal,
+    traits::Repr,
+    types::{Decimal, NumericValue},
     value::{Value, semantics},
 };
 use std::cmp::Ordering;

@@ -18,6 +18,7 @@ pub(crate) mod scalar_registry;
 
 // public exports are one module level down
 pub mod db;
+pub mod entity;
 pub mod error;
 pub mod metrics;
 pub mod model;
@@ -52,8 +53,9 @@ pub const MAX_INDEX_FIELDS: usize = 4;
 
 pub mod prelude {
     pub use crate::{
+        entity::EntityKind,
         model::{entity::EntityModel, index::IndexModel},
-        traits::{EntityKind, Path},
+        traits::Path,
         value::{InputValue, OutputValue},
     };
 }
@@ -80,18 +82,24 @@ pub mod __macro {
     }
 
     pub use crate::db::{
-        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, EntityKeyBytes,
+        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, EntityKey, EntityKeyBytes,
         EntityKeyBytesError, GeneratedStructuralMapPayloadSlices, JournalTailStore, KeyValueCodec,
-        PersistedRow, PersistedScalar, PrimaryKeyComponent, PrimaryKeyDecode, PrimaryKeyEncode,
-        PrimaryKeyEncodeError, PrimaryKeyValue, ScalarRelationTargetKey,
-        ScalarRelationTargetKeyMatchesDeclaredPrimitive, ScalarSlotValueRef, ScalarValueRef,
-        SlotReader, StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
+        PersistedByKindCodec, PersistedRow, PersistedScalar, PersistedStructuralValueCodec,
+        PrimaryKeyComponent, PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError,
+        PrimaryKeyValue, ScalarRelationTargetKey, ScalarRelationTargetKeyMatchesDeclaredPrimitive,
+        ScalarSlotValueRef, ScalarValueRef, SlotReader, StoreRuntimeStorageCapabilities,
+        validate_entity_key_bytes_buffer,
+    };
+    pub use crate::entity::{
+        EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityDeclaration,
+        EntityKind, EntityPlacement, EntityValue,
     };
     pub use crate::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use crate::traits::{
-        AuthoredFieldProjection, FieldProjection, PersistedByKindCodec,
-        PersistedStructuredFieldCodec,
+        AuthoredFieldProjection, CanisterKind, FieldProjection, FieldTypeMeta, Inner, Path,
+        StoreKind,
     };
+    pub use crate::types::NumericValue;
     pub use crate::value::{
         InputValue, InputValueEnum, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
         RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value, ValueEnum,
@@ -105,6 +113,20 @@ pub mod __macro {
     };
     pub use ic_memory::{
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
+    };
+    pub use serde::Deserialize;
+    pub use std::{
+        clone::Clone,
+        cmp::{Eq, Ord, PartialEq, PartialOrd},
+        convert::From,
+        default::Default,
+        fmt::{Debug, Display},
+        hash::Hash,
+        iter::Sum,
+        marker::Copy,
+        ops::{
+            Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign,
+        },
     };
 
     #[doc(hidden)]
@@ -174,7 +196,7 @@ pub mod __macro {
         field_name: &'static str,
     ) -> Result<Vec<u8>, crate::error::InternalError>
     where
-        T: crate::traits::PersistedStructuredFieldCodec,
+        T: PersistedStructuralValueCodec,
     {
         crate::db::encode_persisted_structured_many_slot_payload(value, field_name)
     }
@@ -185,7 +207,7 @@ pub mod __macro {
         field_name: &'static str,
     ) -> Result<Vec<T>, crate::error::InternalError>
     where
-        T: crate::traits::PersistedStructuredFieldCodec,
+        T: PersistedStructuralValueCodec,
     {
         crate::db::decode_persisted_structured_many_slot_payload(bytes, field_name)
     }
@@ -196,7 +218,7 @@ pub mod __macro {
         field_name: &'static str,
     ) -> Result<Vec<u8>, crate::error::InternalError>
     where
-        T: crate::traits::PersistedStructuredFieldCodec,
+        T: PersistedStructuralValueCodec,
     {
         crate::db::encode_persisted_structured_slot_payload(value, field_name)
     }
@@ -207,7 +229,7 @@ pub mod __macro {
         field_name: &'static str,
     ) -> Result<T, crate::error::InternalError>
     where
-        T: crate::traits::PersistedStructuredFieldCodec,
+        T: PersistedStructuralValueCodec,
     {
         crate::db::decode_persisted_structured_slot_payload(bytes, field_name)
     }
@@ -263,7 +285,7 @@ pub mod __macro {
         field_name: &'static str,
     ) -> Result<Vec<u8>, crate::error::InternalError>
     where
-        T: crate::traits::PersistedByKindCodec,
+        T: PersistedByKindCodec,
     {
         crate::db::encode_persisted_slot_payload_by_kind(value, kind, field_name)
     }
@@ -275,7 +297,7 @@ pub mod __macro {
         field_name: &'static str,
     ) -> Result<T, crate::error::InternalError>
     where
-        T: crate::traits::PersistedByKindCodec,
+        T: PersistedByKindCodec,
     {
         crate::db::decode_persisted_slot_payload_by_kind(bytes, kind, field_name)
     }
@@ -287,7 +309,7 @@ pub mod __macro {
         field_name: &'static str,
     ) -> Result<Option<T>, crate::error::InternalError>
     where
-        T: crate::traits::PersistedByKindCodec,
+        T: PersistedByKindCodec,
     {
         crate::db::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)
     }

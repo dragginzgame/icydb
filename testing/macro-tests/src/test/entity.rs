@@ -10,7 +10,7 @@ mod tests {
     use icydb::{
         db::DbSession,
         model::field::{FieldDatabaseDefault, FieldKind},
-        traits::{EntityKey, EntitySchema, SingletonEntity},
+        traits::{EntityDeclaration, EntityKey, SingletonEntity},
         types::Ulid,
     };
     use icydb_core::{
@@ -18,7 +18,7 @@ mod tests {
             EntityKeyBytes, EntityKeyBytesError, KeyValueCodec, PrimaryKeyComponent,
             PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyValue,
         },
-        traits::EntityValue,
+        entity::EntityValue,
     };
     use icydb_testing_test_fixtures::schema::test::TestCanister;
 
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn entity_name_defaults_and_override() {
-        assert_eq!(<RenamedEntity as EntitySchema>::MODEL.name(), "Potato");
+        assert_eq!(<RenamedEntity as EntityDeclaration>::MODEL.name(), "Potato");
     }
 
     #[test]

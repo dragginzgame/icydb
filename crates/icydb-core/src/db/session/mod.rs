@@ -25,9 +25,10 @@ use crate::{
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         schema::{AcceptedRowDecodeContract, SchemaInfo},
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
     metrics::sink::{ExecKind, MetricsSink, record_exec_error_for_path, with_metrics_sink},
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::CanisterKind,
     value::Value,
 };
 use std::thread::LocalKey;

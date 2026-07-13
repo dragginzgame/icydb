@@ -39,8 +39,8 @@ use crate::{
             covering_index_projection_facts_with_primary_key_names as covering_index_projection_facts,
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::terminal::{saturating_add_payload_len, serialized_value_len};

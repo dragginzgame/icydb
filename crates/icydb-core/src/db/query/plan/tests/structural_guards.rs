@@ -18,7 +18,7 @@ use crate::{
             collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
         },
     },
-    traits::EntitySchema,
+    entity::EntityDeclaration,
     value::Value,
 };
 use std::{collections::BTreeMap, fs, path::Path};
@@ -182,7 +182,7 @@ fn planner_distinct_resolution_projects_identity_shape_handle() {
 
 #[test]
 fn planner_distinct_resolution_requires_planner_visibility_boundary() {
-    let model = <PlanModelEntity as EntitySchema>::MODEL;
+    let model = <PlanModelEntity as EntityDeclaration>::MODEL;
     let unresolved = FieldSlot::resolve(model, "missing");
 
     assert!(
@@ -1502,7 +1502,7 @@ fn planner_expr_projection_eval_does_not_canonicalize_or_import_predicates() {
 
 #[test]
 fn grouped_and_scalar_projection_specs_share_planner_projection_boundary() {
-    let model = <PlanModelEntity as EntitySchema>::MODEL;
+    let model = <PlanModelEntity as EntityDeclaration>::MODEL;
     let scalar: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     let grouped: AccessPlannedQuery =

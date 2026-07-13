@@ -3,7 +3,7 @@ use icydb_core::{
         AdminBatchRequest, FluentLoadQuery, PagedLoadExecution, PersistedRow, QueryError,
         ReadIntentKind,
     },
-    traits::EntityValue,
+    entity::EntityValue,
 };
 
 fn page_terminals_compile<E>(

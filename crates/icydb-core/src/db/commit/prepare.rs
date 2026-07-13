@@ -30,10 +30,11 @@ use crate::{
         },
         schema::{SchemaInfo, ensure_accepted_catalog_snapshot_selection},
     },
+    entity::{EntityKind, EntityValue},
     error::{ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
     model::entity::EntityModel,
-    traits::{CanisterKind, EntityKind, EntityValue, Path},
+    traits::{CanisterKind, Path},
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};

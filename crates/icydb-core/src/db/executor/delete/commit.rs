@@ -17,9 +17,11 @@ use crate::{
         },
         registry::StoreHandle,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue, Storable},
+    traits::CanisterKind,
 };
+use ic_memory::stable_structures::Storable;
 use std::collections::BTreeSet;
 
 // Build one commit-marker before image from the authority's row layout.

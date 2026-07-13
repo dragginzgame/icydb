@@ -7,10 +7,10 @@ use crate::{
     db::access::{AccessPathKind, AccessPlan},
     db::executor::planning::route::GroupedExecutionMode,
     db::query::plan::{AccessChoiceSelectedReason, AccessPlannedQuery},
+    entity::EntityKind,
     metrics::sink::{
         GroupedPlanExecutionMode, MetricsEvent, PlanChoiceReason, PlanKind, Span, record,
     },
-    traits::EntityKind,
 };
 
 /// Records metrics for the chosen execution plan.

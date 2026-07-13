@@ -39,9 +39,10 @@ use crate::{
         sql_shared::{MAX_SQL_EXPR_DEPTH, SqlSyntaxErrorKind},
         test_support::source_guard::{collect_rust_sources, relative_rust_source_path},
     },
+    entity::EntityDeclaration,
     model::field::{FieldKind, FieldStorageDecode, LeafCodec},
     model::index::{IndexExpression, IndexKeyItem, IndexModel},
-    traits::{EntitySchema, Path},
+    traits::Path,
     types::Ulid,
     value::Value,
 };

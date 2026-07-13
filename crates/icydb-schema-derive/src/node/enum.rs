@@ -122,7 +122,7 @@ impl HasTraits for Enum {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
         traits.add(TraitKind::Inherent);
-        traits.add(TraitKind::PersistedStructuredFieldCodec);
+        traits.add(TraitKind::PersistedStructuralValueCodec);
         traits.add(TraitKind::RuntimeValue);
 
         // extra traits
@@ -137,8 +137,8 @@ impl HasTraits for Enum {
         match t {
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
-            TraitKind::PersistedStructuredFieldCodec => {
-                PersistedStructuredFieldCodecTrait::strategy(self)
+            TraitKind::PersistedStructuralValueCodec => {
+                PersistedStructuralValueCodecTrait::strategy(self)
             }
             TraitKind::RuntimeValue => RuntimeValueTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),

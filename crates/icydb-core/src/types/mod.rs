@@ -13,6 +13,7 @@ mod float;
 mod identity;
 mod int_big;
 mod nat_big;
+mod numeric_value;
 mod parse;
 mod principal;
 #[cfg(any(test, not(target_arch = "wasm32")))]
@@ -31,6 +32,7 @@ pub use float::*;
 pub use identity::*;
 pub use int_big::*;
 pub use nat_big::*;
+pub use numeric_value::*;
 pub use parse::TypeParseError;
 pub use principal::*;
 pub use subaccount::*;

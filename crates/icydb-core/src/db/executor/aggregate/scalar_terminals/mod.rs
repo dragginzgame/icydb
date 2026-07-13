@@ -31,8 +31,8 @@ use crate::{
         },
         query::builder::aggregate::ScalarTerminalBoundaryRequest,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 use std::borrow::Cow;

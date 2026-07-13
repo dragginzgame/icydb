@@ -1,7 +1,7 @@
 //! Module: db::numeric
 //! Responsibility: shared runtime numeric semantics for database values.
-//! Does not own: numeric value representation, storage encoding, or query
-//! function taxonomy.
+//! Does not own: typed `NumericValue` conversion, numeric value representation,
+//! storage encoding, or query function taxonomy.
 //! Boundary: centralizes broad numeric coercion, arithmetic, and comparison
 //! rules used across predicate, projection, aggregate, and ordering paths.
 

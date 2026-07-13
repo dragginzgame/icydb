@@ -11,8 +11,8 @@ use crate::{
         key_taxonomy::PrimaryKeyValue,
         query::plan::{AggregateKind, FieldSlot, expr::Expr},
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     types::Id,
     value::Value,
 };

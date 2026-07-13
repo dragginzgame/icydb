@@ -26,7 +26,7 @@ use crate::{
             },
         },
     },
-    traits::EntityValue,
+    entity::EntityValue,
 };
 
 use super::driver::TerminalStrategyDriver;

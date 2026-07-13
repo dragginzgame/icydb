@@ -84,7 +84,8 @@ static PROFILE_MODEL: EntityModel = entity_model_from_static(
 );
 
 fn schema() -> &'static SchemaInfo {
-    let model: &'static EntityModel = <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
+    let model: &'static EntityModel =
+        <ExprInferenceEntity as crate::entity::EntityDeclaration>::MODEL;
     SchemaInfo::cached_for_generated_entity_model(model)
 }
 
@@ -159,7 +160,8 @@ fn infer_field_type_uses_schema_field_kind() {
 
 #[test]
 fn infer_field_type_uses_accepted_schema_field_type() {
-    let model: &'static EntityModel = <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
+    let model: &'static EntityModel =
+        <ExprInferenceEntity as crate::entity::EntityDeclaration>::MODEL;
     let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         model.path().to_string(),

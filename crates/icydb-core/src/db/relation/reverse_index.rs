@@ -31,9 +31,10 @@ use crate::{
         schema::{AcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract},
         schema::{AcceptedFieldKind, AcceptedRelationStrength},
     },
+    entity::EntityKind,
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec},
-    traits::{CanisterKind, EntityKind},
+    traits::CanisterKind,
     types::EntityTag,
 };
 use std::{cell::RefCell, thread::LocalKey};

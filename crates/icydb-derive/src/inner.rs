@@ -18,7 +18,7 @@ pub(crate) fn derive_inner(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
-        impl #impl_generics ::icydb::traits::Inner<#inner> for #ident #ty_generics #where_clause {
+        impl #impl_generics ::icydb::__macro::Inner<#inner> for #ident #ty_generics #where_clause {
             fn inner(&self) -> &#inner {
                 &self.0
             }

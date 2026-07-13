@@ -67,7 +67,7 @@ fn model_nested_fields_from_value(value: &Value) -> TokenStream {
 
     match value.item.target() {
         ItemTarget::Primitive(_) => quote!(&[]),
-        ItemTarget::Is(path) => quote!(<#path as ::icydb::traits::FieldTypeMeta>::NESTED_FIELDS),
+        ItemTarget::Is(path) => quote!(<#path as ::icydb::__macro::FieldTypeMeta>::NESTED_FIELDS),
     }
 }
 
@@ -92,11 +92,11 @@ pub(crate) fn model_kind_from_item(item: &Item) -> TokenStream {
 
     quote! {
         ::icydb::model::field::FieldKind::Relation {
-            target_path: <#target as ::icydb::traits::Path>::PATH,
-            target_entity_name: <#target as ::icydb::traits::EntitySchema>::NAME,
-            target_entity_tag: <#target as ::icydb::traits::EntityKind>::ENTITY_TAG,
+            target_path: <#target as ::icydb::__macro::Path>::PATH,
+            target_entity_name: <#target as ::icydb::__macro::EntityDeclaration>::NAME,
+            target_entity_tag: <#target as ::icydb::__macro::EntityKind>::ENTITY_TAG,
             target_store_path:
-                <<#target as ::icydb::traits::EntityPlacement>::Store as ::icydb::traits::Path>::PATH,
+                <<#target as ::icydb::__macro::EntityPlacement>::Store as ::icydb::__macro::Path>::PATH,
             key_kind: &#key_kind,
             strength: #strength,
         }
@@ -114,7 +114,7 @@ fn model_storage_kind_from_item(item: &Item) -> TokenStream {
             let decimal_scale = item.scale.unwrap_or(0);
             model_kind_from_primitive(prim, decimal_scale, item.max_len, item.max_bytes)
         }
-        ItemTarget::Is(path) => quote!(<#path as ::icydb::traits::FieldTypeMeta>::KIND),
+        ItemTarget::Is(path) => quote!(<#path as ::icydb::__macro::FieldTypeMeta>::KIND),
     }
 }
 
@@ -123,7 +123,7 @@ fn model_storage_decode_from_item(item: &Item) -> TokenStream {
     match item.target() {
         ItemTarget::Primitive(_) => quote!(::icydb::model::field::FieldStorageDecode::ByKind),
         ItemTarget::Is(path) => {
-            quote!(<#path as ::icydb::traits::FieldTypeMeta>::STORAGE_DECODE)
+            quote!(<#path as ::icydb::__macro::FieldTypeMeta>::STORAGE_DECODE)
         }
     }
 }

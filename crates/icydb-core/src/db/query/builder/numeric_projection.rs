@@ -17,7 +17,7 @@ use crate::{
             plan::expr::{BinaryOp, Expr, FieldId, Function, eval_builder_expr_for_value_preview},
         },
     },
-    traits::NumericValue,
+    types::NumericValue,
     value::Value,
 };
 use icydb_diagnostic_code::QueryProjectionCode;

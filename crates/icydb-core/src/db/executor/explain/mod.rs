@@ -25,8 +25,8 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
     },
+    entity::{EntityKind, EntityValue},
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 

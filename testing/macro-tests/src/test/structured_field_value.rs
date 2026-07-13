@@ -9,7 +9,7 @@ use crate::prelude::*;
 mod tests {
     use super::*;
     use icydb::__macro::{
-        PersistedStructuredFieldCodec, RuntimeValueEncode, Value,
+        PersistedStructuralValueCodec, RuntimeValueEncode, Value,
         decode_persisted_structured_slot_payload, encode_persisted_structured_slot_payload,
         runtime_value_from_value, runtime_value_to_value,
     };
@@ -286,7 +286,7 @@ mod tests {
 
     fn assert_structured_slot_payload_roundtrip_is_canonical<T>(value: &T, field_name: &'static str)
     where
-        T: PartialEq + Debug + PersistedStructuredFieldCodec,
+        T: PartialEq + Debug + PersistedStructuralValueCodec,
     {
         let bytes = encode_persisted_structured_slot_payload(value, field_name)
             .expect("encode structured payload");
@@ -307,7 +307,7 @@ mod tests {
 
     fn decode_structured_payload_value<T>(bytes: &[u8], field_name: &'static str) -> Value
     where
-        T: PersistedStructuredFieldCodec + RuntimeValueEncode,
+        T: PersistedStructuralValueCodec + RuntimeValueEncode,
     {
         let decoded = decode_persisted_structured_slot_payload::<T>(bytes, field_name)
             .expect("decode structured payload");

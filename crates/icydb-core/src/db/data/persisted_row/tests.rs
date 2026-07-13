@@ -1,5 +1,5 @@
 use super::{
-    AuthoredStructuralPatch, SlotReader,
+    AuthoredStructuralPatch, PersistedByKindCodec, PersistedStructuralValueCodec, SlotReader,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
     canonical_row_from_complete_serialized_structural_patch_for_model_proposal_for_test,
     canonical_row_from_raw_row_with_structural_contract, decode_persisted_slot_payload_by_kind,
@@ -39,6 +39,7 @@ use crate::{
             compiled_schema_proposal_for_model,
         },
     },
+    entity::EntityDeclaration,
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
         EntityModel,
@@ -48,7 +49,7 @@ use crate::{
         },
     },
     testing::SIMPLE_ENTITY_TAG,
-    traits::{EntitySchema, FieldTypeMeta, PersistedByKindCodec, PersistedStructuredFieldCodec},
+    traits::FieldTypeMeta,
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
         Subaccount, Timestamp, Ulid, Unit,
@@ -136,7 +137,7 @@ struct DirectPersistedProfileValue {
     bio: String,
 }
 
-impl PersistedStructuredFieldCodec for DirectPersistedProfileValue {
+impl PersistedStructuralValueCodec for DirectPersistedProfileValue {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         let bio = self.bio.as_bytes();
         let len = u16::try_from(bio.len())
@@ -168,7 +169,7 @@ impl PersistedStructuredFieldCodec for DirectPersistedProfileValue {
     }
 }
 
-impl PersistedStructuredFieldCodec for PersistedRowProfileValue {
+impl PersistedStructuralValueCodec for PersistedRowProfileValue {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         let bio_key = crate::db::encode_generated_structural_text_payload_bytes("bio");
         let bio_value = String::encode_persisted_structured_payload(&self.bio)?;
@@ -858,7 +859,7 @@ fn malformed_old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
 
 fn assert_direct_persisted_structured_roundtrip<T>(value: T)
 where
-    T: Clone + std::fmt::Debug + PartialEq + PersistedStructuredFieldCodec,
+    T: Clone + std::fmt::Debug + PartialEq + PersistedStructuralValueCodec,
 {
     let encoded = value
         .encode_persisted_structured_payload()

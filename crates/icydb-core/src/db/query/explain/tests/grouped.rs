@@ -32,7 +32,7 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: vec![
-                FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+                FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "rank")
                     .expect("group field should resolve"),
             ],
             aggregates: vec![GroupAggregateSpec {
@@ -68,7 +68,7 @@ fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -110,7 +110,7 @@ fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_o
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -147,7 +147,7 @@ fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
-                    FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                    FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                         .expect("group field should resolve"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
@@ -188,7 +188,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -224,7 +224,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_ind
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -262,7 +262,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -300,7 +300,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -338,7 +338,7 @@ fn explain_grouped_strategy_preserves_ordered_group_for_fully_indexable_predicat
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -378,7 +378,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_sha
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -414,7 +414,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_filter_predicate_sha
     )
     .into_grouped(GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -455,7 +455,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_non_streaming_having_expr() {
     .into_grouped_with_having_expr(
         GroupSpec {
             group_fields: vec![
-                FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                     .expect("group field should resolve"),
             ],
             aggregates: vec![GroupAggregateSpec {
@@ -492,7 +492,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_non_streaming_having_expr() {
 fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() {
     let group = GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -537,7 +537,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
 fn explain_grouped_having_projection_is_reported() {
     let group = GroupSpec {
         group_fields: vec![
-            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+            FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "rank")
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
@@ -573,7 +573,7 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: vec![
-                FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+                FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "rank")
                     .expect("group field should resolve"),
             ],
             aggregates: vec![GroupAggregateSpec {
@@ -599,8 +599,9 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
 
 #[test]
 fn explain_grouped_ordered_having_projection_shape_is_frozen() {
-    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
-        .expect("group field should resolve");
+    let group_field =
+        FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
+            .expect("group field should resolve");
     let group = GroupSpec {
         group_fields: vec![group_field.clone()],
         aggregates: vec![GroupAggregateSpec {
@@ -658,8 +659,9 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
 
 #[test]
 fn explain_grouped_having_expression_projection_is_reported() {
-    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
-        .expect("group field should resolve");
+    let group_field =
+        FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
+            .expect("group field should resolve");
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
@@ -793,8 +795,9 @@ fn explain_grouped_having_case_expression_projection_is_reported() {
 
 #[test]
 fn explain_grouped_aggregate_input_expression_projection_is_reported() {
-    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
-        .expect("group field should resolve");
+    let group_field =
+        FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
+            .expect("group field should resolve");
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: vec![group_field.clone()],
@@ -839,8 +842,9 @@ fn explain_grouped_aggregate_input_expression_projection_is_reported() {
 
 #[test]
 fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
-    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
-        .expect("group field should resolve");
+    let group_field =
+        FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "rank")
+            .expect("group field should resolve");
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: vec![group_field.clone()],
@@ -887,8 +891,9 @@ fn grouped_explain_plan_json_snapshot(explain: &ExplainPlan) -> String {
 
 #[test]
 fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
-    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
-        .expect("group field should resolve");
+    let group_field =
+        FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
+            .expect("group field should resolve");
     let group = GroupSpec {
         group_fields: vec![group_field],
         aggregates: vec![GroupAggregateSpec {
@@ -954,8 +959,9 @@ fn explain_plan_canonical_json_snapshot_for_simple_shape_is_stable() {
 
 #[test]
 fn explain_grouped_plan_snapshot_for_hash_distinct_shape_is_stable() {
-    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
-        .expect("group field should resolve");
+    let group_field =
+        FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "rank")
+            .expect("group field should resolve");
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: vec![group_field],
@@ -990,8 +996,9 @@ consistency=Ignore";
 
 #[test]
 fn explain_grouped_plan_snapshot_for_filtered_shape_is_stable() {
-    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
-        .expect("group field should resolve");
+    let group_field =
+        FieldSlot::resolve(<ExplainPushdownEntity as EntityDeclaration>::MODEL, "tag")
+            .expect("group field should resolve");
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: vec![group_field],

@@ -3,7 +3,7 @@
 //! Does not own: sink override routing, event taxonomy, or metrics state mutation.
 //! Boundary: convenience wrappers that emit stable `MetricsEvent` values.
 
-use crate::{error::InternalError, traits::EntityKind};
+use crate::{entity::EntityKind, error::InternalError};
 use std::marker::PhantomData;
 
 #[cfg(feature = "sql")]

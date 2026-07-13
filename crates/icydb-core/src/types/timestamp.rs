@@ -5,9 +5,9 @@
 use crate::runtime::now_millis;
 use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
-    traits::{NumericValue, Repr},
+    traits::Repr,
     types::{
-        Decimal, Duration, TypeParseError,
+        Decimal, Duration, NumericValue, TypeParseError,
         parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
     },
     value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},

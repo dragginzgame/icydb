@@ -4,8 +4,8 @@ use crate::{
         index::{IndexEntryValue, IndexStore, IndexStoreVisit, RawIndexStoreKey},
     },
     testing::test_memory,
-    traits::Storable,
 };
+use ic_memory::stable_structures::Storable;
 use std::{borrow::Cow, ops::Bound};
 
 #[test]

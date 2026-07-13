@@ -22,8 +22,8 @@ use crate::{
         query::plan::FieldSlot as PlannedFieldSlot,
         response::EntityResponse,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     types::Id,
     value::Value,
 };

@@ -58,17 +58,17 @@ fn session_sql_entity_initial_accepted_schema_cache_fingerprint() -> [u8; 16] {
         .expect("session SQL test schema cache fingerprint should derive")
 }
 
-fn accepted_schema_info_for_entity<E: EntitySchema>() -> SchemaInfo {
+fn accepted_schema_info_for_entity<E: EntityDeclaration>() -> SchemaInfo {
     let (accepted, catalog) = accepted_schema_snapshot_and_catalog_for_entity::<E>();
 
     SchemaInfo::from_accepted_snapshot_and_catalog_for_model(E::MODEL, &accepted, catalog, false)
 }
 
-fn accepted_schema_snapshot_for_entity<E: EntitySchema>() -> AcceptedSchemaSnapshot {
+fn accepted_schema_snapshot_for_entity<E: EntityDeclaration>() -> AcceptedSchemaSnapshot {
     accepted_schema_snapshot_and_catalog_for_entity::<E>().0
 }
 
-fn accepted_schema_snapshot_and_catalog_for_entity<E: EntitySchema>()
+fn accepted_schema_snapshot_and_catalog_for_entity<E: EntityDeclaration>()
 -> (AcceptedSchemaSnapshot, AcceptedEnumCatalogHandle) {
     let proposal = compiled_schema_proposal_for_model(E::MODEL);
     let catalog = build_initial_accepted_enum_catalog(&[E::MODEL])
@@ -230,7 +230,7 @@ fn encode_sql_surface_slot_payload_for_test(slots: &[&[u8]]) -> Vec<u8> {
 // old two-slot layout. Runtime reads must use accepted nullable-slot semantics.
 fn install_nullable_sql_post_transition_schema() {
     let proposal =
-        compiled_schema_proposal_for_model(<SessionNullableSqlEntity as EntitySchema>::MODEL);
+        compiled_schema_proposal_for_model(<SessionNullableSqlEntity as EntityDeclaration>::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
@@ -239,7 +239,7 @@ fn install_nullable_sql_post_transition_schema() {
             SessionNullableSqlEntity::ENTITY_TAG,
             SessionNullableSqlEntity::PATH,
             SessionSqlStore::PATH,
-            <SessionNullableSqlEntity as EntitySchema>::MODEL,
+            <SessionNullableSqlEntity as EntityDeclaration>::MODEL,
             expected,
         )
         .expect("post-transition nullable SQL schema should publish");

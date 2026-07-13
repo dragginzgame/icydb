@@ -62,7 +62,8 @@ use crate::{
     db::{
         Db, EntityCatalogDescription, EntityFieldDescription, EntityRuntimeHooks,
         EntitySchemaDescription, MemoryCatalogDescription, MissingRowPolicy,
-        PagedGroupedExecutionWithTrace, PlanError, QueryError, StoreCatalogDescription,
+        PagedGroupedExecutionWithTrace, PersistedByKindCodec, PlanError, QueryError,
+        StoreCatalogDescription,
         access::lower_access,
         commit::{
             ensure_recovered, init_commit_store_for_tests,
@@ -110,6 +111,7 @@ use crate::{
             parser::{SqlExpr, SqlStatement},
         },
     },
+    entity::EntityDeclaration,
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, PlanKind, with_shared_metrics_sink},
     model::{
@@ -117,7 +119,7 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec},
+    traits::{FieldTypeMeta, Path},
     types::{Blob, Date, Duration, EntityTag, Float64, Id, Principal, Timestamp, Ulid},
     value::{OutputValue, RuntimeValueDecode, RuntimeValueEncode, Value},
 };
@@ -535,7 +537,7 @@ fn parse_select_test_statement(
 // shared by the scalar and grouped test helpers.
 fn lower_select_statement_for_tests<E>(statement: SqlStatement) -> Result<Query<E>, QueryError>
 where
-    E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
+    E: crate::entity::EntityKind<Canister = SessionSqlCanister>,
 {
     let lowered = lower_sql_command_from_prepared_statement_for_model_only(
         prepare_sql_statement(&statement, E::MODEL.name())
@@ -558,7 +560,7 @@ fn lower_select_query_for_tests<E>(
     sql: &str,
 ) -> Result<Query<E>, QueryError>
 where
-    E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
+    E: crate::entity::EntityKind<Canister = SessionSqlCanister>,
 {
     let statement = parse_select_test_statement(session, sql, SelectTestSurface::Lowering)?;
 
@@ -2642,7 +2644,7 @@ fn sql_session() -> DbSession<SessionSqlCanister> {
 // schema evolution before they compile or stage row work against stale layout.
 fn install_session_sql_write_old_accepted_schema_prefix() {
     let proposal =
-        compiled_schema_proposal_for_model(<SessionSqlWriteEntity as EntitySchema>::MODEL);
+        compiled_schema_proposal_for_model(<SessionSqlWriteEntity as EntityDeclaration>::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
     let stored_prefix_row_layout = SchemaRowLayout::new(
         expected.row_layout().version(),
@@ -2662,7 +2664,7 @@ fn install_session_sql_write_old_accepted_schema_prefix() {
             SessionSqlWriteEntity::ENTITY_TAG,
             SessionSqlWriteEntity::PATH,
             SessionSqlStore::PATH,
-            <SessionSqlWriteEntity as EntitySchema>::MODEL,
+            <SessionSqlWriteEntity as EntityDeclaration>::MODEL,
             stored_prefix,
         )
         .expect("unsupported but well-formed old SQL write schema should publish");

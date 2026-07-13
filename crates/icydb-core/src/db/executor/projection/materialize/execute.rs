@@ -11,7 +11,7 @@ use crate::db::executor::projection::eval::eval_compiled_expr_with_value_reader;
 #[cfg(test)]
 use crate::{
     db::response::ProjectedRow,
-    traits::{EntityKind, EntityValue},
+    entity::{EntityKind, EntityValue},
     types::Id,
 };
 use crate::{

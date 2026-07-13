@@ -21,11 +21,12 @@ use crate::{
         },
         session::{AcceptedSchemaCatalogContext, bounded_cache::BoundedCache},
     },
+    entity::EntityKind,
     metrics::sink::{
         CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
         record_cache_event_for_path, record_cache_miss_reason_for_path,
     },
-    traits::{CanisterKind, EntityKind, Path},
+    traits::{CanisterKind, Path},
 };
 #[cfg(test)]
 use std::cell::Cell;

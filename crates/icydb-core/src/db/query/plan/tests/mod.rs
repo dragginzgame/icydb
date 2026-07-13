@@ -25,12 +25,12 @@ use crate::{
     },
     db::query::plan::plan_access,
     db::schema::SchemaInfo,
+    entity::EntityDeclaration,
     model::{
         entity::EntityModel,
         field::FieldKind,
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
-    traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
@@ -259,11 +259,11 @@ crate::test_schema_entity! {
 
 // Helper for tests that need the indexed model derived from a typed schema.
 fn model_with_index() -> &'static EntityModel {
-    <PlanModelEntity as EntitySchema>::MODEL
+    <PlanModelEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_range_index() -> &'static EntityModel {
-    <PlanRangeEntity as EntitySchema>::MODEL
+    <PlanRangeEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_composite_primary_key() -> &'static EntityModel {
@@ -271,27 +271,27 @@ fn model_with_composite_primary_key() -> &'static EntityModel {
 }
 
 fn model_with_filtered_index() -> &'static EntityModel {
-    <PlanFilteredEntity as EntitySchema>::MODEL
+    <PlanFilteredEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_filtered_numeric_index() -> &'static EntityModel {
-    <PlanFilteredNumericEntity as EntitySchema>::MODEL
+    <PlanFilteredNumericEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_expression_casefold_index() -> &'static EntityModel {
-    <PlanExpressionCasefoldEntity as EntitySchema>::MODEL
+    <PlanExpressionCasefoldEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_filtered_expression_casefold_index() -> &'static EntityModel {
-    <PlanFilteredExpressionCasefoldEntity as EntitySchema>::MODEL
+    <PlanFilteredExpressionCasefoldEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_expression_upper_index() -> &'static EntityModel {
-    <PlanExpressionUpperEntity as EntitySchema>::MODEL
+    <PlanExpressionUpperEntity as EntityDeclaration>::MODEL
 }
 
 fn model_with_expression_unsupported_index() -> &'static EntityModel {
-    <PlanExpressionUnsupportedEntity as EntitySchema>::MODEL
+    <PlanExpressionUnsupportedEntity as EntityDeclaration>::MODEL
 }
 
 fn compare_strict(field: &str, op: CompareOp, value: Value) -> Predicate {

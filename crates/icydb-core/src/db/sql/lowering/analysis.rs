@@ -238,8 +238,8 @@ mod tests {
                 AnalyzedLoweredExpr, LoweredExprSourceRef, analyze_lowered_expr,
             },
         },
+        entity::EntityDeclaration,
         model::field::FieldKind,
-        traits::EntitySchema,
         types::Ulid,
         value::Value,
     };

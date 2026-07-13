@@ -23,7 +23,7 @@ use crate::{
         response::EntityResponse,
         schema::AcceptedEnumCatalogHandle,
     },
-    traits::EntityKind,
+    entity::EntityKind,
 };
 
 #[cfg(feature = "sql")]

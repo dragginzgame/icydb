@@ -13,10 +13,10 @@ use crate::{
         },
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
     },
-    traits::Storable,
     types::{Decimal, EntityTag, Float32, Float64, IntBig, Principal},
     value::Value,
 };
+use ic_memory::stable_structures::Storable;
 use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound as RangeBound};
 
 fn index_id() -> IndexId {

@@ -415,10 +415,10 @@ fn sql_surface_entity_match_guard(entity_ty: &syn::Path) -> TokenStream {
     quote! {
         ::icydb::__macro::identifiers_tail_match(
             entity,
-            <#entity_ty as ::icydb::traits::Path>::PATH
+            <#entity_ty as ::icydb::__macro::Path>::PATH
         ) || ::icydb::__macro::identifiers_tail_match(
             entity,
-            <#entity_ty as ::icydb::traits::EntitySchema>::NAME
+            <#entity_ty as ::icydb::__macro::EntityDeclaration>::NAME
         )
     }
 }

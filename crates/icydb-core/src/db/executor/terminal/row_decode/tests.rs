@@ -13,12 +13,12 @@ use crate::{
             compiled_schema_proposal_for_model, enum_catalog::build_initial_accepted_enum_catalog,
         },
     },
+    entity::EntityDeclaration,
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
     },
-    traits::EntitySchema,
     types::{Blob, Text},
     value::Value,
 };

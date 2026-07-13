@@ -1,17 +1,21 @@
+//! Module: types::numeric_value
+//!
+//! Responsibility: scalar and newtype conversion through the canonical
+//! decimal numeric representation.
+//! Does not own: database coercion, arithmetic, comparison, or ordering policy.
+//! Boundary: typed numeric values <-> `Decimal` for generic typed policies.
+
 use crate::types::Decimal;
 
-///
-/// NumericValue
-///
 /// Fallible numeric round-trip contract used by generic validators and sanitizers.
-/// Implementors convert through `Decimal` so numeric policy stays explicit and local.
 ///
-
+/// Implementors convert through `Decimal` so typed numeric policy stays
+/// explicit and local. Database evaluation semantics remain under `db::numeric`.
 pub trait NumericValue: Sized {
-    /// Convert this value into Decimal for generic numeric handling.
+    /// Convert this value into `Decimal` for generic numeric handling.
     fn try_to_decimal(&self) -> Option<Decimal>;
 
-    /// Rebuild the value from Decimal after generic numeric handling.
+    /// Rebuild the value from `Decimal` after generic numeric handling.
     fn try_from_decimal(value: Decimal) -> Option<Self>;
 }
 

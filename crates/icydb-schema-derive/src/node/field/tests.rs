@@ -226,7 +226,7 @@ fn database_default_expr_keeps_unit_enum_default_as_authored_names() {
     let tokens = field.database_default_expr().to_string();
 
     assert!(tokens.contains("FieldDatabaseDefault :: AuthoredEnumUnit"));
-    assert!(tokens.contains("< Status as :: icydb :: traits :: Path > :: PATH"));
+    assert!(tokens.contains("< Status as :: icydb :: __macro :: Path > :: PATH"));
     assert!(tokens.contains("variant : \"Active\""));
     assert!(!tokens.contains("EncodedSlotPayload"));
 }

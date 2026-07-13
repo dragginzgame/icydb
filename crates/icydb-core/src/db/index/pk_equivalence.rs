@@ -68,9 +68,9 @@ mod tests {
             index::{IndexId, IndexKeyKind, RawIndexStoreKey},
             key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         },
-        traits::Storable,
         types::{Principal, Subaccount, Timestamp, Ulid},
     };
+    use ic_memory::stable_structures::Storable;
     use std::borrow::Cow;
 
     fn index_key_with_primary_key_value(primary_key: &PrimaryKeyValue) -> IndexKey {

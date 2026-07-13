@@ -30,7 +30,7 @@ use crate::db::{
 #[cfg(test)]
 use crate::{
     db::{predicate::MissingRowPolicy, query::intent::Query},
-    traits::EntityKind,
+    entity::EntityKind,
 };
 use icydb_diagnostic_code::SqlLoweringCode;
 

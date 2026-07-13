@@ -1,6 +1,6 @@
 use icydb_core::{
     db::{ResponseCardinalityExt, ResponseError, Row},
-    traits::EntityKind,
+    entity::EntityKind,
 };
 use std::marker::PhantomData;
 

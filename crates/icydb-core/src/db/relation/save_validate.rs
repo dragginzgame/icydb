@@ -19,8 +19,9 @@ use crate::{
             OwnedAcceptedRelationEdgeContract, ensure_accepted_schema_snapshot,
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue, Path},
+    traits::Path,
     value::Value,
 };
 

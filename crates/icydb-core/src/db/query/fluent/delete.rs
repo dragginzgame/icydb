@@ -14,7 +14,7 @@ use crate::{
         },
         response::ResponseError,
     },
-    traits::{EntityKind, EntityValue, SingletonEntity},
+    entity::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
     value::OutputValue,
 };

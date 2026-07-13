@@ -48,7 +48,7 @@ pub enum TraitKind {
     // kind
     CanisterKind,
     StoreKind,
-    EntitySchema,
+    EntityDeclaration,
     EntityPlacement,
     EntityKind,
     FieldTypeMeta,
@@ -56,7 +56,7 @@ pub enum TraitKind {
     // value
     AuthoredFieldProjection,
     EntityValue,
-    PersistedStructuredFieldCodec,
+    PersistedStructuralValueCodec,
     RuntimeValue,
     RuntimeValueDecode,
     RuntimeValueEncode,
@@ -111,13 +111,13 @@ impl FromStr for TraitKind {
             "Sum" => Ok(Self::Sum),
             "CanisterKind" => Ok(Self::CanisterKind),
             "StoreKind" => Ok(Self::StoreKind),
-            "EntitySchema" => Ok(Self::EntitySchema),
+            "EntityDeclaration" => Ok(Self::EntityDeclaration),
             "EntityPlacement" => Ok(Self::EntityPlacement),
             "EntityKind" => Ok(Self::EntityKind),
             "FieldTypeMeta" => Ok(Self::FieldTypeMeta),
             "AuthoredFieldProjection" => Ok(Self::AuthoredFieldProjection),
             "EntityValue" => Ok(Self::EntityValue),
-            "PersistedStructuredFieldCodec" => Ok(Self::PersistedStructuredFieldCodec),
+            "PersistedStructuralValueCodec" => Ok(Self::PersistedStructuralValueCodec),
             "RuntimeValue" => Ok(Self::RuntimeValue),
             "RuntimeValueDecode" => Ok(Self::RuntimeValueDecode),
             "RuntimeValueEncode" => Ok(Self::RuntimeValueEncode),
@@ -238,17 +238,53 @@ impl FromMeta for TraitKind {
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            Self::AuthoredFieldProjection
+            Self::Add
+            | Self::AddAssign
+            | Self::AuthoredFieldProjection
+            | Self::CanisterKind
+            | Self::Clone
+            | Self::Copy
+            | Self::Debug
+            | Self::Default
+            | Self::Deref
+            | Self::DerefMut
+            | Self::Deserialize
+            | Self::Display
+            | Self::Div
+            | Self::DivAssign
+            | Self::EntityDeclaration
+            | Self::EntityKind
+            | Self::EntityPlacement
+            | Self::Eq
             | Self::FieldProjection
+            | Self::FieldTypeMeta
             | Self::EntityValue
-            | Self::PersistedStructuredFieldCodec
+            | Self::From
+            | Self::Hash
+            | Self::Inner
+            | Self::Mul
+            | Self::MulAssign
+            | Self::NumericValue
+            | Self::Ord
+            | Self::PartialEq
+            | Self::PartialOrd
+            | Self::Path
+            | Self::PersistedStructuralValueCodec
             | Self::PersistedRow
+            | Self::Rem
             | Self::RuntimeValue
             | Self::RuntimeValueDecode
             | Self::RuntimeValueEncode
-            | Self::RuntimeValueMeta => {
+            | Self::RuntimeValueMeta
+            | Self::StoreKind
+            | Self::Sub
+            | Self::SubAssign
+            | Self::Sum => {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
+            }
+            Self::CandidType => {
+                quote!(::icydb::__reexports::candid::CandidType).to_tokens(tokens);
             }
             Self::Collection | Self::MapCollection => {
                 let trait_name = format_ident!("{self:?}");
@@ -262,10 +298,7 @@ impl ToTokens for TraitKind {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::visitor::#trait_name).to_tokens(tokens);
             }
-            _ => {
-                let trait_name = format_ident!("{self:?}");
-                quote!(::icydb::traits::#trait_name).to_tokens(tokens);
-            }
+            Self::Inherent | Self::Sorted => {}
         }
     }
 }

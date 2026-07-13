@@ -399,7 +399,7 @@ mod tests {
             "unexpected schema tokens: {tokens}",
         );
         assert!(
-            tokens.contains("< User as :: icydb :: traits :: Path > :: PATH"),
+            tokens.contains("< User as :: icydb :: __macro :: Path > :: PATH"),
             "unexpected schema tokens: {tokens}",
         );
     }

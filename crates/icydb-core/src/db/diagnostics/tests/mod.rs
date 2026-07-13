@@ -36,12 +36,14 @@ use crate::{
             compiled_schema_proposal_for_model,
         },
     },
+    entity::{EntityDeclaration, EntityKind},
     model::{field::FieldKind, index::IndexModel},
     testing::test_memory,
-    traits::{EntityKind, EntitySchema, Path, Storable, StoreKind},
+    traits::{Path, StoreKind},
     types::{EntityTag, Ulid},
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
+use ic_memory::stable_structures::Storable;
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::{borrow::Cow, cell::RefCell};
@@ -108,35 +110,35 @@ crate::test_entity! {
 static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &[
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_SINGLE_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
+        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
         SINGLE_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_FIRST_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
+        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
         FIRST_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_SECOND_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
+        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
         SECOND_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_MINMAX_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
+        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
         MINMAX_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         crate::testing::DIAGNOSTICS_VALID_ENTITY_TAG,
-        <IntegrityIndexedEntity as crate::traits::EntitySchema>::MODEL,
+        <IntegrityIndexedEntity as crate::entity::EntityDeclaration>::MODEL,
         VALID_ENTITY_PATH,
         STORE_A_PATH,
         validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,

@@ -114,7 +114,7 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
     quote! {
         const #model_ident: ::icydb::model::entity::EntityModel =
             ::icydb::model::entity::EntityModel::generated_with_primary_key_model_and_relations(
-                <#ident as ::icydb::traits::Path>::PATH,
+                <#ident as ::icydb::__macro::Path>::PATH,
                 #entity_name,
                 #schema_version,
                 ::icydb::model::entity::PrimaryKeyModel::ordered(

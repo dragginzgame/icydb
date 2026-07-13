@@ -35,8 +35,9 @@ use crate::{
             with_execution_stats_capture,
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::CanisterKind,
 };
 
 ///

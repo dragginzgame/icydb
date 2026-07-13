@@ -17,7 +17,7 @@ use crate::db::sql::lowering::{
     },
 };
 #[cfg(test)]
-use crate::{db::query::intent::Query, traits::EntityKind};
+use crate::{db::query::intent::Query, entity::EntityKind};
 use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},

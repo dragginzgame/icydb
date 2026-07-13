@@ -267,7 +267,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 //   indicate executor/planner contract breaches.
 
 #[cfg(test)]
-use crate::{db::CompiledQuery, traits::EntityKind};
+use crate::{db::CompiledQuery, entity::EntityKind};
 use crate::{
     db::{cursor::CursorPlanError, data::DecodedDataStoreKey, query::plan::AccessPlannedQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},

@@ -18,7 +18,7 @@ use crate::{
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
     },
-    types::{IntBig, NatBig},
+    types::{IntBig, NatBig, NumericValue},
     value::{InputValue, InputValueEnum, Value, canonicalize_value_set},
 };
 
@@ -739,27 +739,27 @@ fn normalize_numeric_value_for_target(
     let normalized = match target {
         Some(PredicateNumericTarget::Int64) => value
             .to_numeric_decimal()
-            .and_then(<i64 as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<i64 as NumericValue>::try_from_decimal)
             .map(Value::Int64),
         Some(PredicateNumericTarget::Int128) => value
             .to_numeric_decimal()
-            .and_then(<i128 as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<i128 as NumericValue>::try_from_decimal)
             .map(Value::Int128),
         Some(PredicateNumericTarget::IntBig) => value
             .to_numeric_decimal()
-            .and_then(<IntBig as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<IntBig as NumericValue>::try_from_decimal)
             .map(Value::IntBig),
         Some(PredicateNumericTarget::Nat64) => value
             .to_numeric_decimal()
-            .and_then(<u64 as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<u64 as NumericValue>::try_from_decimal)
             .map(Value::Nat64),
         Some(PredicateNumericTarget::Nat128) => value
             .to_numeric_decimal()
-            .and_then(<u128 as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<u128 as NumericValue>::try_from_decimal)
             .map(Value::Nat128),
         Some(PredicateNumericTarget::NatBig) => value
             .to_numeric_decimal()
-            .and_then(<NatBig as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<NatBig as NumericValue>::try_from_decimal)
             .map(Value::NatBig),
         None => None,
     };

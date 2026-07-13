@@ -16,9 +16,9 @@ use crate::{
         },
         key_taxonomy::PrimaryKeyValue,
     },
-    traits::Storable,
     types::EntityTag,
 };
+use ic_memory::stable_structures::Storable;
 use std::borrow::Cow;
 
 ///

@@ -9,8 +9,8 @@ use crate::{
             },
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 use std::ops::Bound;
 

@@ -25,6 +25,7 @@ pub(in crate::db::executor::tests) use crate::{
         relation::validate_delete_strong_relations_for_source,
         schema::SchemaStore,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
     metrics::sink::{MetricsEvent, MetricsSink, with_shared_metrics_sink},
     model::{
@@ -32,7 +33,7 @@ pub(in crate::db::executor::tests) use crate::{
         index::IndexModel,
     },
     testing::test_memory,
-    traits::{EntityKind, EntityValue, Path},
+    traits::Path,
     types::{Ulid, Unit},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -477,63 +478,63 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
 >] = &[
     EntityRuntimeHooks::new(
         RelationTargetEntity::ENTITY_TAG,
-        <RelationTargetEntity as crate::traits::EntitySchema>::MODEL,
+        <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL,
         RelationTargetEntity::PATH,
         RelationTargetStore::PATH,
         validate_delete_strong_relations_for_source::<RelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
         RelationSourceEntity::ENTITY_TAG,
-        <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        <RelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         RelationSourceEntity::PATH,
         RelationSourceStore::PATH,
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         CompositeRelationTargetEntity::ENTITY_TAG,
-        <CompositeRelationTargetEntity as crate::traits::EntitySchema>::MODEL,
+        <CompositeRelationTargetEntity as crate::entity::EntityDeclaration>::MODEL,
         CompositeRelationTargetEntity::PATH,
         RelationTargetStore::PATH,
         validate_delete_strong_relations_for_source::<CompositeRelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
         CompositeRelationSourceEntity::ENTITY_TAG,
-        <CompositeRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        <CompositeRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         CompositeRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
         validate_delete_strong_relations_for_source::<CompositeRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         OptionalCompositeRelationSourceEntity::ENTITY_TAG,
-        <OptionalCompositeRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        <OptionalCompositeRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         OptionalCompositeRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
         validate_delete_strong_relations_for_source::<OptionalCompositeRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         CompositePkRelationSourceEntity::ENTITY_TAG,
-        <CompositePkRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        <CompositePkRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         CompositePkRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
         validate_delete_strong_relations_for_source::<CompositePkRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakSingleRelationSourceEntity::ENTITY_TAG,
-        <WeakSingleRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        <WeakSingleRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         WeakSingleRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
         validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakOptionalRelationSourceEntity::ENTITY_TAG,
-        <WeakOptionalRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        <WeakOptionalRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         WeakOptionalRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
         validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakListRelationSourceEntity::ENTITY_TAG,
-        <WeakListRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        <WeakListRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         WeakListRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
         validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,
@@ -588,7 +589,7 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
-            target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+            target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
             target_entity_tag: RelationTargetEntity::ENTITY_TAG,
             target_store_path: RelationTargetStore::PATH,
             key_kind: &FieldKind::Ulid,
@@ -930,7 +931,7 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
-            target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+            target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
             target_entity_tag: RelationTargetEntity::ENTITY_TAG,
             target_store_path: RelationTargetStore::PATH,
             key_kind: &FieldKind::Ulid,
@@ -962,7 +963,7 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Option<Ulid> => FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
-            target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+            target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
             target_entity_tag: RelationTargetEntity::ENTITY_TAG,
             target_store_path: RelationTargetStore::PATH,
             key_kind: &FieldKind::Ulid,
@@ -985,7 +986,8 @@ pub(in crate::db::executor::tests) struct WeakListRelationSourceEntity {
 pub(in crate::db::executor::tests) static REL_WEAK_LIST_TARGET_KIND: FieldKind =
     FieldKind::Relation {
         target_path: RelationTargetEntity::PATH,
-        target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+        target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL
+            .name(),
         target_entity_tag: RelationTargetEntity::ENTITY_TAG,
         target_store_path: RelationTargetStore::PATH,
         key_kind: &FieldKind::Ulid,
@@ -1020,7 +1022,8 @@ pub(in crate::db::executor::tests) struct WeakSetRelationSourceEntity {
 pub(in crate::db::executor::tests) static REL_WEAK_SET_TARGET_KIND: FieldKind =
     FieldKind::Relation {
         target_path: RelationTargetEntity::PATH,
-        target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+        target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL
+            .name(),
         target_entity_tag: RelationTargetEntity::ENTITY_TAG,
         target_store_path: RelationTargetStore::PATH,
         key_kind: &FieldKind::Ulid,

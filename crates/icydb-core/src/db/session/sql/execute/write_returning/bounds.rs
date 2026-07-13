@@ -12,8 +12,9 @@ use crate::{
         session::sql::write_policy::SqlWriteReturningBounds,
         sql::parser::SqlReturningProjection,
     },
+    entity::EntityValue,
     error::InternalError,
-    traits::{AuthoredFieldProjection, EntityValue},
+    traits::AuthoredFieldProjection,
     value::{OutputValue, Value},
 };
 use candid::{CandidType, Encode};

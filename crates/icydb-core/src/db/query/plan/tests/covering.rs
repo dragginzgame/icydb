@@ -17,8 +17,8 @@ use crate::{
             index_covering_existing_rows_terminal_eligible,
         },
     },
+    entity::EntityDeclaration,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
-    traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
@@ -46,7 +46,7 @@ crate::test_schema_entity! {
 }
 
 fn covering_read_model() -> &'static EntityModel {
-    <PlanTestsCoveringReadEntity as EntitySchema>::MODEL
+    <PlanTestsCoveringReadEntity as EntityDeclaration>::MODEL
 }
 
 fn covering_read_execution_plan(

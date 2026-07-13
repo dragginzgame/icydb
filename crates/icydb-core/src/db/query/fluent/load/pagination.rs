@@ -12,7 +12,7 @@ use crate::{
             read_intent::{ADMIN_BATCH_ROWS, AdminBatchRequest, PageRequest, ReadIntentKind},
         },
     },
-    traits::{EntityKind, EntityValue},
+    entity::{EntityKind, EntityValue},
 };
 
 struct PagedLoadQuery<'a, E>

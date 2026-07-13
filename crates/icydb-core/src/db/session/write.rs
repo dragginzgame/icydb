@@ -12,8 +12,9 @@ use crate::{
         executor::MutationMode,
         schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeContract},
     },
+    entity::EntityCreateInput,
     error::InternalError,
-    traits::{CanisterKind, EntityCreateInput},
+    traits::CanisterKind,
     value::InputValue,
 };
 

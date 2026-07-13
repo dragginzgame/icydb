@@ -24,9 +24,9 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
-    traits::Storable,
     types::Timestamp,
 };
+use ic_memory::stable_structures::Storable;
 #[cfg(feature = "sql")]
 use std::collections::HashSet;
 

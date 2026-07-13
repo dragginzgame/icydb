@@ -58,8 +58,9 @@ use crate::{
             grouped_plan_strategy,
         },
     },
+    entity::EntityDeclaration,
     model::{field::FieldKind, index::IndexModel},
-    traits::{EntitySchema, Path},
+    traits::Path,
     types::Ulid,
     value::Value,
 };

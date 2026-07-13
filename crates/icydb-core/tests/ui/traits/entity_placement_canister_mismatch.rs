@@ -1,4 +1,7 @@
-use icydb_core::traits::{CanisterKind, EntityPlacement, Path, StoreKind};
+use icydb_core::{
+    entity::EntityPlacement,
+    traits::{CanisterKind, Path, StoreKind},
+};
 
 struct StoreCanister;
 

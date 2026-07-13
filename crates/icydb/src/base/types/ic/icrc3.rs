@@ -58,7 +58,7 @@ impl icydb_core::value::RuntimeValueEncode for Value {
     }
 }
 
-impl icydb_core::traits::PersistedStructuredFieldCodec for Value {
+impl icydb_core::db::PersistedStructuralValueCodec for Value {
     fn encode_persisted_structured_payload(
         &self,
     ) -> Result<Vec<u8>, icydb_core::error::InternalError> {
@@ -130,7 +130,7 @@ mod tests {
         traits::Path,
         value::{InputValue, InputValueEnum},
     };
-    use icydb_core::traits::PersistedStructuredFieldCodec;
+    use icydb_core::db::PersistedStructuralValueCodec;
 
     #[test]
     fn protocol_value_structural_codec_round_trips_without_catalog_enum_identity() {

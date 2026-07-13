@@ -20,8 +20,8 @@ use crate::{
             terminal::RowLayout,
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 use std::cmp::Ordering;

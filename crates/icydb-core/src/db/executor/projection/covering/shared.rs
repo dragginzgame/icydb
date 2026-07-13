@@ -576,8 +576,8 @@ mod tests {
             predicate::MissingRowPolicy,
             query::plan::AccessPlannedQuery,
         },
+        entity::EntityDeclaration,
         model::{field::FieldKind, index::IndexModel},
-        traits::EntitySchema,
         types::Ulid,
     };
 
@@ -609,7 +609,7 @@ mod tests {
     fn finalized_plan(access: AccessPath<Value>) -> AccessPlannedQuery {
         let mut plan = AccessPlannedQuery::new(access, MissingRowPolicy::Ignore);
         plan.finalize_static_execution_planning_contract_for_model_only(
-            <CoveringWindowEntity as EntitySchema>::MODEL,
+            <CoveringWindowEntity as EntityDeclaration>::MODEL,
         )
         .expect("covering-window tests require frozen primary-key metadata");
 

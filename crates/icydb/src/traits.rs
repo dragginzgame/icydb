@@ -5,13 +5,12 @@
 //! Boundary: re-exports stable trait names and narrows facade-only contracts.
 
 pub use icydb_core::db::{EntityKey, EntityKeyBytes, EntityKeyBytesError};
-pub use icydb_core::traits::{
-    Add, AddAssign, CanisterKind, Debug, Default, Deserialize, DeserializeOwned, Div, DivAssign,
-    EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityKind, EntityPlacement,
-    EntitySchema, Eq, FieldTypeMeta, From, Hash, Inner, Kind, Mul, MulAssign, NumericValue,
-    Ordering, PartialEq, Path, Rem, Serialize, SingletonEntity, Storable, StoreKind, Sub,
-    SubAssign, TypeKind,
+pub use icydb_core::entity::{
+    EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityDeclaration,
+    EntityKind, EntityPlacement, SingletonEntity,
 };
+pub use icydb_core::traits::{CanisterKind, FieldTypeMeta, Inner, Kind, Path, StoreKind, TypeKind};
+pub use icydb_core::types::NumericValue;
 pub use icydb_core::value::{Collection, MapCollection};
 pub use icydb_core::visitor::{
     Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Validate, ValidateAuto, ValidateCustom,

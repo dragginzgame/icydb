@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     db::data::{CanonicalRow, with_structural_read_metrics},
     db::query::plan::ResolvedOrderField,
+    entity::EntityDeclaration,
     model::field::FieldKind,
-    traits::EntitySchema,
     types::{Blob, Text, Ulid},
     value::Value,
 };

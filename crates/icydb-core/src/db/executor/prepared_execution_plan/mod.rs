@@ -24,8 +24,8 @@ use crate::{
         executor::{EntityAuthority, ExecutorPlanError},
         schema::{AcceptedEnumCatalogHandle, AcceptedSchemaAuthority},
     },
+    entity::EntityKind,
     error::InternalError,
-    traits::EntityKind,
 };
 #[cfg(test)]
 use crate::{
@@ -33,7 +33,7 @@ use crate::{
         executor::explain::assemble_load_execution_node_descriptor_for_authority,
         predicate::MissingRowPolicy, query::explain::ExplainExecutionNodeDescriptor,
     },
-    traits::EntityValue,
+    entity::EntityValue,
 };
 use std::marker::PhantomData;
 

@@ -17,7 +17,7 @@ use crate::{
             intent::QueryError,
         },
     },
-    traits::EntityValue,
+    entity::EntityValue,
 };
 
 use super::support::collect_complete_entities;

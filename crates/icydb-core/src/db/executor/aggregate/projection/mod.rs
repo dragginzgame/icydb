@@ -48,8 +48,8 @@ use crate::{
             ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 

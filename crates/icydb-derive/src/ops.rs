@@ -10,7 +10,7 @@ use quote::{format_ident, quote};
 pub(crate) fn derive_add(input: TokenStream) -> TokenStream {
     derive_op(
         input,
-        OpSpec::binary("Add", quote!(::icydb::traits::Add), "add", quote!(+)),
+        OpSpec::binary("Add", quote!(::icydb::__macro::Add), "add", quote!(+)),
     )
 }
 
@@ -19,7 +19,7 @@ pub(crate) fn derive_add_assign(input: TokenStream) -> TokenStream {
         input,
         OpSpec::assign(
             "AddAssign",
-            quote!(::icydb::traits::AddAssign),
+            quote!(::icydb::__macro::AddAssign),
             "add_assign",
             quote!(+=),
         ),
@@ -29,7 +29,7 @@ pub(crate) fn derive_add_assign(input: TokenStream) -> TokenStream {
 pub(crate) fn derive_sub(input: TokenStream) -> TokenStream {
     derive_op(
         input,
-        OpSpec::binary("Sub", quote!(::icydb::traits::Sub), "sub", quote!(-)),
+        OpSpec::binary("Sub", quote!(::icydb::__macro::Sub), "sub", quote!(-)),
     )
 }
 
@@ -38,7 +38,7 @@ pub(crate) fn derive_sub_assign(input: TokenStream) -> TokenStream {
         input,
         OpSpec::assign(
             "SubAssign",
-            quote!(::icydb::traits::SubAssign),
+            quote!(::icydb::__macro::SubAssign),
             "sub_assign",
             quote!(-=),
         ),
@@ -48,7 +48,7 @@ pub(crate) fn derive_sub_assign(input: TokenStream) -> TokenStream {
 pub(crate) fn derive_mul(input: TokenStream) -> TokenStream {
     derive_op(
         input,
-        OpSpec::binary("Mul", quote!(::icydb::traits::Mul), "mul", quote!(*)),
+        OpSpec::binary("Mul", quote!(::icydb::__macro::Mul), "mul", quote!(*)),
     )
 }
 
@@ -57,7 +57,7 @@ pub(crate) fn derive_mul_assign(input: TokenStream) -> TokenStream {
         input,
         OpSpec::assign(
             "MulAssign",
-            quote!(::icydb::traits::MulAssign),
+            quote!(::icydb::__macro::MulAssign),
             "mul_assign",
             quote!(*=),
         ),
@@ -67,7 +67,7 @@ pub(crate) fn derive_mul_assign(input: TokenStream) -> TokenStream {
 pub(crate) fn derive_div(input: TokenStream) -> TokenStream {
     derive_op(
         input,
-        OpSpec::binary("Div", quote!(::icydb::traits::Div), "div", quote!(/)),
+        OpSpec::binary("Div", quote!(::icydb::__macro::Div), "div", quote!(/)),
     )
 }
 
@@ -76,7 +76,7 @@ pub(crate) fn derive_div_assign(input: TokenStream) -> TokenStream {
         input,
         OpSpec::assign(
             "DivAssign",
-            quote!(::icydb::traits::DivAssign),
+            quote!(::icydb::__macro::DivAssign),
             "div_assign",
             quote!(/=),
         ),
@@ -86,7 +86,7 @@ pub(crate) fn derive_div_assign(input: TokenStream) -> TokenStream {
 pub(crate) fn derive_rem(input: TokenStream) -> TokenStream {
     derive_op(
         input,
-        OpSpec::binary("Rem", quote!(::icydb::traits::Rem), "rem", quote!(%)),
+        OpSpec::binary("Rem", quote!(::icydb::__macro::Rem), "rem", quote!(%)),
     )
 }
 

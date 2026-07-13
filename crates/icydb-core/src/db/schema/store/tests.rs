@@ -21,10 +21,9 @@ use crate::{
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     testing::test_memory,
-    traits::Storable,
     types::EntityTag,
 };
-use ic_memory::stable_structures::storable::Bound;
+use ic_memory::stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 use std::convert::Infallible;
 

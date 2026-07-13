@@ -18,8 +18,9 @@ use crate::{
         predicate::MissingRowPolicy,
         registry::StoreHandle,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue, Path},
+    traits::{CanisterKind, Path},
 };
 #[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;

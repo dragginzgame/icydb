@@ -25,9 +25,10 @@ use crate::{
         registry::{StoreCommitParticipation, StoreHandle, StoreRecoveryCapability},
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
     metrics::sink::{MetricsEvent, MutationCommitClass, record},
-    traits::{CanisterKind, EntityKind, EntityValue, Path},
+    traits::{CanisterKind, Path},
 };
 use std::{
     cell::RefCell,

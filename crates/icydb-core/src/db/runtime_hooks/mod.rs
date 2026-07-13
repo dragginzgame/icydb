@@ -13,9 +13,10 @@ use crate::{
         data::RawDataStoreKey,
         relation::StrongRelationDeleteValidateFn,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
     model::entity::EntityModel,
-    traits::{CanisterKind, EntityKind, EntityValue, Path},
+    traits::{CanisterKind, Path},
     types::EntityTag,
 };
 use std::collections::BTreeSet;

@@ -64,7 +64,7 @@ impl HasTraits for List {
             TraitKind::Collection,
             TraitKind::Deref,
             TraitKind::DerefMut,
-            TraitKind::PersistedStructuredFieldCodec,
+            TraitKind::PersistedStructuralValueCodec,
             TraitKind::RuntimeValue,
             TraitKind::Inherent,
         ]);
@@ -75,8 +75,8 @@ impl HasTraits for List {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::Collection => CollectionTrait::strategy(self),
-            TraitKind::PersistedStructuredFieldCodec => {
-                PersistedStructuredFieldCodecTrait::strategy(self)
+            TraitKind::PersistedStructuralValueCodec => {
+                PersistedStructuralValueCodecTrait::strategy(self)
             }
             TraitKind::RuntimeValue => RuntimeValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),

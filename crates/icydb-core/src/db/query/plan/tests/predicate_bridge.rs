@@ -21,7 +21,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    traits::EntitySchema,
+    entity::EntityDeclaration,
     value::{Value, ValueEnum},
 };
 
@@ -212,8 +212,9 @@ fn planner_expr_pipeline_order_preserves_stage_contracts() {
     );
 
     let canonical_before_type_inference = canonical.clone();
-    let schema =
-        SchemaInfo::cached_for_generated_entity_model(<PlanFilteredEntity as EntitySchema>::MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(
+        <PlanFilteredEntity as EntityDeclaration>::MODEL,
+    );
     let typed = infer_expr_type(&canonical, schema)
         .expect("canonical boolean expression should type-check against plan test schema");
     assert_eq!(
@@ -1512,10 +1513,10 @@ fn assert_compiled_predicate_matches_truth_value(
 ) {
     let predicate = compile_canonical_bool_expr_to_compiled_predicate(canonical).into_predicate();
     let program = PredicateProgram::compile_for_model_only(
-        <PlanFilteredEntity as EntitySchema>::MODEL,
+        <PlanFilteredEntity as EntityDeclaration>::MODEL,
         &predicate,
     );
-    let field_slot = <PlanFilteredEntity as EntitySchema>::MODEL
+    let field_slot = <PlanFilteredEntity as EntityDeclaration>::MODEL
         .resolve_field_slot(field_name)
         .expect("predicate bridge test field should exist");
 

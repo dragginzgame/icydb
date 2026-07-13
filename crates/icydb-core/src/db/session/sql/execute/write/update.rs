@@ -25,9 +25,10 @@ use crate::{
             parser::SqlUpdateStatement,
         },
     },
+    entity::EntityKind,
     metrics::sink::SqlWriteKind,
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{CanisterKind, EntityKind},
+    traits::CanisterKind,
     types::Timestamp,
     value::Value,
 };

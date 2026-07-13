@@ -30,12 +30,11 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::Storable,
     types::EntityTag,
 };
-use ic_memory::stable_structures::storable::Bound as StorableBound;
 use ic_memory::stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
+    storable::Bound as StorableBound,
 };
 use sha2::Digest;
 use std::borrow::Cow;

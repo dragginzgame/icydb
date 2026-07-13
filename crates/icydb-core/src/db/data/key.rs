@@ -14,12 +14,12 @@ use crate::{
             PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
         },
     },
+    entity::EntityKind,
     error::InternalError,
-    traits::{EntityKind, Storable},
     types::EntityTag,
     value::Value,
 };
-use ic_memory::stable_structures::storable::Bound as StorableBound;
+use ic_memory::stable_structures::{Storable, storable::Bound as StorableBound};
 use std::{
     borrow::Cow,
     cell::OnceCell,

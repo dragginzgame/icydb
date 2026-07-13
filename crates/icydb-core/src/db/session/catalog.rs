@@ -20,9 +20,10 @@ use crate::{
             show_indexes_for_schema_info_with_runtime_state,
         },
     },
+    entity::EntityKind,
     error::InternalError,
     model::entity::EntityModel,
-    traits::{CanisterKind, EntityKind, Path},
+    traits::{CanisterKind, Path},
 };
 
 fn relation_field_count(fields: &[PersistedFieldSnapshot]) -> usize {

@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::db::sql::lowering::apply_lowered_base_query_shape_for_model_only;
 #[cfg(test)]
-use crate::{db::query::intent::Query, traits::EntityKind};
+use crate::{db::query::intent::Query, entity::EntityKind};
 
 use crate::{
     db::{

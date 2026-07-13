@@ -33,7 +33,7 @@ use crate::{
         },
         response::EntityResponse,
     },
-    traits::EntityValue,
+    entity::EntityValue,
     types::Id,
 };
 

@@ -22,7 +22,7 @@ use crate::{
             intent::{IntentError, QueryError},
         },
     },
-    traits::EntityValue,
+    entity::EntityValue,
     types::{Decimal, Id},
 };
 

@@ -23,8 +23,9 @@ pub(in crate::db::query::intent::tests) use crate::{
             plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
         },
     },
+    entity::EntityDeclaration,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
-    traits::{EntitySchema, FieldProjection, Path},
+    traits::{FieldProjection, Path},
     types::{Date, Duration, Timestamp, Ulid, Unit},
     value::{RuntimeValueEncode, Value},
 };
@@ -50,7 +51,7 @@ pub(in crate::db::query::intent::tests) use std::collections::BTreeMap;
 
 // Helper for intent tests that need the typed model snapshot.
 pub(in crate::db::query::intent::tests) fn basic_model() -> &'static EntityModel {
-    <PlanEntity as EntitySchema>::MODEL
+    <PlanEntity as EntityDeclaration>::MODEL
 }
 
 pub(in crate::db::query::intent::tests) fn verbose_diagnostics_lines(verbose: &str) -> Vec<String> {

@@ -41,8 +41,8 @@ use crate::{
             plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     types::Decimal,
     value::Value,
 };

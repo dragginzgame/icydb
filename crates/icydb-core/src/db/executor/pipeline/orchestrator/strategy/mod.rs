@@ -18,8 +18,8 @@ use crate::{
             },
         },
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 impl<E> LoadExecutor<E>

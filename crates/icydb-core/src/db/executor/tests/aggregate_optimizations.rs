@@ -13,8 +13,8 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::builder::aggregate,
     },
+    entity::EntityKind,
     error::ErrorClass,
-    traits::EntityKind,
     types::Ulid,
     value::Value,
 };

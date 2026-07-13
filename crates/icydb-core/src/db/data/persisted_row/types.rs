@@ -2,9 +2,9 @@
 use crate::model::entity::EntityModel;
 use crate::{
     db::data::persisted_row::codec::ScalarSlotValueRef,
+    entity::{EntityKind, EntityValue},
     error::InternalError,
     model::field::LeafCodec,
-    traits::{EntityKind, EntityValue},
     value::{InputValue, Value},
 };
 

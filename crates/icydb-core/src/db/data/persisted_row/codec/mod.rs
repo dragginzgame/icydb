@@ -12,8 +12,8 @@ use crate::db::data::persisted_row::codec::strategy::StorageStrategy;
 use crate::{db::data::storage::encode as storage_encode, error::InternalError, value::Value};
 
 pub use by_kind::{
-    decode_persisted_option_slot_payload_by_kind, decode_persisted_slot_payload_by_kind,
-    encode_persisted_slot_payload_by_kind,
+    PersistedByKindCodec, decode_persisted_option_slot_payload_by_kind,
+    decode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_kind,
 };
 pub use scalar::{
     PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
@@ -22,8 +22,9 @@ pub use scalar::{
 };
 pub(super) use scalar::{decode_scalar_slot_value, encode_scalar_slot_value};
 pub use structured::{
-    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
+    PersistedStructuralValueCodec, decode_persisted_structured_many_slot_payload,
+    decode_persisted_structured_slot_payload, encode_persisted_structured_many_slot_payload,
+    encode_persisted_structured_slot_payload,
 };
 
 // Encode the null sentinel selected by the storage lane. This is behavior, not

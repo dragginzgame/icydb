@@ -27,12 +27,12 @@ use crate::{
             SchemaInfo, SchemaRowLayout, SchemaVersion,
         },
     },
+    entity::EntityDeclaration,
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
         index::IndexModel,
     },
-    traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
@@ -60,7 +60,7 @@ crate::test_schema_entity! {
 }
 
 fn model() -> &'static EntityModel {
-    <GroupedPolicyValidateEntity as EntitySchema>::MODEL
+    <GroupedPolicyValidateEntity as EntityDeclaration>::MODEL
 }
 
 fn grouped_spec() -> GroupSpec {

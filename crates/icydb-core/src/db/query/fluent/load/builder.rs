@@ -17,7 +17,7 @@ use crate::{
             trace::QueryTracePlan,
         },
     },
-    traits::{EntityKind, SingletonEntity},
+    entity::{EntityKind, SingletonEntity},
     types::Id,
     value::InputValue,
 };

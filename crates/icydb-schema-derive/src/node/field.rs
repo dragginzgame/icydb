@@ -339,7 +339,7 @@ impl Field {
         {
             let variant = variant.to_string();
             return quote!(::icydb::model::field::FieldDatabaseDefault::AuthoredEnumUnit {
-                enum_path: <#enum_path as ::icydb::traits::Path>::PATH,
+                enum_path: <#enum_path as ::icydb::__macro::Path>::PATH,
                 variant: #variant,
             });
         }
@@ -1168,7 +1168,7 @@ fn encode_by_kind_database_default_payload<T>(
     primitive: Primitive,
 ) -> Result<Vec<u8>, String>
 where
-    T: icydb_core::traits::PersistedByKindCodec,
+    T: icydb_core::db::PersistedByKindCodec,
 {
     icydb_core::__macro::encode_persisted_slot_payload_by_kind(value, kind, "default")
         .map_err(|err| format!("default {primitive:?} payload failed to encode: {err}"))

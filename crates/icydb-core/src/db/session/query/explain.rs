@@ -20,7 +20,8 @@ use crate::{
         query::plan::{AccessPlannedQuery, QueryMode, VisibleIndexes},
         session::query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
     },
-    traits::{CanisterKind, EntityKind, EntityValue},
+    entity::{EntityKind, EntityValue},
+    traits::CanisterKind,
 };
 
 // Translate executor route-family selection into the query-owned trace label

@@ -59,11 +59,11 @@ pub(in crate::db) use types::{CanonicalSlotReader, FieldSlot, SerializedStructur
 // These helpers remain public inside `icydb-core` because the cross-crate
 // `icydb::__macro` boundary still needs a stable path for generated code.
 pub use codec::{
-    PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
-    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
-    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-    encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
-    encode_persisted_slot_payload_by_kind, encode_persisted_structured_many_slot_payload,
-    encode_persisted_structured_slot_payload,
+    PersistedByKindCodec, PersistedScalar, PersistedStructuralValueCodec, ScalarSlotValueRef,
+    ScalarValueRef, decode_persisted_option_scalar_slot_payload,
+    decode_persisted_option_slot_payload_by_kind, decode_persisted_scalar_slot_payload,
+    decode_persisted_slot_payload_by_kind, decode_persisted_structured_many_slot_payload,
+    decode_persisted_structured_slot_payload, encode_persisted_option_scalar_slot_payload,
+    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
+    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
 };

@@ -44,8 +44,8 @@ use crate::{
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
     },
+    entity::{EntityKind, EntityValue},
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 pub(in crate::db) use crate::db::query::builder::aggregate::{

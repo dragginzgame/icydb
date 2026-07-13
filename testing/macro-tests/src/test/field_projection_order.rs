@@ -12,7 +12,7 @@ mod tests {
     use super::*;
     use icydb::{
         __macro::{FieldProjection, Value, runtime_value_to_value},
-        traits::EntitySchema,
+        traits::EntityDeclaration,
     };
 
     #[entity(

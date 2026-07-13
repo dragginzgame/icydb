@@ -696,9 +696,9 @@ mod tests {
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         },
         testing::test_memory,
-        traits::Storable,
         types::EntityTag,
     };
+    use ic_memory::stable_structures::Storable;
     use std::{borrow::Cow, convert::Infallible};
 
     fn raw_key(value: u8) -> RawIndexStoreKey {

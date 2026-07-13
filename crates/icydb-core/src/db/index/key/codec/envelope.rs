@@ -3,11 +3,8 @@
 //! Does not own: index-key parsing rules.
 //! Boundary: stable-memory storage adapter for `RawIndexStoreKey`.
 
-use crate::{
-    db::index::key::codec::{IndexKey, RawIndexStoreKey},
-    traits::Storable,
-};
-use ic_memory::stable_structures::storable::Bound;
+use crate::db::index::key::codec::{IndexKey, RawIndexStoreKey};
+use ic_memory::stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 
 impl Storable for RawIndexStoreKey {

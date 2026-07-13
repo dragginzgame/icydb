@@ -24,8 +24,9 @@ use crate::{
             },
         },
     },
+    entity::EntityKind,
     error::InternalError,
-    traits::{EntityKind, Path},
+    traits::Path,
 };
 use std::marker::PhantomData;
 #[cfg(feature = "sql")]

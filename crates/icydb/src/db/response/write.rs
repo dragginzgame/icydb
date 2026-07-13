@@ -141,7 +141,7 @@ impl<E: Entity> MutationResult<E> {
             Self::Entity(entity) => Ok(vec![entity.id()]),
             Self::Entities(entities) => Ok(entities
                 .iter()
-                .map(icydb_core::traits::EntityValue::id)
+                .map(icydb_core::entity::EntityValue::id)
                 .collect()),
             Self::Count { .. } => Err(Self::unsupported_shape_error(
                 RuntimeBoundaryCode::MutationResultIdsRequired,

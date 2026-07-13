@@ -17,9 +17,8 @@ use crate::{
 use crate::{
     db::{codec::MAX_ROW_BYTES, data::DecodedDataStoreKey},
     error::InternalError,
-    traits::Storable,
 };
-use ic_memory::stable_structures::storable::Bound;
+use ic_memory::stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 
 ///

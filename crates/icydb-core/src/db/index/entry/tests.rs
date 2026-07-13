@@ -6,9 +6,9 @@ use crate::{
         index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
     },
-    traits::Storable,
     types::{EntityTag, Principal},
 };
+use ic_memory::stable_structures::Storable;
 use std::borrow::Cow;
 
 fn raw_key_for(key: PrimaryKeyComponent) -> RawIndexStoreKey {
