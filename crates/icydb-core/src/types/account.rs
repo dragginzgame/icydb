@@ -3,12 +3,10 @@
 //! encoding, and ICRC account conversion.
 
 use crate::{
-    traits::{
-        EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-    },
+    db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     types::{Principal, PrincipalEncodeError, Subaccount},
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use icrc_ledger_types::icrc1::account::Account as LedgerAccount;
@@ -222,10 +220,21 @@ impl Display for Account {
 impl EntityKeyBytes for Account {
     const BYTE_LEN: usize = Self::STORED_SIZE as usize;
 
-    fn write_bytes(&self, out: &mut [u8]) {
-        assert_eq!(out.len(), Self::BYTE_LEN);
-        let out: &mut [u8; Self::BYTE_LEN] = out.try_into().expect("account key invariant");
-        self.write_stored_bytes(out).expect("account key invariant");
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
+        validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
+        let bytes = self.to_stored_bytes().map_err(account_key_bytes_error)?;
+        out.copy_from_slice(&bytes);
+
+        Ok(())
+    }
+}
+
+const fn account_key_bytes_error(error: AccountEncodeError) -> EntityKeyBytesError {
+    match error {
+        AccountEncodeError::OwnerEncode(PrincipalEncodeError::TooLarge { len, max })
+        | AccountEncodeError::OwnerTooLarge { len, max } => {
+            EntityKeyBytesError::ValueTooLong { len, max }
+        }
     }
 }
 

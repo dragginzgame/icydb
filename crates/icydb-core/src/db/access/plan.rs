@@ -4,11 +4,11 @@
 //! Boundary: query planner emits these plans for executor routing.
 
 use crate::{
+    db::KeyValueCodec,
     db::access::{
         AccessPath, ExecutableAccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract,
         SemanticIndexRangeSpec,
     },
-    traits::KeyValueCodec,
     value::Value,
 };
 

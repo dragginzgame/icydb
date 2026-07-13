@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `&'static str: RuntimeValueDecode` is not satisfied
+ --> tests/ui/traits/borrowed_string_is_not_runtime_decodable.rs:6:29
+  |
+6 |     assert_runtime_decode::<&'static str>();
+  |                             ^^^^^^^^^^^^ the trait `RuntimeValueDecode` is not implemented for `&'static str`
+  |
+help: the trait `RuntimeValueDecode` is implemented for `std::string::String`
+ --> src/value/runtime.rs
+  |
+  | impl RuntimeValueDecode for String {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `assert_runtime_decode`
+ --> tests/ui/traits/borrowed_string_is_not_runtime_decodable.rs:3:29
+  |
+3 | fn assert_runtime_decode<T: RuntimeValueDecode>() {}
+  |                             ^^^^^^^^^^^^^^^^^^ required by this bound in `assert_runtime_decode`

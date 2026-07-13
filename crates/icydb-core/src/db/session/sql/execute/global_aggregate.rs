@@ -18,7 +18,7 @@ use crate::{
         },
         sql::lowering::SqlGlobalAggregateCommand,
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 #[cfg(feature = "diagnostics")]
@@ -48,7 +48,7 @@ impl<C: CanisterKind> DbSession<C> {
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let projection = command.projection();
 
@@ -90,7 +90,7 @@ impl<C: CanisterKind> DbSession<C> {
         resolve_prepared_plan: impl FnOnce(Option<EntityAuthority>) -> PreparedAggregatePlanResolution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let direct_resolution = self.execute_direct_count_cardinality_target::<E>(
             command.projection(),
@@ -133,7 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let direct_resolution = self.execute_measured_direct_count_cardinality_target::<E>(
             command.projection(),
@@ -195,7 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
@@ -214,7 +214,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let direct_count_target =
             self.build_direct_count_cardinality_target::<E>(command, catalog)?;
@@ -247,7 +247,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let direct_count_target =
             self.resolve_compiled_direct_count_cardinality_target::<E>(compiled, command, catalog)?;
@@ -277,7 +277,7 @@ impl<C: CanisterKind> DbSession<C> {
         policy: &QueryAdmissionPolicy,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
@@ -317,7 +317,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (direct_count_target, direct_plan_compile_attribution) = self
             .resolve_compiled_direct_count_cardinality_target_with_phase_attribution::<E>(

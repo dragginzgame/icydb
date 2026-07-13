@@ -14,7 +14,7 @@ use crate::{
             query::{PreparedQueryExecutionOutcome, PreparedQueryExecutionOutput},
         },
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 use super::model::{
@@ -30,7 +30,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
     ) -> Result<(LoadQueryResult<E>, QueryExecutionAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: measure compile work at the typed/fluent boundary,
         // including the shared lower query-plan cache lookup/build exactly
@@ -79,7 +79,7 @@ impl<C: CanisterKind> DbSession<C> {
         executor_invocation_local_instructions: u64,
     ) -> Result<(LoadQueryResult<E>, QueryExecutePhaseAttribution, u64), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         match outcome {
             PreparedQueryExecutionOutcome::Scalar {

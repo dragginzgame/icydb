@@ -4,7 +4,7 @@ use crate::{
     db::data::persisted_row::codec::ScalarSlotValueRef,
     error::InternalError,
     model::field::LeafCodec,
-    traits::EntityKind,
+    traits::{EntityKind, EntityValue},
     value::{InputValue, Value},
 };
 
@@ -226,7 +226,7 @@ pub trait SlotReader {
 
     /// Borrow the accepted catalog context used to decode canonical enum IDs.
     #[doc(hidden)]
-    fn runtime_enum_context(&self) -> Option<&dyn crate::traits::RuntimeEnumContext> {
+    fn runtime_enum_context(&self) -> Option<&dyn crate::value::RuntimeEnumContext> {
         None
     }
 }
@@ -295,11 +295,12 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
 ///
 /// PersistedRow is the derive-owned bridge between typed entities and
 /// slot-addressable persisted rows.
+/// It combines the model/placement contract with a concrete entity value.
 /// It owns entity-specific materialization/default semantics while runtime
 /// paths stay structural at the row boundary.
 ///
 
-pub trait PersistedRow: EntityKind + Sized {
+pub trait PersistedRow: EntityKind + EntityValue {
     /// Materialize one typed entity from one slot reader.
     fn materialize_from_slots(slots: &mut dyn SlotReader) -> Result<Self, InternalError>;
 }

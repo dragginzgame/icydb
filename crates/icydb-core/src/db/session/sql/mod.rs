@@ -30,7 +30,7 @@ use crate::db::query::admission::QueryAdmissionPolicy;
 use crate::db::sql::parser::{SqlStatement, parse_sql};
 use crate::{
     db::{DbSession, PersistedRow, QueryError},
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 pub(in crate::db::session::sql) use crate::db::diagnostics::measure_local_instruction_delta as measure_sql_stage;
@@ -122,7 +122,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// returns SQL-shaped statement output instead of typed entities.
     pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
 
@@ -141,7 +141,7 @@ impl<C: CanisterKind> DbSession<C> {
         policy: &QueryAdmissionPolicy,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
 
@@ -157,7 +157,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<(SqlStatementResult, SqlQueryExecutionAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: measure the compile side of the new seam, including parse,
         // surface validation, and semantic command construction.
@@ -207,7 +207,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// returns SQL-shaped mutation output such as counts or `RETURNING` rows.
     pub fn execute_sql_update<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let (compiled, _, _) = self.compile_sql_update_with_execution_context::<E>(sql)?;
 

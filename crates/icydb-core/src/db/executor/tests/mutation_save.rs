@@ -45,12 +45,12 @@ use crate::{
         index::IndexModel,
     },
     testing::test_memory,
-    traits::{
-        EntityKind, EntityValue, FieldTypeMeta, Path, PersistedStructuredFieldCodec,
-        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-    },
+    traits::{EntityKind, FieldTypeMeta, Path, PersistedStructuredFieldCodec},
     types::{Account, Decimal, EntityTag, Principal, Subaccount, Ulid},
-    value::{InputValue, InputValueEnum, Value},
+    value::{
+        InputValue, InputValueEnum, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, Value,
+    },
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -632,13 +632,13 @@ impl RuntimeValueMeta for SaveSelectedPartSet {
 
 impl RuntimeValueEncode for SaveSelectedPartSet {
     fn to_value(&self) -> Value {
-        crate::traits::runtime_value_collection_to_value(&self.0)
+        crate::value::runtime_value_collection_to_value(&self.0)
     }
 }
 
 impl RuntimeValueDecode for SaveSelectedPartSet {
     fn from_value(value: &Value) -> Option<Self> {
-        crate::traits::runtime_value_btree_set_from_value(value).map(Self)
+        crate::value::runtime_value_btree_set_from_value(value).map(Self)
     }
 }
 
@@ -947,7 +947,7 @@ fn accepted_structural_patch<E, I, S>(
     fields: I,
 ) -> AuthoredStructuralPatch
 where
-    E: PersistedRow<Canister = TestCanister> + EntityValue,
+    E: PersistedRow<Canister = TestCanister>,
     I: IntoIterator<Item = (S, Value)>,
     S: AsRef<str>,
 {
@@ -1344,7 +1344,7 @@ fn validate_save_strong_relations_with_test_accepted_contract<E>(
     entity: &E,
 ) -> Result<(), crate::error::InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     let accepted_contract = AcceptedRowDecodeContract::from_model_proposal_for_test(E::MODEL);
 

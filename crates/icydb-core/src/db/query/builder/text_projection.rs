@@ -112,6 +112,8 @@ impl TextProjectionExpr {
     }
 }
 
+impl super::scalar_projection::private::Sealed for TextProjectionExpr {}
+
 impl ValueProjectionExpr for TextProjectionExpr {
     fn field(&self) -> &str {
         self.field.as_str()

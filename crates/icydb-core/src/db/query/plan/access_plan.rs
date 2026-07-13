@@ -21,9 +21,9 @@ use crate::db::{
     schema::SchemaInfo,
 };
 use crate::{
+    db::KeyValueCodec,
     error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
-    traits::KeyValueCodec,
     value::Value,
 };
 

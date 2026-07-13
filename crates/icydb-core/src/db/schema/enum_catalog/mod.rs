@@ -18,8 +18,8 @@ use crate::{
         entity::EntityModel,
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
     },
-    traits::{RuntimeEnumContext, RuntimeEnumSelection},
     value::{CanonicalEnumBody, CanonicalEnumValue},
+    value::{RuntimeEnumContext, RuntimeEnumSelection},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

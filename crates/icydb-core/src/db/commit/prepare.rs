@@ -173,7 +173,7 @@ where
     C: CanisterKind,
 {
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
-        self.row_reader.read_primary_row_structural(key)
+        self.row_reader.read_primary_row(key)
     }
 
     fn read_index_entry(
@@ -183,8 +183,7 @@ where
     ) -> Result<Option<IndexEntryValue>, InternalError> {
         let index_store = self.index_store(index.store_path())?;
 
-        self.index_reader
-            .read_index_entry_structural(index_store, key)
+        self.index_reader.read_index_entry(index_store, key)
     }
 
     fn read_index_keys_in_raw_range(
@@ -197,7 +196,7 @@ where
     ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         let index_store = self.index_store(index.store_path())?;
 
-        self.index_reader.read_index_keys_in_raw_range_structural(
+        self.index_reader.read_index_keys_in_raw_range(
             entity_path,
             entity_tag,
             index_store,

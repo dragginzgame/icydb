@@ -23,7 +23,7 @@ use crate::{
         record_cache_event_for_path, record_cache_miss_reason_for_path,
         record_sql_compile_reject_for_path,
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -35,7 +35,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<CompiledSqlCommand, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.compile_sql_query_with_cache_attribution::<E>(sql)
             .map(|(compiled, _, _)| compiled)
@@ -54,7 +54,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.compile_sql_query_with_execution_context::<E>(sql).map(
             |(context, cache_attribution, phase_attribution)| {
@@ -75,7 +75,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Query)
     }
@@ -88,7 +88,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<CompiledSqlCommand, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.compile_sql_update_with_execution_context::<E>(sql)
             .map(|(context, _, _)| context.into_command())
@@ -107,7 +107,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.compile_sql_update_with_execution_context::<E>(sql)
             .map(|(context, cache_attribution, phase_attribution)| {
@@ -127,7 +127,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Update)
     }
@@ -148,7 +148,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let cache_context =
             measured(|| self.sql_compiled_command_cache_context_for_entity::<E>(surface, sql));
@@ -196,7 +196,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (cache_lookup_local_instructions, (cached, entries, miss_reason)) = measured(|| {
             let cache_state = self.with_sql_compiled_command_cache(|cache| {

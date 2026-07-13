@@ -30,7 +30,7 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
     types::{Decimal, Id},
 };
 
@@ -47,7 +47,7 @@ impl<C: CanisterKind> DbSession<C> {
         request: ScalarTerminalBoundaryRequest,
     ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan(query, move |load, plan| {
             load.execute_scalar_terminal_request(plan, request)
@@ -63,7 +63,7 @@ impl<C: CanisterKind> DbSession<C> {
         decode: impl FnOnce(ScalarTerminalBoundaryOutput) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         decode(self.execute_scalar_terminal_boundary(query, request)?).map_err(QueryError::execute)
     }
@@ -84,7 +84,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (plan_lookup_local_instructions, plan_and_cache) = measure_query_stage(|| {
             self.cached_prepared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)
@@ -132,7 +132,7 @@ impl<C: CanisterKind> DbSession<C> {
         decode: impl FnOnce(ScalarTerminalBoundaryOutput) -> Result<T, InternalError>,
     ) -> Result<(T, FluentTerminalExecutionAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (output, attribution) =
             self.execute_scalar_terminal_boundary_with_attribution(query, request)?;
@@ -148,7 +148,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: CountRowsTerminal,
     ) -> Result<u32, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let request = strategy.into_executor_request();
         self.execute_scalar_terminal_value(query, request, ScalarTerminalBoundaryOutput::into_count)
@@ -163,7 +163,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: CountRowsTerminal,
     ) -> Result<(u32, FluentTerminalExecutionAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let request = strategy.into_executor_request();
         self.execute_scalar_terminal_value_with_attribution(
@@ -180,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: ExistsRowsTerminal,
     ) -> Result<bool, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let request = strategy.into_executor_request();
         self.execute_scalar_terminal_value(
@@ -199,7 +199,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: ExistsRowsTerminal,
     ) -> Result<(bool, FluentTerminalExecutionAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let request = strategy.into_executor_request();
         self.execute_scalar_terminal_value_with_attribution(
@@ -216,7 +216,7 @@ impl<C: CanisterKind> DbSession<C> {
         request: ScalarTerminalBoundaryRequest,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_terminal_value(
             query,
@@ -232,7 +232,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: MinIdTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -244,7 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: MaxIdTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -256,7 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: MinIdBySlotTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -268,7 +268,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: MaxIdBySlotTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -280,7 +280,7 @@ impl<C: CanisterKind> DbSession<C> {
         request: ScalarTerminalBoundaryRequest,
     ) -> Result<FluentIdPair<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_terminal_value(
             query,
@@ -296,7 +296,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: FirstIdTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -308,7 +308,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: LastIdTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -320,7 +320,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: NthIdBySlotTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -332,7 +332,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: MedianIdBySlotTerminal,
     ) -> Result<Option<Id<E>>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -344,7 +344,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: MinMaxIdBySlotTerminal,
     ) -> Result<FluentIdPair<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_id_pair_terminal_boundary(query, strategy.into_executor_request())
     }
@@ -358,7 +358,7 @@ impl<C: CanisterKind> DbSession<C> {
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<Option<Decimal>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan(query, move |load, plan| {
             load.execute_numeric_field_boundary(plan, target_field, request)
@@ -372,7 +372,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: SumBySlotTerminal,
     ) -> Result<Option<Decimal>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
 
@@ -387,7 +387,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: SumDistinctBySlotTerminal,
     ) -> Result<Option<Decimal>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
 
@@ -401,7 +401,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: AvgBySlotTerminal,
     ) -> Result<Option<Decimal>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
 
@@ -416,7 +416,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: AvgDistinctBySlotTerminal,
     ) -> Result<Option<Decimal>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
 

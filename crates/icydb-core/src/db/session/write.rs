@@ -13,7 +13,7 @@ use crate::{
         schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeContract},
     },
     error::InternalError,
-    traits::{AuthoredFieldProjection, CanisterKind, EntityCreateInput, EntityValue},
+    traits::{CanisterKind, EntityCreateInput},
     value::InputValue,
 };
 
@@ -46,7 +46,7 @@ fn validate_structural_patch_schema_policy<E>(
     mode: MutationMode,
 ) -> Result<(), InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     reject_explicit_generated_fields_from_accepted_patch::<E>(descriptor, patch)?;
 
@@ -94,7 +94,7 @@ fn reject_explicit_generated_fields_from_accepted_patch<E>(
     patch: &AuthoredStructuralPatch,
 ) -> Result<(), InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     for entry in patch.entries() {
         let slot = entry.slot().index();
@@ -120,7 +120,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Insert one entity row.
     pub fn insert<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_entity(|save| save.insert(entity))
     }
@@ -129,7 +129,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn create<I>(&self, input: I) -> Result<I::Entity, InternalError>
     where
         I: EntityCreateInput,
-        I::Entity: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        I::Entity: PersistedRow<Canister = C>,
     {
         self.execute_save_entity(|save| save.create(input))
     }
@@ -146,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_batch(|save| save.insert_many_atomic(entities))
     }
@@ -162,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_batch(|save| save.insert_many_non_atomic(entities))
     }
@@ -170,7 +170,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Replace one existing entity row.
     pub fn replace<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_entity(|save| save.replace(entity))
     }
@@ -187,7 +187,7 @@ impl<C: CanisterKind> DbSession<C> {
         mode: MutationMode,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let context = self.accepted_schema_catalog_context_for_query::<E>()?;
         let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
@@ -222,7 +222,7 @@ impl<C: CanisterKind> DbSession<C> {
         fields: I,
     ) -> Result<AuthoredStructuralPatch, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
         I: IntoIterator<Item = (S, V)>,
         S: AsRef<str>,
         V: Into<InputValue>,
@@ -263,7 +263,7 @@ impl<C: CanisterKind> DbSession<C> {
         patch: AuthoredStructuralPatch,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.mutate_structural(key, patch, MutationMode::Replace)
     }
@@ -280,7 +280,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_batch(|save| save.replace_many_atomic(entities))
     }
@@ -296,7 +296,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_batch(|save| save.replace_many_non_atomic(entities))
     }
@@ -304,7 +304,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Update one existing entity row.
     pub fn update<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_entity(|save| save.update(entity))
     }
@@ -321,7 +321,7 @@ impl<C: CanisterKind> DbSession<C> {
         patch: AuthoredStructuralPatch,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.mutate_structural(key, patch, MutationMode::Insert)
     }
@@ -338,7 +338,7 @@ impl<C: CanisterKind> DbSession<C> {
         patch: AuthoredStructuralPatch,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.mutate_structural(key, patch, MutationMode::Update)
     }
@@ -355,7 +355,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_batch(|save| save.update_many_atomic(entities))
     }
@@ -371,7 +371,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_batch(|save| save.update_many_non_atomic(entities))
     }

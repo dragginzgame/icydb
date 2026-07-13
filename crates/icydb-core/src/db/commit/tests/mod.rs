@@ -47,12 +47,9 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{
-        CanisterKind, EntityKind, EntitySchema, FieldTypeMeta, Path, RuntimeValueDecode,
-        RuntimeValueEncode,
-    },
+    traits::{CanisterKind, EntityKind, EntitySchema, FieldTypeMeta, Path},
     types::{EntityTag, Ulid},
-    value::{Value, ValueEnum},
+    value::{RuntimeValueDecode, RuntimeValueEncode, Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -1677,9 +1674,7 @@ fn conditional_unique_casefold_row_bytes(
     canonical_row_bytes(entity)
 }
 
-fn canonical_row_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
-    entity: &E,
-) -> Vec<u8> {
+fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
     CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row()
@@ -1687,9 +1682,7 @@ fn canonical_row_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
         .to_vec()
 }
 
-fn canonical_row_payload_bytes<E: crate::db::PersistedRow + crate::traits::EntityValue>(
-    entity: &E,
-) -> Vec<u8> {
+fn canonical_row_payload_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
     let row = CanonicalRow::from_entity_with_model_proposal_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row();

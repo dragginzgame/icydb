@@ -13,7 +13,7 @@ use crate::{
         },
         sql::lowering::SqlGlobalAggregateCommand,
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 #[cfg(feature = "diagnostics")]
@@ -96,7 +96,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: Option<EntityAuthority>,
     ) -> Result<EntityAuthority, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         catalog
             .accepted_or_provided_entity_authority_for::<E>(authority.as_ref())
@@ -155,7 +155,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: Option<EntityAuthority>,
     ) -> PreparedAggregatePlanResolution
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if let Some(prepared_plan) =
             cached_compiled_global_aggregate_prepared_plan(compiled, catalog)
@@ -180,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: Option<EntityAuthority>,
     ) -> MeasuredPreparedAggregatePlanResolution
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if let Some(prepared_plan) =
             cached_compiled_global_aggregate_prepared_plan(compiled, catalog)

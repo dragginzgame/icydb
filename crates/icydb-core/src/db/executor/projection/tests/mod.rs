@@ -27,9 +27,9 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-    traits::{EntitySchema, EntityValue, FieldTypeMeta, RuntimeValueDecode, RuntimeValueEncode},
+    traits::{EntitySchema, EntityValue, FieldTypeMeta},
     types::Ulid,
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, Value},
 };
 #[cfg(feature = "sql")]
 use crate::{

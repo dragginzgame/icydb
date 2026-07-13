@@ -27,7 +27,7 @@ use crate::{
     },
     metrics::sink::SqlWriteKind,
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind},
     types::Timestamp,
     value::Value,
 };
@@ -69,7 +69,7 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlUpdateStatement,
     ) -> Result<StructuralQuery, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         if schema_info.primary_key_names().is_empty() {
             return Err(QueryError::invariant());
@@ -119,7 +119,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_sql_update_statement_with_execution_bounds::<E>(statement, catalog, None)
     }
@@ -131,7 +131,7 @@ impl<C: CanisterKind> DbSession<C> {
         execution_bounds: Option<SqlWriteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             catalog,
@@ -180,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
         policy: SqlUpdateExposurePolicy,
     ) -> Result<SqlValidatedUpdatePlan, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             None,
@@ -221,7 +221,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan: &SqlPublicPrimaryKeyUpdatePlan,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_sql_update_statement_with_execution_bounds::<E>(
             plan.statement(),
@@ -237,7 +237,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan: &SqlPublicBoundedUpdatePlan,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_sql_update_statement_with_execution_bounds::<E>(
             plan.statement(),
@@ -257,7 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let plan = self.schema_derived_sql_update_plan::<E>(
             sql,
@@ -277,7 +277,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let plan = self.schema_derived_sql_update_plan::<E>(
             sql,

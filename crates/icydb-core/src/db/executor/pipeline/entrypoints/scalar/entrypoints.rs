@@ -120,7 +120,7 @@ impl PreparedScalarMaterializedBoundary<'_> {
 
 impl<E> LoadExecutor<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     // Execute one traced paged scalar load and materialize traced page output.
     pub(in crate::db::executor) fn execute_load_scalar_page_with_trace(

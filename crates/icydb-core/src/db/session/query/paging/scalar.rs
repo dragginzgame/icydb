@@ -9,7 +9,7 @@ use crate::{
         cursor::decode_optional_cursor_token,
         session::{finalize_scalar_paged_execution, query::query_error_from_executor_plan_error},
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -20,7 +20,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: build/validate prepared execution plan and reject grouped plans.
         let plan = self.cached_prepared_query_plan_for_entity::<E>(query)?.0;

@@ -45,9 +45,7 @@ pub(in crate::db) use range::{
     starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{
-    IndexEntryReader, IndexReadContract, PrimaryRowReader, SealedIndexEntryReader,
-    SealedPrimaryRowReader, SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
-    StructuralIndexEntryReader, StructuralPrimaryRowReader,
+    IndexReadContract, StructuralIndexEntryReader, StructuralPrimaryRowReader,
 };
 pub(in crate::db) use store::IndexStoreVisit;
 pub use store::{IndexState, IndexStore};

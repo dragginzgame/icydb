@@ -25,7 +25,7 @@ use crate::{
             parser::parse_sql_with_attribution,
         },
     },
-    traits::{CanisterKind, EntityValue, Path},
+    traits::{CanisterKind, Path},
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -37,7 +37,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// storage.
     pub fn prepare_sql_ddl<E>(&self, sql: &str) -> Result<SqlDdlPreparationReport, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (_, prepared) = self.prepare_sql_ddl_command::<E>(sql)?;
 
@@ -49,7 +49,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<(AcceptedSchemaCatalogContext, PreparedSqlDdlCommand), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (statement, _) =
             parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
@@ -76,7 +76,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// accepted-snapshot publication.
     pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (accepted_before, prepared) = self.prepare_sql_ddl_command::<E>(sql)?;
         if !prepared.mutates_schema() {
@@ -122,7 +122,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &PreparedSqlDdlCommand,
     ) -> Result<(usize, usize), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let metrics = match prepared.bound().statement() {
             BoundSqlDdlStatement::AddColumn(_) => {

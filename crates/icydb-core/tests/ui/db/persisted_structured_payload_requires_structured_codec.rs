@@ -1,7 +1,6 @@
 use icydb_core::{
     db::encode_persisted_structured_slot_payload,
-    traits::RuntimeValueEncode,
-    value::Value,
+    value::{RuntimeValueEncode, Value},
 };
 
 #[derive(Clone, Debug, Default)]

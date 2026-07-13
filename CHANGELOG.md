@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.201.md](docs/changelog/0.201.md)
 
+- `0.201.2` moves visitor, runtime-value, and key contracts to their owners
+  while tightening entity/key invariants and diagnostic classification.
+  Potentially breaking: direct core trait imports, custom key implementations,
+  and consumers of raw diagnostic numbers must adopt the current contracts.
+
 - `0.201.1` removes retired field-owned persistence traits and the test-only
   slot writer, leaving accepted field contracts as the sole row authority.
   Potentially breaking: direct users of the removed traits and helpers must

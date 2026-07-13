@@ -9,6 +9,7 @@ use crate::db::predicate::Predicate;
 use crate::db::predicate::normalize;
 use crate::db::query::intent::{StructuralQueryCacheKey, state::GroupedIntent};
 use crate::{
+    db::KeyValueCodec,
     db::{
         predicate::{CompareOp, MissingRowPolicy},
         query::{
@@ -35,7 +36,6 @@ use crate::{
         schema::SchemaInfo,
     },
     model::entity::EntityModel,
-    traits::KeyValueCodec,
     value::Value,
 };
 

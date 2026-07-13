@@ -32,7 +32,7 @@ use crate::{
     metrics::sink::SqlWriteKind,
     model::field::{FieldInsertGeneration, FieldWriteManagement},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
     types::{Timestamp, Ulid},
     value::{InputValue, Value},
 };
@@ -233,7 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
         write_context: SanitizeWriteContext,
     ) -> Result<(E::Key, AuthoredStructuralPatch), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let mut synthesized_fields = Vec::new();
         for accepted_field in descriptor.fields() {
@@ -294,7 +294,7 @@ impl<C: CanisterKind> DbSession<C> {
         write_context: SanitizeWriteContext,
     ) -> Result<SqlWriteCandidateCollection<E::Key>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let (authority, _schema_info) =
             Self::accepted_sql_write_authority_schema_info::<E>(catalog)?;
@@ -329,7 +329,7 @@ impl<C: CanisterKind> DbSession<C> {
         write_context: SanitizeWriteContext,
     ) -> Result<(), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let (key, patch) =
             Self::sql_insert_patch_and_key::<E>(descriptor, columns, values, write_context)?;
@@ -345,7 +345,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_sql_insert_statement_with_execution_bounds::<E>(
             statement,
@@ -364,7 +364,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_sql_insert_statement_with_execution_bounds::<E>(
             statement,
@@ -384,7 +384,7 @@ impl<C: CanisterKind> DbSession<C> {
         execution_bounds: Option<SqlWriteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             catalog,

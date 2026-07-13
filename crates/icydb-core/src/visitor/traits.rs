@@ -1,9 +1,9 @@
-//! Module: traits::visitor
+//! Module: visitor::traits
 //! Responsibility: visitable-node traits and default container traversal wiring.
 //! Does not own: concrete sanitize/validate visitor implementations.
 //! Boundary: structural traversal contract implemented by domain types.
 
-use crate::visitor::{
+use super::{
     PathSegment, VisitorContext, VisitorCore, VisitorMutCore, perform_visit, perform_visit_mut,
 };
 
@@ -194,6 +194,26 @@ impl<T: ValidateCustom + ?Sized> ValidateCustom for Box<T> {
 }
 
 impl_primitive!(ValidateCustom);
+
+/// Transforms a value into a sanitized version.
+pub trait Sanitizer<T> {
+    fn sanitize(&self, value: &mut T) -> Result<(), String>;
+
+    fn sanitize_with_context(
+        &self,
+        value: &mut T,
+        ctx: &mut dyn VisitorContext,
+    ) -> Result<(), String> {
+        let _ = ctx;
+
+        self.sanitize(value)
+    }
+}
+
+/// Allows a node to validate values.
+pub trait Validator<T: ?Sized> {
+    fn validate(&self, value: &T, ctx: &mut dyn VisitorContext);
+}
 
 #[cfg(test)]
 mod tests {

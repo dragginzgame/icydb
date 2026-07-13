@@ -20,7 +20,7 @@ use crate::{
             },
         },
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 pub(super) struct ResolvedSelectPreparedPlan {
@@ -160,7 +160,7 @@ impl<C: CanisterKind> DbSession<C> {
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<EntityAuthority, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         context
             .accepted_catalog()
@@ -299,7 +299,7 @@ impl<C: CanisterKind> DbSession<C> {
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<ResolvedSelectPreparedPlan, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
             return Ok(ResolvedSelectPreparedPlan::from_compiled_cache_hit(
@@ -330,7 +330,7 @@ impl<C: CanisterKind> DbSession<C> {
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
             return Ok((

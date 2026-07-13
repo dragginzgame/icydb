@@ -117,12 +117,9 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{
-        EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, RuntimeValueDecode,
-        RuntimeValueEncode,
-    },
+    traits::{EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec},
     types::{Blob, Date, Duration, EntityTag, Float64, Id, Principal, Timestamp, Ulid},
-    value::{OutputValue, Value},
+    value::{OutputValue, RuntimeValueDecode, RuntimeValueEncode, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use icydb_diagnostic_code::{
@@ -575,9 +572,7 @@ fn execute_scalar_select_for_tests<E>(
     sql: &str,
 ) -> Result<EntityResponse<E>, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let session = session.db_session();
     let statement = parse_select_test_statement(&session, sql, SelectTestSurface::Scalar)?;
@@ -598,9 +593,7 @@ fn execute_grouped_select_for_tests<E>(
     cursor_token: Option<&str>,
 ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let session = session.db_session();
     let statement = parse_select_test_statement(&session, sql, SelectTestSurface::Grouped)?;
@@ -1067,7 +1060,7 @@ struct SessionSqlCompositeWriteEntityKey {
     local_id: u64,
 }
 
-impl crate::traits::KeyValueCodec for SessionSqlCompositeWriteEntityKey {
+impl crate::db::KeyValueCodec for SessionSqlCompositeWriteEntityKey {
     fn to_key_value(&self) -> Value {
         Value::List(vec![
             Value::Nat64(self.tenant_id),
@@ -1090,10 +1083,10 @@ impl crate::traits::KeyValueCodec for SessionSqlCompositeWriteEntityKey {
     }
 }
 
-impl crate::traits::PrimaryKeyCodec for SessionSqlCompositeWriteEntityKey {
+impl crate::db::PrimaryKeyEncode for SessionSqlCompositeWriteEntityKey {
     fn to_primary_key_value(
         &self,
-    ) -> Result<crate::db::PrimaryKeyValue, crate::traits::PrimaryKeyEncodeError> {
+    ) -> Result<crate::db::PrimaryKeyValue, crate::db::PrimaryKeyEncodeError> {
         let composite = crate::db::CompositePrimaryKeyValue::try_from_components(&[
             crate::db::PrimaryKeyComponent::Nat64(self.tenant_id),
             crate::db::PrimaryKeyComponent::Nat64(self.local_id),
@@ -1103,7 +1096,7 @@ impl crate::traits::PrimaryKeyCodec for SessionSqlCompositeWriteEntityKey {
     }
 }
 
-impl crate::traits::PrimaryKeyDecode for SessionSqlCompositeWriteEntityKey {
+impl crate::db::PrimaryKeyDecode for SessionSqlCompositeWriteEntityKey {
     fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
         let crate::db::PrimaryKeyValue::Composite(composite) = key else {
             return Err(InternalError::store_corruption());
@@ -1123,12 +1116,15 @@ impl crate::traits::PrimaryKeyDecode for SessionSqlCompositeWriteEntityKey {
     }
 }
 
-impl crate::traits::EntityKeyBytes for SessionSqlCompositeWriteEntityKey {
+impl crate::db::EntityKeyBytes for SessionSqlCompositeWriteEntityKey {
     const BYTE_LEN: usize = 16;
 
-    fn write_bytes(&self, out: &mut [u8]) {
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), crate::db::EntityKeyBytesError> {
+        crate::db::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out[..8].copy_from_slice(&self.tenant_id.to_be_bytes());
         out[8..16].copy_from_slice(&self.local_id.to_be_bytes());
+
+        Ok(())
     }
 }
 
@@ -3072,9 +3068,7 @@ fn execute_sql_statement_for_tests<E>(
     sql: &str,
 ) -> Result<SqlStatementResult, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     session.execute_sql_statement_inner::<E>(sql)
 }
@@ -3139,10 +3133,7 @@ fn statement_projection_columns<E>(
     sql: &str,
 ) -> Result<Vec<String>, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection
-        + crate::traits::EntityKind,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     extract_sql_statement_payload(
         execute_sql_statement_for_tests::<E>(session, sql)?,
@@ -3160,9 +3151,7 @@ fn statement_projection_rows<E>(
     sql: &str,
 ) -> Result<Vec<Vec<Value>>, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     extract_sql_statement_payload(
         execute_sql_statement_for_tests::<E>(session, sql)?,
@@ -3242,9 +3231,7 @@ fn statement_projection_scalar_value<Entity>(
     sql: &str,
 ) -> Result<Value, QueryError>
 where
-    Entity: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    Entity: PersistedRow<Canister = SessionSqlCanister>,
 {
     let unsupported = || {
         unsupported_sql_statement_query_error(
@@ -3269,9 +3256,7 @@ fn assert_session_sql_scalar_value<Entity>(
     expected: Value,
     context: &str,
 ) where
-    Entity: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    Entity: PersistedRow<Canister = SessionSqlCanister>,
 {
     let actual = statement_projection_scalar_value::<Entity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} scalar SQL should execute: {err}"));
@@ -3288,9 +3273,7 @@ fn statement_explain_sql<E>(
     sql: &str,
 ) -> Result<String, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     extract_sql_statement_payload(
         execute_sql_statement_for_tests::<E>(session, sql)?,
@@ -3308,9 +3291,7 @@ fn statement_explain_sql<E>(
     _sql: &str,
 ) -> Result<String, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let _ = core::marker::PhantomData::<E>;
 
@@ -3326,9 +3307,7 @@ fn assert_session_sql_explain_tokens<E>(
     require_json_object: bool,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let explain = statement_explain_sql::<E>(session, sql)
         .unwrap_or_else(|err| panic!("{context} explain SQL should succeed: {err}"));
@@ -3388,9 +3367,7 @@ fn statement_describe_sql<E>(
     sql: &str,
 ) -> Result<EntitySchemaDescription, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     extract_sql_statement_payload(
         execute_sql_statement_for_tests::<E>(session, sql)?,
@@ -3407,9 +3384,7 @@ fn statement_show_indexes_sql<E>(
     sql: &str,
 ) -> Result<Vec<String>, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     extract_sql_statement_payload(
         execute_sql_statement_for_tests::<E>(session, sql)?,
@@ -3426,9 +3401,7 @@ fn statement_show_columns_sql<E>(
     sql: &str,
 ) -> Result<Vec<EntityFieldDescription>, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     extract_sql_statement_payload(
         execute_sql_statement_for_tests::<E>(session, sql)?,
@@ -3491,9 +3464,7 @@ fn insert_session_fixture_rows<E, R>(
     mut build: impl FnMut(R) -> E,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     for row in rows {
         session
@@ -3991,10 +3962,7 @@ fn store_backed_execution_descriptor_for_sql<E>(
     sql: &str,
 ) -> ExplainExecutionNodeDescriptor
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection
-        + crate::traits::EntityKind<Canister = SessionSqlCanister>,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let statement = crate::db::session::sql::parse_sql_statement(sql)
         .expect("store-backed execution descriptor sql should parse");
@@ -4336,6 +4304,15 @@ fn assert_query_error_is_cursor_plan(
     err: QueryError,
     predicate: impl Fn(&CursorPlanError) -> bool,
 ) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Cursor,
+    );
     std::assert_matches!(
         err,
         QueryError::Plan(plan_err)

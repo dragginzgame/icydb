@@ -57,7 +57,7 @@ where
         &self,
     ) -> Result<(LoadQueryResult<E>, QueryExecutionAttribution), QueryError>
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         self.inner.execute_with_attribution()
     }

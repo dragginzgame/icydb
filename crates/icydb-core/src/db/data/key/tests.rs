@@ -1,9 +1,11 @@
 use super::*;
 use crate::{
-    db::key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent},
+    db::{
+        KeyValueCodec, PrimaryKeyDecode, PrimaryKeyEncode,
+        key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent},
+    },
     error::{ErrorClass, ErrorOrigin},
-    traits::{KeyValueCodec, PrimaryKeyCodec, PrimaryKeyDecode},
-    types::{Account, Principal, Subaccount, Timestamp, Ulid},
+    types::{Account, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::Value,
 };
 use std::borrow::Cow;
@@ -36,7 +38,7 @@ fn composite_data_key_fixture() -> DecodedDataStoreKey {
 
 fn assert_constructor_equivalence<K>(entity: EntityTag, key: K)
 where
-    K: KeyValueCodec + PrimaryKeyCodec + std::fmt::Debug,
+    K: KeyValueCodec + PrimaryKeyEncode + std::fmt::Debug,
 {
     let typed =
         DecodedDataStoreKey::try_from_typed_key(entity, &key).expect("typed key should encode");
@@ -51,7 +53,7 @@ where
 
 fn assert_structural_dedup_matches_typed_dedup<K>(entity: EntityTag, keys: Vec<K>)
 where
-    K: Clone + KeyValueCodec + PrimaryKeyCodec + Ord + std::fmt::Debug,
+    K: Clone + KeyValueCodec + PrimaryKeyEncode + Ord + std::fmt::Debug,
 {
     let mut typed_keys = keys.clone();
     typed_keys.sort();
@@ -85,10 +87,20 @@ where
 
 fn assert_primary_key_roundtrip<K>(key: K)
 where
-    K: Copy + Eq + std::fmt::Debug + PrimaryKeyCodec + PrimaryKeyDecode,
+    K: Copy + Eq + std::fmt::Debug + PrimaryKeyEncode + PrimaryKeyDecode,
 {
     let primary_key_value = key.to_primary_key_value().expect("typed key should encode");
     let decoded = K::from_primary_key_value(&primary_key_value).expect("primary key should decode");
+
+    assert_eq!(decoded, key);
+}
+
+fn assert_key_value_roundtrip<K>(key: K)
+where
+    K: Eq + KeyValueCodec + std::fmt::Debug,
+{
+    let value = key.to_key_value();
+    let decoded = K::from_key_value(&value).expect("runtime key value should decode");
 
     assert_eq!(decoded, key);
 }
@@ -252,6 +264,7 @@ fn data_key_structural_constructor_matches_typed_constructor() {
             Some(Subaccount::from_array([5; 32])),
         ),
     );
+    assert_constructor_equivalence(entity, Unit);
     assert_constructor_equivalence(entity, ());
 }
 
@@ -309,7 +322,32 @@ fn primary_key_decode_roundtrips_supported_typed_keys() {
         Principal::from_slice(&[9, 8, 7]),
         Some(Subaccount::from_array([5; 32])),
     ));
+    assert_primary_key_roundtrip(Unit);
     assert_primary_key_roundtrip(());
+}
+
+#[test]
+fn key_value_codec_roundtrips_every_supported_scalar_key() {
+    assert_key_value_roundtrip(-42_i8);
+    assert_key_value_roundtrip(-43_i16);
+    assert_key_value_roundtrip(-44_i32);
+    assert_key_value_roundtrip(-45_i64);
+    assert_key_value_roundtrip(i128::MIN);
+    assert_key_value_roundtrip(42_u8);
+    assert_key_value_roundtrip(43_u16);
+    assert_key_value_roundtrip(44_u32);
+    assert_key_value_roundtrip(45_u64);
+    assert_key_value_roundtrip(u128::MAX);
+    assert_key_value_roundtrip(Principal::from_slice(&[1, 2, 3, 4]));
+    assert_key_value_roundtrip(Subaccount::from_array([7; 32]));
+    assert_key_value_roundtrip(Timestamp::from_millis(1_710_013_530_123));
+    assert_key_value_roundtrip(Ulid::from_u128(42));
+    assert_key_value_roundtrip(Account::from_owner_and_subaccount(
+        Principal::from_slice(&[9, 8, 7]),
+        Some(Subaccount::from_array([5; 32])),
+    ));
+    assert_key_value_roundtrip(Unit);
+    assert_key_value_roundtrip(());
 }
 
 #[test]

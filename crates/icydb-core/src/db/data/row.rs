@@ -13,7 +13,6 @@ use crate::{
         },
     },
     model::entity::EntityModel,
-    traits::AuthoredFieldProjection,
 };
 use crate::{
     db::{codec::MAX_ROW_BYTES, data::DecodedDataStoreKey},
@@ -62,7 +61,7 @@ impl CanonicalRow {
         entity: &E,
     ) -> Result<Self, InternalError>
     where
-        E: PersistedRow + AuthoredFieldProjection,
+        E: PersistedRow,
     {
         canonical_row_from_entity_for_model_proposal_for_test(entity)
     }

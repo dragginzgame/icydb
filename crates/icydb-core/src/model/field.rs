@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 use crate::value::Value;
-use crate::{traits::RuntimeValueKind, types::EntityTag};
+use crate::{types::EntityTag, value::RuntimeValueKind};
 #[cfg(test)]
 use std::cmp::Ordering;
 

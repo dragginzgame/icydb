@@ -181,6 +181,8 @@ impl NumericProjectionExpr {
     }
 }
 
+impl super::scalar_projection::private::Sealed for NumericProjectionExpr {}
+
 impl ValueProjectionExpr for NumericProjectionExpr {
     fn field(&self) -> &str {
         self.field.as_str()
@@ -262,6 +264,8 @@ impl RoundProjectionExpr {
         &self.expr
     }
 }
+
+impl super::scalar_projection::private::Sealed for RoundProjectionExpr {}
 
 impl ValueProjectionExpr for RoundProjectionExpr {
     fn field(&self) -> &str {

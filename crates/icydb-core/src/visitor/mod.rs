@@ -4,6 +4,10 @@
 //! Does not own: schema-specific validation rules or session error mapping.
 //! Boundary: shared visitor error/context surface for derived sanitizers and validators.
 
+#[macro_use]
+mod macros;
+mod traits;
+
 pub(crate) mod context;
 pub(crate) mod sanitize;
 pub(crate) mod validate;
@@ -11,7 +15,6 @@ pub(crate) mod validate;
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     sanitize::SanitizeWriteContext,
-    traits::Visitable,
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, fmt};
@@ -19,6 +22,10 @@ use thiserror::Error as ThisError;
 
 // re-exports
 pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
+pub use traits::{
+    Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Validate, ValidateAuto, ValidateCustom,
+    Validator, Visitable,
+};
 
 //
 // VisitorError

@@ -10,7 +10,6 @@ use crate::{
         key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
@@ -49,78 +48,25 @@ impl<'a> IndexReadContract<'a> {
 }
 
 ///
-/// SealedPrimaryRowReader
-///
-/// Internal marker used to seal `PrimaryRowReader` implementations.
-///
-
-pub(in crate::db) trait SealedPrimaryRowReader<E: EntityKind + EntityValue> {}
-
-///
-/// SealedStructuralPrimaryRowReader
-///
-/// Internal marker used to seal nongeneric structural primary-row readers.
-///
-
-pub(in crate::db) trait SealedStructuralPrimaryRowReader {}
-
-///
-/// SealedIndexEntryReader
-///
-/// Internal marker used to seal `IndexEntryReader` implementations.
-///
-
-pub(in crate::db) trait SealedIndexEntryReader<E: EntityKind + EntityValue> {}
-
-///
-/// SealedStructuralIndexEntryReader
-///
-/// Internal marker used to seal nongeneric structural index-entry readers.
-///
-
-pub(in crate::db) trait SealedStructuralIndexEntryReader {}
-
-///
-/// PrimaryRowReader
-///
-/// Preflight port used for reading authoritative primary rows without
-/// depending on executor context internals.
-///
-
-pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue>:
-    SealedPrimaryRowReader<E>
-{
-    /// Return the primary row for `key`, or `None` when no row exists.
-    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>;
-}
-
-///
 /// StructuralPrimaryRowReader
 ///
 /// Narrow nongeneric read port used by structural commit helpers that only
 /// need authoritative primary-row lookup.
 ///
 
-pub(in crate::db) trait StructuralPrimaryRowReader:
-    SealedStructuralPrimaryRowReader
-{
+pub(in crate::db) trait StructuralPrimaryRowReader {
     /// Return the primary row for `key`, or `None` when no row exists.
-    fn read_primary_row_structural(
-        &self,
-        key: &DecodedDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError>;
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>;
 }
 
 ///
-/// IndexEntryReader
+/// StructuralIndexEntryReader
 ///
-/// Preflight port used for reading authoritative index entries without
-/// requiring commit preflight to mutate real stores.
+/// Narrow nongeneric read port used by structural relation/commit helpers that
+/// only need authoritative index-entry lookup.
 ///
 
-pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
-    SealedIndexEntryReader<E>
-{
+pub(in crate::db) trait StructuralIndexEntryReader {
     /// Return the index entry for `(index_store, key)`, or `None` when no entry exists.
     fn read_index_entry(
         &self,
@@ -132,34 +78,6 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
     /// `index_store` in raw key range.
     fn read_index_keys_in_raw_range(
         &self,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
-        limit: usize,
-    ) -> Result<Vec<PrimaryKeyValue>, InternalError>;
-}
-
-///
-/// StructuralIndexEntryReader
-///
-/// Narrow nongeneric read port used by structural relation/commit helpers that
-/// only need authoritative index-entry lookup.
-///
-
-pub(in crate::db) trait StructuralIndexEntryReader:
-    SealedStructuralIndexEntryReader
-{
-    /// Return the index entry for `(index_store, key)`, or `None` when no entry exists.
-    fn read_index_entry_structural(
-        &self,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError>;
-
-    /// Return up to `limit` structural primary-key values resolved from
-    /// `index_store` in raw key range.
-    fn read_index_keys_in_raw_range_structural(
-        &self,
         entity_path: &'static str,
         entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
@@ -167,51 +85,4 @@ pub(in crate::db) trait StructuralIndexEntryReader:
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<PrimaryKeyValue>, InternalError>;
-}
-
-impl<E> StructuralIndexEntryReader for dyn IndexEntryReader<E> + '_
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_index_entry_structural(
-        &self,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
-        self.read_index_entry(index_store, key)
-    }
-
-    fn read_index_keys_in_raw_range_structural(
-        &self,
-        _entity_path: &'static str,
-        _entity_tag: EntityTag,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
-        limit: usize,
-    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
-        self.read_index_keys_in_raw_range(index_store, index, bounds, limit)
-    }
-}
-
-impl<E> StructuralPrimaryRowReader for dyn PrimaryRowReader<E> + '_
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row_structural(
-        &self,
-        key: &DecodedDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
-        self.read_primary_row(key)
-    }
-}
-
-impl<E> SealedStructuralPrimaryRowReader for dyn PrimaryRowReader<E> + '_ where
-    E: EntityKind + EntityValue
-{
-}
-
-impl<E> SealedStructuralIndexEntryReader for dyn IndexEntryReader<E> + '_ where
-    E: EntityKind + EntityValue
-{
 }

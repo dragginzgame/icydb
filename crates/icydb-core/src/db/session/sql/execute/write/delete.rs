@@ -27,7 +27,7 @@ use crate::{
         },
     },
     metrics::sink::SqlWriteKind,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 fn record_sql_write_delete_metrics(entity_path: &'static str, row_count: u32, returning: bool) {
@@ -77,7 +77,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_sql_delete_statement_with_execution_bounds::<E>(
             query, returning, catalog, None,
@@ -92,7 +92,7 @@ impl<C: CanisterKind> DbSession<C> {
         execution_bounds: Option<SqlWriteExecutionBounds>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let typed_query = Query::<E>::from_inner(query.clone());
 
@@ -169,7 +169,7 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlDeleteStatement,
     ) -> Result<StructuralQuery, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         bind_sql_delete_statement_structural_with_schema(
             E::MODEL,
@@ -186,7 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
         policy: SqlDeleteExposurePolicy,
     ) -> Result<SqlValidatedDeletePlan, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             None,
@@ -206,7 +206,7 @@ impl<C: CanisterKind> DbSession<C> {
         execution_bounds: SqlWriteExecutionBounds,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.with_checked_accepted_write_descriptor_for_returning::<E, _>(
             None,
@@ -233,7 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan: &SqlPublicPrimaryKeyDeletePlan,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds())
     }
@@ -245,7 +245,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan: &SqlPublicBoundedDeletePlan,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_validated_sql_delete_statement::<E>(plan.statement(), plan.execution_bounds())
     }
@@ -257,7 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let plan = self.schema_derived_sql_delete_plan::<E>(
             sql,
@@ -277,7 +277,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let plan = self.schema_derived_sql_delete_plan::<E>(
             sql,

@@ -1,4 +1,5 @@
 use crate::{
+    db::KeyValueCodec,
     db::{
         access::{AccessPlan, IndexBranchSetOrderedSuffix},
         query::{
@@ -13,7 +14,6 @@ use crate::{
             plan::{AccessPlanProjection, project_access_plan, project_explain_access_path},
         },
     },
-    traits::KeyValueCodec,
     value::Value,
 };
 use sha2::Sha256;

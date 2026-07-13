@@ -6,13 +6,16 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use crate::{
-    db::key_taxonomy::{
-        COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompositePrimaryKeyValue, CompositePrimaryKeyValueError,
-        DataStoreKey, EncodedPrimaryKey, MAX_PRIMARY_KEY_FIELDS, PrimaryKeyComponent,
-        PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
+    db::{
+        PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError,
+        key_taxonomy::{
+            COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompositePrimaryKeyValue,
+            CompositePrimaryKeyValueError, DataStoreKey, EncodedPrimaryKey, MAX_PRIMARY_KEY_FIELDS,
+            PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
+        },
     },
     error::InternalError,
-    traits::{EntityKind, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError, Storable},
+    traits::{EntityKind, Storable},
     types::EntityTag,
     value::Value,
 };
@@ -157,7 +160,7 @@ impl DecodedDataStoreKey {
         key: &K,
     ) -> Result<Self, InternalError>
     where
-        K: PrimaryKeyCodec,
+        K: PrimaryKeyEncode,
     {
         let key = key.to_primary_key_value()?;
 

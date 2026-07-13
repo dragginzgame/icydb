@@ -17,10 +17,9 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::Span,
-    traits::EntityValue,
 };
 
-impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow> SaveExecutor<E> {
     // Resolve the "before" row through the accepted row contract selected from
     // the stored schema snapshot. This keeps accepted identity validation
     // explicit at the mutation lane boundary instead of optional inside lookup.

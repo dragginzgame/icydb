@@ -297,7 +297,7 @@ fn assert_sql_explain_route_matches_execution_trace<E>(
     expected_variant: ExecutionAccessPathVariant,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let query = lower_select_query_for_tests::<E>(session, sql)
         .expect("route convergence SQL should lower");

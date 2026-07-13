@@ -20,7 +20,6 @@ use crate::{
         },
         session::{AcceptedIdValuesOutput, AcceptedOptionalValueOutput, AcceptedValuesOutput},
     },
-    traits::EntityValue,
     types::{Decimal, Id},
 };
 
@@ -35,7 +34,7 @@ pub(super) type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
 /// matching `DbSession` method for an existing strategy type.
 ///
 
-pub(super) trait TerminalStrategyDriver<E: PersistedRow + EntityValue> {
+pub(super) trait TerminalStrategyDriver<E: PersistedRow> {
     type Output;
     type ExplainOutput;
 
@@ -59,7 +58,7 @@ macro_rules! impl_aggregate_terminal_driver {
     ($terminal:ty, $output:ty, $execute:ident) => {
         impl<E> TerminalStrategyDriver<E> for $terminal
         where
-            E: PersistedRow + EntityValue,
+            E: PersistedRow,
         {
             type Output = $output;
             type ExplainOutput = ExplainAggregateTerminalPlan;
@@ -90,7 +89,7 @@ macro_rules! impl_projection_terminal_driver {
     ($terminal:ty, $output:ty, $execute:ident) => {
         impl<E> TerminalStrategyDriver<E> for $terminal
         where
-            E: PersistedRow + EntityValue,
+            E: PersistedRow,
         {
             type Output = $output;
             type ExplainOutput = ExplainExecutionNodeDescriptor;

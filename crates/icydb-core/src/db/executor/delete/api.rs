@@ -27,7 +27,6 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
-    traits::EntityValue,
 };
 
 ///
@@ -50,7 +49,7 @@ where
 
 impl<E> DeleteExecutor<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     /// Construct one delete executor bound to a database handle.
     #[must_use]

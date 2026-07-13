@@ -9,7 +9,7 @@ use crate::{
         query::plan::FieldSlot,
         session::{AcceptedIdValuesOutput, AcceptedValuesOutput},
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -17,7 +17,7 @@ impl<C: CanisterKind> DbSession<C> {
     // assembly into query fluent code.
     pub(in crate::db) fn execute_fluent_bytes<E>(&self, query: &Query<E>) -> Result<u64, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan(query, |load, plan| load.bytes(plan))
     }
@@ -29,7 +29,7 @@ impl<C: CanisterKind> DbSession<C> {
         target_slot: FieldSlot,
     ) -> Result<u64, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan(query, move |load, plan| {
             load.bytes_by_slot(plan, target_slot)
@@ -43,7 +43,7 @@ impl<C: CanisterKind> DbSession<C> {
         take_count: u32,
     ) -> Result<EntityResponse<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan(query, move |load, plan| load.take(plan, take_count))
     }
@@ -57,7 +57,7 @@ impl<C: CanisterKind> DbSession<C> {
         take_count: u32,
     ) -> Result<EntityResponse<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan(query, move |load, plan| {
             load.top_k_by_slot(plan, target_slot, take_count)
@@ -73,7 +73,7 @@ impl<C: CanisterKind> DbSession<C> {
         take_count: u32,
     ) -> Result<EntityResponse<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan(query, move |load, plan| {
             load.bottom_k_by_slot(plan, target_slot, take_count)
@@ -89,7 +89,7 @@ impl<C: CanisterKind> DbSession<C> {
         take_count: u32,
     ) -> Result<AcceptedValuesOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.top_k_by_values_slot(plan, target_slot, take_count)
@@ -105,7 +105,7 @@ impl<C: CanisterKind> DbSession<C> {
         take_count: u32,
     ) -> Result<AcceptedValuesOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.bottom_k_by_values_slot(plan, target_slot, take_count)
@@ -121,7 +121,7 @@ impl<C: CanisterKind> DbSession<C> {
         take_count: u32,
     ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.top_k_by_with_ids_slot(plan, target_slot, take_count)
@@ -137,7 +137,7 @@ impl<C: CanisterKind> DbSession<C> {
         take_count: u32,
     ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)

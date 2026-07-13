@@ -14,6 +14,10 @@ use crate::{
     value::Value,
 };
 
+pub(super) mod private {
+    pub trait Sealed {}
+}
+
 ///
 /// ScalarProjectionPlan
 ///
@@ -43,11 +47,11 @@ impl ScalarProjectionPlan {
 ///
 /// Shared bounded scalar projection helper contract used by fluent
 /// value-projection terminals.
-/// Implementors stay intentionally narrow and do not imply a generic
-/// expression-builder surface.
+/// Implementors are sealed to the maintained numeric, rounded, and text helper
+/// types and do not imply a generic expression-builder surface.
 ///
 
-pub trait ValueProjectionExpr {
+pub trait ValueProjectionExpr: private::Sealed {
     /// Borrow the single source field used by this bounded helper.
     fn field(&self) -> &str;
 

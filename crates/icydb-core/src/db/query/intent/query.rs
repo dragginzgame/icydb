@@ -12,6 +12,7 @@ use crate::db::{
 };
 use crate::{
     db::{
+        KeyValueCodec,
         predicate::{CompareOp, MissingRowPolicy},
         query::{
             builder::AggregateExpr,
@@ -26,7 +27,7 @@ use crate::{
         },
         schema::{SchemaInfo, SchemaLiteralValidationReason, ValidateError},
     },
-    traits::{EntityKind, KeyValueCodec, SingletonEntity},
+    traits::{EntityKind, SingletonEntity},
     value::{InputValue, Value},
 };
 use std::sync::OnceLock;

@@ -74,7 +74,7 @@ impl MutationInput {
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<Self, InternalError>
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         let data_key = DecodedDataStoreKey::try_new::<E>(key)?;
         let serialized_slots = serialize_structural_patch_fields_with_accepted_contract(
@@ -93,7 +93,7 @@ impl MutationInput {
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<Self, InternalError>
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         let data_key = DecodedDataStoreKey::try_new::<E>(key)?;
         let serialized_slots = serialize_complete_structural_patch_fields_with_accepted_contract(

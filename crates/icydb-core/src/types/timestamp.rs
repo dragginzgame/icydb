@@ -4,16 +4,14 @@
 
 use crate::runtime::now_millis;
 use crate::{
-    traits::{
-        EntityKeyBytes, NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode,
-        RuntimeValueKind, RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
-    },
+    db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
+    traits::{NumericValue, Repr},
     types::{
         Decimal, Duration, TypeParseError,
         parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
     },
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::{Deserialize, Deserializer};
@@ -406,9 +404,11 @@ impl<'de> Deserialize<'de> for Timestamp {
 impl EntityKeyBytes for Timestamp {
     const BYTE_LEN: usize = 8;
 
-    fn write_bytes(&self, out: &mut [u8]) {
-        assert_eq!(out.len(), Self::BYTE_LEN);
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
+        validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out.copy_from_slice(&self.0.to_be_bytes());
+
+        Ok(())
     }
 }
 

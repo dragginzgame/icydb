@@ -325,7 +325,7 @@ fn execute_count_exists_window_parity<E>(
     build_query: impl Fn() -> Query<E>,
     label: &str,
 ) where
-    E: PersistedRow + EntityKind + EntityValue,
+    E: PersistedRow,
 {
     // Phase 1: materialize the canonical execute window and derive the
     // expected count/exists terminal outputs from the same ordered rows.
@@ -357,7 +357,7 @@ fn execute_count_window_parity<E>(
     build_query: impl Fn() -> Query<E>,
     label: &str,
 ) where
-    E: PersistedRow + EntityKind + EntityValue,
+    E: PersistedRow,
 {
     // Phase 1: materialize the canonical execute window and derive the
     // expected COUNT from the same ordered response rows.

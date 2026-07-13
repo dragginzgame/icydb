@@ -30,7 +30,7 @@ use crate::{
         },
         sql::lowering::SqlGlobalAggregateCommand,
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
     value::{OutputValue, Value},
 };
 use std::rc::Rc;
@@ -235,7 +235,7 @@ fn direct_count_cardinality_target_from_entry<E>(
     entry: Rc<SqlGlobalAggregateCountPlanCacheEntry>,
 ) -> Result<DirectCountCardinalityTarget, QueryError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     let authority = catalog
         .accepted_entity_authority_for::<E>()
@@ -270,7 +270,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared_plan: &SharedPreparedExecutionPlan,
     ) -> Result<Value, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let count = self
             .with_metrics(|| {
@@ -292,7 +292,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan: &SqlGlobalAggregateCountPlanCacheEntry,
     ) -> Result<Option<Value>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let output = self
             .with_metrics(|| {
@@ -318,7 +318,7 @@ impl<C: CanisterKind> DbSession<C> {
         target: DirectCountCardinalityTarget,
     ) -> Result<DirectCountCardinalityOutcome, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         match target {
             DirectCountCardinalityTarget::Disabled => Ok(DirectCountCardinalityOutcome::disabled()),
@@ -354,7 +354,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan_compile_attribution: QueryPlanCompilePhaseAttribution,
     ) -> Result<MeasuredDirectCountCardinalityOutcome, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (authority, count_plan, cache_attribution) = match target {
             DirectCountCardinalityTarget::Disabled => {
@@ -438,7 +438,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<EntityAuthority, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         catalog
             .accepted_entity_authority_for::<E>()
@@ -499,7 +499,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<DirectCountCardinalityTarget, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if !command
             .facts()
@@ -519,7 +519,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<DirectCountCardinalityTarget, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if !command
             .facts()
@@ -551,7 +551,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let mut attribution = QueryPlanCompilePhaseAttribution::default();
         if !command

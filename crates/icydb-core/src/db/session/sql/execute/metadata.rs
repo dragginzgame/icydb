@@ -18,7 +18,7 @@ use crate::{
         DbSession, EntityCatalogDescription, PersistedRow, QueryError,
         session::sql::SqlStatementResult,
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 fn filter_show_entity_catalog(
@@ -44,7 +44,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.try_describe_entity::<E>()
             .map(SqlStatementResult::Describe)
@@ -55,7 +55,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> SqlStatementResult
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         SqlStatementResult::Describe(describe_entity_model_with_persisted_schema(
             E::MODEL,
@@ -67,7 +67,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.try_show_indexes::<E>()
             .map(SqlStatementResult::ShowIndexes)
@@ -78,7 +78,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.try_show_columns::<E>()
             .map(SqlStatementResult::ShowColumns)
@@ -123,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
         compiled: &CompiledSqlCommand,
     ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_metadata_compiled_sql_with_cache::<E>(compiled, None)
     }
@@ -134,7 +134,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_metadata_compiled_sql_with_cache::<E>(compiled, Some(catalog))
     }
@@ -145,7 +145,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let result = match compiled {
             CompiledSqlCommand::DescribeEntity => match catalog {

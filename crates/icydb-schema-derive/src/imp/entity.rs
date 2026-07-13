@@ -66,10 +66,6 @@ fn entity_kind_strategy_tokens(
     });
     tokens.extend(model_consistency_test_tokens(node, ident));
 
-    if let Some(singleton) = singleton_entity_tokens(node, ident) {
-        tokens.extend(singleton);
-    }
-
     tokens
 }
 
@@ -118,27 +114,6 @@ fn entity_kind_impl_tokens(def: &Def, resolved_entity_name: &str) -> TokenStream
             };
         })
         .to_token_stream()
-}
-
-fn singleton_entity_tokens(node: &Entity, ident: &Ident) -> Option<TokenStream> {
-    if node.primary_key.fields().len() != 1 {
-        return None;
-    }
-
-    let pk_entry = node
-        .fields
-        .get(node.primary_key.scalar_field())
-        .expect("primary key field must be validated before derive generation");
-    if matches!(
-        pk_entry.value.item.target(),
-        ItemTarget::Primitive(Primitive::Unit)
-    ) {
-        Some(quote! {
-            impl ::icydb::traits::SingletonEntity for #ident {}
-        })
-    } else {
-        None
-    }
 }
 
 fn resolved_entity_name(node: &Entity) -> String {

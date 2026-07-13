@@ -3,11 +3,8 @@
 //! validation, and typed field access.
 
 use crate::{
-    traits::{
-        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-    },
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::Deserialize;

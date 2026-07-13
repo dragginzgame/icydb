@@ -36,7 +36,7 @@ use crate::{
             sql_grouped_cursor_from_bytes,
         },
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 use super::diagnostics::GroupedSqlDiagnosticsCollector;
@@ -222,7 +222,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if query.has_grouping() {
             let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
@@ -324,7 +324,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
@@ -351,7 +351,7 @@ impl<C: CanisterKind> DbSession<C> {
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let resolved = self.resolve_select_prepared_plan_for_context::<E>(query, context)?;
         let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
@@ -372,7 +372,7 @@ impl<C: CanisterKind> DbSession<C> {
         policy: &QueryAdmissionPolicy,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let resolved = self.resolve_select_prepared_plan_for_context::<E>(query, context)?;
         let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
@@ -406,7 +406,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(query, || {
             self.resolve_select_prepared_plan_for_context_with_compile_phase_attribution::<E>(
@@ -423,7 +423,7 @@ impl<C: CanisterKind> DbSession<C> {
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if query.has_grouping() {
             let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(

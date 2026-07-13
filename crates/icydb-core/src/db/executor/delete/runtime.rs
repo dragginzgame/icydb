@@ -30,7 +30,7 @@ use crate::{
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
-    traits::{EntityValue, Path},
+    traits::Path,
 };
 use std::sync::Arc;
 
@@ -75,7 +75,7 @@ pub(in crate::db::executor::delete) fn prepare_delete_runtime<E>(
     plan: PreparedExecutionPlan<E>,
 ) -> Result<(PreparedDeleteExecutionState, StoreHandle), InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     validate_delete_plan_shape(&plan)?;
 

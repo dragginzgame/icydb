@@ -18,9 +18,7 @@ use crate::{
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
         index::{
-            IndexEntryReader, IndexEntryValue, IndexReadContract, IndexStore, PrimaryRowReader,
-            RawIndexStoreKey, SealedIndexEntryReader, SealedPrimaryRowReader,
-            SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
+            IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
         key_taxonomy::PrimaryKeyValue,
@@ -297,10 +295,7 @@ impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
 }
 
 impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C> {
-    fn read_primary_row_structural(
-        &self,
-        key: &DecodedDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         if let Some(override_row) = self.data_overrides.get(&raw_key) {
             return Ok(override_row.clone());
@@ -313,31 +308,8 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C
     }
 }
 
-impl<C: CanisterKind> SealedStructuralPrimaryRowReader for PreflightStoreOverlay<'_, C> {}
-
-impl<E> PrimaryRowReader<E> for PreflightStoreOverlay<'_, E::Canister>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
-        let raw_key = key.to_raw()?;
-        if let Some(override_row) = self.data_overrides.get(&raw_key) {
-            return Ok(override_row.clone());
-        }
-
-        let store = self.db.recovered_store(E::Store::PATH)?;
-
-        Ok(store.with_data(|data_store| data_store.get(&raw_key)))
-    }
-}
-
-impl<E> SealedPrimaryRowReader<E> for PreflightStoreOverlay<'_, E::Canister> where
-    E: EntityKind + EntityValue
-{
-}
-
 impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C> {
-    fn read_index_entry_structural(
+    fn read_index_entry(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexStoreKey,
@@ -352,7 +324,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
-    fn read_index_keys_in_raw_range_structural(
+    fn read_index_keys_in_raw_range(
         &self,
         entity_path: &'static str,
         _entity_tag: crate::types::EntityTag,
@@ -470,43 +442,6 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
 
         Ok(out)
     }
-}
-
-impl<C: CanisterKind> SealedStructuralIndexEntryReader for PreflightStoreOverlay<'_, C> {}
-
-impl<E> IndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_index_entry(
-        &self,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
-        self.read_index_entry_structural(index_store, key)
-    }
-
-    fn read_index_keys_in_raw_range(
-        &self,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
-        limit: usize,
-    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
-        self.read_index_keys_in_raw_range_structural(
-            E::PATH,
-            E::ENTITY_TAG,
-            index_store,
-            index,
-            bounds,
-            limit,
-        )
-    }
-}
-
-impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> where
-    E: EntityKind + EntityValue
-{
 }
 
 fn push_optional_index_entry_primary_key_values(

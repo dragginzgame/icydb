@@ -9,6 +9,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - Do not start or stop the local ICP network; the user manages its lifecycle elsewhere.
+- Do not run the full `make test` suite; the user runs it as part of the push workflow. Use targeted tests for the changed slice instead.
 - Use absolute filesystem paths in final file references.
 - Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
 - For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.
@@ -76,7 +77,9 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 - Before any changelog edit, open and follow `docs/governance/changelog.md`; it is the changelog source of truth.
 - Root `CHANGELOG.md` is the only `Unreleased` location; do not add `Unreleased` sections to detailed minor files.
-- While coding or reviewing an unpushed slice, put changelog notes in root `CHANGELOG.md` `Unreleased`; create or update patch-numbered root/detailed changelog entries only during explicit release prep.
+- Keep root `CHANGELOG.md` `Unreleased` current as part of every unpushed code slice; update it before reporting the slice complete instead of waiting for a separate changelog request.
+- When the user names a target version or asks whether it is ready to push, automatically prepare its root and detailed changelog entries as part of readiness; do not wait for another changelog request.
+- Create or update patch-numbered root/detailed changelog entries only during release prep for a user-named target version.
 - Do not invent patch numbers, do not infer patch numbers for design/status docs, and keep release prep details governed by `docs/governance/changelog.md`.
 - Governance-only edits do not need release notes unless requested.
 

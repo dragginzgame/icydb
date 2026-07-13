@@ -3,10 +3,7 @@
 //! Does not own: top-level sanitize entrypoints or issue aggregation policy.
 //! Boundary: mutating visitor used by the crate-level sanitize surface.
 
-use crate::{
-    traits::Visitable,
-    visitor::{VisitorContext, VisitorMut},
-};
+use crate::visitor::{Visitable, VisitorContext, VisitorMut};
 
 ///
 /// SanitizeVisitor

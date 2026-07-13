@@ -7,6 +7,7 @@
 use crate::error::{ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError};
 use crate::{
     db::{
+        cursor::CursorDecodeError,
         query::intent::{IntentError, QueryError, QueryExecutionError},
         response::ResponseError,
     },
@@ -101,6 +102,38 @@ fn query_plan_unordered_pagination_exposes_compact_diagnostic_code() {
         Some(&icydb_diagnostic_code::DiagnosticDetail::QueryKind {
             kind: icydb_diagnostic_code::QueryErrorKind::UnorderedPagination,
         }),
+    );
+}
+
+#[test]
+fn invalid_continuation_cursor_exposes_e6_with_cursor_origin() {
+    let query_err = QueryError::from_cursor_plan_error(
+        CursorPlanError::invalid_continuation_cursor(CursorDecodeError::OddLength),
+    );
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Cursor,
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+            kind: icydb_diagnostic_code::QueryErrorKind::InvalidContinuationCursor,
+        }),
+    );
+    assert_eq!(
+        diagnostic.error_code(),
+        icydb_diagnostic_code::ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
+    );
+    std::assert_matches!(
+        query_err,
+        QueryError::Plan(error)
+            if matches!(error.as_ref(), PlanError::Cursor(_))
     );
 }
 

@@ -53,7 +53,7 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_bounds<E>(
     bounds: Option<SqlWriteReturningBounds>,
 ) -> Result<(), InternalError>
 where
-    E: EntityValue + AuthoredFieldProjection,
+    E: EntityValue,
 {
     let Some(returning) = returning else {
         return Ok(());

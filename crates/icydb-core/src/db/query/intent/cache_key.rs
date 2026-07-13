@@ -8,6 +8,7 @@ use crate::db::predicate::Predicate;
 #[cfg(test)]
 use crate::db::predicate::predicate_fingerprint;
 use crate::{
+    db::KeyValueCodec,
     db::{
         access::{AccessPath, AccessPathKind, AccessPlan},
         predicate::MissingRowPolicy,
@@ -24,7 +25,6 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::KeyValueCodec,
     value::{Value, hash_value},
 };
 

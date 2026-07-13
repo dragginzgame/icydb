@@ -28,9 +28,7 @@ fn assert_explain_exact_equivalence_case<E>(
     right_sql: &str,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + crate::traits::EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let left = statement_explain_sql::<E>(session, left_sql)
         .unwrap_or_else(|err| panic!("{context} left SQL should succeed: {err}"));
@@ -48,9 +46,7 @@ fn assert_explain_load_shape_case<E>(
     sql: &str,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + crate::traits::EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let explain = statement_explain_sql::<E>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
@@ -100,9 +96,7 @@ fn assert_explain_token_matrix<E>(
     context: &str,
     require_json_object: bool,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + crate::traits::EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     for (sql, tokens) in cases {
         let explain = statement_explain_sql::<E>(session, sql)
@@ -124,9 +118,7 @@ fn assert_explain_token_matrix<E>(
 // does not close public-entrypoint proof rows.
 fn public_query_explain_sql<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + crate::traits::EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let result = session
         .execute_sql_query::<E>(sql)

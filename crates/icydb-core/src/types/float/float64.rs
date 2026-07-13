@@ -3,13 +3,12 @@
 //! visitor-driven validation.
 
 use crate::{
-    traits::{
-        NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-    },
+    traits::NumericValue,
     types::Decimal,
-    value::Value,
-    visitor::VisitorContext,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable, VisitorContext,
+    },
 };
 use candid::CandidType;
 use serde::Deserialize;

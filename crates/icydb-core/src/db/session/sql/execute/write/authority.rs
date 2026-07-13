@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, KeyValueCodec, PersistedRow, QueryError,
         data::{AuthoredStructuralPatch, FieldSlot},
         executor::EntityAuthority,
         schema::{
@@ -21,7 +21,7 @@ use crate::{
         },
         sql::parser::SqlReturningProjection,
     },
-    traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
+    traits::{CanisterKind, EntityKind},
     value::{InputValue, Value},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
@@ -240,7 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(EntityAuthority, SchemaInfo), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         catalog
             .accepted_entity_authority_and_schema_info_for::<E>()
@@ -257,7 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
         ) -> Result<T, QueryError>,
     ) -> Result<T, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         if let Some(catalog) = catalog {
             let descriptor = checked_accepted_write_descriptor_for_returning::<E>(

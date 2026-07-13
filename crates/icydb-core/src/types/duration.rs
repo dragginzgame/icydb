@@ -3,12 +3,10 @@
 //! numeric value conversion.
 
 use crate::{
-    traits::{
-        NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-    },
+    traits::{NumericValue, Repr},
     types::{Decimal, TypeParseError},
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::{Deserialize, Deserializer};

@@ -3,13 +3,10 @@
 //! boundaries.
 
 use crate::{
-    traits::{
-        EntityKey, EntityKeyBytes, KeyValueCodec, RuntimeValueDecode, RuntimeValueEncode,
-        RuntimeValueKind, RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
-    },
+    db::{EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec},
     types::{GenerateKey, Subaccount},
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::{Deserialize, de::Deserializer};
@@ -132,9 +129,13 @@ where
     ///
     /// This is a pure, deterministic identity projection.
     /// It does NOT imply ownership, authorization, or existence.
-    #[must_use]
-    pub fn subaccount(&self) -> Subaccount {
-        Subaccount::from_array(self.project().into_bytes())
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EntityKeyBytesError`] when the key cannot produce its
+    /// declared fixed-width representation.
+    pub fn subaccount(&self) -> Result<Subaccount, EntityKeyBytesError> {
+        Ok(Subaccount::from_array(self.project()?.into_bytes()))
     }
 }
 
@@ -333,7 +334,7 @@ impl<E> Visitable for Id<E> where E: EntityKey {}
 #[cfg(test)]
 mod tests {
     use super::Id;
-    use crate::{traits::EntityKey, value::Value};
+    use crate::{db::EntityKey, value::Value};
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct TestEntity;
@@ -356,7 +357,7 @@ mod tests {
     #[test]
     fn subaccount_is_deterministic_for_same_id() {
         use crate::{
-            traits::EntityKey,
+            db::EntityKey,
             types::{Id, Subaccount},
         };
 
@@ -369,8 +370,8 @@ mod tests {
 
         let id = Id::<TestEntity>::from_key(42);
 
-        let a: Subaccount = id.subaccount();
-        let b: Subaccount = id.subaccount();
+        let a: Subaccount = id.subaccount().expect("valid key should project");
+        let b: Subaccount = id.subaccount().expect("valid key should project");
 
         assert_eq!(a, b);
     }

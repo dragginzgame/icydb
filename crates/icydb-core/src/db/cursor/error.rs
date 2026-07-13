@@ -91,6 +91,21 @@ pub enum CursorPlanError {
 }
 
 impl CursorPlanError {
+    /// Return whether this error represents invalid external continuation state.
+    #[must_use]
+    pub(crate) const fn is_invalid_continuation_cursor(&self) -> bool {
+        match self {
+            Self::InvalidContinuationCursor { .. }
+            | Self::InvalidContinuationCursorPayload { .. }
+            | Self::ContinuationCursorSignatureMismatch { .. }
+            | Self::ContinuationCursorBoundaryArityMismatch { .. }
+            | Self::ContinuationCursorWindowMismatch { .. }
+            | Self::ContinuationCursorBoundaryTypeMismatch { .. }
+            | Self::ContinuationCursorPrimaryKeyTypeMismatch { .. } => true,
+            Self::ContinuationCursorInvariantViolation => false,
+        }
+    }
+
     /// Construct one invalid cursor-token decode error.
     pub(in crate::db) const fn invalid_continuation_cursor(reason: CursorDecodeError) -> Self {
         Self::InvalidContinuationCursor { reason }
@@ -344,19 +359,10 @@ impl CursorPlanError {
     /// input failures (`Unsupported` at cursor origin). Only explicit
     /// continuation invariant violations remain invariant-class failures.
     pub(crate) fn into_internal_error(self) -> InternalError {
-        match self {
-            Self::ContinuationCursorInvariantViolation => {
-                InternalError::cursor_executor_invariant()
-            }
-            Self::InvalidContinuationCursor { .. }
-            | Self::InvalidContinuationCursorPayload { .. }
-            | Self::ContinuationCursorSignatureMismatch { .. }
-            | Self::ContinuationCursorBoundaryArityMismatch { .. }
-            | Self::ContinuationCursorWindowMismatch { .. }
-            | Self::ContinuationCursorBoundaryTypeMismatch { .. }
-            | Self::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
-                InternalError::cursor_unsupported()
-            }
+        if self.is_invalid_continuation_cursor() {
+            InternalError::cursor_invalid_continuation()
+        } else {
+            InternalError::cursor_executor_invariant()
         }
     }
 }

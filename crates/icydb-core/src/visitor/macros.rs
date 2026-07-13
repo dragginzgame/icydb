@@ -1,7 +1,7 @@
-//! Module: traits::macros
-//! Responsibility: internal macro helpers for repetitive trait impl surfaces.
+//! Module: visitor::macros
+//! Responsibility: internal macro helpers for repetitive visitor-trait impls.
 //! Does not own: public trait definitions or generated type semantics.
-//! Boundary: keeps impl boilerplate local to the traits subsystem.
+//! Boundary: keeps primitive visitor boilerplate local to its owning subsystem.
 
 ///
 /// MACROS

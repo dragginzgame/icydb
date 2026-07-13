@@ -29,9 +29,7 @@ fn capture_mutation_commit_classes<R>(
 
 fn public_projection_rows<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let result = session
         .execute_sql_query::<E>(sql)
@@ -49,9 +47,7 @@ where
 #[cfg(feature = "sql-explain")]
 fn public_explain_text<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let result = session
         .execute_sql_query::<E>(sql)

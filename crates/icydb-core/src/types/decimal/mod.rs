@@ -10,10 +10,9 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
-use crate::traits::{
-    NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-    SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-};
+use crate::traits::NumericValue;
+use crate::value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta};
+use crate::visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 

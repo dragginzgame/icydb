@@ -1229,8 +1229,8 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Serialize)
     }
 
-    /// Construct a cursor-origin unsupported error.
-    pub(crate) fn cursor_unsupported() -> Self {
+    /// Construct a cursor-origin invalid-continuation error.
+    pub(crate) fn cursor_invalid_continuation() -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Cursor)
     }
 
@@ -1920,6 +1920,9 @@ impl ErrorClass {
             Self::NotFound => diagnostic_code::DiagnosticCode::RuntimeNotFound,
             Self::Internal => diagnostic_code::DiagnosticCode::RuntimeInternal,
             Self::Conflict => diagnostic_code::DiagnosticCode::RuntimeConflict,
+            Self::Unsupported if matches!(origin, ErrorOrigin::Cursor) => {
+                diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor
+            }
             Self::Unsupported => diagnostic_code::DiagnosticCode::RuntimeUnsupported,
             Self::InvariantViolation if matches!(origin, ErrorOrigin::Store) => {
                 diagnostic_code::DiagnosticCode::StoreInvariantViolation

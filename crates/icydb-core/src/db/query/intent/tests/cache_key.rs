@@ -21,9 +21,9 @@ use crate::{
     },
     model::{entity::EntityModel, field::FieldKind},
     testing::PLAN_ENTITY_TAG,
-    traits::{EntitySchema, RuntimeValueEncode},
+    traits::EntitySchema,
     types::Ulid,
-    value::Value,
+    value::{RuntimeValueEncode, Value},
 };
 use icydb_derive::FieldProjection;
 use serde::Deserialize;

@@ -4,6 +4,7 @@
 //! Boundary: planner access path -> explain access DTOs/json adapters.
 
 use crate::{
+    db::KeyValueCodec,
     db::{
         access::AccessPlan,
         query::{
@@ -11,7 +12,6 @@ use crate::{
             plan::{AccessPlanProjection, project_access_plan, project_explain_access_path},
         },
     },
-    traits::KeyValueCodec,
     value::Value,
 };
 

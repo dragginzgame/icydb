@@ -118,7 +118,7 @@ where
         request: AdminBatchRequest,
     ) -> Result<PagedLoadExecution<E>, QueryError>
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         let cursor = request.into_cursor();
         self.into_paged_query(ADMIN_BATCH_ROWS, cursor, PagedTerminal::TrustedAdminBatch)?
@@ -160,7 +160,7 @@ where
     /// snapshot/version pinned across requests.
     fn execute(self) -> Result<PagedLoadExecution<E>, QueryError>
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         self.execute_with_trace()
             .map(PagedLoadExecutionWithTrace::into_execution)
@@ -173,7 +173,7 @@ where
     /// change query planning or result semantics.
     fn execute_with_trace(self) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         self.inner.ensure_default_read_admission()?;
         self.execute_with_trace_unchecked()
@@ -181,7 +181,7 @@ where
 
     fn execute_with_trace_unchecked(self) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         // `PagedLoadQuery` is only constructed by page terminals in this module,
         // so paged-mode validation already happened before this wrapper existed.

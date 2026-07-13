@@ -23,13 +23,12 @@ use crate::{
     },
     error::InternalError,
     sanitize::{SanitizeWriteContext, sanitize_with_context},
-    traits::EntityValue,
     validate::validate,
     value::Value,
 };
 use std::cmp::Ordering;
 
-impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow> SaveExecutor<E> {
     // Enforce accepted-contract scalar bounds before structural patch values are
     // serialized into persisted-row payloads. The accepted lane uses only the
     // selected schema snapshot's field contracts, so out-of-range slots fail
@@ -249,7 +248,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             ));
         }
 
-        let identity_pk = crate::traits::KeyValueCodec::to_key_value(&entity.id().key());
+        let identity_pk = crate::db::KeyValueCodec::to_key_value(&entity.id().key());
         if pk_value != identity_pk {
             return Err(InternalError::mutation_entity_primary_key_mismatch(
                 E::PATH,
@@ -268,7 +267,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         accepted_contract: &AcceptedRowDecodeContract,
         primary_key_slots: &[usize],
     ) -> Result<(), InternalError> {
-        let identity_pk = crate::traits::KeyValueCodec::to_key_value(&entity.id().key());
+        let identity_pk = crate::db::KeyValueCodec::to_key_value(&entity.id().key());
         let Value::List(identity_components) = &identity_pk else {
             return Err(InternalError::executor_invariant());
         };

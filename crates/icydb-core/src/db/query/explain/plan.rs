@@ -5,6 +5,7 @@
 //! Boundary: explain DTOs and plan-side projection logic for query observability.
 
 use crate::{
+    db::KeyValueCodec,
     db::{
         access::AccessPlan,
         predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
@@ -24,7 +25,6 @@ use crate::{
             },
         },
     },
-    traits::KeyValueCodec,
     value::Value,
 };
 use std::{fmt, ops::Bound};

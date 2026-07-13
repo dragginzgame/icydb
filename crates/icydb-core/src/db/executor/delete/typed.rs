@@ -22,13 +22,13 @@ use crate::{
         response::Row,
     },
     error::InternalError,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
     types::Id,
 };
 
 impl<E> DeleteRow<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     fn from_delete_data_row(row_layout: &RowLayout, row: DataRow) -> Result<Self, InternalError> {
         let (key, raw) = row;
@@ -48,7 +48,7 @@ pub(in crate::db::executor::delete) fn package_typed_delete_rows<E>(
     rows: Vec<DeleteRow<E>>,
 ) -> Result<DeleteLeaf<Vec<Row<E>>>, InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     let mut response_rows = Vec::with_capacity(rows.len());
     let mut rollback_rows = Vec::with_capacity(rows.len());
@@ -82,7 +82,7 @@ pub(in crate::db::executor::delete) fn prepare_typed_delete_core<C, E, T>(
 ) -> Result<Option<PreparedDeleteOutput<T>>, InternalError>
 where
     C: CanisterKind,
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     // Phase 1: resolve delete access rows once through the shared executor
     // key-stream seam and record the real candidate count for metrics.

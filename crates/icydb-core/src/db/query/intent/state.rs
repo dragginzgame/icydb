@@ -573,7 +573,7 @@ impl<K> QueryIntent<K> {
     }
 }
 
-impl<K: crate::traits::KeyValueCodec> QueryIntent<K> {
+impl<K: crate::db::KeyValueCodec> QueryIntent<K> {
     /// Project access-planning inputs from intent-owned scalar state.
     #[must_use]
     pub(in crate::db::query::intent) fn planning_access_inputs(&self) -> AccessPlanningInputs<'_> {

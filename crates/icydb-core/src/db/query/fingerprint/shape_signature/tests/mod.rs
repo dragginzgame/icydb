@@ -33,9 +33,8 @@ use crate::{
         },
     },
     model::index::IndexModel,
-    traits::RuntimeValueEncode,
     types::Ulid,
-    value::Value,
+    value::{RuntimeValueEncode, Value},
 };
 
 fn continuation_signature_with_projection(

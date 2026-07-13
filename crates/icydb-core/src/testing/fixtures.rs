@@ -83,11 +83,11 @@ pub(crate) const fn field_model_index_by_name(
 #[macro_export]
 macro_rules! __icydb_test_entity_markers {
     ($entity:ty) => {
-        impl $crate::traits::SanitizeAuto for $entity {}
-        impl $crate::traits::SanitizeCustom for $entity {}
-        impl $crate::traits::ValidateAuto for $entity {}
-        impl $crate::traits::ValidateCustom for $entity {}
-        impl $crate::traits::Visitable for $entity {}
+        impl $crate::visitor::SanitizeAuto for $entity {}
+        impl $crate::visitor::SanitizeCustom for $entity {}
+        impl $crate::visitor::ValidateAuto for $entity {}
+        impl $crate::visitor::ValidateCustom for $entity {}
+        impl $crate::visitor::Visitable for $entity {}
     };
 }
 
@@ -206,7 +206,7 @@ macro_rules! test_store {
 #[macro_export]
 macro_rules! __icydb_test_entity_runtime_surface {
     ($entity:ident, $id_ty:ty, $entity_name:expr, $model_ident:ident) => {
-        impl $crate::traits::EntityKey for $entity {
+        impl $crate::db::EntityKey for $entity {
             type Key = $id_ty;
         }
 
@@ -397,16 +397,6 @@ macro_rules! __icydb_test_entity_value {
     };
 }
 
-/// Hidden helper that emits optional singleton behavior for test entities.
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __icydb_test_entity_singleton {
-    ($entity:ident, true) => {
-        impl $crate::traits::SingletonEntity for $entity {}
-    };
-    ($entity:ident, false) => {};
-}
-
 /// Explicit options for test field model construction.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TestFieldModelOptions {
@@ -574,7 +564,6 @@ macro_rules! __icydb_test_emit_entity {
         store = $store_ty:ty,
         canister = $canister_ty:ty,
         runtime = full,
-        singleton = $singleton:tt,
         version = $schema_version:expr,
         key_type = $key_ty:ty,
         primary_key = [ $( $pk_field:ident ),+ $(,)? ],
@@ -605,8 +594,6 @@ macro_rules! __icydb_test_emit_entity {
             model = MODEL_DEF,
             entity_value = { $($entity_value)+ },
         }
-
-        $crate::__icydb_test_entity_singleton!($entity, $singleton);
     };
     (
         ident = $entity:ident,
@@ -663,7 +650,6 @@ macro_rules! test_entity {
             store = $store_ty,
             canister = $canister_ty,
             runtime = full,
-            singleton = false,
             version = $schema_version,
             key_type = $key_ty,
             primary_key = [ $( $pk_field ),+ ],
@@ -693,7 +679,6 @@ macro_rules! test_entity {
             store = $store_ty,
             canister = $canister_ty,
             runtime = full,
-            singleton = false,
             version = 1,
             key_type = $key_ty,
             primary_key = [ $( $pk_field ),+ ],
@@ -725,7 +710,6 @@ macro_rules! test_entity {
             store = $store_ty,
             canister = $canister_ty,
             runtime = full,
-            singleton = false,
             version = $schema_version,
             key_type = $key_ty,
             primary_key = [ $pk_field ],
@@ -754,7 +738,6 @@ macro_rules! test_entity {
             store = $store_ty,
             canister = $canister_ty,
             runtime = full,
-            singleton = false,
             version = 1,
             key_type = $key_ty,
             primary_key = [ $pk_field ],
@@ -845,7 +828,6 @@ macro_rules! test_singleton_entity {
             store = $store_ty,
             canister = $canister_ty,
             runtime = full,
-            singleton = true,
             version = 1,
             key_type = $key_ty,
             primary_key = [ $pk_field ],

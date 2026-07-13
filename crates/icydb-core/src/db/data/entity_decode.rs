@@ -8,7 +8,6 @@ use crate::{
         DecodedDataStoreKey, PersistedRow, RawRow, StructuralRowContract, StructuralSlotReader,
     },
     error::InternalError,
-    traits::EntityValue,
 };
 
 /// Decode one persisted `(DecodedDataStoreKey, RawRow)` pair through an explicit row contract.
@@ -23,7 +22,7 @@ pub(in crate::db) fn decode_raw_row_for_entity_key_with_contract<E>(
     contract: StructuralRowContract,
 ) -> Result<(E::Key, E), InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     // Phase 1: recover the expected typed key from structural row identity.
     let expected_key = data_key.try_key::<E>()?;

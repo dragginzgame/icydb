@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        KeyValueCodec,
         commit::{
             CommitRowOp, CommitSchemaFingerprint,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
@@ -23,7 +24,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
-    traits::{AuthoredFieldProjection, EntityValue, KeyValueCodec, Storable},
+    traits::Storable,
     types::Timestamp,
 };
 #[cfg(feature = "sql")]
@@ -38,7 +39,7 @@ use std::collections::HashSet;
 /// not use loose tuples for mutation semantics.
 ///
 
-struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
+struct StructuralMutationRequest<E: PersistedRow> {
     mode: MutationMode,
     key: E::Key,
     patch: AuthoredStructuralPatch,
@@ -55,13 +56,13 @@ struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
 ///
 
 #[cfg(feature = "sql")]
-struct StructuralMutationBatchItem<E: PersistedRow + EntityValue> {
+struct StructuralMutationBatchItem<E: PersistedRow> {
     key: E::Key,
     patch: AuthoredStructuralPatch,
 }
 
 #[cfg(feature = "sql")]
-impl<E: PersistedRow + EntityValue> StructuralMutationBatchItem<E> {
+impl<E: PersistedRow> StructuralMutationBatchItem<E> {
     // Build one internally lowered structural batch item after the caller has
     // crossed its admission boundary and selected the batch mutation mode.
     const fn internal_lowered(key: E::Key, patch: AuthoredStructuralPatch) -> Self {
@@ -69,7 +70,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationBatchItem<E> {
     }
 }
 
-impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
+impl<E: PersistedRow> StructuralMutationRequest<E> {
     // Build one request from a public structural patch authored by a caller.
     const fn public_authored(
         mode: MutationMode,
@@ -108,7 +109,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
     }
 }
 
-impl<E: PersistedRow + EntityValue + AuthoredFieldProjection> SaveExecutor<E> {
+impl<E: PersistedRow> SaveExecutor<E> {
     // Build one canonical write preflight context for one structural save mode.
     const fn structural_write_context(mode: MutationMode, now: Timestamp) -> SanitizeWriteContext {
         SanitizeWriteContext::new(mode.sanitize_write_mode(), now)

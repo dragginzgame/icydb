@@ -82,6 +82,9 @@ impl QueryError {
     pub fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
             Self::Validate(_) => diagnostic_code::DiagnosticCode::QueryValidate,
+            Self::Plan(error) if error.is_invalid_continuation_cursor() => {
+                diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor
+            }
             Self::Plan(error) if error.is_unordered_pagination() => {
                 diagnostic_code::DiagnosticCode::QueryUnorderedPagination
             }
@@ -98,10 +101,13 @@ impl QueryError {
         }
     }
 
-    const fn diagnostic_origin(&self) -> diagnostic_code::ErrorOrigin {
+    fn diagnostic_origin(&self) -> diagnostic_code::ErrorOrigin {
         match self {
             Self::Response(_) => diagnostic_code::ErrorOrigin::Response,
             Self::Execute(error) => error.as_internal().origin().diagnostic_origin(),
+            Self::Plan(error) if error.is_invalid_continuation_cursor() => {
+                diagnostic_code::ErrorOrigin::Cursor
+            }
             Self::Validate(_) | Self::Plan(_) | Self::Intent(_) | Self::AccessRequirement(_) => {
                 diagnostic_code::ErrorOrigin::Query
             }
@@ -111,6 +117,9 @@ impl QueryError {
     fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         let kind = match self {
             Self::Validate(_) => diagnostic_code::QueryErrorKind::Validate,
+            Self::Plan(error) if error.is_invalid_continuation_cursor() => {
+                diagnostic_code::QueryErrorKind::InvalidContinuationCursor
+            }
             Self::Plan(error) if error.is_unordered_pagination() => {
                 diagnostic_code::QueryErrorKind::UnorderedPagination
             }

@@ -9,9 +9,7 @@ use crate::{
         direction::Direction,
         executor::Context,
         index::{
-            IndexEntryReader, IndexEntryValue, IndexReadContract, IndexStore, PrimaryRowReader,
-            RawIndexStoreKey, SealedIndexEntryReader, SealedPrimaryRowReader,
-            SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
+            IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
         key_taxonomy::PrimaryKeyValue,
@@ -22,7 +20,7 @@ use crate::{
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
-impl<E> PrimaryRowReader<E> for Context<'_, E>
+impl<E> StructuralPrimaryRowReader for Context<'_, E>
 where
     E: EntityKind + EntityValue,
 {
@@ -35,23 +33,7 @@ where
     }
 }
 
-impl<E> SealedPrimaryRowReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> StructuralPrimaryRowReader for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row_structural(
-        &self,
-        key: &DecodedDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
-        PrimaryRowReader::<E>::read_primary_row(self, key)
-    }
-}
-
-impl<E> SealedStructuralPrimaryRowReader for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> IndexEntryReader<E> for Context<'_, E>
+impl<E> StructuralIndexEntryReader for Context<'_, E>
 where
     E: EntityKind + EntityValue,
 {
@@ -65,31 +47,6 @@ where
 
     fn read_index_keys_in_raw_range(
         &self,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
-        limit: usize,
-    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
-        read_index_primary_key_values_in_raw_range(E::ENTITY_TAG, index_store, index, bounds, limit)
-    }
-}
-
-impl<E> SealedIndexEntryReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> StructuralIndexEntryReader for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_index_entry_structural(
-        &self,
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
-        IndexEntryReader::<E>::read_index_entry(self, index_store, key)
-    }
-
-    fn read_index_keys_in_raw_range_structural(
-        &self,
         _entity_path: &'static str,
         entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
@@ -100,8 +57,6 @@ where
         read_index_primary_key_values_in_raw_range(entity_tag, index_store, index, bounds, limit)
     }
 }
-
-impl<E> SealedStructuralIndexEntryReader for Context<'_, E> where E: EntityKind + EntityValue {}
 
 // Resolve structural primary-key values from one raw index range using the shared
 // context-backed index-store reader path.

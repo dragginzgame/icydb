@@ -24,9 +24,7 @@ fn assert_statement_count<E>(
     expected_row_count: u32,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let payload = execute_sql_statement_for_tests::<E>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
@@ -48,9 +46,7 @@ fn assert_statement_write_boundary<E>(
     expected_boundary: SqlWriteBoundaryCode,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let err = execute_sql_statement_for_tests::<E>(session, sql).expect_err(context);
 
@@ -87,9 +83,7 @@ fn assert_statement_returning_rows<E>(
     expected_rows: &[Vec<Value>],
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let rows = statement_projection_rows::<E>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should return projection rows: {err}"));
@@ -458,9 +452,7 @@ fn assert_write_update_count_and_rows(
 // it into the compact key list used by update/delete target convergence tests.
 fn statement_nat_ids<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<u64>
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     statement_projection_rows::<E>(session, sql)
         .unwrap_or_else(|err| panic!("id-returning SQL should succeed: {err}"))

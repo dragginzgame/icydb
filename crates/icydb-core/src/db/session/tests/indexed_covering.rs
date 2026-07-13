@@ -16,7 +16,7 @@ fn assert_covering_index_range_descriptor<E>(
     sql: &str,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let descriptor = lower_select_query_for_tests::<E>(&session, sql)
         .expect("order-only covering SQL query should lower")

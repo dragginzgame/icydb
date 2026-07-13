@@ -1,8 +1,7 @@
 use icydb_core::{
     db::encode_persisted_slot_payload_by_kind,
     model::FieldKind,
-    traits::RuntimeValueEncode,
-    value::Value,
+    value::{RuntimeValueEncode, Value},
 };
 
 #[derive(Clone, Debug, Default)]

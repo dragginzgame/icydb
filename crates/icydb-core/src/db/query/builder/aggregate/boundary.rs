@@ -6,12 +6,13 @@
 
 use crate::{
     db::{
+        KeyValueCodec,
         data::DecodedDataStoreKey,
         key_taxonomy::PrimaryKeyValue,
         query::plan::{AggregateKind, FieldSlot, expr::Expr},
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue, KeyValueCodec},
+    traits::{EntityKind, EntityValue},
     types::Id,
     value::Value,
 };

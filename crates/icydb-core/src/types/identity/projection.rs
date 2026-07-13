@@ -25,7 +25,7 @@
 //! in context.
 
 use crate::{
-    traits::{EntityKey, EntityKeyBytes},
+    db::{EntityKey, EntityKeyBytes, EntityKeyBytesError},
     types::Id,
 };
 use candid::CandidType;
@@ -105,16 +105,21 @@ where
     ///
     /// This method is a mechanical mapping only. It does not verify authorization, ownership,
     /// or entity existence.
-    pub fn project(&self) -> ProjectedIdentity {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EntityKeyBytesError`] when the key cannot produce its
+    /// declared fixed-width representation.
+    pub fn project(&self) -> Result<ProjectedIdentity, EntityKeyBytesError> {
         let mut hasher = Sha256::new();
         hasher.update(PROJECTION_DOMAIN_TAG);
 
         // Canonical key bytes (ULID, UUID, etc.)
         let mut key_buf = vec![0u8; E::Key::BYTE_LEN];
-        self.key().write_bytes(&mut key_buf);
+        self.key().write_bytes(&mut key_buf)?;
         hasher.update(&key_buf);
 
-        ProjectedIdentity(hasher.finalize().into())
+        Ok(ProjectedIdentity(hasher.finalize().into()))
     }
 }
 
@@ -125,7 +130,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        traits::EntityKey,
+        db::EntityKey,
         types::{Id, Ulid},
     };
 
@@ -146,7 +151,7 @@ mod tests {
             0xee, 0xff,
         ]));
 
-        let projected = id.project();
+        let projected = id.project().expect("valid ULID key should project");
         assert_eq!(
             projected.to_string(),
             "2da507e94f2d3dcb66fad5f74338d3fdf31f7b8a0e56e5888078f0c91a5b643f"
@@ -156,8 +161,12 @@ mod tests {
     #[test]
     fn projection_is_stable_across_entities_for_same_key_bytes() {
         let key = Ulid::from_bytes([0x42; 16]);
-        let a = Id::<VectorEntity>::from_key(key).project();
-        let b = Id::<OtherEntity>::from_key(key).project();
+        let a = Id::<VectorEntity>::from_key(key)
+            .project()
+            .expect("valid ULID key should project");
+        let b = Id::<OtherEntity>::from_key(key)
+            .project()
+            .expect("valid ULID key should project");
 
         assert_eq!(a, b);
     }

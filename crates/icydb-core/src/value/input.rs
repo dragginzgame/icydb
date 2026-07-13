@@ -1,5 +1,5 @@
 use crate::{
-    traits::EntityKey,
+    db::EntityKey,
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Id, IntBig, NatBig, Principal,
         Subaccount, Timestamp, Ulid, Unit,

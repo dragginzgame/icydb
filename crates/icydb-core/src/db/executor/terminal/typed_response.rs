@@ -11,7 +11,6 @@ use crate::{
         response::{EntityResponse, Row},
     },
     error::InternalError,
-    traits::EntityValue,
     types::Id,
 };
 
@@ -21,7 +20,7 @@ pub(in crate::db::executor) fn decode_data_rows_into_entity_response<E>(
     rows: Vec<DataRow>,
 ) -> Result<EntityResponse<E>, InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     let mut decoded_rows = Vec::with_capacity(rows.len());
 
@@ -43,7 +42,7 @@ pub(in crate::db::executor) fn decode_data_row_entity_with_layout<E>(
     raw_row: &RawRow,
 ) -> Result<(E::Key, E), InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     decode_raw_row_for_entity_key_with_contract::<E>(
         data_key,
@@ -58,7 +57,7 @@ fn decode_data_row_into_response_row<E>(
     row: DataRow,
 ) -> Result<Row<E>, InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     let (data_key, raw_row) = row;
     let (expected_key, entity) =
@@ -74,7 +73,7 @@ pub(in crate::db::executor) fn decode_data_rows_into_cursor_page<E>(
     next_cursor: Option<PageCursor>,
 ) -> Result<CursorPage<E>, InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     Ok(CursorPage {
         items: decode_data_rows_into_entity_response::<E>(row_layout, rows)?,

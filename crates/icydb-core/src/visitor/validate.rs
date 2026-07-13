@@ -3,10 +3,7 @@
 //! Does not own: top-level validation entrypoints or issue aggregation policy.
 //! Boundary: read-only visitor used by the crate-level validate surface.
 
-use crate::{
-    traits::Visitable,
-    visitor::{Visitor, VisitorContext},
-};
+use crate::visitor::{Visitable, Visitor, VisitorContext};
 
 ///
 /// ValidateVisitor

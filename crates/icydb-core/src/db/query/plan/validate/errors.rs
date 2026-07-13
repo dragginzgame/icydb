@@ -34,6 +34,15 @@ pub enum PlanError {
 }
 
 impl PlanError {
+    /// Return whether this plan error carries invalid external continuation state.
+    #[must_use]
+    pub(crate) fn is_invalid_continuation_cursor(&self) -> bool {
+        matches!(
+            self,
+            Self::Cursor(error) if error.is_invalid_continuation_cursor()
+        )
+    }
+
     /// Return whether this plan error is the deterministic pagination policy failure.
     #[must_use]
     pub fn is_unordered_pagination(&self) -> bool {

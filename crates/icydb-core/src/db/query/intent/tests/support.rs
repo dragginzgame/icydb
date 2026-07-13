@@ -24,9 +24,9 @@ pub(in crate::db::query::intent::tests) use crate::{
         },
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
-    traits::{EntitySchema, FieldProjection, Path, RuntimeValueEncode},
+    traits::{EntitySchema, FieldProjection, Path},
     types::{Date, Duration, Timestamp, Ulid, Unit},
-    value::Value,
+    value::{RuntimeValueEncode, Value},
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) use crate::{

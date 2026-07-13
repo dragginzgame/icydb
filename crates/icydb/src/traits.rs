@@ -4,16 +4,18 @@
 //! Does not own: core trait implementation semantics.
 //! Boundary: re-exports stable trait names and narrows facade-only contracts.
 
-use icydb_core::traits::{AuthoredFieldProjection, EntityValue};
-
+pub use icydb_core::db::{EntityKey, EntityKeyBytes, EntityKeyBytesError};
 pub use icydb_core::traits::{
-    Add, AddAssign, CanisterKind, Collection, Debug, Default, Deserialize, DeserializeOwned, Div,
-    DivAssign, EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityKey,
-    EntityKeyBytes, EntityKind, EntityPlacement, EntitySchema, Eq, FieldTypeMeta, From, Hash,
-    Inner, Kind, MapCollection, Mul, MulAssign, NumericValue, Ordering, PartialEq, Path, Rem,
-    Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Serialize, SingletonEntity, Storable,
-    StoreKind, Sub, SubAssign, TypeKind, Validate, ValidateAuto, ValidateCustom, Validator,
-    Visitable,
+    Add, AddAssign, CanisterKind, Debug, Default, Deserialize, DeserializeOwned, Div, DivAssign,
+    EntityCreateInput, EntityCreateMaterialization, EntityCreateType, EntityKind, EntityPlacement,
+    EntitySchema, Eq, FieldTypeMeta, From, Hash, Inner, Kind, Mul, MulAssign, NumericValue,
+    Ordering, PartialEq, Path, Rem, Serialize, SingletonEntity, Storable, StoreKind, Sub,
+    SubAssign, TypeKind,
+};
+pub use icydb_core::value::{Collection, MapCollection};
+pub use icydb_core::visitor::{
+    Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Validate, ValidateAuto, ValidateCustom,
+    Validator, Visitable,
 };
 
 ///
@@ -27,9 +29,9 @@ pub use icydb_core::traits::{
 /// or execute persisted rows.
 ///
 
-pub trait Entity: icydb_core::db::PersistedRow + EntityValue + AuthoredFieldProjection {}
+pub trait Entity: icydb_core::db::PersistedRow {}
 
-impl<T> Entity for T where T: icydb_core::db::PersistedRow + EntityValue + AuthoredFieldProjection {}
+impl<T> Entity for T where T: icydb_core::db::PersistedRow {}
 
 ///
 /// EntityFor
@@ -41,11 +43,11 @@ impl<T> Entity for T where T: icydb_core::db::PersistedRow + EntityValue + Autho
 /// generic over a concrete `DbSession<C>`.
 ///
 
-pub trait EntityFor<C: CanisterKind>: Entity + EntityKind<Canister = C> {}
+pub trait EntityFor<C: CanisterKind>: Entity<Canister = C> {}
 
 impl<T, C> EntityFor<C> for T
 where
-    T: Entity + EntityKind<Canister = C>,
+    T: Entity<Canister = C>,
     C: CanisterKind,
 {
 }

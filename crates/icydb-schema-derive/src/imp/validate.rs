@@ -197,7 +197,7 @@ fn indexed_collection_item_rules(block: TokenStream) -> TokenStream {
     let item_ident = format_ident!("__item");
 
     quote! {
-        use ::icydb::traits::Collection;
+        use ::icydb::value::Collection;
 
         for (i, #item_ident) in self.iter().enumerate() {
             let item = #item_ident;

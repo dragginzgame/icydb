@@ -250,6 +250,18 @@ impl ToTokens for TraitKind {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
             }
+            Self::Collection | Self::MapCollection => {
+                let trait_name = format_ident!("{self:?}");
+                quote!(::icydb::value::#trait_name).to_tokens(tokens);
+            }
+            Self::SanitizeAuto
+            | Self::SanitizeCustom
+            | Self::ValidateAuto
+            | Self::ValidateCustom
+            | Self::Visitable => {
+                let trait_name = format_ident!("{self:?}");
+                quote!(::icydb::visitor::#trait_name).to_tokens(tokens);
+            }
             _ => {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::traits::#trait_name).to_tokens(tokens);

@@ -25,7 +25,6 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    traits::EntityValue,
 };
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
@@ -125,7 +124,7 @@ fn resolve_grouped_perf_cursor(
 
 impl<E> LoadExecutor<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     // Execute one scalar load plan without explicit cursor input.
     pub(in crate::db) fn execute(

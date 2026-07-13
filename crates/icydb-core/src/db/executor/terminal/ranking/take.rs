@@ -10,12 +10,11 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::EntityValue,
 };
 
 impl<E> LoadExecutor<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     /// Execute one `take(k)` terminal over the canonical load response.
     pub(in crate::db) fn take(

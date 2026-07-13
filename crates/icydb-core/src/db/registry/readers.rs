@@ -9,7 +9,6 @@ use crate::{
         direction::Direction,
         index::{
             IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
-            SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
         key_taxonomy::PrimaryKeyValue,
@@ -21,20 +20,15 @@ use crate::{
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
 impl StructuralPrimaryRowReader for StoreHandle {
-    fn read_primary_row_structural(
-        &self,
-        key: &DecodedDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
 
         Ok(self.with_data(|store| store.get(&raw_key)))
     }
 }
 
-impl SealedStructuralPrimaryRowReader for StoreHandle {}
-
 impl StructuralIndexEntryReader for StoreHandle {
-    fn read_index_entry_structural(
+    fn read_index_entry(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexStoreKey,
@@ -42,7 +36,7 @@ impl StructuralIndexEntryReader for StoreHandle {
         Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
-    fn read_index_keys_in_raw_range_structural(
+    fn read_index_keys_in_raw_range(
         &self,
         _entity_path: &'static str,
         _entity_tag: EntityTag,
@@ -61,8 +55,6 @@ impl StructuralIndexEntryReader for StoreHandle {
         Ok(out)
     }
 }
-
-impl SealedStructuralIndexEntryReader for StoreHandle {}
 
 // Decode one raw index entry into structural primary-key values for
 // non-executor preflight readers.

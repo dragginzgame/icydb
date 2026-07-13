@@ -608,7 +608,7 @@ pub(in crate::db::executor::tests) struct CompositeRelationTargetKey {
     pub(in crate::db::executor::tests) local_id: u64,
 }
 
-impl crate::traits::KeyValueCodec for CompositeRelationTargetKey {
+impl crate::db::KeyValueCodec for CompositeRelationTargetKey {
     fn to_key_value(&self) -> crate::value::Value {
         crate::value::Value::List(vec![
             crate::value::Value::Nat64(self.tenant_id),
@@ -635,10 +635,10 @@ impl crate::traits::KeyValueCodec for CompositeRelationTargetKey {
     }
 }
 
-impl crate::traits::PrimaryKeyCodec for CompositeRelationTargetKey {
+impl crate::db::PrimaryKeyEncode for CompositeRelationTargetKey {
     fn to_primary_key_value(
         &self,
-    ) -> Result<crate::db::PrimaryKeyValue, crate::traits::PrimaryKeyEncodeError> {
+    ) -> Result<crate::db::PrimaryKeyValue, crate::db::PrimaryKeyEncodeError> {
         let composite = crate::db::CompositePrimaryKeyValue::try_from_components(&[
             crate::db::PrimaryKeyComponent::Nat64(self.tenant_id),
             crate::db::PrimaryKeyComponent::Nat64(self.local_id),
@@ -648,7 +648,7 @@ impl crate::traits::PrimaryKeyCodec for CompositeRelationTargetKey {
     }
 }
 
-impl crate::traits::PrimaryKeyDecode for CompositeRelationTargetKey {
+impl crate::db::PrimaryKeyDecode for CompositeRelationTargetKey {
     fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
         let crate::db::PrimaryKeyValue::Composite(composite) = key else {
             return Err(InternalError::store_corruption());
@@ -668,12 +668,15 @@ impl crate::traits::PrimaryKeyDecode for CompositeRelationTargetKey {
     }
 }
 
-impl crate::traits::EntityKeyBytes for CompositeRelationTargetKey {
+impl crate::db::EntityKeyBytes for CompositeRelationTargetKey {
     const BYTE_LEN: usize = 16;
 
-    fn write_bytes(&self, out: &mut [u8]) {
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), crate::db::EntityKeyBytesError> {
+        crate::db::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out[..8].copy_from_slice(&self.tenant_id.to_be_bytes());
         out[8..16].copy_from_slice(&self.local_id.to_be_bytes());
+
+        Ok(())
     }
 }
 
@@ -793,7 +796,7 @@ pub(in crate::db::executor::tests) struct CompositePkRelationSourceKey {
     pub(in crate::db::executor::tests) source_local_id: u64,
 }
 
-impl crate::traits::KeyValueCodec for CompositePkRelationSourceKey {
+impl crate::db::KeyValueCodec for CompositePkRelationSourceKey {
     fn to_key_value(&self) -> crate::value::Value {
         crate::value::Value::List(vec![
             crate::value::Value::Nat64(self.tenant_id),
@@ -820,10 +823,10 @@ impl crate::traits::KeyValueCodec for CompositePkRelationSourceKey {
     }
 }
 
-impl crate::traits::PrimaryKeyCodec for CompositePkRelationSourceKey {
+impl crate::db::PrimaryKeyEncode for CompositePkRelationSourceKey {
     fn to_primary_key_value(
         &self,
-    ) -> Result<crate::db::PrimaryKeyValue, crate::traits::PrimaryKeyEncodeError> {
+    ) -> Result<crate::db::PrimaryKeyValue, crate::db::PrimaryKeyEncodeError> {
         let composite = crate::db::CompositePrimaryKeyValue::try_from_components(&[
             crate::db::PrimaryKeyComponent::Nat64(self.tenant_id),
             crate::db::PrimaryKeyComponent::Nat64(self.source_local_id),
@@ -833,7 +836,7 @@ impl crate::traits::PrimaryKeyCodec for CompositePkRelationSourceKey {
     }
 }
 
-impl crate::traits::PrimaryKeyDecode for CompositePkRelationSourceKey {
+impl crate::db::PrimaryKeyDecode for CompositePkRelationSourceKey {
     fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
         let crate::db::PrimaryKeyValue::Composite(composite) = key else {
             return Err(InternalError::store_corruption());
@@ -853,12 +856,15 @@ impl crate::traits::PrimaryKeyDecode for CompositePkRelationSourceKey {
     }
 }
 
-impl crate::traits::EntityKeyBytes for CompositePkRelationSourceKey {
+impl crate::db::EntityKeyBytes for CompositePkRelationSourceKey {
     const BYTE_LEN: usize = 16;
 
-    fn write_bytes(&self, out: &mut [u8]) {
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), crate::db::EntityKeyBytesError> {
+        crate::db::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out[..8].copy_from_slice(&self.tenant_id.to_be_bytes());
         out[8..16].copy_from_slice(&self.source_local_id.to_be_bytes());
+
+        Ok(())
     }
 }
 

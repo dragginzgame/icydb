@@ -679,8 +679,6 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         }
         SqlFeatureCode::OrderByUnsupportedForm => "unsupported ORDER BY expression form",
         SqlFeatureCode::Other => "unsupported SQL feature",
-        SqlFeatureCode::ParameterBinding => "parameter binding",
-        SqlFeatureCode::ParameterizedSchemaVersion => "parameterized schema versions",
         SqlFeatureCode::PredicateStartsWithFirstArgument => {
             "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
         }
@@ -796,9 +794,9 @@ mod tests {
 
     #[test]
     fn renders_compact_read_admission_code_report() {
-        let report = render_error_code_report("190").expect("190 should parse");
+        let report = render_error_code_report("188").expect("188 should parse");
 
-        assert!(report.contains("IcyDB diagnostic E190"), "{report}");
+        assert!(report.contains("IcyDB diagnostic E188"), "{report}");
         assert!(report.contains("E_QUERY_READ_ADMISSION"), "{report}");
         assert!(
             report.contains("public read queries cannot execute an unbounded full scan"),

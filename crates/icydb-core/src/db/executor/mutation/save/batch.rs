@@ -13,7 +13,6 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
-    traits::{AuthoredFieldProjection, EntityValue},
     types::Timestamp,
 };
 use std::collections::HashSet;
@@ -22,7 +21,7 @@ use crate::db::executor::mutation::save::{SaveExecutor, SaveMode, SavePreflightI
 
 const SAVE_BATCH_INITIAL_RESERVE_ROWS: usize = 64;
 
-impl<E: PersistedRow + EntityValue + AuthoredFieldProjection> SaveExecutor<E> {
+impl<E: PersistedRow> SaveExecutor<E> {
     /// Save a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: this helper is fail-fast and non-atomic. If one element fails,

@@ -15,14 +15,13 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::EntityValue,
     value::Value,
 };
 use std::cmp::Reverse;
 
 impl<E> LoadExecutor<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     // Reduce one materialized response into a deterministic top-k response
     // ordered by `(field_value_desc, primary_key_asc)`.
@@ -116,7 +115,7 @@ fn entity_response_from_ranked_rows<E>(
     ordered_rows: Vec<(usize, Value)>,
 ) -> Result<EntityResponse<E>, InternalError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     let output_rows = move_selected_ranked_rows(rows, ordered_rows)?
         .into_iter()

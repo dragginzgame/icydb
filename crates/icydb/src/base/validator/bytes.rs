@@ -4,7 +4,7 @@
 //! Does not own: sanitization policy, persistence, or schema mutation semantics.
 //! Boundary: reports typed visitor issues for facade schema values.
 
-use crate::{design::prelude::*, traits::Validator};
+use crate::{design::prelude::*, visitor::Validator};
 
 ///
 /// Utf8

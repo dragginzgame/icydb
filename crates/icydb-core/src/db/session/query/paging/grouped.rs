@@ -18,7 +18,7 @@ use crate::{
         session::query::query_error_from_executor_plan_error,
     },
     error::InternalError,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -33,7 +33,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: build the prepared execution plan once from the typed query.
         let plan = self.cached_prepared_query_plan_for_entity::<E>(query)?.0;
@@ -58,7 +58,7 @@ impl<C: CanisterKind> DbSession<C> {
         ) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: validate the prepared plan shape before decoding cursors.
         self.ensure_prepared_query_plan_is_current(&plan)?;
@@ -86,7 +86,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_grouped_with_cursor(plan, cursor_token, |executor, plan, cursor| {
             executor.execute_grouped_paged_with_cursor_traced(plan, cursor)
@@ -109,7 +109,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     >
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_grouped_with_cursor(plan, cursor_token, |executor, plan, cursor| {
             executor.execute_grouped_paged_with_cursor_traced_with_phase_attribution(plan, cursor)

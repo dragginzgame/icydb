@@ -3,11 +3,9 @@
 //! encoding, and identity-bearing API surfaces.
 
 use crate::{
-    traits::{
-        EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-    },
-    value::Value,
+    db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::{CandidType, Principal as WrappedPrincipal};
 use serde::Deserialize;
@@ -119,14 +117,33 @@ impl fmt::Display for Principal {
 impl EntityKeyBytes for Principal {
     const BYTE_LEN: usize = 1 + Self::MAX_LENGTH_IN_BYTES as usize;
 
-    fn write_bytes(&self, out: &mut [u8]) {
-        assert_eq!(out.len(), Self::BYTE_LEN);
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
+        validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out.fill(0);
 
-        let principal = self.as_slice();
+        let principal =
+            self.stored_bytes()
+                .map_err(|PrincipalEncodeError::TooLarge { len, max }| {
+                    EntityKeyBytesError::ValueTooLong { len, max }
+                })?;
         let len = principal.len();
-        out[0] = u8::try_from(len).expect("principal length must fit in one byte");
-        out[1..=len].copy_from_slice(principal);
+        let (tag, payload) = out
+            .split_first_mut()
+            .ok_or(EntityKeyBytesError::BufferLength {
+                expected: Self::BYTE_LEN,
+                actual: 0,
+            })?;
+        *tag = u8::try_from(len).map_err(|_| EntityKeyBytesError::ValueTooLong {
+            len,
+            max: usize::from(u8::MAX),
+        })?;
+        let max = payload.len();
+        let payload = payload
+            .get_mut(..len)
+            .ok_or(EntityKeyBytesError::ValueTooLong { len, max })?;
+        payload.copy_from_slice(principal);
+
+        Ok(())
     }
 }
 
@@ -247,6 +264,18 @@ mod tests {
             let decoded = Principal::try_from_bytes(&bytes).expect("decode should succeed");
             assert_eq!(decoded, original, "Roundtrip failed for {original:?}");
         }
+    }
+
+    #[test]
+    fn zero_length_principal_has_canonical_fixed_width_key_bytes() {
+        let principal = Principal::from_slice(&[]);
+        let mut bytes = [0xff; Principal::BYTE_LEN];
+
+        principal
+            .write_bytes(&mut bytes)
+            .expect("zero-length principal should encode");
+
+        assert_eq!(bytes, [0; Principal::BYTE_LEN]);
     }
 
     #[test]

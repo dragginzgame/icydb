@@ -87,7 +87,7 @@ where
 
 impl<E> LoadExecutor<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     // Execute one scalar `take(k)` terminal from the typed API boundary and
     // immediately hand off to shared materialized ranking logic.

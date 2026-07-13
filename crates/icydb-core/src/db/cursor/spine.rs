@@ -4,6 +4,7 @@
 //! Boundary: validates direction/window/boundary/anchor invariants before resume execution.
 
 use crate::{
+    db::KeyValueCodec,
     db::{
         access::ExecutionPathPayload,
         cursor::{
@@ -20,7 +21,6 @@ use crate::{
         query::plan::OrderSpec,
         schema::SchemaInfo,
     },
-    traits::KeyValueCodec,
     types::EntityTag,
 };
 

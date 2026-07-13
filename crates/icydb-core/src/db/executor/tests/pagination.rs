@@ -1397,10 +1397,9 @@ fn assert_resume_from_terminal_entity_exhausts_range(
 fn execute_full_query<E>(query: Query<E>) -> Vec<Ulid>
 where
     E: crate::db::PersistedRow
-        + crate::traits::EntityKind
         + crate::traits::EntityPlacement<Canister = TestCanister>
         + crate::traits::EntityValue
-        + crate::traits::EntityKey<Key = Ulid>
+        + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {
     let load = LoadExecutor::<E>::new(DB, false);
@@ -1423,10 +1422,9 @@ fn execute_paged_query_ids<E>(
 ) -> Vec<Ulid>
 where
     E: crate::db::PersistedRow
-        + crate::traits::EntityKind
         + crate::traits::EntityPlacement<Canister = TestCanister>
         + crate::traits::EntityValue
-        + crate::traits::EntityKey<Key = Ulid>
+        + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {
     let load = LoadExecutor::<E>::new(DB, false);
@@ -1463,10 +1461,9 @@ where
 fn assert_limit_matrix<E>(build_query: impl Fn() -> Query<E>, limits: &[u32], max_pages: usize)
 where
     E: crate::db::PersistedRow
-        + crate::traits::EntityKind
         + crate::traits::EntityPlacement<Canister = TestCanister>
         + crate::traits::EntityValue
-        + crate::traits::EntityKey<Key = Ulid>
+        + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {
     let expected_ids = execute_full_query(build_query());
@@ -1490,10 +1487,9 @@ fn assert_pushdown_parity<E>(
     order: impl Fn(Query<E>) -> Query<E>,
 ) where
     E: crate::db::PersistedRow
-        + crate::traits::EntityKind
         + crate::traits::EntityPlacement<Canister = TestCanister>
         + crate::traits::EntityValue
-        + crate::traits::EntityKey<Key = Ulid>
+        + crate::db::EntityKey<Key = Ulid>
         + PaginationTestEntityId,
 {
     let pushdown_ids = execute_full_query(build_query());
@@ -4111,8 +4107,8 @@ fn load_cursor_pagination_pk_order_missing_slot_is_unsupported() {
     );
     assert_eq!(
         err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-        "missing pk slot should report the unsupported runtime diagnostic code: {err:?}",
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+        "missing pk slot should report the invalid-continuation diagnostic code: {err:?}",
     );
 }
 
@@ -4145,8 +4141,8 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_unsupported() {
     );
     assert_eq!(
         err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-        "pk slot mismatch should report the unsupported runtime diagnostic code: {err:?}",
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+        "pk slot mismatch should report the invalid-continuation diagnostic code: {err:?}",
     );
 }
 
@@ -4180,8 +4176,8 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_unsupported() {
     );
     assert_eq!(
         err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-        "pk slot arity mismatch should report the unsupported runtime diagnostic code: {err:?}",
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+        "pk slot arity mismatch should report the invalid-continuation diagnostic code: {err:?}",
     );
 }
 

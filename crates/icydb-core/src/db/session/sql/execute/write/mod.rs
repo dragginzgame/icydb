@@ -28,7 +28,7 @@ use crate::{
     error::ErrorClass,
     metrics::sink::{MetricsEvent, SqlWriteKind, record},
     sanitize::SanitizeWriteContext,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
     value::Value,
 };
 use authority::{
@@ -71,7 +71,7 @@ const fn sql_insert_write_kind(statement: &SqlInsertStatement) -> SqlWriteKind {
 // are counted by the write executors after they know row cardinalities.
 fn record_sql_write_error<E, C>(kind: SqlWriteKind, result: &Result<SqlStatementResult, QueryError>)
 where
-    E: PersistedRow<Canister = C> + EntityValue,
+    E: PersistedRow<Canister = C>,
     C: CanisterKind,
 {
     if let Err(error) = result {
@@ -88,7 +88,7 @@ fn sql_write_statement_result_with_default_cache<E, C>(
     result: Result<SqlStatementResult, QueryError>,
 ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
 where
-    E: PersistedRow<Canister = C> + EntityValue,
+    E: PersistedRow<Canister = C>,
     C: CanisterKind,
 {
     record_sql_write_error::<E, C>(kind, &result);
@@ -102,7 +102,7 @@ pub(super) fn execute_compiled_sql_write_with_default_cache<E, C>(
     surface: Option<SqlCompiledCommandSurface>,
 ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
 where
-    E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = C>,
     C: CanisterKind,
 {
     match compiled {
@@ -195,7 +195,7 @@ fn sql_write_mutation_statement_result<E>(
     catalog: &AcceptedSchemaCatalogContext,
 ) -> Result<SqlStatementResult, QueryError>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     record_sql_write_mutation_metrics(entity_path, kind, staged_rows, entities.len(), returning);
 
@@ -209,7 +209,7 @@ where
 
 struct SqlWriteMutationExecution<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     rows: SqlWriteMutationBatch<E::Key>,
     staged_rows: SqlWriteCandidateRows,
@@ -221,7 +221,7 @@ where
 
 impl<E> SqlWriteMutationExecution<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     fn from_bounded_collection(
         mut collection: SqlWriteCandidateCollection<E::Key>,
@@ -302,7 +302,7 @@ impl<C: CanisterKind> DbSession<C> {
         returning: Option<&SqlReturningProjection>,
     ) -> Result<SqlStatementResult, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
+        E: PersistedRow<Canister = C>,
     {
         let (
             row_decode_contract,

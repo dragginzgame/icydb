@@ -14,7 +14,7 @@ use crate::{
         },
     },
     metrics::sink::CacheMissReason,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 use std::{cell::RefCell, collections::HashMap};
 
@@ -282,7 +282,7 @@ impl SqlCompiledCommandCacheKey {
         cache_method_version: u8,
     ) -> Self
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         Self::for_entity_with_method_version::<E>(
             SqlCompiledCommandSurface::Query,
@@ -297,7 +297,7 @@ impl SqlCompiledCommandCacheKey {
         cache_method_version: u8,
     ) -> Self
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         Self::for_entity_with_schema_fingerprint_method_version::<E>(
             SqlCompiledCommandSurface::Query,
@@ -315,7 +315,7 @@ impl SqlCompiledCommandCacheKey {
         cache_method_version: u8,
     ) -> Self
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         Self::for_entity_with_schema_fingerprint_method_version::<E>(
             SqlCompiledCommandSurface::Query,
@@ -333,7 +333,7 @@ impl SqlCompiledCommandCacheKey {
         cache_method_version: u8,
     ) -> Self
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         Self::for_entity_with_schema_fingerprint_method_version::<E>(
             SqlCompiledCommandSurface::Query,
@@ -350,7 +350,7 @@ impl SqlCompiledCommandCacheKey {
         cache_method_version: u8,
     ) -> Self
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         Self::for_entity_with_method_version::<E>(
             SqlCompiledCommandSurface::Update,
@@ -365,7 +365,7 @@ impl SqlCompiledCommandCacheKey {
         cache_method_version: u8,
     ) -> Self
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         Self::for_entity_with_schema_fingerprint_method_version::<E>(
             surface,
@@ -386,7 +386,7 @@ impl SqlCompiledCommandCacheKey {
         cache_method_version: u8,
     ) -> Self
     where
-        E: PersistedRow + EntityValue,
+        E: PersistedRow,
     {
         let proposal = compiled_schema_proposal_for_model(E::MODEL);
         let accepted =
@@ -419,7 +419,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<SqlCompiledCommandCacheContext, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()

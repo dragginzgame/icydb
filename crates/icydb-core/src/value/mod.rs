@@ -1,7 +1,7 @@
 //! Module: value
 //!
-//! Responsibility: canonical dynamic value representation plus primary-key helpers.
-//! Does not own: planner semantics or db-level decode policy.
+//! Responsibility: canonical dynamic values plus typed runtime conversion.
+//! Does not own: planner semantics, primary-key encoding, or persisted decode policy.
 //! Boundary: shared value/domain surface used by query, executor, and storage layers.
 //!
 //! `Value` is the runtime canonical value model. Public canister/query boundaries
@@ -18,17 +18,17 @@ mod map;
 pub(crate) mod ops;
 mod output;
 mod rank;
+mod runtime;
 mod semantics;
 mod tag;
 mod wire;
 
 #[cfg(test)]
+mod runtime_tests;
+#[cfg(test)]
 mod tests;
 
-use crate::{
-    traits::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueMeta},
-    types::*,
-};
+use crate::types::*;
 use serde::{Deserialize, Deserializer, de};
 use std::{cmp::Ordering, fmt};
 
@@ -42,6 +42,16 @@ pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value
 pub use input::{InputValue, InputValueEnum};
 pub use map::{MapValueError, SchemaInvariantError};
 pub use output::{OutputValue, OutputValueEnum, render_output_value_text};
+pub use runtime::{
+    Collection, MapCollection, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
+    RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
+    runtime_value_btree_set_from_value, runtime_value_collection_to_value,
+    runtime_value_from_value, runtime_value_from_value_with_enum_context,
+    runtime_value_from_value_with_optional_enum_context, runtime_value_from_vec_into,
+    runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
+    runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
+    runtime_value_vec_from_value,
+};
 pub use tag::ValueTag;
 
 //
@@ -358,24 +368,6 @@ impl Value {
         } else {
             None
         }
-    }
-}
-
-impl RuntimeValueMeta for Value {
-    fn kind() -> crate::traits::RuntimeValueKind {
-        crate::traits::RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Value {
-    fn to_value(&self) -> Value {
-        self.clone()
-    }
-}
-
-impl RuntimeValueDecode for Value {
-    fn from_value(value: &Value) -> Option<Self> {
-        Some(value.clone())
     }
 }
 

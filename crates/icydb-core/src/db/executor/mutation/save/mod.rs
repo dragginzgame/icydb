@@ -18,7 +18,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{AuthoredFieldProjection, EntityCreateInput, EntityValue},
+    traits::{AuthoredFieldProjection, EntityCreateInput},
     types::Timestamp,
 };
 
@@ -46,7 +46,7 @@ enum SaveMode {
 //
 
 #[derive(Clone)]
-pub(in crate::db) struct SaveExecutor<E: PersistedRow + EntityValue> {
+pub(in crate::db) struct SaveExecutor<E: PersistedRow> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
     accepted_row_decode_contract: AcceptedRowDecodeContract,
     accepted_schema_info: SchemaInfo,
@@ -141,7 +141,7 @@ impl MutationMode {
     }
 }
 
-impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow> SaveExecutor<E> {
     // Build one canonical write preflight context for one typed save mode.
     const fn save_write_context(mode: SaveMode, now: Timestamp) -> SanitizeWriteContext {
         let mode = match mode {

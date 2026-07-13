@@ -15,14 +15,13 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::EntityValue,
     types::Id,
     value::Value,
 };
 
 impl<E> LoadExecutor<E>
 where
-    E: PersistedRow + EntityValue,
+    E: PersistedRow,
 {
     /// Execute one `top_k_by(field, k)` terminal over materialized load rows
     /// using one planner-resolved field slot.

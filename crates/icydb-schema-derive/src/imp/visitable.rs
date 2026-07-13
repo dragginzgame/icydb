@@ -301,7 +301,7 @@ fn visitable_trait_strategy(def: &Def, tokens: TokenStream) -> TraitStrategy {
 
 fn immutable_collection_visit_tokens() -> TokenStream {
     quote! {
-        use ::icydb::traits::Collection;
+        use ::icydb::value::Collection;
 
         for (i, v) in self.iter().enumerate() {
             perform_visit(visitor, v, i);

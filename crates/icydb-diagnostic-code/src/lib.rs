@@ -557,8 +557,6 @@ pub enum SqlFeatureCode {
     NestedProjectionFunctionInArithmetic,
     OrderByUnsupportedForm,
     Other,
-    ParameterBinding,
-    ParameterizedSchemaVersion,
     PredicateStartsWithFirstArgument,
     QuotedIdentifiers,
     ReturningUnsupportedShape,
@@ -934,7 +932,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 204);
+        assert_eq!(last, 202);
     }
 
     #[test]
@@ -966,7 +964,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 205, u16::MAX] {
+        for raw in [0, 203, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

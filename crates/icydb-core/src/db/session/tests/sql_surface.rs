@@ -347,9 +347,7 @@ fn assert_compiled_select_query_matches_lowered_identity_for_entity<E>(
     sql: &str,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let lowered = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
         .unwrap_or_else(|err| panic!("{context} should lower into one canonical query: {err:?}"));
@@ -415,9 +413,7 @@ fn assert_distinct_compiled_selects_execute_through_shared_query_plan_for_entity
     left: &crate::db::session::sql::CompiledSqlCommand,
     right: &crate::db::session::sql::CompiledSqlCommand,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let _ = session
         .execute_compiled_sql::<E>(left)
@@ -8594,9 +8590,7 @@ fn assert_compiled_select_executes_through_shared_query_plan_for_entity<E>(
     session: &DbSession<SessionSqlCanister>,
     compiled: &crate::db::session::sql::CompiledSqlCommand,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let _ = session
         .execute_compiled_sql::<E>(compiled)
@@ -8620,9 +8614,7 @@ fn assert_latest_catalog_identity_fingerprint_matches_decoded_schema<E>(
     session: &DbSession<SessionSqlCanister>,
     context: &str,
 ) where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let catalog = session
         .accepted_schema_catalog_context_for_query::<E>()

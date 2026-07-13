@@ -18,7 +18,7 @@ use crate::{
         session::finalize_structural_grouped_projection_result,
     },
     error::InternalError,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
     types::Id,
     value::Value,
 };
@@ -168,7 +168,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
     ) -> Result<EntityResponse<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
         self.ensure_prepared_query_plan_is_current(&plan)?;
@@ -189,7 +189,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[doc(hidden)]
     pub fn execute_delete_rows<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: fail closed if the caller routes a non-delete query here.
         if !query.mode().is_delete() {
@@ -218,7 +218,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
     ) -> Result<LoadQueryResult<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: compile typed intent into one prepared execution-plan
         // contract shared by scalar, grouped, and delete execution.
@@ -234,7 +234,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[doc(hidden)]
     pub fn execute_delete_count<E>(&self, query: &Query<E>) -> Result<u32, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         // Phase 1: fail closed if the caller routes a non-delete query here.
         if !query.mode().is_delete() {
@@ -266,7 +266,7 @@ impl<C: CanisterKind> DbSession<C> {
         output: PreparedQueryExecutionOutput,
     ) -> Result<PreparedQueryExecutionOutcome<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         #[cfg(not(feature = "diagnostics"))]
         let _ = collect_attribution;
@@ -358,7 +358,7 @@ impl<C: CanisterKind> DbSession<C> {
         outcome: PreparedQueryExecutionOutcome<E>,
     ) -> Result<LoadQueryResult<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         match outcome {
             PreparedQueryExecutionOutcome::Scalar { rows, .. }
@@ -379,7 +379,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(LoadExecutor<E>, PreparedExecutionPlan<E>) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
         self.ensure_prepared_query_plan_is_current(&plan)?;
@@ -396,7 +396,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(LoadExecutor<E>, PreparedExecutionPlan<E>) -> Result<T, InternalError>,
     ) -> Result<AcceptedExecutionOutput<T>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
         self.ensure_prepared_query_plan_is_current(&plan)?;

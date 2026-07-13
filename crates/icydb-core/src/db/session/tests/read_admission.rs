@@ -3563,9 +3563,7 @@ fn public_read_sql_text_projection_values<E>(
     context: &str,
 ) -> Vec<String>
 where
-    E: crate::db::PersistedRow<Canister = super::SessionSqlCanister>
-        + crate::traits::EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: crate::db::PersistedRow<Canister = super::SessionSqlCanister>,
 {
     let result = session
         .execute_sql_query_with_read_admission_policy::<E>(sql, &public_read_policy(max_rows))

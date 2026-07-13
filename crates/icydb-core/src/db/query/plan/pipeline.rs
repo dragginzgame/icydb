@@ -4,6 +4,7 @@
 //! Boundary: turns `QueryModel` data into finalized `AccessPlannedQuery` contracts.
 
 use crate::{
+    db::KeyValueCodec,
     db::{
         access::AccessPlan,
         predicate::{CompareOp, Predicate},
@@ -24,7 +25,6 @@ use crate::{
         schema::SchemaInfo,
     },
     model::entity::EntityModel,
-    traits::KeyValueCodec,
     value::Value,
 };
 

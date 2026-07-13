@@ -141,7 +141,7 @@ fn composite_primary_key_struct_implements_key_contracts() {
 
     for expected in [
         "impl :: icydb :: __macro :: KeyValueCodec for TestEntityKey",
-        "impl :: icydb :: __macro :: PrimaryKeyCodec for TestEntityKey",
+        "impl :: icydb :: __macro :: PrimaryKeyEncode for TestEntityKey",
         "impl :: icydb :: __macro :: PrimaryKeyDecode for TestEntityKey",
         "impl :: icydb :: __macro :: EntityKeyBytes for TestEntityKey",
     ] {

@@ -1,15 +1,15 @@
 error[E0277]: the trait bound `CloneDebugOnly: PersistedByKindCodec` is not satisfied
-  --> tests/ui/db/persisted_by_kind_payload_requires_codec.rs:19:51
+  --> tests/ui/db/persisted_by_kind_payload_requires_codec.rs:18:51
    |
-19 |     let _ = encode_persisted_slot_payload_by_kind(&value, FieldKind::Text { max_len: None }, "broken");
+18 |     let _ = encode_persisted_slot_payload_by_kind(&value, FieldKind::Text { max_len: None }, "broken");
    |             ------------------------------------- ^^^^^^ unsatisfied trait bound
    |             |
    |             required by a bound introduced by this call
    |
 help: the trait `PersistedByKindCodec` is not implemented for `CloneDebugOnly`
-  --> tests/ui/db/persisted_by_kind_payload_requires_codec.rs:9:1
+  --> tests/ui/db/persisted_by_kind_payload_requires_codec.rs:8:1
    |
- 9 | struct CloneDebugOnly;
+ 8 | struct CloneDebugOnly;
    | ^^^^^^^^^^^^^^^^^^^^^
    = help: the following other types implement trait `PersistedByKindCodec`:
              BTreeMap<K, V>

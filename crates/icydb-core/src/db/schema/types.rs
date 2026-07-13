@@ -13,7 +13,7 @@ use crate::{
         classify_accepted_field_kind,
     },
     model::field::FieldKind,
-    traits::RuntimeValueKind,
+    value::RuntimeValueKind,
     value::{CoercionFamily, Value},
 };
 use std::fmt;

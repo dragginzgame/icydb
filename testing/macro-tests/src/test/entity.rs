@@ -10,12 +10,15 @@ mod tests {
     use icydb::{
         db::DbSession,
         model::field::{FieldDatabaseDefault, FieldKind},
-        traits::{EntityKey, EntitySchema},
+        traits::{EntityKey, EntitySchema, SingletonEntity},
         types::Ulid,
     };
     use icydb_core::{
-        db::{PrimaryKeyComponent, PrimaryKeyValue},
-        traits::{EntityKeyBytes, EntityValue, KeyValueCodec, PrimaryKeyCodec, PrimaryKeyDecode},
+        db::{
+            EntityKeyBytes, EntityKeyBytesError, KeyValueCodec, PrimaryKeyComponent,
+            PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyValue,
+        },
+        traits::EntityValue,
     };
     use icydb_testing_test_fixtures::schema::test::TestCanister;
 
@@ -25,9 +28,16 @@ mod tests {
     {
     }
 
+    fn assert_singleton_entity<T: SingletonEntity>() {}
+
     #[test]
     fn internal_primary_key_uses_declared_field_type() {
         assert_entity_key::<Entity>();
+    }
+
+    #[test]
+    fn unit_primary_key_proves_singleton_entity() {
+        assert_singleton_entity::<UnitKey>();
     }
 
     #[test]
@@ -85,7 +95,7 @@ mod tests {
         assert_eq!(from_value, key);
 
         let primary_key =
-            <CompositePrimaryKeyEntityKey as PrimaryKeyCodec>::to_primary_key_value(&key)
+            <CompositePrimaryKeyEntityKey as PrimaryKeyEncode>::to_primary_key_value(&key)
                 .expect("composite key should encode into primary-key value");
         let PrimaryKeyValue::Composite(composite) = primary_key else {
             panic!("expected composite primary-key value: {primary_key:?}");
@@ -129,9 +139,27 @@ mod tests {
         };
         let mut bytes = vec![0; CompositePrimaryKeyEntityKey::BYTE_LEN];
 
-        EntityKeyBytes::write_bytes(&key, &mut bytes);
+        EntityKeyBytes::write_bytes(&key, &mut bytes)
+            .expect("exact composite-key buffer should encode");
 
         assert_eq!(bytes, [1_u64.to_be_bytes(), 2_u64.to_be_bytes()].concat(),);
+    }
+
+    #[test]
+    fn composite_primary_key_bytes_reject_wrong_buffer_length() {
+        let key = CompositePrimaryKeyEntityKey {
+            tenant_id: 1,
+            local_id: 2,
+        };
+        let mut bytes = [0; CompositePrimaryKeyEntityKey::BYTE_LEN - 1];
+
+        assert_eq!(
+            EntityKeyBytes::write_bytes(&key, &mut bytes),
+            Err(EntityKeyBytesError::BufferLength {
+                expected: CompositePrimaryKeyEntityKey::BYTE_LEN,
+                actual: bytes.len(),
+            }),
+        );
     }
 
     #[test]

@@ -5,10 +5,10 @@
 //! Boundary: convenient crate-level sanitize surface that delegates to visitor traversal.
 
 use crate::{
-    traits::Visitable,
     types::Timestamp,
     visitor::{
-        PathSegment, VisitorError, VisitorMutAdapter, perform_visit_mut, sanitize::SanitizeVisitor,
+        PathSegment, Visitable, VisitorError, VisitorMutAdapter, perform_visit_mut,
+        sanitize::SanitizeVisitor,
     },
 };
 

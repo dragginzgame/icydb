@@ -3,12 +3,10 @@
 //! numeric arithmetic helpers.
 
 use crate::{
-    traits::{
-        NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-    },
+    traits::NumericValue,
     types::Decimal,
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::{CandidType, Nat as WrappedNat};
 use derive_more::{Add, AddAssign, Sub, SubAssign};

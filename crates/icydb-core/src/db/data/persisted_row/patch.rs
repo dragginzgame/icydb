@@ -28,7 +28,6 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::AuthoredFieldProjection,
     value::{InputValue, Value},
 };
 use std::borrow::Cow;
@@ -198,12 +197,12 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         Ok(self.decoded[slot].clone())
     }
 
-    fn runtime_enum_context(&self) -> Option<&dyn crate::traits::RuntimeEnumContext> {
+    fn runtime_enum_context(&self) -> Option<&dyn crate::value::RuntimeEnumContext> {
         Some(
             self.payloads
                 .contract
                 .accepted_enum_catalog_handle()
-                .catalog() as &dyn crate::traits::RuntimeEnumContext,
+                .catalog() as &dyn crate::value::RuntimeEnumContext,
         )
     }
 }
@@ -276,7 +275,7 @@ pub(in crate::db) fn canonical_row_from_entity_for_model_proposal_for_test<E>(
     entity: &E,
 ) -> Result<CanonicalRow, InternalError>
 where
-    E: PersistedRow + AuthoredFieldProjection,
+    E: PersistedRow,
 {
     let accepted_decode_contract =
         AcceptedRowDecodeContract::from_model_proposal_for_test(E::MODEL);
@@ -299,7 +298,7 @@ pub(in crate::db) fn canonical_row_from_entity_with_accepted_contract<E>(
     entity: &E,
 ) -> Result<CanonicalRow, InternalError>
 where
-    E: PersistedRow + AuthoredFieldProjection,
+    E: PersistedRow,
 {
     let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract);
     let contract = StructuralRowContract::from_accepted_decode_contract(

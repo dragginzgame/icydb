@@ -11,6 +11,8 @@
 //! unsupported; the persisted kind tag exists for validation, diagnostics,
 //! cursor/index suffix decoding, and corruption handling.
 
+mod contracts;
+
 use crate::{
     MAX_INDEX_FIELDS,
     db::index::IndexId,
@@ -19,6 +21,12 @@ use crate::{
     value::Value,
 };
 use std::{cmp::Ordering, fmt};
+
+pub use contracts::{
+    EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec, PrimaryKeyDecode,
+    PrimaryKeyEncode, PrimaryKeyEncodeError, ScalarRelationTargetKey,
+    ScalarRelationTargetKeyMatchesDeclaredPrimitive, validate_entity_key_bytes_buffer,
+};
 
 const TAG_SIZE: usize = 1;
 const NAT64_SIZE: usize = 8;

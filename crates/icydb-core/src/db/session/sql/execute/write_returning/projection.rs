@@ -21,7 +21,7 @@ use crate::{
         sql::parser::SqlReturningProjection,
     },
     error::InternalError,
-    traits::{AuthoredFieldProjection, EntityValue},
+    traits::AuthoredFieldProjection,
     value::{OutputValue, Value},
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
@@ -109,7 +109,7 @@ pub(in crate::db::session::sql::execute) fn sql_write_statement_result<E>(
     enum_catalog: &AcceptedEnumCatalogHandle,
 ) -> Result<SqlStatementResult, QueryError>
 where
-    E: PersistedRow + EntityValue + AuthoredFieldProjection,
+    E: PersistedRow,
 {
     let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
     let row_contract = descriptor.row_decode_contract(enum_catalog.clone());

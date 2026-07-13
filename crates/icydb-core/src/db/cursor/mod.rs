@@ -19,6 +19,7 @@ mod validated;
 mod token;
 
 use crate::{
+    db::KeyValueCodec,
     db::{
         access::ExecutionPathPayload,
         direction::Direction,
@@ -27,7 +28,6 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    traits::KeyValueCodec,
     types::EntityTag,
 };
 

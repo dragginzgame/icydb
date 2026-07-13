@@ -21,7 +21,7 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -34,7 +34,7 @@ impl<C: CanisterKind> DbSession<C> {
         request: ScalarProjectionBoundaryRequest,
     ) -> Result<AcceptedExecutionOutput<ScalarProjectionBoundaryOutput>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.execute_scalar_projection_boundary(plan, target_field, request)
@@ -51,7 +51,7 @@ impl<C: CanisterKind> DbSession<C> {
         decode: impl FnOnce(ScalarProjectionBoundaryOutput) -> Result<T, InternalError>,
     ) -> Result<AcceptedExecutionOutput<T>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (output, enum_catalog) = self
             .execute_scalar_projection_boundary(query, target_field, request)?
@@ -69,7 +69,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: ValuesBySlotTerminal,
     ) -> Result<AcceptedValuesOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
         self.execute_scalar_projection_value(
@@ -89,7 +89,7 @@ impl<C: CanisterKind> DbSession<C> {
         projection: Expr,
     ) -> Result<AcceptedValuesOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_projection_value(
             query,
@@ -107,7 +107,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: DistinctValuesBySlotTerminal,
     ) -> Result<AcceptedValuesOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
         self.execute_scalar_projection_value(
@@ -126,7 +126,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: CountDistinctBySlotTerminal,
     ) -> Result<u32, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
         self.execute_scalar_projection_value(
@@ -146,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: ValuesBySlotWithIdsTerminal,
     ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
         self.execute_scalar_projection_value(
@@ -166,7 +166,7 @@ impl<C: CanisterKind> DbSession<C> {
         projection: Expr,
     ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_projection_value(
             query,
@@ -184,7 +184,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: FirstValueBySlotTerminal,
     ) -> Result<AcceptedOptionalValueOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
         self.execute_scalar_projection_value(
@@ -203,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: LastValueBySlotTerminal,
     ) -> Result<AcceptedOptionalValueOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (target_field, request) = strategy.into_executor_request();
         self.execute_scalar_projection_value(
@@ -225,7 +225,7 @@ impl<C: CanisterKind> DbSession<C> {
         projection: Expr,
     ) -> Result<AcceptedOptionalValueOutput, QueryError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_scalar_projection_value(
             query,

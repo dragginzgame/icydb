@@ -3,12 +3,10 @@
 //! values, and persistence key encoding.
 
 use crate::{
-    traits::{
-        EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
-    },
+    db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     types::Principal,
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
@@ -74,9 +72,11 @@ impl Display for Subaccount {
 impl EntityKeyBytes for Subaccount {
     const BYTE_LEN: usize = 32;
 
-    fn write_bytes(&self, out: &mut [u8]) {
-        assert_eq!(out.len(), Self::BYTE_LEN);
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
+        validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out.copy_from_slice(&self.to_bytes());
+
+        Ok(())
     }
 }
 

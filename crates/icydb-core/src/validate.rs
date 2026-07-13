@@ -4,11 +4,8 @@
 //! Does not own: visitor diagnostics or per-type validation implementations.
 //! Boundary: convenient crate-level validation surface that delegates to visitor traversal.
 
-use crate::{
-    traits::Visitable,
-    visitor::{
-        PathSegment, VisitorAdapter, VisitorError, perform_visit, validate::ValidateVisitor,
-    },
+use crate::visitor::{
+    PathSegment, Visitable, VisitorAdapter, VisitorError, perform_visit, validate::ValidateVisitor,
 };
 
 ///

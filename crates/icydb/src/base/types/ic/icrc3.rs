@@ -29,14 +29,14 @@ impl Value {
     }
 }
 
-impl icydb_core::traits::RuntimeValueEncode for Value {
+impl icydb_core::value::RuntimeValueEncode for Value {
     fn to_value(&self) -> icydb_core::value::Value {
         match self {
             Self::Unspecified => icydb_core::value::Value::Unit,
             Self::Array(values) => icydb_core::value::Value::List(
                 values
                     .iter()
-                    .map(|value| icydb_core::traits::RuntimeValueEncode::to_value(value.as_ref()))
+                    .map(|value| icydb_core::value::RuntimeValueEncode::to_value(value.as_ref()))
                     .collect(),
             ),
             Self::Blob(value) => icydb_core::value::Value::Blob(value.to_vec()),
@@ -47,7 +47,7 @@ impl icydb_core::traits::RuntimeValueEncode for Value {
                     .map(|(key, value)| {
                         (
                             icydb_core::value::Value::Text(key.clone()),
-                            icydb_core::traits::RuntimeValueEncode::to_value(value),
+                            icydb_core::value::RuntimeValueEncode::to_value(value),
                         )
                     })
                     .collect(),
@@ -62,7 +62,7 @@ impl icydb_core::traits::PersistedStructuredFieldCodec for Value {
     fn encode_persisted_structured_payload(
         &self,
     ) -> Result<Vec<u8>, icydb_core::error::InternalError> {
-        let value = icydb_core::traits::RuntimeValueEncode::to_value(self);
+        let value = icydb_core::value::RuntimeValueEncode::to_value(self);
         icydb_core::__macro::encode_non_enum_protocol_value_bytes(&value)
     }
 

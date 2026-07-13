@@ -371,7 +371,7 @@ fn group_plan_error_mapping_rejects_cursor_variant() {
 }
 
 #[test]
-fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
+fn cursor_plan_error_mapping_classifies_invalid_payload_as_e6() {
     let err = cursor_payload_error().into_internal_error();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
@@ -379,13 +379,17 @@ fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
     let diagnostic = err.diagnostic();
     assert_eq!(
         diagnostic.code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
     );
     assert_eq!(
         diagnostic.origin(),
         icydb_diagnostic_code::ErrorOrigin::Cursor,
     );
     assert_eq!(diagnostic.detail(), None);
+    assert_eq!(
+        diagnostic.error_code(),
+        icydb_diagnostic_code::ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
+    );
 }
 
 #[test]
@@ -394,6 +398,10 @@ fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
+    assert_eq!(
+        err.diagnostic().code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+    );
 }
 
 #[test]
@@ -465,11 +473,25 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
 
     for cursor_err in cases {
         let expected_class = expected_class_from_cursor_variant(&cursor_err);
+        let expected_code = match expected_class {
+            ErrorClass::Unsupported => {
+                icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor
+            }
+            ErrorClass::InvariantViolation => {
+                icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
+            }
+            _ => unreachable!("cursor conversion matrix only permits two error classes"),
+        };
         let err = cursor_err.into_internal_error();
         assert_eq!(err.origin, ErrorOrigin::Cursor);
         assert_eq!(
             err.class, expected_class,
             "cursor conversion class must remain stable for each cursor variant: {err:?}",
+        );
+        assert_eq!(
+            err.diagnostic().code(),
+            expected_code,
+            "cursor conversion diagnostic must remain stable for each cursor variant: {err:?}",
         );
     }
 }

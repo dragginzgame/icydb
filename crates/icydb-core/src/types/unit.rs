@@ -3,13 +3,12 @@
 //! explicit empty identity.
 
 use crate::{
-    db::{PrimaryKeyComponent, PrimaryKeyValue},
-    traits::{
-        EntityKeyBytes, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
-        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+    db::{
+        EntityKeyBytes, EntityKeyBytesError, PrimaryKeyComponent, PrimaryKeyDecode,
+        PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue, validate_entity_key_bytes_buffer,
     },
-    value::Value,
+    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    visitor::{SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable},
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -26,8 +25,8 @@ pub struct Unit;
 impl EntityKeyBytes for Unit {
     const BYTE_LEN: usize = 0;
 
-    fn write_bytes(&self, out: &mut [u8]) {
-        assert_eq!(out.len(), Self::BYTE_LEN);
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
+        validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)
     }
 }
 
@@ -67,7 +66,7 @@ impl RuntimeValueDecode for Unit {
     }
 }
 
-impl PrimaryKeyCodec for Unit {
+impl PrimaryKeyEncode for Unit {
     fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit))
     }

@@ -67,39 +67,42 @@ pub mod __macro {
     #[doc(hidden)]
     pub fn decode_generated_runtime_field_value<T>(
         value: &crate::value::Value,
-        context: Option<&dyn crate::traits::RuntimeEnumContext>,
+        context: Option<&dyn crate::value::RuntimeEnumContext>,
         field_name: &'static str,
     ) -> Result<T, crate::error::InternalError>
     where
-        T: crate::traits::RuntimeValueDecode,
+        T: crate::value::RuntimeValueDecode,
     {
-        crate::traits::runtime_value_from_value_with_optional_enum_context(value, context)
+        crate::value::runtime_value_from_value_with_optional_enum_context(value, context)
             .ok_or_else(|| {
                 crate::error::InternalError::persisted_row_field_decode_failed(field_name, ())
             })
     }
 
     pub use crate::db::{
-        CompositePrimaryKeyValue, CompositePrimaryKeyValueError,
-        GeneratedStructuralMapPayloadSlices, JournalTailStore, PersistedRow, PersistedScalar,
-        PrimaryKeyComponent, PrimaryKeyValue, ScalarSlotValueRef, ScalarValueRef, SlotReader,
-        StoreRuntimeStorageCapabilities,
+        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, EntityKeyBytes,
+        EntityKeyBytesError, GeneratedStructuralMapPayloadSlices, JournalTailStore, KeyValueCodec,
+        PersistedRow, PersistedScalar, PrimaryKeyComponent, PrimaryKeyDecode, PrimaryKeyEncode,
+        PrimaryKeyEncodeError, PrimaryKeyValue, ScalarRelationTargetKey,
+        ScalarRelationTargetKeyMatchesDeclaredPrimitive, ScalarSlotValueRef, ScalarValueRef,
+        SlotReader, StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
     };
     pub use crate::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use crate::traits::{
-        AuthoredFieldProjection, EntityKeyBytes, FieldProjection, KeyValueCodec,
-        PersistedByKindCodec, PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode,
-        PrimaryKeyEncodeError, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
-        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
-        ScalarRelationTargetKeyMatchesDeclaredPrimitive, runtime_value_btree_map_from_value,
-        runtime_value_btree_set_from_value, runtime_value_collection_to_value,
-        runtime_value_from_value, runtime_value_from_value_with_enum_context,
+        AuthoredFieldProjection, FieldProjection, PersistedByKindCodec,
+        PersistedStructuredFieldCodec,
+    };
+    pub use crate::value::{
+        InputValue, InputValueEnum, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
+        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value, ValueEnum,
+        runtime_value_btree_map_from_value, runtime_value_btree_set_from_value,
+        runtime_value_collection_to_value, runtime_value_from_value,
+        runtime_value_from_value_with_enum_context,
         runtime_value_from_value_with_optional_enum_context, runtime_value_from_vec_into,
         runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
         runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
         runtime_value_vec_from_value,
     };
-    pub use crate::value::{InputValue, InputValueEnum, Value, ValueEnum};
     pub use ic_memory::{
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };

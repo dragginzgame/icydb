@@ -88,7 +88,7 @@
 // export so things just work in base/
 extern crate self as icydb;
 
-use icydb_core::{error::InternalError, traits::Visitable};
+use icydb_core::{error::InternalError, visitor::Visitable};
 pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 
@@ -98,7 +98,8 @@ pub use icydb_core::types;
 
 pub mod value {
     pub use icydb_core::value::{
-        InputValue, InputValueEnum, OutputValue, OutputValueEnum, ValueTag,
+        Collection, InputValue, InputValueEnum, MapCollection, OutputValue, OutputValueEnum,
+        ValueTag,
     };
 }
 
@@ -141,10 +142,11 @@ pub mod metrics {
 
 pub mod visitor {
     pub use icydb_core::visitor::{
-        Issue, PathSegment, SanitizeFieldDescriptor, ScopedContext, ValidateFieldDescriptor,
-        VisitableFieldDescriptor, VisitorContext, VisitorCore, VisitorError, VisitorIssues,
-        VisitorMutCore, drive_sanitize_fields, drive_validate_fields, drive_visitable_fields,
-        drive_visitable_fields_mut, perform_visit, perform_visit_mut,
+        Issue, PathSegment, Sanitize, SanitizeAuto, SanitizeCustom, SanitizeFieldDescriptor,
+        Sanitizer, ScopedContext, Validate, ValidateAuto, ValidateCustom, ValidateFieldDescriptor,
+        Validator, Visitable, VisitableFieldDescriptor, VisitorContext, VisitorCore, VisitorError,
+        VisitorIssues, VisitorMutCore, drive_sanitize_fields, drive_validate_fields,
+        drive_visitable_fields, drive_visitable_fields_mut, perform_visit, perform_visit_mut,
     };
     pub use icydb_core::{
         sanitize::{SanitizeWriteContext, SanitizeWriteMode, sanitize, sanitize_with_context},
@@ -222,9 +224,12 @@ pub mod __macro {
     };
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
-        DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, JournalTailStore, PersistedRow,
-        PrimaryKeyComponent, PrimaryKeyValue, SchemaStore, SlotReader, StoreAllocationIdentities,
-        StoreAllocationIdentity, StoreRegistry, StoreRuntimeStorageCapabilities,
+        DbSession as CoreDbSession, EntityKeyBytes, EntityKeyBytesError, EntityRuntimeHooks,
+        IndexStore, JournalTailStore, KeyValueCodec, PersistedRow, PrimaryKeyComponent,
+        PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue,
+        ScalarRelationTargetKey, ScalarRelationTargetKeyMatchesDeclaredPrimitive, SchemaStore,
+        SlotReader, StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+        StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{
@@ -233,11 +238,13 @@ pub mod __macro {
     };
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{
-        AuthoredFieldProjection, EntityKeyBytes, EntityValue, FieldProjection, KeyValueCodec,
-        PersistedByKindCodec, PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode,
-        PrimaryKeyEncodeError, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
-        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, ScalarRelationTargetKey,
-        ScalarRelationTargetKeyMatchesDeclaredPrimitive, runtime_value_btree_map_from_value,
+        AuthoredFieldProjection, EntityValue, FieldProjection, PersistedByKindCodec,
+        PersistedStructuredFieldCodec,
+    };
+    pub use icydb_core::value::{InputValue, InputValueEnum, Value, ValueEnum};
+    pub use icydb_core::value::{
+        RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode, RuntimeValueEncode,
+        RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
         runtime_value_btree_set_from_value, runtime_value_collection_to_value,
         runtime_value_from_value, runtime_value_from_value_with_enum_context,
         runtime_value_from_value_with_optional_enum_context, runtime_value_from_vec_into,
@@ -245,7 +252,6 @@ pub mod __macro {
         runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
         runtime_value_vec_from_value,
     };
-    pub use icydb_core::value::{InputValue, InputValueEnum, Value, ValueEnum};
 }
 
 // re-exports

@@ -4,9 +4,9 @@
 //! Boundary: lowers key-only builder state into planner-owned access plans.
 
 use crate::{
+    db::KeyValueCodec,
     db::access::{AccessPlan, normalize_access_plan_value},
     db::query::plan::{PrimaryKeyInputResourceSummary, primary_key_input_resource_from_value_list},
-    traits::KeyValueCodec,
     value::Value,
 };
 

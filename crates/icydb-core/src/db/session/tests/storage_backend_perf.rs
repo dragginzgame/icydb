@@ -77,9 +77,7 @@ fn measure_storage_backend<E>(
     build: impl Fn(u64) -> E,
 ) -> StorageBackendTiming
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     println!("measuring {label}...");
     reset();
@@ -169,9 +167,7 @@ where
 
 fn sql_projection_row_count<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> usize
 where
-    E: PersistedRow<Canister = SessionSqlCanister>
-        + EntityValue
-        + crate::traits::AuthoredFieldProjection,
+    E: PersistedRow<Canister = SessionSqlCanister>,
 {
     statement_projection_rows::<E>(session, sql)
         .expect("storage backend timing SQL projection should succeed")

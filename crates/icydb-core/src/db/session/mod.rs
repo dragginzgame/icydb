@@ -153,7 +153,7 @@ impl<C: CanisterKind> DbSession<C> {
         map: impl FnOnce(T) -> R,
     ) -> Result<R, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let (contract, schema_info, schema_fingerprint) = match self
             .with_metrics(|| self.ensure_generated_compatible_accepted_save_schema::<E>())
@@ -185,7 +185,7 @@ impl<C: CanisterKind> DbSession<C> {
         map: impl FnOnce(T) -> R,
     ) -> Result<R, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         let value = self.with_metrics(|| {
             op(self.save_executor::<E>(
@@ -204,7 +204,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(SaveExecutor<E>) -> Result<E, InternalError>,
     ) -> Result<E, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_with(op, std::convert::identity)
     }
@@ -214,7 +214,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(SaveExecutor<E>) -> Result<Vec<E>, InternalError>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         self.execute_save_with(op, WriteBatchResponse::new)
     }
@@ -288,7 +288,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub(in crate::db) const fn delete_executor<E>(&self) -> DeleteExecutor<E>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         DeleteExecutor::new(self.db)
     }
@@ -301,7 +301,7 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema_fingerprint: CommitSchemaFingerprint,
     ) -> SaveExecutor<E>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C>,
     {
         SaveExecutor::new_with_accepted_contract(
             self.db,

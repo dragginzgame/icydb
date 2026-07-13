@@ -514,7 +514,8 @@ fn composite_primary_key_type_part(entity: &Entity) -> TokenStream {
     let key_field_specs = composite_primary_key_field_specs(entity);
     let struct_tokens = composite_primary_key_struct_tokens(&key_ident, &key_field_specs);
     let key_value_tokens = composite_primary_key_value_codec_tokens(&key_ident, &key_field_specs);
-    let primary_key_codec_tokens = composite_primary_key_codec_tokens(&key_ident, &key_field_specs);
+    let primary_key_encode_tokens =
+        composite_primary_key_encode_tokens(&key_ident, &key_field_specs);
     let primary_key_decode_tokens =
         composite_primary_key_decode_tokens(&key_ident, &key_field_specs);
     let key_bytes_tokens = composite_primary_key_bytes_tokens(&key_ident, &key_field_specs);
@@ -522,7 +523,7 @@ fn composite_primary_key_type_part(entity: &Entity) -> TokenStream {
     quote! {
         #struct_tokens
         #key_value_tokens
-        #primary_key_codec_tokens
+        #primary_key_encode_tokens
         #primary_key_decode_tokens
         #key_bytes_tokens
     }
@@ -618,14 +619,14 @@ fn composite_primary_key_value_codec_tokens(
     }
 }
 
-fn composite_primary_key_codec_tokens(
+fn composite_primary_key_encode_tokens(
     key_ident: &Ident,
     key_field_specs: &[(Ident, TokenStream)],
 ) -> TokenStream {
     let primary_key_component_encoders = key_field_specs.iter().map(composite_component_encoder);
 
     quote! {
-        impl ::icydb::__macro::PrimaryKeyCodec for #key_ident {
+        impl ::icydb::__macro::PrimaryKeyEncode for #key_ident {
             fn to_primary_key_value(
                 &self,
             ) -> Result<
@@ -650,7 +651,7 @@ fn composite_component_encoder(
     (primary_key_field, field_ty): &(Ident, TokenStream),
 ) -> TokenStream {
     quote! {
-        match <#field_ty as ::icydb::__macro::PrimaryKeyCodec>::to_primary_key_value(&self.#primary_key_field)? {
+        match <#field_ty as ::icydb::__macro::PrimaryKeyEncode>::to_primary_key_value(&self.#primary_key_field)? {
             ::icydb::__macro::PrimaryKeyValue::Scalar(component) => component,
             ::icydb::__macro::PrimaryKeyValue::Composite(_) => {
                 return Err(::icydb::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
@@ -714,7 +715,7 @@ fn composite_primary_key_bytes_tokens(
     let byte_writers = key_field_specs.iter().map(|(primary_key_field, field_ty)| {
         quote! {
             let (head, tail) = rest.split_at_mut(<#field_ty as ::icydb::__macro::EntityKeyBytes>::BYTE_LEN);
-            <#field_ty as ::icydb::__macro::EntityKeyBytes>::write_bytes(&self.#primary_key_field, head);
+            <#field_ty as ::icydb::__macro::EntityKeyBytes>::write_bytes(&self.#primary_key_field, head)?;
             rest = tail;
         }
     });
@@ -723,11 +724,16 @@ fn composite_primary_key_bytes_tokens(
         impl ::icydb::__macro::EntityKeyBytes for #key_ident {
             const BYTE_LEN: usize = 0 #( + #byte_len_terms )*;
 
-            fn write_bytes(&self, out: &mut [u8]) {
-                assert_eq!(out.len(), Self::BYTE_LEN);
+            fn write_bytes(
+                &self,
+                out: &mut [u8],
+            ) -> Result<(), ::icydb::__macro::EntityKeyBytesError> {
+                ::icydb::__macro::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
                 let mut rest = out;
                 #(#byte_writers)*
                 let _ = rest;
+
+                Ok(())
             }
         }
     }
