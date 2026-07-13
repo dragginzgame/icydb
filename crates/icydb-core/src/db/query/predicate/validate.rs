@@ -14,7 +14,7 @@ use crate::{
             ValidateError, literal_matches_type,
         },
     },
-    value::{CoercionFamilyExt, Value},
+    value::Value,
 };
 
 /// Reject policy-level non-queryable features before planning.

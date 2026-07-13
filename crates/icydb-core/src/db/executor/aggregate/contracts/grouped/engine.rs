@@ -9,10 +9,7 @@ use crate::{
         direction::Direction,
         executor::aggregate::contracts::{
             spec::{ScalarAggregateOutput, ScalarTerminalKind},
-            state::{
-                AggregateStateFactory, FoldControl, ScalarAggregateState,
-                ScalarTerminalAggregateState,
-            },
+            state::{AggregateStateFactory, FoldControl, ScalarTerminalAggregateState},
         },
     },
     error::InternalError,

@@ -8,8 +8,8 @@ use crate::{
         Principal, Subaccount, Timestamp, Ulid,
     },
     value::{
-        CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
-        canonicalize_value_set, hash_value,
+        CoercionFamily, SchemaInvariantError, TextMode, Value, ValueEnum, canonicalize_value_set,
+        hash_value,
     },
 };
 use std::{cmp::Ordering, collections::BTreeSet};

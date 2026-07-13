@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.201.md](docs/changelog/0.201.md)
 
+- `0.201.4` removes redundant single-implementation contract layers and
+  test-only expression-store scaffolding. Potentially breaking:
+  `CoercionFamilyExt` users must call `Value::coercion_family()` directly.
+
 - `0.201.3` completes owner-local contract organization and narrows the public
   trait facade. Potentially breaking: direct core imports, renamed entity and
   persistence contracts, and convenience dependency reexports must use their

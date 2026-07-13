@@ -4,7 +4,7 @@
 //! Does not own: operator execution, map normalization, or numeric conversion.
 //! Boundary: lightweight capability and coercion-family classification.
 
-use crate::value::{CoercionFamily, CoercionFamilyExt, Value};
+use crate::value::{CoercionFamily, Value};
 
 /// Returns true if the value is one of the numeric-like variants supported by
 /// numeric comparison/ordering.
@@ -81,15 +81,14 @@ impl Value {
     pub const fn supports_numeric_coercion(&self) -> bool {
         supports_numeric_coercion(self)
     }
-}
 
-impl CoercionFamilyExt for Value {
     /// Returns the coercion-routing family for this value.
     ///
     /// NOTE:
     /// This does NOT imply numeric, arithmetic, ordering, or keyability support.
     /// All scalar capabilities are registry-driven.
-    fn coercion_family(&self) -> CoercionFamily {
+    #[must_use]
+    pub const fn coercion_family(&self) -> CoercionFamily {
         coercion_family(self)
     }
 }

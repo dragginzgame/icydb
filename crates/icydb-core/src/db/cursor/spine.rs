@@ -24,60 +24,16 @@ use crate::{
     types::EntityTag,
 };
 
+/// Immutable plan facts required by structured cursor validation.
 ///
-/// CursorPlanSurface
-///
-/// Thin plan-surface contract for cursor validation.
-/// This keeps structured cursor checks coupled to one semantic owner instead
-/// of threading many independent plan parameters through validation helpers.
-///
-
-trait CursorPlanSurface<K: KeyValueCodec> {
-    fn schema_info(&self) -> &SchemaInfo;
-
-    fn order_spec(&self) -> &OrderSpec;
-
-    fn direction(&self) -> Direction;
-
-    fn access(&self) -> Option<&ExecutionPathPayload<'_, K>>;
-
-    fn initial_offset(&self) -> u32;
-}
-
-///
-/// CursorPlanSurfaceAdapter
-///
-/// Concrete adapter that exposes the canonical cursor validation surface.
-///
-
-struct CursorPlanSurfaceAdapter<'a, K> {
+/// Keeping these facts together prevents the nested invariant gates from
+/// accepting independently mismatched plan parameters.
+struct CursorValidationContext<'a, K> {
     access: Option<ExecutionPathPayload<'a, K>>,
     schema: &'a SchemaInfo,
     order: &'a OrderSpec,
-    direction: Direction,
-    initial_offset: u32,
-}
-
-impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> {
-    fn schema_info(&self) -> &SchemaInfo {
-        self.schema
-    }
-
-    fn order_spec(&self) -> &OrderSpec {
-        self.order
-    }
-
-    fn direction(&self) -> Direction {
-        self.direction
-    }
-
-    fn access(&self) -> Option<&ExecutionPathPayload<'_, K>> {
-        self.access.as_ref()
-    }
-
-    fn initial_offset(&self) -> u32 {
-        self.initial_offset
-    }
+    expected_direction: Direction,
+    expected_initial_offset: u32,
 }
 
 /// Validate and materialize an executable cursor through the canonical spine.
@@ -100,12 +56,12 @@ where
         return Ok(ValidatedCursor::none());
     };
 
-    let surface = CursorPlanSurfaceAdapter {
+    let context = CursorValidationContext {
         access,
         schema,
         order,
-        direction,
-        initial_offset: expected_initial_offset,
+        expected_direction: direction,
+        expected_initial_offset,
     };
     let token = decode_validated_cursor(cursor, entity_path, expected_signature)?;
     validate_structured_cursor(
@@ -114,7 +70,7 @@ where
         token.direction(),
         token.initial_offset(),
         entity_tag,
-        &surface,
+        &context,
         true,
     )
 }
@@ -136,12 +92,12 @@ where
         return Ok(ValidatedCursor::none());
     }
 
-    let surface = CursorPlanSurfaceAdapter {
+    let context = CursorValidationContext {
         access,
         schema,
         order,
-        direction,
-        initial_offset: expected_initial_offset,
+        expected_direction: direction,
+        expected_initial_offset,
     };
     let boundary = cursor
         .boundary()
@@ -157,7 +113,7 @@ where
         direction,
         cursor.initial_offset(),
         entity_tag,
-        &surface,
+        &context,
         false,
     )
 }
@@ -195,13 +151,13 @@ fn validate_cursor_signature(
 }
 
 /// Validate the canonical structured cursor payload and materialize executor state.
-fn validate_structured_cursor<K: KeyValueCodec, S: CursorPlanSurface<K>>(
+fn validate_structured_cursor<K: KeyValueCodec>(
     boundary: CursorBoundary,
     index_range_anchor: Option<IndexRangeCursorAnchor>,
     actual_direction: Direction,
     actual_initial_offset: u32,
     entity_tag: EntityTag,
-    surface: &S,
+    context: &CursorValidationContext<'_, K>,
     require_index_range_anchor: bool,
 ) -> Result<ValidatedCursor, CursorPlanError> {
     let validated_index_range_anchor = validate_cursor_boundary_anchor_invariants(
@@ -210,7 +166,7 @@ fn validate_structured_cursor<K: KeyValueCodec, S: CursorPlanSurface<K>>(
         actual_direction,
         actual_initial_offset,
         entity_tag,
-        surface,
+        context,
         require_index_range_anchor,
     )?;
 
@@ -225,33 +181,30 @@ fn validate_structured_cursor<K: KeyValueCodec, S: CursorPlanSurface<K>>(
 ///
 /// This is the single cursor-spine boundary for direction, window-shape,
 /// boundary arity/type, and index-range anchor consistency checks.
-fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec, S: CursorPlanSurface<K>>(
+fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec>(
     boundary: &CursorBoundary,
     index_range_anchor: Option<&IndexRangeCursorAnchor>,
     actual_direction: Direction,
     actual_initial_offset: u32,
     entity_tag: EntityTag,
-    surface: &S,
+    context: &CursorValidationContext<'_, K>,
     require_index_range_anchor: bool,
 ) -> Result<Option<ValidatedInEnvelopeIndexRangeCursorAnchor>, CursorPlanError> {
-    let expected_direction = surface.direction();
-    validate_cursor_direction(expected_direction, actual_direction)?;
+    validate_cursor_direction(context.expected_direction, actual_direction)?;
 
-    let expected_initial_offset = surface.initial_offset();
-    validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;
+    validate_cursor_window_offset(context.expected_initial_offset, actual_initial_offset)?;
     let validated_index_range_anchor = validate_index_range_anchor(
         index_range_anchor,
-        surface.access(),
+        context.access.as_ref(),
         entity_tag,
         actual_direction,
         require_index_range_anchor,
     )?;
 
-    let pk_key =
-        validate_cursor_boundary_for_order(surface.schema_info(), surface.order_spec(), boundary)?;
+    let pk_key = validate_cursor_boundary_for_order(context.schema, context.order, boundary)?;
     validate_index_range_boundary_anchor_consistency(
         validated_index_range_anchor.as_ref(),
-        surface.access(),
+        context.access.as_ref(),
         &pk_key,
     )?;
 

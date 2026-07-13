@@ -20,4 +20,4 @@ pub(in crate::db::executor) use factory::AggregateStateFactory;
 pub(in crate::db::executor) use grouped::GroupedTerminalAggregateState;
 pub(in crate::db::executor::aggregate::contracts::state) use reducer::GroupedAggregateReducerState;
 pub(in crate::db::executor) use reducer::ScalarAggregateReducerState;
-pub(in crate::db::executor) use scalar::{ScalarAggregateState, ScalarTerminalAggregateState};
+pub(in crate::db::executor) use scalar::ScalarTerminalAggregateState;

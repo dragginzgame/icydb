@@ -35,7 +35,7 @@ use std::{cmp::Ordering, fmt};
 // re-exports
 pub(crate) use canonical::canonicalize_value_set;
 pub(crate) use canonical_enum::{CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId};
-pub use coercion::{CoercionFamily, CoercionFamilyExt};
+pub use coercion::CoercionFamily;
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;
 pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value, hash_value};

@@ -27,13 +27,3 @@ pub enum CoercionFamily {
     Null, // Value::Null
     Unit, // Value::Unit
 }
-
-///
-/// CoercionFamilyExt
-///
-/// Maps a value to its coercion-routing family.
-///
-pub trait CoercionFamilyExt {
-    /// Returns the coercion-routing family for this value.
-    fn coercion_family(&self) -> CoercionFamily;
-}

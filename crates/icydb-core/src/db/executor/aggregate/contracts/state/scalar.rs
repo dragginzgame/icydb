@@ -22,22 +22,6 @@ use crate::{
 };
 
 ///
-/// ScalarAggregateState
-///
-/// Canonical scalar aggregate state-machine contract consumed by kernel
-/// reducer orchestration. Implementations must keep transitions deterministic
-/// and emit scalar terminal outputs using the shared aggregate output taxonomy.
-///
-
-pub(in crate::db::executor) trait ScalarAggregateState {
-    /// Apply one candidate data key to this aggregate state machine.
-    fn apply(&mut self, key: &DecodedDataStoreKey) -> Result<FoldControl, InternalError>;
-
-    /// Finalize this aggregate state into one terminal output payload.
-    fn finalize(self) -> ScalarAggregateOutput;
-}
-
-///
 /// ScalarTerminalAggregateState
 ///
 /// ScalarTerminalAggregateState binds one scalar aggregate kind + direction to
@@ -54,8 +38,12 @@ pub(in crate::db::executor) struct ScalarTerminalAggregateState {
     pub(in crate::db::executor::aggregate::contracts::state) reducer: ScalarAggregateReducerState,
 }
 
-impl ScalarAggregateState for ScalarTerminalAggregateState {
-    fn apply(&mut self, key: &DecodedDataStoreKey) -> Result<FoldControl, InternalError> {
+impl ScalarTerminalAggregateState {
+    /// Apply one candidate data key to this aggregate state machine.
+    pub(in crate::db::executor) fn apply(
+        &mut self,
+        key: &DecodedDataStoreKey,
+    ) -> Result<FoldControl, InternalError> {
         if self.distinct && !record_distinct_key(self.distinct_keys.as_mut(), key)? {
             return Ok(FoldControl::Continue);
         }
@@ -63,12 +51,11 @@ impl ScalarAggregateState for ScalarTerminalAggregateState {
         self.apply_terminal_update(key)
     }
 
-    fn finalize(self) -> ScalarAggregateOutput {
+    /// Finalize this aggregate state into one terminal output payload.
+    pub(in crate::db::executor) fn finalize(self) -> ScalarAggregateOutput {
         self.reducer.into_output()
     }
-}
 
-impl ScalarTerminalAggregateState {
     // Build the canonical scalar terminal invariant for primary-key-value-required updates.
     fn primary_key_value_required(_kind: &'static str) -> InternalError {
         InternalError::query_executor_invariant()

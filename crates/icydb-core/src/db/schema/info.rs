@@ -820,8 +820,8 @@ impl SchemaInfo {
     ///
     /// Accepted live schemas use persisted field kinds so SQL read predicates
     /// follow the same top-level type boundary as SQL writes and planning.
-    /// Generated schema views retain the old generated-kind fallback for
-    /// direct lowering tests and compile-time-only callers.
+    /// Generated schema views use generated kinds only for direct lowering
+    /// tests and compile-time-only callers.
     ///
     #[cfg(feature = "sql")]
     #[must_use]
