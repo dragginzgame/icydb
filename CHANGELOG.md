@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.201.x] 🩹 - 2026-07-13 - Trait Contract Hardening
+
+Detailed notes: [docs/changelog/0.201.md](docs/changelog/0.201.md)
+
+- `0.201.0` makes visitor traversal the sole owner of `Option` and `Vec` child
+  recursion, so sanitize and validation hooks run exactly once at the correct
+  paths while transparent `Box` forwarding remains unchanged.
+
 ## [0.200.x] ⚠️ - 2026-07-12 - Schema-Native Enums
 
 Detailed notes: [docs/changelog/0.200.md](docs/changelog/0.200.md)

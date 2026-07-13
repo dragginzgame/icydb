@@ -28,6 +28,10 @@ pub trait Visitable: Sanitize + Validate {
 // -------------------- Container forwarding --------------------
 //
 
+// `Option` and `Vec` describe child structure here; their sanitize and
+// validate hooks remain node-local no-ops. `Box` is transparent instead, so
+// its hook forwarding supplies the boxed node's one logical hook call.
+
 impl<T: Visitable> Visitable for Option<T> {
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         if let Some(value) = self.as_ref() {
@@ -95,21 +99,9 @@ pub trait SanitizeAuto {
     fn sanitize_self(&mut self, _ctx: &mut dyn VisitorContext) {}
 }
 
-impl<T: SanitizeAuto> SanitizeAuto for Option<T> {
-    fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext) {
-        if let Some(v) = self.as_mut() {
-            v.sanitize_self(ctx);
-        }
-    }
-}
+impl<T: SanitizeAuto> SanitizeAuto for Option<T> {}
 
-impl<T: SanitizeAuto> SanitizeAuto for Vec<T> {
-    fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext) {
-        for v in self.iter_mut() {
-            v.sanitize_self(ctx);
-        }
-    }
-}
+impl<T: SanitizeAuto> SanitizeAuto for Vec<T> {}
 
 impl<T: SanitizeAuto + ?Sized> SanitizeAuto for Box<T> {
     fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext) {
@@ -130,21 +122,9 @@ pub trait SanitizeCustom {
     fn sanitize_custom(&mut self, _ctx: &mut dyn VisitorContext) {}
 }
 
-impl<T: SanitizeCustom> SanitizeCustom for Option<T> {
-    fn sanitize_custom(&mut self, ctx: &mut dyn VisitorContext) {
-        if let Some(v) = self.as_mut() {
-            v.sanitize_custom(ctx);
-        }
-    }
-}
+impl<T: SanitizeCustom> SanitizeCustom for Option<T> {}
 
-impl<T: SanitizeCustom> SanitizeCustom for Vec<T> {
-    fn sanitize_custom(&mut self, ctx: &mut dyn VisitorContext) {
-        for v in self.iter_mut() {
-            v.sanitize_custom(ctx);
-        }
-    }
-}
+impl<T: SanitizeCustom> SanitizeCustom for Vec<T> {}
 
 impl<T: SanitizeCustom + ?Sized> SanitizeCustom for Box<T> {
     fn sanitize_custom(&mut self, ctx: &mut dyn VisitorContext) {
@@ -180,21 +160,9 @@ pub trait ValidateAuto {
     fn validate_self(&self, _ctx: &mut dyn VisitorContext) {}
 }
 
-impl<T: ValidateAuto> ValidateAuto for Option<T> {
-    fn validate_self(&self, ctx: &mut dyn VisitorContext) {
-        if let Some(v) = self.as_ref() {
-            v.validate_self(ctx);
-        }
-    }
-}
+impl<T: ValidateAuto> ValidateAuto for Option<T> {}
 
-impl<T: ValidateAuto> ValidateAuto for Vec<T> {
-    fn validate_self(&self, ctx: &mut dyn VisitorContext) {
-        for v in self {
-            v.validate_self(ctx);
-        }
-    }
-}
+impl<T: ValidateAuto> ValidateAuto for Vec<T> {}
 
 impl<T: ValidateAuto + ?Sized> ValidateAuto for Box<T> {
     fn validate_self(&self, ctx: &mut dyn VisitorContext) {
@@ -215,21 +183,9 @@ pub trait ValidateCustom {
     fn validate_custom(&self, _ctx: &mut dyn VisitorContext) {}
 }
 
-impl<T: ValidateCustom> ValidateCustom for Option<T> {
-    fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
-        if let Some(v) = self.as_ref() {
-            v.validate_custom(ctx);
-        }
-    }
-}
+impl<T: ValidateCustom> ValidateCustom for Option<T> {}
 
-impl<T: ValidateCustom> ValidateCustom for Vec<T> {
-    fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
-        for v in self {
-            v.validate_custom(ctx);
-        }
-    }
-}
+impl<T: ValidateCustom> ValidateCustom for Vec<T> {}
 
 impl<T: ValidateCustom + ?Sized> ValidateCustom for Box<T> {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
@@ -238,3 +194,115 @@ impl<T: ValidateCustom + ?Sized> ValidateCustom for Box<T> {
 }
 
 impl_primitive!(ValidateCustom);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        sanitize::sanitize,
+        validate::validate,
+        visitor::{Issue, VisitorError},
+    };
+    use std::cell::Cell;
+
+    const AUTO_SANITIZE_ISSUE: &str = "automatic sanitize";
+    const CUSTOM_SANITIZE_ISSUE: &str = "custom sanitize";
+    const AUTO_VALIDATE_ISSUE: &str = "automatic validate";
+    const CUSTOM_VALIDATE_ISSUE: &str = "custom validate";
+
+    #[derive(Default)]
+    struct HookProbe {
+        auto_sanitize: u32,
+        custom_sanitize: u32,
+        auto_validate: Cell<u32>,
+        custom_validate: Cell<u32>,
+    }
+
+    impl Visitable for HookProbe {}
+
+    impl SanitizeAuto for HookProbe {
+        fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext) {
+            self.auto_sanitize += 1;
+            ctx.issue(AUTO_SANITIZE_ISSUE);
+        }
+    }
+
+    impl SanitizeCustom for HookProbe {
+        fn sanitize_custom(&mut self, ctx: &mut dyn VisitorContext) {
+            self.custom_sanitize += 1;
+            ctx.issue(CUSTOM_SANITIZE_ISSUE);
+        }
+    }
+
+    impl ValidateAuto for HookProbe {
+        fn validate_self(&self, ctx: &mut dyn VisitorContext) {
+            self.auto_validate.set(self.auto_validate.get() + 1);
+            ctx.issue(AUTO_VALIDATE_ISSUE);
+        }
+    }
+
+    impl ValidateCustom for HookProbe {
+        fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
+            self.custom_validate.set(self.custom_validate.get() + 1);
+            ctx.issue(CUSTOM_VALIDATE_ISSUE);
+        }
+    }
+
+    fn assert_issues(error: &VisitorError, path: &str, expected: [&str; 2]) {
+        let issues = error
+            .issues()
+            .get(path)
+            .unwrap_or_else(|| panic!("expected visitor issues at {path}"));
+        let messages = issues.iter().map(Issue::message).collect::<Vec<_>>();
+        assert_eq!(messages, expected);
+    }
+
+    #[test]
+    fn option_vec_sanitize_hooks_run_once_at_each_indexed_path() {
+        let mut value = Some(vec![HookProbe::default(), HookProbe::default()]);
+
+        let error = sanitize(&mut value).expect_err("probe sanitizers should report issues");
+
+        let Some(probes) = value.as_ref() else {
+            panic!("sanitize should preserve the populated option");
+        };
+        for probe in probes {
+            assert_eq!(probe.auto_sanitize, 1);
+            assert_eq!(probe.custom_sanitize, 1);
+        }
+        assert!(error.issues().get("").is_none());
+        assert_issues(&error, "[0]", [AUTO_SANITIZE_ISSUE, CUSTOM_SANITIZE_ISSUE]);
+        assert_issues(&error, "[1]", [AUTO_SANITIZE_ISSUE, CUSTOM_SANITIZE_ISSUE]);
+    }
+
+    #[test]
+    fn option_vec_validate_hooks_run_once_at_each_indexed_path() {
+        let value = Some(vec![HookProbe::default(), HookProbe::default()]);
+
+        let error = validate(&value).expect_err("probe validators should report issues");
+
+        let Some(probes) = value.as_ref() else {
+            panic!("validate should preserve the populated option");
+        };
+        for probe in probes {
+            assert_eq!(probe.auto_validate.get(), 1);
+            assert_eq!(probe.custom_validate.get(), 1);
+        }
+        assert!(error.issues().get("").is_none());
+        assert_issues(&error, "[0]", [AUTO_VALIDATE_ISSUE, CUSTOM_VALIDATE_ISSUE]);
+        assert_issues(&error, "[1]", [AUTO_VALIDATE_ISSUE, CUSTOM_VALIDATE_ISSUE]);
+    }
+
+    #[test]
+    fn box_transparency_keeps_one_forwarded_hook_call() {
+        let mut sanitized = Box::new(HookProbe::default());
+        let _ = sanitize(&mut sanitized).expect_err("probe sanitizers should report issues");
+        assert_eq!(sanitized.auto_sanitize, 1);
+        assert_eq!(sanitized.custom_sanitize, 1);
+
+        let validated = Box::new(HookProbe::default());
+        let _ = validate(&validated).expect_err("probe validators should report issues");
+        assert_eq!(validated.auto_validate.get(), 1);
+        assert_eq!(validated.custom_validate.get(), 1);
+    }
+}
