@@ -24,6 +24,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate prepared execution plan and reject grouped plans.
         let plan = self.cached_prepared_query_plan_for_entity::<E>(query)?.0;
+        self.ensure_prepared_query_plan_is_current(&plan)?;
         Self::ensure_scalar_paged_execution_family(
             plan.execution_family().map_err(QueryError::execute)?,
         )?;

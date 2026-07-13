@@ -705,7 +705,8 @@ impl InternalError {
 
     /// Construct a query-origin conflict for execution against a superseded
     /// accepted schema revision.
-    #[cfg(feature = "sql")]
+    #[cold]
+    #[inline(never)]
     pub(crate) fn query_stale_accepted_schema_revision(
         _expected_revision: u64,
         _current_revision: Option<u64>,

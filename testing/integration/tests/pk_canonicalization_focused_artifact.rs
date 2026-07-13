@@ -11,8 +11,7 @@ use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-const MANIFEST_RELATIVE_PATH: &str =
-    "docs/design/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.json";
+const MANIFEST_RELATIVE_PATH: &str = "docs/design/archive/0.197-deterministic-optimizer-canonicalization/focused-matrix-manifest.json";
 const FOCUSED_BEFORE_ENV: &str = "ICYDB_197_PK_FOCUSED_BEFORE_JSON";
 const FOCUSED_AFTER_ENV: &str = "ICYDB_197_PK_FOCUSED_AFTER_JSON";
 const FOCUSED_CURRENT_OUT_ENV: &str = "ICYDB_197_PK_FOCUSED_CURRENT_OUT";
@@ -417,7 +416,7 @@ fn focused_delta_path() -> PathBuf {
     env::var(FOCUSED_DELTA_ENV).map_or_else(
         |_| {
             workspace_root().join(
-                "docs/design/0.197-deterministic-optimizer-canonicalization/\
+                "docs/design/archive/0.197-deterministic-optimizer-canonicalization/\
                  sql_perf_197_pk_canonicalization_delta.json",
             )
         },
@@ -433,7 +432,7 @@ fn focused_current_output_path() -> PathBuf {
     env::var(FOCUSED_CURRENT_OUT_ENV).map_or_else(
         |_| {
             workspace_root().join(
-                "docs/design/0.197-deterministic-optimizer-canonicalization/\
+                "docs/design/archive/0.197-deterministic-optimizer-canonicalization/\
                  sql_perf_197_pk_canonicalization_after.json",
             )
         },

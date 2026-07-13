@@ -20,8 +20,8 @@ use crate::{
             accepted_schema_cache_fingerprint_method_version, decode_persisted_schema_snapshot,
             encode_persisted_schema_snapshot,
             enum_catalog::{
-                AcceptedEnumCatalogHandle, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
-                AcceptedSchemaRevisionBundle, AcceptedSchemaRootSelection,
+                AcceptedEnumCatalogHandle, AcceptedSchemaAuthority, AcceptedSchemaPublicationError,
+                AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, AcceptedSchemaRootSelection,
                 AcceptedStoreCatalogScope, CandidateSchemaRevision,
                 decode_verified_accepted_schema_revision_bundle,
                 prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
@@ -166,6 +166,10 @@ impl RawSchemaKey {
     #[cfg(test)]
     const fn is_entity_snapshot(self) -> bool {
         self.0[0] == SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT
+    }
+
+    const fn is_accepted_root(self) -> bool {
+        self.0[0] == SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT
     }
 }
 
@@ -801,6 +805,40 @@ impl SchemaStore {
             .map(|selection| selection.root().revision()))
     }
 
+    /// Return whether one retained schema authority still names this store's
+    /// current immutable accepted root.
+    pub(in crate::db) fn current_accepted_schema_authority_matches(
+        &self,
+        expected: &AcceptedSchemaAuthority,
+    ) -> Result<bool, InternalError> {
+        let Some(store_scope) = self.accepted_catalog_scope.get() else {
+            return Ok(false);
+        };
+
+        // Root-writing primitives invalidate this cache before publication,
+        // so a retained selection is the current in-memory authority.
+        if let Some(cached) = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?
+            .as_ref()
+        {
+            let root = cached.selection.root();
+            return Ok(expected.matches_store_root(
+                store_scope,
+                root.revision(),
+                root.fingerprint(),
+            ));
+        }
+
+        let Some(selection) = self.current_accepted_schema_root()? else {
+            return Ok(false);
+        };
+        let root = selection.root();
+
+        Ok(expected.matches_store_root(store_scope, root.revision(), root.fingerprint()))
+    }
+
     /// Bootstrap an immutable candidate directly into the schema allocation.
     ///
     /// Journaled online revisions must use `apply_journaled_accepted_schema_candidate`.
@@ -1119,6 +1157,7 @@ impl SchemaStore {
         key: RawSchemaKey,
         snapshot: RawSchemaSnapshot,
     ) -> Option<RawSchemaSnapshot> {
+        self.invalidate_accepted_bundle_cache_for_key(key);
         let previous_journaled = if matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
             self.get_raw_snapshot_for_backend(&key)
         } else {
@@ -1216,6 +1255,7 @@ impl SchemaStore {
         key: RawSchemaKey,
         bytes: Vec<u8>,
     ) -> Result<(), InternalError> {
+        self.invalidate_accepted_bundle_cache_for_key(key);
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
@@ -1227,6 +1267,7 @@ impl SchemaStore {
     // directly in the schema allocation. Later online schema mutation will
     // carry the same values through the journal before calling this primitive.
     fn insert_durable_raw_value(&mut self, key: RawSchemaKey, bytes: Vec<u8>) {
+        self.invalidate_accepted_bundle_cache_for_key(key);
         let value = RawSchemaSnapshot::from_encoded_control_record(bytes);
         match &mut self.backend {
             SchemaStoreBackend::Heap(map) => {
@@ -1241,6 +1282,12 @@ impl SchemaStore {
                 tombstones.remove(&key);
                 canonical.insert(key, value);
             }
+        }
+    }
+
+    fn invalidate_accepted_bundle_cache_for_key(&mut self, key: RawSchemaKey) {
+        if key.is_accepted_root() {
+            self.accepted_bundle_cache.get_mut().take();
         }
     }
 

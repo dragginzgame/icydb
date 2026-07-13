@@ -7979,6 +7979,48 @@ fn execute_compiled_sql_context_rejects_stale_accepted_schema_revision() {
 }
 
 #[test]
+fn prepared_typed_query_plan_rejects_stale_accepted_schema_authority() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    let query = lower_select_query_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+    )
+    .expect("typed query should lower against the initial accepted root");
+    let (plan, _) = session
+        .cached_prepared_query_plan_for_entity::<SessionSqlEntity>(&query)
+        .expect("typed query should retain its accepted authority");
+    session
+        .ensure_prepared_query_plan_is_current(&plan)
+        .expect("freshly prepared plan authority should be current");
+
+    let _ = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+            1,
+        ))
+        .expect("DDL execution should publish a new accepted schema revision");
+
+    let err = session
+        .ensure_prepared_query_plan_is_current(&plan)
+        .expect_err("pre-DDL typed plan must reject under the post-DDL root");
+    let QueryError::Execute(execution) = &err else {
+        panic!("stale typed plan should be an execution conflict");
+    };
+    assert!(matches!(
+        execution.as_internal().detail(),
+        Some(ErrorDetail::Query(QueryErrorDetail::StaleSchemaRevision)),
+    ));
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn execute_sql_field_ddl_publication_rejects_pre_ddl_continuation_cursor() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -8820,15 +8862,10 @@ fn accepted_save_contract_retains_query_catalog_revision_authority() {
         .ensure_generated_compatible_accepted_save_schema::<SessionSqlEntity>()
         .expect("accepted save contract should resolve from the query catalog");
 
-    assert_eq!(
-        row_contract.accepted_schema_revision(),
-        Some(catalog.revision()),
-    );
+    assert_eq!(row_contract.accepted_schema_revision(), catalog.revision());
     assert_eq!(fingerprint, catalog.fingerprint());
     assert!(
-        row_contract
-            .enum_catalog()
-            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.enum_catalog())),
+        std::ptr::eq(row_contract.enum_catalog(), catalog.enum_catalog()),
         "accepted save decode should retain the shared query catalog",
     );
     assert!(

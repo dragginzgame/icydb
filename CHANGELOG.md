@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.200.md](docs/changelog/0.200.md)
 
+### 🔧 Changed
+
+- `0.200.3` closes the remaining accepted-schema authority gaps so values,
+  live plans, outputs, and continuation tokens cannot cross catalog revisions.
+  Potentially breaking: continuation tokens issued by earlier 0.200 builds
+  must be restarted.
+
 ### 🧹 Cleanup
 
 - `0.200.2` closes the persistence admission boundary so rows, patches, and

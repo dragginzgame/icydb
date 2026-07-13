@@ -52,6 +52,19 @@ fn query_read_admission_error(rejection: QueryAdmissionRejection) -> QueryError 
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    fn ensure_sql_execution_context_is_current<E>(
+        &self,
+        context: &SqlCompiledCommandExecutionContext,
+    ) -> Result<(), QueryError>
+    where
+        E: PersistedRow<Canister = C>,
+    {
+        self.ensure_accepted_schema_authority_is_current::<E>(
+            context.accepted_catalog().enum_catalog_handle().authority(),
+        )
+        .map_err(QueryError::execute)
+    }
+
     /// Execute one compiled reduced SQL statement into one unified SQL payload.
     #[cfg(test)]
     pub(in crate::db) fn execute_compiled_sql<E>(
@@ -129,8 +142,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
-        self.ensure_accepted_schema_revision_is_current::<E>(context.accepted_catalog().revision())
-            .map_err(QueryError::execute)?;
+        self.ensure_sql_execution_context_is_current::<E>(context)?;
 
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
@@ -261,8 +273,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
-        self.ensure_accepted_schema_revision_is_current::<E>(context.accepted_catalog().revision())
-            .map_err(QueryError::execute)?;
+        self.ensure_sql_execution_context_is_current::<E>(context)?;
 
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {
@@ -337,8 +348,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue + crate::traits::AuthoredFieldProjection,
     {
-        self.ensure_accepted_schema_revision_is_current::<E>(context.accepted_catalog().revision())
-            .map_err(QueryError::execute)?;
+        self.ensure_sql_execution_context_is_current::<E>(context)?;
 
         match context.command() {
             CompiledSqlCommand::Select { query, .. } => {

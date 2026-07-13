@@ -71,12 +71,12 @@ pub(in crate::db) struct AcceptedSchemaFingerprint([u8; 32]);
 
 impl AcceptedSchemaFingerprint {
     #[must_use]
-    pub(in crate::db::schema) const fn new(bytes: [u8; 32]) -> Self {
+    pub(in crate::db) const fn new(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn as_bytes(self) -> [u8; 32] {
+    pub(in crate::db) const fn as_bytes(self) -> [u8; 32] {
         self.0
     }
 }

@@ -35,6 +35,10 @@ use std::thread::LocalKey;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use accepted_schema::AcceptedCatalogRuntimeCounterSnapshot;
 pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
+pub(in crate::db) use query::{
+    AcceptedExecutionOutput, AcceptedIdValuesOutput, AcceptedOptionalValueOutput,
+    AcceptedValuesOutput,
+};
 #[cfg(feature = "diagnostics")]
 pub use query::{
     DirectDataRowAttribution, FluentTerminalExecutionAttribution, GroupedCountAttribution,

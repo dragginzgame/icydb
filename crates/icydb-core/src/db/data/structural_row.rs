@@ -9,8 +9,8 @@ use crate::{
         data::{RawRow, decode_runtime_value_from_row_contract},
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedFieldAbsencePolicy,
-            AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
+            AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
+            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             OwnedAcceptedRelationEdgeContract,
         },
     },
@@ -74,17 +74,15 @@ impl AcceptedStructuralRowAuthority {
         selection: &AcceptedCatalogSnapshotSelection,
     ) -> StructuralRowContract {
         let identity = selection.identity();
-        let row_decode_contract =
-            descriptor.row_decode_contract_with_catalog(selection.enum_catalog().clone());
+        let row_decode_contract = descriptor.row_decode_contract(selection.enum_catalog().clone());
         debug_assert_eq!(
             row_decode_contract.accepted_schema_revision(),
-            Some(identity.accepted_schema_revision())
+            identity.accepted_schema_revision()
         );
-        debug_assert!(
-            row_decode_contract.enum_catalog().is_some_and(|catalog| {
-                std::ptr::eq(catalog, selection.enum_catalog().catalog())
-            })
-        );
+        debug_assert!(std::ptr::eq(
+            row_decode_contract.enum_catalog(),
+            selection.enum_catalog().catalog(),
+        ));
         StructuralRowContract::from_accepted_decode_contract(entity_path, row_decode_contract)
     }
 
@@ -152,25 +150,6 @@ impl StructuralRowContract {
         }
     }
 
-    /// Build one structural row contract from an accepted persisted schema snapshot.
-    ///
-    /// This is the data-layer owner for the repeated accepted-schema projection
-    /// sequence after callers have already crossed schema reconciliation.
-    /// Runtime row readers receive an accepted-only structural contract so they
-    /// cannot fall back to generated schema metadata after acceptance.
-    #[cfg(test)]
-    pub(in crate::db) fn from_accepted_schema_snapshot(
-        entity_path: &'static str,
-        accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<Self, InternalError> {
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(accepted_schema)?;
-
-        Ok(Self::from_accepted_decode_contract(
-            entity_path,
-            descriptor.row_decode_contract(),
-        ))
-    }
-
     /// Borrow the owning entity path for diagnostics.
     #[must_use]
     pub(in crate::db) const fn entity_path(&self) -> &'static str {
@@ -214,11 +193,20 @@ impl StructuralRowContract {
             .decode_contract())
     }
 
+    /// Borrow one accepted field with the catalog authority that admitted it.
+    pub(in crate::db) fn required_accepted_field_persistence_contract(
+        &self,
+        slot: usize,
+    ) -> Result<AcceptedFieldPersistenceContract<'_>, InternalError> {
+        self.accepted_decode_contract
+            .required_field_persistence_contract(self.entity_path(), slot)
+    }
+
     /// Borrow the catalog authority carried by this accepted row contract.
     #[must_use]
     pub(in crate::db) fn accepted_enum_catalog_handle(
         &self,
-    ) -> Option<&crate::db::schema::AcceptedEnumCatalogHandle> {
+    ) -> &crate::db::schema::AcceptedEnumCatalogHandle {
         self.accepted_decode_contract.enum_catalog_handle()
     }
 

@@ -18,10 +18,10 @@ use crate::{
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             intent::QueryError,
         },
+        session::{AcceptedIdValuesOutput, AcceptedOptionalValueOutput, AcceptedValuesOutput},
     },
     traits::EntityValue,
     types::{Decimal, Id},
-    value::Value,
 };
 
 pub(super) type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
@@ -180,12 +180,12 @@ impl_aggregate_terminal_driver!(
 
 impl_projection_terminal_driver!(
     ValuesBySlotTerminal,
-    Vec<Value>,
+    AcceptedValuesOutput,
     execute_fluent_values_by_slot
 );
 impl_projection_terminal_driver!(
     DistinctValuesBySlotTerminal,
-    Vec<Value>,
+    AcceptedValuesOutput,
     execute_fluent_distinct_values_by_slot
 );
 impl_projection_terminal_driver!(
@@ -195,16 +195,16 @@ impl_projection_terminal_driver!(
 );
 impl_projection_terminal_driver!(
     ValuesBySlotWithIdsTerminal,
-    Vec<(Id<E>, Value)>,
+    AcceptedIdValuesOutput<E>,
     execute_fluent_values_by_with_ids_slot
 );
 impl_projection_terminal_driver!(
     FirstValueBySlotTerminal,
-    Option<Value>,
+    AcceptedOptionalValueOutput,
     execute_fluent_first_value_by_slot
 );
 impl_projection_terminal_driver!(
     LastValueBySlotTerminal,
-    Option<Value>,
+    AcceptedOptionalValueOutput,
     execute_fluent_last_value_by_slot
 );

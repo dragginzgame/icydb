@@ -15,9 +15,10 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedEnumCatalog,
             AcceptedEnumCatalogHandle, AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract,
-            AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaInfo, SchemaStore, SchemaVersion,
-            authored_projection::AcceptedAuthoredFieldProjection, ensure_accepted_schema_snapshot,
-            enum_catalog::ValueAdmissionBudget, output_value_from_runtime,
+            AcceptedSchemaAuthority, AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaInfo,
+            SchemaStore, SchemaVersion, authored_projection::AcceptedAuthoredFieldProjection,
+            ensure_accepted_schema_snapshot, enum_catalog::ValueAdmissionBudget,
+            output_value_from_runtime,
         },
     },
     error::InternalError,
@@ -155,16 +156,15 @@ impl AcceptedSchemaCatalogContext {
                 authority.model(),
             )?;
         let row_decode_contract =
-            accepted_row_layout.row_decode_contract_with_catalog(self.enum_catalog.clone());
+            accepted_row_layout.row_decode_contract(self.enum_catalog.clone());
         debug_assert_eq!(
             row_decode_contract.accepted_schema_revision(),
-            Some(self.revision())
+            self.revision()
         );
-        debug_assert!(
-            row_decode_contract
-                .enum_catalog()
-                .is_some_and(|catalog| std::ptr::eq(catalog, self.enum_catalog()))
-        );
+        debug_assert!(std::ptr::eq(
+            row_decode_contract.enum_catalog(),
+            self.enum_catalog()
+        ));
 
         Ok(
             authority.with_accepted_row_decode_contract(
@@ -252,8 +252,7 @@ pub(in crate::db) fn accepted_save_contract_for_catalog_context<E>(
 where
     E: EntityKind,
 {
-    let row_decode_contract =
-        descriptor.row_decode_contract_with_catalog(context.enum_catalog.clone());
+    let row_decode_contract = descriptor.row_decode_contract(context.enum_catalog.clone());
     let mutation_row_decode_contract = row_decode_contract.clone();
     let schema_info = context.accepted_schema_info_for::<E>();
 
@@ -287,11 +286,8 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + AuthoredFieldProjection,
     {
         let (row_contract, _, _) = self.ensure_generated_compatible_accepted_save_schema::<E>()?;
-        let projection = AcceptedAuthoredFieldProjection::new(&row_contract)
-            .map_err(|_| InternalError::persisted_row_encode_internal())?;
-        let catalog = row_contract
-            .enum_catalog_handle()
-            .ok_or_else(InternalError::store_invariant)?;
+        let projection = AcceptedAuthoredFieldProjection::new(&row_contract);
+        let catalog = row_contract.enum_catalog_handle();
         let mut values = Vec::with_capacity(slots.len());
         let mut budget = ValueAdmissionBudget::standard();
         for slot in slots {
@@ -379,9 +375,8 @@ impl<C: CanisterKind> DbSession<C> {
         hooks: &EntityRuntimeHooks<C>,
         store: crate::db::registry::StoreHandle,
     ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
         let context =
-            Self::accepted_schema_catalog_context_from_revision_cache(cache_key, current_revision);
+            Self::accepted_schema_catalog_context_from_current_authority_cache(cache_key, store)?;
         if let Some(context) = &context {
             debug_assert_eq!(context.identity.entity_tag(), hooks.entity_tag);
             debug_assert_eq!(context.identity.entity_path(), hooks.entity_path);
@@ -432,35 +427,45 @@ impl<C: CanisterKind> DbSession<C> {
     fn accepted_schema_catalog_context_from_query_cache(
         cache_key: AcceptedSchemaQueryCacheKey,
         identity: AcceptedCatalogIdentity,
+        authority: &AcceptedSchemaAuthority,
     ) -> Option<AcceptedSchemaCatalogContext> {
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache.borrow().get(&cache_key).and_then(|entry| {
-                (entry.identity == identity).then(|| {
+            cache
+                .borrow()
+                .get(&cache_key)
+                .filter(|entry| {
+                    entry.identity == identity && entry.enum_catalog.authority() == authority
+                })
+                .map(|entry| {
                     AcceptedSchemaCatalogContext::new(
                         entry.snapshot.clone(),
                         identity,
                         entry.enum_catalog.clone(),
                     )
                 })
-            })
         })
     }
 
-    fn accepted_schema_catalog_context_from_revision_cache(
+    fn accepted_schema_catalog_context_from_current_authority_cache(
         cache_key: AcceptedSchemaQueryCacheKey,
-        current_revision: Option<AcceptedSchemaRevision>,
-    ) -> Option<AcceptedSchemaCatalogContext> {
-        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache.borrow().get(&cache_key).and_then(|entry| {
-                (Some(entry.identity.accepted_schema_revision()) == current_revision).then(|| {
-                    AcceptedSchemaCatalogContext::new(
-                        entry.snapshot.clone(),
-                        entry.identity,
-                        entry.enum_catalog.clone(),
-                    )
-                })
-            })
-        })
+        store: crate::db::registry::StoreHandle,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
+        let entry =
+            ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned());
+        let Some(entry) = entry else {
+            return Ok(None);
+        };
+        if !store.with_schema(|schema_store| {
+            schema_store.current_accepted_schema_authority_matches(entry.enum_catalog.authority())
+        })? {
+            return Ok(None);
+        }
+
+        Ok(Some(AcceptedSchemaCatalogContext::new(
+            entry.snapshot,
+            entry.identity,
+            entry.enum_catalog,
+        )))
     }
 
     fn insert_accepted_schema_query_cache(
@@ -498,18 +503,19 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let cache_key = self.accepted_schema_query_cache_key(E::PATH);
         let store = self.db.recovered_store(E::Store::PATH)?;
-        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
         if let Some(context) =
-            Self::accepted_schema_catalog_context_from_revision_cache(cache_key, current_revision)
+            Self::accepted_schema_catalog_context_from_current_authority_cache(cache_key, store)?
         {
             return Ok(context);
         }
         let selection = self
             .accepted_catalog_snapshot_selection_for_query::<E>()?
             .ok_or_else(InternalError::store_corruption)?;
-        if let Some(context) =
-            Self::accepted_schema_catalog_context_from_query_cache(cache_key, selection.identity())
-        {
+        if let Some(context) = Self::accepted_schema_catalog_context_from_query_cache(
+            cache_key,
+            selection.identity(),
+            selection.enum_catalog().authority(),
+        ) {
             return Ok(context);
         }
 
@@ -532,22 +538,24 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    #[cfg(feature = "sql")]
-    pub(in crate::db::session) fn ensure_accepted_schema_revision_is_current<E>(
+    pub(in crate::db::session) fn ensure_accepted_schema_authority_is_current<E>(
         &self,
-        expected_revision: AcceptedSchemaRevision,
+        expected: &AcceptedSchemaAuthority,
     ) -> Result<(), InternalError>
     where
         E: EntityKind<Canister = C>,
     {
         let store = self.db.recovered_store(E::Store::PATH)?;
-        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
-        if current_revision == Some(expected_revision) {
+        if store.with_schema(|schema_store| {
+            schema_store.current_accepted_schema_authority_matches(expected)
+        })? {
             return Ok(());
         }
 
+        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
+
         Err(InternalError::query_stale_accepted_schema_revision(
-            expected_revision.get(),
+            expected.revision().get(),
             current_revision.map(AcceptedSchemaRevision::get),
         ))
     }
@@ -559,19 +567,14 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let store = self.db.recovered_store(E::Store::PATH)?;
-
-        let current_revision = store.with_schema(SchemaStore::current_accepted_schema_revision)?;
-        if let Some(entry) = ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache
-                .borrow()
-                .get(&self.accepted_schema_query_cache_key(E::PATH))
-                .cloned()
-        }) && Some(entry.identity.accepted_schema_revision()) == current_revision
+        let cache_key = self.accepted_schema_query_cache_key(E::PATH);
+        if let Some(context) =
+            Self::accepted_schema_catalog_context_from_current_authority_cache(cache_key, store)?
         {
             return AcceptedCatalogSnapshotSelection::from_accepted_snapshot(
-                entry.identity,
-                entry.enum_catalog,
-                &entry.snapshot,
+                context.identity,
+                context.enum_catalog.clone(),
+                &context.snapshot,
             )
             .map(Some);
         }
@@ -613,9 +616,11 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let cache_key = self.accepted_schema_query_cache_key(E::PATH);
-        if let Some(context) =
-            Self::accepted_schema_catalog_context_from_query_cache(cache_key, selection.identity())
-        {
+        if let Some(context) = Self::accepted_schema_catalog_context_from_query_cache(
+            cache_key,
+            selection.identity(),
+            selection.enum_catalog().authority(),
+        ) {
             return Ok(Some(context));
         }
 

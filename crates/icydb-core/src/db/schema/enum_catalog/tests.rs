@@ -3,9 +3,10 @@ use super::{admission::*, equality_key::*};
 #[cfg(feature = "sql")]
 use crate::db::schema::{AcceptedFieldKind, sql_capabilities_with_enum_catalog};
 use crate::{
+    db::schema::{AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract},
     model::{
         entity::EntityModel,
-        field::{EnumVariantModel, FieldModel},
+        field::{EnumVariantModel, FieldModel, LeafCodec},
         index::IndexModel,
     },
     testing::entity_model_from_static,
@@ -15,6 +16,23 @@ use crate::{
 };
 
 const UNIT_DECODE: FieldStorageDecode = FieldStorageDecode::ByKind;
+
+fn accepted_field_contract<'a>(
+    catalog: &'a AcceptedEnumCatalogHandle,
+    kind: &'a AcceptedFieldKind,
+    nullable: bool,
+    storage_decode: FieldStorageDecode,
+) -> AcceptedFieldPersistenceContract<'a> {
+    let field = AcceptedFieldDecodeContract::new(
+        "value",
+        kind,
+        nullable,
+        storage_decode,
+        LeafCodec::StructuralFallback,
+    );
+    AcceptedFieldPersistenceContract::new_for_tests(catalog, field)
+        .expect("accepted test field should match its catalog")
+}
 
 static ALPHA_VARIANTS: [EnumVariantModel; 2] = [
     EnumVariantModel::new("Zulu", None, UNIT_DECODE),
@@ -281,16 +299,21 @@ fn persisted_field_admission_resolves_enum_contract_and_nullable_null() {
     let catalog = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
         .expect("catalog should build");
     let catalog_handle = accepted_catalog_handle(&catalog, AcceptedSchemaRevision::INITIAL);
-    let mut enum_budget = ValueAdmissionBudget::standard();
-    let admitted = normalize_and_admit_persisted_field_value(
+    let enum_kind = AcceptedFieldKind::from_model_kind(ALPHA_KIND);
+    let enum_contract = accepted_field_contract(
         &catalog_handle,
-        &AcceptedFieldKind::from_model_kind(ALPHA_KIND),
-        FieldStorageDecode::ByKind,
+        &enum_kind,
         false,
-        InputValue::Enum(InputValueEnum::loose("Alpha")),
-        &mut enum_budget,
-    )
-    .expect("persisted enum field should resolve through catalog authority");
+        FieldStorageDecode::ByKind,
+    );
+    let mut enum_budget = ValueAdmissionBudget::standard();
+    let admitted = enum_contract
+        .admission_contract()
+        .normalize_and_admit(
+            InputValue::Enum(InputValueEnum::loose("Alpha")),
+            &mut enum_budget,
+        )
+        .expect("persisted enum field should resolve through catalog authority");
     let CanonicalValue::Enum(value) = admitted.value() else {
         panic!("persisted enum field should admit to canonical IDs");
     };
@@ -301,43 +324,46 @@ fn persisted_field_admission_resolves_enum_contract_and_nullable_null() {
             .expect("alpha type ID should exist"),
     );
 
-    let mut nullable_budget = ValueAdmissionBudget::standard();
-    normalize_and_admit_persisted_field_value(
+    let text_kind = AcceptedFieldKind::Text { max_len: Some(8) };
+    let nullable_contract = accepted_field_contract(
         &catalog_handle,
-        &AcceptedFieldKind::Text { max_len: Some(8) },
-        FieldStorageDecode::ByKind,
+        &text_kind,
         true,
-        InputValue::Null,
-        &mut nullable_budget,
-    )
-    .expect("nullable accepted field should admit null");
+        FieldStorageDecode::ByKind,
+    );
+    let mut nullable_budget = ValueAdmissionBudget::standard();
+    nullable_contract
+        .admission_contract()
+        .normalize_and_admit(InputValue::Null, &mut nullable_budget)
+        .expect("nullable accepted field should admit null");
 
+    let required_contract = accepted_field_contract(
+        &catalog_handle,
+        &text_kind,
+        false,
+        FieldStorageDecode::ByKind,
+    );
     let mut required_budget = ValueAdmissionBudget::standard();
     assert_eq!(
-        normalize_and_admit_persisted_field_value(
-            &catalog_handle,
-            &AcceptedFieldKind::Text { max_len: Some(8) },
-            FieldStorageDecode::ByKind,
-            false,
-            InputValue::Null,
-            &mut required_budget,
-        ),
+        required_contract
+            .admission_contract()
+            .normalize_and_admit(InputValue::Null, &mut required_budget),
         Err(ValueAdmissionError::TypeMismatch),
     );
 
-    let mut invalid_contract_budget = ValueAdmissionBudget::standard();
-    assert_eq!(
-        normalize_and_admit_persisted_field_value(
-            &catalog_handle,
-            &AcceptedFieldKind::Enum {
-                type_id: EnumTypeId::new(999).expect("test enum type ID should be valid"),
-            },
-            FieldStorageDecode::ByKind,
-            false,
-            InputValue::Enum(InputValueEnum::loose("Ready")),
-            &mut invalid_contract_budget,
-        ),
-        Err(ValueAdmissionError::InvalidAcceptedContract),
+    let invalid_kind = AcceptedFieldKind::Enum {
+        type_id: EnumTypeId::new(999).expect("test enum type ID should be valid"),
+    };
+    let invalid_field = AcceptedFieldDecodeContract::new(
+        "invalid",
+        &invalid_kind,
+        false,
+        FieldStorageDecode::ByKind,
+        LeafCodec::StructuralFallback,
+    );
+    assert!(
+        AcceptedFieldPersistenceContract::new_for_tests(&catalog_handle, invalid_field).is_err(),
+        "unknown enum IDs must not produce accepted field authority",
     );
 }
 
@@ -346,23 +372,58 @@ fn persisted_field_admission_accepts_by_kind_structured_values() {
     let catalog =
         build_initial_accepted_enum_catalog_from_kinds(&[]).expect("empty catalog should build");
     let catalog_handle = accepted_catalog_handle(&catalog, AcceptedSchemaRevision::INITIAL);
+    let kind = AcceptedFieldKind::Structured { queryable: true };
+    let contract =
+        accepted_field_contract(&catalog_handle, &kind, false, FieldStorageDecode::ByKind);
     let mut budget = ValueAdmissionBudget::standard();
     let input = InputValue::Map(vec![(
         InputValue::Text("name".to_string()),
         InputValue::Text("mentor".to_string()),
     )]);
 
-    let admitted = normalize_and_admit_persisted_field_value(
-        &catalog_handle,
-        &AcceptedFieldKind::Structured { queryable: true },
-        FieldStorageDecode::ByKind,
-        false,
-        input,
-        &mut budget,
-    )
-    .expect("structured authored input should admit to the canonical recursive value");
+    let admitted = contract
+        .admission_contract()
+        .normalize_and_admit(input, &mut budget)
+        .expect("structured authored input should admit to the canonical recursive value");
 
     assert!(matches!(admitted.value(), CanonicalValue::Map(_)));
+}
+
+#[test]
+fn derived_collection_element_admission_retains_catalog_authority() {
+    let catalog = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
+        .expect("catalog should build");
+    let catalog_handle = accepted_catalog_handle(&catalog, AcceptedSchemaRevision::INITIAL);
+    let type_id = catalog
+        .type_id("catalog::Alpha")
+        .expect("alpha type ID should exist");
+    let list_kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Enum { type_id }));
+    let field_contract = accepted_field_contract(
+        &catalog_handle,
+        &list_kind,
+        false,
+        FieldStorageDecode::ByKind,
+    );
+    let element_contract = field_contract
+        .admission_contract()
+        .collection_element_contract()
+        .expect("list fields should derive an element admission contract");
+
+    assert!(std::ptr::eq(
+        element_contract.enum_catalog().catalog(),
+        catalog_handle.catalog(),
+    ));
+    assert_eq!(
+        element_contract.kind(),
+        &AcceptedFieldKind::Enum { type_id },
+    );
+    let admitted = element_contract
+        .normalize_and_admit(
+            InputValue::Enum(InputValueEnum::loose("Alpha")),
+            &mut ValueAdmissionBudget::standard(),
+        )
+        .expect("derived enum element should normalize under the parent catalog");
+    assert!(matches!(admitted.value(), CanonicalValue::Enum(_)));
 }
 
 #[test]

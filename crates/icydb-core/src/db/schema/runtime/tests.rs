@@ -52,6 +52,13 @@ static RUNTIME_ENTITY_MODEL: EntityModel = entity_model_from_static(
     &RUNTIME_ENTITY_INDEXES,
 );
 
+fn empty_accepted_enum_catalog_handle() -> AcceptedEnumCatalogHandle {
+    let catalog =
+        build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
+
+    AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL)
+}
+
 static WRITE_POLICY_ENTITY_FIELDS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated_with_storage_decode_nullability_and_write_policies(
@@ -397,7 +404,7 @@ fn accepted_row_layout_runtime_contract_exposes_ordered_primary_key_fields() {
     assert_eq!(descriptor.primary_key_names(), ["id", "nickname"]);
     assert_eq!(descriptor.first_primary_key_slot_index(), 0);
     assert_eq!(descriptor.primary_key_slot_indices(), [0, 1]);
-    let decode_contract = descriptor.row_decode_contract();
+    let decode_contract = descriptor.row_decode_contract(empty_accepted_enum_catalog_handle());
     assert_eq!(decode_contract.first_primary_key_slot_index(), 0);
     assert_eq!(decode_contract.primary_key_slot_indices(), [0, 1]);
     assert!(descriptor.is_primary_key_field_name("id"));
@@ -417,7 +424,7 @@ fn accepted_row_decode_contract_owns_slot_indexed_field_contracts() {
     let accepted = accepted_schema_fixture();
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted runtime contract should build");
-    let contract = descriptor.row_decode_contract();
+    let contract = descriptor.row_decode_contract(empty_accepted_enum_catalog_handle());
     let nickname = contract
         .field_for_slot(9)
         .expect("nickname field should be available by accepted row slot");
@@ -434,6 +441,10 @@ fn accepted_row_decode_contract_owns_slot_indexed_field_contracts() {
         nickname.kind(),
         AcceptedFieldKind::Text { max_len: Some(32) },
     );
+    let persistence = contract
+        .required_field_persistence_contract("schema::tests::Runtime", 9)
+        .expect("accepted row contracts always retain catalog authority");
+    assert_eq!(persistence.field().field_name(), "nickname");
 }
 
 #[test]
@@ -441,22 +452,36 @@ fn accepted_row_decode_contract_retains_revision_scoped_catalog_authority() {
     let accepted = accepted_schema_fixture();
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted runtime contract should build");
-    let catalog =
-        build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
-    let catalog =
-        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
-    let contract = descriptor.row_decode_contract_with_catalog(catalog.clone());
+    let catalog = empty_accepted_enum_catalog_handle();
+    let contract = descriptor.row_decode_contract(catalog.clone());
 
     assert_eq!(
         contract.accepted_schema_revision(),
-        Some(AcceptedSchemaRevision::INITIAL),
+        AcceptedSchemaRevision::INITIAL,
     );
     assert!(
-        contract
-            .enum_catalog()
-            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.catalog())),
+        std::ptr::eq(contract.enum_catalog(), catalog.catalog()),
         "row decode should retain the shared catalog instead of cloning definitions",
     );
+    let encoding = contract
+        .required_field_persistence_contract("schema::tests::Runtime", 9)
+        .expect("catalog-backed row fields should expose paired encoding authority");
+    assert_eq!(encoding.field().field_name(), "nickname");
+    assert_eq!(
+        encoding.admission_contract().kind(),
+        encoding.field().kind(),
+    );
+    assert_eq!(
+        encoding
+            .admission_contract()
+            .value_contract()
+            .storage_decode(),
+        encoding.field().storage_decode(),
+    );
+    assert!(std::ptr::eq(
+        encoding.admission_contract().enum_catalog().catalog(),
+        catalog.catalog(),
+    ));
 }
 
 #[test]
@@ -464,13 +489,8 @@ fn accepted_authored_projection_admits_fields_against_row_catalog_authority() {
     let accepted = generated_compatible_accepted_schema_fixture();
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted runtime contract should build");
-    let catalog =
-        build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
-    let catalog =
-        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
-    let row_contract = descriptor.row_decode_contract_with_catalog(catalog);
-    let projection = AcceptedAuthoredFieldProjection::new(&row_contract)
-        .expect("catalog-backed authored projection should bind");
+    let row_contract = descriptor.row_decode_contract(empty_accepted_enum_catalog_handle());
+    let projection = AcceptedAuthoredFieldProjection::new(&row_contract);
     let entity = AuthoredRuntimeEntity {
         id: Ulid::nil(),
         nickname: "alpha".to_string(),
@@ -517,7 +537,7 @@ fn accepted_row_decode_contract_owns_relation_edge_contracts() {
     );
     assert_eq!(descriptor.relation_edges()[0].local_field_slots(), &[9]);
 
-    let contract = descriptor.row_decode_contract();
+    let contract = descriptor.row_decode_contract(empty_accepted_enum_catalog_handle());
     assert_eq!(contract.relation_edges().len(), 1);
     assert_eq!(contract.relation_edges()[0].name(), "nickname_owner");
     assert_eq!(contract.relation_edges()[0].local_field_slots(), &[9]);
@@ -530,7 +550,7 @@ fn accepted_row_decode_contract_survives_descriptor_borrow_scope() {
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
             .expect("accepted runtime contract should build");
 
-        descriptor.row_decode_contract()
+        descriptor.row_decode_contract(empty_accepted_enum_catalog_handle())
     };
     assert_eq!(contract.first_primary_key_slot_index(), 0);
     assert_eq!(contract.primary_key_slot_indices(), [0]);

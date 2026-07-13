@@ -13,12 +13,9 @@ use crate::{
             encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
         },
         schema::{
-            AcceptedFieldKind, AcceptedSchemaFieldContractRef, SchemaInfo,
+            AcceptedFieldKind, AcceptedValueAdmissionContract, SchemaInfo,
             SchemaLiteralValidationReason, ValidateError, classify_accepted_field_kind,
-            enum_catalog::{
-                AcceptedValueContract, ValueAdmissionBudget, ValueAdmissionError,
-                validate_canonical_value,
-            },
+            enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
     },
     types::{IntBig, NatBig},
@@ -227,7 +224,7 @@ fn normalize_compare_value_for_accepted_contract(
     field: &str,
     op: CompareOp,
     value: &Value,
-    contract: &AcceptedSchemaFieldContractRef<'_>,
+    contract: &AcceptedValueAdmissionContract<'_>,
 ) -> Result<Value, ValidateError> {
     let mut budget = ValueAdmissionBudget::standard();
     match op {
@@ -240,8 +237,6 @@ fn normalize_compare_value_for_accepted_contract(
                 normalized.push(normalize_accepted_predicate_value(
                     field,
                     value,
-                    contract.value_contract(),
-                    contract.nullable(),
                     contract,
                     &mut budget,
                 )?);
@@ -252,40 +247,25 @@ fn normalize_compare_value_for_accepted_contract(
             let Some(element_contract) = contract.collection_element_contract() else {
                 return Ok(value.clone());
             };
-            normalize_accepted_predicate_value(
-                field,
-                value,
-                &element_contract,
-                false,
-                contract,
-                &mut budget,
-            )
+            normalize_accepted_predicate_value(field, value, &element_contract, &mut budget)
         }
-        _ => normalize_accepted_predicate_value(
-            field,
-            value,
-            contract.value_contract(),
-            contract.nullable(),
-            contract,
-            &mut budget,
-        ),
+        _ => normalize_accepted_predicate_value(field, value, contract, &mut budget),
     }
 }
 
 fn normalize_accepted_predicate_value(
     field: &str,
     value: &Value,
-    value_contract: &AcceptedValueContract,
-    nullable: bool,
-    contract: &AcceptedSchemaFieldContractRef<'_>,
+    contract: &AcceptedValueAdmissionContract<'_>,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<Value, ValidateError> {
     if value.contains_enum() {
-        validate_canonical_value(contract.enum_catalog(), value_contract, value, budget)
+        contract
+            .with_validated(value, budget, |_| ())
             .map_err(|error| predicate_admission_error(field, error))?;
         return Ok(value.clone());
     }
-    let input = match (value_contract.kind(), value) {
+    let input = match (contract.kind(), value) {
         (AcceptedFieldKind::Enum { .. }, Value::Text(variant)) => {
             InputValue::Enum(InputValueEnum::loose(variant.clone()))
         }
@@ -297,7 +277,7 @@ fn normalize_accepted_predicate_value(
         })?,
     };
     contract
-        .normalize_contract_input_to_runtime(value_contract, nullable, input, budget)
+        .normalize_input_to_runtime(input, budget)
         .map_err(|error| predicate_admission_error(field, error))
 }
 

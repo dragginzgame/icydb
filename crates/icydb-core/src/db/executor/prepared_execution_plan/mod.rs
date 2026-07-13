@@ -22,6 +22,7 @@ use crate::{
     db::{
         cursor::{ValidatedCursor, ValidatedGroupedCursor},
         executor::{EntityAuthority, ExecutorPlanError},
+        schema::{AcceptedEnumCatalogHandle, AcceptedSchemaAuthority},
     },
     error::InternalError,
     traits::EntityKind,
@@ -72,6 +73,20 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     #[must_use]
     pub(in crate::db::executor) const fn authority_ref(&self) -> &EntityAuthority {
         &self.authority
+    }
+
+    /// Borrow the accepted store/revision authority retained by this plan.
+    pub(in crate::db) fn accepted_schema_authority(
+        &self,
+    ) -> Result<&AcceptedSchemaAuthority, InternalError> {
+        self.authority.accepted_schema_authority()
+    }
+
+    /// Borrow the accepted catalog handle retained by this plan.
+    pub(in crate::db) fn accepted_enum_catalog_handle(
+        &self,
+    ) -> Result<&AcceptedEnumCatalogHandle, InternalError> {
+        self.authority.accepted_enum_catalog_handle()
     }
 
     #[cfg(test)]

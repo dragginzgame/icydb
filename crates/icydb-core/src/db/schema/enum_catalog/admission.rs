@@ -111,7 +111,6 @@ impl AdmittedOwnedValue {
 pub(in crate::db) struct AcceptedValueRef<'a> {
     catalog: &'a AcceptedEnumCatalogHandle,
     contract: &'a AcceptedValueContract,
-    nullable: bool,
     value: &'a CanonicalValue,
 }
 
@@ -139,11 +138,6 @@ impl<'a> AcceptedValueRef<'a> {
     }
 
     #[must_use]
-    pub(in crate::db) const fn nullable(&self) -> bool {
-        self.nullable
-    }
-
-    #[must_use]
     pub(in crate::db) const fn value(&self) -> &'a CanonicalValue {
         self.value
     }
@@ -162,21 +156,7 @@ pub(in crate::db) fn normalize_and_admit_value(
     })
 }
 
-pub(in crate::db) fn normalize_and_admit_persisted_field_value(
-    catalog: &AcceptedEnumCatalogHandle,
-    kind: &AcceptedFieldKind,
-    storage_decode: FieldStorageDecode,
-    nullable: bool,
-    input: InputValue,
-    budget: &mut ValueAdmissionBudget,
-) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
-    let contract =
-        AcceptedValueContract::from_accepted_field(catalog.catalog(), kind, storage_decode)
-            .map_err(|_| ValueAdmissionError::InvalidAcceptedContract)?;
-    normalize_and_admit_nullable_value(catalog, &contract, nullable, input, budget)
-}
-
-pub(in crate::db) fn normalize_and_admit_nullable_value(
+pub(in crate::db::schema) fn normalize_and_admit_nullable_value(
     catalog: &AcceptedEnumCatalogHandle,
     contract: &AcceptedValueContract,
     nullable: bool,
@@ -195,7 +175,7 @@ pub(in crate::db) fn normalize_and_admit_nullable_value(
 }
 
 /// Normalize one authored value and expose its short-lived accepted proof.
-pub(in crate::db) fn with_normalized_accepted_value<R>(
+pub(in crate::db::schema) fn with_normalized_accepted_value<R>(
     catalog: &AcceptedEnumCatalogHandle,
     contract: &AcceptedValueContract,
     nullable: bool,
@@ -207,7 +187,6 @@ pub(in crate::db) fn with_normalized_accepted_value<R>(
     Ok(use_value(AcceptedValueRef {
         catalog,
         contract,
-        nullable,
         value: &value,
     }))
 }
@@ -263,18 +242,14 @@ pub(in crate::db) fn encode_unit_enum_default_in_catalog(
     .map_err(|_| ValueAdmissionError::InvalidAcceptedContract)
 }
 
-pub(in crate::db) fn admit_decoded_persisted_field_value(
+pub(in crate::db::schema) fn admit_canonical_value(
     catalog: &AcceptedEnumCatalogHandle,
-    kind: &AcceptedFieldKind,
-    storage_decode: FieldStorageDecode,
+    contract: &AcceptedValueContract,
     nullable: bool,
     value: CanonicalValue,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
-    let contract =
-        AcceptedValueContract::from_accepted_field(catalog.catalog(), kind, storage_decode)
-            .map_err(|_| ValueAdmissionError::InvalidAcceptedContract)?;
-    let _ = validate_nullable_canonical_value(catalog, &contract, nullable, &value, budget)?;
+    let _ = validate_nullable_canonical_value(catalog, contract, nullable, &value, budget)?;
     Ok(AdmittedOwnedValue {
         authority: catalog.authority().clone(),
         value,
@@ -321,6 +296,7 @@ fn validate_persisted_field_value_in_catalog(
     validate_contract(catalog, &contract, value, 0, budget)
 }
 
+#[cfg(test)]
 pub(in crate::db) fn validate_canonical_value<'a>(
     catalog: &'a AcceptedEnumCatalogHandle,
     contract: &'a AcceptedValueContract,
@@ -331,7 +307,7 @@ pub(in crate::db) fn validate_canonical_value<'a>(
 }
 
 /// Strictly validate one canonical value with its accepted nullability rule.
-pub(in crate::db) fn validate_nullable_canonical_value<'a>(
+pub(in crate::db::schema) fn validate_nullable_canonical_value<'a>(
     catalog: &'a AcceptedEnumCatalogHandle,
     contract: &'a AcceptedValueContract,
     nullable: bool,
@@ -353,7 +329,6 @@ pub(in crate::db) fn validate_nullable_canonical_value<'a>(
     Ok(AcceptedValueRef {
         catalog,
         contract,
-        nullable,
         value,
     })
 }

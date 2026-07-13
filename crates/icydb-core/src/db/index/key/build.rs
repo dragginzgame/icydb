@@ -31,18 +31,15 @@ use crate::{
             scalar_expr_value_into_value,
         },
         schema::{
-            AcceptedFieldKind, AcceptedValueContract, PersistedIndexExpressionOp,
+            AcceptedFieldKind, AcceptedValueAdmissionContract, PersistedIndexExpressionOp,
             SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
             SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
             SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo, ValueAdmissionBudget,
-            encode_unit_enum_equality_key, validate_canonical_value,
+            encode_unit_enum_equality_key,
         },
     },
     error::InternalError,
-    model::{
-        field::FieldStorageDecode,
-        index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef},
-    },
+    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef},
     types::EntityTag,
     value::Value,
 };
@@ -684,11 +681,7 @@ fn encode_schema_field_index_component(
         return encode_value_index_component_ref(source);
     }
 
-    encode_admitted_unit_enum_index_component(
-        field_contract.enum_catalog(),
-        field_contract.value_contract(),
-        source,
-    )
+    encode_admitted_unit_enum_index_component(&field_contract, source)
 }
 
 fn encode_accepted_field_path_index_component(
@@ -696,11 +689,13 @@ fn encode_accepted_field_path_index_component(
     field: &SchemaIndexFieldPathInfo,
     source: &Value,
 ) -> Result<Option<Vec<u8>>, InternalError> {
-    encode_accepted_index_leaf_component(
-        accepted_index.enum_catalog(),
-        field.persisted_kind(),
-        source,
-    )
+    if !matches!(field.persisted_kind(), Some(AcceptedFieldKind::Enum { .. })) {
+        return encode_value_index_component_ref(source);
+    }
+    let contract = accepted_index
+        .accepted_field_contract(field)
+        .ok_or_else(InternalError::index_unsupported)?;
+    encode_admitted_unit_enum_index_component(&contract, source)
 }
 
 fn encode_accepted_expression_field_path_index_component(
@@ -708,11 +703,13 @@ fn encode_accepted_expression_field_path_index_component(
     field: &SchemaIndexFieldPathInfo,
     source: &Value,
 ) -> Result<Option<Vec<u8>>, InternalError> {
-    encode_accepted_index_leaf_component(
-        accepted_index.enum_catalog(),
-        field.persisted_kind(),
-        source,
-    )
+    if !matches!(field.persisted_kind(), Some(AcceptedFieldKind::Enum { .. })) {
+        return encode_value_index_component_ref(source);
+    }
+    let contract = accepted_index
+        .accepted_field_contract(field)
+        .ok_or_else(InternalError::index_unsupported)?;
+    encode_admitted_unit_enum_index_component(&contract, source)
 }
 
 /// Encode one admitted literal against the exact accepted index component
@@ -757,40 +754,20 @@ pub(in crate::db) fn encode_accepted_index_literal_component(
     encode_value_index_component_ref(value)
 }
 
-fn encode_accepted_index_leaf_component(
-    catalog: Option<&crate::db::schema::AcceptedEnumCatalogHandle>,
-    kind: Option<&AcceptedFieldKind>,
-    source: &Value,
-) -> Result<Option<Vec<u8>>, InternalError> {
-    let Some(kind @ AcceptedFieldKind::Enum { .. }) = kind else {
-        return encode_value_index_component_ref(source);
-    };
-    let Some(catalog) = catalog else {
-        return Err(InternalError::index_unsupported());
-    };
-    let contract = AcceptedValueContract::from_accepted_field(
-        catalog.catalog(),
-        kind,
-        FieldStorageDecode::ByKind,
-    )
-    .map_err(|_| InternalError::index_unsupported())?;
-
-    encode_admitted_unit_enum_index_component(catalog, &contract, source)
-}
-
 fn encode_admitted_unit_enum_index_component(
-    catalog: &crate::db::schema::AcceptedEnumCatalogHandle,
-    contract: &AcceptedValueContract,
+    contract: &AcceptedValueAdmissionContract<'_>,
     source: &Value,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     if matches!(source, Value::Null) {
         return Ok(None);
     }
     let mut budget = ValueAdmissionBudget::standard();
-    let proof = validate_canonical_value(catalog, contract, source, &mut budget)
+    let encoded = contract
+        .with_validated(source, &mut budget, |proof| {
+            encode_unit_enum_equality_key(&proof)
+        })
+        .map_err(|_| InternalError::index_unsupported())?
         .map_err(|_| InternalError::index_unsupported())?;
-    let encoded =
-        encode_unit_enum_equality_key(&proof).map_err(|_| InternalError::index_unsupported())?;
 
     Ok(Some(encoded.to_vec()))
 }
@@ -1354,10 +1331,11 @@ mod accepted_enum_tests {
     use super::*;
     use crate::{
         db::schema::{
-            AcceptedEnumCatalogHandle, AcceptedSchemaRevision,
+            AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract,
+            AcceptedFieldPersistenceContract, AcceptedSchemaRevision,
             build_initial_accepted_enum_catalog_from_kinds_for_tests,
         },
-        model::field::{EnumVariantModel, FieldKind},
+        model::field::{EnumVariantModel, FieldKind, FieldStorageDecode, LeafCodec},
         value::{ValueEnum, ValueTag},
     };
 
@@ -1388,10 +1366,19 @@ mod accepted_enum_tests {
         let handle =
             AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
         let kind = AcceptedFieldKind::from_model_kind(UNIT_KIND);
+        let field = AcceptedFieldDecodeContract::new(
+            "status",
+            &kind,
+            false,
+            FieldStorageDecode::ByKind,
+            LeafCodec::StructuralFallback,
+        );
+        let persistence = AcceptedFieldPersistenceContract::new_for_tests(&handle, field)
+            .expect("accepted index field should match the catalog");
         let value = Value::Enum(ValueEnum::test_unit(1, 1));
 
         assert_eq!(
-            encode_accepted_index_leaf_component(Some(&handle), Some(&kind), &value)
+            encode_admitted_unit_enum_index_component(persistence.admission_contract(), &value)
                 .expect("accepted unit enum should produce an index component"),
             Some(vec![ValueTag::Enum.to_u8(), 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]),
         );
@@ -1405,10 +1392,20 @@ mod accepted_enum_tests {
         let handle =
             AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
         let kind = AcceptedFieldKind::from_model_kind(PAYLOAD_ENUM_KIND);
+        let field = AcceptedFieldDecodeContract::new(
+            "payload",
+            &kind,
+            false,
+            FieldStorageDecode::ByKind,
+            LeafCodec::StructuralFallback,
+        );
+        let persistence = AcceptedFieldPersistenceContract::new_for_tests(&handle, field)
+            .expect("accepted index field should match the catalog");
         let value = Value::Enum(ValueEnum::test_payload(1, 1, Value::Nat64(7)));
 
         assert!(
-            encode_accepted_index_leaf_component(Some(&handle), Some(&kind), &value).is_err(),
+            encode_admitted_unit_enum_index_component(persistence.admission_contract(), &value)
+                .is_err(),
             "payload enums must remain outside canonical index-key capability",
         );
     }

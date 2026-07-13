@@ -14,10 +14,13 @@ use crate::{
             StructuralGroupedProjectionResult,
         },
         query::plan::QueryMode,
+        schema::AcceptedEnumCatalogHandle,
         session::finalize_structural_grouped_projection_result,
     },
     error::InternalError,
     traits::{CanisterKind, EntityValue},
+    types::Id,
+    value::Value,
 };
 
 ///
@@ -60,6 +63,37 @@ where
     },
 }
 
+/// Runtime output paired with the exact accepted catalog retained by the
+/// guarded plan that produced it.
+pub(in crate::db) struct AcceptedExecutionOutput<T> {
+    value: T,
+    enum_catalog: AcceptedEnumCatalogHandle,
+}
+
+pub(in crate::db) type AcceptedValuesOutput = AcceptedExecutionOutput<Vec<Value>>;
+pub(in crate::db) type AcceptedIdValuesOutput<E> = AcceptedExecutionOutput<Vec<(Id<E>, Value)>>;
+pub(in crate::db) type AcceptedOptionalValueOutput = AcceptedExecutionOutput<Option<Value>>;
+
+impl<T> AcceptedExecutionOutput<T> {
+    #[must_use]
+    pub(in crate::db) const fn new(value: T, enum_catalog: AcceptedEnumCatalogHandle) -> Self {
+        Self {
+            value,
+            enum_catalog,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (T, AcceptedEnumCatalogHandle) {
+        (self.value, self.enum_catalog)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_value(self) -> T {
+        self.value
+    }
+}
+
 ///
 /// PreparedQueryExecutionOutput
 ///
@@ -86,6 +120,23 @@ pub(in crate::db::session) fn query_error_from_executor_plan_error(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Fail closed before a cached prepared plan reaches row access when its
+    // retained catalog authority is no longer the store's current root.
+    pub(in crate::db::session) fn ensure_prepared_query_plan_is_current<E>(
+        &self,
+        plan: &PreparedExecutionPlan<E>,
+    ) -> Result<(), QueryError>
+    where
+        E: PersistedRow<Canister = C>,
+    {
+        let authority = plan
+            .accepted_schema_authority()
+            .map_err(QueryError::execute)?;
+
+        self.ensure_accepted_schema_authority_is_current::<E>(authority)
+            .map_err(QueryError::execute)
+    }
+
     // Validate that one execution strategy is admissible for scalar paged load
     // execution and fail closed on grouped/primary-key-only routes.
     pub(in crate::db::session::query) fn ensure_scalar_paged_execution_family(
@@ -120,6 +171,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        self.ensure_prepared_query_plan_is_current(&plan)?;
 
         if plan.is_grouped() {
             return Err(QueryError::invariant());
@@ -246,6 +298,8 @@ impl<C: CanisterKind> DbSession<C> {
             });
         }
 
+        self.ensure_prepared_query_plan_is_current(&plan)?;
+
         match plan.mode() {
             QueryMode::Load(_) => {
                 if output == PreparedQueryExecutionOutput::DeleteCount {
@@ -328,8 +382,32 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        self.ensure_prepared_query_plan_is_current(&plan)?;
 
         self.with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::execute)
+    }
+
+    // Execute one value-producing operation while retaining the exact catalog
+    // handle carried by the guarded plan for later outward rendering.
+    pub(in crate::db) fn execute_with_plan_and_catalog<E, T>(
+        &self,
+        query: &Query<E>,
+        op: impl FnOnce(LoadExecutor<E>, PreparedExecutionPlan<E>) -> Result<T, InternalError>,
+    ) -> Result<AcceptedExecutionOutput<T>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        self.ensure_prepared_query_plan_is_current(&plan)?;
+        let enum_catalog = plan
+            .accepted_enum_catalog_handle()
+            .map_err(QueryError::execute)?
+            .clone();
+        let value = self
+            .with_metrics(|| op(self.load_executor::<E>(), plan))
+            .map_err(QueryError::execute)?;
+
+        Ok(AcceptedExecutionOutput::new(value, enum_catalog))
     }
 }

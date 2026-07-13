@@ -101,6 +101,7 @@ impl<C: CanisterKind> DbSession<C> {
         match returning {
             None => {
                 let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
+                self.ensure_prepared_query_plan_is_current(&plan)?;
                 let bounds = sql_delete_projection_bounds(execution_bounds, false);
                 let row_count = self
                     .with_metrics(|| {
@@ -124,6 +125,7 @@ impl<C: CanisterKind> DbSession<C> {
                         // from executor-materialized rows at the SQL write boundary.
                         let (plan, _) =
                             self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
+                        self.ensure_prepared_query_plan_is_current(&plan)?;
                         let bounds = sql_delete_projection_bounds(execution_bounds, true);
                         let deleted = self
                             .with_metrics(|| {

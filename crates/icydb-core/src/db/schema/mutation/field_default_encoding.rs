@@ -4,8 +4,8 @@ use crate::db::{
     data::encode_input_value_for_accepted_field_contract,
     schema::{
         AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract, AcceptedFieldKind,
-        PersistedFieldSnapshot, SchemaFieldDefault, enum_catalog::ValueAdmissionBudget,
-        input_value_from_strict_sql_literal_for_persisted_kind,
+        AcceptedFieldPersistenceContract, PersistedFieldSnapshot, SchemaFieldDefault,
+        enum_catalog::ValueAdmissionBudget, input_value_from_strict_sql_literal_for_persisted_kind,
     },
 };
 use crate::model::field::{FieldStorageDecode, LeafCodec};
@@ -76,15 +76,16 @@ fn encode_sql_ddl_field_default_payload(
         return Err(SchemaDdlFieldDefaultEncodingError::NullDefault);
     }
 
-    let contract =
+    let field =
         AcceptedFieldDecodeContract::new(field_name, kind, nullable, storage_decode, leaf_codec);
     let input = input_value_from_strict_sql_literal_for_persisted_kind(kind, default)
         .ok_or(SchemaDdlFieldDefaultEncodingError::Encoding)?;
     let catalog = catalog.ok_or(SchemaDdlFieldDefaultEncodingError::Encoding)?;
+    let encoding = AcceptedFieldPersistenceContract::new(catalog, field)
+        .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
     let mut budget = ValueAdmissionBudget::standard();
-    let payload =
-        encode_input_value_for_accepted_field_contract(catalog, contract, input, &mut budget)
-            .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
+    let payload = encode_input_value_for_accepted_field_contract(encoding, input, &mut budget)
+        .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
 
     Ok(SchemaFieldDefault::SlotPayload(payload))
 }

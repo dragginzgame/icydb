@@ -1,7 +1,6 @@
 use super::contracts::{AccessPlannedQuery, ExecutionOrdering, QueryMode};
 use crate::{
     db::{
-        commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutorPlanError, GroupedPaginationWindow, PreparedScalarPlanCore,
@@ -14,6 +13,7 @@ use crate::{
             },
             terminal::RetainedSlotLayout,
         },
+        query::plan::AcceptedContinuationIdentity,
     },
     error::InternalError,
 };
@@ -45,7 +45,7 @@ impl PreparedLoadPlan {
     pub(in crate::db::executor) fn from_valid_shared_residents(
         authority: EntityAuthority,
         plan: Arc<AccessPlannedQuery>,
-        schema_fingerprint: Option<CommitSchemaFingerprint>,
+        continuation_identity: Option<AcceptedContinuationIdentity>,
         index_prefix_specs: Arc<[crate::db::executor::LoweredIndexPrefixSpec]>,
         index_range_specs: Arc<[crate::db::executor::LoweredIndexRangeSpec]>,
     ) -> Self {
@@ -54,7 +54,7 @@ impl PreparedLoadPlan {
             core: build_prepared_execution_plan_core_with_shared_lowered_access(
                 authority,
                 plan,
-                schema_fingerprint,
+                continuation_identity,
                 index_prefix_specs,
                 false,
                 index_range_specs,

@@ -681,7 +681,7 @@ fn accepted_row_decode_contract_for_model(
         crate::db::schema::AcceptedSchemaRevision::INITIAL,
     );
 
-    descriptor.row_decode_contract_with_catalog(catalog)
+    descriptor.row_decode_contract(catalog)
 }
 
 // Build one accepted structural row contract from a model proposal for tests.
@@ -776,7 +776,7 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
         crate::db::schema::AcceptedSchemaRevision::INITIAL,
     );
 
-    descriptor.row_decode_contract_with_catalog(catalog)
+    descriptor.row_decode_contract(catalog)
 }
 
 // Build one accepted row contract for the additive required-field fixture with
@@ -822,10 +822,18 @@ fn generated_default_model_with_no_accepted_default_contract_for_tests() -> Stru
         .expect("accepted no-default schema fixture should validate");
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted no-default runtime contract should build");
+    let catalog = crate::db::schema::enum_catalog::build_initial_accepted_enum_catalog(&[
+        &ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL,
+    ])
+    .expect("accepted enum catalog fixture should build");
+    let catalog = crate::db::schema::AcceptedEnumCatalogHandle::new_for_tests(
+        catalog,
+        crate::db::schema::AcceptedSchemaRevision::INITIAL,
+    );
 
     StructuralRowContract::from_accepted_decode_contract(
         ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL.path(),
-        descriptor.row_decode_contract(),
+        descriptor.row_decode_contract(catalog),
     )
 }
 

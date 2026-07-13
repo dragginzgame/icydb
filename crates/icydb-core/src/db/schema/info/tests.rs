@@ -549,6 +549,32 @@ fn accepted_snapshot_schema_info_uses_persisted_index_membership() {
     assert!(accepted_unindexed.field_path_indexes().is_empty());
 }
 
+#[test]
+fn accepted_index_field_contract_rejects_foreign_component_metadata() {
+    let snapshot = accepted_schema_with_name_index();
+    let catalog = build_initial_accepted_enum_catalog_from_kinds_for_tests(&[])
+        .expect("empty accepted enum catalog should build");
+    let catalog =
+        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+    let accepted = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
+        &MODEL,
+        &snapshot,
+        catalog.clone(),
+        false,
+    );
+    let foreign =
+        SchemaInfo::from_accepted_snapshot_and_catalog_for_model(&MODEL, &snapshot, catalog, false);
+    let index = &accepted.field_path_indexes()[0];
+    let own_field = &index.fields()[0];
+    let foreign_field = &foreign.field_path_indexes()[0].fields()[0];
+
+    assert!(index.accepted_field_contract(own_field).is_some());
+    assert!(
+        index.accepted_field_contract(foreign_field).is_none(),
+        "index authority must not bind field metadata from another projection",
+    );
+}
+
 #[cfg(feature = "sql")]
 #[test]
 fn accepted_snapshot_schema_info_exposes_persisted_field_path_indexes() {

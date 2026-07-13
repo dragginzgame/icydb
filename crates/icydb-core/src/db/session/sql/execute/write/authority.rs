@@ -135,16 +135,11 @@ where
     E: EntityKind,
 {
     let contract = accepted_save_contract_for_catalog_context::<E>(catalog, descriptor);
-    debug_assert_eq!(
-        contract.0.accepted_schema_revision(),
-        Some(catalog.revision())
-    );
-    debug_assert!(
-        contract
-            .0
-            .enum_catalog()
-            .is_some_and(|accepted| std::ptr::eq(accepted, catalog.enum_catalog()))
-    );
+    debug_assert_eq!(contract.0.accepted_schema_revision(), catalog.revision());
+    debug_assert!(std::ptr::eq(
+        contract.0.enum_catalog(),
+        catalog.enum_catalog(),
+    ));
 
     contract
 }

@@ -189,9 +189,8 @@ where
     E: AuthoredFieldProjection,
 {
     let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-    let row_contract = descriptor.row_decode_contract_with_catalog(enum_catalog.clone());
-    let accepted = AcceptedAuthoredFieldProjection::new(&row_contract)
-        .map_err(|_| InternalError::query_executor_invariant())?;
+    let row_contract = descriptor.row_decode_contract(enum_catalog.clone());
+    let accepted = AcceptedAuthoredFieldProjection::new(&row_contract);
 
     match returning {
         SqlReturningProjection::All => {

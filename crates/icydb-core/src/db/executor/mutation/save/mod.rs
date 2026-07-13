@@ -202,7 +202,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             catalog,
             crate::db::schema::AcceptedSchemaRevision::INITIAL,
         );
-        let accepted_row_decode_contract = descriptor.row_decode_contract_with_catalog(catalog);
+        let accepted_row_decode_contract = descriptor.row_decode_contract(catalog);
 
         Self {
             db,

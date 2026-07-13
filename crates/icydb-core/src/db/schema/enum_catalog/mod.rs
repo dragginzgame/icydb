@@ -28,9 +28,11 @@ pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
 pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
 pub(in crate::db) use admission::{
     AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget,
-    ValueAdmissionError, admit_decoded_persisted_field_value, encode_unit_enum_default_in_catalog,
-    normalize_and_admit_nullable_value, normalize_and_admit_persisted_field_value,
-    validate_canonical_value, validate_nullable_canonical_value, with_normalized_accepted_value,
+    ValueAdmissionError, encode_unit_enum_default_in_catalog,
+};
+pub(in crate::db::schema) use admission::{
+    admit_canonical_value, normalize_and_admit_nullable_value, validate_nullable_canonical_value,
+    with_normalized_accepted_value,
 };
 pub(in crate::db::schema) use codec::{decode_accepted_enum_catalog, encode_accepted_enum_catalog};
 pub(in crate::db) use equality_key::encode_unit_enum_equality_key;
@@ -93,7 +95,7 @@ impl PartialEq for AcceptedStoreCatalogScope {
 
 impl Eq for AcceptedStoreCatalogScope {}
 
-/// Store-local provenance retained by an admitted owned value.
+/// Store-local provenance retained by admitted values and execution plans.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedSchemaAuthority {
     store_scope: AcceptedStoreCatalogScope,
@@ -107,8 +109,21 @@ impl AcceptedSchemaAuthority {
         self.revision
     }
 
+    /// Return whether this authority belongs to the supplied store-local
+    /// catalog domain and still matches its current immutable root.
     #[must_use]
-    #[cfg(test)]
+    pub(in crate::db::schema) fn matches_store_root(
+        &self,
+        store_scope: &AcceptedStoreCatalogScope,
+        revision: AcceptedSchemaRevision,
+        fingerprint: AcceptedSchemaFingerprint,
+    ) -> bool {
+        &self.store_scope == store_scope
+            && self.revision == revision
+            && self.fingerprint == fingerprint
+    }
+
+    #[must_use]
     pub(in crate::db) const fn fingerprint(&self) -> AcceptedSchemaFingerprint {
         self.fingerprint
     }
@@ -116,7 +131,7 @@ impl AcceptedSchemaAuthority {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn matches(&self, other: &Self) -> bool {
-        self == other
+        self.matches_store_root(&other.store_scope, other.revision, other.fingerprint)
     }
 }
 

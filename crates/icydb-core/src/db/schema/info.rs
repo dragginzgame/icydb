@@ -8,30 +8,29 @@ use crate::db::schema::{
     SqlCapabilities, sql_capabilities, sql_capabilities_for_model_kind,
     sql_capabilities_with_enum_catalog,
 };
-#[cfg(feature = "sql")]
-use crate::{
-    db::schema::canonicalize_strict_sql_literal_for_persisted_kind,
-    model::canonicalize_strict_sql_literal_for_kind,
-};
 use crate::{
     db::schema::{
         AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind,
-        AcceptedRelationStrength, AcceptedSchemaSnapshot, FieldId, FieldType,
-        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
-        enum_catalog::{
-            AcceptedValueContract, ValueAdmissionBudget, ValueAdmissionError,
-            normalize_and_admit_nullable_value,
-        },
-        field_type_from_model_kind, field_type_from_persisted_kind,
+        AcceptedRelationStrength, AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, FieldId,
+        FieldType, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+        SchemaFieldSlot, enum_catalog::AcceptedValueContract, field_type_from_model_kind,
+        field_type_from_persisted_kind,
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldModel, LeafCodec},
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
-    value::{InputValue, Value},
+};
+#[cfg(feature = "sql")]
+use crate::{
+    db::schema::{
+        canonicalize_strict_sql_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
+    },
+    model::canonicalize_strict_sql_literal_for_kind,
+    value::Value,
 };
 #[cfg(test)]
 use std::cell::Cell;
@@ -172,72 +171,6 @@ struct SchemaFieldInfo {
     nested_fields: &'static [FieldModel],
 }
 
-/// Borrowed accepted value contract for one live schema field.
-///
-/// The pieces remain bundled so admission cannot accidentally combine a kind,
-/// decode mode, nullability rule, and enum catalog from different revisions.
-pub(in crate::db) struct AcceptedSchemaFieldContractRef<'a> {
-    value_contract: &'a AcceptedValueContract,
-    nullable: bool,
-    enum_catalog: &'a AcceptedEnumCatalogHandle,
-}
-
-impl<'a> AcceptedSchemaFieldContractRef<'a> {
-    #[must_use]
-    pub(in crate::db) const fn kind(&self) -> &'a AcceptedFieldKind {
-        self.value_contract.kind()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn value_contract(&self) -> &'a AcceptedValueContract {
-        self.value_contract
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn nullable(&self) -> bool {
-        self.nullable
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn enum_catalog(&self) -> &'a AcceptedEnumCatalogHandle {
-        self.enum_catalog
-    }
-
-    /// Normalize authored input through this exact accepted field contract.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn normalize_input_to_runtime(
-        &self,
-        input: InputValue,
-        budget: &mut ValueAdmissionBudget,
-    ) -> Result<Value, ValueAdmissionError> {
-        self.normalize_contract_input_to_runtime(self.value_contract, self.nullable, input, budget)
-    }
-
-    /// Derive a nested collection-element contract under the same authority.
-    #[must_use]
-    pub(in crate::db) fn collection_element_contract(&self) -> Option<AcceptedValueContract> {
-        self.value_contract.collection_element_contract()
-    }
-
-    /// Normalize authored input through a nested contract in this field's catalog.
-    pub(in crate::db) fn normalize_contract_input_to_runtime(
-        &self,
-        value_contract: &AcceptedValueContract,
-        nullable: bool,
-        input: InputValue,
-        budget: &mut ValueAdmissionBudget,
-    ) -> Result<Value, ValueAdmissionError> {
-        let admitted = normalize_and_admit_nullable_value(
-            self.enum_catalog,
-            value_contract,
-            nullable,
-            input,
-            budget,
-        )?;
-        Ok(admitted.value().clone())
-    }
-}
-
 ///
 /// SchemaIndexInfo
 ///
@@ -304,10 +237,20 @@ impl SchemaIndexInfo {
         }
     }
 
-    /// Borrow the accepted catalog revision governing enum key components.
+    /// Bind one owned field-path component to this index's catalog authority.
     #[must_use]
-    pub(in crate::db) const fn enum_catalog(&self) -> Option<&AcceptedEnumCatalogHandle> {
-        self.enum_catalog.as_ref()
+    pub(in crate::db) fn accepted_field_contract<'a>(
+        &'a self,
+        field: &'a SchemaIndexFieldPathInfo,
+    ) -> Option<AcceptedValueAdmissionContract<'a>> {
+        if !self
+            .fields
+            .iter()
+            .any(|candidate| std::ptr::eq(candidate, field))
+        {
+            return None;
+        }
+        field.accepted_value_contract(self.enum_catalog.as_ref())
     }
 }
 
@@ -376,10 +319,23 @@ impl SchemaExpressionIndexInfo {
         }
     }
 
-    /// Borrow the accepted catalog revision governing enum key components.
+    /// Bind one owned field-path component to this index's catalog authority.
     #[must_use]
-    pub(in crate::db) const fn enum_catalog(&self) -> Option<&AcceptedEnumCatalogHandle> {
-        self.enum_catalog.as_ref()
+    pub(in crate::db) fn accepted_field_contract<'a>(
+        &'a self,
+        field: &'a SchemaIndexFieldPathInfo,
+    ) -> Option<AcceptedValueAdmissionContract<'a>> {
+        if !self.key_items.iter().any(|item| match item {
+            SchemaExpressionIndexKeyItemInfo::FieldPath(candidate) => {
+                std::ptr::eq(candidate, field)
+            }
+            SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
+                std::ptr::eq(expression.source(), field)
+            }
+        }) {
+            return None;
+        }
+        field.accepted_value_contract(self.enum_catalog.as_ref())
     }
 }
 
@@ -473,7 +429,7 @@ pub(in crate::db) struct SchemaIndexFieldPathInfo {
     #[cfg(test)]
     ty: FieldType,
     persisted_kind: Option<AcceptedFieldKind>,
-    #[cfg(all(test, feature = "sql"))]
+    accepted_value_contract: Option<Box<AcceptedValueContract>>,
     nullable: bool,
 }
 
@@ -514,16 +470,27 @@ impl SchemaIndexFieldPathInfo {
     /// Borrow the persisted field kind, when this key item came from accepted
     /// schema authority.
     #[must_use]
-    pub(in crate::db) const fn persisted_kind(&self) -> Option<&AcceptedFieldKind> {
-        match &self.persisted_kind {
-            Some(kind) => Some(kind),
-            None => None,
-        }
+    pub(in crate::db) fn persisted_kind(&self) -> Option<&AcceptedFieldKind> {
+        self.accepted_value_contract
+            .as_deref()
+            .map(AcceptedValueContract::kind)
+            .or(self.persisted_kind.as_ref())
+    }
+
+    fn accepted_value_contract<'a>(
+        &'a self,
+        enum_catalog: Option<&'a AcceptedEnumCatalogHandle>,
+    ) -> Option<AcceptedValueAdmissionContract<'a>> {
+        Some(AcceptedValueAdmissionContract::borrowed(
+            enum_catalog?,
+            self.accepted_value_contract.as_deref()?,
+            self.nullable,
+        ))
     }
 
     /// Return whether this key item permits explicit persisted `NULL`.
     #[must_use]
-    #[cfg(all(test, feature = "sql"))]
+    #[cfg(test)]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
@@ -633,13 +600,13 @@ impl SchemaInfo {
     pub(in crate::db) fn accepted_field_contract(
         &self,
         name: &str,
-    ) -> Option<AcceptedSchemaFieldContractRef<'_>> {
+    ) -> Option<AcceptedValueAdmissionContract<'_>> {
         let field = schema_field_info(self.fields.as_slice(), name)?;
-        Some(AcceptedSchemaFieldContractRef {
-            value_contract: field.accepted_value_contract.as_ref()?,
-            nullable: field.nullable,
-            enum_catalog: self.enum_catalog.as_ref()?,
-        })
+        Some(AcceptedValueAdmissionContract::borrowed(
+            self.enum_catalog.as_ref()?,
+            field.accepted_value_contract.as_ref()?,
+            field.nullable,
+        ))
     }
 
     /// Return the top-level physical row slot for one field.
@@ -1105,7 +1072,7 @@ fn schema_index_info_from_generated_index(
                 #[cfg(test)]
                 ty: field.ty.clone(),
                 persisted_kind: None,
-                #[cfg(all(test, feature = "sql"))]
+                accepted_value_contract: None,
                 nullable: field.nullable,
             })
         })
@@ -1155,7 +1122,7 @@ fn schema_index_info_from_accepted_index(
             .key()
             .field_paths()
             .iter()
-            .map(|path| schema_index_field_path_info_from_accepted(path, snapshot))
+            .map(|path| schema_index_field_path_info_from_accepted(path, snapshot, enum_catalog))
             .collect(),
         predicate_sql: index.predicate_sql().map(str::to_string),
         enum_catalog: enum_catalog.cloned(),
@@ -1186,7 +1153,7 @@ fn schema_expression_index_info_from_accepted_index(
         generated: index.generated(),
         key_items: items
             .iter()
-            .map(|item| schema_expression_index_key_item_info(item, snapshot))
+            .map(|item| schema_expression_index_key_item_info(item, snapshot, enum_catalog))
             .collect(),
         predicate_sql: index.predicate_sql().map(str::to_string),
         enum_catalog: enum_catalog.cloned(),
@@ -1196,17 +1163,24 @@ fn schema_expression_index_info_from_accepted_index(
 fn schema_expression_index_key_item_info(
     item: &PersistedIndexKeyItemSnapshot,
     snapshot: &PersistedSchemaSnapshot,
+    enum_catalog: Option<&AcceptedEnumCatalogHandle>,
 ) -> SchemaExpressionIndexKeyItemInfo {
     match item {
         PersistedIndexKeyItemSnapshot::FieldPath(path) => {
             SchemaExpressionIndexKeyItemInfo::FieldPath(schema_index_field_path_info_from_accepted(
-                path, snapshot,
+                path,
+                snapshot,
+                enum_catalog,
             ))
         }
         PersistedIndexKeyItemSnapshot::Expression(expression) => {
             SchemaExpressionIndexKeyItemInfo::Expression(Box::new(SchemaIndexExpressionInfo {
                 op: expression.op(),
-                source: schema_index_field_path_info_from_accepted(expression.source(), snapshot),
+                source: schema_index_field_path_info_from_accepted(
+                    expression.source(),
+                    snapshot,
+                    enum_catalog,
+                ),
                 #[cfg(test)]
                 input_kind: expression.input_kind().clone(),
                 #[cfg(test)]
@@ -1220,11 +1194,25 @@ fn schema_expression_index_key_item_info(
 fn schema_index_field_path_info_from_accepted(
     path: &PersistedIndexFieldPathSnapshot,
     snapshot: &PersistedSchemaSnapshot,
+    enum_catalog: Option<&AcceptedEnumCatalogHandle>,
 ) -> SchemaIndexFieldPathInfo {
     let field_name = accepted_field_name(snapshot, path.field_id())
         .or_else(|| path.path().first().map(String::as_str))
         .unwrap_or_default()
         .to_string();
+    let accepted_value_contract = enum_catalog.and_then(|catalog| {
+        AcceptedValueContract::from_accepted_field(
+            catalog.catalog(),
+            path.kind(),
+            FieldStorageDecode::ByKind,
+        )
+        .ok()
+        .map(Box::new)
+    });
+    debug_assert!(enum_catalog.is_none() || accepted_value_contract.is_some());
+    let persisted_kind = accepted_value_contract
+        .is_none()
+        .then(|| path.kind().clone());
 
     SchemaIndexFieldPathInfo {
         #[cfg(test)]
@@ -1234,8 +1222,8 @@ fn schema_index_field_path_info_from_accepted(
         path: path.path().to_vec(),
         #[cfg(test)]
         ty: field_type_from_persisted_kind(path.kind()),
-        persisted_kind: Some(path.kind().clone()),
-        #[cfg(all(test, feature = "sql"))]
+        persisted_kind,
+        accepted_value_contract,
         nullable: path.nullable(),
     }
 }

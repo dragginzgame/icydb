@@ -18,10 +18,11 @@ use crate::db::{
     },
     registry::StoreRegistry,
     schema::{
-        AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedRelationStrength,
-        AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-        SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract, AcceptedFieldKind,
+        AcceptedRelationStrength, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
+        AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
+        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+        SchemaVersion, enum_catalog::build_initial_accepted_enum_catalog,
     },
 };
 use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
@@ -213,9 +214,13 @@ fn accepted_strong_relations_use_persisted_relation_edges_when_present() {
     let accepted = AcceptedSchemaSnapshot::new(snapshot);
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted relation runtime contract should build");
+    let catalog =
+        build_initial_accepted_enum_catalog(&[]).expect("empty accepted enum catalog should build");
+    let catalog =
+        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
     let row_contract = StructuralRowContract::from_accepted_decode_contract(
         "Source",
-        descriptor.row_decode_contract(),
+        descriptor.row_decode_contract(catalog),
     );
 
     let db: Db<RelationTestCanister> = Db::new(&TEST_REGISTRY);

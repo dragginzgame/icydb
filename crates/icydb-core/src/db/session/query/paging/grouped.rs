@@ -61,6 +61,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: validate the prepared plan shape before decoding cursors.
+        self.ensure_prepared_query_plan_is_current(&plan)?;
         Self::ensure_grouped_execution_family(
             plan.execution_family().map_err(QueryError::execute)?,
         )?;

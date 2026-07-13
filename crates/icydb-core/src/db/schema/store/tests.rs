@@ -10,12 +10,13 @@ use crate::{
     db::{
         direction::Direction,
         schema::{
-            AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId,
-            PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
-            PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-            accepted_schema_cache_fingerprint, empty_accepted_schema_candidate_for_tests,
-            encode_persisted_schema_snapshot,
+            AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
+            AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+            SchemaFieldSlot, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
+            empty_accepted_schema_candidate_for_tests, encode_persisted_schema_snapshot,
+            enum_catalog::AcceptedSchemaFingerprint,
         },
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -47,6 +48,81 @@ fn schema_store_catalog_scope_is_local_and_stable_for_its_lifetime() {
 
     assert_eq!(first, first_again);
     assert_ne!(first, second);
+}
+
+#[test]
+fn schema_store_matches_only_its_current_root_authority() {
+    let mut store = SchemaStore::init_heap();
+    let initial = empty_accepted_schema_candidate_for_tests(
+        "test::AuthoritySchemaStore",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    store
+        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .expect("initial accepted schema root should bootstrap");
+    let store_scope = store
+        .accepted_catalog_scope
+        .get_or_init(AcceptedStoreCatalogScope::new)
+        .clone();
+    let root = initial.root();
+    let current = AcceptedEnumCatalogHandle::new(
+        initial.bundle().enum_catalog().clone(),
+        store_scope.clone(),
+        root.revision(),
+        root.fingerprint(),
+    );
+    assert!(
+        store
+            .current_accepted_persisted_snapshot(EntityTag::new(7))
+            .expect("accepted bundle should populate the root cache")
+            .is_none(),
+    );
+    assert!(store.accepted_bundle_cache.borrow().is_some());
+    assert!(
+        store
+            .current_accepted_schema_authority_matches(current.authority())
+            .expect("current authority comparison should reuse the cached root"),
+    );
+
+    let foreign_store = AcceptedEnumCatalogHandle::new(
+        initial.bundle().enum_catalog().clone(),
+        AcceptedStoreCatalogScope::new(),
+        root.revision(),
+        root.fingerprint(),
+    );
+    assert!(
+        !store
+            .current_accepted_schema_authority_matches(foreign_store.authority())
+            .expect("foreign authority comparison should reject the store scope"),
+    );
+
+    let mut wrong_fingerprint_bytes = root.fingerprint().as_bytes();
+    wrong_fingerprint_bytes[0] ^= 1;
+    let wrong_fingerprint = AcceptedEnumCatalogHandle::new(
+        initial.bundle().enum_catalog().clone(),
+        store_scope,
+        root.revision(),
+        AcceptedSchemaFingerprint::new(wrong_fingerprint_bytes),
+    );
+    assert!(
+        !store
+            .current_accepted_schema_authority_matches(wrong_fingerprint.authority())
+            .expect("fingerprint authority comparison should reject the mismatch"),
+    );
+
+    let second = empty_accepted_schema_candidate_for_tests(
+        "test::AuthoritySchemaStore",
+        AcceptedSchemaRevision::new(2),
+    );
+    store
+        .publish_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .expect("second accepted schema root should publish");
+    assert!(store.accepted_bundle_cache.borrow().is_none());
+    assert!(
+        !store
+            .current_accepted_schema_authority_matches(current.authority())
+            .expect("stale authority comparison should read the new root"),
+    );
 }
 
 #[test]

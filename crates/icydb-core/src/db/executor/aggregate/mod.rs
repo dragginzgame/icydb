@@ -168,7 +168,7 @@ impl ExecutionKernel {
         let PreparedAggregateStreamingPlanHandoff {
             authority,
             logical_plan,
-            schema_fingerprint,
+            continuation_identity,
             index_prefix_specs,
             index_range_specs,
         } = plan.into_streaming_handoff()?;
@@ -184,7 +184,7 @@ impl ExecutionKernel {
             authority,
             store,
             logical_plan,
-            schema_fingerprint,
+            continuation_identity,
             execution_preparation,
             index_prefix_specs,
             index_range_specs,

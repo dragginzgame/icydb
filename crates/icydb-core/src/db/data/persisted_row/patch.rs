@@ -26,7 +26,7 @@ use crate::{
             },
         },
         schema::{
-            AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
+            AcceptedFieldPersistenceContract, AcceptedRowDecodeContract,
             authored_projection::AcceptedAuthoredFieldProjection,
             enum_catalog::ValueAdmissionBudget,
         },
@@ -203,10 +203,12 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
     }
 
     fn runtime_enum_context(&self) -> Option<&dyn crate::traits::RuntimeEnumContext> {
-        self.payloads
-            .contract
-            .accepted_enum_catalog_handle()
-            .map(|handle| handle.catalog() as &dyn crate::traits::RuntimeEnumContext)
+        Some(
+            self.payloads
+                .contract
+                .accepted_enum_catalog_handle()
+                .catalog() as &dyn crate::traits::RuntimeEnumContext,
+        )
     }
 }
 
@@ -302,8 +304,7 @@ pub(in crate::db) fn canonical_row_from_entity_with_accepted_contract<E>(
 where
     E: PersistedRow + AuthoredFieldProjection,
 {
-    let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract)
-        .map_err(|_| InternalError::persisted_row_encode_internal())?;
+    let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract);
     let contract = StructuralRowContract::from_accepted_decode_contract(
         entity_path,
         accepted_decode_contract.clone(),
@@ -329,13 +330,9 @@ where
         }
 
         let value = contract.missing_slot_value(slot)?;
-        let catalog = contract
-            .accepted_enum_catalog_handle()
-            .ok_or_else(InternalError::persisted_row_encode_internal)?;
+        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         slot_payloads.push(encode_canonical_value_for_accepted_field_contract(
-            catalog,
-            field.decode_contract(),
-            &value,
+            encoding, &value,
         )?);
     }
 
@@ -388,15 +385,12 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
 
 // Admit every authored value before selecting its accepted storage codec.
 fn encode_authored_value_for_accepted_field_contract(
-    contract: &StructuralRowContract,
-    field: AcceptedFieldDecodeContract<'_>,
+    encoding: AcceptedFieldPersistenceContract<'_>,
     input: InputValue,
 ) -> Result<Vec<u8>, InternalError> {
-    let catalog = contract
-        .accepted_enum_catalog_handle()
-        .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    let field = encoding.field();
     let mut budget = ValueAdmissionBudget::standard();
-    encode_input_value_for_accepted_field_contract(catalog, field, input, &mut budget)
+    encode_input_value_for_accepted_field_contract(encoding, input, &mut budget)
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
 }
 
@@ -450,12 +444,9 @@ fn serialize_structural_patch_fields_for_accepted_contract(
     // accepted field contract selected by the database schema snapshot.
     for entry in patch.entries() {
         let slot = entry.slot();
-        let field = contract.required_accepted_field_decode_contract(slot.index())?;
-        let payload = encode_authored_value_for_accepted_field_contract(
-            contract,
-            field,
-            entry.value().clone(),
-        )?;
+        let encoding = contract.required_accepted_field_persistence_contract(slot.index())?;
+        let payload =
+            encode_authored_value_for_accepted_field_contract(encoding, entry.value().clone())?;
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
 
@@ -476,12 +467,9 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
     // semantics per physical slot.
     for entry in patch.entries() {
         let slot = entry.slot().index();
-        let field = contract.required_accepted_field_decode_contract(slot)?;
-        let payload = encode_authored_value_for_accepted_field_contract(
-            contract,
-            field,
-            entry.value().clone(),
-        )?;
+        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+        let payload =
+            encode_authored_value_for_accepted_field_contract(encoding, entry.value().clone())?;
         payloads[slot] = Some(payload);
     }
 
@@ -495,11 +483,10 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
             *payload = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
             continue;
         }
-        let field = contract.required_accepted_field_decode_contract(slot)?;
+        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         let value = contract.missing_slot_value(slot)?;
         *payload = Some(encode_authored_value_for_accepted_field_contract(
-            contract,
-            field,
+            encoding,
             InputValue::try_from_runtime_non_enum(&value)
                 .ok_or_else(InternalError::persisted_row_encode_internal)?,
         )?);
@@ -541,8 +528,7 @@ where
     let mut writer = CompleteSerializedPatchWriter::for_model_proposal_for_test(E::MODEL);
     let accepted_decode_contract =
         AcceptedRowDecodeContract::from_model_proposal_for_test(E::MODEL);
-    let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract)
-        .map_err(|_| InternalError::persisted_row_encode_internal())?;
+    let authored = AcceptedAuthoredFieldProjection::new(&accepted_decode_contract);
 
     for slot in 0..E::MODEL.fields().len() {
         let mut budget = ValueAdmissionBudget::standard();

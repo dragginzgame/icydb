@@ -23,7 +23,7 @@ use crate::{
     value::OutputValue,
 };
 
-use super::output::{output, output_values, output_values_with_ids};
+use super::output::{output_optional, output_values, output_values_with_ids};
 
 impl<E> FluentLoadQuery<'_, E>
 where
@@ -35,7 +35,7 @@ where
         E: EntityValue,
     {
         self.execute_slot_terminal(field, ValuesBySlotTerminal::new)
-            .and_then(|values| output_values::<E>(self.session, values))
+            .and_then(output_values)
     }
 
     /// Execute and return projected values for one shared bounded projection
@@ -52,7 +52,7 @@ where
                 projection.projection_plan().into_expr(),
             )
         })
-        .and_then(|values| output_values::<E>(self.session, values))
+        .and_then(output_values)
     }
 
     /// Explain `project_values(projection)` routing without executing it.
@@ -146,7 +146,7 @@ where
         self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
             session.execute_fluent_top_k_values_by_slot(query, target_slot, take_count)
         })
-        .and_then(|values| output_values::<E>(self.session, values))
+        .and_then(output_values)
     }
 
     /// Execute and return projected values for the bottom `k` rows by `field`
@@ -167,7 +167,7 @@ where
         self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
             session.execute_fluent_bottom_k_values_by_slot(query, target_slot, take_count)
         })
-        .and_then(|values| output_values::<E>(self.session, values))
+        .and_then(output_values)
     }
 
     /// Execute and return projected id/value pairs for the top `k` rows by
@@ -188,7 +188,7 @@ where
         self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
             session.execute_fluent_top_k_values_with_ids_by_slot(query, target_slot, take_count)
         })
-        .and_then(|values| output_values_with_ids::<E>(self.session, values))
+        .and_then(output_values_with_ids::<E>)
     }
 
     /// Execute and return projected id/value pairs for the bottom `k` rows by
@@ -209,7 +209,7 @@ where
         self.with_admitted_non_paged_slot(field, |session, query, target_slot| {
             session.execute_fluent_bottom_k_values_with_ids_by_slot(query, target_slot, take_count)
         })
-        .and_then(|values| output_values_with_ids::<E>(self.session, values))
+        .and_then(output_values_with_ids::<E>)
     }
 
     /// Execute and return distinct projected field values for the effective
@@ -219,7 +219,7 @@ where
         E: EntityValue,
     {
         self.execute_slot_terminal(field, DistinctValuesBySlotTerminal::new)
-            .and_then(|values| output_values::<E>(self.session, values))
+            .and_then(output_values)
     }
 
     /// Explain `distinct_values_by(field)` routing without executing the terminal.
@@ -243,7 +243,7 @@ where
         E: EntityValue,
     {
         self.execute_slot_terminal(field, ValuesBySlotWithIdsTerminal::new)
-            .and_then(|values| output_values_with_ids::<E>(self.session, values))
+            .and_then(output_values_with_ids::<E>)
     }
 
     /// Execute and return projected id/value pairs for one shared bounded
@@ -263,7 +263,7 @@ where
                 projection.projection_plan().into_expr(),
             )
         })
-        .and_then(|values| output_values_with_ids::<E>(self.session, values))
+        .and_then(output_values_with_ids::<E>)
     }
 
     /// Explain `values_by_with_ids(field)` routing without executing the terminal.
@@ -284,11 +284,7 @@ where
         E: EntityValue,
     {
         self.execute_slot_terminal(field, FirstValueBySlotTerminal::new)
-            .and_then(|value| {
-                value
-                    .map(|value| output::<E>(self.session, value))
-                    .transpose()
-            })
+            .and_then(output_optional)
     }
 
     /// Execute and return the first projected value for one shared bounded
@@ -306,11 +302,7 @@ where
                 projection.projection_plan().into_expr(),
             )
         })
-        .and_then(|value| {
-            value
-                .map(|value| output::<E>(self.session, value))
-                .transpose()
-        })
+        .and_then(output_optional)
     }
 
     /// Explain `first_value_by(field)` routing without executing the terminal.
@@ -331,11 +323,7 @@ where
         E: EntityValue,
     {
         self.execute_slot_terminal(field, LastValueBySlotTerminal::new)
-            .and_then(|value| {
-                value
-                    .map(|value| output::<E>(self.session, value))
-                    .transpose()
-            })
+            .and_then(output_optional)
     }
 
     /// Execute and return the last projected value for one shared bounded
@@ -353,11 +341,7 @@ where
                 projection.projection_plan().into_expr(),
             )
         })
-        .and_then(|value| {
-            value
-                .map(|value| output::<E>(self.session, value))
-                .transpose()
-        })
+        .and_then(output_optional)
     }
 
     /// Explain `last_value_by(field)` routing without executing the terminal.

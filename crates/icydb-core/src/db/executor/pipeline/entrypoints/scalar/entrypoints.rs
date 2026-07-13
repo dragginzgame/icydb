@@ -361,7 +361,7 @@ where
         let plan = PreparedLoadPlan::from_valid_shared_residents(
             prepared.authority,
             prepared.logical_plan,
-            prepared.schema_fingerprint,
+            prepared.continuation_identity,
             prepared.index_prefix_specs,
             prepared.index_range_specs,
         );

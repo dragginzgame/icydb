@@ -4,10 +4,12 @@
 //! Boundary: delegates materialized row/value/id terminal requests to the load executor.
 
 use crate::{
-    db::{DbSession, EntityResponse, PersistedRow, Query, QueryError, query::plan::FieldSlot},
+    db::{
+        DbSession, EntityResponse, PersistedRow, Query, QueryError,
+        query::plan::FieldSlot,
+        session::{AcceptedIdValuesOutput, AcceptedValuesOutput},
+    },
     traits::{CanisterKind, EntityValue},
-    types::Id,
-    value::Value,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -85,11 +87,11 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
         target_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<Value>, QueryError>
+    ) -> Result<AcceptedValuesOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_with_plan(query, move |load, plan| {
+        self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.top_k_by_values_slot(plan, target_slot, take_count)
         })
     }
@@ -101,11 +103,11 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
         target_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<Value>, QueryError>
+    ) -> Result<AcceptedValuesOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_with_plan(query, move |load, plan| {
+        self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.bottom_k_by_values_slot(plan, target_slot, take_count)
         })
     }
@@ -117,11 +119,11 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
         target_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_with_plan(query, move |load, plan| {
+        self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.top_k_by_with_ids_slot(plan, target_slot, take_count)
         })
     }
@@ -133,11 +135,11 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
         target_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_with_plan(query, move |load, plan| {
+        self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)
         })
     }

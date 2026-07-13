@@ -3,6 +3,8 @@
 //! This boundary consumes catalog-proven values and accepted field contracts.
 //! It does not reconstruct generated models or lower through runtime `Value`.
 
+#[cfg(test)]
+use crate::db::schema::AcceptedEnumCatalogHandle;
 use crate::{
     db::{
         data::{
@@ -18,13 +20,11 @@ use crate::{
             },
         },
         schema::{
-            AcceptedFieldDecodeContract,
+            AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
             enum_catalog::validate_decoded_persisted_field_value_in_catalog,
             enum_catalog::{
-                AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedValueContract,
-                AcceptedValueRef, AdmittedOwnedValue, CanonicalValue, ValueAdmissionBudget,
-                admit_decoded_persisted_field_value, validate_nullable_canonical_value,
-                with_normalized_accepted_value,
+                AcceptedEnumCatalog, AcceptedValueRef, AdmittedOwnedValue, CanonicalValue,
+                ValueAdmissionBudget,
             },
         },
     },
@@ -35,60 +35,38 @@ use crate::{
 
 /// Normalize and encode one authored input through an accepted field contract.
 pub(in crate::db) fn encode_input_value_for_accepted_field_contract(
-    catalog: &AcceptedEnumCatalogHandle,
-    field: AcceptedFieldDecodeContract<'_>,
+    encoding: AcceptedFieldPersistenceContract<'_>,
     input: InputValue,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<Vec<u8>, InternalError> {
-    let contract = AcceptedValueContract::from_accepted_field(
-        catalog.catalog(),
-        field.kind(),
-        field.storage_decode(),
-    )
-    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
-    with_normalized_accepted_value(
-        catalog,
-        &contract,
-        field.nullable(),
-        input,
-        budget,
-        |accepted| encode_accepted_value_ref_for_accepted_field_contract(field, &accepted),
-    )
-    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
+    let field = encoding.field();
+    encoding
+        .admission_contract()
+        .with_normalized(input, budget, |accepted| {
+            encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
+        })
+        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
 }
 
 /// Strictly validate and encode one canonical value through an accepted field contract.
 pub(in crate::db) fn encode_canonical_value_for_accepted_field_contract(
-    catalog: &AcceptedEnumCatalogHandle,
-    field: AcceptedFieldDecodeContract<'_>,
+    encoding: AcceptedFieldPersistenceContract<'_>,
     value: &CanonicalValue,
 ) -> Result<Vec<u8>, InternalError> {
-    let contract = AcceptedValueContract::from_accepted_field(
-        catalog.catalog(),
-        field.kind(),
-        field.storage_decode(),
-    )
-    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    let field = encoding.field();
     let mut budget = ValueAdmissionBudget::standard();
-    let accepted =
-        validate_nullable_canonical_value(catalog, &contract, field.nullable(), value, &mut budget)
-            .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
-
-    encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
+    encoding
+        .admission_contract()
+        .with_validated(value, &mut budget, |accepted| {
+            encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
+        })
+        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
 }
 
 fn encode_accepted_value_ref_for_accepted_field_contract(
     field: AcceptedFieldDecodeContract<'_>,
     accepted: &AcceptedValueRef<'_>,
 ) -> Result<Vec<u8>, InternalError> {
-    if accepted.nullable() != field.nullable()
-        || accepted.contract().kind() != field.kind()
-        || accepted.contract().storage_decode() != field.storage_decode()
-    {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field.field_name(),
-        ));
-    }
     let value = accepted.value();
     if field.uses_canonical_value_wire() {
         return encode_canonical_value_storage_bytes(value);
@@ -179,21 +157,16 @@ const fn scalar_slot_value_ref_from_accepted_value(
 /// Decode one slot through the current canonical value format and strict
 /// accepted schema validation.
 pub(in crate::db) fn decode_admitted_value_from_accepted_field_contract(
-    catalog: &AcceptedEnumCatalogHandle,
-    field: AcceptedFieldDecodeContract<'_>,
+    persistence: AcceptedFieldPersistenceContract<'_>,
     raw_value: &[u8],
 ) -> Result<AdmittedOwnedValue, InternalError> {
+    let field = persistence.field();
     let value = decode_canonical_value_from_accepted_field_contract(field, raw_value)?;
     let mut budget = ValueAdmissionBudget::standard();
-    admit_decoded_persisted_field_value(
-        catalog,
-        field.kind(),
-        field.storage_decode(),
-        field.nullable(),
-        value,
-        &mut budget,
-    )
-    .map_err(|_| InternalError::persisted_row_decode_corruption())
+    persistence
+        .admission_contract()
+        .admit_canonical(value, &mut budget)
+        .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
 /// Validate one persisted default before it becomes accepted schema content.
@@ -317,6 +290,14 @@ mod tests {
         (catalog, kind)
     }
 
+    fn test_encoding<'a>(
+        catalog: &'a AcceptedEnumCatalogHandle,
+        field: AcceptedFieldDecodeContract<'a>,
+    ) -> AcceptedFieldPersistenceContract<'a> {
+        AcceptedFieldPersistenceContract::new_for_tests(catalog, field)
+            .expect("accepted test field should match its catalog")
+    }
+
     #[test]
     fn accepted_input_slot_round_trips_id_backed_enum() {
         let (catalog, kind) = accepted_enum_fixture();
@@ -329,16 +310,18 @@ mod tests {
         );
         let mut budget = ValueAdmissionBudget::standard();
         let encoded = encode_input_value_for_accepted_field_contract(
-            &catalog,
-            field,
+            test_encoding(&catalog, field),
             InputValue::Enum(InputValueEnum::loose("Ready")),
             &mut budget,
         )
         .expect("accepted enum slot should encode");
         assert_eq!(encoded.first(), Some(&0x84));
 
-        let decoded = decode_admitted_value_from_accepted_field_contract(&catalog, field, &encoded)
-            .expect("canonical enum slot should decode strictly");
+        let decoded = decode_admitted_value_from_accepted_field_contract(
+            test_encoding(&catalog, field),
+            &encoded,
+        )
+        .expect("canonical enum slot should decode strictly");
         let CanonicalValue::Enum(value) = decoded.value() else {
             panic!("accepted enum slot should decode to canonical IDs");
         };
@@ -363,8 +346,7 @@ mod tests {
 
         assert!(
             encode_input_value_for_accepted_field_contract(
-                &catalog,
-                blob_field,
+                test_encoding(&catalog, blob_field),
                 InputValue::Text("ready".to_string()),
                 &mut budget,
             )
@@ -386,15 +368,16 @@ mod tests {
         );
         let mut nullable_budget = ValueAdmissionBudget::standard();
         let encoded = encode_input_value_for_accepted_field_contract(
-            &catalog,
-            nullable_field,
+            test_encoding(&catalog, nullable_field),
             InputValue::Null,
             &mut nullable_budget,
         )
         .expect("nullable proof should encode null");
-        let decoded =
-            decode_admitted_value_from_accepted_field_contract(&catalog, nullable_field, &encoded)
-                .expect("nullable null should decode through the accepted contract");
+        let decoded = decode_admitted_value_from_accepted_field_contract(
+            test_encoding(&catalog, nullable_field),
+            &encoded,
+        )
+        .expect("nullable null should decode through the accepted contract");
         assert_eq!(decoded.value(), &CanonicalValue::Null);
 
         let required_field = AcceptedFieldDecodeContract::new(
@@ -407,8 +390,7 @@ mod tests {
         let mut required_budget = ValueAdmissionBudget::standard();
         assert!(
             encode_input_value_for_accepted_field_contract(
-                &catalog,
-                required_field,
+                test_encoding(&catalog, required_field),
                 InputValue::Null,
                 &mut required_budget,
             )

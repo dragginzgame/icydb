@@ -15,11 +15,13 @@ use crate::{
             },
             plan::{AggregateKind, FieldSlot, expr::Expr},
         },
+        session::{
+            AcceptedExecutionOutput, AcceptedIdValuesOutput, AcceptedOptionalValueOutput,
+            AcceptedValuesOutput,
+        },
     },
     error::InternalError,
     traits::{CanisterKind, EntityValue},
-    types::Id,
-    value::Value,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -30,11 +32,11 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
         target_field: FieldSlot,
         request: ScalarProjectionBoundaryRequest,
-    ) -> Result<ScalarProjectionBoundaryOutput, QueryError>
+    ) -> Result<AcceptedExecutionOutput<ScalarProjectionBoundaryOutput>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_with_plan(query, move |load, plan| {
+        self.execute_with_plan_and_catalog(query, move |load, plan| {
             load.execute_scalar_projection_boundary(plan, target_field, request)
         })
     }
@@ -47,12 +49,16 @@ impl<C: CanisterKind> DbSession<C> {
         target_field: FieldSlot,
         request: ScalarProjectionBoundaryRequest,
         decode: impl FnOnce(ScalarProjectionBoundaryOutput) -> Result<T, InternalError>,
-    ) -> Result<T, QueryError>
+    ) -> Result<AcceptedExecutionOutput<T>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        decode(self.execute_scalar_projection_boundary(query, target_field, request)?)
-            .map_err(QueryError::execute)
+        let (output, enum_catalog) = self
+            .execute_scalar_projection_boundary(query, target_field, request)?
+            .into_parts();
+        let value = decode(output).map_err(QueryError::execute)?;
+
+        Ok(AcceptedExecutionOutput::new(value, enum_catalog))
     }
 
     // Execute one fluent `values_by(field)` terminal through its concrete
@@ -61,7 +67,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &Query<E>,
         strategy: ValuesBySlotTerminal,
-    ) -> Result<Vec<Value>, QueryError>
+    ) -> Result<AcceptedValuesOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -81,7 +87,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
         target_field: FieldSlot,
         projection: Expr,
-    ) -> Result<Vec<Value>, QueryError>
+    ) -> Result<AcceptedValuesOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -99,7 +105,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &Query<E>,
         strategy: DistinctValuesBySlotTerminal,
-    ) -> Result<Vec<Value>, QueryError>
+    ) -> Result<AcceptedValuesOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -129,6 +135,7 @@ impl<C: CanisterKind> DbSession<C> {
             request,
             ScalarProjectionBoundaryOutput::into_count,
         )
+        .map(AcceptedExecutionOutput::into_value)
     }
 
     // Execute one fluent `values_by_with_ids(field)` terminal through its
@@ -137,7 +144,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &Query<E>,
         strategy: ValuesBySlotWithIdsTerminal,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -157,7 +164,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
         target_field: FieldSlot,
         projection: Expr,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<AcceptedIdValuesOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -175,7 +182,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &Query<E>,
         strategy: FirstValueBySlotTerminal,
-    ) -> Result<Option<Value>, QueryError>
+    ) -> Result<AcceptedOptionalValueOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -194,7 +201,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &Query<E>,
         strategy: LastValueBySlotTerminal,
-    ) -> Result<Option<Value>, QueryError>
+    ) -> Result<AcceptedOptionalValueOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -216,7 +223,7 @@ impl<C: CanisterKind> DbSession<C> {
         target_field: FieldSlot,
         terminal_kind: AggregateKind,
         projection: Expr,
-    ) -> Result<Option<Value>, QueryError>
+    ) -> Result<AcceptedOptionalValueOutput, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {

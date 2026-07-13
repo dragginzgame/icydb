@@ -72,12 +72,9 @@ pub(in crate::db) fn decode_runtime_value_from_row_contract(
     let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
     if accepted_field.uses_canonical_value_wire() {
-        let catalog = contract
-            .accepted_enum_catalog_handle()
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        let persistence = contract.required_accepted_field_persistence_contract(slot)?;
         let admitted = super::canonical::decode_admitted_value_from_accepted_field_contract(
-            catalog,
-            accepted_field,
+            persistence,
             raw_value,
         )?;
         return Ok(admitted.value().clone());
@@ -112,19 +109,11 @@ pub(in crate::db) fn encode_value_with_model_proposal_for_test(
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
     let contract = StructuralRowContract::from_model_proposal_for_test(model);
-    let field = contract.required_accepted_field_decode_contract(slot)?;
-    let catalog = contract
-        .accepted_enum_catalog_handle()
-        .ok_or_else(InternalError::persisted_row_encode_internal)?;
+    let encoding = contract.required_accepted_field_persistence_contract(slot)?;
     let input = InputValue::try_from_runtime_non_enum(value)
         .ok_or_else(InternalError::persisted_row_encode_internal)?;
     let mut budget = crate::db::schema::enum_catalog::ValueAdmissionBudget::standard();
-    super::canonical::encode_input_value_for_accepted_field_contract(
-        catalog,
-        field,
-        input,
-        &mut budget,
-    )
+    super::canonical::encode_input_value_for_accepted_field_contract(encoding, input, &mut budget)
 }
 
 // Build one dense slot image by running one caller-supplied encode step per
@@ -161,14 +150,10 @@ where
         }
 
         let value = value_for_slot(slot)?;
-        let field = contract.required_accepted_field_decode_contract(slot)?;
-        let catalog = contract
-            .accepted_enum_catalog_handle()
-            .ok_or_else(InternalError::persisted_row_encode_internal)?;
+        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
 
         super::canonical::encode_canonical_value_for_accepted_field_contract(
-            catalog,
-            field,
+            encoding,
             value.as_ref(),
         )
     })
@@ -361,12 +346,9 @@ pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
 ) -> Result<(), InternalError> {
     let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
     if accepted_field.uses_canonical_value_wire() {
-        let catalog = contract
-            .accepted_enum_catalog_handle()
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        let persistence = contract.required_accepted_field_persistence_contract(slot)?;
         super::canonical::decode_admitted_value_from_accepted_field_contract(
-            catalog,
-            accepted_field,
+            persistence,
             raw_value,
         )?;
         return Ok(());

@@ -6,9 +6,10 @@
 use crate::{
     db::schema::{
         AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
-        AcceptedSchemaSnapshot, FieldId, PersistedNestedLeafSnapshot,
-        PersistedRelationEdgeSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
-        SchemaVersion,
+        AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueContract, FieldId,
+        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, SchemaFieldDefault,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaVersion,
+        enum_catalog::EnumCatalogBuildError,
     },
     error::InternalError,
     model::{
@@ -232,6 +233,59 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
     }
 }
 
+/// Complete accepted field authority for value admission and persistence.
+///
+/// Schema owns construction and validates the recursive value contract so
+/// persistence cannot combine field facts with another store or revision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedFieldPersistenceContract<'a> {
+    field: AcceptedFieldDecodeContract<'a>,
+    admission_contract: AcceptedValueAdmissionContract<'a>,
+}
+
+impl<'a> AcceptedFieldPersistenceContract<'a> {
+    /// Pair one schema-owned field contract with its accepted catalog.
+    pub(super) fn new(
+        enum_catalog: &'a AcceptedEnumCatalogHandle,
+        field: AcceptedFieldDecodeContract<'a>,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        let value_contract = AcceptedValueContract::from_accepted_field(
+            enum_catalog.catalog(),
+            field.kind(),
+            field.storage_decode(),
+        )?;
+        Ok(Self {
+            field,
+            admission_contract: AcceptedValueAdmissionContract::owned(
+                enum_catalog,
+                value_contract,
+                field.nullable(),
+            ),
+        })
+    }
+
+    /// Build an explicit paired contract for focused data-layer tests.
+    #[cfg(test)]
+    pub(in crate::db) fn new_for_tests(
+        enum_catalog: &'a AcceptedEnumCatalogHandle,
+        field: AcceptedFieldDecodeContract<'a>,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        Self::new(enum_catalog, field)
+    }
+
+    /// Return the field codec facts admitted with this catalog.
+    #[must_use]
+    pub(in crate::db) const fn field(&self) -> AcceptedFieldDecodeContract<'a> {
+        self.field
+    }
+
+    /// Borrow the semantic admission authority wrapped by this persistence contract.
+    #[must_use]
+    pub(in crate::db) const fn admission_contract(&self) -> &AcceptedValueAdmissionContract<'a> {
+        &self.admission_contract
+    }
+}
+
 ///
 /// OwnedAcceptedFieldDecodeContract
 ///
@@ -394,22 +448,16 @@ pub(in crate::db) struct AcceptedRowDecodeContract {
     primary_key_slot_indices: Vec<usize>,
     fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
-    catalog_authority: Option<AcceptedRowDecodeCatalogAuthority>,
-}
-
-/// Accepted catalog provenance retained by a row-decode contract.
-///
-/// Keeping the revision and shared catalog handle together prevents row
-/// decoding from combining a catalog with layout facts admitted under another
-/// immutable schema revision.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct AcceptedRowDecodeCatalogAuthority {
     enum_catalog: AcceptedEnumCatalogHandle,
 }
 
 impl AcceptedRowDecodeContract {
-    /// Build one accepted row decode contract from runtime contract field facts.
-    fn from_runtime_contract(descriptor: &AcceptedRowLayoutRuntimeContract<'_>) -> Self {
+    /// Build one accepted row decode contract from runtime contract field facts
+    /// and the immutable catalog authority that admitted them.
+    fn from_runtime_contract(
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        enum_catalog: AcceptedEnumCatalogHandle,
+    ) -> Self {
         let mut fields_by_slot = vec![None; descriptor.required_slot_count()];
 
         for field in descriptor.fields() {
@@ -424,13 +472,8 @@ impl AcceptedRowDecodeContract {
             primary_key_slot_indices: descriptor.primary_key_slot_indices().to_vec(),
             fields_by_slot,
             relation_edges: descriptor.relation_edges().to_vec(),
-            catalog_authority: None,
+            enum_catalog,
         }
-    }
-
-    fn with_catalog_authority(mut self, enum_catalog: AcceptedEnumCatalogHandle) -> Self {
-        self.catalog_authority = Some(AcceptedRowDecodeCatalogAuthority { enum_catalog });
-        self
     }
 
     /// Build an accepted row contract from one generated model proposal for tests.
@@ -456,7 +499,7 @@ impl AcceptedRowDecodeContract {
         let catalog =
             AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
 
-        descriptor.row_decode_contract_with_catalog(catalog)
+        descriptor.row_decode_contract(catalog)
     }
 
     /// Return the accepted physical slot count required by this row contract.
@@ -491,26 +534,20 @@ impl AcceptedRowDecodeContract {
 
     /// Borrow the immutable enum catalog admitted with this row contract.
     #[must_use]
-    pub(in crate::db) fn enum_catalog(&self) -> Option<&AcceptedEnumCatalog> {
-        self.catalog_authority
-            .as_ref()
-            .map(|authority| authority.enum_catalog.catalog())
+    pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
+        self.enum_catalog.catalog()
     }
 
     /// Borrow the immutable catalog handle and its store/revision authority.
     #[must_use]
-    pub(in crate::db) fn enum_catalog_handle(&self) -> Option<&AcceptedEnumCatalogHandle> {
-        self.catalog_authority
-            .as_ref()
-            .map(|authority| &authority.enum_catalog)
+    pub(in crate::db) const fn enum_catalog_handle(&self) -> &AcceptedEnumCatalogHandle {
+        &self.enum_catalog
     }
 
     /// Return the accepted revision that admitted this row contract's catalog.
     #[must_use]
-    pub(in crate::db) fn accepted_schema_revision(&self) -> Option<AcceptedSchemaRevision> {
-        self.catalog_authority
-            .as_ref()
-            .map(|authority| authority.enum_catalog.revision())
+    pub(in crate::db) const fn accepted_schema_revision(&self) -> AcceptedSchemaRevision {
+        self.enum_catalog.revision()
     }
 
     /// Borrow one accepted field decode contract by physical row slot.
@@ -532,6 +569,17 @@ impl AcceptedRowDecodeContract {
         self.field_for_slot(slot).ok_or_else(|| {
             InternalError::persisted_row_slot_lookup_out_of_bounds(entity_path, slot)
         })
+    }
+
+    /// Borrow one required field with its immutable catalog authority.
+    pub(in crate::db) fn required_field_persistence_contract(
+        &self,
+        entity_path: &str,
+        slot: usize,
+    ) -> Result<AcceptedFieldPersistenceContract<'_>, InternalError> {
+        let field = self.required_field_for_slot(entity_path, slot)?;
+        AcceptedFieldPersistenceContract::new(self.enum_catalog_handle(), field.decode_contract())
+            .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
     }
 }
 
@@ -815,20 +863,13 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
-    /// Build the owned accepted row-decode contract for this contract.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn row_decode_contract(&self) -> AcceptedRowDecodeContract {
-        AcceptedRowDecodeContract::from_runtime_contract(self)
-    }
-
     /// Build the owned row-decode contract with immutable catalog authority.
     #[must_use]
-    pub(in crate::db) fn row_decode_contract_with_catalog(
+    pub(in crate::db) fn row_decode_contract(
         &self,
         enum_catalog: AcceptedEnumCatalogHandle,
     ) -> AcceptedRowDecodeContract {
-        AcceptedRowDecodeContract::from_runtime_contract(self).with_catalog_authority(enum_catalog)
+        AcceptedRowDecodeContract::from_runtime_contract(self, enum_catalog)
     }
 
     /// Return the proof that this accepted layout can still use generated field codecs.

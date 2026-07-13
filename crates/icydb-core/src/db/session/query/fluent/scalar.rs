@@ -90,6 +90,7 @@ impl<C: CanisterKind> DbSession<C> {
             self.cached_prepared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)
         });
         let (plan, cache_attribution, compile_phase_attribution) = plan_and_cache?;
+        self.ensure_prepared_query_plan_is_current(&plan)?;
 
         let store_counters_before = StoreCounterSnapshot::capture();
         let (scalar_aggregate_terminal, (executor_invocation_local_instructions, output)) =

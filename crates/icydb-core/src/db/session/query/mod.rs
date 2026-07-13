@@ -32,6 +32,10 @@ pub use diagnostics::{
     ScalarAggregateAttribution,
 };
 pub(in crate::db::session) use execution::query_error_from_executor_plan_error;
+pub(in crate::db) use execution::{
+    AcceptedExecutionOutput, AcceptedIdValuesOutput, AcceptedOptionalValueOutput,
+    AcceptedValuesOutput,
+};
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::session::query) use execution::{
     PreparedQueryExecutionOutcome, PreparedQueryExecutionOutput,

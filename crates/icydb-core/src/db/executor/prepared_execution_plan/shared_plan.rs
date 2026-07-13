@@ -25,7 +25,7 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::EntityKind,
+    traits::{EntityKind, Path},
 };
 use std::marker::PhantomData;
 #[cfg(feature = "sql")]
@@ -67,7 +67,10 @@ impl SharedPreparedExecutionPlan {
     pub(in crate::db) fn typed_clone<E: EntityKind>(
         &self,
     ) -> Result<PreparedExecutionPlan<E>, InternalError> {
-        if self.authority.entity_path() != E::PATH {
+        if self.authority.entity_tag() != E::ENTITY_TAG
+            || self.authority.entity_path() != E::PATH
+            || self.authority.store_path() != E::Store::PATH
+        {
             return Err(InternalError::query_executor_invariant());
         }
 
@@ -102,7 +105,7 @@ impl SharedPreparedExecutionPlan {
             core: build_prepared_execution_plan_core_with_lowered_access(
                 self.authority.clone(),
                 plan,
-                residents.schema_fingerprint,
+                residents.continuation_identity,
                 residents.index_prefix_specs,
                 residents.index_prefix_spec_invalid,
                 residents.index_range_specs,

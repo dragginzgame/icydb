@@ -13,15 +13,46 @@ use crate::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
             GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
         },
-        schema::SchemaInfo,
+        schema::{
+            AcceptedSchemaAuthority, AcceptedSchemaFingerprint, AcceptedSchemaRevision, SchemaInfo,
+        },
     },
     value::Value,
 };
 use sha2::Digest;
 
-const SCHEMA_BOUND_CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig_schema_v1";
+const SCHEMA_BOUND_CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig_authority_v2";
 const CONTINUATION_SHAPE_SIGNATURE_TAG: u8 = 0x01;
-const ACCEPTED_SCHEMA_FINGERPRINT_TAG: u8 = 0x02;
+const ENTITY_SCHEMA_FINGERPRINT_TAG: u8 = 0x02;
+const ACCEPTED_SCHEMA_REVISION_TAG: u8 = 0x03;
+const ACCEPTED_SCHEMA_ROOT_FINGERPRINT_TAG: u8 = 0x04;
+
+/// Immutable schema identity included in continuation signatures.
+///
+/// The entity fingerprint prevents reuse after that entity's accepted shape
+/// changes. The root revision and fingerprint prevent reuse after any accepted
+/// catalog publication, including changes to enum definitions shared by the
+/// entity without changing its field snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedContinuationIdentity {
+    entity_schema_fingerprint: CommitSchemaFingerprint,
+    accepted_revision: AcceptedSchemaRevision,
+    accepted_root_fingerprint: AcceptedSchemaFingerprint,
+}
+
+impl AcceptedContinuationIdentity {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        entity_schema_fingerprint: CommitSchemaFingerprint,
+        authority: &AcceptedSchemaAuthority,
+    ) -> Self {
+        Self {
+            entity_schema_fingerprint,
+            accepted_revision: authority.revision(),
+            accepted_root_fingerprint: authority.fingerprint(),
+        }
+    }
+}
 
 ///
 /// PlannedContinuationContract
@@ -34,7 +65,7 @@ const ACCEPTED_SCHEMA_FINGERPRINT_TAG: u8 = 0x02;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannedContinuationContract {
     pub(in crate::db) shape_signature: ExecutionShapeSignature,
-    schema_fingerprint: Option<CommitSchemaFingerprint>,
+    accepted_identity: Option<AcceptedContinuationIdentity>,
     pub(in crate::db) boundary_arity: usize,
     pub(in crate::db) window_size: usize,
     pub(in crate::db) order_contract: ExecutionOrderContract,
@@ -261,7 +292,7 @@ impl PlannedContinuationContract {
     ) -> Self {
         Self {
             shape_signature,
-            schema_fingerprint: None,
+            accepted_identity: None,
             boundary_arity,
             window_size,
             order_contract,
@@ -272,11 +303,11 @@ impl PlannedContinuationContract {
     }
 
     #[must_use]
-    pub(in crate::db) const fn with_schema_fingerprint(
+    pub(in crate::db) const fn with_accepted_identity(
         mut self,
-        schema_fingerprint: Option<CommitSchemaFingerprint>,
+        accepted_identity: Option<AcceptedContinuationIdentity>,
     ) -> Self {
-        self.schema_fingerprint = schema_fingerprint;
+        self.accepted_identity = accepted_identity;
         self
     }
 
@@ -320,11 +351,11 @@ impl PlannedContinuationContract {
     #[must_use]
     pub(in crate::db) fn continuation_signature(&self) -> ContinuationSignature {
         let shape_signature = self.shape_signature.continuation_signature();
-        let Some(schema_fingerprint) = self.schema_fingerprint else {
+        let Some(accepted_identity) = self.accepted_identity else {
             return shape_signature;
         };
 
-        schema_bound_continuation_signature(shape_signature, schema_fingerprint)
+        schema_bound_continuation_signature(shape_signature, accepted_identity)
     }
 
     #[must_use]
@@ -509,16 +540,16 @@ impl AccessPlannedQuery {
         &self,
         entity_path: &'static str,
     ) -> Option<PlannedContinuationContract> {
-        self.planned_continuation_contract_with_schema_fingerprint(entity_path, None)
+        self.planned_continuation_contract_with_accepted_identity(entity_path, None)
     }
 
     /// Build one immutable continuation contract from planner-owned semantics
     /// and an optional accepted schema identity.
     #[must_use]
-    pub(in crate::db) fn planned_continuation_contract_with_schema_fingerprint(
+    pub(in crate::db) fn planned_continuation_contract_with_accepted_identity(
         &self,
         entity_path: &'static str,
-        schema_fingerprint: Option<CommitSchemaFingerprint>,
+        accepted_identity: Option<AcceptedContinuationIdentity>,
     ) -> Option<PlannedContinuationContract> {
         if !self.scalar_plan().mode.is_load() {
             return None;
@@ -553,20 +584,24 @@ impl AccessPlannedQuery {
                 access,
                 grouped_cursor_policy_violation,
             )
-            .with_schema_fingerprint(schema_fingerprint),
+            .with_accepted_identity(accepted_identity),
         )
     }
 }
 
 fn schema_bound_continuation_signature(
     shape_signature: ContinuationSignature,
-    schema_fingerprint: CommitSchemaFingerprint,
+    accepted_identity: AcceptedContinuationIdentity,
 ) -> ContinuationSignature {
     let mut hasher = new_hash_sha256_prefixed(SCHEMA_BOUND_CONTINUATION_SIGNATURE_PROFILE_TAG);
     hasher.update([CONTINUATION_SHAPE_SIGNATURE_TAG]);
     hasher.update(shape_signature.into_bytes());
-    hasher.update([ACCEPTED_SCHEMA_FINGERPRINT_TAG]);
-    hasher.update(schema_fingerprint);
+    hasher.update([ENTITY_SCHEMA_FINGERPRINT_TAG]);
+    hasher.update(accepted_identity.entity_schema_fingerprint);
+    hasher.update([ACCEPTED_SCHEMA_REVISION_TAG]);
+    hasher.update(accepted_identity.accepted_revision.get().to_be_bytes());
+    hasher.update([ACCEPTED_SCHEMA_ROOT_FINGERPRINT_TAG]);
+    hasher.update(accepted_identity.accepted_root_fingerprint.as_bytes());
 
     ContinuationSignature::from_bytes(finalize_hash_sha256(hasher))
 }
@@ -609,5 +644,45 @@ impl PlannedPageWindow {
     fn limit_usize(&self) -> Option<usize> {
         self.limit
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX))
+    }
+}
+
+#[cfg(test)]
+mod authority_signature_tests {
+    use super::*;
+
+    fn accepted_identity(
+        entity_byte: u8,
+        revision: u64,
+        root_byte: u8,
+    ) -> AcceptedContinuationIdentity {
+        AcceptedContinuationIdentity {
+            entity_schema_fingerprint: [entity_byte; 16],
+            accepted_revision: AcceptedSchemaRevision::new(revision),
+            accepted_root_fingerprint: AcceptedSchemaFingerprint::new([root_byte; 32]),
+        }
+    }
+
+    #[test]
+    fn continuation_signature_binds_every_accepted_schema_identity_component() {
+        let shape = ContinuationSignature::from_bytes([0x11; 32]);
+        let baseline = schema_bound_continuation_signature(shape, accepted_identity(0x22, 7, 0x33));
+
+        assert_ne!(
+            baseline,
+            schema_bound_continuation_signature(shape, accepted_identity(0x23, 7, 0x33)),
+        );
+        assert_ne!(
+            baseline,
+            schema_bound_continuation_signature(shape, accepted_identity(0x22, 8, 0x33)),
+        );
+        assert_ne!(
+            baseline,
+            schema_bound_continuation_signature(shape, accepted_identity(0x22, 7, 0x34)),
+        );
+        assert_eq!(
+            baseline,
+            schema_bound_continuation_signature(shape, accepted_identity(0x22, 7, 0x33)),
+        );
     }
 }

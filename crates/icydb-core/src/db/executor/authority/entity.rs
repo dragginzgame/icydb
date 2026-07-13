@@ -25,7 +25,10 @@ use crate::{
             AccessPlannedQuery, AggregateKind, CoveringReadExecutionPlan,
             PlannedContinuationContract, covering_read_execution_plan_with_schema_info,
         },
-        schema::{AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract, SchemaInfo},
+        schema::{
+            AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
+            AcceptedSchemaAuthority, SchemaInfo,
+        },
     },
     error::InternalError,
     metrics::sink::{
@@ -95,7 +98,7 @@ impl EntityAuthority {
             .expect("generated model enum catalog should build");
         let catalog =
             AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
-        let row_contract = descriptor.row_decode_contract_with_catalog(catalog.clone());
+        let row_contract = descriptor.row_decode_contract(catalog.clone());
         let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
             E::MODEL,
             &accepted,
@@ -182,6 +185,25 @@ impl EntityAuthority {
         self.row_layout
             .as_ref()
             .ok_or_else(InternalError::query_executor_invariant)
+    }
+
+    /// Borrow the immutable store/revision authority that admitted this
+    /// executor's accepted row layout.
+    pub(in crate::db) fn accepted_schema_authority(
+        &self,
+    ) -> Result<&AcceptedSchemaAuthority, InternalError> {
+        Ok(self.accepted_enum_catalog_handle()?.authority())
+    }
+
+    /// Borrow the immutable accepted catalog handle frozen into this
+    /// executor's row layout.
+    pub(in crate::db) fn accepted_enum_catalog_handle(
+        &self,
+    ) -> Result<&crate::db::schema::AcceptedEnumCatalogHandle, InternalError> {
+        Ok(self
+            .row_layout_ref()?
+            .contract()
+            .accepted_enum_catalog_handle())
     }
 
     /// Borrow the accepted schema view attached to this executor authority.

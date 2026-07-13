@@ -71,7 +71,7 @@ impl PreparedAggregatePlan {
         Ok(PreparedAggregateStreamingPlanHandoff {
             authority,
             logical_plan: residents.plan,
-            schema_fingerprint: residents.schema_fingerprint,
+            continuation_identity: residents.continuation_identity,
             index_prefix_specs: residents.index_prefix_specs,
             index_range_specs: residents.index_range_specs,
         })
@@ -97,7 +97,7 @@ impl PreparedAggregatePlan {
             core: build_prepared_execution_plan_core_with_lowered_access(
                 authority,
                 grouped_plan,
-                residents.schema_fingerprint,
+                residents.continuation_identity,
                 residents.index_prefix_specs,
                 residents.index_prefix_spec_invalid,
                 residents.index_range_specs,

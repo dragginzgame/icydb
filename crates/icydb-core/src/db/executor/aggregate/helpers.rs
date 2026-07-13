@@ -340,7 +340,7 @@ where
             authority,
             store,
             logical_plan,
-            schema_fingerprint: _,
+            continuation_identity: _,
             execution_preparation,
             index_prefix_specs,
             index_range_specs,

@@ -15,7 +15,8 @@ use crate::{
         journal::{JournalBatch, JournalRecord, JournalTailStore},
         registry::StoreRegistry,
         schema::{
-            AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+            AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
+            AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
             PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
@@ -23,7 +24,7 @@ use crate::{
             SchemaExpressionIndexStagedRebuild, SchemaFieldDefault, SchemaFieldPathIndexRebuildRow,
             SchemaFieldPathIndexRunner, SchemaFieldSlot, SchemaMutationRequest,
             SchemaMutationRunnerInput, SchemaRowLayout, SchemaStore, SchemaVersion,
-            compiled_schema_proposal_for_model,
+            compiled_schema_proposal_for_model, enum_catalog::build_initial_accepted_enum_catalog,
         },
     },
     error::ErrorClass,
@@ -213,6 +214,23 @@ fn reset_reconcile_stores() {
         store.clear();
         store.mark_ready();
     });
+}
+
+fn structural_row_contract_for_accepted_test_model(
+    model: &'static EntityModel,
+    accepted: &AcceptedSchemaSnapshot,
+) -> StructuralRowContract {
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(accepted)
+        .expect("accepted runtime contract should build");
+    let catalog = build_initial_accepted_enum_catalog(&[model])
+        .expect("accepted enum catalog fixture should build");
+    let catalog =
+        AcceptedEnumCatalogHandle::new_for_tests(catalog, AcceptedSchemaRevision::INITIAL);
+
+    StructuralRowContract::from_accepted_decode_contract(
+        model.path(),
+        descriptor.row_decode_contract(catalog),
+    )
 }
 
 fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
@@ -1016,11 +1034,8 @@ fn expression_index_store_batch_rolls_back_on_post_insert_validation_failure() {
     let stored_without_index = indexed_schema_snapshot_without_indexes();
     let accepted = AcceptedSchemaSnapshot::try_new(stored_without_index)
         .expect("index-free snapshot should be accepted");
-    let row_contract = StructuralRowContract::from_accepted_schema_snapshot(
-        IndexedSchemaEntity::MODEL.path(),
-        &accepted,
-    )
-    .expect("accepted row contract should build");
+    let row_contract =
+        structural_row_contract_for_accepted_test_model(IndexedSchemaEntity::MODEL, &accepted);
     insert_indexed_schema_row(15_403, "Ada");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
@@ -1237,11 +1252,8 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
         .expect("reconcile store should be registered");
     let accepted = AcceptedSchemaSnapshot::try_new(stored_without_index.clone())
         .expect("index-free snapshot should be accepted");
-    let row_contract = StructuralRowContract::from_accepted_schema_snapshot(
-        IndexedSchemaEntity::MODEL.path(),
-        &accepted,
-    )
-    .expect("accepted row contract should build");
+    let row_contract =
+        structural_row_contract_for_accepted_test_model(IndexedSchemaEntity::MODEL, &accepted);
     let raw_rows = startup_field_path::field_path_rebuild_raw_rows_for_entity(
         store,
         IndexedSchemaEntity::ENTITY_TAG,
@@ -1325,11 +1337,8 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
         .expect("reconcile store should be registered");
     let accepted = AcceptedSchemaSnapshot::try_new(stored_without_index.clone())
         .expect("index-free snapshot should be accepted");
-    let row_contract = StructuralRowContract::from_accepted_schema_snapshot(
-        IndexedSchemaEntity::MODEL.path(),
-        &accepted,
-    )
-    .expect("accepted row contract should build");
+    let row_contract =
+        structural_row_contract_for_accepted_test_model(IndexedSchemaEntity::MODEL, &accepted);
     let raw_rows = startup_field_path::field_path_rebuild_raw_rows_for_entity(
         store,
         IndexedSchemaEntity::ENTITY_TAG,
@@ -1404,11 +1413,8 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
         .expect("reconcile store should be registered");
     let accepted = AcceptedSchemaSnapshot::try_new(stored_without_index.clone())
         .expect("index-free snapshot should be accepted");
-    let row_contract = StructuralRowContract::from_accepted_schema_snapshot(
-        IndexedSchemaEntity::MODEL.path(),
-        &accepted,
-    )
-    .expect("accepted row contract should build");
+    let row_contract =
+        structural_row_contract_for_accepted_test_model(IndexedSchemaEntity::MODEL, &accepted);
     let raw_rows = startup_field_path::field_path_rebuild_raw_rows_for_entity(
         store,
         IndexedSchemaEntity::ENTITY_TAG,

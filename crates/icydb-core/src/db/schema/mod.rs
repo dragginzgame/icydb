@@ -4,6 +4,7 @@
 //! Boundary: exposes schema-facing contracts consumed by session/query/commit paths.
 
 mod accepted_field_kind;
+mod accepted_value_admission;
 pub(in crate::db) mod authored_projection;
 mod capabilities;
 mod codec;
@@ -34,6 +35,7 @@ pub use describe::{
 pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 
 pub(in crate::db) use accepted_field_kind::{AcceptedFieldKind, AcceptedRelationStrength};
+pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
 pub(in crate::db) use capabilities::sql_capabilities;
 #[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::{
@@ -50,9 +52,10 @@ pub(in crate::db) use describe::{
     describe_entity_model_with_persisted_schema,
 };
 pub(in crate::db) use enum_catalog::{
-    AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedSchemaRevision, AcceptedValueContract,
+    AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedSchemaAuthority,
+    AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedValueContract,
     CandidateSchemaRevision, ValueAdmissionBudget, encode_unit_enum_equality_key,
-    output_value_from_runtime, validate_canonical_value,
+    output_value_from_runtime,
 };
 #[cfg(test)]
 pub(in crate::db) use enum_catalog::{
@@ -77,8 +80,8 @@ pub(in crate::db) use format::{
 };
 pub(in crate::db) use identity::FieldId;
 pub(in crate::db) use info::{
-    AcceptedSchemaFieldContractRef, SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
-    SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo,
+    SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
+    SchemaIndexInfo, SchemaInfo,
 };
 #[cfg(test)]
 pub(in crate::db) use info::{
@@ -177,7 +180,7 @@ pub(in crate::db) use reconcile::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;
 pub(in crate::db) use runtime::{
-    AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract,
+    AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract,
     AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
     AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
     OwnedAcceptedRelationEdgeContract,
