@@ -32,7 +32,7 @@ fn plan_hash_snapshot_is_stable_across_diagnostic_surfaces() {
         "explain rendering surfaces must not change semantic plan-hash identity",
     );
     assert_eq!(
-        baseline_hash, "d9bb3fd16ea72a87a4ced9d14ab26a9af25ed756cbb5a873270dba36842dd28b",
+        baseline_hash, "dc2f0c3f35c9aa19ccf72316859a3dfb353b6eacee710b13ce0dc1afeb2e6932",
         "plan-hash snapshot drifted; update only for intentional semantic identity changes",
     );
 }

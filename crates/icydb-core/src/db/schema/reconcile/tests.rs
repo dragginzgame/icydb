@@ -625,7 +625,8 @@ fn accepted_schema_marker_recovery_repairs_replays_and_folds_candidate() {
     assert_eq!(recovered.revision(), super::AcceptedSchemaRevision::new(2));
     assert_eq!(
         RECONCILE_SCHEMA_STORE.with_borrow(SchemaStore::canonical_len_for_tests),
-        5
+        3,
+        "recovery should retain only the current entity snapshot, immutable bundle, and selected root",
     );
     assert_eq!(
         RECONCILE_JOURNAL_STORE.with_borrow(JournalTailStore::len),
