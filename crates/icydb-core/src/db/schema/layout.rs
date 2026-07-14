@@ -126,7 +126,7 @@ impl SchemaRowLayout {
 
     /// Return the current dense physical slot count.
     #[must_use]
-    pub(in crate::db) fn allocated_slot_count(&self) -> usize {
+    pub(in crate::db) const fn allocated_slot_count(&self) -> usize {
         self.field_to_slot.len()
     }
 
