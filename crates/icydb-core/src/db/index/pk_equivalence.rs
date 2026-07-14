@@ -70,7 +70,7 @@ mod tests {
         },
         types::{Principal, Subaccount, Timestamp, Ulid},
     };
-    use ic_memory::stable_structures::Storable;
+    use ic_stable_structures::Storable;
     use std::borrow::Cow;
 
     fn index_key_with_primary_key_value(primary_key: &PrimaryKeyValue) -> IndexKey {

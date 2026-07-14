@@ -88,29 +88,29 @@ Optional controls:
 
 ## Output Contract
 
-Write exactly one dated top-level summary file for a batch run:
+Write exactly one summary file for each batch run:
 
-- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/wasm-footprint.md`
+- `docs/reports/recurring/YYYY/MM/DD/wasm-footprint/<run>/report.md`
 
-Top-level numbered variants such as `wasm-footprint-2.md` are prohibited for
-batch runs.
+Suffixed report names such as `wasm-footprint-2.md` are prohibited. Same-day
+reruns use the next run directory.
 
 Write artifacts under:
 
-- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/wasm-footprint/`
+- `docs/reports/recurring/YYYY/MM/DD/wasm-footprint/<run>/artifacts/`
 
 Required artifacts for each run:
 
 - copied size report JSON (`*.size-report.json`)
 - copied size summary markdown (`*.size-summary.md`)
-- Twiggy top (`*.twiggy-top.txt`, `*.twiggy-top.csv`)
+- Twiggy top (`*.twiggy-top.txt`)
 - Twiggy retained hotspots (`*.twiggy-retained.csv`)
 - Twiggy dominators (`*.twiggy-dominators.txt`)
 - Twiggy monos (`*.twiggy-monos.txt`)
 
 Result must include:
 
-- report preamble fields required by `docs/audits/AUDIT-HOWTO.md`
+- report preamble fields required by `docs/audits/README.md`
 - one top-level summary report with checklist status and per-canister size
   summary links
 - size attribution detail in copied size summaries and raw Twiggy artifacts

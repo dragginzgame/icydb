@@ -5834,6 +5834,86 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
 }
 
 #[test]
+fn execute_sql_ddl_rejects_index_key_default_changes_without_rebuild() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7",
+            1,
+        ))
+        .expect("setup defaulted field should publish");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_score_idx ON SessionSqlEntity (score)",
+            2,
+        ))
+        .expect("setup field-key index should publish");
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 7",
+            3,
+        ))
+        .expect("an exact indexed-field default should remain a no-op")
+    else {
+        panic!("matching SET DEFAULT should return a DDL report");
+    };
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema catalog after setup DDL should load");
+    let schema = catalog.accepted_schema_info_for::<SessionSqlEntity>();
+    let statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 8",
+        3,
+    ))
+    .expect("indexed-field SET DEFAULT should parse before binding");
+    let bind_error = bind_sql_ddl_statement(
+        &statement,
+        catalog.snapshot(),
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("indexed-field SET DEFAULT should preserve the typed dependency cause");
+    std::assert_matches!(
+        bind_error,
+        SqlDdlBindError::IndexedFieldDefaultChangeRejected {
+            entity_name,
+            column_name,
+            index_name,
+        } if entity_name == "SessionSqlEntity"
+            && column_name == "score"
+            && index_name == "session_sql_score_idx"
+    );
+
+    let set_error = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 8",
+            3,
+        ))
+        .expect_err("field-key SET DEFAULT should require a future index rebuild path");
+    assert_sql_ddl_admission_detail(
+        set_error,
+        SchemaDdlAdmissionError::UnsupportedTransitionClass,
+    );
+
+    let drop_error = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP DEFAULT",
+            3,
+        ))
+        .expect_err("field-key DROP DEFAULT should require a future index rebuild path");
+    assert_sql_ddl_admission_detail(
+        drop_error,
+        SchemaDdlAdmissionError::UnsupportedTransitionClass,
+    );
+}
+
+#[test]
 fn execute_sql_ddl_rejects_index_predicate_default_changes_without_rebuild() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

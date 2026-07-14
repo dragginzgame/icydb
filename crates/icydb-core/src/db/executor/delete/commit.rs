@@ -21,7 +21,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 use std::collections::BTreeSet;
 
 // Build one commit-marker before image from the authority's row layout.

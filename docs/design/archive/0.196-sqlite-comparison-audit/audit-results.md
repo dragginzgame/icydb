@@ -97,8 +97,8 @@ This audit inspected the current IcyDB repository and compared its implementatio
 - [docs/design/archive/0.189-mega-audit-2/audit-results.md](/home/adam/projects/icydb/docs/design/archive/0.189-mega-audit-2/audit-results.md:1)
 - [docs/design/archive/0.184-query-engine-audit/findings.md](/home/adam/projects/icydb/docs/design/archive/0.184-query-engine-audit/findings.md:1)
 - [docs/design/archive/0.184-query-engine-audit/status.md](/home/adam/projects/icydb/docs/design/archive/0.184-query-engine-audit/status.md:1)
-- [docs/audits/reports/2026-04/2026-04-30/sql-perf-audit.md](/home/adam/projects/icydb/docs/audits/reports/2026-04/2026-04-30/sql-perf-audit.md:1)
-- [docs/audits/reports/2026-06/2026-06-05/summary.md](/home/adam/projects/icydb/docs/audits/reports/2026-06/2026-06-05/summary.md:1)
+- [sql-perf-audit report](/home/adam/projects/icydb/docs/reports/recurring/2026/04/30/sql-perf-audit/01/report.md:1)
+- [2026-06-05 summary report](/home/adam/projects/icydb/docs/reports/recurring/2026/06/05/summary/01/report.md:1)
 
 ### Previously-fixed issues not reopened
 

@@ -1,7 +1,0 @@
-concept	decision_owners	previous_owners	delta	risk
-continuation	1	N/A	N/A	medium; prior CA-1.4 partial lacked owner evidence
-AccessPath	2	N/A	N/A	medium; two owner boundaries are intentional planner/access split
-RouteShape	1	N/A	N/A	low-medium
-predicate coercion	2	N/A	N/A	medium; value family and predicate coercion both participate
-index range	2	N/A	N/A	medium; access range and index range encoding are separate but coupled
-canonicalization	2	N/A	N/A	medium; access canonical and expression canonicalizers remain separate concepts

@@ -12,7 +12,7 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::stable_structures::{Storable, storable::Bound};
+use ic_stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 
 pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 2;

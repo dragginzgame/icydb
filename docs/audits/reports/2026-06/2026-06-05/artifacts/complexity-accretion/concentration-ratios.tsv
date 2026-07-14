@@ -1,3 +1,0 @@
-metric	current	previous	delta	risk
-Fanout concentration (top 10 modules)	0.0396	0.0408	-0.0012	low; no fanout>12 modules
-Branch-site concentration (top 10 modules)	0.0842	0.0808	+0.0034	medium; concentration fell but hotspot count rose

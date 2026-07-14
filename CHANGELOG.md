@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.202.md](docs/changelog/0.202.md)
 
+- `0.202.1` upgrades stable-memory allocation to `ic-memory 0.11.1` and ULIDs
+  to `2.0.1`; potentially breaking, pre-0.11 allocation ledgers are unsupported
+  and existing stores must be recreated.
+
 - `0.202.0` makes Rust `Default` explicit for generated domain types, removes
   the enum `Unspecified` sentinel, and hardens accepted database-default
   behavior across write paths. Potentially breaking: schemas must opt in with

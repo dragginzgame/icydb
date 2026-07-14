@@ -6,6 +6,8 @@ profile="wasm-release"
 sql_variant_mode="sql-on"
 audit_date="$(date +%F)"
 report_dir=""
+report_run=""
+report_scope_dir=""
 canister_names=()
 skip_build=0
 REPORT_SCOPE="wasm-footprint"
@@ -18,6 +20,7 @@ usage() {
 usage: wasm-audit-report.sh [--profile debug|release|wasm-release] [--sql-variant sql-on|sql-off] [--date YYYY-MM-DD] [--report-dir path] [--canister name] [--skip-build]
 
 Defaults to wasm-release, sql-on, today's date, and the standard audit canister set.
+Default output uses docs/reports/recurring/YYYY/MM/DD/wasm-footprint/<run>/.
 Repeat --canister to audit more than one specific canister.
 EOF
 }
@@ -82,11 +85,19 @@ if [[ "${#canister_names[@]}" -eq 0 ]]; then
     mapfile -t canister_names < <(wasm_report_default_canisters)
 fi
 
-audit_month="${audit_date:0:7}"
+audit_year="${audit_date:0:4}"
+audit_month="${audit_date:5:2}"
+audit_day="${audit_date:8:2}"
 if [[ -z "$report_dir" ]]; then
-    report_dir="$ROOT/docs/audits/reports/$audit_month/$audit_date"
+    report_scope_dir="$ROOT/docs/reports/recurring/$audit_year/$audit_month/$audit_day/$REPORT_SCOPE"
+    report_run="01"
+    while [[ -e "$report_scope_dir/$report_run" ]]; do
+        report_run_number=$((10#$report_run + 1))
+        printf -v report_run '%02d' "$report_run_number"
+    done
+    report_dir="$report_scope_dir/$report_run"
 fi
-artifact_scope_dir="$report_dir/artifacts/$REPORT_SCOPE"
+artifact_scope_dir="$report_dir/artifacts"
 
 # Resolve the audited SQL variant once so both the batch summary path and the
 # per-canister child runs agree on the same stable output naming.
@@ -119,7 +130,7 @@ display_path() {
 
 write_summary_report() {
     local canisters=("$@")
-    local report_path="$report_dir/$REPORT_SCOPE.md"
+    local report_path="$report_dir/report.md"
     local report_dir_abs
     local baseline_path
     local snapshot
@@ -130,16 +141,21 @@ write_summary_report() {
     mkdir -p "$report_dir" "$artifact_scope_dir"
 
     report_dir_abs="$(cd "$report_dir" && pwd)"
-    baseline_path="$(
-        find "$ROOT/docs/audits/reports" -path '*/wasm-footprint.md' -type f 2>/dev/null \
-            | while IFS= read -r path; do
-                if [[ "$(cd "$(dirname "$path")" && pwd)" != "$report_dir_abs" ]]; then
-                    display_path "$path"
-                fi
-            done \
-            | sort \
-            | tail -n 1
-    )"
+    if [[ -n "$report_run" && "$report_run" != "01" && -f "$report_scope_dir/01/report.md" ]]; then
+        baseline_path="$(display_path "$report_scope_dir/01/report.md")"
+    else
+        baseline_path="$(
+            find "$ROOT/docs/reports/recurring" \
+                -path '*/wasm-footprint/[0-9][0-9]/report.md' -type f 2>/dev/null \
+                | while IFS= read -r path; do
+                    if [[ "$(cd "$(dirname "$path")" && pwd)" != "$report_dir_abs" ]]; then
+                        display_path "$path"
+                    fi
+                done \
+                | sort \
+                | tail -n 1
+        )"
+    fi
     baseline_path="${baseline_path:-N/A}"
     snapshot="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || printf 'N/A')"
 
@@ -163,7 +179,7 @@ write_summary_report() {
         current_gz="$(jq -er '.artifacts.icp_shrunk_wasm_gz.bytes' "$size_report_path")"
 
         if [[ "$baseline_path" != "N/A" ]]; then
-            baseline_artifact="$ROOT/${baseline_path%/*}/artifacts/$REPORT_SCOPE/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
+            baseline_artifact="$ROOT/${baseline_path%/*}/artifacts/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
             if [[ -f "$baseline_artifact" ]] \
                 && jq -e '.artifacts.icp_shrunk_wasm.bytes and .artifacts.icp_shrunk_wasm_gz.bytes' "$baseline_artifact" >/dev/null; then
                 previous_shrunk="$(jq -er '.artifacts.icp_shrunk_wasm.bytes' "$baseline_artifact")"
@@ -207,8 +223,8 @@ write_summary_report() {
         printf '## Checklist Results\n\n'
         printf '| Requirement | Status | Evidence |\n'
         printf '| --- | --- | --- |\n'
-        printf '| Wasm size artifacts captured | PASS | per-canister size reports + summaries written under `artifacts/wasm-footprint/` |\n'
-        printf '| Twiggy top breakdown generated | PASS | per-canister top text/csv artifacts written |\n'
+        printf '| Wasm size artifacts captured | PASS | per-canister size reports + summaries written under `artifacts/` |\n'
+        printf '| Twiggy top breakdown generated | PASS | per-canister top text artifacts written |\n'
         printf '| Twiggy dominator breakdown generated | PASS | per-canister dominator text artifacts written |\n'
         printf '| Twiggy monomorphization breakdown generated | PASS | per-canister monos artifacts written |\n'
         printf '%s\n\n' "$baseline_status_row"
@@ -238,7 +254,7 @@ write_summary_report() {
         printf -- '- per-canister size-report JSON + Twiggy artifacts -> PASS\n'
     } > "$report_path"
 
-    echo "[wasm-audit] Wrote summary: $report_dir/$REPORT_SCOPE.md"
+    echo "[wasm-audit] Wrote summary: $report_path"
 }
 
 if ! command -v twiggy >/dev/null 2>&1; then
@@ -283,7 +299,6 @@ write_canister_artifacts() {
     local size_report_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-report.json"
     local size_summary_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-summary.md"
     local twiggy_top_txt="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-top.txt"
-    local twiggy_top_csv="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-top.csv"
     local twiggy_dominators_txt="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-dominators.txt"
     local twiggy_retained_csv="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-retained.csv"
     local twiggy_monos_txt="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-monos.txt"
@@ -308,7 +323,6 @@ write_canister_artifacts() {
     cp "$size_summary_md" "$size_summary_copy"
 
     write_twiggy_artifact "$twiggy_top_txt" twiggy top -n 40 "$shrunk_wasm"
-    write_twiggy_artifact "$twiggy_top_csv" twiggy top -n 40 -f csv "$shrunk_wasm"
     write_twiggy_artifact "$twiggy_dominators_txt" twiggy dominators -r 160 "$shrunk_wasm"
     write_twiggy_artifact "$twiggy_retained_csv" twiggy top --retained -n 40 -f csv "$shrunk_wasm"
     write_twiggy_artifact "$twiggy_monos_txt" twiggy monos "$shrunk_wasm"

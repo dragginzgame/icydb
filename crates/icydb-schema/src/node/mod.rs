@@ -192,22 +192,21 @@ pub(crate) fn validate_stable_key(errs: &mut ErrorTree, label: &str, value: &str
     if !stable_key_is_canonical(value) {
         err!(
             errs,
-            "{label} `{value}` must be canonical lowercase ASCII, must use dots as separators, must use underscores instead of hyphens, must end in .v1, and must not start with canic.",
+            "{label} `{value}` must be at most 128 bytes, must use lowercase ASCII segments beginning with a letter, must use dots as separators, must use underscores instead of hyphens, must end in .v1, and must not start with canic.",
         );
     }
 }
 
 #[must_use]
 pub fn stable_key_segment_is_canonical(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    let mut bytes = value.bytes();
+    bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())
+        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 #[must_use]
 pub(crate) fn stable_key_is_canonical(value: &str) -> bool {
-    if value.starts_with("canic.") {
+    if value.len() > 128 || value.starts_with("canic.") {
         return false;
     }
 
@@ -264,12 +263,20 @@ mod tests {
     }
 
     #[test]
-    fn stable_key_segment_policy_is_canonical_ascii_only() {
+    fn stable_key_segment_policy_requires_a_lowercase_letter_prefix() {
         for segment in ["db", "demo_rpg", "store_1", "v1"] {
             assert!(stable_key_segment_is_canonical(segment));
         }
 
-        for segment in ["", "Demo", "demo-rpg", "demo.rpg", "canic.owned"] {
+        for segment in [
+            "",
+            "1db",
+            "_db",
+            "Demo",
+            "demo-rpg",
+            "demo.rpg",
+            "canic.owned",
+        ] {
             assert!(!stable_key_segment_is_canonical(segment));
         }
     }
@@ -285,8 +292,18 @@ mod tests {
             "icydb.demo_rpg..data.v1",
             "icydb.Demo.characters.data.v1",
             "icydb.demo_rpg.characters.data.v2",
+            "icydb.1demo.characters.data.v1",
+            "icydb._demo.characters.data.v1",
         ] {
             assert!(!stable_key_is_canonical(key), "key should fail: {key}");
         }
+
+        let maximum = format!("icydb.{}.data.v1", "a".repeat(114));
+        assert_eq!(maximum.len(), 128);
+        assert!(stable_key_is_canonical(&maximum));
+
+        let oversized = format!("icydb.{}.data.v1", "a".repeat(115));
+        assert_eq!(oversized.len(), 129);
+        assert!(!stable_key_is_canonical(&oversized));
     }
 }

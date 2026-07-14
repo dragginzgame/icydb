@@ -6,7 +6,7 @@ Canonical report scope:
 
 Use this exact scope for report files:
 
-* `docs/audits/reports/YYYY-MM/YYYY-MM-DD/invariant-preservation.md`
+* `docs/reports/recurring/YYYY/MM/DD/invariant-preservation/<run>/report.md`
 
 Do not introduce alternate names such as `core-invariants`,
 `runtime-invariants`, or `invariant-audit` for this recurring pass.

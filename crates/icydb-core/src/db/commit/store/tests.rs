@@ -13,7 +13,7 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
-use ic_memory::stable_structures::Memory;
+use ic_stable_structures::Memory;
 // Wrap one test marker payload in the canonical marker envelope so strict
 // decode still reaches shape validation.
 fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {

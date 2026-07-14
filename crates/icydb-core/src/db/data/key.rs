@@ -19,7 +19,7 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
-use ic_memory::stable_structures::{Storable, storable::Bound as StorableBound};
+use ic_stable_structures::{Storable, storable::Bound as StorableBound};
 use std::{
     borrow::Cow,
     cell::OnceCell,

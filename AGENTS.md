@@ -9,7 +9,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - Do not start or stop the local ICP network; the user manages its lifecycle elsewhere.
-- Do not run the full `make test` suite; the user runs it as part of the push workflow. Use targeted tests for the changed slice instead.
+- Do not run full repository or workspace test suites, including `make test`, `cargo test --workspace`, `cargo test --all`, or equivalent commands. The user owns full-suite execution as part of the push workflow. Run only focused package, target, or named-test selections for the changed slice; when release instructions list a full suite, report it as user-owned validation instead of executing it.
 - Use absolute filesystem paths in final file references.
 - Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
 - For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.

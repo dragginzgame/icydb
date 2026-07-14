@@ -1,0 +1,109 @@
+{
+  "audit": {
+    "date": "2026-07-14",
+    "branch": "main",
+    "repo_commit": "14a610cd1",
+    "tag": "v0.202.0",
+    "verdict": "READY_WITH_DOCUMENTED_CAVEATS",
+    "implementation_blockers": [],
+    "release_documentation_gate": true
+  },
+  "findings": [
+    {
+      "id": "202-CO-001",
+      "severity": "high",
+      "status": "fixed",
+      "title": "Stable-key admission lagged ic-memory 0.11.1 grammar",
+      "paths": [
+        "crates/icydb-schema/src/node/mod.rs",
+        "crates/icydb-schema-derive/src/validate/memory.rs",
+        "crates/icydb-schema-derive/src/node/canister.rs",
+        "crates/icydb-schema-derive/src/node/store.rs"
+      ]
+    },
+    {
+      "id": "202-CO-002",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Direct index-key default-change rejection lacked complete proof",
+      "paths": [
+        "crates/icydb-core/src/db/session/tests/sql_surface.rs"
+      ]
+    },
+    {
+      "id": "202-CO-003",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Accepted bundle malformed-default validation lacked a focused test",
+      "paths": [
+        "crates/icydb-core/src/db/schema/enum_catalog/publication/tests.rs"
+      ]
+    },
+    {
+      "id": "202-CO-004",
+      "severity": "medium",
+      "status": "documented_caveat",
+      "title": "Pending dependency hard cut needs separate persisted-format release truth",
+      "paths": [
+        "CHANGELOG.md",
+        "docs/changelog/0.202.md",
+        "docs/design/0.202-explicit-rust-default-generation/0.202-design.md"
+      ]
+    },
+    {
+      "id": "202-CO-005",
+      "severity": "medium",
+      "status": "deferred_to_0.203",
+      "title": "Generated bootstrap stringifies typed ic-memory errors before trapping",
+      "paths": [
+        "crates/icydb-build/src/db/store.rs"
+      ]
+    },
+    {
+      "id": "202-CO-006",
+      "severity": "low",
+      "status": "release_prep_classification_required",
+      "title": "Incidental socket2 lockfile movement",
+      "paths": [
+        "Cargo.lock"
+      ]
+    }
+  ],
+  "validation": {
+    "focused_default_and_runtime_tests": "pass",
+    "macro_ui": "pass",
+    "architecture_invariants": "pass",
+    "feature_matrix": "pass_after_network_retry",
+    "cargo_fmt_check": "pass",
+    "cargo_check_workspace": "pass",
+    "cargo_clippy_workspace_all_targets_deny_warnings": "pass",
+    "cargo_test_workspace": "pass",
+    "git_diff_check": "pass",
+    "wasm_size_report": "pass"
+  },
+  "wasm": {
+    "artifact": "ten_entity_fluent_rows wasm-release sql-on",
+    "baseline_raw_bytes": 2366601,
+    "current_raw_bytes": 2096898,
+    "raw_delta_bytes": -269703,
+    "baseline_shrunk_bytes": 2204554,
+    "current_shrunk_bytes": 1950484,
+    "shrunk_delta_bytes": -254070,
+    "isolated_codec_probe": {
+      "serde_cbor_raw_bytes": 134228,
+      "ciborium_raw_bytes": 78940,
+      "raw_delta_bytes": -55288,
+      "serde_cbor_optimized_bytes": 117648,
+      "ciborium_optimized_bytes": 69549,
+      "optimized_delta_bytes": -48099
+    }
+  },
+  "required_closeout_docs": [
+    "Assign the user-selected target 0.202 patch during release prep.",
+    "Move root Unreleased notes into one root patch bullet and docs/changelog/0.202.md detail.",
+    "Add and link a 0.202 supplemental status separating 0.202.0 from the later allocation-ledger hard cut.",
+    "Scope the normative no-persisted-format-change statements to 0.202.0.",
+    "Track the generated bootstrap typed-error boundary as an explicit 0.203 decision.",
+    "Classify the incidental socket2 lockfile movement."
+  ]
+}

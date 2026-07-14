@@ -10,7 +10,7 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::stable_structures::{
+use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound as StorableBound,
 };

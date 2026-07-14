@@ -64,6 +64,22 @@ fn snapshot_with_field(
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     leaf_codec: LeafCodec,
 ) -> PersistedSchemaSnapshot {
+    snapshot_with_field_and_default(
+        entity_path,
+        kind,
+        nested_leaves,
+        leaf_codec,
+        SchemaFieldDefault::None,
+    )
+}
+
+fn snapshot_with_field_and_default(
+    entity_path: &str,
+    kind: AcceptedFieldKind,
+    nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+    leaf_codec: LeafCodec,
+    default: SchemaFieldDefault,
+) -> PersistedSchemaSnapshot {
     PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         entity_path.to_string(),
@@ -80,7 +96,7 @@ fn snapshot_with_field(
             kind,
             nested_leaves,
             false,
-            SchemaFieldDefault::None,
+            default,
             FieldStorageDecode::ByKind,
             leaf_codec,
         )],
@@ -203,6 +219,27 @@ fn accepted_schema_bundle_requires_field_enum_type_to_exist() {
             "test::Store",
             catalog,
             BTreeMap::from([(EntityTag::new(7), mismatched)]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn accepted_schema_bundle_rejects_malformed_default_payload() {
+    let snapshot = snapshot_with_field_and_default(
+        "test::Item",
+        AcceptedFieldKind::Ulid,
+        Vec::new(),
+        LeafCodec::Scalar(ScalarCodec::Ulid),
+        SchemaFieldDefault::SlotPayload(vec![0xFE]),
+    );
+
+    assert!(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::INITIAL,
+            "test::Store",
+            empty_catalog(),
+            BTreeMap::from([(EntityTag::new(7), snapshot)]),
         )
         .is_err()
     );

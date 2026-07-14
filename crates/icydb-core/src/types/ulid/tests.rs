@@ -16,6 +16,13 @@ fn ulid_max_size_is_bounded() {
 }
 
 #[test]
+fn increment_preserves_none_on_randomness_overflow() {
+    let ulid = Ulid::from_timestamp_and_randomness(1, (1_u128 << 80) - 1);
+
+    assert!(ulid.increment().is_none());
+}
+
+#[test]
 fn test_ulid_string_roundtrip() {
     let u1 = Ulid::generate();
     let u2 = u1.to_string().parse::<Ulid>().unwrap();

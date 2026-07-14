@@ -6,7 +6,7 @@ use crate::{
     },
     testing::test_memory,
 };
-use ic_memory::stable_structures::{
+use ic_stable_structures::{
     Memory, VectorMemory,
     memory_manager::{MemoryId, MemoryManager},
 };

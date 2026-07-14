@@ -1,5 +1,0 @@
-metric	current	notes
-average_files_per_slice	75.67	three 0.179 patch content slices
-median_files_per_slice	54.00	three 0.179 patch content slices
-p95_files_per_slice	163	nearest-rank p95 for n=3
-top5_module_edit_concentration	58.1	top 5 path prefixes / all changed files

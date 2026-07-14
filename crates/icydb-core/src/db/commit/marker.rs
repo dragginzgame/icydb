@@ -18,7 +18,7 @@ use crate::{
     error::InternalError,
     runtime::now_millis,
 };
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 #[cfg(test)]
 use std::cell::Cell;
 use std::{

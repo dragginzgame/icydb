@@ -1,9 +1,0 @@
-module	class	loc	current_pressure	readout
-crates/icydb-core/src/db/schema/reconcile.rs	M/C	2925	high local density; medium DRY pressure	Startup reconciliation and SQL DDL publication wrappers share transition/publish vocabulary; 0.178 added shared plan and CAS publication helpers, but operation-specific wrappers remain dense.
-crates/icydb-core/src/db/schema/mutation/mod.rs	M/C	692	medium density; low-medium DRY pressure	Hub re-exports several split modules; recent execution/identity/delta/admission splits reduced semantic duplication.
-crates/icydb-core/src/db/schema/mutation/ddl_admission.rs	M/C	422	low-medium density; low DRY pressure	Owns DDL admission contracts and accepted-after derivation; no duplicate SQL-owned admission found.
-crates/icydb-core/src/db/schema/mutation/execution.rs	M/C	611	medium density; low DRY pressure	Owns execution gates/plans/runner preflight; protective boundary, not a cleanup target.
-crates/icydb-core/src/db/schema/mutation/identity.rs	M/C	302	low density; low DRY pressure	Owns mutation fingerprints and runtime publication identity; good extraction from prior hub pressure.
-crates/icydb-core/src/db/relation/reverse_index.rs	M/C	1840	high local density; medium-low DRY pressure	Still large, but accepted target contract helpers now live in db::relation; remaining tuple relation construction duplication is boundary-sensitive.
-crates/icydb-core/src/db/relation/save_validate.rs	M/C	618	medium density; low-medium DRY pressure	Consumes shared relation helpers; remaining overlap with reverse index is local component assembly, not authority drift.
-crates/icydb-core/src/db/session/sql/execute/mod.rs	M/C	1061	medium density; low-medium DRY pressure	Query/update/result shells repeat safe facade plumbing; optional local helper only.

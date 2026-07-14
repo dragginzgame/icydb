@@ -11,10 +11,10 @@ modules live under
 [`example-crate/`](/home/adam/projects/icydb/docs/governance/code-hygiene/example-crate).
 
 This is not the module hardening audit. Use
-`docs/audits/modular/module-surface-hardening.md` when the task is to justify
+`docs/audits/targeted/modules/module-surface-hardening.md` when the task is to justify
 retained surface, remove stale complexity, or evaluate cleanup against hot-path
 and wasm-sensitive runtime shape. Use
-`docs/audits/modular/module-cleanup-runner.md` when the task is to patch a named
+`docs/audits/targeted/modules/module-cleanup-runner.md` when the task is to patch a named
 module using that policy.
 
 ## Example Crate

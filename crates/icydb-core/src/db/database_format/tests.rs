@@ -11,7 +11,7 @@ use crate::db::{
 use crate::error::{ErrorClass, ErrorDetail, ErrorOrigin, RecoveryErrorDetail};
 use crate::testing::test_memory;
 use crate::traits::{CanisterKind, Path};
-use ic_memory::stable_structures::{Memory, VectorMemory};
+use ic_stable_structures::{Memory, VectorMemory};
 use std::cell::RefCell;
 
 crate::test_canister! {

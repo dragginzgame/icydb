@@ -22,6 +22,7 @@ candid = { workspace = true }
 derive_more = { workspace = true }
 ic-cdk = { workspace = true }
 ic-memory = { workspace = true }
+ic-stable-structures = { workspace = true }
 icrc-ledger-types = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-primitives = { workspace = true }

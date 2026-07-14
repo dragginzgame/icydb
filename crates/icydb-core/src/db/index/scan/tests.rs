@@ -5,7 +5,7 @@ use crate::{
     },
     testing::test_memory,
 };
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 use std::{borrow::Cow, ops::Bound};
 
 #[test]

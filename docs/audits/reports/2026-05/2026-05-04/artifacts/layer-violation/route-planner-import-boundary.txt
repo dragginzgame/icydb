@@ -1,3 +1,0 @@
-Route planner root import families: 1
-  - executor
-[OK] Route planner import boundary is within the configured ceiling.

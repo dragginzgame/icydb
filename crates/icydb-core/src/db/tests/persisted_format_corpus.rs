@@ -28,7 +28,7 @@ use crate::{
     model::field::FieldKind,
     types::EntityTag,
 };
-use ic_memory::stable_structures::{Memory, Storable, VectorMemory};
+use ic_stable_structures::{Memory, Storable, VectorMemory};
 use std::borrow::Cow;
 
 const VALUE_TAG_TEXT: u8 = 0x12;

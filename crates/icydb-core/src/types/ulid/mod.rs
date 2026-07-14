@@ -76,7 +76,7 @@ impl Ulid {
     /// Monotonic increment; returns `None` on overflow.
     #[must_use]
     fn increment(&self) -> Option<Self> {
-        self.0.increment().map(Self)
+        self.0.increment().ok().map(Self)
     }
 
     /// try_generate

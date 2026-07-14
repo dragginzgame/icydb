@@ -15,6 +15,7 @@ thread_local! {
 pub(super) enum UlidGenerationError {
     GeneratorOverflow,
 
+    #[cfg(not(target_arch = "wasm32"))]
     RandomnessUnavailable,
 }
 

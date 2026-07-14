@@ -253,7 +253,7 @@ Taxonomy Risk Index:
 
 Write one dated result file for each run:
 
-- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/error-taxonomy*.md`
+- `docs/reports/recurring/YYYY/MM/DD/error-taxonomy/<run>/report.md`
 
 Report sections:
 

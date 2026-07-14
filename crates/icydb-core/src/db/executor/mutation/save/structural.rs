@@ -28,7 +28,7 @@ use crate::{
     sanitize::SanitizeWriteContext,
     types::Timestamp,
 };
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 #[cfg(feature = "sql")]
 use std::collections::HashSet;
 

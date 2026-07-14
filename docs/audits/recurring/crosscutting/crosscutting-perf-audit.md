@@ -98,7 +98,7 @@ Legacy context lane:
 
 SQL and fluent harness rows must be interpreted through the canonical row model
 below and stored under
-`docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/perf-audit/` when artifacts
+`docs/reports/recurring/YYYY/MM/DD/perf-audit/<run>/artifacts/` when artifacts
 are emitted for a recurring run.
 
 ---
@@ -602,6 +602,6 @@ harness rejects the run instead of appending random scenarios to the
 deterministic matrix.
 
 When a recurring run emits raw captures or transformed rows, write them below
-`docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/perf-audit/`. Older
-`artifacts/sql-perf-audit/` directories are historical SQL-lane context, not the
-canonical recurring output path.
+`docs/reports/recurring/YYYY/MM/DD/perf-audit/<run>/artifacts/`. Previously
+captured SQL-only artifacts remain historical context within their owning
+migrated report runs; they do not define a current output path.

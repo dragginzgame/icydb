@@ -82,7 +82,15 @@ mod tests {
             assert!(stable_key_segment_is_canonical(segment));
         }
 
-        for segment in ["", "Demo", "demo-rpg", "demo.rpg", "canic.owned"] {
+        for segment in [
+            "",
+            "1db",
+            "_db",
+            "Demo",
+            "demo-rpg",
+            "demo.rpg",
+            "canic.owned",
+        ] {
             assert_eq!(
                 stable_key_segment_is_canonical(segment),
                 icydb_schema::node::stable_key_segment_is_canonical(segment),

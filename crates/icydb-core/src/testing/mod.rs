@@ -6,7 +6,7 @@
 mod entity_tags;
 mod fixtures;
 
-use ic_memory::stable_structures::{
+use ic_stable_structures::{
     DefaultMemoryImpl,
     memory_manager::{MemoryId, MemoryManager, VirtualMemory},
 };

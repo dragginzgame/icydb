@@ -26,7 +26,7 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 use std::{borrow::Cow, collections::BTreeMap};
 
 struct RebuildSlotReader {

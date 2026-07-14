@@ -15,9 +15,8 @@ Report scope: `flow-convergence`
 
 Current method tag: `Flow Convergence Method V2`
 
-Use `docs/audits/reports/YYYY-MM/YYYY-MM-DD/flow-convergence.md` for the
-first run of a day. Same-day reruns must use `flow-convergence-2.md`,
-`flow-convergence-3.md`, and so on.
+Use `docs/reports/recurring/YYYY/MM/DD/flow-convergence/<run>/report.md`.
+Run `01` is the daily baseline; same-day reruns use `02`, `03`, and so on.
 
 Method V2 refreshes the current split session-query, grouped-fold, shared
 plan-cache, and executor-explain ownership checks from the original V1 report.
@@ -199,13 +198,13 @@ docs/audits/recurring/crosscutting/crosscutting-flow-convergence.md
 Save reports as:
 
 ```text
-docs/audits/reports/YYYY-MM/YYYY-MM-DD/flow-convergence.md
+docs/reports/recurring/YYYY/MM/DD/flow-convergence/<run>/report.md
 ```
 
 Artifacts should go under:
 
 ```text
-docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/flow-convergence/
+docs/reports/recurring/YYYY/MM/DD/flow-convergence/<run>/artifacts/
 ```
 
 ## Read-Only Run Mode

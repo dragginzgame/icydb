@@ -1,6 +1,0 @@
-concept	decision_owners	execution_consumers	plumbing_modules	owner_count	consumer_count	plumbing_count	semantic_layers	transport_layers	risk
-continuation / cursor anchor semantics	db::cursor::{signature,boundary,planned}	db::executor::pipeline,db::session	db::query,db::executor::pipeline::contracts	1	2	2	cursor/executor/session	query/executor DTOs	medium
-AccessPath decision semantics	db::access,db::query::plan::access_choice	db::executor::stream::access,db::query::explain	db::session,db::query::intent	2	2	2	access/query/executor	session/query DTOs	medium
-RouteShape decision semantics	db::executor::planning::route	db::executor::pipeline::orchestrator	db::session::sql::execute	1	1	1	executor/session	executor route DTOs	low-medium
-predicate coercion decision semantics	db::predicate::coercion,value::semantics	db::predicate::runtime,db::query::plan::expr	db::sql::lowering,db::schema::types	2	2	2	predicate/value/query	SQL/schema DTOs	medium
-index id / namespace validation	db::index,key_taxonomy,schema::mutation	db::executor::stream,db::relation::reverse_index	db::schema::reconcile	2	2	1	index/schema/executor	schema/index store DTOs	medium

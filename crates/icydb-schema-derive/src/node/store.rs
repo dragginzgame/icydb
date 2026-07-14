@@ -347,7 +347,7 @@ impl ValidateNode for Store {
         }
         if !stable_key_segment_is_canonical(&self.name) {
             return Err(DarlingError::custom(
-                "store_name must use lowercase ASCII letters, digits, and underscores",
+                "store_name must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, and underscores",
             )
             .with_span(&self.ident));
         }

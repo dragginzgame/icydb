@@ -1,5 +1,0 @@
-operation	axes	axis_count	independent_axes	risk
-SQL DDL publication	schema_version, fingerprint identity, mutation class, runner capability, publication identity	5	4	Medium
-SQL query compile/execute	surface, accepted schema identity, cache attribution, statement family	4	3	Low
-CLI reporting	command group, target resolution, render surface, schema-check domain	4	3	Low
-Metrics sink	event family, cache kind, outcome, report rendering	4	3	Low

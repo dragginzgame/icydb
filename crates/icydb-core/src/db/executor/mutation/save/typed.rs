@@ -23,7 +23,7 @@ use crate::{
     sanitize::SanitizeWriteContext,
     types::Timestamp,
 };
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 
 impl<E: PersistedRow> SaveExecutor<E> {
     // Create one authored typed input after materializing its typed entity and

@@ -16,7 +16,7 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
-use ic_memory::stable_structures::{
+use ic_stable_structures::{
     Memory, Storable, VectorMemory,
     memory_manager::{MemoryId, MemoryManager},
 };
@@ -511,7 +511,7 @@ fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
 fn journal_tail_chunk_storable_bound_caps_raw_tail_value_bytes() {
     assert_eq!(
         RawJournalChunk::BOUND,
-        ic_memory::stable_structures::storable::Bound::Bounded {
+        ic_stable_structures::storable::Bound::Bounded {
             max_size: JOURNAL_TAIL_CHUNK_BYTES,
             is_fixed_size: false,
         }

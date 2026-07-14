@@ -12,7 +12,7 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_memory::stable_structures::{
+use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
 };
 #[cfg(feature = "diagnostics")]

@@ -1,5 +1,0 @@
-hub_module	exists	loc	fanout	branch_sites_total	cross_layer_families	allowed_max	status
-crates/icydb-core/src/db/executor/route/planner/mod.rs	False	0	0	0	0	1	PASS
-crates/icydb-core/src/db/executor/planning/route/planner/mod.rs	True	15	0	0	1	1	PASS
-crates/icydb-core/src/db/executor/load/mod.rs	False	0	0	0	0	1	PASS
-crates/icydb-core/src/db/session/query/paging.rs	True	100	3	0	3	1	REVIEW

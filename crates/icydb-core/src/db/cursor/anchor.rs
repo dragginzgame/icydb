@@ -18,7 +18,7 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 use std::borrow::Cow;
 
 ///

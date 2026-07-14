@@ -34,7 +34,7 @@ impl ValidateNode for Canister {
     fn validate(&self) -> Result<(), DarlingError> {
         if !crate::validate::memory::stable_key_segment_is_canonical(&self.memory_namespace) {
             return Err(DarlingError::custom(
-                "memory_namespace must use lowercase ASCII letters, digits, and underscores",
+                "memory_namespace must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, and underscores",
             )
             .with_span(&self.def.ident()));
         }

@@ -4,7 +4,7 @@
 //! Boundary: stable-memory storage adapter for `RawIndexStoreKey`.
 
 use crate::db::index::key::codec::{IndexKey, RawIndexStoreKey};
-use ic_memory::stable_structures::{Storable, storable::Bound};
+use ic_stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 
 impl Storable for RawIndexStoreKey {

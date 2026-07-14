@@ -6,7 +6,7 @@
 use crate::error::InternalError;
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
-use ic_memory::stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
+use ic_stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
 #[cfg(test)]
 use std::cell::RefCell;
 use std::{

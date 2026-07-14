@@ -15,8 +15,8 @@ use crate::{
 };
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
-use ic_memory::stable_structures::memory_manager::VirtualMemory;
-use ic_memory::stable_structures::{DefaultMemoryImpl, Memory};
+use ic_stable_structures::memory_manager::VirtualMemory;
+use ic_stable_structures::{DefaultMemoryImpl, Memory};
 #[cfg(test)]
 use std::cell::RefCell;
 #[cfg(not(test))]

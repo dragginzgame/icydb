@@ -17,6 +17,7 @@ use quote::{format_ident, quote};
 ///
 
 struct StoreRegistryTokens {
+    memory_authority: String,
     journal_defs: TokenStream,
     data_defs: TokenStream,
     index_defs: TokenStream,
@@ -31,7 +32,9 @@ pub(super) fn generate_store_wiring(
     entity_runtime_hooks: TokenStream,
 ) -> TokenStream {
     let canister = &builder.canister;
-    let store_registry = store_registry_tokens(builder, canister.memory_namespace());
+    let memory_namespace = canister.memory_namespace();
+    let memory_authority = format!("icydb.{memory_namespace}");
+    let store_registry = store_registry_tokens(builder, memory_namespace, &memory_authority);
     let memory_min = canister.memory_min();
     let memory_max = canister.memory_max();
     let commit_memory_id = canister.commit_memory_id();
@@ -48,7 +51,11 @@ pub(super) fn generate_store_wiring(
     )
 }
 
-fn store_registry_tokens(builder: &ActorBuilder, memory_namespace: &str) -> StoreRegistryTokens {
+fn store_registry_tokens(
+    builder: &ActorBuilder,
+    memory_namespace: &str,
+    memory_authority: &str,
+) -> StoreRegistryTokens {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
     let mut schema_defs = quote!();
@@ -57,7 +64,7 @@ fn store_registry_tokens(builder: &ActorBuilder, memory_namespace: &str) -> Stor
 
     for (store_path, store) in builder.get_stores() {
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(&store_path, &store, memory_namespace);
+            store_registry_entry_tokens(&store_path, &store, memory_namespace, memory_authority);
         journal_defs.extend(journal_def);
         data_defs.extend(data_def);
         index_defs.extend(index_def);
@@ -66,6 +73,7 @@ fn store_registry_tokens(builder: &ActorBuilder, memory_namespace: &str) -> Stor
     }
 
     StoreRegistryTokens {
+        memory_authority: memory_authority.to_owned(),
         journal_defs,
         data_defs,
         index_defs,
@@ -79,6 +87,7 @@ fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
+    memory_authority: &str,
 ) -> (
     TokenStream,
     TokenStream,
@@ -88,9 +97,13 @@ fn store_registry_entry_tokens(
 ) {
     match store.storage() {
         StoreStorage::Heap(config) => heap_store_registry_entry_tokens(store_path, store, *config),
-        StoreStorage::Journaled(config) => {
-            journaled_store_registry_entry_tokens(store_path, store, memory_namespace, *config)
-        }
+        StoreStorage::Journaled(config) => journaled_store_registry_entry_tokens(
+            store_path,
+            store,
+            memory_namespace,
+            memory_authority,
+            *config,
+        ),
     }
 }
 
@@ -99,6 +112,7 @@ fn stable_store_cell_tokens(
     store_ty: TokenStream,
     stable_key: &str,
     memory_id: u8,
+    memory_authority: &str,
 ) -> TokenStream {
     quote! {
         thread_local! {
@@ -109,6 +123,7 @@ fn stable_store_cell_tokens(
                     {
                         ensure_memory_bootstrap();
                         ::icydb::__macro::ic_memory_key!(
+                            authority = #memory_authority,
                             key = #stable_key,
                             ty = #store_ty,
                             id = #memory_id,
@@ -125,6 +140,7 @@ fn journaled_store_cell_tokens(
     store_ty: TokenStream,
     stable_key: &str,
     memory_id: u8,
+    memory_authority: &str,
 ) -> TokenStream {
     quote! {
         thread_local! {
@@ -135,6 +151,7 @@ fn journaled_store_cell_tokens(
                     {
                         ensure_memory_bootstrap();
                         ::icydb::__macro::ic_memory_key!(
+                            authority = #memory_authority,
                             key = #stable_key,
                             ty = #store_ty,
                             id = #memory_id,
@@ -210,6 +227,7 @@ fn journaled_store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
+    memory_authority: &str,
     journaled: StoreJournaledMemoryConfig,
 ) -> (
     TokenStream,
@@ -240,24 +258,28 @@ fn journaled_store_registry_entry_tokens(
         quote!(::icydb::__macro::JournalTailStore),
         journal_stable_key,
         journal_memory_id,
+        memory_authority,
     );
     let data_def = journaled_store_cell_tokens(
         &data_cell_ident,
         quote!(::icydb::__macro::DataStore),
         data_stable_key,
         data_memory_id,
+        memory_authority,
     );
     let index_def = journaled_store_cell_tokens(
         &index_cell_ident,
         quote!(::icydb::__macro::IndexStore),
         index_stable_key,
         index_memory_id,
+        memory_authority,
     );
     let schema_def = journaled_store_cell_tokens(
         &schema_cell_ident,
         quote!(::icydb::__macro::SchemaStore),
         schema_stable_key,
         schema_memory_id,
+        memory_authority,
     );
     let store_init = quote! {
         reg.register_journaled_store(
@@ -303,6 +325,7 @@ fn store_wiring_tokens(
     commit_stable_key: &str,
 ) -> TokenStream {
     let StoreRegistryTokens {
+        memory_authority,
         journal_defs,
         data_defs,
         index_defs,
@@ -330,11 +353,13 @@ fn store_wiring_tokens(
 
     quote! {
         ::icydb::__macro::ic_memory_range!(
+            authority = #memory_authority,
             start = #memory_min,
             end = #memory_max,
         );
 
         ::icydb::__macro::ic_memory_declaration!(
+            authority = #memory_authority,
             key = #commit_stable_key,
             label = "CommitMarker",
             id = #commit_memory_id,
@@ -423,7 +448,7 @@ mod tests {
     fn heap_store_wiring_uses_heap_initializers_and_absent_allocation_identity() {
         let store = heap_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens("demo::schema::ScratchStore", &store, "demo");
+            store_registry_entry_tokens("demo::schema::ScratchStore", &store, "demo", "icydb.demo");
         let rendered = quote! {
             #journal_def
             #data_def
@@ -450,7 +475,12 @@ mod tests {
     fn journaled_store_wiring_declares_journal_memory_and_registers_four_role_allocation() {
         let store = journaled_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens("demo::schema::JournaledStore", &store, "demo");
+            store_registry_entry_tokens(
+                "demo::schema::JournaledStore",
+                &store,
+                "demo",
+                "icydb.demo",
+            );
         let rendered = quote! {
             #journal_def
             #data_def
@@ -461,6 +491,7 @@ mod tests {
         .to_string();
 
         assert_eq!(rendered.matches("ic_memory_key").count(), 4);
+        assert_eq!(rendered.matches("authority = \"icydb.demo\"").count(), 4);
         assert_eq!(
             rendered.matches("StoreAllocationIdentity :: new").count(),
             4
@@ -488,9 +519,16 @@ mod tests {
         let canister_path: syn::Path = syn::parse_quote!(demo::schema::DemoCanister);
         let mut store_inits = quote!();
         store_inits.extend(
-            store_registry_entry_tokens("demo::schema::ScratchStore", &heap_store(), "demo").4,
+            store_registry_entry_tokens(
+                "demo::schema::ScratchStore",
+                &heap_store(),
+                "demo",
+                "icydb.demo",
+            )
+            .4,
         );
         let registry = StoreRegistryTokens {
+            memory_authority: "icydb.demo".to_owned(),
             journal_defs: quote!(),
             data_defs: quote!(),
             index_defs: quote!(),
@@ -510,5 +548,6 @@ mod tests {
 
         assert!(!rendered.contains("allow(unused_mut)"));
         assert!(!rendered.contains("expect(clippy::let_and_return"));
+        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 2);
     }
 }

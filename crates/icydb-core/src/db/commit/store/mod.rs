@@ -30,7 +30,7 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
+use ic_stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
 use std::cell::RefCell;
 #[cfg(not(test))]
 use std::sync::{Mutex, OnceLock};

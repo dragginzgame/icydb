@@ -13,7 +13,7 @@ use crate::db::{
 };
 
 use candid::CandidType;
-use ic_memory::stable_structures::{
+use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
 };
 use serde::Deserialize;
@@ -698,7 +698,7 @@ mod tests {
         testing::test_memory,
         types::EntityTag,
     };
-    use ic_memory::stable_structures::Storable;
+    use ic_stable_structures::Storable;
     use std::{borrow::Cow, convert::Infallible};
 
     fn raw_key(value: u8) -> RawIndexStoreKey {

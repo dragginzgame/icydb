@@ -1,9 +1,0 @@
-area	score	weight	weighted_score	evidence
-Variant explosion risk	5	2	10	Predicate=14 variants; CursorPlanError=8 variants; AccessPath=7 variants
-Branching pressure + centralization trend	6	2	12	branch sites 5712 vs 4777; hotspots >=40 now 14 vs 4
-Flow multiplicity	5	2	10	load/cursor theoretical axes 28 constrained to 5-6 effective flows
-Cross-layer spread	5	3	15	AccessPath and predicate coercion span two decision owners and executor consumers
-Authority fragmentation	5	2	10	AccessPath, predicate coercion, index range have owner_count=2
-Fanout pressure + super-node load	3	2	6	0 modules fanout > 12; top-10 fanout concentration low
-Call-depth pressure	4	1	4	function hotspot extraction shows local branch layers but no call-depth artifact
-overall complexity risk index	4.8	14	67	weighted_sum/weight_sum

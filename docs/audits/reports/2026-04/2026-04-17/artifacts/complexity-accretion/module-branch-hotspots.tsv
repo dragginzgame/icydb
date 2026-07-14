@@ -1,6 +1,0 @@
-module	file	loc	match_count	match_arms_total	avg_match_arms	if_count	if_chain_count	max_branch_depth	fanout	branch_sites_total
-types::decimal	crates/icydb-core/src/types/decimal.rs	848	4	18	4.50	65	64	2	2	68
-db::executor::aggregate::contracts::state	crates/icydb-core/src/db/executor/aggregate/contracts/state.rs	765	29	96	3.31	24	24	2	4	53
-db::data::structural_field::value_storage	crates/icydb-core/src/db/data/structural_field/value_storage.rs	978	7	64	9.14	40	39	2	4	46
-value	crates/icydb-core/src/value/mod.rs	839	21	135	6.43	20	20	2	3	41
-db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	376	10	39	3.90	30	30	2	3	40

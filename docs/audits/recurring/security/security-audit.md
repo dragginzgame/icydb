@@ -35,9 +35,8 @@ Report scope: `security-boundary`
 
 Current method tag: `Security Boundary Method V2`
 
-Use `docs/audits/reports/YYYY-MM/YYYY-MM-DD/security-boundary.md` for the
-first run of a day. Same-day reruns must use `security-boundary-2.md`,
-`security-boundary-3.md`, and so on.
+Use `docs/reports/recurring/YYYY/MM/DD/security-boundary/<run>/report.md`.
+Run `01` is the daily baseline; same-day reruns use `02`, `03`, and so on.
 
 Method V2 refreshes the owner paths, grouped resource-policy checks, cache
 fail-closed checks, and read-only run discipline from the original V1 report.

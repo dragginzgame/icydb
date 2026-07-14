@@ -43,7 +43,7 @@ use crate::{
     types::{EntityTag, Ulid},
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
-use ic_memory::stable_structures::Storable;
+use ic_stable_structures::Storable;
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::{borrow::Cow, cell::RefCell};

@@ -35,11 +35,10 @@ That means the method must optimize for:
 - Report scope: `completeness`
 - Current method tag: `Completeness Method V2`
 - Report naming:
-  `docs/audits/reports/YYYY-MM/YYYY-MM-DD/completeness.md`
+  `docs/reports/recurring/YYYY/MM/DD/completeness/<run>/report.md`
 
-If the same audit is rerun more than once on the same day, keep the canonical
-report path for the final readout and record superseded same-day attempts in the
-report preamble.
+Run `01` remains the canonical daily baseline. Same-day reruns use the next run
+number and compare directly against run `01`.
 
 `Completeness Method V2` keeps the original feature-breadth and pipeline-depth
 model, but refreshes the required proof surface for the current public contract:

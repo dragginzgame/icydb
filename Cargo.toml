@@ -67,7 +67,8 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 getrandom = "0.4"
 ic-cdk = "0.20.1"
-ic-memory = "0.7.5"
+ic-memory = "0.11.1"
+ic-stable-structures = "0.7.2"
 ic-testkit = "0.1.10"
 icrc-ledger-types = "0.2.0"
 icydb = { path = "crates/icydb", version = "0.202.0" }
@@ -107,8 +108,8 @@ thiserror = "2.0"
 # time 0.3.48 trips E0119 in ic-agent's nonce timestamp path.
 time = { version = "=0.3.47", default-features = false }
 trybuild = "1.0"
-# removed std because it imports rand; serde feature doesn't compile with std
-ulid = { version = "1.2", default-features = false }
+# Keep std disabled because IcyDB owns runtime randomness and monotonic generation.
+ulid = { version = "2.0.1", default-features = false }
 xxhash-rust = { version = "0.8.15", default-features = false, features = [
     "xxh3",
 ] }
