@@ -6467,6 +6467,13 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
     let session = sql_session();
 
     session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_809),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed insert should persist the pre-ADD COLUMN row shape");
+    session
         .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
             1,
@@ -6478,13 +6485,6 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
             2,
         ))
         .expect("setup second ADD COLUMN should publish");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::from_u128(15_809),
-            name: "Ada".to_string(),
-            age: 36,
-        })
-        .expect("typed insert should fill DDL-owned nullable fields before DROP COLUMN");
     let (nickname_slot, handle_slot) = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
             .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)

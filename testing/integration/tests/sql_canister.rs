@@ -1680,7 +1680,7 @@ fn sql_canister_ddl_endpoint_publishes_drop_column_for_ddl_owned_field() {
     assert_eq!(target_store, "SqlTestUser");
     assert_eq!(field_path, vec!["nickname".to_string()]);
     assert_eq!(status, "published");
-    assert_eq!(rows_scanned, 0);
+    assert_eq!(rows_scanned, 3);
     assert_eq!(index_keys_written, 0);
     let after = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")

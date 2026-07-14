@@ -84,11 +84,9 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
             reader.validate_primary_key(&key)?;
             let payloads = rewrite_slots
                 .iter()
-                .map(|slot| {
-                    reader
-                        .get_bytes(*slot)
-                        .map(Vec::from)
-                        .ok_or_else(InternalError::persisted_row_decode_corruption)
+                .map(|slot| match reader.get_bytes(*slot) {
+                    Some(payload) => Ok(Vec::from(payload)),
+                    None => contract.missing_slot_payload(*slot),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             rewritten.push((

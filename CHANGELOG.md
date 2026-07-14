@@ -7,17 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Fixes 0.203.1 closeout coverage by restoring the primary-key identity-mismatch
-  fixture and aligning canonical query and schema-recovery snapshots with the
-  current dense fingerprint and retained-root formats.
-
 ## [0.203.x] ⚠️ - 2026-07-14 - Legacy Architecture Hard Cut
 
 Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)
 
-- `0.203.1` completes the pre-1.0 format and identity hard cut with one dense
-  current representation. Potentially breaking: existing stores and cursors
-  are unsupported and must be recreated or restarted.
+- `0.203.1` completes the pre-1.0 format and identity hard cut and repairs dense
+  field-drop rewrites. Potentially breaking: existing stores and cursors are
+  unsupported and must be recreated or restarted.
 
 - `0.203.0` hard-cuts obsolete query, admission, response, and diagnostic
   surfaces so the current execution path has one authority. Potentially
