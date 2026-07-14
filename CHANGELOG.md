@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Fixes 0.203.1 closeout coverage by restoring the primary-key identity-mismatch
+  fixture and aligning canonical query snapshots with the current dense
+  fingerprint format.
+
 ## [0.203.x] ⚠️ - 2026-07-14 - Legacy Architecture Hard Cut
 
 Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)

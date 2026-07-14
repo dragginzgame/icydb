@@ -151,7 +151,7 @@ fn query_execution_pipeline_snapshot_for_by_key_shape_with_projection_columns_is
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).by_id(Ulid::from_u128(9_101));
     let actual = query_execution_pipeline_projection_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=1c2e397fbaf8bcbccd7837c27f79c1c831f3cf590bcf15944a190a0535ca997f
+plan_hash=40d5eb26f22d778191a8bc90093b37816260dd633f0baf3c5cb64dae0e337033
 mode=Load(LoadSpec { limit: None, offset: 0 })
 is_grouped=false
 execution_family=PrimaryKey
@@ -163,7 +163,7 @@ projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId("id")), a
 order_spec=None
 page_spec=None
 projection_coverage_flag=false
-continuation_signature=615b841f49b9bafbb08342172ba01b562460d6e4129433c1f68b8785d67591d9
+continuation_signature=9b5b6c1d12f6762a96a60204b72228ffc7bc544b972f3ad25955b448e46109c9
 index_prefix_specs=[]
 index_range_specs=[]
 explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: None, offset: 0 }), access: ByKey { key: Ulid("000000000000000000000008WD") }, filter_expr: None, filter_expr_model: None, predicate: None, predicate_model: None, order_by: None, distinct: false, grouping: None, order_pushdown: MissingModelContext, page: None, delete_limit: None, consistency: Ignore }
@@ -189,7 +189,7 @@ fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable
         .limit(5);
     let actual = query_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=87929209508ef73f44d549ec8fd44eabc7ab4cc917024821ae7d21a5c95224cd
+plan_hash=29d574e586051144dfd9cf8d13dfcec2344cb5f775e85d305a6f7e343afad0a4
 mode=Load(LoadSpec { limit: Some(5), offset: 0 })
 is_grouped=false
 execution_family=Ordered
@@ -201,7 +201,7 @@ projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId("id")), a
 order_spec=Some(OrderSpec { fields: [OrderTerm { label: "rank", expr: Field(FieldId("rank")), direction: Asc }, OrderTerm { label: "id", expr: Field(FieldId("id")), direction: Asc }] })
 page_spec=Some(PageSpec { limit: Some(5), offset: 0 })
 projection_coverage_flag=false
-continuation_signature=61fafd73ba7c80c5b7e68d8a5ab789b96f08d767fac8c7ea69781398380182b7
+continuation_signature=e68dd9416ecde94e9597289b518a24e60d3fd96d2b8c6dd121e71c2f358df70d
 index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:29:head:0000000000000010:tail:0007000100000100),upper:included(len:4186:head:0000000000000010:tail:ffffffffffffffff)}]
 index_range_specs=[]
 explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(5), offset: 0 }), access: IndexPrefix { name: "group_rank", fields: ["group", "rank"], prefix_len: 1, values: [Nat64(7)] }, filter_expr: None, filter_expr_model: None, predicate: Compare { field: "group", op: Eq, value: Nat64(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: "group", op: Eq, value: Nat64(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: Fields([ExplainOrder { field: "rank", direction: Asc }, ExplainOrder { field: "id", direction: Asc }]), distinct: false, grouping: None, order_pushdown: MissingModelContext, page: Page { limit: Some(5), offset: 0 }, delete_limit: None, consistency: Ignore }
@@ -241,7 +241,7 @@ fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
         .limit(2);
     let actual = query_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=9a842929dfd25f6b7ecc892a0736bd11ae320c275fdf902837ee7d79cb206290
+plan_hash=97d43812f398767b138f27387ee55f08a38747a22c695cd489f6ac078e30eb44
 mode=Load(LoadSpec { limit: Some(2), offset: 0 })
 is_grouped=false
 execution_family=Ordered
@@ -253,7 +253,7 @@ projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId("id")), a
 order_spec=Some(OrderSpec { fields: [OrderTerm { label: "code", expr: Field(FieldId("code")), direction: Asc }, OrderTerm { label: "id", expr: Field(FieldId("id")), direction: Asc }] })
 page_spec=Some(PageSpec { limit: Some(2), offset: 0 })
 projection_coverage_flag=false
-continuation_signature=b45af172620b31254e49897d7f5c2661b1203fdf0004e2b0945e31f1a27da28c
+continuation_signature=9e754919e6a73f6672599091b55443eaebc7355a95943c21ca7f557d1c9e4cf2
 index_prefix_specs=[]
 index_range_specs=[{index:code_unique,lower:included(len:26:head:0000000000000010:tail:0000000064000100),upper:excluded(len:26:head:0000000000000010:tail:00000000c8000100)}]
 explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexRange { name: "code_unique", fields: ["code"], prefix_len: 0, prefix: [], lower: Included(Nat64(100)), upper: Excluded(Nat64(200)) }, filter_expr: None, filter_expr_model: None, predicate: And([Compare { field: "code", op: Lt, value: Nat64(200), coercion: CoercionSpec { id: Strict, params: {} } }, Compare { field: "code", op: Gte, value: Nat64(100), coercion: CoercionSpec { id: Strict, params: {} } }, Compare { field: "label", op: Eq, value: Text("keep"), coercion: CoercionSpec { id: Strict, params: {} } }]), predicate_model: Some(And([Compare(ComparePredicate { field: "code", op: Lt, value: Nat64(200), coercion: CoercionSpec { id: Strict, params: {} } }), Compare(ComparePredicate { field: "code", op: Gte, value: Nat64(100), coercion: CoercionSpec { id: Strict, params: {} } }), Compare(ComparePredicate { field: "label", op: Eq, value: Text("keep"), coercion: CoercionSpec { id: Strict, params: {} } })])), order_by: Fields([ExplainOrder { field: "code", direction: Asc }, ExplainOrder { field: "id", direction: Asc }]), distinct: false, grouping: None, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }

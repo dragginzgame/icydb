@@ -1092,7 +1092,7 @@ crate::test_entity! {
     ],
     indexes = [],
     relations = [],
-    entity_value = id_field(id),
+    entity_value = id_field(actual_id),
 }
 
 ///
