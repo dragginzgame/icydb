@@ -2,7 +2,7 @@ error[E0603]: module `query` is private
  --> tests/ui/db/executor/cannot_import_query_intent.rs:1:21
   |
 1 | use icydb_core::db::query::intent::Query;
-  |                     ^^^^^          ----- struct `Query` is not publicly re-exported
+  |                     ^^^^^  ------ module `intent` is not publicly re-exported
   |                     |
   |                     private module
   |
