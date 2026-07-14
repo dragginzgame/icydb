@@ -294,7 +294,6 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "cache_shared_query_plan_entries",
         "cache_shared_query_plan_miss_cold",
         "cache_shared_query_plan_miss_distinct_key",
-        "cache_shared_query_plan_miss_method_version",
         "cache_shared_query_plan_miss_schema_fingerprint",
         "cache_shared_query_plan_miss_visibility",
         "cache_sql_compiled_command_hits",
@@ -303,7 +302,6 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "cache_sql_compiled_command_entries",
         "cache_sql_compiled_command_miss_cold",
         "cache_sql_compiled_command_miss_distinct_key",
-        "cache_sql_compiled_command_miss_method_version",
         "cache_sql_compiled_command_miss_schema_fingerprint",
         "cache_sql_compiled_command_miss_surface",
         "schema_reconcile_checks",
@@ -745,7 +743,6 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
     for (kind, reason) in [
         (CacheKind::SharedQueryPlan, CacheMissReason::Cold),
         (CacheKind::SharedQueryPlan, CacheMissReason::DistinctKey),
-        (CacheKind::SharedQueryPlan, CacheMissReason::MethodVersion),
         (
             CacheKind::SharedQueryPlan,
             CacheMissReason::SchemaFingerprint,
@@ -754,10 +751,6 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
         (CacheKind::SharedQueryPlan, CacheMissReason::Visibility),
         (CacheKind::SqlCompiledCommand, CacheMissReason::Cold),
         (CacheKind::SqlCompiledCommand, CacheMissReason::DistinctKey),
-        (
-            CacheKind::SqlCompiledCommand,
-            CacheMissReason::MethodVersion,
-        ),
         (
             CacheKind::SqlCompiledCommand,
             CacheMissReason::SchemaFingerprint,
@@ -782,12 +775,10 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
     let ops = counters.ops();
     assert_eq!(ops.cache_shared_query_plan_miss_cold(), 1);
     assert_eq!(ops.cache_shared_query_plan_miss_distinct_key(), 1);
-    assert_eq!(ops.cache_shared_query_plan_miss_method_version(), 1);
     assert_eq!(ops.cache_shared_query_plan_miss_schema_fingerprint(), 2);
     assert_eq!(ops.cache_shared_query_plan_miss_visibility(), 1);
     assert_eq!(ops.cache_sql_compiled_command_miss_cold(), 1);
     assert_eq!(ops.cache_sql_compiled_command_miss_distinct_key(), 1);
-    assert_eq!(ops.cache_sql_compiled_command_miss_method_version(), 1);
     assert_eq!(ops.cache_sql_compiled_command_miss_schema_fingerprint(), 2);
     assert_eq!(ops.cache_sql_compiled_command_miss_surface(), 1);
 
@@ -798,12 +789,10 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
     assert_eq!(summary.path(), "metrics::tests::CacheReasonEntity");
     assert_eq!(summary.cache_shared_query_plan_miss_cold(), 1);
     assert_eq!(summary.cache_shared_query_plan_miss_distinct_key(), 1);
-    assert_eq!(summary.cache_shared_query_plan_miss_method_version(), 1);
     assert_eq!(summary.cache_shared_query_plan_miss_schema_fingerprint(), 2);
     assert_eq!(summary.cache_shared_query_plan_miss_visibility(), 1);
     assert_eq!(summary.cache_sql_compiled_command_miss_cold(), 1);
     assert_eq!(summary.cache_sql_compiled_command_miss_distinct_key(), 1);
-    assert_eq!(summary.cache_sql_compiled_command_miss_method_version(), 1);
     assert_eq!(
         summary.cache_sql_compiled_command_miss_schema_fingerprint(),
         2
@@ -1007,7 +996,6 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         cache_shared_query_plan_inserts: 56,
         cache_shared_query_plan_miss_cold: 57,
         cache_shared_query_plan_miss_distinct_key: 157,
-        cache_shared_query_plan_miss_method_version: 158,
         cache_shared_query_plan_miss_schema_fingerprint: 159,
         cache_shared_query_plan_miss_visibility: 160,
         cache_sql_compiled_command_hits: 58,
@@ -1015,7 +1003,6 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         cache_sql_compiled_command_inserts: 60,
         cache_sql_compiled_command_miss_cold: 161,
         cache_sql_compiled_command_miss_distinct_key: 162,
-        cache_sql_compiled_command_miss_method_version: 163,
         cache_sql_compiled_command_miss_schema_fingerprint: 164,
         cache_sql_compiled_command_miss_surface: 165,
         schema_reconcile_checks: 86,
@@ -1045,10 +1032,6 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         sql_compile_reject_cache_key: 181,
         sql_compile_reject_parse: 182,
         sql_compile_reject_semantic: 183,
-        plan_index: 30,
-        plan_keys: 31,
-        plan_range: 32,
-        plan_full_scan: 33,
         plan_by_key: 34,
         plan_by_keys: 35,
         plan_key_range: 36,
@@ -1150,7 +1133,6 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "cache_shared_query_plan_inserts",
         "cache_shared_query_plan_miss_cold",
         "cache_shared_query_plan_miss_distinct_key",
-        "cache_shared_query_plan_miss_method_version",
         "cache_shared_query_plan_miss_schema_fingerprint",
         "cache_shared_query_plan_miss_visibility",
         "cache_sql_compiled_command_hits",
@@ -1158,7 +1140,6 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "cache_sql_compiled_command_inserts",
         "cache_sql_compiled_command_miss_cold",
         "cache_sql_compiled_command_miss_distinct_key",
-        "cache_sql_compiled_command_miss_method_version",
         "cache_sql_compiled_command_miss_schema_fingerprint",
         "cache_sql_compiled_command_miss_surface",
         "schema_reconcile_checks",
@@ -1188,10 +1169,6 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "sql_compile_reject_cache_key",
         "sql_compile_reject_parse",
         "sql_compile_reject_semantic",
-        "plan_index",
-        "plan_keys",
-        "plan_range",
-        "plan_full_scan",
         "plan_by_key",
         "plan_by_keys",
         "plan_key_range",
@@ -1310,7 +1287,6 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.cache_shared_query_plan_inserts(), 56);
     assert_eq!(summary.cache_shared_query_plan_miss_cold(), 57);
     assert_eq!(summary.cache_shared_query_plan_miss_distinct_key(), 157);
-    assert_eq!(summary.cache_shared_query_plan_miss_method_version(), 158);
     assert_eq!(
         summary.cache_shared_query_plan_miss_schema_fingerprint(),
         159
@@ -1321,10 +1297,6 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.cache_sql_compiled_command_inserts(), 60);
     assert_eq!(summary.cache_sql_compiled_command_miss_cold(), 161);
     assert_eq!(summary.cache_sql_compiled_command_miss_distinct_key(), 162);
-    assert_eq!(
-        summary.cache_sql_compiled_command_miss_method_version(),
-        163
-    );
     assert_eq!(
         summary.cache_sql_compiled_command_miss_schema_fingerprint(),
         164
@@ -1357,10 +1329,6 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.sql_compile_reject_cache_key(), 181);
     assert_eq!(summary.sql_compile_reject_parse(), 182);
     assert_eq!(summary.sql_compile_reject_semantic(), 183);
-    assert_eq!(summary.plan_index(), 30);
-    assert_eq!(summary.plan_keys(), 31);
-    assert_eq!(summary.plan_range(), 32);
-    assert_eq!(summary.plan_full_scan(), 33);
     assert_eq!(summary.plan_by_key(), 34);
     assert_eq!(summary.plan_by_keys(), 35);
     assert_eq!(summary.plan_key_range(), 36);

@@ -244,7 +244,10 @@ impl Index {
             .predicate_runtime_tokens(entity, ordinal)
             .expect("validated generated index predicate should lower");
         let name = LitStr::new(&self.generated_name(entity_name), Span::call_site());
-        let ordinal = u16::try_from(ordinal).expect("index ordinal should fit u16");
+        let ordinal = ordinal
+            .checked_add(1)
+            .and_then(|ordinal| u16::try_from(ordinal).ok())
+            .expect("one-based index ordinal should fit u16");
         let store = quote_one(store, to_path);
 
         (

@@ -3,6 +3,16 @@
 //! Does not own: top-level clap parsing or ICP process command construction.
 //! Boundary: test-only assertions over shell helpers and decoded SQL payload text.
 
+use crate::{
+    cli::DEFAULT_ENVIRONMENT,
+    shell::test_support::{
+        SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
+        finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
+        is_shell_help_command, normalize_shell_statement_line, render_grouped_shell_text,
+        render_perf_suffix, render_projection_shell_text, shell_help_text, shell_perf_attribution,
+        sql_error_with_recovery_hint, sql_shell_call_kind,
+    },
+};
 use candid::{Decode, Encode};
 use icydb::{
     db::{
@@ -11,96 +21,6 @@ use icydb::{
     },
     value::OutputValue,
 };
-use serde_json::json;
-
-use crate::{
-    cli::DEFAULT_ENVIRONMENT,
-    shell::test_support::{
-        SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
-        finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
-        is_shell_help_command, normalize_grouped_next_cursor_json, normalize_shell_statement_line,
-        parse_perf_result, render_grouped_shell_text, render_perf_suffix,
-        render_projection_shell_text, shell_help_text, shell_perf_attribution,
-        sql_error_with_recovery_hint, sql_shell_call_kind,
-    },
-};
-
-#[test]
-fn parse_perf_result_accepts_candid_option_none_for_grouped_next_cursor() {
-    let value = json!({
-        "result": {
-            "Grouped": {
-                "entity": "Character",
-                "columns": ["class_name", "COUNT(*)"],
-                "rows": [["Bard", "5"]],
-                "row_count": 1,
-                "next_cursor": []
-            }
-        },
-        "instructions": "1",
-        "planner_instructions": "1",
-        "store_instructions": "1",
-        "executor_instructions": "1",
-        "decode_instructions": "1",
-        "compiler_instructions": "1"
-    });
-
-    let (result, _) = parse_perf_result(&value).expect("grouped perf result should decode");
-    let grouped = match result {
-        icydb::db::sql::SqlQueryResult::Grouped(grouped) => grouped,
-        other => panic!("expected grouped result, got {other:?}"),
-    };
-
-    assert_eq!(grouped.next_cursor, None);
-}
-
-#[test]
-fn parse_perf_result_defaults_optional_instruction_fields() {
-    let value = json!({
-        "result": {
-            "Projection": {
-                "entity": "Character",
-                "columns": ["name"],
-                "rows": [[{"Text": "Ada"}]],
-                "row_count": 1
-            }
-        },
-        "instructions": "3",
-        "planner_instructions": "1",
-        "executor_instructions": "1",
-        "compiler_instructions": "1"
-    });
-
-    let (_, attribution) =
-        parse_perf_result(&value).expect("perf result should decode without optional fields");
-
-    assert_eq!(
-        render_perf_suffix(Some(&attribution)),
-        Some("3i [ccccpppeee]".to_string()),
-        "missing optional instruction fields should default to zero",
-    );
-}
-
-#[test]
-fn normalize_grouped_next_cursor_json_converts_candid_some_to_plain_string() {
-    let mut value = json!({
-        "Grouped": {
-            "entity": "Character",
-            "columns": ["class_name", "COUNT(*)"],
-            "rows": [["Bard", "5"]],
-            "row_count": 1,
-            "next_cursor": ["cursor-token"]
-        }
-    });
-
-    normalize_grouped_next_cursor_json(&mut value);
-
-    assert_eq!(
-        value["Grouped"]["next_cursor"],
-        json!("cursor-token"),
-        "grouped next_cursor should normalize from candid option encoding",
-    );
-}
 
 #[test]
 fn render_perf_suffix_skips_zero_instruction_segments() {

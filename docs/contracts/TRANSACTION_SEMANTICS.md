@@ -49,7 +49,8 @@ IcyDB now has two explicit lanes for batch writes.
 * Scope: one entity type per call
 * Contract: all-or-nothing for that batch
 * If any item fails before commit, no row from that batch is persisted
-* Uses commit marker + replay discipline for durable correctness
+* Uses commit-marker-bound journal batches and recovery folding for durable
+  correctness
 * Not a multi-entity transaction
 
 ### Non-atomic lane (`*_many_non_atomic`)
@@ -72,18 +73,20 @@ For each item in request order:
 
 * run sanitize/validate/invariant checks
 * run strong-relation validation
-* build marker row-op from current durable state + new payload
+* build the logical row operation and its current journal record from accepted
+  durable state plus the new payload
 * reject duplicate keys within the same batch request
 
 If any step fails, execution returns an error and does not open a commit window.
 
 ### Phase 2: Apply (infallible by construction)
 
-After all row-ops are staged:
+After all row operations are staged:
 
 * preflight commit-row preparation is performed
-* commit marker is persisted
-* prepared row-ops are applied mechanically in request order
+* the commit marker containing current journal batches is persisted
+* marker-bound journal batches are appended
+* prepared row operations are applied mechanically in request order
 * marker is cleared on successful finish
 
 No new fallible semantics are introduced after marker persistence.
@@ -99,9 +102,10 @@ No new fallible semantics are introduced after marker persistence.
 
 ### Failure after marker persistence
 
-* Marker replay remains authoritative
-* Guarded read/write entrypoints replay pending marker before normal execution
-* Durable end state converges to marker-described state
+* Marker-bound journal publication remains authoritative
+* Guarded read/write entrypoints publish and fold pending marker batches before
+  normal execution
+* Durable end state converges to the marker-described journal state
 
 This follows the same commit/recovery model documented in `docs/contracts/ATOMICITY.md`.
 

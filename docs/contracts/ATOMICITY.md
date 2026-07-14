@@ -78,9 +78,9 @@ to durable state.
 
 ### Commit marker
 
-A persisted representation of intended mutations used to enforce atomicity and
-support deterministic application. Commit markers are **semantically meaningful**
-and must be correct.
+A persisted representation of current journal batches used to enforce
+atomicity and support deterministic recovery. Commit markers are
+**semantically meaningful** and must be correct.
 
 ---
 
@@ -92,7 +92,7 @@ call.
 Before the first read or mutation’s pre-commit phase begins, the system performs
 a mandatory **system recovery step** to restore global invariants from prior
 incomplete commits. Guarded read and write entrypoints both perform a cheap
-marker check and replay recovery if a marker is present.
+marker check and journal publication/fold recovery if a marker is present.
 
 This recovery step is conceptually separate from the current mutation and must
 complete successfully before any read execution, planning, or validation begins.
@@ -132,22 +132,25 @@ Commit markers are **authoritative**, not diagnostic.
 
 ### Required properties
 
-* Marker content fully describes the intended durable mutations
+* Marker content fully describes the intended durable journal batches
 * Marker is validated completely before application
 * Marker application is deterministic and infallible
-* Marker application alone is sufficient to produce a correct final state
+* Marker publication plus the current journal fold is sufficient to produce a
+  correct final state
 
 ### Visibility rules
 
 * Markers may be persisted during execution
 * Markers must not be observable as committed application state
-* Markers are applied during the apply phase after they are persisted
+* Marker-bound journal batches are appended during the apply phase after the
+  marker is persisted
 * The system recovery step handles markers left behind by interrupted commits
 * Read entrypoints enforce recovery before accessing durable stores
 * Write entrypoints perform a marker check and recovery before accessing durable stores;
   reads must not branch on marker presence outside recovery
 * Guarded reads and writes both perform marker checks at entry; if a marker is
-  present, recovery replays before read or mutation execution proceeds
+  present, recovery publishes and folds its journal batches before read or
+  mutation execution proceeds
 
 ---
 
@@ -157,7 +160,8 @@ Commit markers are **authoritative**, not diagnostic.
 
 * Fully atomic
 * All fallible work occurs pre-commit
-* Apply phase replays validated marker ops only
+* Apply phase appends marker-bound journal batches and applies prevalidated row
+  operations only
 
 ### Batch writes (single entity, explicit semantics)
 
@@ -197,7 +201,7 @@ Unsafe during this window:
 Fully consistent point:
 * The system is fully consistent immediately after the first guarded recovery
   pass completes successfully (startup read-side recovery or write-side marker
-  check + replay).
+  check plus journal publication/fold).
 
 ---
 
@@ -225,7 +229,8 @@ The following invariants are **mandatory and non-negotiable**:
 * Apply phase must be infallible by construction
 * Commit marker application must not depend on IC trap rollback
 * Executors must not rely on traps for correctness
-* All mutation entrypoints must perform write-side recovery (marker check + replay) before pre-commit
+* All mutation entrypoints must perform write-side recovery (marker check plus
+  journal publication/fold) before pre-commit
 * Mutation correctness must not depend on recovery occurring after the commit
   boundary.
 * Startup recovery must complete before any read pre-commit, and read/write entrypoint
@@ -264,8 +269,8 @@ Then a new atomicity model must define:
 
 System recovery is expected to run synchronously at startup (before the first
 read or mutation) and is not a substitute for atomic apply-phase correctness.
-Guarded read and write entrypoints also perform a cheap marker check and replay
-if needed.
+Guarded read and write entrypoints also perform a cheap marker check and
+journal publication/fold recovery if needed.
 
 Until then, this document is authoritative.
 

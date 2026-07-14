@@ -484,7 +484,7 @@ impl AggregateKind {
 
     /// Return whether this kind supports one grouped or global field target.
     #[must_use]
-    pub(in crate::db) const fn supports_field_target_v1(self) -> bool {
+    pub(in crate::db) const fn supports_field_target(self) -> bool {
         matches!(
             self,
             Self::Count | Self::Sum | Self::Avg | Self::Min | Self::Max
@@ -499,7 +499,7 @@ impl AggregateKind {
 
     /// Return whether grouped aggregate DISTINCT is supported for this kind.
     #[must_use]
-    pub(in crate::db) const fn supports_grouped_distinct_v1(self) -> bool {
+    pub(in crate::db) const fn supports_grouped_distinct(self) -> bool {
         matches!(self, Self::Count | Self::Sum | Self::Avg)
     }
 
@@ -542,7 +542,7 @@ impl AggregateKind {
         self,
         has_target_field: bool,
     ) -> GroupedPlanAggregateFamily {
-        if has_target_field && self.supports_field_target_v1() {
+        if has_target_field && self.supports_field_target() {
             GroupedPlanAggregateFamily::FieldTargetRows
         } else {
             GroupedPlanAggregateFamily::GenericRows
@@ -551,16 +551,16 @@ impl AggregateKind {
 
     /// Return whether this grouped aggregate shape supports ordered grouped streaming.
     #[must_use]
-    pub(in crate::db) const fn supports_grouped_streaming_v1(
+    pub(in crate::db) const fn supports_grouped_streaming(
         self,
         has_target_field: bool,
         distinct: bool,
     ) -> bool {
-        if self.supports_field_target_v1() {
+        if self.supports_field_target() {
             return !distinct && (self.is_count() || has_target_field);
         }
 
-        !has_target_field && (!distinct || self.supports_grouped_distinct_v1())
+        !has_target_field && (!distinct || self.supports_grouped_distinct())
     }
 
     /// Return the canonical extrema traversal direction for this kind.

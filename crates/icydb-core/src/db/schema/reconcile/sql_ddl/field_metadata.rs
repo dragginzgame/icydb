@@ -1,6 +1,9 @@
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, SlotReader, StoreVisit, StructuralSlotReader},
+        data::{
+            DecodedDataStoreKey, SlotReader, StoreVisit, StructuralSlotReader,
+            canonical_row_from_dense_slot_payloads,
+        },
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
@@ -19,7 +22,8 @@ use super::{
     SqlDdlPublicationEnvelope,
 };
 
-/// Execute one metadata-only SQL DDL retained-slot field drop publication.
+/// Execute one SQL DDL field drop by rewriting rows to the accepted dense
+/// layout before publishing the compacted catalog snapshot.
 pub(in crate::db) fn execute_sql_ddl_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -27,7 +31,7 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
-) -> Result<(), InternalError> {
+) -> Result<usize, InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
@@ -36,11 +40,75 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
         accepted_before_identity,
         derivation,
     );
-    execute_sql_ddl_checked_field_metadata_publication(
-        envelope,
-        derivation.admission().field_drop_target(),
-        validate_sql_ddl_field_drop_metadata_change,
-    )
+    let Some(target) = derivation.admission().field_drop_target() else {
+        return Err(InternalError::store_unsupported());
+    };
+    validate_sql_ddl_field_drop_metadata_change(
+        entity_path,
+        envelope.before(),
+        envelope.after(),
+        target,
+    )?;
+    let contract = catalog_backed_row_contract_for_rebuild(
+        store,
+        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
+        entity_path,
+        accepted_before.persisted_snapshot(),
+    )?;
+    let rewrite_slots = envelope
+        .after()
+        .fields()
+        .iter()
+        .map(|after_field| {
+            envelope
+                .before()
+                .fields()
+                .iter()
+                .find(|before_field| before_field.name() == after_field.name())
+                .map(|before_field| usize::from(before_field.slot().get()))
+                .ok_or_else(InternalError::store_unsupported)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let rewritten = store.with_data(|data_store| {
+        let mut rewritten = Vec::new();
+        data_store.visit_entries(|raw_key, raw_row| {
+            let key = DecodedDataStoreKey::try_from_raw(raw_key)
+                .map_err(|_error| InternalError::store_corruption())?;
+            if key.entity_tag() != entity_tag {
+                return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
+            }
+            let reader = StructuralSlotReader::from_raw_row_with_validated_contract(
+                raw_row,
+                contract.clone(),
+            )?;
+            reader.validate_primary_key(&key)?;
+            let payloads = rewrite_slots
+                .iter()
+                .map(|slot| {
+                    reader
+                        .get_bytes(*slot)
+                        .map(Vec::from)
+                        .ok_or_else(InternalError::persisted_row_decode_corruption)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            rewritten.push((
+                raw_key.clone(),
+                canonical_row_from_dense_slot_payloads(&payloads)?,
+            ));
+            Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+        })?;
+
+        Ok::<_, InternalError>(rewritten)
+    })?;
+    let rows_scanned = rewritten.len();
+    store.with_data_mut(|data_store| {
+        for (raw_key, row) in rewritten {
+            data_store.insert(raw_key, row);
+        }
+    });
+    envelope.publish()?;
+
+    Ok(rows_scanned)
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
@@ -51,8 +119,6 @@ fn validate_sql_ddl_field_drop_metadata_change(
 ) -> Result<(), InternalError> {
     if before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
-        || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || before.indexes() != after.indexes()
         || before.fields().len() != after.fields().len().saturating_add(1)
     {
         return Err(InternalError::store_unsupported());
@@ -66,42 +132,83 @@ fn validate_sql_ddl_field_drop_metadata_change(
     if before_field.name() != target.name() || before_field.slot() != target.slot() {
         return Err(InternalError::store_unsupported());
     }
-    let target_id_remains = after
-        .fields()
-        .iter()
-        .any(|field| field.id() == target.field_id());
     let target_name_remains = after
         .fields()
         .iter()
         .any(|field| field.name() == target.name());
-    if target_id_remains || target_name_remains {
+    if target_name_remains {
         return Err(InternalError::store_unsupported());
     }
-    if before.row_layout().slot_for_field(target.field_id()) != Some(target.slot())
-        || after
-            .row_layout()
-            .slot_for_field(target.field_id())
-            .is_some()
-        || !after
-            .row_layout()
-            .retired_field_slots()
-            .contains(&(target.field_id(), target.slot()))
-    {
+    if before.row_layout().slot_for_field(target.field_id()) != Some(target.slot()) {
         return Err(InternalError::store_unsupported());
     }
 
-    let expected_fields = before
+    let retained_fields = before
         .fields()
         .iter()
         .filter(|field| field.id() != target.field_id())
-        .cloned()
         .collect::<Vec<_>>();
-    let expected_row_layout = before
-        .row_layout()
-        .clone_retiring_field(target.field_id())
+    let identities = retained_fields
+        .iter()
+        .enumerate()
+        .map(|(offset, field)| {
+            let id = u32::try_from(offset)
+                .ok()
+                .and_then(|offset| offset.checked_add(1))
+                .map(FieldId::new)
+                .ok_or_else(InternalError::store_unsupported)?;
+            Ok::<_, InternalError>((
+                field.id(),
+                id,
+                crate::db::schema::SchemaFieldSlot::from_generated_index(offset),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let map_field = |field_id: FieldId, _slot| {
+        identities
+            .iter()
+            .find(|(before_id, _, _)| *before_id == field_id)
+            .map(|(_, after_id, after_slot)| (*after_id, *after_slot))
+    };
+    let expected_fields = retained_fields
+        .iter()
+        .zip(&identities)
+        .map(|(field, (_, id, slot))| field.clone_with_identity(*id, *slot))
+        .collect::<Vec<_>>();
+    let expected_layout = SchemaRowLayout::new(
+        after.row_layout().version(),
+        identities
+            .iter()
+            .map(|(_, id, slot)| (*id, *slot))
+            .collect(),
+    );
+    let expected_primary_key = before
+        .primary_key_field_ids()
+        .iter()
+        .map(|field_id| map_field(*field_id, target.slot()).map(|(id, _)| id))
+        .collect::<Option<Vec<_>>>()
         .ok_or_else(InternalError::store_unsupported)?;
-    if after.fields() != expected_fields.as_slice()
-        || !row_layout_allocation_matches(after.row_layout(), &expected_row_layout)
+    let expected_indexes = before
+        .indexes()
+        .iter()
+        .map(|index| index.clone_with_dense_identities(index.ordinal(), map_field))
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(InternalError::store_unsupported)?;
+    let expected_relations = before
+        .relations()
+        .iter()
+        .map(|relation| {
+            relation.clone_with_mapped_field_ids(|field_id| {
+                map_field(field_id, target.slot()).map(|(id, _)| id)
+            })
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(InternalError::store_unsupported)?;
+    if after.fields() != expected_fields
+        || after.row_layout() != &expected_layout
+        || after.primary_key_field_ids() != expected_primary_key
+        || after.indexes() != expected_indexes
+        || after.relations() != expected_relations
     {
         return Err(InternalError::store_unsupported());
     }
@@ -437,7 +544,6 @@ fn validate_sql_ddl_single_field_metadata_change(
 
 fn row_layout_allocation_matches(left: &SchemaRowLayout, right: &SchemaRowLayout) -> bool {
     left.field_to_slot() == right.field_to_slot()
-        && left.retired_field_slots() == right.retired_field_slots()
 }
 
 fn execute_sql_ddl_checked_field_metadata_publication<T>(

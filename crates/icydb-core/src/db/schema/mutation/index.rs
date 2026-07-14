@@ -523,7 +523,8 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
         before.row_layout().clone(),
         before.fields().to_vec(),
         indexes,
-    );
+    )
+    .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let request = schema_mutation_request_for_snapshots(
@@ -561,7 +562,8 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
         before.row_layout().clone(),
         before.fields().to_vec(),
         indexes,
-    );
+    )
+    .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_expression_index_candidate(&index)?;
@@ -584,8 +586,17 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
         .indexes()
         .iter()
         .filter(|candidate| candidate.name() != index.name())
-        .cloned()
-        .collect::<Vec<_>>();
+        .enumerate()
+        .map(|(offset, candidate)| {
+            let ordinal = u16::try_from(offset)
+                .ok()
+                .and_then(|offset| offset.checked_add(1))
+                .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+            candidate
+                .clone_with_dense_identities(ordinal, |field_id, slot| Some((field_id, slot)))
+                .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
@@ -594,7 +605,8 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
         before.row_layout().clone(),
         before.fields().to_vec(),
         indexes,
-    );
+    )
+    .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_secondary_index_drop_candidate(index)?;

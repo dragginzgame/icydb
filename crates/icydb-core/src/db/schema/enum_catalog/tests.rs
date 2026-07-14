@@ -64,6 +64,15 @@ static ALPHA_ADDED_KIND: FieldKind = FieldKind::Enum {
     path: "catalog::Alpha",
     variants: &ALPHA_ADDED_VARIANTS,
 };
+static ALPHA_TAIL_ADDED_VARIANTS: [EnumVariantModel; 3] = [
+    EnumVariantModel::new("Alpha", None, UNIT_DECODE),
+    EnumVariantModel::new("Zulu", None, UNIT_DECODE),
+    EnumVariantModel::new("Zzz", None, UNIT_DECODE),
+];
+static ALPHA_TAIL_ADDED_KIND: FieldKind = FieldKind::Enum {
+    path: "catalog::Alpha",
+    variants: &ALPHA_TAIL_ADDED_VARIANTS,
+};
 static ALPHA_REMOVED_VARIANTS: [EnumVariantModel; 1] =
     [EnumVariantModel::new("Alpha", None, UNIT_DECODE)];
 static ALPHA_REMOVED_KIND: FieldKind = FieldKind::Enum {
@@ -792,7 +801,7 @@ fn declaration_reorder_merges_as_canonical_no_op() {
 }
 
 #[test]
-fn native_catalog_reconcile_preserves_ids_and_allocates_additions_append_only() {
+fn native_catalog_reconcile_keeps_current_tail_additions_dense() {
     let accepted = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
         .expect("initial catalog should build");
     let alpha_id = accepted.type_id("catalog::Alpha").expect("alpha type ID");
@@ -801,8 +810,8 @@ fn native_catalog_reconcile_preserves_ids_and_allocates_additions_append_only() 
     let accepted_zulu_variant = alpha.variant_id("Zulu").expect("zulu variant ID");
 
     let candidate =
-        reconcile_accepted_enum_catalog_from_kinds(&accepted, &[AARDVARK_KIND, ALPHA_ADDED_KIND])
-            .expect("append-only catalog additions should reconcile");
+        reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_TAIL_ADDED_KIND, ZETA_KIND])
+            .expect("dense tail catalog additions should reconcile");
     let candidate_alpha_id = candidate.type_id("catalog::Alpha").expect("alpha type ID");
     let candidate_alpha = candidate
         .enum_type(candidate_alpha_id)
@@ -818,17 +827,17 @@ fn native_catalog_reconcile_preserves_ids_and_allocates_additions_append_only() 
         Some(accepted_zulu_variant)
     );
     assert_eq!(
-        candidate_alpha.variant_id("Beta").map(EnumVariantId::get),
+        candidate_alpha.variant_id("Zzz").map(EnumVariantId::get),
         Some(3)
     );
     assert_eq!(
-        candidate.type_id("catalog::Aardvark").map(EnumTypeId::get),
+        candidate.type_id("catalog::Zeta").map(EnumTypeId::get),
         Some(2),
     );
 }
 
 #[test]
-fn existing_unit_enum_keys_survive_reorder_variant_and_type_additions() {
+fn existing_unit_enum_keys_survive_reorder_and_dense_tail_additions() {
     let accepted = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
         .expect("initial catalog should build");
     let alpha_key = admitted_unit_equality_key(&accepted, "catalog::Alpha", "Alpha");
@@ -837,8 +846,8 @@ fn existing_unit_enum_keys_survive_reorder_variant_and_type_additions() {
     let reordered = reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_REORDERED_KIND])
         .expect("declaration reorder should reconcile as a no-op");
     let extended =
-        reconcile_accepted_enum_catalog_from_kinds(&accepted, &[AARDVARK_KIND, ALPHA_ADDED_KIND])
-            .expect("append-only type and variant additions should reconcile");
+        reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_TAIL_ADDED_KIND, ZETA_KIND])
+            .expect("dense tail type and variant additions should reconcile");
 
     for catalog in [&reordered, &extended] {
         assert_eq!(
@@ -853,35 +862,60 @@ fn existing_unit_enum_keys_survive_reorder_variant_and_type_additions() {
 }
 
 #[test]
-fn native_catalog_reconcile_treats_reorder_and_unused_types_as_no_ops() {
-    let accepted = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
+fn native_catalog_reconcile_removes_unused_types_from_current_candidate() {
+    let accepted = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND, ZETA_KIND])
         .expect("initial catalog should build");
     let reordered = reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_REORDERED_KIND])
         .expect("declaration reorder should reconcile");
-    let unused = reconcile_accepted_enum_catalog_from_kinds(&accepted, &[])
-        .expect("unused accepted type should remain cataloged");
+    let current = reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_KIND])
+        .expect("unused accepted type should be removed");
 
-    assert_eq!(reordered, accepted);
-    assert_eq!(unused, accepted);
+    assert_eq!(reordered.len(), 1);
+    assert_eq!(current.len(), 1);
+    assert_eq!(
+        current.type_id("catalog::Alpha").map(EnumTypeId::get),
+        Some(1)
+    );
+    assert_eq!(current.type_id("catalog::Zeta"), None);
 }
 
 #[test]
-fn native_catalog_reconcile_rejects_variant_removal_and_contract_change() {
+fn native_catalog_reconcile_allows_tail_removal_and_rejects_contract_change() {
     let accepted = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
         .expect("initial catalog should build");
 
-    assert_eq!(
-        reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_REMOVED_KIND]),
-        Err(EnumCatalogBuildError::ExistingVariantRemoved {
-            path: "catalog::Alpha".to_string(),
-            name: "Zulu".to_string(),
-        }),
-    );
+    let removed = reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_REMOVED_KIND])
+        .expect("tail variant removal should keep surviving IDs dense and stable");
+    let alpha = removed
+        .enum_type(removed.type_id("catalog::Alpha").expect("alpha ID"))
+        .expect("alpha definition");
+    assert_eq!(alpha.variant_id("Alpha").map(EnumVariantId::get), Some(1));
+    assert_eq!(alpha.variant_id("Zulu"), None);
     assert_eq!(
         reconcile_accepted_enum_catalog_from_kinds(&accepted, &[CONFLICTING_ALPHA_KIND]),
         Err(EnumCatalogBuildError::ExistingVariantContractChanged {
             path: "catalog::Alpha".to_string(),
             name: "Alpha".to_string(),
+        }),
+    );
+}
+
+#[test]
+fn native_catalog_reconcile_fails_when_dense_current_order_would_move_live_ids() {
+    let accepted = build_initial_accepted_enum_catalog_from_kinds(&[ALPHA_KIND])
+        .expect("initial catalog should build");
+
+    assert_eq!(
+        reconcile_accepted_enum_catalog_from_kinds(&accepted, &[AARDVARK_KIND, ALPHA_KIND]),
+        Err(EnumCatalogBuildError::ExistingTypeIdentityChanged {
+            path: "catalog::Alpha".to_string(),
+        }),
+    );
+    assert_eq!(
+        reconcile_accepted_enum_catalog_from_kinds(&accepted, &[ALPHA_ADDED_KIND]),
+        Err(EnumCatalogBuildError::ExistingVariantIdentityChanged {
+            path: "catalog::Alpha".to_string(),
+            name: "Zulu".to_string(),
         }),
     );
 }

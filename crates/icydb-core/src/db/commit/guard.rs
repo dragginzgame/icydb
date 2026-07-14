@@ -6,7 +6,7 @@
 use crate::{
     db::commit::{
         PreparedRowCommitOp,
-        marker::{CommitMarker, CommitRowOp, generate_commit_id},
+        marker::CommitMarker,
         store::{with_commit_store, with_commit_store_infallible},
     },
     error::InternalError,
@@ -149,19 +149,6 @@ pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, Internal
         // Phase 1: enforce one in-flight marker at a time before opening the
         // commit window.
         store.set_if_empty(&marker)?;
-
-        Ok(CommitGuard::new())
-    })
-}
-
-/// Persist one single-row commit marker and open the commit window.
-pub(crate) fn begin_single_row_commit(row_op: CommitRowOp) -> Result<CommitGuard, InternalError> {
-    with_commit_store(|store| {
-        // Phase 1: generate durable marker identity before any stable write.
-        let commit_id = generate_commit_id()?;
-
-        // Phase 2: persist the single-row marker directly through the hot path.
-        store.set_single_row_op_if_empty(commit_id, &row_op)?;
 
         Ok(CommitGuard::new())
     })

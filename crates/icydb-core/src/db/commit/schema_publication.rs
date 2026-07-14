@@ -52,7 +52,7 @@ fn publish_journaled_candidate(
         candidate.encoded_root().to_vec(),
     )?;
     let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
-    let marker = CommitMarker::from_parts(marker_id, Vec::new(), vec![batch.clone()])?;
+    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
     finish_commit(commit, |_guard| {

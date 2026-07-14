@@ -57,7 +57,7 @@ pub(in crate::db) use value_wire::{
 
 const MAX_ENUM_CONTRACT_DEPTH: usize = 64;
 
-/// Initial 0.200 enum ordering contract.
+/// Canonical enum ordering contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum EnumOrderingPolicy {
     EqualityOnly,
@@ -441,7 +441,8 @@ pub(in crate::db) enum EnumCatalogBuildError {
     ContractDepthExceeded,
     EnumTypeIdExhausted,
     EnumVariantIdExhausted { path: String },
-    ExistingVariantRemoved { path: String, name: String },
+    ExistingTypeIdentityChanged { path: String },
+    ExistingVariantIdentityChanged { path: String, name: String },
     ExistingVariantContractChanged { path: String, name: String },
     UnknownEnumPath { path: String },
     LookupMapInvariant,
@@ -466,8 +467,10 @@ pub(in crate::db) fn build_initial_accepted_enum_catalog(
 
 /// Reconcile generated enum proposals against one accepted store catalog.
 ///
-/// Existing identities and definitions are append-only. New paths and variants
-/// receive checked IDs in canonical name order inside the candidate only.
+/// The candidate contains only current definitions and assigns dense IDs in
+/// canonical path/name order. A surviving type or variant must retain its
+/// current ID and contract; otherwise existing row values cannot be decoded
+/// safely and reconciliation fails closed.
 pub(in crate::db::schema) fn reconcile_accepted_enum_catalog(
     accepted: &AcceptedEnumCatalog,
     models: &[&EntityModel],
@@ -689,7 +692,7 @@ fn build_catalog_from_definitions(
             .get(path.as_str())
             .copied()
             .ok_or_else(|| EnumCatalogBuildError::UnknownEnumPath { path: path.clone() })?;
-        let variant_ids = allocate_variant_ids(&path, &proposals, None)?;
+        let variant_ids = allocate_variant_ids(&path, &proposals)?;
         let accepted_definition =
             accepted_enum_type_from_proposals(&path, proposals, &id_by_path, &variant_ids)?;
         by_id.insert(type_id, accepted_definition);
@@ -711,45 +714,8 @@ fn reconcile_catalog_from_definitions(
         return Err(EnumCatalogBuildError::LookupMapInvariant);
     }
 
-    let mut candidate = accepted.clone();
-    let mut last_type_id = candidate.by_id.keys().next_back().copied();
-    for path in definitions.keys() {
-        if candidate.id_by_path.contains_key(path) {
-            continue;
-        }
-        let type_id = next_type_id(last_type_id)?;
-        candidate.id_by_path.insert(path.clone(), type_id);
-        last_type_id = Some(type_id);
-    }
-
-    for (path, proposals) in definitions {
-        let type_id = candidate
-            .id_by_path
-            .get(path.as_str())
-            .copied()
-            .ok_or_else(|| EnumCatalogBuildError::UnknownEnumPath { path: path.clone() })?;
-        let accepted_definition = accepted.enum_type(type_id);
-        let variant_ids = allocate_variant_ids(&path, &proposals, accepted_definition)?;
-        let candidate_definition = accepted_enum_type_from_proposals(
-            &path,
-            proposals,
-            &candidate.id_by_path,
-            &variant_ids,
-        )?;
-
-        if let Some(accepted_definition) = accepted_definition {
-            validate_existing_definition_is_preserved(
-                &path,
-                accepted_definition,
-                &candidate_definition,
-            )?;
-        }
-        candidate.by_id.insert(type_id, candidate_definition);
-    }
-
-    if !candidate.validate() {
-        return Err(EnumCatalogBuildError::LookupMapInvariant);
-    }
+    let candidate = build_catalog_from_definitions(definitions)?;
+    validate_surviving_enum_identities(accepted, &candidate)?;
 
     Ok(candidate)
 }
@@ -757,12 +723,9 @@ fn reconcile_catalog_from_definitions(
 fn allocate_variant_ids(
     path: &str,
     proposals: &[RawEnumDefinitionProposal],
-    accepted: Option<&AcceptedEnumType>,
 ) -> Result<BTreeMap<String, EnumVariantId>, EnumCatalogBuildError> {
-    let mut ids = accepted.map_or_else(BTreeMap::new, |definition| {
-        definition.variant_id_by_name.clone()
-    });
-    let mut last_variant_id = ids.values().max().copied();
+    let mut ids = BTreeMap::new();
+    let mut last_variant_id = None;
     let proposed_names = proposals
         .iter()
         .flat_map(|proposal| proposal.variants.keys())
@@ -805,23 +768,41 @@ fn accepted_enum_type_from_proposals(
     })
 }
 
-fn validate_existing_definition_is_preserved(
-    path: &str,
-    accepted: &AcceptedEnumType,
-    candidate: &AcceptedEnumType,
+fn validate_surviving_enum_identities(
+    accepted: &AcceptedEnumCatalog,
+    candidate: &AcceptedEnumCatalog,
 ) -> Result<(), EnumCatalogBuildError> {
-    for (variant_id, accepted_variant) in &accepted.variants_by_id {
-        let Some(candidate_variant) = candidate.variants_by_id.get(variant_id) else {
-            return Err(EnumCatalogBuildError::ExistingVariantRemoved {
-                path: path.to_string(),
-                name: accepted_variant.name.clone(),
-            });
+    for (path, candidate_type_id) in &candidate.id_by_path {
+        let Some(accepted_type_id) = accepted.id_by_path.get(path) else {
+            continue;
         };
-        if candidate_variant != accepted_variant {
-            return Err(EnumCatalogBuildError::ExistingVariantContractChanged {
-                path: path.to_string(),
-                name: accepted_variant.name.clone(),
-            });
+        if accepted_type_id != candidate_type_id {
+            return Err(EnumCatalogBuildError::ExistingTypeIdentityChanged { path: path.clone() });
+        }
+        let accepted_definition = accepted
+            .enum_type(*accepted_type_id)
+            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+        let candidate_definition = candidate
+            .enum_type(*candidate_type_id)
+            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+        for (name, candidate_variant_id) in &candidate_definition.variant_id_by_name {
+            let Some(accepted_variant_id) = accepted_definition.variant_id_by_name.get(name) else {
+                continue;
+            };
+            if accepted_variant_id != candidate_variant_id {
+                return Err(EnumCatalogBuildError::ExistingVariantIdentityChanged {
+                    path: path.clone(),
+                    name: name.clone(),
+                });
+            }
+            if accepted_definition.variant(*accepted_variant_id)
+                != candidate_definition.variant(*candidate_variant_id)
+            {
+                return Err(EnumCatalogBuildError::ExistingVariantContractChanged {
+                    path: path.clone(),
+                    name: name.clone(),
+                });
+            }
         }
     }
 

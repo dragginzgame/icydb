@@ -165,7 +165,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (rows_scanned, 0)
             }
             BoundSqlDdlStatement::DropColumn(_) => {
-                execute_sql_ddl_field_drop(
+                let rows_scanned = execute_sql_ddl_field_drop(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
@@ -175,7 +175,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
 
-                (0, 0)
+                (rows_scanned, 0)
             }
             BoundSqlDdlStatement::RenameColumn(_) => {
                 execute_sql_ddl_field_rename(

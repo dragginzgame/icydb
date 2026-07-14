@@ -23,7 +23,7 @@ Some transitions require durable physical work:
 - nullability proof;
 - type rewrite;
 - row layout compaction;
-- cleanup after retired slots or dropped indexes.
+- physical removal and dense remapping after dropped fields or indexes.
 
 If accepted metadata becomes planner-visible before physical validation, reads
 can observe indexes or row contracts that storage has not actually built.

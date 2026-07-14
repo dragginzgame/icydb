@@ -17,7 +17,7 @@ pub(in crate::db) use hash_stream::{
 /// Max serialized bytes for a single row (protocol-level limit).
 pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
 /// Current persisted row format version.
-pub(in crate::db) const ROW_FORMAT_VERSION_CURRENT: u8 = 2;
+pub(in crate::db) const ROW_FORMAT_VERSION_CURRENT: u8 = 1;
 
 const ROW_ENVELOPE_MAGIC: [u8; 2] = *b"IR";
 const ROW_ENVELOPE_HEADER_LEN: usize = 2 + 1 + 4;

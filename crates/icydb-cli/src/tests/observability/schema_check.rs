@@ -228,7 +228,7 @@ fn schema_check_report_treats_accepted_only_generated_fields_as_mismatch() {
         )
     );
     assert!(text.contains(
-        "fix: accepted-only generated fields require an explicit retained-slot removal policy"
+        "fix: accepted-only generated fields require explicit catalog-native physical removal"
     ));
 }
 

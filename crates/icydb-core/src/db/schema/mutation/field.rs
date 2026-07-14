@@ -53,7 +53,7 @@ impl SchemaFieldAdditionTarget {
 ///
 /// SchemaFieldDropTarget
 ///
-/// Accepted retained-slot field removal target admitted for SQL DDL publication.
+/// Accepted dense-layout field removal target admitted for SQL DDL publication.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -86,7 +86,7 @@ impl SchemaFieldDropTarget {
         self.name.as_str()
     }
 
-    /// Return the retired accepted row slot.
+    /// Return the accepted row slot removed by the mutation.
     #[must_use]
     pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
         self.slot
@@ -271,7 +271,7 @@ pub(in crate::db) fn admit_sql_ddl_field_addition_candidate(
     }
 }
 
-/// Admit one SQL DDL retained-slot field drop.
+/// Admit one SQL DDL dense-layout field drop.
 #[must_use]
 pub(in crate::db) fn admit_sql_ddl_field_drop_candidate(
     field: &PersistedFieldSnapshot,
@@ -495,14 +495,11 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
         before.entity_path().to_string(),
         before.entity_name().to_string(),
         before.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new_with_retired_slots(
-            before.row_layout().version(),
-            field_to_slot,
-            before.row_layout().retired_field_slots().to_vec(),
-        ),
+        SchemaRowLayout::new(before.row_layout().version(), field_to_slot),
         fields,
         before.indexes().to_vec(),
-    );
+    )
+    .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_addition_candidate(&field);
@@ -513,8 +510,8 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
     })
 }
 
-/// Derive and admit the accepted-after schema snapshot for one SQL DDL
-/// retained-slot field drop.
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL field
+/// drop with dense field-ID and row-slot reassignment.
 pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     field_name: &str,
@@ -525,25 +522,76 @@ pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
         .iter()
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let fields = before
+    let retained_fields = before
         .fields()
         .iter()
         .filter(|field| field.id() != before_field.id())
-        .cloned()
-        .collect();
-    let row_layout = before
-        .row_layout()
-        .clone_retiring_field(before_field.id())
+        .collect::<Vec<_>>();
+    let dense_identities = retained_fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let ordinal = u32::try_from(index)
+                .ok()
+                .and_then(|index| index.checked_add(1))
+                .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+            Ok((
+                field.id(),
+                FieldId::new(ordinal),
+                SchemaFieldSlot::from_generated_index(index),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let map_field = |field_id: FieldId, _slot: SchemaFieldSlot| {
+        dense_identities
+            .iter()
+            .find(|(before_id, _, _)| *before_id == field_id)
+            .map(|(_, after_id, after_slot)| (*after_id, *after_slot))
+    };
+    let fields = retained_fields
+        .iter()
+        .zip(&dense_identities)
+        .map(|(field, (_, id, slot))| field.clone_with_identity(*id, *slot))
+        .collect::<Vec<_>>();
+    let row_layout = SchemaRowLayout::new(
+        before.row_layout().version(),
+        dense_identities
+            .iter()
+            .map(|(_, id, slot)| (*id, *slot))
+            .collect(),
+    );
+    let primary_key_field_ids = before
+        .primary_key_field_ids()
+        .iter()
+        .map(|field_id| map_field(*field_id, SchemaFieldSlot::new(0)).map(|(id, _)| id))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let indexes = before
+        .indexes()
+        .iter()
+        .map(|index| index.clone_with_dense_identities(index.ordinal(), map_field))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let relations = before
+        .relations()
+        .iter()
+        .map(|relation| {
+            relation.clone_with_mapped_field_ids(|field_id| {
+                map_field(field_id, SchemaFieldSlot::new(0)).map(|(id, _)| id)
+            })
+        })
+        .collect::<Option<Vec<_>>>()
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
     let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
+        primary_key_field_ids,
         row_layout,
         fields,
-        before.indexes().to_vec(),
-    );
+        indexes,
+    )
+    .with_relations(relations);
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_drop_candidate(before_field);
@@ -588,7 +636,8 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
         before.row_layout().clone(),
         fields,
         before.indexes().to_vec(),
-    );
+    )
+    .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let after_field = accepted_after
@@ -637,7 +686,8 @@ pub(in crate::db) fn derive_sql_ddl_field_nullability_accepted_after(
         before.row_layout().clone(),
         fields,
         before.indexes().to_vec(),
-    );
+    )
+    .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let after_field = accepted_after
@@ -697,7 +747,8 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
         before.row_layout().clone(),
         fields,
         indexes,
-    );
+    )
+    .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_rename_candidate(before_field, new_name);

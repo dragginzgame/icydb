@@ -151,18 +151,6 @@ fn journal_batch_decode_rejects_future_version() {
 }
 
 #[test]
-fn journal_batch_decode_rejects_pre_0_200_version() {
-    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
-    encoded[4] = JOURNAL_BATCH_FORMAT_VERSION_CURRENT.saturating_sub(1);
-
-    let err = decode_journal_batch(&encoded)
-        .expect_err("pre-0.200 journal batch versions must fail closed");
-
-    assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
-    assert_eq!(err.origin, ErrorOrigin::Serialize);
-}
-
-#[test]
 fn journal_batch_decode_rejects_corrupt_magic() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded[0] = b'X';

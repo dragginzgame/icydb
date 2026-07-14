@@ -168,10 +168,10 @@ fn accepted_enum_catalog_codec_round_trips_empty_catalog() {
 }
 
 #[test]
-fn accepted_enum_catalog_decode_rejects_noncurrent_codec_version() {
+fn accepted_enum_catalog_decode_rejects_future_codec_version() {
     let encoded = encode_test_wire(ACCEPTED_ENUM_CATALOG_CODEC_VERSION + 1, &[]);
-    let error = decode_accepted_enum_catalog(&encoded)
-        .expect_err("noncurrent catalog codec must fail closed");
+    let error =
+        decode_accepted_enum_catalog(&encoded).expect_err("future catalog codec must fail closed");
 
     assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(error.origin(), ErrorOrigin::Serialize);

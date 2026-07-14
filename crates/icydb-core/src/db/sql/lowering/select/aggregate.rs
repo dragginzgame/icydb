@@ -108,7 +108,7 @@ fn lower_having_clauses_with_policy(
 /// LoweredHavingClause
 ///
 /// One grouped/global HAVING clause paired with the original SQL omitted-ELSE
-/// searched-CASE signal used to gate `0.111` grouped admission.
+/// searched-CASE signal used to gate grouped admission.
 ///
 
 struct LoweredHavingClause {
@@ -222,7 +222,7 @@ fn canonicalize_grouped_having_expr(
 }
 
 // Apply grouped semantic canonicalization across the bounded grouped searched-
-// `CASE` family. In `0.111`, omitted-`ELSE` grouped `CASE` is admitted only
+// `CASE` family. Omitted-`ELSE` grouped `CASE` is admitted only
 // when canonicalization eliminates raw planner `Case` nodes from the lowered
 // grouped boolean candidate, proving it joined the shipped canonical family.
 fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
@@ -244,7 +244,7 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
 // Global aggregate HAVING has no grouped-key field literal canonicalization
 // seam today, but explicit searched-CASE boolean canonicalization is still
 // safe to apply before the global aggregate command freezes identity/explain.
-// In `0.111`, omitted-`ELSE` global aggregate `CASE` uses the same proof gate
+// Omitted-`ELSE` global aggregate `CASE` uses the same proof gate
 // as grouped SELECT HAVING: if canonical grouped boolean lowering still leaves
 // raw planner `Case` nodes behind, the shape stays outside the admitted family.
 fn canonicalize_grouped_global_having_clause(

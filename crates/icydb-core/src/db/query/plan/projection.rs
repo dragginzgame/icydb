@@ -144,7 +144,7 @@ pub(in crate::db::query) fn lower_projection_identity(
     match logical {
         LogicalPlan::Scalar(_) => match selection {
             ProjectionSelection::All => ProjectionSpec::new(vec![direct_field_projection(
-                FieldId::new("__icydb_scalar_projection_default_v1__"),
+                FieldId::new("__icydb_scalar_projection_default__"),
             )]),
             ProjectionSelection::Fields(field_ids) => ProjectionSpec::new(
                 field_ids

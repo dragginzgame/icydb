@@ -29,6 +29,8 @@ pub(in crate::db) use contract::encode_value_with_model_proposal_for_test;
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use patch::canonical_row_from_dense_slot_payloads;
 pub(in crate::db) use patch::{
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
     canonical_row_from_complete_serialized_structural_patch_with_accepted_contract,

@@ -2,7 +2,7 @@ mod field_metadata;
 
 use crate::{
     db::{
-        index::{IndexId, IndexKey, IndexState, IndexStoreVisit, RawIndexStoreKey},
+        index::{IndexId, IndexKey, IndexState, IndexStoreVisit},
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
@@ -284,20 +284,57 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
         envelope.before(),
         "before cleanup",
     )?;
-    let target_keys =
-        sql_ddl_drop_target_index_keys(envelope.store(), entity_tag, entity_path, target)?;
-    let removed = envelope.store().with_index_mut(|index_store| {
+    let affected = envelope.store().with_index(|index_store| {
         validate_sql_ddl_drop_ready_index_state(entity_path, target, index_store.state())?;
-        let mut removed = 0usize;
-        for key in &target_keys {
-            if index_store.remove(key).is_some() {
-                removed = removed.saturating_add(1);
+        let mut affected = Vec::new();
+        index_store.visit_entries(|raw_key, value| {
+            let index_key =
+                IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
+            if index_key.index_id().entity_tag() == entity_tag
+                && index_key.index_id().ordinal() >= target.ordinal()
+            {
+                let remapped = if index_key.index_id().ordinal() == target.ordinal() {
+                    None
+                } else {
+                    let ordinal = index_key
+                        .index_id()
+                        .ordinal()
+                        .checked_sub(1)
+                        .ok_or_else(InternalError::store_corruption)?;
+                    let key = index_key
+                        .clone_with_index_id(IndexId::new(entity_tag, ordinal))
+                        .to_raw()
+                        .map_err(|_| InternalError::store_corruption())?;
+                    Some(key)
+                };
+                affected.push((raw_key.clone(), remapped, value.clone()));
+            }
+            Ok::<IndexStoreVisit, InternalError>(IndexStoreVisit::Continue)
+        })?;
+
+        Ok::<_, InternalError>(affected)
+    })?;
+    let removed = affected
+        .iter()
+        .filter(|(_, remapped, _)| remapped.is_none())
+        .count();
+    envelope.store().with_index_mut(|index_store| {
+        validate_sql_ddl_drop_ready_index_state(entity_path, target, index_store.state())?;
+        for (raw_key, _, _) in &affected {
+            if index_store.remove(raw_key).is_none() {
+                return Err(InternalError::store_corruption());
+            }
+        }
+        for (_, remapped, value) in affected {
+            if let Some(remapped) = remapped
+                && index_store.insert(remapped, value).is_some()
+            {
+                return Err(InternalError::store_corruption());
             }
         }
 
-        Ok::<_, InternalError>(removed)
+        Ok::<_, InternalError>(())
     })?;
-    validate_sql_ddl_drop_physical_cleanup(envelope.store(), entity_tag, entity_path, target)?;
     validate_sql_ddl_drop_schema_gate(
         envelope.store(),
         entity_tag,
@@ -310,34 +347,6 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
     Ok(removed)
 }
 
-fn sql_ddl_drop_target_index_keys(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    target: &SchemaSecondaryIndexDropCleanupTarget,
-) -> Result<Vec<RawIndexStoreKey>, InternalError> {
-    let target_index_id = IndexId::new(entity_tag, target.ordinal());
-
-    store.with_index(|index_store| {
-        validate_sql_ddl_drop_ready_index_state(entity_path, target, index_store.state())?;
-
-        let mut target_keys = Vec::new();
-        index_store.visit_entries(|raw_key, _| {
-            let decoded =
-                IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption());
-            match decoded {
-                Ok(index_key) if *index_key.index_id() == target_index_id => {
-                    target_keys.push(raw_key.clone());
-                    Ok(IndexStoreVisit::Continue)
-                }
-                Ok(_) => Ok(IndexStoreVisit::Continue),
-                Err(error) => Err(error),
-            }
-        })?;
-        Ok(target_keys)
-    })
-}
-
 fn validate_sql_ddl_drop_ready_index_state(
     entity_path: &'static str,
     target: &SchemaSecondaryIndexDropCleanupTarget,
@@ -348,21 +357,6 @@ fn validate_sql_ddl_drop_ready_index_state(
     }
 
     let _ = (entity_path, target, state);
-    Err(InternalError::store_unsupported())
-}
-
-fn validate_sql_ddl_drop_physical_cleanup(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    target: &SchemaSecondaryIndexDropCleanupTarget,
-) -> Result<(), InternalError> {
-    let remaining = sql_ddl_drop_target_index_keys(store, entity_tag, entity_path, target)?;
-    if remaining.is_empty() {
-        return Ok(());
-    }
-
-    let _ = (entity_path, target, remaining);
     Err(InternalError::store_unsupported())
 }
 

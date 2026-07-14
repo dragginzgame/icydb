@@ -5,15 +5,15 @@
 //!
 //! Contract:
 //! - `begin_commit` persists a marker that fully describes durable mutations.
-//! - Durable correctness is owned by marker replay in recovery (row ops).
+//! - Durable correctness is owned by marker-bound journal publication and recovery.
 //! - In-process apply guards are best-effort cleanup only and are not authoritative.
 //!
 //! ## Commit Boundary and Authority of CommitMarker
 //!
-//! The `CommitMarker` fully specifies every row mutation. After
-//! the marker is persisted, executors must not re-derive semantics or branch
-//! on entity/index contents; apply logic deterministically replays row ops.
-//! Recovery replays row ops as recorded, not planner logic.
+//! The `CommitMarker` fully specifies every durable journal publication. After
+//! the marker is persisted, executors must not re-derive durable semantics or
+//! branch on entity/index contents. Recovery publishes the recorded journal
+//! batches and rebuilds derived projections from current durable authority.
 
 mod apply;
 #[cfg(test)]
@@ -25,7 +25,6 @@ mod prepare;
 mod prepared_op;
 mod rebuild;
 mod recovery;
-mod replay;
 mod rollback;
 mod schema_publication;
 mod store;
@@ -49,9 +48,7 @@ pub(in crate::db) use failpoint::{
 ///
 /// Re-exports
 ///
-pub(in crate::db) use guard::{
-    CommitApplyGuard, CommitGuard, begin_commit, begin_single_row_commit, finish_commit,
-};
+pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
 #[cfg(test)]
 pub(in crate::db) use marker::COMMIT_MARKER_FORMAT_VERSION_CURRENT;
 #[cfg(test)]

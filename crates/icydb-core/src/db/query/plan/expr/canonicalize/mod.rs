@@ -112,7 +112,7 @@ pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(expr: Expr) ->
     CanonicalExpr::new(expr)
 }
 
-/// Canonicalize one scalar-WHERE boolean expression onto the shipped `0.107`
+/// Canonicalize one scalar-WHERE boolean expression onto the current
 /// searched-`CASE` boolean seam after the shared structural normalization pass
 /// has already settled the planner-owned tree shape.
 #[must_use]

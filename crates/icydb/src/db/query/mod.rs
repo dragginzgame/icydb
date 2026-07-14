@@ -13,9 +13,9 @@
 
 pub use icydb_core::db::{
     AccessRequirementError, AccessRequirementViolation, AggregateExpr, CompareOp,
-    ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
-    ExplainEligibleAlternativeV1, ExplainPlan, ExplainRejectedIndexV1, ExplainResidualSummaryV1,
-    ExplainSelectedAccessV1, FieldRef, FilterExpr, FilterValue, MissingRowPolicy,
+    ExplainAccessCandidate, ExplainAccessDecision, ExplainAccessDecisionKind,
+    ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
+    ExplainSelectedAccess, FieldRef, FilterExpr, FilterValue, MissingRowPolicy,
     NumericProjectionExpr, OrderDirection, OrderExpr, OrderTerm, QueryTracePlan,
     RequiredAccessPath, RoundProjectionExpr, TextProjectionExpr, TraceExecutionFamily,
     TraceReuseArtifactClass, TraceReuseEvent, ValueProjectionExpr, add, asc, avg, contains, count,

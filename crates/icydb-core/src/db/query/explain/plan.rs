@@ -39,7 +39,7 @@ use std::{fmt, ops::Bound};
 pub struct ExplainPlan {
     pub(in crate::db) mode: QueryMode,
     pub(in crate::db) access: ExplainAccessPath,
-    pub(in crate::db) access_decision: ExplainAccessDecisionV1,
+    pub(in crate::db) access_decision: ExplainAccessDecision,
     pub(in crate::db) filter_expr: Option<String>,
     filter_expr_model: Option<Expr>,
     pub(in crate::db) predicate: ExplainPredicate,
@@ -89,7 +89,7 @@ impl ExplainPlan {
 
     /// Borrow the structured planner access-decision projection.
     #[must_use]
-    pub const fn access_decision(&self) -> &ExplainAccessDecisionV1 {
+    pub const fn access_decision(&self) -> &ExplainAccessDecision {
         &self.access_decision
     }
 
@@ -464,24 +464,20 @@ pub enum ExplainAccessPath {
 /// selected explain access path. It is not an optimizer model and does not
 /// participate in access selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainAccessDecisionV1 {
-    /// Schema version for this access-decision payload shape.
-    pub schema_version: u32,
+pub struct ExplainAccessDecision {
     /// Selected access path summary.
-    pub selected: ExplainSelectedAccessV1,
+    pub selected: ExplainSelectedAccess,
     /// Planner candidate summaries recorded for the selected access family.
-    pub candidates: Vec<ExplainAccessCandidateV1>,
+    pub candidates: Vec<ExplainAccessCandidate>,
     /// Eligible alternatives not selected by the planner.
-    pub alternatives: Vec<ExplainEligibleAlternativeV1>,
+    pub alternatives: Vec<ExplainEligibleAlternative>,
     /// Rejected index candidates and planner-owned reason strings.
-    pub rejections: Vec<ExplainRejectedIndexV1>,
+    pub rejections: Vec<ExplainRejectedIndex>,
     /// Residual-work summary for the selected route when available.
-    pub residual: ExplainResidualSummaryV1,
+    pub residual: ExplainResidualSummary,
 }
 
-impl ExplainAccessDecisionV1 {
-    const SCHEMA_VERSION: u32 = 1;
-
+impl ExplainAccessDecision {
     fn from_snapshot(
         selected_access: &ExplainAccessPath,
         snapshot: &AccessChoiceExplainSnapshot,
@@ -491,8 +487,7 @@ impl ExplainAccessDecisionV1 {
             selected_candidate_summary(selected_index_name(selected_access), &snapshot.candidates);
 
         Self {
-            schema_version: Self::SCHEMA_VERSION,
-            selected: ExplainSelectedAccessV1 {
+            selected: ExplainSelectedAccess {
                 kind: ExplainAccessDecisionKind::from_access_path(selected_access),
                 index_name: selected_index_name(selected_access).map(ToOwned::to_owned),
                 label: selected_label,
@@ -501,21 +496,21 @@ impl ExplainAccessDecisionV1 {
             candidates: snapshot
                 .candidates
                 .iter()
-                .map(ExplainAccessCandidateV1::from_candidate)
+                .map(ExplainAccessCandidate::from_candidate)
                 .collect(),
             alternatives: snapshot
                 .alternatives
                 .iter()
-                .map(|index_name| ExplainEligibleAlternativeV1 {
+                .map(|index_name| ExplainEligibleAlternative {
                     index_name: index_name.clone(),
                 })
                 .collect(),
             rejections: snapshot
                 .rejected
                 .iter()
-                .map(ExplainRejectedIndexV1::from_rejection)
+                .map(ExplainRejectedIndex::from_rejection)
                 .collect(),
-            residual: ExplainResidualSummaryV1::from_selected_access_and_candidate(
+            residual: ExplainResidualSummary::from_selected_access_and_candidate(
                 selected_access,
                 selected_candidate,
             ),
@@ -544,7 +539,7 @@ impl ExplainAccessDecisionV1 {
 
 /// Selected access path summary inside an access-decision explain payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainSelectedAccessV1 {
+pub struct ExplainSelectedAccess {
     /// Selected access kind.
     pub kind: ExplainAccessDecisionKind,
     /// Selected semantic index name, when the selected route is index-backed.
@@ -614,7 +609,7 @@ impl ExplainAccessDecisionKind {
 
 /// Candidate summary recorded by the planner access-choice snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainAccessCandidateV1 {
+pub struct ExplainAccessCandidate {
     /// Planner access label for the candidate route.
     pub label: String,
     /// Whether the candidate structurally satisfied all usable predicates.
@@ -631,7 +626,7 @@ pub struct ExplainAccessCandidateV1 {
     pub residual_predicate_terms: usize,
 }
 
-impl ExplainAccessCandidateV1 {
+impl ExplainAccessCandidate {
     fn from_candidate(candidate: &AccessChoiceCandidateExplainSummary) -> Self {
         Self {
             label: candidate.label(),
@@ -647,14 +642,14 @@ impl ExplainAccessCandidateV1 {
 
 /// Eligible alternative index name recorded by the planner.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainEligibleAlternativeV1 {
+pub struct ExplainEligibleAlternative {
     /// Semantic index name of the eligible alternative.
     pub index_name: String,
 }
 
 /// Rejected index candidate summary recorded by the planner.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainRejectedIndexV1 {
+pub struct ExplainRejectedIndex {
     /// Semantic index name carried by the planner rejection.
     pub index_name: Option<String>,
     /// Planner-owned rejection reason code.
@@ -663,7 +658,7 @@ pub struct ExplainRejectedIndexV1 {
     pub label: String,
 }
 
-impl ExplainRejectedIndexV1 {
+impl ExplainRejectedIndex {
     fn from_rejection(rejection: &AccessChoiceRejectedIndex) -> Self {
         Self {
             index_name: Some(rejection.index_name().to_string()),
@@ -675,7 +670,7 @@ impl ExplainRejectedIndexV1 {
 
 /// Residual-work summary for the selected access route.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainResidualSummaryV1 {
+pub struct ExplainResidualSummary {
     /// Residual burden class for the selected access route.
     pub burden_class: &'static str,
     /// Whether any residual scalar filter expression survives access planning.
@@ -688,7 +683,7 @@ pub struct ExplainResidualSummaryV1 {
     pub residual_predicate_count: usize,
 }
 
-impl ExplainResidualSummaryV1 {
+impl ExplainResidualSummary {
     fn from_selected_access_and_candidate(
         selected_access: &ExplainAccessPath,
         selected_candidate: Option<&AccessChoiceCandidateExplainSummary>,
@@ -937,7 +932,7 @@ where
 
     // Phase 3: assemble one stable explain payload.
     let access = explain_access_plan(access);
-    let access_decision = ExplainAccessDecisionV1::from_snapshot(&access, access_choice);
+    let access_decision = ExplainAccessDecision::from_snapshot(&access, access_choice);
 
     ExplainPlan {
         mode: logical.mode,
@@ -1203,9 +1198,8 @@ fn write_logical_explain_json(explain: &ExplainPlan, out: &mut String) {
     object.finish();
 }
 
-fn write_access_decision_json(decision: &ExplainAccessDecisionV1, out: &mut String) {
+fn write_access_decision_json(decision: &ExplainAccessDecision, out: &mut String) {
     let mut object = JsonWriter::begin_object(out);
-    object.field_u64("schema_version", u64::from(decision.schema_version));
     object.field_with("selected", |out| {
         let mut selected = JsonWriter::begin_object(out);
         selected.field_str("kind", decision.selected.kind.code());
@@ -1280,7 +1274,7 @@ fn write_access_decision_json(decision: &ExplainAccessDecisionV1, out: &mut Stri
     object.finish();
 }
 
-fn write_access_candidate_json(candidate: &ExplainAccessCandidateV1, out: &mut String) {
+fn write_access_candidate_json(candidate: &ExplainAccessCandidate, out: &mut String) {
     let mut object = JsonWriter::begin_object(out);
     object.field_str("label", candidate.label.as_str());
     object.field_bool("exact", candidate.exact);

@@ -68,21 +68,9 @@ pub(in crate::db) fn build_sql_ddl_field_addition_candidate(
 }
 
 fn next_sql_ddl_field_id(accepted_before: &AcceptedSchemaSnapshot) -> FieldId {
-    let snapshot = accepted_before.persisted_snapshot();
-    let next = snapshot
-        .fields()
-        .iter()
-        .map(|field| field.id().get())
-        .chain(
-            snapshot
-                .row_layout()
-                .retired_field_slots()
-                .iter()
-                .map(|(field_id, _)| field_id.get()),
-        )
-        .max()
-        .unwrap_or(0)
-        .checked_add(1)
+    let next = u32::try_from(accepted_before.persisted_snapshot().fields().len())
+        .ok()
+        .and_then(|count| count.checked_add(1))
         .expect("accepted field IDs should not be exhausted");
 
     FieldId::new(next)

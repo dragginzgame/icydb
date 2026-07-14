@@ -214,7 +214,7 @@ impl IndexModel {
         unique: bool,
     ) -> Self {
         Self::generated_with_ordinal_and_key_items_and_predicate(
-            0, name, store, fields, None, unique, None,
+            1, name, store, fields, None, unique, None,
         )
     }
 
@@ -244,7 +244,7 @@ impl IndexModel {
         predicate: Option<IndexPredicateMetadata>,
     ) -> Self {
         Self::generated_with_ordinal_and_key_items_and_predicate(
-            0, name, store, fields, None, unique, predicate,
+            1, name, store, fields, None, unique, predicate,
         )
     }
 
@@ -275,7 +275,7 @@ impl IndexModel {
         unique: bool,
     ) -> Self {
         Self::generated_with_ordinal_and_key_items_and_predicate(
-            0,
+            1,
             name,
             store,
             fields,
@@ -319,7 +319,7 @@ impl IndexModel {
         predicate: Option<IndexPredicateMetadata>,
     ) -> Self {
         Self::generated_with_ordinal_and_key_items_and_predicate(
-            0, name, store, fields, key_items, unique, predicate,
+            1, name, store, fields, key_items, unique, predicate,
         )
     }
 

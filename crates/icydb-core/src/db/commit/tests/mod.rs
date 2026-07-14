@@ -17,10 +17,7 @@ use crate::{
             clear_commit_failpoint_for_tests, clear_recovery_runtime_state_for_tests,
             commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
             mark_schema_reconciliation_dirty_for_tests,
-            marker::{
-                COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload,
-                encode_single_row_commit_marker_payload,
-            },
+            marker::{COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload},
             prepare_row_commit_for_entity_with_structural_readers,
             reset_commit_marker_test_journal_sequence, rollback_prepared_row_ops_reverse, store,
         },
@@ -174,27 +171,8 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
     ],
     indexes = [],
-}
-
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct RecoveryPayloadEntity {
-    id: Ulid,
-    name: String,
-}
-
-crate::test_entity! {
-    ident = RecoveryPayloadEntity,
-    entity_name = "RecoveryPayloadEntity",
-    tag = crate::testing::RECOVERY_PAYLOAD_ENTITY_TAG,
-    store = RecoveryTestDataStore,
-    canister = RecoveryTestCanister,
-    key_type = Ulid,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
-    ],
-    indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -216,6 +194,8 @@ crate::test_entity! {
         crate::test_field! { group: u32 => FieldKind::Nat64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -446,6 +426,8 @@ crate::test_entity! {
         crate::test_field! { group: u32 => FieldKind::Nat64 },
     ],
     indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -461,6 +443,8 @@ crate::test_entity! {
         crate::test_field! { group: u32 => FieldKind::Nat64 },
     ],
     indexes = [&HEAP_RECOVERY_INDEXED_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 const RECOVERY_NULLABLE_INDEXED_ENTITY_TAG: EntityTag = EntityTag::new(0x103A);
@@ -483,6 +467,8 @@ crate::test_entity! {
         },
     ],
     indexes = [&RECOVERY_NULLABLE_INDEXED_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -498,6 +484,8 @@ crate::test_entity! {
         crate::test_field! { email: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&RECOVERY_UNIQUE_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -513,6 +501,8 @@ crate::test_entity! {
         crate::test_field! { email: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -528,6 +518,8 @@ crate::test_entity! {
         crate::test_field! { email: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&RECOVERY_UPPER_EXPRESSION_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -544,6 +536,8 @@ crate::test_entity! {
         crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -560,6 +554,8 @@ crate::test_entity! {
         crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -576,6 +572,8 @@ crate::test_entity! {
         crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -596,6 +594,8 @@ crate::test_entity! {
         crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
@@ -3272,7 +3272,6 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
 
     let marker = CommitMarker {
         id: [0xAB; 16],
-        row_ops: Vec::new(),
         journal_batches: Vec::new(),
     };
     let marker_payload =
@@ -3309,80 +3308,9 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
 }
 
 #[test]
-fn single_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() {
-    let marker_id = [0x5A; 16];
-    let raw_key = DecodedDataStoreKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(111))
-        .expect("single-row encoder test data key should build")
-        .to_raw()
-        .expect("single-row encoder test data key should encode");
-    let row_op = row_op_for_path(
-        RecoveryPayloadEntity::PATH,
-        raw_key.as_bytes().to_vec(),
-        Some(canonical_row_bytes(&RecoveryPayloadEntity {
-            id: Ulid::from_u128(111),
-            name: "before".to_string(),
-        })),
-        Some(canonical_row_bytes(&RecoveryPayloadEntity {
-            id: Ulid::from_u128(111),
-            name: "after".to_string(),
-        })),
-    );
-    let marker_payload = encode_single_row_commit_marker_payload(marker_id, &row_op)
-        .expect("single-row marker payload encode should succeed");
-    let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
-        COMMIT_MARKER_FORMAT_VERSION_CURRENT,
-        marker_payload,
-    )
-    .expect("single-row marker envelope encode should succeed");
-    let canonical = store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes)
-        .expect("canonical control-slot encode should succeed");
-    let direct =
-        store::CommitStore::encode_raw_single_row_control_slot_for_tests(marker_id, &row_op)
-            .expect("direct single-row control-slot encode should succeed");
-
-    assert_eq!(
-        direct, canonical,
-        "single-row direct control-slot encoding must stay byte-for-byte canonical"
-    );
-}
-
-#[test]
-fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() {
+fn commit_control_slot_direct_encoder_matches_canonical_two_stage_encoding() {
     let marker = CommitMarker {
         id: [0x6B; 16],
-        row_ops: vec![
-            row_op_for_path(
-                RecoveryPayloadEntity::PATH,
-                DecodedDataStoreKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(211))
-                    .expect("multi-row encoder first key should build")
-                    .to_raw()
-                    .expect("multi-row encoder first key should encode")
-                    .as_bytes()
-                    .to_vec(),
-                Some(canonical_row_bytes(&RecoveryPayloadEntity {
-                    id: Ulid::from_u128(211),
-                    name: "before-a".to_string(),
-                })),
-                Some(canonical_row_bytes(&RecoveryPayloadEntity {
-                    id: Ulid::from_u128(211),
-                    name: "after-a".to_string(),
-                })),
-            ),
-            row_op_for_path(
-                RecoveryPayloadEntity::PATH,
-                DecodedDataStoreKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(212))
-                    .expect("multi-row encoder second key should build")
-                    .to_raw()
-                    .expect("multi-row encoder second key should encode")
-                    .as_bytes()
-                    .to_vec(),
-                None,
-                Some(canonical_row_bytes(&RecoveryPayloadEntity {
-                    id: Ulid::from_u128(212),
-                    name: "after-b".to_string(),
-                })),
-            ),
-        ],
         journal_batches: Vec::new(),
     };
     let marker_payload = encode_commit_marker_payload(&marker)
@@ -3399,7 +3327,7 @@ fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() 
 
     assert_eq!(
         direct, canonical,
-        "multi-row direct control-slot encoding must stay byte-for-byte canonical"
+        "direct control-slot encoding must stay byte-for-byte canonical"
     );
 }
 
@@ -4356,53 +4284,6 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
     let indexed_ids = indexed_ids_for(&first).expect("index entry should exist after replay");
     let expected_ids = std::iter::once(first.id).collect::<BTreeSet<_>>();
     assert_eq!(indexed_ids, expected_ids);
-}
-
-#[test]
-fn recovery_ignores_live_only_heap_marker_rows_and_indexes() {
-    reset_recovery_state();
-
-    let entity = HeapRecoveryIndexedEntity {
-        id: Ulid::from_u128(917),
-        group: 70,
-    };
-    let data_key = DecodedDataStoreKey::try_new::<HeapRecoveryIndexedEntity>(entity.id)
-        .expect("heap recovery data key should build")
-        .to_raw()
-        .expect("heap recovery data key should encode");
-    let row = canonical_row_bytes(&entity);
-
-    let marker = CommitMarker::from_parts(
-        [0x77; 16],
-        vec![row_op_for_path(
-            HeapRecoveryIndexedEntity::PATH,
-            data_key.as_bytes().to_vec(),
-            None,
-            Some(row),
-        )],
-        Vec::new(),
-    )
-    .expect("heap row-op marker creation should succeed");
-    begin_commit(marker).expect("heap marker should persist through the generic commit gate");
-
-    ensure_recovered(&DB).expect("recovery should skip live-only heap marker rows");
-
-    assert!(
-        !commit_marker_present().expect("commit marker check should succeed"),
-        "heap-only marker should be cleared after recovery proves no durable replay",
-    );
-    with_heap_recovery_store(|store| {
-        assert_eq!(
-            store.with_data(DataStore::len),
-            0,
-            "recovery must not replay live-only heap data rows",
-        );
-        assert_eq!(
-            store.with_index(IndexStore::len),
-            0,
-            "recovery must not rebuild live-only heap index entries",
-        );
-    });
 }
 
 #[test]

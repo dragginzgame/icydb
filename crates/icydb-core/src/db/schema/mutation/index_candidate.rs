@@ -177,14 +177,10 @@ pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(
 }
 
 fn next_sql_ddl_secondary_index_ordinal(accepted_before: &AcceptedSchemaSnapshot) -> u16 {
-    accepted_before
-        .persisted_snapshot()
-        .indexes()
-        .iter()
-        .map(PersistedIndexSnapshot::ordinal)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(1)
+    u16::try_from(accepted_before.persisted_snapshot().indexes().len())
+        .ok()
+        .and_then(|count| count.checked_add(1))
+        .expect("accepted index ordinals should not be exhausted")
 }
 
 fn sql_ddl_secondary_index_key_snapshot(

@@ -33,7 +33,7 @@ pub(super) fn schema_check_recommendations(facts: &SchemaCheckRecommendationFact
     }
     if facts.accepted_only_generated_fields > 0 {
         recommendations.push(
-            "fix: accepted-only generated fields require an explicit retained-slot removal policy"
+            "fix: accepted-only generated fields require explicit catalog-native physical removal"
                 .to_string(),
         );
     }

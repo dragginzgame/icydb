@@ -112,8 +112,8 @@ impl SchemaTransitionPlan {
         self.kind
     }
 
-    // Return the schema-owned publication decision after runner preflight. In
-    // 0.152 only `PublishableNow` may be stored; physical-work-ready plans still
+    // Return the schema-owned publication decision after runner preflight. Only
+    // `PublishableNow` may be stored; physical-work-ready plans still
     // require a later execution/validation phase before publication.
     pub(in crate::db::schema) fn publication_preflight(
         &self,
@@ -273,7 +273,7 @@ impl SchemaTransitionRejection {
     }
 
     // Return the structured schema-version admission decision when this
-    // rejection came from the 0.177 version/method/fingerprint gate.
+    // rejection came from the version/method/fingerprint gate.
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) const fn admission(
         &self,
@@ -361,7 +361,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
 
 // Return the first human-readable schema difference between the stored
 // snapshot and the current generated proposal. Schema version differences are
-// owned by the 0.177 admission gate; transition diagnostics describe the shape
+// owned by the admission gate; transition diagnostics describe the shape
 // that remains after a candidate has passed version/fingerprint admission.
 fn schema_snapshot_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
@@ -520,7 +520,7 @@ fn unsupported_generated_additive_field_detail(
 // A generated snapshot is a removal candidate only when the generated fields
 // and row-layout mappings are exact prefixes of the stored accepted snapshot.
 // That means the new code has stopped declaring a field that old rows may
-// still carry, which needs explicit retained-slot semantics before acceptance.
+// still carry, which needs catalog-native physical DDL work before acceptance.
 fn unsupported_generated_removed_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
@@ -558,7 +558,7 @@ fn unsupported_generated_removed_field_detail(
             let index = expected.fields().len();
             let field = &actual.fields()[index];
             format!(
-                "unsupported removed field transition: stored field[{index}] id={} slot={} name='{}' kind={:?}; retained-slot support is not enabled yet",
+                "unsupported generated field removal: stored field[{index}] id={} slot={} name='{}' kind={:?}; startup reconciliation does not perform physical DDL work",
                 field.id().get(),
                 field.slot().get(),
                 field.name(),

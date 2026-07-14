@@ -266,13 +266,12 @@ source/canonical labels are updated together. Filtered-index predicate SQL
 labels relabel through the reduced predicate AST. Generated fields reject
 before publication.
 
-`ALTER TABLE ... DROP COLUMN ...` publishes retained-slot accepted schema
-changes for DDL-owned fields. Active accepted metadata removes the field, but
-the accepted row layout keeps the retired field ID and physical slot so later
-`ADD COLUMN` commands do not reuse historical allocation facts. Older rows with
-retired slots remain decodable, and non-trailing drops preserve later active
-fields without shifting row slots. Primary-key, generated, and index-dependent
-fields reject before publication.
+`ALTER TABLE ... DROP COLUMN ...` rewrites rows and publishes a dense accepted
+schema for DDL-owned fields. Active metadata removes the field, surviving field
+IDs and physical slots are renumbered to `1..N` and `0..N-1`, and every stored
+row is rewritten to that current layout before publication. A later
+`ADD COLUMN` allocates the next dense identity. Primary-key, generated, and
+index-dependent fields reject before publication.
 `DROP COLUMN IF EXISTS` reports `no_op` only when the target field is absent.
 
 ## Public SQL Mutation Execution

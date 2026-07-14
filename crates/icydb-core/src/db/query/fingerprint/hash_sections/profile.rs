@@ -8,7 +8,7 @@ use crate::db::query::fingerprint::hash_sections::{
     FINGERPRINT_SECTION_MODE_TAG, FINGERPRINT_SECTION_ORDER_TAG, FINGERPRINT_SECTION_PAGE_TAG,
     FINGERPRINT_SECTION_PREDICATE_TAG, FINGERPRINT_SECTION_PROJECTION_SPEC_TAG,
     access::{hash_access, hash_access_plan},
-    grouping::{GroupingFingerprintSource, hash_grouping_shape_v1, hash_projection_spec_v1},
+    grouping::{GroupingFingerprintSource, hash_grouping_shape, hash_projection_spec},
     hash_consistency, hash_delete_limit, hash_delete_limit_spec, hash_distinct, hash_mode,
     hash_order, hash_order_spec, hash_page, hash_page_spec, hash_scalar_semantic_filter, write_str,
     write_tag,
@@ -226,10 +226,10 @@ impl<'a> ExplainHashSource<'a> {
             ExplainHashField::DeleteLimit => hash_delete_limit(hasher, plan.delete_limit()),
             ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency()),
             ExplainHashField::GroupingShape => {
-                hash_grouping_shape_v1(hasher, self.grouping_source(), include_group_strategy);
+                hash_grouping_shape(hasher, self.grouping_source(), include_group_strategy);
             }
             ExplainHashField::ProjectionSpec => {
-                hash_projection_spec_v1(
+                hash_projection_spec(
                     hasher,
                     projection,
                     self.grouping_source(),
@@ -269,10 +269,10 @@ impl<'a> ExplainHashSource<'a> {
             }
             ExplainHashField::Consistency => hash_consistency(hasher, scalar.consistency),
             ExplainHashField::GroupingShape => {
-                hash_grouping_shape_v1(hasher, self.grouping_source(), include_group_strategy);
+                hash_grouping_shape(hasher, self.grouping_source(), include_group_strategy);
             }
             ExplainHashField::ProjectionSpec => {
-                hash_projection_spec_v1(
+                hash_projection_spec(
                     hasher,
                     projection,
                     self.grouping_source(),

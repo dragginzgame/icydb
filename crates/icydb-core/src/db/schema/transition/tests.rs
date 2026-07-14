@@ -78,11 +78,7 @@ fn snapshot_with_version(
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
         snapshot.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new_with_retired_slots(
-            version,
-            snapshot.row_layout().field_to_slot().to_vec(),
-            snapshot.row_layout().retired_field_slots().to_vec(),
-        ),
+        SchemaRowLayout::new(version, snapshot.row_layout().field_to_slot().to_vec()),
         snapshot.fields().to_vec(),
         snapshot.indexes().to_vec(),
     )
@@ -122,26 +118,6 @@ fn snapshot_with_ddl_nickname_field(
             ],
         ),
         fields,
-        snapshot.indexes().to_vec(),
-    )
-    .with_relations(snapshot.relations().to_vec())
-}
-
-fn snapshot_with_retired_ddl_nickname_slot(
-    snapshot: &PersistedSchemaSnapshot,
-    version: SchemaVersion,
-) -> PersistedSchemaSnapshot {
-    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        version,
-        snapshot.entity_path().to_string(),
-        snapshot.entity_name().to_string(),
-        snapshot.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new_with_retired_slots(
-            version,
-            snapshot.row_layout().field_to_slot().to_vec(),
-            vec![(FieldId::new(3), SchemaFieldSlot::new(2))],
-        ),
-        snapshot.fields().to_vec(),
         snapshot.indexes().to_vec(),
     )
     .with_relations(snapshot.relations().to_vec())
@@ -546,27 +522,6 @@ fn schema_transition_policy_accepts_supported_ddl_fields_absent_from_generated_m
     let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&accepted, &generated)
     else {
         panic!("supported accepted DDL field should remain compatible with generated metadata");
-    };
-
-    assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
-    assert_eq!(
-        plan.mutation_plan().compatibility(),
-        MutationCompatibility::MetadataOnlySafe,
-    );
-    assert_eq!(
-        plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuild,
-    );
-}
-
-#[test]
-fn schema_transition_policy_accepts_retired_ddl_slots_absent_from_generated_model() {
-    let generated = expected_snapshot();
-    let accepted = snapshot_with_retired_ddl_nickname_slot(&generated, SchemaVersion::new(3));
-
-    let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&accepted, &generated)
-    else {
-        panic!("retired DDL field slots should remain compatible with generated metadata");
     };
 
     assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
@@ -1016,7 +971,7 @@ fn schema_transition_policy_names_unsupported_generated_removed_fields() {
     let mut stored_fields = expected.fields().to_vec();
     stored_fields.push(PersistedFieldSnapshot::new(
         FieldId::new(3),
-        "legacy_score".to_string(),
+        "removed_score".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Nat64,
         Vec::new(),
@@ -1049,7 +1004,7 @@ fn schema_transition_policy_names_unsupported_generated_removed_fields() {
 
     assert!(
         rejection.detail().contains(
-            "unsupported removed field transition: stored field[2] id=3 slot=2 name='legacy_score' kind=Nat64; retained-slot support is not enabled yet"
+            "unsupported generated field removal: stored field[2] id=3 slot=2 name='removed_score' kind=Nat64; startup reconciliation does not perform physical DDL work"
         ),
         "removed field drift should be named as an unsupported future transition shape",
     );

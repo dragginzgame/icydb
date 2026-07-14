@@ -597,7 +597,6 @@ fn logical_explain_json_includes_structured_access_decision() {
         .expect("index-prefix explain should build");
 
     let decision = explain.access_decision();
-    assert_eq!(decision.schema_version, 1);
     assert_plan(&explain)
         .uses_index("group_rank")
         .access_kind(RequiredAccessPath::IndexPrefix)
@@ -622,7 +621,7 @@ fn logical_explain_json_includes_structured_access_decision() {
 
     let json = explain.render_json_canonical();
     assert!(
-        json.contains("\"access_decision\":{\"schema_version\":1"),
+        json.contains("\"access_decision\":{\"selected\":"),
         "logical JSON explain should expose the structured access-decision DTO",
     );
     assert!(

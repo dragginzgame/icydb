@@ -1,7 +1,7 @@
 //! Module: db::schema::proposal
 //! Responsibility: compiled schema proposal projection from generated entity metadata.
 //! Does not own: live schema persistence or compatibility reconciliation.
-//! Boundary: turns trusted `EntityModel` data into a typed schema proposal for 0.146.
+//! Boundary: turns trusted `EntityModel` data into a typed schema proposal.
 
 use crate::{
     db::schema::{
@@ -114,7 +114,7 @@ impl CompiledSchemaProposal {
     /// Build the initial persisted-schema snapshot implied by this proposal.
     ///
     /// This is only valid for first initialization when no stored schema exists.
-    /// Reconciliation must preserve stored field IDs, retired slots, and defaults
+    /// Reconciliation must preserve current field IDs, slots, and defaults
     /// once a live persisted schema has been written.
     #[cfg(test)]
     #[must_use]

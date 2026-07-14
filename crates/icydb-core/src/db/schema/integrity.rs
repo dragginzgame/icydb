@@ -33,10 +33,6 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         return Some(detail);
     }
 
-    if let Some(detail) = duplicate_retired_row_layout_detail(subject, row_layout) {
-        return Some(detail);
-    }
-
     if let Some(detail) = duplicate_field_detail(subject, fields) {
         return Some(detail);
     }
@@ -57,6 +53,20 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
 
     if row_layout.field_to_slot().len() != fields.len() {
         return Some(());
+    }
+
+    for (index, ((field_id, slot), field)) in
+        row_layout.field_to_slot().iter().zip(fields).enumerate()
+    {
+        let expected_id = u32::try_from(index).ok()?.checked_add(1)?;
+        let expected_slot = u16::try_from(index).ok()?;
+        if field_id.get() != expected_id
+            || slot.get() != expected_slot
+            || field.id() != *field_id
+            || field.slot() != *slot
+        {
+            return Some(());
+        }
     }
 
     let mut matched_primary_key_fields = 0usize;
@@ -85,35 +95,6 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
 // by returning only the first matching field ID.
 fn duplicate_row_layout_detail(_subject: &str, row_layout: &SchemaRowLayout) -> Option<()> {
     let entries = row_layout.field_to_slot();
-    for (index, (field_id, slot)) in entries.iter().enumerate() {
-        for (other_field_id, other_slot) in &entries[index + 1..] {
-            if field_id == other_field_id {
-                return Some(());
-            }
-
-            if slot == other_slot {
-                return Some(());
-            }
-        }
-    }
-
-    None
-}
-
-fn duplicate_retired_row_layout_detail(_subject: &str, row_layout: &SchemaRowLayout) -> Option<()> {
-    for (field_id, slot) in row_layout.field_to_slot() {
-        for (retired_field_id, retired_slot) in row_layout.retired_field_slots() {
-            if field_id == retired_field_id {
-                return Some(());
-            }
-
-            if slot == retired_slot {
-                return Some(());
-            }
-        }
-    }
-
-    let entries = row_layout.retired_field_slots();
     for (index, (field_id, slot)) in entries.iter().enumerate() {
         for (other_field_id, other_slot) in &entries[index + 1..] {
             if field_id == other_field_id {

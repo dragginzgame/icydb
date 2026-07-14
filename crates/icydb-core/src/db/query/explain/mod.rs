@@ -26,9 +26,9 @@ pub(in crate::db) use plan::ExplainGroupHaving;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use plan::ExplainOrder;
 pub use plan::{
-    ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
-    ExplainEligibleAlternativeV1, ExplainPlan, ExplainRejectedIndexV1, ExplainResidualSummaryV1,
-    ExplainSelectedAccessV1,
+    ExplainAccessCandidate, ExplainAccessDecision, ExplainAccessDecisionKind,
+    ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
+    ExplainSelectedAccess,
 };
 pub(in crate::db) use plan::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupField,

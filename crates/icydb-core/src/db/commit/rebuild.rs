@@ -1,6 +1,6 @@
 //! Module: db::commit::rebuild
 //! Responsibility: rebuild secondary indexes from authoritative persisted rows.
-//! Does not own: commit-marker replay, commit-marker persistence, or query planning.
+//! Does not own: marker-bound journal publication, commit-marker persistence, or query planning.
 //! Boundary: commit::recovery -> commit::rebuild -> commit::{prepare,apply} (one-way).
 
 #[cfg(test)]

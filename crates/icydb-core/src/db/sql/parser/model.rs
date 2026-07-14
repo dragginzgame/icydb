@@ -97,8 +97,8 @@ pub(crate) struct SqlAlterTableAlterColumnStatement {
 ///
 /// SqlAlterTableDropColumnStatement
 ///
-/// Parsed `ALTER TABLE ... DROP COLUMN ...` frontend staged for retained-slot
-/// field removal policy.
+/// Parsed `ALTER TABLE ... DROP COLUMN ...` frontend staged for catalog-native
+/// dense field removal.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

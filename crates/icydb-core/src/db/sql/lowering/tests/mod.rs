@@ -772,7 +772,7 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
     );
     assert!(
         plan.scalar_plan().predicate.is_some(),
-        "the current 0.100 slice should still derive the existing predicate contract for access planning and runtime fast paths",
+        "the current lowering path should derive the predicate contract for access planning and runtime fast paths",
     );
 }
 

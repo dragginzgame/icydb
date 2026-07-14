@@ -105,6 +105,8 @@ crate::test_entity! {
         crate::test_field! { email: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&INTEGRITY_EMAIL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &[

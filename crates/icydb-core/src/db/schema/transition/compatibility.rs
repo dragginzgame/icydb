@@ -87,7 +87,6 @@ pub(super) fn accepted_snapshot_extends_generated_indexes(
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
-        || actual.row_layout().retired_field_slots() != expected.row_layout().retired_field_slots()
         || actual.fields() != expected.fields()
     {
         return false;
@@ -156,33 +155,6 @@ pub(super) fn accepted_snapshot_extends_generated_with_ddl_fields(
         return false;
     }
     if !expected
-        .row_layout()
-        .retired_field_slots()
-        .iter()
-        .all(|retired| actual.row_layout().retired_field_slots().contains(retired))
-    {
-        return false;
-    }
-    if actual
-        .row_layout()
-        .retired_field_slots()
-        .iter()
-        .filter(|retired| {
-            !expected
-                .row_layout()
-                .retired_field_slots()
-                .contains(retired)
-        })
-        .any(|(field_id, _)| {
-            expected
-                .fields()
-                .iter()
-                .any(|field| field.id() == *field_id)
-        })
-    {
-        return false;
-    }
-    if !expected
         .indexes()
         .iter()
         .all(|index| actual.indexes().contains(index))
@@ -191,8 +163,7 @@ pub(super) fn accepted_snapshot_extends_generated_with_ddl_fields(
     }
 
     let has_ddl_field_extension = actual.fields().len() > expected.fields().len()
-        || actual.row_layout().field_to_slot().len() > expected.row_layout().field_to_slot().len()
-        || actual.row_layout().retired_field_slots() != expected.row_layout().retired_field_slots();
+        || actual.row_layout().field_to_slot().len() > expected.row_layout().field_to_slot().len();
     has_ddl_field_extension
         && actual
             .indexes()

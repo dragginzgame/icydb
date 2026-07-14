@@ -17,6 +17,11 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
     indexes: &[PersistedIndexSnapshot],
 ) -> Option<()> {
     for (index_offset, index) in indexes.iter().enumerate() {
+        let expected_ordinal = u16::try_from(index_offset).ok()?.checked_add(1)?;
+        if index.ordinal() != expected_ordinal {
+            return Some(());
+        }
+
         if index.name().is_empty() {
             return Some(());
         }

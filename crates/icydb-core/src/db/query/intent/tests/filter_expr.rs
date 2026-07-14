@@ -21,7 +21,7 @@ fn filter_expr_build_plan_model_preserves_scalar_filter_expression_ownership() {
     );
     assert!(
         plan.scalar_plan().predicate.is_some(),
-        "the first 0.100 slice should preserve the existing derived predicate contract while expression ownership is being threaded through planning",
+        "query intent should preserve the derived predicate contract while expression ownership is threaded through planning",
     );
 }
 

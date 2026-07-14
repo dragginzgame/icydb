@@ -22,10 +22,6 @@ fn measure_query_plan_compile_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
     (0, run())
 }
 
-// Bump this when the shared lower query-plan cache key meaning changes in a
-// way that must force old in-heap entries to miss instead of aliasing.
-pub(super) const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 4;
-
 ///
 /// QueryPlanVisibility
 ///
@@ -49,7 +45,6 @@ pub(in crate::db) enum QueryPlanVisibility {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct QueryPlanCacheKey {
-    cache_method_version: u8,
     entity_path: &'static str,
     schema_identity: SchemaCacheIdentity,
     visibility: QueryPlanVisibility,
@@ -304,10 +299,6 @@ impl QueryPlanCacheKey {
         self.visibility
     }
 
-    pub(super) const fn cache_method_version(&self) -> u8 {
-        self.cache_method_version
-    }
-
     pub(super) const fn schema_identity(&self) -> SchemaCacheIdentity {
         self.schema_identity
     }
@@ -324,14 +315,12 @@ impl QueryPlanCacheKey {
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         structural_query: StructuralQueryCacheKey,
-        cache_method_version: u8,
     ) -> Self {
         Self::from_entity_path_cache_inputs(
             authority.entity_path(),
             schema_identity,
             visibility,
             structural_query,
-            cache_method_version,
         )
     }
 
@@ -340,10 +329,8 @@ impl QueryPlanCacheKey {
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         structural_query: StructuralQueryCacheKey,
-        cache_method_version: u8,
     ) -> Self {
         Self {
-            cache_method_version,
             entity_path,
             schema_identity,
             visibility,
@@ -352,29 +339,26 @@ impl QueryPlanCacheKey {
     }
 
     #[cfg(test)]
-    pub(super) fn for_authority_with_method_version(
+    pub(super) fn for_authority(
         authority: EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-        cache_method_version: u8,
     ) -> Self {
         Self::from_authority_cache_inputs(
             authority,
             schema_identity,
             visibility,
             query.structural_cache_key(),
-            cache_method_version,
         )
     }
 
-    pub(super) fn for_authority_with_normalized_predicate_fingerprint_and_method_version(
+    pub(super) fn for_authority_with_normalized_predicate_fingerprint(
         authority: EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         normalized_predicate_fingerprint: Option<[u8; 32]>,
-        cache_method_version: u8,
     ) -> Self {
         Self::from_authority_cache_inputs(
             authority,
@@ -383,17 +367,15 @@ impl QueryPlanCacheKey {
             query.structural_cache_key_with_normalized_predicate_fingerprint(
                 normalized_predicate_fingerprint,
             ),
-            cache_method_version,
         )
     }
 
-    pub(super) fn for_entity_path_with_normalized_predicate_fingerprint_and_method_version(
+    pub(super) fn for_entity_path_with_normalized_predicate_fingerprint(
         entity_path: &'static str,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         normalized_predicate_fingerprint: Option<[u8; 32]>,
-        cache_method_version: u8,
     ) -> Self {
         Self::from_entity_path_cache_inputs(
             entity_path,
@@ -402,7 +384,6 @@ impl QueryPlanCacheKey {
             query.structural_cache_key_with_normalized_predicate_fingerprint(
                 normalized_predicate_fingerprint,
             ),
-            cache_method_version,
         )
     }
 }

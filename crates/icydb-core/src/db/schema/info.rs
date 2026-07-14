@@ -1023,7 +1023,7 @@ impl SchemaInfo {
 
     /// Build one accepted schema view with expression-index metadata projected.
     ///
-    /// This constructor exists for the 0.151 expression-index routing slice and
+    /// This constructor exists for expression-index routing and
     /// tests that need to inspect accepted expression contracts without adding
     /// allocation work to every existing accepted schema view.
     #[must_use]

@@ -23,8 +23,8 @@ const SORT_PRED_IS_MISSING: u8 = 0x07;
 const SORT_PRED_IS_EMPTY: u8 = 0x08;
 const SORT_PRED_IS_NOT_EMPTY: u8 = 0x09;
 const SORT_PRED_IS_NOT_NULL: u8 = 0x0A;
-const SORT_PRED_TEXT_CONTAINS: u8 = 0x0D;
-const SORT_PRED_TEXT_CONTAINS_CI: u8 = 0x0E;
+const SORT_PRED_TEXT_CONTAINS: u8 = 0x0C;
+const SORT_PRED_TEXT_CONTAINS_CI: u8 = 0x0D;
 
 ///
 /// Encode a predicate into deterministic sort-key bytes.
@@ -268,8 +268,8 @@ fn encode_coercion_sort_key_into(out: &mut Vec<u8>, spec: &CoercionSpec) {
     out.push(match spec.id {
         CoercionId::Strict => 0,
         CoercionId::NumericWiden => 1,
-        CoercionId::TextCasefold => 3,
-        CoercionId::CollectionElement => 4,
+        CoercionId::TextCasefold => 2,
+        CoercionId::CollectionElement => 3,
     });
     push_len_u64(out, spec.params.len());
     for (key, value) in &spec.params {

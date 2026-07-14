@@ -195,9 +195,9 @@ impl GroupAggregateSpec {
 
     /// Return true when this aggregate is eligible for grouped ordered streaming.
     #[must_use]
-    pub(in crate::db) fn streaming_compatible_v1(&self) -> bool {
+    pub(in crate::db) fn streaming_compatible(&self) -> bool {
         self.kind
-            .supports_grouped_streaming_v1(self.target_field().is_some(), self.distinct())
+            .supports_grouped_streaming(self.target_field().is_some(), self.distinct())
     }
 }
 

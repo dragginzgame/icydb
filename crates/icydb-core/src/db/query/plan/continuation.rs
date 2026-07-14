@@ -21,7 +21,7 @@ use crate::{
 };
 use sha2::Digest;
 
-const SCHEMA_BOUND_CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig_authority_v2";
+const SCHEMA_BOUND_CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig_authority";
 const CONTINUATION_SHAPE_SIGNATURE_TAG: u8 = 0x01;
 const ENTITY_SCHEMA_FINGERPRINT_TAG: u8 = 0x02;
 const ACCEPTED_SCHEMA_REVISION_TAG: u8 = 0x03;

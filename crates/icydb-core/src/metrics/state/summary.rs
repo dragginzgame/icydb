@@ -32,7 +32,6 @@ pub struct EntitySummary {
     cache_shared_query_plan_inserts: u64,
     cache_shared_query_plan_miss_cold: u64,
     cache_shared_query_plan_miss_distinct_key: u64,
-    cache_shared_query_plan_miss_method_version: u64,
     cache_shared_query_plan_miss_schema_fingerprint: u64,
     cache_shared_query_plan_miss_visibility: u64,
     cache_sql_compiled_command_hits: u64,
@@ -40,7 +39,6 @@ pub struct EntitySummary {
     cache_sql_compiled_command_inserts: u64,
     cache_sql_compiled_command_miss_cold: u64,
     cache_sql_compiled_command_miss_distinct_key: u64,
-    cache_sql_compiled_command_miss_method_version: u64,
     cache_sql_compiled_command_miss_schema_fingerprint: u64,
     cache_sql_compiled_command_miss_surface: u64,
     schema_reconcile_checks: u64,
@@ -70,10 +68,6 @@ pub struct EntitySummary {
     sql_compile_reject_cache_key: u64,
     sql_compile_reject_parse: u64,
     sql_compile_reject_semantic: u64,
-    plan_index: u64,
-    plan_keys: u64,
-    plan_range: u64,
-    plan_full_scan: u64,
     plan_by_key: u64,
     plan_by_keys: u64,
     plan_key_range: u64,
@@ -255,11 +249,6 @@ impl EntitySummary {
     }
 
     #[must_use]
-    pub const fn cache_shared_query_plan_miss_method_version(&self) -> u64 {
-        self.cache_shared_query_plan_miss_method_version
-    }
-
-    #[must_use]
     pub const fn cache_shared_query_plan_miss_schema_fingerprint(&self) -> u64 {
         self.cache_shared_query_plan_miss_schema_fingerprint
     }
@@ -292,11 +281,6 @@ impl EntitySummary {
     #[must_use]
     pub const fn cache_sql_compiled_command_miss_distinct_key(&self) -> u64 {
         self.cache_sql_compiled_command_miss_distinct_key
-    }
-
-    #[must_use]
-    pub const fn cache_sql_compiled_command_miss_method_version(&self) -> u64 {
-        self.cache_sql_compiled_command_miss_method_version
     }
 
     #[must_use]
@@ -442,26 +426,6 @@ impl EntitySummary {
     #[must_use]
     pub const fn sql_compile_reject_semantic(&self) -> u64 {
         self.sql_compile_reject_semantic
-    }
-
-    #[must_use]
-    pub const fn plan_index(&self) -> u64 {
-        self.plan_index
-    }
-
-    #[must_use]
-    pub const fn plan_keys(&self) -> u64 {
-        self.plan_keys
-    }
-
-    #[must_use]
-    pub const fn plan_range(&self) -> u64 {
-        self.plan_range
-    }
-
-    #[must_use]
-    pub const fn plan_full_scan(&self) -> u64 {
-        self.plan_full_scan
     }
 
     #[must_use]
@@ -899,7 +863,6 @@ impl EntitySummary {
             .saturating_add(self.cache_shared_query_plan_inserts)
             .saturating_add(self.cache_shared_query_plan_miss_cold)
             .saturating_add(self.cache_shared_query_plan_miss_distinct_key)
-            .saturating_add(self.cache_shared_query_plan_miss_method_version)
             .saturating_add(self.cache_shared_query_plan_miss_schema_fingerprint)
             .saturating_add(self.cache_shared_query_plan_miss_visibility)
             .saturating_add(self.cache_sql_compiled_command_hits)
@@ -907,7 +870,6 @@ impl EntitySummary {
             .saturating_add(self.cache_sql_compiled_command_inserts)
             .saturating_add(self.cache_sql_compiled_command_miss_cold)
             .saturating_add(self.cache_sql_compiled_command_miss_distinct_key)
-            .saturating_add(self.cache_sql_compiled_command_miss_method_version)
             .saturating_add(self.cache_sql_compiled_command_miss_schema_fingerprint)
             .saturating_add(self.cache_sql_compiled_command_miss_surface)
             .saturating_add(self.schema_reconcile_checks)
@@ -937,10 +899,6 @@ impl EntitySummary {
             .saturating_add(self.sql_compile_reject_cache_key)
             .saturating_add(self.sql_compile_reject_parse)
             .saturating_add(self.sql_compile_reject_semantic)
-            .saturating_add(self.plan_index)
-            .saturating_add(self.plan_keys)
-            .saturating_add(self.plan_range)
-            .saturating_add(self.plan_full_scan)
             .saturating_add(self.plan_by_key)
             .saturating_add(self.plan_by_keys)
             .saturating_add(self.plan_key_range)
@@ -1047,8 +1005,6 @@ pub(in crate::metrics) fn entity_summary_from_counters(
         cache_shared_query_plan_inserts: ops.cache_shared_query_plan_inserts,
         cache_shared_query_plan_miss_cold: ops.cache_shared_query_plan_miss_cold,
         cache_shared_query_plan_miss_distinct_key: ops.cache_shared_query_plan_miss_distinct_key,
-        cache_shared_query_plan_miss_method_version: ops
-            .cache_shared_query_plan_miss_method_version,
         cache_shared_query_plan_miss_schema_fingerprint: ops
             .cache_shared_query_plan_miss_schema_fingerprint,
         cache_shared_query_plan_miss_visibility: ops.cache_shared_query_plan_miss_visibility,
@@ -1058,8 +1014,6 @@ pub(in crate::metrics) fn entity_summary_from_counters(
         cache_sql_compiled_command_miss_cold: ops.cache_sql_compiled_command_miss_cold,
         cache_sql_compiled_command_miss_distinct_key: ops
             .cache_sql_compiled_command_miss_distinct_key,
-        cache_sql_compiled_command_miss_method_version: ops
-            .cache_sql_compiled_command_miss_method_version,
         cache_sql_compiled_command_miss_schema_fingerprint: ops
             .cache_sql_compiled_command_miss_schema_fingerprint,
         cache_sql_compiled_command_miss_surface: ops.cache_sql_compiled_command_miss_surface,
@@ -1091,10 +1045,6 @@ pub(in crate::metrics) fn entity_summary_from_counters(
         sql_compile_reject_cache_key: ops.sql_compile_reject_cache_key,
         sql_compile_reject_parse: ops.sql_compile_reject_parse,
         sql_compile_reject_semantic: ops.sql_compile_reject_semantic,
-        plan_index: ops.plan_index,
-        plan_keys: ops.plan_keys,
-        plan_range: ops.plan_range,
-        plan_full_scan: ops.plan_full_scan,
         plan_by_key: ops.plan_by_key,
         plan_by_keys: ops.plan_by_keys,
         plan_key_range: ops.plan_key_range,

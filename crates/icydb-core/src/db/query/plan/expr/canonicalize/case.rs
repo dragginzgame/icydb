@@ -13,7 +13,7 @@ const MAX_BOOL_CASE_CANONICALIZATION_ARMS: usize = 8;
 
 // Canonicalize one planner-owned boolean searched `CASE` onto the bounded
 // first-match boolean expansion when the resulting expression size stays within
-// the shipped `0.107` threshold. Otherwise preserve the normalized `CASE`
+// the current threshold. Otherwise preserve the normalized `CASE`
 // shape so canonicalization remains explicit and fail-closed.
 pub(super) fn normalize_bool_case_expr(
     when_then_arms: Vec<CaseWhenArm>,

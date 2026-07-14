@@ -24,7 +24,7 @@ use crate::db::codec::hex::encode_hex_lower;
 ///
 /// SchemaAdmissionIdentity
 ///
-/// SchemaAdmissionIdentity is the 0.177 version/method/fingerprint tuple that
+/// SchemaAdmissionIdentity is the version/method/fingerprint tuple that
 /// schema-owned admission compares before mutation compatibility may publish a
 /// changed accepted shape. Query hot paths consume already accepted identity
 /// and must not build this candidate tuple.
@@ -52,7 +52,7 @@ impl SchemaAdmissionIdentity {
 /// SchemaAdmissionIdentityComparison
 ///
 /// Pairs stored and candidate admission identity. Enforcement remains separate
-/// so 0.177 can land identity preparation before changing transition policy.
+/// so identity preparation remains separate from transition policy.
 ///
 
 #[cfg_attr(test, derive(Debug))]
@@ -161,7 +161,7 @@ impl fmt::Debug for SchemaAdmissionRejectionClassification {
     }
 }
 
-// Apply the 0.177 version/method/fingerprint gate before mutation compatibility
+// Apply the version/method/fingerprint gate before mutation compatibility
 // classification. Passing this gate only admits a candidate to compatibility
 // checks; it does not publish the candidate snapshot by itself.
 pub(in crate::db::schema) fn schema_admission_rejection(

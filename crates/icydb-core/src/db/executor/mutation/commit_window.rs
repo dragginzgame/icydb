@@ -9,9 +9,8 @@ use crate::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, CommitSchemaFingerprint,
-            PreparedIndexMutation, PreparedRowCommitOp, begin_commit, begin_single_row_commit,
-            finish_commit, generate_commit_id,
-            prepare_commit_context_for_entity_with_schema_fingerprint,
+            PreparedIndexMutation, PreparedRowCommitOp, begin_commit, finish_commit,
+            generate_commit_id, prepare_commit_context_for_entity_with_schema_fingerprint,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             prepare_row_commit_with_context, rollback_prepared_row_ops_reverse,
         },
@@ -1219,7 +1218,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         });
     }
 
-    let marker = CommitMarker::from_parts(marker_id, Vec::new(), marker_batches)?;
+    let marker = CommitMarker::from_parts(marker_id, marker_batches)?;
 
     Ok(CommitWindowPayload {
         marker,
@@ -1228,10 +1227,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
 }
 
 fn begin_commit_window_payload(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
-    match (marker.row_ops.as_slice(), marker.journal_batches.as_slice()) {
-        ([row_op], []) => begin_single_row_commit(row_op.clone()),
-        _ => begin_commit(marker),
-    }
+    begin_commit(marker)
 }
 
 fn journal_record_for_row_op(row_op: &CommitRowOp) -> Result<JournalRecord, InternalError> {

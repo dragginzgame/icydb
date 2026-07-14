@@ -71,7 +71,7 @@ impl GroupedAggregateBundleSpec {
         max_distinct_values_per_group: u64,
     ) -> Result<Self, InternalError> {
         if (target_field.is_some() || compiled_input_expr.is_some())
-            && !kind.supports_field_target_v1()
+            && !kind.supports_field_target()
         {
             return Err(Self::unsupported_field_target_aggregate(kind));
         }

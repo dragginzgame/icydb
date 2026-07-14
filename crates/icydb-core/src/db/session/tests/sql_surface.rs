@@ -5,6 +5,7 @@ use crate::{
         codec::{decode_row_payload_bytes, serialize_row_payload},
         data::{RawRow, encode_value_with_model_proposal_for_test},
         executor::EntityAuthority,
+        index::{IndexKey, IndexStoreVisit},
         response::Row,
         schema::{
             AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
@@ -4490,17 +4491,10 @@ fn sql_ddl_alter_table_drop_column_binds_ddl_owned_trailing_field() {
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
             .expect("DROP COLUMN should bind DDL-owned trailing accepted fields");
     let BoundSqlDdlStatement::DropColumn(drop) = bound.statement() else {
-        panic!("DROP COLUMN should bind a retained-slot field-drop request");
+        panic!("DROP COLUMN should bind a dense-layout field-drop request");
     };
     let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
         .expect("DROP COLUMN should derive accepted-after metadata");
-    let before_field = accepted_before
-        .persisted_snapshot()
-        .fields()
-        .iter()
-        .find(|field| field.name() == "nickname")
-        .expect("setup field should be present before DROP COLUMN");
-
     assert_eq!(drop.entity_name(), "SessionSqlEntity");
     assert_eq!(drop.field_name(), "nickname");
     assert!(
@@ -4512,14 +4506,14 @@ fn sql_ddl_alter_table_drop_column_binds_ddl_owned_trailing_field() {
             .any(|field| field.name() == "nickname"),
         "DROP COLUMN accepted-after schema should remove the active field",
     );
-    assert!(
+    assert_eq!(
         derivation
             .accepted_after()
             .persisted_snapshot()
             .row_layout()
-            .retired_field_slots()
-            .contains(&(before_field.id(), before_field.slot())),
-        "DROP COLUMN accepted-after schema should retain the retired field slot",
+            .allocated_slot_count(),
+        accepted_before.persisted_snapshot().fields().len() - 1,
+        "DROP COLUMN accepted-after schema should compact the row layout",
     );
 }
 
@@ -4713,7 +4707,7 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
 }
 
 #[test]
-fn sql_ddl_alter_table_drop_column_binds_non_trailing_ddl_fields_as_retired_gaps() {
+fn sql_ddl_alter_table_drop_column_compacts_non_trailing_ddl_fields() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let add_nickname_statement = parse_sql(&ddl_transition_sql(
@@ -4781,22 +4775,22 @@ fn sql_ddl_alter_table_drop_column_binds_non_trailing_ddl_fields_as_retired_gaps
         .accepted_after()
         .clone();
 
-    assert!(
-        accepted_after
-            .persisted_snapshot()
-            .row_layout()
-            .retired_field_slots()
-            .contains(&(nickname.id(), nickname.slot())),
-        "non-trailing DROP COLUMN should retain the retired field slot",
-    );
     assert_eq!(
         accepted_after
             .persisted_snapshot()
             .row_layout()
-            .slot_for_field(handle.id()),
-        Some(handle.slot()),
-        "later active field slot should remain stable after non-trailing DROP COLUMN",
+            .slot_for_field(nickname.id()),
+        Some(nickname.slot()),
+        "later active field should move into the removed dense identity and slot",
     );
+    let compacted_handle = accepted_after
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == handle.name())
+        .expect("later active field should remain after DROP COLUMN");
+    assert_eq!(compacted_handle.id(), nickname.id());
+    assert_eq!(compacted_handle.slot(), nickname.slot());
 }
 
 #[test]
@@ -6336,7 +6330,7 @@ fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
             "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
             2,
         ))
-        .expect("DROP COLUMN should publish retained-slot field removal")
+        .expect("DROP COLUMN should publish dense field removal")
     else {
         panic!("DROP COLUMN should return a DDL report");
     };
@@ -6345,6 +6339,7 @@ fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
     assert_eq!(report.target_index(), "nickname");
     assert_eq!(report.field_path(), ["nickname".to_string()]);
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 1);
     let after =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("SHOW COLUMNS should read accepted schema after DROP COLUMN");
@@ -6363,13 +6358,9 @@ fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
             .expect("schema should remain readable after DROP COLUMN")
             .expect("schema should remain published after DROP COLUMN");
 
-        assert!(
-            latest
-                .row_layout()
-                .retired_field_slots()
-                .iter()
-                .any(|(_, slot)| *slot == nickname_slot),
-            "DROP COLUMN should retain the retired physical slot",
+        assert_eq!(
+            latest.row_layout().allocated_slot_count(),
+            nickname_slot.get() as usize
         );
     });
     let SqlStatementResult::Projection {
@@ -6415,7 +6406,7 @@ fn execute_sql_ddl_drop_column_if_exists_reports_no_op_for_missing_column() {
 }
 
 #[test]
-fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
+fn execute_sql_ddl_add_column_reuses_compacted_drop_column_slot() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -6442,13 +6433,13 @@ fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
             "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
             2,
         ))
-        .expect("DROP COLUMN should publish retained-slot field removal");
+        .expect("DROP COLUMN should publish dense field removal");
     session
         .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
             3,
         ))
-        .expect("second ADD COLUMN should publish after retained-slot field removal");
+        .expect("second ADD COLUMN should publish after dense field removal");
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store
@@ -6461,18 +6452,10 @@ fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
             .find(|field| field.name() == "handle")
             .expect("second DDL field should be active");
 
-        assert_ne!(
+        assert_eq!(
             handle.slot(),
             nickname_slot,
-            "ADD COLUMN must not reuse a retained retired slot",
-        );
-        assert!(
-            latest
-                .row_layout()
-                .retired_field_slots()
-                .iter()
-                .any(|(_, slot)| *slot == nickname_slot),
-            "retired DROP COLUMN slot should stay allocated after later ADD COLUMN",
+            "ADD COLUMN should reuse the compacted dense tail slot",
         );
     });
 }
@@ -6526,7 +6509,7 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
             "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
             3,
         ))
-        .expect("DROP COLUMN should publish non-trailing retained-slot field removal");
+        .expect("DROP COLUMN should publish non-trailing dense field removal");
     let SqlStatementResult::Projection {
         columns,
         rows,
@@ -6536,7 +6519,7 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
         &session,
         "SELECT name, handle FROM SessionSqlEntity WHERE name = 'Ada'",
     )
-    .expect("later active DDL field should query through a retired slot gap")
+    .expect("later active DDL field should query through its compacted slot")
     else {
         panic!("SELECT after non-trailing DROP COLUMN should emit projection rows");
     };
@@ -6560,15 +6543,8 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
             .find(|field| field.name() == "handle")
             .expect("later DDL field should remain active after non-trailing DROP COLUMN");
 
-        assert_eq!(handle.slot(), handle_slot);
-        assert!(
-            latest
-                .row_layout()
-                .retired_field_slots()
-                .iter()
-                .any(|(_, slot)| *slot == nickname_slot),
-            "non-trailing DROP COLUMN should retain the retired physical slot",
-        );
+        assert_ne!(handle.slot(), handle_slot);
+        assert_eq!(handle.slot(), nickname_slot);
     });
 }
 
@@ -7584,6 +7560,60 @@ fn execute_sql_ddl_publishes_and_drops_supported_multi_field_path_index() {
     assert_eq!(report.target_index(), "session_sql_age_name_idx");
     assert_eq!(report.field_path(), ["age,name".to_string()]);
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_drop_index_compacts_surviving_metadata_and_physical_keys() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+            1,
+        ))
+        .expect("first DDL index should publish");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)",
+            2,
+        ))
+        .expect("second DDL index should publish");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "DROP INDEX session_sql_age_idx ON SessionSqlEntity",
+            3,
+        ))
+        .expect("dropping the first DDL index should compact surviving identities");
+
+    let accepted = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("compacted accepted schema should remain readable")
+            .expect("index drop should publish a compacted accepted schema")
+    });
+    let [survivor] = accepted.indexes() else {
+        panic!("index drop should leave exactly one accepted index");
+    };
+    assert_eq!(survivor.name(), "session_sql_name_idx");
+    assert_eq!(survivor.ordinal(), 1);
+
+    let mut physical_ordinals = Vec::new();
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        store
+            .visit_entries(|raw_key, _| {
+                let key = IndexKey::try_from_raw(raw_key)
+                    .expect("surviving physical index key should decode");
+                physical_ordinals.push(key.index_id().ordinal());
+                Ok::<_, ()>(IndexStoreVisit::Continue)
+            })
+            .expect("infallible test visitor should complete");
+    });
+    assert_eq!(physical_ordinals, vec![1, 1, 1]);
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
@@ -9507,7 +9537,7 @@ fn trace_query_reuses_canonical_equivalent_scalar_filter_plan_identity() {
     seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
 
     // Phase 1: lower two SQL spellings that now belong to the same canonical
-    // scalar filter identity after 0.107/0.108 normalization.
+    // scalar filter identity after canonical normalization.
     let searched_case_sql = "SELECT name \
                              FROM SessionSqlEntity \
                              WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
@@ -9900,47 +9930,6 @@ const fn different_schema_fingerprint_method_version() -> u8 {
 }
 
 #[test]
-fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let query = session
-        .load::<SessionSqlEntity>()
-        .trusted_read_unchecked()
-        .order_term(crate::db::asc("age"))
-        .order_term(crate::db::asc("id"))
-        .limit(1);
-    let schema_fingerprint = session_sql_entity_initial_accepted_schema_cache_fingerprint();
-    let authority = EntityAuthority::for_generated_type_for_test::<SessionSqlEntity>();
-    let old_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
-        authority.clone(),
-        SchemaVersion::initial(),
-        schema_fingerprint,
-        QueryPlanVisibility::StoreReady,
-        query.query().structural(),
-        1,
-    );
-    let new_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
-        authority,
-        SchemaVersion::initial(),
-        schema_fingerprint,
-        QueryPlanVisibility::StoreReady,
-        query.query().structural(),
-        2,
-    );
-    let mut cache = HashSet::new();
-    cache.insert(old_key.clone());
-
-    assert_ne!(
-        old_key, new_key,
-        "shared lower-plan cache identity must include one explicit method version",
-    );
-    assert!(
-        !cache.contains(&new_key),
-        "shared lower-plan cache version mismatch must fail closed instead of reusing an older entry",
-    );
-}
-
-#[test]
 fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
     reset_session_sql_store();
     let session = sql_session();
@@ -9962,7 +9951,6 @@ fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
             schema_fingerprint,
             QueryPlanVisibility::StoreReady,
             query.query().structural(),
-            2,
         );
     let new_key =
         DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests_with_schema_fingerprint_method_version(
@@ -9972,7 +9960,6 @@ fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
             schema_fingerprint,
             QueryPlanVisibility::StoreReady,
             query.query().structural(),
-            2,
         );
     let mut cache = HashSet::new();
     cache.insert(old_key.clone());
@@ -10005,7 +9992,6 @@ fn shared_query_plan_cache_schema_version_mismatch_fails_closed() {
         schema_fingerprint,
         QueryPlanVisibility::StoreReady,
         query.query().structural(),
-        2,
     );
     let new_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
         authority,
@@ -10013,7 +9999,6 @@ fn shared_query_plan_cache_schema_version_mismatch_fails_closed() {
         schema_fingerprint,
         QueryPlanVisibility::StoreReady,
         query.query().structural(),
-        2,
     );
     let mut cache = HashSet::new();
     cache.insert(old_key.clone());
@@ -10029,39 +10014,14 @@ fn shared_query_plan_cache_schema_version_mismatch_fails_closed() {
 }
 
 #[test]
-fn sql_cache_key_version_mismatch_fails_closed() {
-    let compiled_v1 =
-        SqlCompiledCommandCacheKey::query_for_entity_with_method_version::<SessionSqlEntity>(
-            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-            1,
-        );
-    let compiled_v2 =
-        SqlCompiledCommandCacheKey::query_for_entity_with_method_version::<SessionSqlEntity>(
-            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-            2,
-        );
-    let mut compiled_cache = HashSet::new();
-    compiled_cache.insert(compiled_v1.clone());
-
-    assert_ne!(
-        compiled_v1, compiled_v2,
-        "compiled SQL cache identity must include one explicit method version",
-    );
-    assert!(
-        !compiled_cache.contains(&compiled_v2),
-        "compiled SQL cache version mismatch must fail closed instead of reusing an older entry",
-    );
-}
-
-#[test]
 fn sql_cache_key_schema_version_mismatch_fails_closed() {
     let sql = "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1";
     let compiled_v1 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_version::<
         SessionSqlEntity,
-    >(sql, SchemaVersion::initial(), 1);
+    >(sql, SchemaVersion::initial());
     let compiled_v2 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_version::<
         SessionSqlEntity,
-    >(sql, SchemaVersion::new(2), 1);
+    >(sql, SchemaVersion::new(2));
     let mut compiled_cache = HashSet::new();
     compiled_cache.insert(compiled_v1.clone());
 
@@ -10080,10 +10040,10 @@ fn sql_cache_key_schema_revision_mismatch_fails_closed() {
     let sql = "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1";
     let compiled_v1 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_revision::<
         SessionSqlEntity,
-    >(sql, AcceptedSchemaRevision::INITIAL, 3);
+    >(sql, AcceptedSchemaRevision::INITIAL);
     let compiled_v2 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_revision::<
         SessionSqlEntity,
-    >(sql, AcceptedSchemaRevision::new(2), 3);
+    >(sql, AcceptedSchemaRevision::new(2));
     let mut compiled_cache = HashSet::new();
     compiled_cache.insert(compiled_v1.clone());
 
@@ -10105,11 +10065,11 @@ fn sql_cache_key_schema_fingerprint_method_mismatch_fails_closed() {
     let compiled_v1 =
         SqlCompiledCommandCacheKey::query_for_entity_with_schema_fingerprint_method_version::<
             SessionSqlEntity,
-        >(sql, current_method, 1);
+        >(sql, current_method);
     let compiled_v2 =
         SqlCompiledCommandCacheKey::query_for_entity_with_schema_fingerprint_method_version::<
             SessionSqlEntity,
-        >(sql, different_method, 1);
+        >(sql, different_method);
     let mut compiled_cache = HashSet::new();
     compiled_cache.insert(compiled_v1.clone());
 
@@ -10124,27 +10084,23 @@ fn sql_cache_key_schema_fingerprint_method_mismatch_fails_closed() {
 }
 
 #[test]
-fn sql_cache_key_version_keeps_query_and_update_surfaces_separate() {
-    let query_key =
-        SqlCompiledCommandCacheKey::query_for_entity_with_method_version::<SessionSqlEntity>(
-            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-            1,
-        );
-    let update_key =
-        SqlCompiledCommandCacheKey::update_for_entity_with_method_version::<SessionSqlEntity>(
-            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-            1,
-        );
+fn sql_cache_key_keeps_query_and_update_surfaces_separate() {
+    let query_key = SqlCompiledCommandCacheKey::query_for_entity::<SessionSqlEntity>(
+        "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+    );
+    let update_key = SqlCompiledCommandCacheKey::update_for_entity::<SessionSqlEntity>(
+        "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+    );
     let mut cache = HashSet::new();
     cache.insert(query_key.clone());
 
     assert_ne!(
         query_key, update_key,
-        "cache method versioning must not collapse query and update surface identity",
+        "query and update surface identity must remain distinct",
     );
     assert!(
         !cache.contains(&update_key),
-        "query/update surface mismatch must fail closed even when the cache method version matches",
+        "query/update surface mismatch must fail closed",
     );
 }
 

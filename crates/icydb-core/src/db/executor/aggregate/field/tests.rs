@@ -126,6 +126,8 @@ crate::test_entity! {
         crate::test_field! { scores: Vec<u32> => FieldKind::List(&SCORE_LIST_KIND) },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[test]

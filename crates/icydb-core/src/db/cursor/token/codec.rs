@@ -21,7 +21,8 @@ pub(in crate::db::cursor) const MAX_CURSOR_TOKEN_BYTES: usize = 8 * 1024;
 
 const TOKEN_VARIANT_SCALAR: u8 = 1;
 const TOKEN_VARIANT_GROUPED: u8 = 2;
-const TOKEN_WIRE_VERSION: u8 = 2;
+const TOKEN_WIRE_MAGIC: &[u8; 4] = b"ICYQ";
+const TOKEN_WIRE_VERSION: u8 = 1;
 
 const SLOT_MISSING: u8 = 0;
 const SLOT_PRESENT: u8 = 1;
@@ -179,6 +180,7 @@ fn finish_token_encode(bytes: Vec<u8>) -> Result<Vec<u8>, TokenWireError> {
 }
 
 fn write_token_header(out: &mut Vec<u8>, variant: u8) {
+    out.extend_from_slice(TOKEN_WIRE_MAGIC);
     out.push(TOKEN_WIRE_VERSION);
     out.push(variant);
 }
@@ -187,6 +189,11 @@ fn expect_token_variant(
     cursor: &mut ByteCursor<'_>,
     expected_variant: u8,
 ) -> Result<(), TokenWireError> {
+    let magic: [u8; TOKEN_WIRE_MAGIC.len()] = cursor.read_array()?;
+    if &magic != TOKEN_WIRE_MAGIC {
+        return Err(TokenWireError::decode());
+    }
+
     let version = cursor.read_u8()?;
     if version != TOKEN_WIRE_VERSION {
         return Err(TokenWireError::decode());

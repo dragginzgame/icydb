@@ -177,16 +177,6 @@ pub(crate) mod test_support {
         super::input::normalize_shell_statement_line(line)
     }
 
-    pub(crate) fn normalize_grouped_next_cursor_json(value: &mut serde_json::Value) {
-        super::perf::normalize_grouped_next_cursor_json(value);
-    }
-
-    pub(crate) fn parse_perf_result(
-        value: &serde_json::Value,
-    ) -> Result<(icydb::db::sql::SqlQueryResult, ShellPerfAttribution), String> {
-        super::perf::parse_perf_result(value)
-    }
-
     pub(crate) fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
         super::perf::render_perf_suffix(attribution)
     }

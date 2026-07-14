@@ -161,7 +161,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "02024242424242424242424242424242424242424242424242424242424242424242000000000400000003110000000874656e616e742d611300000000000000070201"
+            "4943595101024242424242424242424242424242424242424242424242424242424242424242000000000400000003110000000874656e616e742d611300000000000000070201"
         );
     }
 
@@ -175,7 +175,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "02024242424242424242424242424242424242424242424242424242424242424242010000000400000003110000000874656e616e742d611300000000000000070201",
+            "4943595101024242424242424242424242424242424242424242424242424242424242424242010000000400000003110000000874656e616e742d611300000000000000070201",
             "grouped continuation token DESC wire encoding must remain stable",
         );
     }
@@ -220,7 +220,8 @@ mod tests {
         let encoded = token
             .encode()
             .expect("grouped unit-enum continuation token should encode");
-        let mut expected = vec![2, 2];
+        let mut expected = b"ICYQ".to_vec();
+        expected.extend_from_slice(&[1, 2]);
         expected.extend_from_slice(&[0x33; 32]);
         expected.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 1, 6, 0, 0, 0, 2, 0, 0, 0, 3, 0]);
 

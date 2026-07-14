@@ -65,17 +65,17 @@ pub(super) enum GroupingFingerprintSource<'a> {
 
 // Grouped shape semantics that remain part of continuation identity independent
 // from projection expression hashing.
-pub(super) fn hash_grouping_shape_v1(
+pub(super) fn hash_grouping_shape(
     hasher: &mut Sha256,
     source: GroupingFingerprintSource<'_>,
     include_group_strategy: bool,
 ) {
     let grouping = ProjectedGroupingShape::from_source(source);
 
-    hash_projected_grouping_shape_v1(hasher, &grouping, include_group_strategy);
+    hash_projected_grouping_shape(hasher, &grouping, include_group_strategy);
 }
 
-pub(super) fn hash_projection_spec_v1(
+pub(super) fn hash_projection_spec(
     hasher: &mut Sha256,
     projection: Option<&ProjectionSpec>,
     grouping: GroupingFingerprintSource<'_>,
@@ -93,7 +93,7 @@ pub(super) fn hash_projection_spec_v1(
         }
     }
 
-    hash_projected_grouping_shape_v1(hasher, &projected_grouping, include_group_strategy);
+    hash_projected_grouping_shape(hasher, &projected_grouping, include_group_strategy);
 }
 
 impl<'a> ProjectedGroupingShape<'a> {
@@ -232,7 +232,7 @@ impl<'a> ProjectedGroupingShape<'a> {
 // This is one grouped semantic identity surface, so it intentionally consumes
 // canonical grouped form. Prepared/template identity remains outside this seam
 // and stays syntax-bound in the SQL-front-end caches.
-fn hash_projected_grouping_shape_v1(
+fn hash_projected_grouping_shape(
     hasher: &mut Sha256,
     grouping: &ProjectedGroupingShape<'_>,
     include_group_strategy: bool,

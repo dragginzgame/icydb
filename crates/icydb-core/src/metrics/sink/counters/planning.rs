@@ -6,8 +6,8 @@ use crate::metrics::{
     state as metrics,
 };
 
-// Keep the legacy coarse global plan groups in lockstep with the detailed
-// route counters so existing dashboards and newer diagnostics can agree.
+// Record the exact selected route kind without maintaining overlapping coarse
+// groups that callers would otherwise have to reconcile.
 #[remain::check]
 pub(in crate::metrics::sink) const fn record_global_plan_kind(
     ops: &mut metrics::EventOps,
@@ -16,43 +16,33 @@ pub(in crate::metrics::sink) const fn record_global_plan_kind(
     #[remain::sorted]
     match kind {
         PlanKind::ByKey => {
-            ops.plan_keys = ops.plan_keys.saturating_add(1);
             ops.plan_by_key = ops.plan_by_key.saturating_add(1);
         }
         PlanKind::ByKeys => {
-            ops.plan_keys = ops.plan_keys.saturating_add(1);
             ops.plan_by_keys = ops.plan_by_keys.saturating_add(1);
         }
         PlanKind::FullScan => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
         }
         PlanKind::IndexBranchSet => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_branch_set = ops.plan_index_branch_set.saturating_add(1);
         }
         PlanKind::IndexMultiLookup => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_multi_lookup = ops.plan_index_multi_lookup.saturating_add(1);
         }
         PlanKind::IndexPrefix => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
         }
         PlanKind::IndexRange => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_range = ops.plan_index_range.saturating_add(1);
         }
         PlanKind::Intersection => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_intersection = ops.plan_intersection.saturating_add(1);
         }
         PlanKind::KeyRange => {
-            ops.plan_range = ops.plan_range.saturating_add(1);
             ops.plan_key_range = ops.plan_key_range.saturating_add(1);
         }
         PlanKind::Union => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_union = ops.plan_union.saturating_add(1);
         }
     }
@@ -160,43 +150,33 @@ pub(in crate::metrics::sink) const fn record_entity_plan_kind(
     #[remain::sorted]
     match kind {
         PlanKind::ByKey => {
-            ops.plan_keys = ops.plan_keys.saturating_add(1);
             ops.plan_by_key = ops.plan_by_key.saturating_add(1);
         }
         PlanKind::ByKeys => {
-            ops.plan_keys = ops.plan_keys.saturating_add(1);
             ops.plan_by_keys = ops.plan_by_keys.saturating_add(1);
         }
         PlanKind::FullScan => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
         }
         PlanKind::IndexBranchSet => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_branch_set = ops.plan_index_branch_set.saturating_add(1);
         }
         PlanKind::IndexMultiLookup => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_multi_lookup = ops.plan_index_multi_lookup.saturating_add(1);
         }
         PlanKind::IndexPrefix => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
         }
         PlanKind::IndexRange => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_range = ops.plan_index_range.saturating_add(1);
         }
         PlanKind::Intersection => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_intersection = ops.plan_intersection.saturating_add(1);
         }
         PlanKind::KeyRange => {
-            ops.plan_range = ops.plan_range.saturating_add(1);
             ops.plan_key_range = ops.plan_key_range.saturating_add(1);
         }
         PlanKind::Union => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_union = ops.plan_union.saturating_add(1);
         }
     }

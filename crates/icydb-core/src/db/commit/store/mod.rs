@@ -12,7 +12,7 @@ mod tests;
 use crate::{
     db::{
         commit::{
-            marker::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES, validate_commit_marker_shape},
+            marker::{CommitMarker, MAX_COMMIT_BYTES, validate_commit_marker_shape},
             memory::{
                 CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
             },
@@ -20,8 +20,7 @@ use crate::{
                 control_slot::{
                     COMMIT_CONTROL_HEADER_BYTES, commit_control_slot_encoded_len,
                     decode_commit_control_slot, encode_commit_control_slot_from_marker,
-                    encode_empty_commit_control_slot, encode_single_row_commit_control_slot,
-                    inspect_commit_control_slot,
+                    encode_empty_commit_control_slot, inspect_commit_control_slot,
                 },
                 marker_envelope::decode_commit_marker,
             },
@@ -136,15 +135,6 @@ impl CommitStore {
         encode_commit_marker_bytes(format_version, &marker_payload)
     }
 
-    /// Encode one single-row commit-control slot payload for regression tests.
-    #[cfg(test)]
-    pub(super) fn encode_raw_single_row_control_slot_for_tests(
-        marker_id: [u8; 16],
-        row_op: &CommitRowOp,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_single_row_commit_control_slot(marker_id, row_op)
-    }
-
     /// Encode one multi-row commit-control slot payload for regression tests.
     #[cfg(test)]
     pub(super) fn encode_raw_direct_control_slot_for_tests(
@@ -201,24 +191,6 @@ impl CommitStore {
     pub(super) fn set_if_empty(&self, marker: &CommitMarker) -> Result<(), InternalError> {
         self.require_empty_marker_slot()?;
         let encoded = encode_commit_control_slot_from_marker(marker)?;
-
-        #[cfg(test)]
-        hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;
-        self.write_control_slot(&encoded)?;
-        mark_commit_marker_may_be_present();
-        #[cfg(test)]
-        hit_commit_failpoint(CommitFailpoint::AfterMarkerWrite)?;
-        Ok(())
-    }
-
-    /// Persist one single-row marker while proving the current slot has no marker.
-    pub(super) fn set_single_row_op_if_empty(
-        &self,
-        marker_id: [u8; 16],
-        row_op: &CommitRowOp,
-    ) -> Result<(), InternalError> {
-        self.require_empty_marker_slot()?;
-        let encoded = encode_single_row_commit_control_slot(marker_id, row_op)?;
 
         #[cfg(test)]
         hit_commit_failpoint(CommitFailpoint::BeforeMarkerWrite)?;

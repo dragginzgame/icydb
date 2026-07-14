@@ -170,10 +170,7 @@ impl StructuralRowContract {
         self.field_count
     }
 
-    /// Return the maximum physical slot count this row contract can accept.
-    ///
-    /// Accepted contracts may allow current-format rows to carry trailing
-    /// retired slots that are no longer visible through the active schema.
+    /// Return the maximum current physical slot count this row contract accepts.
     #[must_use]
     pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
         self.max_physical_slot_count
@@ -324,8 +321,8 @@ impl StructuralRowContract {
 
     // Validate that one physical row slot count can be read through this
     // structural contract. Rows may be short when trailing additions can
-    // materialize from schema metadata, or long when trailing retired slots
-    // still exist in older physical rows from the current format.
+    // materialize from schema metadata, but current rows cannot be longer than
+    // the accepted dense layout.
     fn validate_physical_slot_count(&self, physical_count: usize) -> Result<(), InternalError> {
         if physical_count > self.max_physical_slot_count() {
             return Err(InternalError::persisted_row_decode_corruption());

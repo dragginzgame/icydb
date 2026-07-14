@@ -15,7 +15,7 @@ use std::cmp::Ordering;
 pub(in crate::db) const MAX_ACCEPTED_VALUE_DEPTH: u16 = 64;
 pub(in crate::db) const MAX_ACCEPTED_VALUE_BYTES: u32 = 4 * 1024 * 1024;
 
-/// Runtime `Value` is the canonical accepted-value domain in 0.200.
+/// Runtime `Value` is the canonical accepted-value domain.
 pub(in crate::db) type CanonicalValue = Value;
 
 type AdmittedEnumValue = ValueEnum;

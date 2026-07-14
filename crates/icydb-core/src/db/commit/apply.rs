@@ -1,7 +1,7 @@
 //! Module: db::commit::apply
 //! Responsibility: apply precomputed row/index mutations to stores.
 //! Does not own: mutation preparation, commit-marker durability, or recovery orchestration.
-//! Boundary: commit::{prepared_op,prepare,rebuild,replay} -> commit::apply (one-way).
+//! Boundary: commit::{prepared_op,prepare,rebuild} -> commit::apply (one-way).
 
 use crate::db::commit::{PreparedIndexMutation, PreparedRowCommitOp};
 

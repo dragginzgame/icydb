@@ -58,6 +58,8 @@ crate::test_entity! {
         crate::test_field! { portrait: Blob => FieldKind::Blob { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 fn decode_test_row(entity: &RowDecodeEntity) -> KernelRow {
@@ -664,6 +666,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[test]

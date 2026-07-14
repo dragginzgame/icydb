@@ -495,7 +495,7 @@ fn accepted_schema_root_publication_checks_revision_and_alternates_slots() {
 }
 
 #[test]
-fn accepted_schema_bundle_rejects_trailing_and_noncurrent_bytes() {
+fn accepted_schema_bundle_rejects_trailing_and_future_version_bytes() {
     let candidate = candidate(1);
     let mut trailing = candidate.encoded_bundle().to_vec();
     trailing.push(0);

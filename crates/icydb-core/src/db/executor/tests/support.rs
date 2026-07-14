@@ -252,6 +252,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&INDEXED_METRICS_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -291,6 +293,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PUSHDOWN_PARITY_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -330,6 +334,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -366,6 +372,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 // Clear the test data store and any pending commit marker between runs.
@@ -565,6 +573,8 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -597,6 +607,8 @@ crate::test_entity! {
         } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -745,6 +757,7 @@ crate::test_entity! {
             fields = [target_tenant_id, target_local_id],
         },
     ],
+    entity_value = id_field(id),
 }
 
 ///
@@ -785,6 +798,7 @@ crate::test_entity! {
             fields = [target_tenant_id, target_local_id],
         },
     ],
+    entity_value = id_field(id),
 }
 
 ///
@@ -939,6 +953,8 @@ crate::test_entity! {
         } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -971,6 +987,8 @@ crate::test_entity! {
         } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -1007,6 +1025,8 @@ crate::test_entity! {
         crate::test_field! { targets: Vec<Ulid> => FieldKind::List(&REL_WEAK_LIST_TARGET_KIND) },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -1043,6 +1063,8 @@ crate::test_entity! {
         crate::test_field! { targets: Vec<Ulid> => FieldKind::Set(&REL_WEAK_SET_TARGET_KIND) },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 // Clear relation test stores and any pending commit marker between runs.

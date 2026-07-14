@@ -443,6 +443,27 @@ impl PersistedRelationEdgeSnapshot {
     pub(in crate::db) const fn local_field_ids(&self) -> &[FieldId] {
         self.local_field_ids.as_slice()
     }
+
+    /// Clone this relation after dense field-identity reassignment.
+    #[must_use]
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn clone_with_mapped_field_ids(
+        &self,
+        mut map: impl FnMut(FieldId) -> Option<FieldId>,
+    ) -> Option<Self> {
+        let local_field_ids = self
+            .local_field_ids
+            .iter()
+            .copied()
+            .map(&mut map)
+            .collect::<Option<Vec<_>>>()?;
+
+        Some(Self::new(
+            self.name.clone(),
+            self.target_path.clone(),
+            local_field_ids,
+        ))
+    }
 }
 
 ///
@@ -617,6 +638,25 @@ impl PersistedIndexSnapshot {
             }),
         }
     }
+
+    /// Clone this index after dense ordinal and field-layout reassignment.
+    #[must_use]
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn clone_with_dense_identities(
+        &self,
+        ordinal: u16,
+        map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
+    ) -> Option<Self> {
+        Some(Self {
+            ordinal,
+            name: self.name.clone(),
+            store: self.store.clone(),
+            unique: self.unique,
+            origin: self.origin,
+            key: self.key.clone_with_mapped_field_layout(map)?,
+            predicate_sql: self.predicate_sql.clone(),
+        })
+    }
 }
 
 ///
@@ -691,6 +731,25 @@ impl PersistedIndexKeySnapshot {
             ),
         }
     }
+
+    #[cfg(any(test, feature = "sql"))]
+    fn clone_with_mapped_field_layout(
+        &self,
+        map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
+    ) -> Option<Self> {
+        match self {
+            Self::FieldPath(paths) => paths
+                .iter()
+                .map(|path| path.clone_with_mapped_field_layout(map))
+                .collect::<Option<Vec<_>>>()
+                .map(Self::FieldPath),
+            Self::Items(items) => items
+                .iter()
+                .map(|item| item.clone_with_mapped_field_layout(map))
+                .collect::<Option<Vec<_>>>()
+                .map(Self::Items),
+        }
+    }
 }
 
 ///
@@ -732,6 +791,22 @@ impl PersistedIndexKeyItemSnapshot {
             Self::Expression(expression) => Self::Expression(Box::new(
                 expression.clone_with_renamed_source_root(field_id, new_name),
             )),
+        }
+    }
+
+    #[cfg(any(test, feature = "sql"))]
+    fn clone_with_mapped_field_layout(
+        &self,
+        map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
+    ) -> Option<Self> {
+        match self {
+            Self::FieldPath(path) => path
+                .clone_with_mapped_field_layout(map)
+                .map(Self::FieldPath),
+            Self::Expression(expression) => expression
+                .clone_with_mapped_field_layout(map)
+                .map(Box::new)
+                .map(Self::Expression),
         }
     }
 }
@@ -822,6 +897,21 @@ impl PersistedIndexFieldPathSnapshot {
             nullable: self.nullable,
         }
     }
+
+    #[cfg(any(test, feature = "sql"))]
+    fn clone_with_mapped_field_layout(
+        &self,
+        map: impl Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
+    ) -> Option<Self> {
+        let (field_id, slot) = map(self.field_id, self.slot)?;
+        Some(Self {
+            field_id,
+            slot,
+            path: self.path.clone(),
+            kind: self.kind.clone(),
+            nullable: self.nullable,
+        })
+    }
 }
 
 ///
@@ -909,6 +999,20 @@ impl PersistedIndexExpressionSnapshot {
             output_kind: self.output_kind.clone(),
             canonical_text,
         }
+    }
+
+    #[cfg(any(test, feature = "sql"))]
+    fn clone_with_mapped_field_layout(
+        &self,
+        map: impl Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
+    ) -> Option<Self> {
+        Some(Self {
+            op: self.op,
+            source: self.source.clone_with_mapped_field_layout(map)?,
+            input_kind: self.input_kind.clone(),
+            output_kind: self.output_kind.clone(),
+            canonical_text: self.canonical_text.clone(),
+        })
     }
 }
 
@@ -1170,6 +1274,25 @@ impl PersistedFieldSnapshot {
             id: self.id,
             name,
             slot: self.slot,
+            kind: self.kind.clone(),
+            nested_leaves: self.nested_leaves.clone(),
+            nullable: self.nullable,
+            default: self.default.clone(),
+            write_policy: self.write_policy,
+            origin: self.origin,
+            storage_decode: self.storage_decode,
+            leaf_codec: self.leaf_codec,
+        }
+    }
+
+    /// Return a copy with a reassigned dense field ID and physical slot.
+    #[must_use]
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn clone_with_identity(&self, id: FieldId, slot: SchemaFieldSlot) -> Self {
+        Self {
+            id,
+            name: self.name.clone(),
+            slot,
             kind: self.kind.clone(),
             nested_leaves: self.nested_leaves.clone(),
             nullable: self.nullable,

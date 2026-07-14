@@ -1,7 +1,7 @@
 use super::profile::{CONTINUATION_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_STEPS};
 
 #[test]
-fn fingerprint_v1_profile_excludes_grouping_shape_field() {
+fn fingerprint_profile_excludes_grouping_shape_field() {
     let has_grouping_shape = FINGERPRINT_STEPS
         .iter()
         .any(|step| step.field == ExplainHashField::GroupingShape);
@@ -25,7 +25,7 @@ fn continuation_profile_includes_grouping_shape_field() {
 }
 
 #[test]
-fn fingerprint_v1_profile_projection_slot_is_stable() {
+fn fingerprint_profile_projection_slot_is_stable() {
     let projection_slots = FINGERPRINT_STEPS
         .iter()
         .filter(|step| step.field == ExplainHashField::ProjectionSpec)

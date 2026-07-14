@@ -578,7 +578,7 @@ impl SchemaFieldPathIndexPublishedStoreReport {
 /// SchemaFieldPathIndexStagedStorePublicationBlocker
 ///
 /// Remaining publication barriers after a staged field-path index overlay has
-/// been validated. 0.153 keeps these explicit so overlay validation cannot be
+/// been validated. These remain explicit so overlay validation cannot be
 /// mistaken for accepted snapshot publication.
 ///
 

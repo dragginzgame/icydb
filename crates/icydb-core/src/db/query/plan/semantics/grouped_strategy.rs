@@ -272,7 +272,7 @@ pub(in crate::db) fn grouped_plan_strategy(
 fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) -> bool {
     aggregates
         .iter()
-        .all(GroupAggregateSpec::streaming_compatible_v1)
+        .all(GroupAggregateSpec::streaming_compatible)
 }
 
 // Lift the repeated hash-group fallback constructor so grouped strategy

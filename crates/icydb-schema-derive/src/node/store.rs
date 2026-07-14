@@ -497,7 +497,7 @@ mod tests {
             store_name = "users",
             canister = "AppCanister"
         ))
-        .expect_err("0.167 requires explicit store storage");
+        .expect_err("stores require explicit storage");
 
         assert!(
             err.to_string().contains("storage(heap())"),
@@ -565,7 +565,7 @@ mod tests {
                 journal_memory_id = 13,
             ))
         ))
-        .expect("journaled storage full form should parse in 0.174");
+        .expect("journaled storage full form should parse");
         let journaled = store.storage.journaled().expect("journaled storage config");
 
         assert_eq!(journaled.data, 10);

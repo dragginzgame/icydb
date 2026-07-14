@@ -1,4 +1,3 @@
-use super::{PersistedSchemaSnapshotWire, SCHEMA_SNAPSHOT_CODEC_VERSION, SchemaRowLayoutWire};
 use crate::{
     db::schema::{
         AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
@@ -12,38 +11,6 @@ use crate::{
         FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
     },
 };
-use candid::Encode;
-
-#[test]
-fn decode_persisted_schema_snapshot_rejects_obsolete_codec_without_version_inference() {
-    let wire = PersistedSchemaSnapshotWire {
-        codec_version: SCHEMA_SNAPSHOT_CODEC_VERSION.saturating_sub(1),
-        version: SchemaVersion::initial().get(),
-        entity_path: "entities::Obsolete".to_string(),
-        entity_name: "Obsolete".to_string(),
-        primary_key_field_ids: Vec::new(),
-        row_layout: SchemaRowLayoutWire {
-            version: SchemaVersion::initial().get(),
-            field_to_slot: Vec::new(),
-            retired_field_slots: Vec::new(),
-        },
-        fields: Vec::new(),
-        indexes: Vec::new(),
-        relations: Vec::new(),
-    };
-    let encoded =
-        Encode!(&wire).expect("obsolete schema snapshot fixture should still Candid-encode");
-
-    let err = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("obsolete schema snapshot codec should hard-cut");
-
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
-        "obsolete schema snapshots should fail before schema_version inference"
-    );
-}
-
 #[test]
 fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
     let snapshot = PersistedSchemaSnapshot::new(
@@ -87,6 +54,122 @@ fn decode_persisted_schema_snapshot_rejects_snapshot_layout_version_mismatch() {
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "schema codec should report the decoded version invariant"
+    );
+}
+
+#[test]
+fn decode_persisted_schema_snapshot_rejects_fragmented_field_identities() {
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::FragmentedFields".to_string(),
+        "FragmentedFields".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(3), SchemaFieldSlot::new(2)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            ),
+            PersistedFieldSnapshot::new(
+                FieldId::new(3),
+                "email".to_string(),
+                SchemaFieldSlot::new(2),
+                AcceptedFieldKind::Text { max_len: None },
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Text),
+            ),
+        ],
+    );
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("fragmented field identities should reach decode integrity validation");
+
+    let err = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("decode should reject fragmented field IDs and slots");
+
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+    );
+}
+
+#[test]
+fn decode_persisted_schema_snapshot_rejects_fragmented_index_ordinals() {
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+        SchemaVersion::initial(),
+        "entities::FragmentedIndexes".to_string(),
+        "FragmentedIndexes".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            ),
+            PersistedFieldSnapshot::new(
+                FieldId::new(2),
+                "email".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Text { max_len: None },
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Text),
+            ),
+        ],
+        vec![PersistedIndexSnapshot::new(
+            2,
+            "idx_fragmented_indexes__email".to_string(),
+            "fragmented_indexes::email".to_string(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["email".to_string()],
+                AcceptedFieldKind::Text { max_len: None },
+                false,
+            )]),
+            None,
+        )],
+    );
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("fragmented index ordinal should reach decode integrity validation");
+
+    let err = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("decode should reject fragmented index ordinals");
+
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
     );
 }
 
@@ -416,7 +499,7 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
-            7,
+            1,
             "idx_indexed__email".to_string(),
             "indexed::email".to_string(),
             true,
@@ -438,7 +521,7 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
 
     assert_eq!(decoded.indexes().len(), 1);
     let index = &decoded.indexes()[0];
-    assert_eq!(index.ordinal(), 7);
+    assert_eq!(index.ordinal(), 1);
     assert_eq!(index.name(), "idx_indexed__email");
     assert_eq!(index.store(), "indexed::email");
     assert!(index.unique());
@@ -556,7 +639,7 @@ fn persisted_schema_snapshot_round_trips_expression_indexes() {
             ),
         ],
         vec![PersistedIndexSnapshot::new(
-            8,
+            1,
             "idx_expression_indexed__lower_email".to_string(),
             "expression_indexed::lower_email".to_string(),
             true,

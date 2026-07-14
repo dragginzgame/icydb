@@ -267,12 +267,8 @@ fn journaled_session_recovery_repairs_missing_marker_bound_journal_tail_batch() 
         .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
     JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
 
-    let marker = crate::db::commit::CommitMarker::from_parts(
-        batch.commit_marker_id(),
-        Vec::new(),
-        vec![batch],
-    )
-    .expect("marker-bound journal recovery fixture should build");
+    let marker = crate::db::commit::CommitMarker::from_parts(batch.commit_marker_id(), vec![batch])
+        .expect("marker-bound journal recovery fixture should build");
     crate::db::commit::begin_commit(marker)
         .expect("marker-bound journal recovery fixture should persist marker");
     ensure_recovered(&JOURNALED_SESSION_SQL_DB)
@@ -328,12 +324,8 @@ fn journaled_session_recovery_reuses_matching_marker_bound_journal_tail_batch() 
     JOURNALED_SESSION_SQL_SCHEMA_STORE
         .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
 
-    let marker = crate::db::commit::CommitMarker::from_parts(
-        batch.commit_marker_id(),
-        Vec::new(),
-        vec![batch],
-    )
-    .expect("marker-bound journal recovery fixture should build");
+    let marker = crate::db::commit::CommitMarker::from_parts(batch.commit_marker_id(), vec![batch])
+        .expect("marker-bound journal recovery fixture should build");
     crate::db::commit::begin_commit(marker)
         .expect("marker-bound journal recovery fixture should persist marker");
     ensure_recovered(&JOURNALED_SESSION_SQL_DB)
@@ -398,7 +390,6 @@ fn journaled_session_recovery_rejects_mismatched_marker_bound_journal_tail_batch
     .expect("conflicting same-sequence journal batch should build");
     let marker = crate::db::commit::CommitMarker::from_parts(
         conflicting.commit_marker_id(),
-        Vec::new(),
         vec![conflicting],
     )
     .expect("conflicting marker-bound journal fixture should build");

@@ -158,6 +158,8 @@ crate::test_entity! {
         crate::test_field! { scores: Vec<u64> => FieldKind::List(&ROUTE_CAPABILITY_SCORE_KIND) },
     ],
     indexes = [&ROUTE_CAPABILITY_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -194,6 +196,8 @@ crate::test_entity! {
         crate::test_field! { code: u32 => FieldKind::Nat64 },
     ],
     indexes = [&UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 fn initial_scalar_continuation_context() -> ScalarContinuationContext {

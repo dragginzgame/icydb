@@ -6,10 +6,8 @@
 use crate::{
     db::commit::{
         marker::{
-            CommitMarker, CommitRowOp, MAX_COMMIT_BYTES, commit_marker_payload_capacity,
-            single_row_commit_marker_payload_capacity, validate_commit_marker_shape,
-            validate_commit_row_op_shape, write_commit_marker_payload,
-            write_single_row_commit_marker_payload,
+            CommitMarker, MAX_COMMIT_BYTES, commit_marker_payload_capacity,
+            validate_commit_marker_shape, write_commit_marker_payload,
         },
         store::{bytes::read_u32_le, marker_envelope::write_commit_marker_envelope_header},
     },
@@ -161,27 +159,8 @@ pub(super) fn encode_commit_control_slot_from_marker(
     Ok(encoded)
 }
 
-// Encode the full control slot for a single-row marker directly so hot
-// save/delete opens do not allocate intermediate marker payload vectors.
-pub(super) fn encode_single_row_commit_control_slot(
-    marker_id: [u8; 16],
-    row_op: &CommitRowOp,
-) -> Result<Vec<u8>, InternalError> {
-    validate_commit_row_op_shape(row_op)?;
-
-    let marker_payload_len = single_row_commit_marker_payload_capacity(row_op);
-    let lengths = checked_control_slot_lengths(marker_payload_len)?;
-
-    let mut encoded = Vec::with_capacity(lengths.capacity);
-    write_commit_control_slot_header(&mut encoded, lengths.marker_length);
-    write_commit_marker_envelope_header(&mut encoded, lengths.payload_size)?;
-    write_single_row_commit_marker_payload(&mut encoded, marker_id, row_op)?;
-
-    Ok(encoded)
-}
-
 // Validate and materialize the shared control-slot lengths used by the direct
-// multi-row and single-row marker encoders.
+// marker encoder.
 fn checked_control_slot_lengths(
     marker_payload_len: usize,
 ) -> Result<ControlSlotLengths, InternalError> {

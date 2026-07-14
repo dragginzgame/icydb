@@ -202,6 +202,8 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -234,6 +236,8 @@ crate::test_entity! {
         } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -266,6 +270,8 @@ crate::test_entity! {
         } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -298,6 +304,8 @@ crate::test_entity! {
         } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -330,6 +338,8 @@ crate::test_entity! {
         } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -364,6 +374,8 @@ crate::test_entity! {
         crate::test_field! { targets: Vec<Ulid> => FieldKind::Set(&SOURCE_SET_TARGET_KIND) },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -398,6 +410,8 @@ crate::test_entity! {
         crate::test_field! { parents: Vec<Ulid> => FieldKind::Set(&SELF_RELATION_PARENT_KIND) },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -574,6 +588,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 impl crate::db::PersistedRow for StructuredSelectionEntity {
@@ -690,6 +706,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 impl crate::db::PersistedRow for StructuredSelectionSetEntity {
@@ -829,6 +847,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 impl crate::db::PersistedRow for StructuredSelectionMapEntity {
@@ -899,6 +919,8 @@ crate::test_entity! {
         crate::test_field! { email: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&UNIQUE_EMAIL_INDEX],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
@@ -1070,7 +1092,7 @@ crate::test_entity! {
     ],
     indexes = [],
     relations = [],
-    entity_value = id_field(actual_id),
+    entity_value = id_field(id),
 }
 
 ///
@@ -1149,6 +1171,8 @@ crate::test_entity! {
         crate::test_field! { amount: SaveScale2Decimal => FieldKind::Decimal { scale: 2 } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -1174,6 +1198,8 @@ crate::test_entity! {
         crate::test_field! { name: String => FieldKind::Text { max_len: Some(3) } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -1209,6 +1235,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 ///
@@ -1242,6 +1270,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[

@@ -65,6 +65,8 @@ crate::test_entity! {
         crate::test_field! { id: u64 => FieldKind::Nat64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 fn text_group_key(value: &str) -> crate::db::executor::group::GroupKey {

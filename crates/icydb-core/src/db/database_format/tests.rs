@@ -87,8 +87,8 @@ fn current_database_boot_record_wire_vector_is_frozen() {
     assert_eq!(
         DatabaseBootRecord::current().encode(),
         [
-            0x49, 0x43, 0x59, 0x44, 0x42, 0x42, 0x4f, 0x54, 0x00, 0x01, 0x01, 0xa9, 0xe0, 0x21,
-            0x1a,
+            0x49, 0x43, 0x59, 0x44, 0x42, 0x4e, 0x4f, 0x57, 0x00, 0x01, 0x01, 0x19, 0x31, 0x87,
+            0x4b,
         ],
     );
     assert_eq!(crc32c(b"123456789"), 0xe306_9283);
@@ -146,24 +146,6 @@ fn missing_boot_with_nonvirgin_store_role_rejects_as_unsupported() {
 }
 
 #[test]
-fn legacy_commit_stable_cell_rejects_as_missing_old_format() {
-    let control = VectorMemory::default();
-    let roles = [empty_store_roles()];
-    assert!(control.grow(1) >= 0);
-    control.write(0, LEGACY_STABLE_CELL_MAGIC);
-
-    assert_eq!(
-        admit_or_initialize_database_format(&control, &roles),
-        Err(DatabaseFormatGateError::Admission(
-            DatabaseFormatAdmissionError::UnsupportedFormatVersion {
-                found: None,
-                required: DATABASE_FORMAT_VERSION_CURRENT,
-            }
-        )),
-    );
-}
-
-#[test]
 fn current_boot_admits_nonempty_current_store_roles_without_decoding_them() {
     let control = VectorMemory::default();
     let roles = [empty_store_roles()];
@@ -175,7 +157,7 @@ fn current_boot_admits_nonempty_current_store_roles_without_decoding_them() {
 }
 
 #[test]
-fn noncurrent_valid_boot_record_rejects_with_found_version() {
+fn future_valid_boot_record_rejects_with_found_version() {
     let control = VectorMemory::default();
     let roles = [empty_store_roles()];
     let record = DatabaseBootRecord {
@@ -285,20 +267,20 @@ fn admission_errors_keep_unsupported_and_malformed_details_distinct() {
 }
 
 #[test]
-fn recovery_entry_rejects_noncurrent_boot_before_commit_decode() {
+fn recovery_entry_rejects_future_boot_before_commit_decode() {
     let allocation = CommitMemoryAllocation {
         memory_id: DatabaseFormatTestCanister::COMMIT_MEMORY_ID,
         stable_key: DatabaseFormatTestCanister::COMMIT_STABLE_KEY,
     };
     let control = commit_memory_handle(allocation).expect("test control memory should open");
-    let noncurrent = DatabaseBootRecord {
+    let future = DatabaseBootRecord {
         format_version: DatabaseFormatVersion(DATABASE_FORMAT_VERSION_CURRENT.get() + 1),
         state: DatabaseBootState::Initialized,
     };
-    write_boot_bytes(&control, &noncurrent.encode());
+    write_boot_bytes(&control, &future.encode());
 
     let error = crate::db::commit::ensure_recovered(&FORMAT_DB)
-        .expect_err("recovery must reject noncurrent database format first");
+        .expect_err("recovery must reject future database format first");
 
     assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(error.origin(), ErrorOrigin::Recovery);
@@ -309,7 +291,7 @@ fn recovery_entry_rejects_noncurrent_boot_before_commit_decode() {
                 found: Some(found),
                 required,
             }
-        )) if *found == noncurrent.format_version.get()
+        )) if *found == future.format_version.get()
             && *required == DATABASE_FORMAT_VERSION_CURRENT.get()
     ));
 }

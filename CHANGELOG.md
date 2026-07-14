@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)
 
+- `0.203.1` completes the pre-1.0 format and identity hard cut with one dense
+  current representation. Potentially breaking: existing stores and cursors
+  are unsupported and must be recreated or restarted.
+
 - `0.203.0` hard-cuts obsolete query, admission, response, and diagnostic
   surfaces so the current execution path has one authority. Potentially
   breaking: removed APIs and diagnostic numbers have no aliases.

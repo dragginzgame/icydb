@@ -1,7 +1,7 @@
 //! Module: query::read_intent
 //! Responsibility: hardcoded read-intent caps for public semantic terminals.
 //! Does not own: planner proof, executor routing, or public policy builders.
-//! Boundary: one internal authority for 0.198 engine-owned read-intent limits.
+//! Boundary: one internal authority for engine-owned read-intent limits.
 
 use crate::db::query::admission::DEFAULT_BOUNDED_READ_MAX_ROWS;
 use candid::CandidType;

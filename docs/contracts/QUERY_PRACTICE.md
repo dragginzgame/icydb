@@ -151,7 +151,6 @@ There is **no implicit coercion**.
 
 * `Strict` — no conversion; types must match.
 * `NumericWiden` — numeric values are widened to a common numeric form.
-* `IdentifierText` — identifiers may be compared to text via parsing.
 * `TextCasefold` — text comparisons use canonical casefolding.
 * `CollectionElement` — element-level coercion for list/set membership.
 
@@ -168,7 +167,6 @@ CoercionSpec {
 
 The evaluator uses a static, declarative conversion table:
 
-* `(Identifier, Text, IdentifierText)` → parse text into identifier
 * `(Text, Text, TextCasefold)` → casefold both operands
 * `(Numeric, Numeric, NumericWiden)` → promote to common numeric type
 * `(Any, Any, Strict)` → no conversion

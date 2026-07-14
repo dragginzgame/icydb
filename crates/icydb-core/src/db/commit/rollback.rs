@@ -1,7 +1,7 @@
 //! Module: db::commit::rollback
 //! Responsibility: capture and apply rollback snapshots for prepared row operations.
 //! Does not own: commit-marker persistence, mutation planning, or recovery orchestration.
-//! Boundary: commit::{prepare,replay,executor} -> commit::rollback -> commit::apply.
+//! Boundary: commit::{prepare,executor} -> commit::rollback -> commit::apply.
 
 use crate::db::{
     commit::{PreparedIndexMutation, PreparedRowCommitOp},
@@ -45,7 +45,7 @@ impl PreparedRowCommitOp {
 
 /// Apply prepared-row rollback operations in reverse write order.
 ///
-/// This is shared by preflight/recovery paths so rollback ordering remains
+/// This is shared by commit-window paths so rollback ordering remains
 /// mechanically consistent across commit-related execution phases.
 pub(crate) fn rollback_prepared_row_ops_reverse(ops: Vec<PreparedRowCommitOp>) {
     // Reverse order mirrors forward apply order and preserves overwrite semantics.

@@ -11,7 +11,7 @@ use crate::db::schema::PersistedSchemaSnapshot;
 ///
 /// SchemaMutationRunnerPhase
 ///
-/// Named phase boundary for physical schema mutation runners. 0.153 starts by
+/// Named phase boundary for physical schema mutation runners. The current path starts by
 /// making these diagnostics explicit before any runner can mutate storage.
 ///
 
@@ -323,7 +323,7 @@ impl SchemaMutationRunnerRejection {
 ///
 /// SchemaMutationRunnerReport
 ///
-/// Positive runner diagnostic report. The first 0.153 slice records only
+/// Positive runner diagnostic report. The current report records only
 /// preflight facts; later physical phases should extend this report instead of
 /// inventing a second diagnostics lane.
 ///

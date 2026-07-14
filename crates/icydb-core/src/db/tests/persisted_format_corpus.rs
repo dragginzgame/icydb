@@ -84,7 +84,7 @@ fn memory_with_prefix(bytes: &[u8]) -> VectorMemory {
 
 fn database_boot_record(version: u16, state: u8) -> [u8; DATABASE_BOOT_RECORD_BYTES] {
     let mut bytes = [0_u8; DATABASE_BOOT_RECORD_BYTES];
-    bytes[..8].copy_from_slice(b"ICYDBBOT");
+    bytes[..8].copy_from_slice(b"ICYDBNOW");
     bytes[8..10].copy_from_slice(&version.to_be_bytes());
     bytes[10] = state;
     let checksum_offset = DATABASE_BOOT_RECORD_BYTES - size_of::<u32>();
@@ -95,7 +95,7 @@ fn database_boot_record(version: u16, state: u8) -> [u8; DATABASE_BOOT_RECORD_BY
 
 fn raw_schema_snapshot_envelope(version: u8, payload: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(25 + payload.len());
-    bytes.extend_from_slice(b"ICYDBSCH");
+    bytes.extend_from_slice(b"ICYDBCAT");
     bytes.push(version);
     bytes.extend_from_slice(&[0; 16]);
     bytes.extend_from_slice(payload);
@@ -151,7 +151,6 @@ fn database_boot_record_malformed_corpus_fails_closed() {
     let mut corrupt_checksum = database_boot_record(1, 1);
     corrupt_checksum[DATABASE_BOOT_RECORD_BYTES - 1] ^= 0xff;
     let cases = [
-        ("pre-0.200 database version", database_boot_record(0, 1)),
         ("future database version", database_boot_record(2, 1)),
         ("unknown database boot state", database_boot_record(1, 0xff)),
         ("corrupt database boot magic", corrupt_magic),
@@ -178,10 +177,6 @@ fn persisted_row_envelope_malformed_corpus_fails_closed() {
         (
             "future row version",
             row_envelope(*b"IR", ROW_FORMAT_VERSION_CURRENT.saturating_add(1), 0, &[]),
-        ),
-        (
-            "pre-0.200 row version",
-            row_envelope(*b"IR", ROW_FORMAT_VERSION_CURRENT.saturating_sub(1), 0, &[]),
         ),
         (
             "declared row payload too long",
@@ -227,10 +222,6 @@ fn raw_schema_snapshot_envelope_malformed_corpus_fails_closed() {
             vec![0x44, 0x49, 0x44, 0x4c],
         ),
         (
-            "pre-0.200 raw schema version",
-            raw_schema_snapshot_envelope(0, &[0x44, 0x49, 0x44, 0x4c]),
-        ),
-        (
             "future raw schema version",
             raw_schema_snapshot_envelope(2, &[0x44, 0x49, 0x44, 0x4c]),
         ),
@@ -255,10 +246,6 @@ fn accepted_enum_catalog_malformed_corpus_fails_closed() {
         ("empty accepted enum catalog", Vec::new()),
         ("truncated accepted enum catalog", b"ICYDBENC".to_vec()),
         (
-            "pre-0.200 accepted enum catalog version",
-            accepted_enum_catalog_envelope(0),
-        ),
-        (
             "future accepted enum catalog version",
             accepted_enum_catalog_envelope(2),
         ),
@@ -281,8 +268,6 @@ fn accepted_schema_publication_malformed_corpus_fails_closed() {
         AcceptedSchemaRevision::INITIAL,
     );
 
-    let mut old_bundle = candidate.encoded_bundle().to_vec();
-    old_bundle[8..10].copy_from_slice(&0_u16.to_be_bytes());
     let mut future_bundle = candidate.encoded_bundle().to_vec();
     future_bundle[8..10].copy_from_slice(&2_u16.to_be_bytes());
     let mut corrupt_bundle_magic = candidate.encoded_bundle().to_vec();
@@ -290,7 +275,6 @@ fn accepted_schema_publication_malformed_corpus_fails_closed() {
     let bundle_cases = [
         ("empty accepted schema bundle", Vec::new()),
         ("truncated accepted schema bundle", b"ICYDBASB".to_vec()),
-        ("pre-0.200 accepted schema bundle version", old_bundle),
         ("future accepted schema bundle version", future_bundle),
         ("corrupt accepted schema bundle magic", corrupt_bundle_magic),
     ];
@@ -301,11 +285,6 @@ fn accepted_schema_publication_malformed_corpus_fails_closed() {
         );
     }
 
-    let mut old_root = candidate.encoded_root().to_vec();
-    old_root[8..10].copy_from_slice(&0_u16.to_be_bytes());
-    let checksum_offset = old_root.len() - size_of::<u32>();
-    let checksum = crc32c(&old_root[..checksum_offset]);
-    old_root[checksum_offset..].copy_from_slice(&checksum.to_be_bytes());
     let mut future_root = candidate.encoded_root().to_vec();
     future_root[8..10].copy_from_slice(&2_u16.to_be_bytes());
     let checksum_offset = future_root.len() - size_of::<u32>();
@@ -317,7 +296,6 @@ fn accepted_schema_publication_malformed_corpus_fails_closed() {
     let root_cases = [
         ("empty accepted schema root", Vec::new()),
         ("truncated accepted schema root", b"ICYDBASR".to_vec()),
-        ("pre-0.200 accepted schema root version", old_root),
         ("future accepted schema root version", future_root),
         ("corrupt accepted schema root checksum", corrupt_root),
     ];
@@ -334,8 +312,6 @@ fn journal_batch_malformed_corpus_fails_closed() {
     let batch = JournalBatch::new([0x11; 16], [0x22; 16], JournalSequence::new(1), Vec::new())
         .expect("empty test journal batch should be valid");
     let current = encode_journal_batch(&batch).expect("test journal batch should encode");
-    let mut old_version = current.clone();
-    old_version[4] = current[4].saturating_sub(1);
     let mut future_version = current.clone();
     future_version[4] = current[4].saturating_add(1);
     let mut corrupt_magic = current.clone();
@@ -346,7 +322,6 @@ fn journal_batch_malformed_corpus_fails_closed() {
     trailing.push(0xff);
     let cases = [
         ("empty journal batch", Vec::new()),
-        ("pre-0.200 journal batch version", old_version),
         ("future journal batch version", future_version),
         ("corrupt journal batch magic", corrupt_magic),
         ("truncated journal batch", truncated),
@@ -366,10 +341,6 @@ fn commit_marker_envelope_malformed_corpus_fails_closed() {
         (
             "truncated current commit marker",
             vec![COMMIT_MARKER_FORMAT_VERSION_CURRENT],
-        ),
-        (
-            "pre-0.200 commit marker version",
-            commit_marker_envelope(COMMIT_MARKER_FORMAT_VERSION_CURRENT.saturating_sub(1), &[]),
         ),
         (
             "future commit marker version",
@@ -410,15 +381,15 @@ fn continuation_token_malformed_corpus_fails_closed() {
     .encode()
     .expect("current grouped token should encode");
 
-    let mut old_scalar = scalar.clone();
-    old_scalar[0] = scalar[0].saturating_sub(1);
     let mut future_scalar = scalar.clone();
-    future_scalar[0] = scalar[0].saturating_add(1);
+    future_scalar[4] = scalar[4].saturating_add(1);
+    let mut corrupt_scalar_magic = scalar.clone();
+    corrupt_scalar_magic[0] = b'X';
     let mut truncated_scalar = scalar;
     truncated_scalar.pop();
     assert_err(
-        "pre-0.200 scalar token",
-        ContinuationToken::decode(&old_scalar),
+        "corrupt scalar token magic",
+        ContinuationToken::decode(&corrupt_scalar_magic),
     );
     assert_err(
         "future scalar token",
@@ -429,15 +400,15 @@ fn continuation_token_malformed_corpus_fails_closed() {
         ContinuationToken::decode(&truncated_scalar),
     );
 
-    let mut old_grouped = grouped.clone();
-    old_grouped[0] = grouped[0].saturating_sub(1);
     let mut future_grouped = grouped.clone();
-    future_grouped[0] = grouped[0].saturating_add(1);
+    future_grouped[4] = grouped[4].saturating_add(1);
+    let mut corrupt_grouped_magic = grouped.clone();
+    corrupt_grouped_magic[0] = b'X';
     let mut truncated_grouped = grouped;
     truncated_grouped.pop();
     assert_err(
-        "pre-0.200 grouped token",
-        GroupedContinuationToken::decode(&old_grouped),
+        "corrupt grouped token magic",
+        GroupedContinuationToken::decode(&corrupt_grouped_magic),
     );
     assert_err(
         "future grouped token",

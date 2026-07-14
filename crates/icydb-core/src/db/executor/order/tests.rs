@@ -278,6 +278,8 @@ crate::test_entity! {
         crate::test_field! { y: u64 => FieldKind::Nat64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {

@@ -510,7 +510,7 @@ impl SchemaMutationExecutionPlan {
         })
     }
 
-    /// Admit the single developer-supported physical mutation path for 0.154.
+    /// Admit the single developer-supported physical mutation path.
     /// The generic execution plan may still describe future expression-index,
     /// cleanup, or rewrite work, but those shapes are rejected here before
     /// runner wiring can consume them as supported behavior.

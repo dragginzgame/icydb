@@ -477,6 +477,8 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -492,6 +494,8 @@ crate::test_entity! {
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_singleton_entity! {
@@ -521,6 +525,8 @@ crate::test_entity! {
         crate::test_field! { rank: i32 => FieldKind::Int64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 pub(in crate::db::query::intent::tests) static PLAN_PUSHDOWN_INDEX_FIELDS: [&str; 2] =
@@ -653,6 +659,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_PUSHDOWN_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[cfg(feature = "sql")]
@@ -671,6 +679,8 @@ crate::test_entity! {
         crate::test_field! { title: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_BRANCH_SET_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -687,6 +697,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_UNIQUE_RANGE_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -702,6 +714,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_TEXT_PREFIX_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -718,6 +732,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[cfg(feature = "sql")]
@@ -735,6 +751,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -755,6 +773,8 @@ crate::test_entity! {
         &PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
         &PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -776,6 +796,8 @@ crate::test_entity! {
         &PLAN_DETERMINISTIC_RANGE_INDEX_MODELS[0],
         &PLAN_DETERMINISTIC_RANGE_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -795,6 +817,8 @@ crate::test_entity! {
         &PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS[0],
         &PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -812,4 +836,6 @@ crate::test_entity! {
         crate::test_field! { elapsed: Duration => FieldKind::Duration },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }

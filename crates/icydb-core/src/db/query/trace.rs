@@ -25,7 +25,7 @@ pub enum TraceExecutionFamily {
 ///
 /// Trace-surface label for the planner-owned artifact class reused for this
 /// query identity.
-/// `0.109.0` ships one explicit reuse class: the shared prepared query plan.
+/// The current runtime has one explicit reuse class: the shared prepared query plan.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TraceReuseArtifactClass {
@@ -36,7 +36,7 @@ pub enum TraceReuseArtifactClass {
 /// TraceReuseEvent
 ///
 /// Trace-surface semantic reuse result for one query planning attempt.
-/// This keeps the shipped `0.109.0` reuse boundary explicit: one artifact
+/// This keeps the reuse boundary explicit: one artifact
 /// class and one exact-match hit or miss outcome.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

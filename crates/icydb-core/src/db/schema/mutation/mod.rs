@@ -250,7 +250,7 @@ pub(in crate::db::schema) enum RebuildRequirement {
 /// SchemaRebuildAction
 ///
 /// One physical rebuild action implied by a catalog mutation plan. These
-/// actions are planning facts only; 0.152 still blocks publication until an
+/// actions are planning facts only; publication remains blocked until an
 /// executor owns the physical work and validation boundary.
 ///
 
@@ -516,7 +516,7 @@ impl MutationPlan {
     }
 
     /// Consult runner preflight before deciding whether publication can proceed.
-    /// `PhysicalWorkReady` is still not publishable in 0.152; it only means a
+    /// `PhysicalWorkReady` is not publishable by itself; it only means a
     /// future runner advertises the capabilities required before execution can
     /// start.
     #[must_use]

@@ -112,7 +112,7 @@ fn append_only_additive_fields<'a>(
 }
 
 // Return one appended index only when all non-index schema facts and prior
-// accepted index contracts remain unchanged. 0.154 deliberately supports one
+// accepted index contracts remain unchanged. The current path deliberately supports one
 // index mutation at a time, so multiple additions stay incompatible.
 fn single_added_index<'a>(
     actual: &PersistedSchemaSnapshot,

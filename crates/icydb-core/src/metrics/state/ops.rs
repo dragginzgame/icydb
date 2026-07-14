@@ -78,7 +78,6 @@ pub struct EventOps {
     pub(crate) cache_shared_query_plan_entries: u64,
     pub(crate) cache_shared_query_plan_miss_cold: u64,
     pub(crate) cache_shared_query_plan_miss_distinct_key: u64,
-    pub(crate) cache_shared_query_plan_miss_method_version: u64,
     pub(crate) cache_shared_query_plan_miss_schema_fingerprint: u64,
     pub(crate) cache_shared_query_plan_miss_visibility: u64,
     pub(crate) cache_sql_compiled_command_hits: u64,
@@ -87,7 +86,6 @@ pub struct EventOps {
     pub(crate) cache_sql_compiled_command_entries: u64,
     pub(crate) cache_sql_compiled_command_miss_cold: u64,
     pub(crate) cache_sql_compiled_command_miss_distinct_key: u64,
-    pub(crate) cache_sql_compiled_command_miss_method_version: u64,
     pub(crate) cache_sql_compiled_command_miss_schema_fingerprint: u64,
     pub(crate) cache_sql_compiled_command_miss_surface: u64,
     pub(crate) schema_reconcile_checks: u64,
@@ -119,10 +117,6 @@ pub struct EventOps {
     pub(crate) sql_compile_reject_semantic: u64,
 
     // Planner kinds
-    pub(crate) plan_index: u64,
-    pub(crate) plan_keys: u64,
-    pub(crate) plan_range: u64,
-    pub(crate) plan_full_scan: u64,
     pub(crate) plan_by_key: u64,
     pub(crate) plan_by_keys: u64,
     pub(crate) plan_key_range: u64,
@@ -308,11 +302,6 @@ impl EventOps {
     }
 
     #[must_use]
-    pub const fn cache_shared_query_plan_miss_method_version(&self) -> u64 {
-        self.cache_shared_query_plan_miss_method_version
-    }
-
-    #[must_use]
     pub const fn cache_shared_query_plan_miss_schema_fingerprint(&self) -> u64 {
         self.cache_shared_query_plan_miss_schema_fingerprint
     }
@@ -350,11 +339,6 @@ impl EventOps {
     #[must_use]
     pub const fn cache_sql_compiled_command_miss_distinct_key(&self) -> u64 {
         self.cache_sql_compiled_command_miss_distinct_key
-    }
-
-    #[must_use]
-    pub const fn cache_sql_compiled_command_miss_method_version(&self) -> u64 {
-        self.cache_sql_compiled_command_miss_method_version
     }
 
     #[must_use]
@@ -500,26 +484,6 @@ impl EventOps {
     #[must_use]
     pub const fn sql_compile_reject_semantic(&self) -> u64 {
         self.sql_compile_reject_semantic
-    }
-
-    #[must_use]
-    pub const fn plan_index(&self) -> u64 {
-        self.plan_index
-    }
-
-    #[must_use]
-    pub const fn plan_keys(&self) -> u64 {
-        self.plan_keys
-    }
-
-    #[must_use]
-    pub const fn plan_range(&self) -> u64 {
-        self.plan_range
-    }
-
-    #[must_use]
-    pub const fn plan_full_scan(&self) -> u64 {
-        self.plan_full_scan
     }
 
     #[must_use]

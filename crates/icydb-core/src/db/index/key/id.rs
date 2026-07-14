@@ -39,6 +39,13 @@ impl IndexId {
         self.entity_tag
     }
 
+    /// Return the dense per-entity index ordinal.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(crate) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
     /// Encode one fixed-size runtime index identity payload.
     #[must_use]
     pub(crate) fn to_bytes(self) -> [u8; Self::STORED_SIZE_USIZE] {

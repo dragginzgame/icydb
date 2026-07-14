@@ -293,6 +293,8 @@ crate::test_entity! {
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -312,6 +314,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -331,6 +335,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(

@@ -7,8 +7,8 @@ define_fixture_canister!(
     TenSimpleCanister = "TenSimpleCanister",
     namespace = "ten_simple",
     memory_min = 155,
-    memory_max = 175,
-    commit_memory_id = 157,
+    memory_max = 159,
+    commit_memory_id = 159,
 );
 
 define_fixture_store!(
@@ -17,8 +17,8 @@ define_fixture_store!(
     storage(journaled(
         data_memory_id = 155,
         index_memory_id = 156,
-        schema_memory_id = 158,
-        journal_memory_id = 159,
+        schema_memory_id = 157,
+        journal_memory_id = 158,
     )),
 );
 

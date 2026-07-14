@@ -80,6 +80,8 @@ crate::test_entity! {
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static INDEXED_SCHEMA_NAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
@@ -110,6 +112,8 @@ crate::test_entity! {
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&INDEXED_SCHEMA_NAME_INDEX],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static NESTED_PROFILE_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat64)];
@@ -243,10 +247,9 @@ fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new_with_retired_slots(
+        SchemaRowLayout::new(
             stored_version,
             expected.row_layout().field_to_slot().to_vec(),
-            expected.row_layout().retired_field_slots().to_vec(),
         ),
         expected.fields().to_vec(),
         Vec::new(),
@@ -608,7 +611,7 @@ fn accepted_schema_marker_recovery_repairs_replays_and_folds_candidate() {
         .expect("journal sequence should allocate");
     let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])
         .expect("accepted schema journal batch should build");
-    let marker = CommitMarker::from_parts(marker_id, Vec::new(), vec![batch])
+    let marker = CommitMarker::from_parts(marker_id, vec![batch])
         .expect("accepted schema commit marker should build");
     let _unfinished = begin_commit(marker).expect("crash fixture marker should persist");
 
@@ -1572,7 +1575,7 @@ fn reconcile_staged_schema_snapshot_rejects_nested_leaf_drift_as_field_contract(
         profile.slot(),
         profile.kind().clone(),
         vec![PersistedNestedLeafSnapshot::new(
-            vec!["legacy_rank".to_string()],
+            vec!["removed_rank".to_string()],
             AcceptedFieldKind::Nat64,
             false,
             FieldStorageDecode::ByKind,
@@ -1619,7 +1622,7 @@ fn reconcile_staged_schema_snapshot_rejects_nested_leaf_drift_as_field_contract(
     assert_eq!(
         counters.ops().schema_reconcile_rejected_schema_version(),
         1,
-        "0.177 schema-version gate is the primary reconcile bucket while preserving field-contract detail",
+        "schema-version admission is the primary reconcile bucket while preserving field-contract detail",
     );
     assert_eq!(
         counters.ops().schema_reconcile_rejected_row_layout(),
@@ -1634,7 +1637,7 @@ fn reconcile_staged_schema_snapshot_rejects_nested_leaf_drift_as_field_contract(
     assert_eq!(
         counters.ops().schema_transition_rejected_schema_version(),
         1,
-        "0.177 schema-version gate is the primary rejection bucket while preserving field-contract detail",
+        "schema-version admission is the primary rejection bucket while preserving field-contract detail",
     );
 }
 
@@ -1720,7 +1723,7 @@ fn reconcile_runtime_schemas_rejects_generated_additive_field_as_field_contract(
     assert_eq!(
         counters.ops().schema_reconcile_rejected_schema_version(),
         1,
-        "0.177 schema-version gate should reject generated removed-field drift before compatibility publication",
+        "schema-version admission should reject generated removed-field drift before compatibility publication",
     );
     assert_eq!(
         counters.ops().schema_reconcile_rejected_row_layout(),
@@ -1735,7 +1738,7 @@ fn reconcile_runtime_schemas_rejects_generated_additive_field_as_field_contract(
     assert_eq!(
         counters.ops().schema_transition_rejected_schema_version(),
         1,
-        "0.177 schema-version gate should reject generated additive drift before compatibility publication",
+        "schema-version admission should reject generated additive drift before compatibility publication",
     );
 }
 
@@ -1749,7 +1752,7 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
     let mut stored_fields = expected.fields().to_vec();
     stored_fields.push(PersistedFieldSnapshot::new(
         FieldId::new(3),
-        "legacy_score".to_string(),
+        "removed_score".to_string(),
         SchemaFieldSlot::new(2),
         AcceptedFieldKind::Nat64,
         Vec::new(),
@@ -1797,7 +1800,7 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
     assert_eq!(
         counters.ops().schema_reconcile_rejected_schema_version(),
         1,
-        "0.177 schema-version gate should reject generated removed-field drift before compatibility publication",
+        "schema-version admission should reject generated removed-field drift before compatibility publication",
     );
     assert_eq!(
         counters.ops().schema_reconcile_rejected_row_layout(),
@@ -1812,7 +1815,7 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
     assert_eq!(
         counters.ops().schema_transition_rejected_schema_version(),
         1,
-        "0.177 schema-version gate should reject generated removed-field drift before compatibility publication",
+        "schema-version admission should reject generated removed-field drift before compatibility publication",
     );
 }
 

@@ -509,7 +509,7 @@ fn filter_authority_predicate_subset_derivation_sites_are_explicit() {
     assert_eq!(
         runtime_pattern_counts("derive_normalized_bool_expr_predicate_subset("),
         expected,
-        "pre-access predicate-subset derivation should stay localized to query intent and SQL admission/access-mirror seams recorded for 0.186",
+        "pre-access predicate-subset derivation should stay localized to query intent and SQL admission/access-mirror seams",
     );
 }
 
@@ -523,7 +523,7 @@ fn filter_authority_sql_explicit_predicate_lanes_are_explicit() {
     assert_eq!(
         runtime_pattern_counts("derive_sql_where_expr_predicate_subset("),
         expected,
-        "SQL predicate-subset extraction should stay localized to the shared helper and the explicit admission/access-mirror lanes recorded for 0.186",
+        "SQL predicate-subset extraction should stay localized to the shared helper and explicit admission/access-mirror lanes",
     );
 }
 

@@ -1,7 +1,6 @@
 use super::{
-    AcceptedStoreCatalogScope, RAW_SCHEMA_SNAPSHOT_MAGIC, RAW_SCHEMA_SNAPSHOT_VALUE_VERSION,
-    RawSchemaKey, RawSchemaSnapshot, SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION,
-    SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
+    AcceptedStoreCatalogScope, RawSchemaKey, RawSchemaSnapshot,
+    SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION, SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
     SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION, SchemaStore, SchemaStoreBackend,
     SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests,
     reset_accepted_schema_bundle_cache_miss_count_for_tests,
@@ -185,25 +184,6 @@ fn raw_schema_snapshot_round_trips_identity_header_for_typed_snapshot() {
             .accepted_schema_fingerprint()
             .expect("owned identity header should decode"),
         expected_fingerprint
-    );
-}
-
-#[test]
-fn raw_schema_snapshot_rejects_pre_0_200_envelope_before_payload_decode() {
-    let snapshot = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "OldEnvelope");
-    let raw = RawSchemaSnapshot::from_persisted_snapshot(&snapshot)
-        .expect("typed schema snapshot should encode");
-    let mut encoded = raw.to_bytes().into_owned();
-    encoded[RAW_SCHEMA_SNAPSHOT_MAGIC.len()] = RAW_SCHEMA_SNAPSHOT_VALUE_VERSION.saturating_sub(1);
-    let decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(encoded));
-
-    let err = decoded
-        .decode_persisted_snapshot()
-        .expect_err("pre-0.200 raw schema envelopes must fail closed");
-
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
     );
 }
 
@@ -550,7 +530,7 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
             .revision(),
         AcceptedSchemaRevision::new(2),
     );
-    assert_eq!(reopened.canonical_len_for_tests(), 4);
+    assert_eq!(reopened.canonical_len_for_tests(), 2);
 }
 
 #[test]
@@ -1321,7 +1301,7 @@ fn persisted_schema_snapshot_with_index_for_test(
         base.row_layout().clone(),
         base.fields().to_vec(),
         vec![PersistedIndexSnapshot::new(
-            0,
+            1,
             index_name.to_string(),
             "RoleSpecificStore".to_string(),
             false,

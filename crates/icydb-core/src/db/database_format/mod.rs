@@ -23,7 +23,7 @@ use std::cell::RefCell;
 use std::sync::{Mutex, OnceLock};
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
-const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBBOT";
+const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBNOW";
 const LEGACY_STABLE_CELL_MAGIC: &[u8; 3] = b"SCL";
 const DATABASE_BOOT_CHECKSUM_OFFSET: usize = 11;
 const DATABASE_BOOT_INITIALIZED_STATE: u8 = 0x01;

@@ -4,7 +4,7 @@
 //! Boundary: fluent query contracts inspect the selected plan without acting as hints.
 
 use crate::db::query::{
-    explain::{ExplainAccessDecisionKind, ExplainAccessDecisionV1},
+    explain::{ExplainAccessDecision, ExplainAccessDecisionKind},
     intent::QueryError,
     plan::AccessPlannedQuery,
 };
@@ -177,11 +177,11 @@ impl AccessRequirements {
 #[derive(Debug)]
 pub struct AccessRequirementError {
     violation: AccessRequirementViolation,
-    decision: ExplainAccessDecisionV1,
+    decision: ExplainAccessDecision,
 }
 
 impl AccessRequirementError {
-    const fn new(violation: AccessRequirementViolation, decision: ExplainAccessDecisionV1) -> Self {
+    const fn new(violation: AccessRequirementViolation, decision: ExplainAccessDecision) -> Self {
         Self {
             violation,
             decision,
@@ -196,7 +196,7 @@ impl AccessRequirementError {
 
     /// Borrow the selected access decision that failed the requirement.
     #[must_use]
-    pub const fn decision(&self) -> &ExplainAccessDecisionV1 {
+    pub const fn decision(&self) -> &ExplainAccessDecision {
         &self.decision
     }
 }

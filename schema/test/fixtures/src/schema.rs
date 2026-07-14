@@ -8,8 +8,8 @@ pub mod relation {
     #[canister(
         memory_namespace = "relation",
         memory_min = 100,
-        memory_max = 120,
-        commit_memory_id = 120
+        memory_max = 104,
+        commit_memory_id = 104
     )]
     pub struct RelationCanister {}
 
@@ -40,8 +40,8 @@ pub mod test {
     #[canister(
         memory_namespace = "test",
         memory_min = 130,
-        memory_max = 150,
-        commit_memory_id = 150
+        memory_max = 134,
+        commit_memory_id = 134
     )]
     pub struct TestCanister {}
 

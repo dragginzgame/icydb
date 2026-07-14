@@ -36,7 +36,7 @@ use std::{cell::RefCell, collections::HashMap};
 pub(in crate::db) use identity::QueryPlanCompilePhaseAttribution;
 use identity::{
     QueryPlanAcceptedSchema, QueryPlanCacheKey, QueryPlanCompilePhase,
-    QueryPlanCompilePhaseRecorder, SHARED_QUERY_PLAN_CACHE_METHOD_VERSION, SchemaCacheIdentity,
+    QueryPlanCompilePhaseRecorder, SchemaCacheIdentity,
 };
 pub(in crate::db) use identity::{QueryPlanCacheAttribution, QueryPlanVisibility};
 
@@ -82,7 +82,6 @@ fn shared_query_plan_cache_miss_reason(
             continue;
         }
 
-        let same_method_version = candidate.cache_method_version() == key.cache_method_version();
         let same_schema_version = candidate
             .schema_identity()
             .same_version(key.schema_identity());
@@ -91,21 +90,10 @@ fn shared_query_plan_cache_miss_reason(
             .same_fingerprint(key.schema_identity());
         let same_visibility = candidate.visibility() == key.visibility();
 
-        if same_schema_version && same_schema_fingerprint && same_visibility && !same_method_version
-        {
-            return CacheMissReason::MethodVersion;
-        }
-
-        schema_version_mismatch |= same_schema_fingerprint
-            && same_visibility
-            && same_method_version
-            && !same_schema_version;
-        schema_fingerprint_mismatch |=
-            same_visibility && same_method_version && !same_schema_fingerprint;
-        visibility_mismatch |= same_schema_version
-            && same_schema_fingerprint
-            && same_method_version
-            && !same_visibility;
+        schema_version_mismatch |=
+            same_schema_fingerprint && same_visibility && !same_schema_version;
+        schema_fingerprint_mismatch |= same_visibility && !same_schema_fingerprint;
+        visibility_mismatch |= same_schema_version && same_schema_fingerprint && !same_visibility;
     }
 
     if schema_version_mismatch {
@@ -160,7 +148,7 @@ fn accepted_schema_has_expression_indexes(accepted_schema: &AcceptedSchemaSnapsh
 }
 
 // Map one shared query-plan cache attribution outcome onto the explicit reuse
-// event shipped in `0.109.0`.
+// event owned by the current cache contract.
 pub(in crate::db::session) const fn query_plan_cache_reuse_event(
     attribution: QueryPlanCacheAttribution,
 ) -> TraceReuseEvent {
@@ -461,13 +449,12 @@ impl<C: CanisterKind> DbSession<C> {
                     .map(predicate_fingerprint_normalized)
             });
         let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
-            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
+            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
                 authority.clone(),
                 schema_identity,
                 visibility,
                 query,
                 normalized_predicate_fingerprint,
-                SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
             )
         });
 
@@ -521,13 +508,12 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
-            QueryPlanCacheKey::for_entity_path_with_normalized_predicate_fingerprint_and_method_version(
+            QueryPlanCacheKey::for_entity_path_with_normalized_predicate_fingerprint(
                 entity_path,
                 schema_identity,
                 visibility,
                 query,
                 None,
-                SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
             )
         });
         let (cached, entries) = recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
@@ -556,13 +542,12 @@ impl<C: CanisterKind> DbSession<C> {
         recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
-            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
+            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
                 authority.clone(),
                 schema_identity,
                 visibility,
                 query,
                 None,
-                SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
             )
         });
 
@@ -594,7 +579,6 @@ impl<C: CanisterKind> DbSession<C> {
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-        cache_method_version: u8,
     ) -> QueryPlanCacheKey {
         let schema_identity = SchemaCacheIdentity::new(
             crate::db::schema::AcceptedSchemaRevision::NONE,
@@ -602,13 +586,7 @@ impl<C: CanisterKind> DbSession<C> {
             crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             schema_fingerprint,
         );
-        QueryPlanCacheKey::for_authority_with_method_version(
-            authority,
-            schema_identity,
-            visibility,
-            query,
-            cache_method_version,
-        )
+        QueryPlanCacheKey::for_authority(authority, schema_identity, visibility, query)
     }
 
     #[cfg(test)]
@@ -619,7 +597,6 @@ impl<C: CanisterKind> DbSession<C> {
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-        cache_method_version: u8,
     ) -> QueryPlanCacheKey {
         let schema_identity = SchemaCacheIdentity::new(
             crate::db::schema::AcceptedSchemaRevision::NONE,
@@ -627,13 +604,7 @@ impl<C: CanisterKind> DbSession<C> {
             schema_fingerprint_method_version,
             schema_fingerprint,
         );
-        QueryPlanCacheKey::for_authority_with_method_version(
-            authority,
-            schema_identity,
-            visibility,
-            query,
-            cache_method_version,
-        )
+        QueryPlanCacheKey::for_authority(authority, schema_identity, visibility, query)
     }
 
     // Resolve the planner-visible index slice for one typed query exactly once

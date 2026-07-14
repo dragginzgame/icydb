@@ -1560,7 +1560,7 @@ static INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generate
 )];
 static FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
     [IndexModel::generated_with_ordinal_and_predicate(
-        0,
+        1,
         "name_active_only",
         IndexedSessionSqlStore::PATH,
         &INDEXED_SESSION_SQL_INDEX_FIELDS,
@@ -1570,7 +1570,7 @@ static FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
 static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_MODELS: [IndexModel; 1] =
     [IndexModel::generated_with_ordinal_and_predicate(
-        1,
+        2,
         "tier_handle_active_only",
         IndexedSessionSqlStore::PATH,
         &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_FIELDS,
@@ -1582,7 +1582,7 @@ static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1
     [IndexKeyItem::Expression(IndexExpression::Lower("handle"))];
 static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [
     IndexModel::generated_with_ordinal_and_key_items_and_predicate(
-        2,
+        3,
         "handle_lower_active_only",
         IndexedSessionSqlStore::PATH,
         &FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_FIELDS,
@@ -1599,7 +1599,7 @@ static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_KEY_ITEMS: [Index
 ];
 static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [
     IndexModel::generated_with_ordinal_and_key_items_and_predicate(
-        3,
+        4,
         "tier_handle_lower_active_only",
         IndexedSessionSqlStore::PATH,
         &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_FIELDS,
@@ -1654,14 +1654,14 @@ static SESSION_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "la
 static SESSION_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
     IndexModel::generated_with_ordinal(
-        0,
+        1,
         "a_tier_label_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS,
         false,
     ),
     IndexModel::generated_with_ordinal(
-        1,
+        2,
         "z_tier_handle_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS,
@@ -1672,14 +1672,14 @@ static SESSION_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "sc
 static SESSION_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
 static SESSION_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
     IndexModel::generated_with_ordinal(
-        0,
+        1,
         "a_tier_score_handle_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS,
         false,
     ),
     IndexModel::generated_with_ordinal(
-        1,
+        2,
         "z_tier_score_label_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS,
@@ -1690,14 +1690,14 @@ static SESSION_RANGE_STRENGTH_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
 static SESSION_RANGE_STRENGTH_SCORE_INDEX_FIELDS: [&str; 2] = ["tier", "score"];
 static SESSION_RANGE_STRENGTH_INDEX_MODELS: [IndexModel; 2] = [
     IndexModel::generated_with_ordinal(
-        0,
+        1,
         "a_tier_label_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_RANGE_STRENGTH_LABEL_INDEX_FIELDS,
         false,
     ),
     IndexModel::generated_with_ordinal(
-        1,
+        2,
         "z_tier_score_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_RANGE_STRENGTH_SCORE_INDEX_FIELDS,
@@ -1707,7 +1707,7 @@ static SESSION_RANGE_STRENGTH_INDEX_MODELS: [IndexModel; 2] = [
 static SESSION_RESIDUAL_RANKING_INDEX_FIELDS: [&str; 1] = ["tier"];
 static SESSION_RESIDUAL_RANKING_INDEX_MODELS: [IndexModel; 2] = [
     IndexModel::generated_with_ordinal_and_predicate(
-        0,
+        1,
         "a_tier_active_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_RESIDUAL_RANKING_INDEX_FIELDS,
@@ -1715,7 +1715,7 @@ static SESSION_RESIDUAL_RANKING_INDEX_MODELS: [IndexModel; 2] = [
         Some(active_true_predicate_metadata()),
     ),
     IndexModel::generated_with_ordinal_and_predicate(
-        1,
+        2,
         "z_tier_active_live_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_RESIDUAL_RANKING_INDEX_FIELDS,
@@ -1734,14 +1734,14 @@ static SESSION_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
 static SESSION_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];
 static SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
     IndexModel::generated_with_ordinal(
-        0,
+        1,
         "a_beta_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS,
         false,
     ),
     IndexModel::generated_with_ordinal(
-        1,
+        2,
         "z_alpha_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS,
@@ -1781,6 +1781,8 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -1805,6 +1807,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 impl SessionSqlRecordFieldPathEntity {
@@ -1837,6 +1841,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -1857,6 +1863,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -1873,6 +1881,8 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -1917,6 +1927,8 @@ crate::test_entity! {
         crate::test_field! { chunk: Blob => FieldKind::Blob { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -1937,6 +1949,8 @@ crate::test_entity! {
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -1957,6 +1971,8 @@ crate::test_entity! {
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -1982,6 +1998,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2011,6 +2029,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2026,6 +2046,8 @@ crate::test_entity! {
         crate::test_field! { delta: i64 => FieldKind::Int64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
@@ -2053,6 +2075,8 @@ crate::test_entity! {
         },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2074,6 +2098,8 @@ crate::test_entity! {
         crate::test_field! { right_score: i64 => FieldKind::Int64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2095,6 +2121,8 @@ crate::test_entity! {
         crate::test_field! { archived: bool => FieldKind::Bool },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2115,6 +2143,8 @@ crate::test_entity! {
         crate::test_field! { dodge_chance: Float64 => FieldKind::Float64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2137,6 +2167,8 @@ crate::test_entity! {
         crate::test_field! { max_score: u64 => FieldKind::Nat64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2153,6 +2185,8 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2169,6 +2203,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(pid),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2192,6 +2228,8 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&HEAP_SESSION_SQL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2215,6 +2253,8 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&JOURNALED_SESSION_SQL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -2272,6 +2312,8 @@ crate::test_entity! {
         crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_RELATION_KIND },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2293,6 +2335,8 @@ crate::test_entity! {
         crate::test_field! { target_id: u64 => SESSION_SQL_JOURNALED_TARGET_RELATION_KIND },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2314,6 +2358,8 @@ crate::test_entity! {
         crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_WEAK_RELATION_KIND },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2335,6 +2381,8 @@ crate::test_entity! {
         crate::test_field! { target_id: u64 => SESSION_SQL_DURABLE_TARGET_RELATION_KIND },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2356,6 +2404,8 @@ crate::test_entity! {
         crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_RELATION_KIND },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2373,6 +2423,8 @@ crate::test_entity! {
         crate::test_field! { note: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2390,6 +2442,8 @@ crate::test_entity! {
         crate::test_field! { title: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&BRANCH_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 #[cfg(feature = "diagnostics")]
@@ -2407,6 +2461,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&EXPLICIT_PK_SUFFIX_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2431,6 +2487,8 @@ crate::test_entity! {
         &FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_MODELS[0],
         &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_MODELS[0],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2447,6 +2505,8 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2464,6 +2524,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2481,6 +2543,8 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&SESSION_EXPLAIN_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2498,6 +2562,8 @@ crate::test_entity! {
         crate::test_field! { elapsed: Duration => FieldKind::Duration },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2518,6 +2584,8 @@ crate::test_entity! {
         &SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
         &SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2539,6 +2607,8 @@ crate::test_entity! {
         &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[0],
         &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2559,6 +2629,8 @@ crate::test_entity! {
         &SESSION_RANGE_STRENGTH_INDEX_MODELS[0],
         &SESSION_RANGE_STRENGTH_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2580,6 +2652,8 @@ crate::test_entity! {
         &SESSION_RESIDUAL_RANKING_INDEX_MODELS[0],
         &SESSION_RESIDUAL_RANKING_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2597,6 +2671,8 @@ crate::test_entity! {
         crate::test_field! { note: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&SESSION_UNIQUE_PREFIX_OFFSET_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 crate::test_entity! {
@@ -2616,6 +2692,8 @@ crate::test_entity! {
         &SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS[0],
         &SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS[1],
     ],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 // Reset all session SQL fixture state between tests to preserve deterministic assertions.

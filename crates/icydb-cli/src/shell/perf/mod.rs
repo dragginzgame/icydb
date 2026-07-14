@@ -1,5 +1,5 @@
 //! Module: shell perf rendering.
-//! Responsibility: parse and render SQL shell performance attribution.
+//! Responsibility: render SQL shell performance attribution.
 //! Does not own: SQL execution, Candid endpoint payload shape, or table output.
 //! Boundary: exposes shell-local attribution values and compact footer renderers.
 
@@ -9,8 +9,6 @@ pub(super) use format::{
     render_executor_residual_suffix, render_perf_suffix, render_pure_covering_suffix,
     render_shell_render_suffix,
 };
-#[cfg(test)]
-pub(super) use parse::{normalize_grouped_next_cursor_json, parse_perf_result};
 
 ///
 /// ShellPerfAttribution
@@ -98,6 +96,3 @@ impl ShellLocalRenderAttribution {
         Self { render_micros }
     }
 }
-
-#[cfg(test)]
-mod parse;

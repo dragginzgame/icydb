@@ -145,7 +145,7 @@ impl BoundSqlAlterColumnNullabilityRequest {
 ///
 /// BoundSqlDropColumnRequest
 ///
-/// Catalog-resolved retained-slot field removal DDL request.
+/// Catalog-resolved dense-rewrite field removal DDL request.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct BoundSqlDropColumnRequest {

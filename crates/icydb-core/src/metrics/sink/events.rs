@@ -71,7 +71,6 @@ pub enum CacheOutcome {
 pub enum CacheMissReason {
     Cold,
     DistinctKey,
-    MethodVersion,
     SchemaFingerprint,
     SchemaVersion,
     Surface,

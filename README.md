@@ -75,8 +75,8 @@ use icydb::design::prelude::*;
 #[canister(
     memory_namespace = "app",
     memory_min = 100,
-    memory_max = 110,
-    commit_memory_id = 103
+    memory_max = 104,
+    commit_memory_id = 104
 )]
 pub struct AppCanister {}
 
@@ -88,7 +88,7 @@ pub struct AppCanister {}
         data_memory_id = 100,
         index_memory_id = 101,
         schema_memory_id = 102,
-        journal_memory_id = 104,
+        journal_memory_id = 103,
     ))
 )]
 pub struct AppStore {}
@@ -215,7 +215,7 @@ IcyDB supports a focused, canister-friendly SQL subset:
 - `CREATE INDEX`, `CREATE UNIQUE INDEX`, `CREATE INDEX IF NOT EXISTS`,
   `DROP INDEX`, and `DROP INDEX IF EXISTS`
 - `ALTER TABLE ... ADD COLUMN`, `ALTER COLUMN ... SET/DROP DEFAULT`,
-  `ALTER COLUMN ... SET/DROP NOT NULL`, `RENAME COLUMN`, and retained-slot
+  `ALTER COLUMN ... SET/DROP NOT NULL`, `RENAME COLUMN`, and dense-rewrite
   `DROP COLUMN`
 - `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`, projection aliases, `DISTINCT`,
   aggregates, grouped aggregates, `HAVING`, searched `CASE`, and common

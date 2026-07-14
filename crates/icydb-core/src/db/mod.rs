@@ -139,11 +139,11 @@ pub use query::{
         sum, trim, upper,
     },
     explain::{
-        ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
-        ExplainAggregateTerminalPlan, ExplainEligibleAlternativeV1, ExplainExecutionDescriptor,
+        ExplainAccessCandidate, ExplainAccessDecision, ExplainAccessDecisionKind,
+        ExplainAggregateTerminalPlan, ExplainEligibleAlternative, ExplainExecutionDescriptor,
         ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-        ExplainExecutionOrderingSource, ExplainPlan, ExplainRejectedIndexV1,
-        ExplainResidualSummaryV1, ExplainSelectedAccessV1,
+        ExplainExecutionOrderingSource, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
+        ExplainSelectedAccess,
     },
     expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
     fluent::{

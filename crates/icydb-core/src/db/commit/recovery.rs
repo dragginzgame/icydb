@@ -1,7 +1,7 @@
 //! Module: db::commit::recovery
-//! Responsibility: run system-level marker replay/rebuild recovery gates before operations.
+//! Responsibility: publish marker-bound journal batches and rebuild durable state before operations.
 //! Does not own: marker storage encoding, mutation planning, or query semantics.
-//! Boundary: db entrypoints -> commit::recovery -> commit::{replay,rebuild,store} (one-way).
+//! Boundary: db entrypoints -> commit::recovery -> commit::{rebuild,store} + journal fold (one-way).
 //!
 //! This module implements a **system recovery step** that restores global
 //! database invariants by completing or rolling back a previously started
@@ -26,7 +26,6 @@ use crate::{
                 current_commit_memory_allocation,
             },
             rebuild::rebuild_secondary_indexes_from_rows,
-            replay::replay_commit_marker_row_ops,
             store::{
                 commit_marker_may_be_present, commit_marker_present_fast,
                 mark_commit_marker_verified_absent, with_commit_store,
@@ -184,46 +183,43 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     if let Some(marker) = marker {
         publish_marker_bound_journal_batches(db, &marker)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-        // Phase 1: replay persisted row operations while marker authority is active.
-        replay_commit_marker_row_ops(db, &marker.row_ops)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
-    // Phase 2: fold committed journal-tail records into the canonical stable
+    // Phase 1: fold committed journal-tail records into the canonical stable
     // base, then use the fold watermark as the replay boundary.
     if let Err(err) = fold_journaled_tails(db) {
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
-    // Phase 3: rebuild journaled live projections from durable base + any
+    // Phase 2: rebuild journaled live projections from durable base + any
     // committed tail that remains above the fold watermark.
     if let Err(err) = rebuild_journaled_live_projections(db) {
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
-    // Phase 4: rebuild secondary indexes from authoritative data rows.
+    // Phase 3: rebuild secondary indexes from authoritative data rows.
     if let Err(err) = rebuild_secondary_indexes_from_rows(db) {
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
-    // Phase 5: fold rebuilt journaled index materializations into canonical
+    // Phase 4: fold rebuilt journaled index materializations into canonical
     // index storage. Indexes are derived state, not independent journal truth.
     if let Err(err) = fold_journaled_index_materialized_views(db) {
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
-    // Phase 6: enforce post-recovery integrity before clearing marker authority.
+    // Phase 5: enforce post-recovery integrity before clearing marker authority.
     if let Err(err) = validate_recovery_integrity(db) {
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
-    // Phase 7: clear marker only after replay + rebuild + integrity validation succeed.
+    // Phase 6: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
         with_commit_store(super::store::CommitStore::clear_verified)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
-    // Phase 8: authoritative rebuild succeeded, so every registered index is
+    // Phase 7: authoritative rebuild succeeded, so every registered index is
     // query-visible again.
     db.mark_all_registered_index_stores_ready();
     mark_commit_marker_verified_absent();

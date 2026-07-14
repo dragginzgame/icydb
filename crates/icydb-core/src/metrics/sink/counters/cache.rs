@@ -132,11 +132,6 @@ pub(in crate::metrics::sink) const fn record_global_shared_query_plan_miss_reaso
                 .cache_shared_query_plan_miss_distinct_key
                 .saturating_add(1);
         }
-        CacheMissReason::MethodVersion => {
-            ops.cache_shared_query_plan_miss_method_version = ops
-                .cache_shared_query_plan_miss_method_version
-                .saturating_add(1);
-        }
         CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {
             ops.cache_shared_query_plan_miss_schema_fingerprint = ops
                 .cache_shared_query_plan_miss_schema_fingerprint
@@ -167,11 +162,6 @@ pub(in crate::metrics::sink) const fn record_global_sql_compiled_command_miss_re
         CacheMissReason::DistinctKey | CacheMissReason::Visibility => {
             ops.cache_sql_compiled_command_miss_distinct_key = ops
                 .cache_sql_compiled_command_miss_distinct_key
-                .saturating_add(1);
-        }
-        CacheMissReason::MethodVersion => {
-            ops.cache_sql_compiled_command_miss_method_version = ops
-                .cache_sql_compiled_command_miss_method_version
                 .saturating_add(1);
         }
         CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {
@@ -288,11 +278,6 @@ pub(in crate::metrics::sink) const fn record_entity_shared_query_plan_miss_reaso
                 .cache_shared_query_plan_miss_distinct_key
                 .saturating_add(1);
         }
-        CacheMissReason::MethodVersion => {
-            ops.cache_shared_query_plan_miss_method_version = ops
-                .cache_shared_query_plan_miss_method_version
-                .saturating_add(1);
-        }
         CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {
             ops.cache_shared_query_plan_miss_schema_fingerprint = ops
                 .cache_shared_query_plan_miss_schema_fingerprint
@@ -320,11 +305,6 @@ pub(in crate::metrics::sink) const fn record_entity_sql_compiled_command_miss_re
         CacheMissReason::DistinctKey | CacheMissReason::Visibility => {
             ops.cache_sql_compiled_command_miss_distinct_key = ops
                 .cache_sql_compiled_command_miss_distinct_key
-                .saturating_add(1);
-        }
-        CacheMissReason::MethodVersion => {
-            ops.cache_sql_compiled_command_miss_method_version = ops
-                .cache_sql_compiled_command_miss_method_version
                 .saturating_add(1);
         }
         CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {

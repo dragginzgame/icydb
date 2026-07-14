@@ -57,6 +57,8 @@ crate::test_entity! {
         crate::test_field! { id: Ulid => FieldKind::Ulid },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(id),
 }
 
 thread_local! {

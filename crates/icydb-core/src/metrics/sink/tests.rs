@@ -173,7 +173,7 @@ fn metrics_report_without_window_start_returns_counters() {
     let counters = report
         .counters()
         .expect("metrics report should include counters without since filter");
-    assert_eq!(counters.ops.plan_index, 1);
+    assert_eq!(counters.ops.plan_index_prefix, 1);
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn metrics_report_window_start_before_window_returns_counters() {
     let counters = report
         .counters()
         .expect("metrics report should include counters when window_start_ms is before window");
-    assert_eq!(counters.ops.plan_keys, 1);
+    assert_eq!(counters.ops.plan_by_key, 1);
 }
 
 #[test]
@@ -238,8 +238,8 @@ fn metrics_report_grouped_execution_mode_counters_accumulate() {
     let counters = report
         .counters()
         .expect("metrics report should include counters");
-    assert_eq!(counters.ops.plan_index, 1);
-    assert_eq!(counters.ops.plan_range, 1);
+    assert_eq!(counters.ops.plan_index_prefix, 1);
+    assert_eq!(counters.ops.plan_key_range, 1);
     assert_eq!(counters.ops.plan_grouped_hash_materialized, 1);
     assert_eq!(counters.ops.plan_grouped_ordered_materialized, 1);
 
@@ -252,7 +252,7 @@ fn metrics_report_grouped_execution_mode_counters_accumulate() {
 }
 
 #[test]
-fn detailed_plan_metrics_accumulate_alongside_coarse_groups() {
+fn detailed_plan_metrics_accumulate_by_exact_route() {
     metrics_reset_all();
 
     for kind in [
@@ -278,10 +278,6 @@ fn detailed_plan_metrics_accumulate_alongside_coarse_groups() {
     let counters = report
         .counters()
         .expect("metrics report should include counters");
-    assert_eq!(counters.ops.plan_keys, 2);
-    assert_eq!(counters.ops.plan_range, 1);
-    assert_eq!(counters.ops.plan_index, 4);
-    assert_eq!(counters.ops.plan_full_scan, 3);
     assert_eq!(counters.ops.plan_by_key, 1);
     assert_eq!(counters.ops.plan_by_keys, 1);
     assert_eq!(counters.ops.plan_key_range, 1);
@@ -298,10 +294,6 @@ fn detailed_plan_metrics_accumulate_alongside_coarse_groups() {
         .first()
         .expect("plan metrics should retain per-entity counters");
     assert_eq!(entity.path(), "metrics::tests::Entity");
-    assert_eq!(entity.plan_keys(), 2);
-    assert_eq!(entity.plan_range(), 1);
-    assert_eq!(entity.plan_index(), 4);
-    assert_eq!(entity.plan_full_scan(), 3);
     assert_eq!(entity.plan_by_key(), 1);
     assert_eq!(entity.plan_by_keys(), 1);
     assert_eq!(entity.plan_key_range(), 1);

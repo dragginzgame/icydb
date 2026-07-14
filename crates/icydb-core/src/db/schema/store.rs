@@ -54,7 +54,7 @@ pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 const SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION: u8 = 1;
 const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION: u8 = 2;
 const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION: u8 = 3;
-const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBSCH";
+const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBCAT";
 const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
 const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
 
@@ -275,7 +275,7 @@ impl RawSchemaSnapshot {
 
     /// Decode this raw store payload into a typed persisted-schema snapshot.
     fn decode_persisted_snapshot(&self) -> Result<PersistedSchemaSnapshot, InternalError> {
-        // The identity header is the outer format gate. Do not pass a legacy
+        // The identity header is the outer format gate. Do not pass a
         // headerless value or a control record into the schema payload codec.
         let _fingerprint = self.accepted_schema_fingerprint()?;
         decode_persisted_schema_snapshot(self.as_bytes())
@@ -846,6 +846,13 @@ impl SchemaStore {
         expected_revision: AcceptedSchemaRevision,
         candidate: &CandidateSchemaRevision,
     ) -> Result<(), InternalError> {
+        if self.current_root_matches_candidate(candidate)? {
+            let selection = self
+                .current_accepted_schema_root()?
+                .ok_or_else(InternalError::store_corruption)?;
+            self.retain_durable_candidate_entries(candidate, selection.slot())?;
+            return Ok(());
+        }
         let first = self.accepted_root_slot_bytes(0)?;
         let second = self.accepted_root_slot_bytes(1)?;
         prepare_accepted_schema_root_publication(
@@ -885,6 +892,7 @@ impl SchemaStore {
         if selected.root() != candidate.root() {
             return Err(InternalError::store_corruption());
         }
+        self.retain_durable_candidate_entries(candidate, selected.slot())?;
         Ok(())
     }
 
@@ -898,6 +906,10 @@ impl SchemaStore {
             return Err(InternalError::store_invariant());
         }
         if self.current_root_matches_candidate(candidate)? {
+            let selection = self
+                .current_accepted_schema_root()?
+                .ok_or_else(InternalError::store_corruption)?;
+            self.retain_materialized_candidate_entries(candidate, selection.slot())?;
             return Ok(());
         }
 
@@ -943,6 +955,10 @@ impl SchemaStore {
         if !self.current_root_matches_candidate(candidate)? {
             return Err(InternalError::store_corruption());
         }
+        let selection = self
+            .current_accepted_schema_root()?
+            .ok_or_else(InternalError::store_corruption)?;
+        self.retain_materialized_candidate_entries(candidate, selection.slot())?;
         Ok(())
     }
 
@@ -953,6 +969,12 @@ impl SchemaStore {
         candidate: &CandidateSchemaRevision,
     ) -> Result<(), InternalError> {
         if self.canonical_root_matches_candidate(candidate)? {
+            let first = self.canonical_root_slot_bytes(0)?;
+            let second = self.canonical_root_slot_bytes(1)?;
+            let selection =
+                select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
+                    .ok_or_else(InternalError::store_corruption)?;
+            self.retain_canonical_candidate_entries(candidate, selection.slot())?;
             return Ok(());
         }
 
@@ -992,6 +1014,11 @@ impl SchemaStore {
         if !self.canonical_root_matches_candidate(candidate)? {
             return Err(InternalError::store_corruption());
         }
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        let selection = select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
+            .ok_or_else(InternalError::store_corruption)?;
+        self.retain_canonical_candidate_entries(candidate, selection.slot())?;
         Ok(())
     }
 
@@ -1311,6 +1338,106 @@ impl SchemaStore {
                     canonical.insert(key, value);
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn candidate_entry_keys(
+        candidate: &CandidateSchemaRevision,
+        root_slot: usize,
+    ) -> Result<BTreeSet<RawSchemaKey>, InternalError> {
+        let mut keys = candidate
+            .bundle()
+            .entity_snapshots()
+            .iter()
+            .map(|(entity_tag, snapshot)| {
+                RawSchemaKey::from_entity_version(*entity_tag, snapshot.version())
+            })
+            .collect::<BTreeSet<_>>();
+        keys.insert(RawSchemaKey::from_accepted_bundle(
+            candidate.root().bundle_key(),
+        ));
+        keys.insert(RawSchemaKey::from_accepted_root_slot(root_slot)?);
+        Ok(keys)
+    }
+
+    // Keep only the current entity snapshots, immutable bundle, and selected
+    // root. The inactive root is needed only during publication and is removed
+    // after the new root has been verified.
+    fn retain_durable_candidate_entries(
+        &mut self,
+        candidate: &CandidateSchemaRevision,
+        root_slot: usize,
+    ) -> Result<(), InternalError> {
+        let keep = Self::candidate_entry_keys(candidate, root_slot)?;
+        self.accepted_bundle_cache.get_mut().take();
+        match &mut self.backend {
+            SchemaStoreBackend::Heap(map) => map.retain(|key, _| keep.contains(key)),
+            SchemaStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => {
+                let stale = canonical
+                    .iter()
+                    .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
+                    .collect::<Vec<_>>();
+                for key in stale {
+                    canonical.remove(&key);
+                }
+                live.retain(|key, _| keep.contains(key));
+                tombstones.clear();
+            }
+        }
+        Ok(())
+    }
+
+    fn retain_materialized_candidate_entries(
+        &mut self,
+        candidate: &CandidateSchemaRevision,
+        root_slot: usize,
+    ) -> Result<(), InternalError> {
+        let keep = Self::candidate_entry_keys(candidate, root_slot)?;
+        self.accepted_bundle_cache.get_mut().take();
+        let SchemaStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &mut self.backend
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        live.retain(|key, _| keep.contains(key));
+        let canonical_keys = canonical
+            .iter()
+            .map(|entry| *entry.key())
+            .collect::<Vec<_>>();
+        for key in canonical_keys {
+            if keep.contains(&key) {
+                tombstones.remove(&key);
+            } else {
+                tombstones.insert(key);
+            }
+        }
+        Ok(())
+    }
+
+    fn retain_canonical_candidate_entries(
+        &mut self,
+        candidate: &CandidateSchemaRevision,
+        root_slot: usize,
+    ) -> Result<(), InternalError> {
+        let keep = Self::candidate_entry_keys(candidate, root_slot)?;
+        self.accepted_bundle_cache.get_mut().take();
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let stale = canonical
+            .iter()
+            .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
+            .collect::<Vec<_>>();
+        for key in stale {
+            canonical.remove(&key);
         }
         Ok(())
     }

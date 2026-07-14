@@ -5,8 +5,8 @@ define_fixture_canister!(
     PerfAuditCanister = "PerfAuditCanister",
     namespace = "sql_perf",
     memory_min = 180,
-    memory_max = 210,
-    commit_memory_id = 182,
+    memory_max = 188,
+    commit_memory_id = 188,
 );
 
 define_fixture_store!(
@@ -15,8 +15,8 @@ define_fixture_store!(
     storage(journaled(
         data_memory_id = 180,
         index_memory_id = 181,
-        schema_memory_id = 183,
-        journal_memory_id = 188,
+        schema_memory_id = 182,
+        journal_memory_id = 183,
     )),
 );
 

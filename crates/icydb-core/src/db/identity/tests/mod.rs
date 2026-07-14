@@ -107,7 +107,7 @@ fn rejects_index_field_over_len() {
 
 #[test]
 fn rejects_index_field_delimiter_that_would_alias_segments() {
-    fn legacy_join(entity: &str, fields: &[&str]) -> String {
+    fn ambiguous_delimiter_join(entity: &str, fields: &[&str]) -> String {
         let mut out = entity.to_string();
         for field in fields {
             out.push('|');
@@ -117,7 +117,10 @@ fn rejects_index_field_delimiter_that_would_alias_segments() {
         out
     }
 
-    assert_eq!(legacy_join("E", &["a|b"]), legacy_join("E", &["a", "b"]));
+    assert_eq!(
+        ambiguous_delimiter_join("E", &["a|b"]),
+        ambiguous_delimiter_join("E", &["a", "b"]),
+    );
 
     let entity = EntityName::try_from_str("E").unwrap();
     let err = IndexName::try_from_entity_fields(&entity, &["a|b"]).unwrap_err();

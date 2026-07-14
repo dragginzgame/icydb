@@ -116,7 +116,7 @@ pub(super) fn first_grouped_aggregate_policy_violation(
 fn grouped_aggregate_distinct_kind_supported_rule(
     ctx: GroupedAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
-    (ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_grouped_distinct_v1()).then(|| {
+    (ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_grouped_distinct()).then(|| {
         GroupPlanError::distinct_aggregate_kind_unsupported(ctx.index, Some(ctx.aggregate.kind()))
     })
 }
@@ -144,7 +144,7 @@ fn grouped_aggregate_field_target_unsupported_rule(
 ) -> Option<GroupPlanError> {
     ctx.aggregate
         .target_field()
-        .filter(|_| !ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_field_target_v1())
+        .filter(|_| !ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_field_target())
         .map(|target_field| {
             GroupPlanError::field_target_aggregates_unsupported(
                 ctx.index,

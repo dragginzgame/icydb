@@ -150,7 +150,7 @@ fn data_key_golden_snapshot_entity_and_compact_primary_key_layout_is_stable() {
     );
     let raw = key.to_raw().expect("data key should encode");
 
-    // Freeze the 0.159 on-disk wire contract:
+    // Freeze the current on-disk wire contract:
     // [EntityTag(u64, big-endian)] + [EncodedPrimaryKey].
     let mut expected = Vec::new();
     expected.extend_from_slice(&5u64.to_be_bytes());

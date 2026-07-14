@@ -172,7 +172,7 @@ impl PrimaryKeyInputResourceSummary {
 /// AccessChoiceResidualBurden
 ///
 /// AccessChoiceResidualBurden classifies the bounded residual-work categories
-/// surfaced by `0.106.1` route ranking and verbose explain output.
+/// surfaced by route ranking and verbose explain output.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

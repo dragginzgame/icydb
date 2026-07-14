@@ -26,13 +26,14 @@ that size before decode, so untrusted input cannot force an unbounded allocation
 
 ## Current Binary Wire
 
-There is one accepted binary wire: `TOKEN_WIRE_VERSION = 2`. IcyDB does not
-retain a CBOR decoder or translate older cursor formats. A version mismatch,
-wrong scalar/grouped variant, truncated field, invalid value tag, invalid
-direction, invalid optional-field marker, or trailing byte is rejected.
+There is one accepted binary wire: the `ICYQ` magic followed by
+`TOKEN_WIRE_VERSION = 1`. IcyDB does not retain a decoder or translate older
+cursor formats. A magic or version mismatch, wrong scalar/grouped variant,
+truncated field, invalid value tag, invalid direction, invalid optional-field
+marker, or trailing byte is rejected.
 
-Both scalar and grouped tokens begin with the wire version and token variant.
-The current payloads then carry:
+Both scalar and grouped tokens begin with the magic, wire version, and token
+variant. The current payloads then carry:
 
 - a continuation signature bound to the canonical query shape;
 - traversal direction;

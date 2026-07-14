@@ -405,6 +405,18 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
     CanonicalRow::from_canonical_raw_row(raw_row)
 }
 
+/// Re-emit one dense row from already validated canonical slot payloads.
+///
+/// Schema-owned physical rewrites use this after reading every payload through
+/// the accepted-before row contract and selecting the accepted-after slot
+/// order.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn canonical_row_from_dense_slot_payloads(
+    slot_payloads: &[Vec<u8>],
+) -> Result<CanonicalRow, InternalError> {
+    emit_raw_row_from_slot_payloads(slot_payloads.len(), slot_payloads)
+}
+
 // Admit every authored value before selecting its accepted storage codec.
 fn encode_authored_value_for_accepted_field_contract(
     encoding: AcceptedFieldPersistenceContract<'_>,

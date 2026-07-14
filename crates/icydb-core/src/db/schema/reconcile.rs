@@ -55,9 +55,8 @@ pub(in crate::db) use sql_ddl::{
 /// Reconcile registered runtime schemas with the schema metadata store.
 ///
 /// Initial contact publishes one deterministic store-local enum catalog.
-/// Later contacts reconcile proposals against the current accepted catalog so
-/// existing IDs remain stable and only append-only catalog additions can reach
-/// candidate publication.
+/// Later contacts rebuild the current-only dense catalog candidate and fail
+/// closed if any surviving persisted enum identity would move.
 pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
@@ -100,8 +99,9 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
 }
 
 // Construct every store-local enum catalog candidate before any entity
-// snapshot is published into the immutable accepted bundle. Existing stores
-// reconcile from accepted IDs; only virgin stores allocate from path order.
+// snapshot is published into the immutable accepted bundle. Every candidate
+// is dense in current canonical order; existing stores additionally prove that
+// surviving row-visible identities remain unchanged.
 fn build_generated_enum_catalog_candidates<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],

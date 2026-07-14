@@ -59,7 +59,7 @@ fn relation_source_recovery_marker(row_ops: Vec<CommitRowOp>) -> crate::db::comm
     let batch = JournalBatch::new(marker_id, marker_id, sequence, records)
         .expect("relation recovery journal batch should build");
 
-    crate::db::commit::CommitMarker::from_parts(marker_id, Vec::new(), vec![batch])
+    crate::db::commit::CommitMarker::from_parts(marker_id, vec![batch])
         .expect("relation recovery marker should build")
 }
 

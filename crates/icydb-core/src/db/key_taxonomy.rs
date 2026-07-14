@@ -1,6 +1,6 @@
 //! Module: db::key_taxonomy
 //! Responsibility: compact key vocabulary and canonical primary-key encoder
-//! proof, including the 0.162 scalar-or-composite primary-key value model.
+//! proof, including the scalar-or-composite primary-key value model.
 //! Does not own: index-entry value ownership or cursor semantics.
 //! Boundary: storage-format layers consume these wrappers as the only row
 //! identity vocabulary.
@@ -303,7 +303,7 @@ impl PartialOrd for CompositePrimaryKeyValue {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[expect(
     clippy::large_enum_variant,
-    reason = "0.162 primary-key values stay Copy and allocation-free on hot encode/decode paths"
+    reason = "primary-key values stay Copy and allocation-free on hot encode/decode paths"
 )]
 pub enum PrimaryKeyValue {
     Scalar(PrimaryKeyComponent),
