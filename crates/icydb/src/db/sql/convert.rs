@@ -4,9 +4,12 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
-use crate::db::sql::{
-    SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput,
-    value_render::{render_projection_value_text, sql_projection_output_rows},
+use crate::db::{
+    response::RowProjectionOutput,
+    sql::{
+        SqlGroupedRowsOutput, SqlQueryResult,
+        value_render::{render_projection_value_text, sql_projection_output_rows},
+    },
 };
 
 use icydb_core::db::{GroupedRow, SqlStatementResult};
@@ -31,10 +34,12 @@ pub(crate) fn sql_query_result_from_statement(
             let rows =
                 sql_projection_output_rows(columns.as_slice(), fixed_scales.as_slice(), rows);
 
-            SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
-                entity_name,
-                SqlProjectionRows::new(columns, rows, row_count),
-            ))
+            SqlQueryResult::Projection(RowProjectionOutput {
+                entity: entity_name,
+                columns,
+                rows,
+                row_count,
+            })
         }
         SqlStatementResult::Grouped {
             columns,

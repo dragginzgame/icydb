@@ -157,9 +157,8 @@ fn first_lowered_order_field(sql: &str, context: &str) -> String {
         panic!("{context} should lower to a query command");
     };
     let plan = sql_query
-        .plan()
-        .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"))
-        .into_inner();
+        .access_plan_for_test()
+        .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"));
 
     plan.scalar_plan()
         .order
@@ -576,15 +575,13 @@ fn assert_sql_lower_queries_share_plan_identity(
 ) {
     assert_eq!(
         strip_semantic_filter_expr_for_parity(
-            left.plan()
-                .unwrap_or_else(|err| panic!("{left_context} plan should build: {err:?}"))
-                .into_inner(),
+            left.access_plan_for_test()
+                .unwrap_or_else(|err| panic!("{left_context} plan should build: {err:?}")),
         ),
         strip_semantic_filter_expr_for_parity(
             right
-                .plan()
-                .unwrap_or_else(|err| panic!("{right_context} plan should build: {err:?}"))
-                .into_inner(),
+                .access_plan_for_test()
+                .unwrap_or_else(|err| panic!("{right_context} plan should build: {err:?}")),
         ),
         "{message}",
     );
@@ -650,13 +647,13 @@ fn assert_sql_lower_queries_share_executable_identity(
     family_message: &str,
     ordering_message: &str,
 ) {
-    let left_executable = PreparedExecutionPlan::from(
-        left.plan()
+    let left_executable = PreparedExecutionPlan::<SqlLowerEntity>::from(
+        left.access_plan_for_test()
             .unwrap_or_else(|err| panic!("{left_context} executable plan should build: {err:?}")),
     );
-    let right_executable = PreparedExecutionPlan::from(
+    let right_executable = PreparedExecutionPlan::<SqlLowerEntity>::from(
         right
-            .plan()
+            .access_plan_for_test()
             .unwrap_or_else(|err| panic!("{right_context} executable plan should build: {err:?}")),
     );
 
@@ -732,7 +729,7 @@ fn assert_sql_lower_query_matches_sql_plan(
 // admission tests do not repeat the same query extraction boilerplate.
 fn assert_sql_lower_query_plan_builds(sql: &str, context: &str) {
     compile_sql_lower_query_command(sql, context)
-        .plan()
+        .access_plan_for_test()
         .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"));
 }
 
@@ -758,9 +755,8 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
         "scalar WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("scalar WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("scalar WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -787,9 +783,8 @@ fn compile_sql_command_select_membership_keeps_filter_and_extracts_predicate() {
         "membership WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("membership WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("membership WHERE SQL plan should build");
 
     assert!(
         plan.scalar_plan().filter_expr.is_some(),
@@ -822,9 +817,8 @@ fn compile_sql_command_select_membership_conjunction_keeps_filter_and_extracts_p
         "membership conjunction WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("membership conjunction WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("membership conjunction WHERE SQL plan should build");
 
     assert!(
         plan.scalar_plan().filter_expr.is_some(),
@@ -871,9 +865,8 @@ fn compile_sql_command_membership_with_null_uses_sql_truth_filter() {
         "IN-with-NULL WHERE SQL query",
     );
     let in_plan = in_query
-        .plan()
-        .expect("IN-with-NULL WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("IN-with-NULL WHERE SQL plan should build");
 
     assert!(
         in_plan.scalar_plan().filter_expr.is_some(),
@@ -899,9 +892,8 @@ fn compile_sql_command_membership_with_null_uses_sql_truth_filter() {
         "NOT-IN-with-NULL WHERE SQL query",
     );
     let not_in_plan = not_in_query
-        .plan()
-        .expect("NOT-IN-with-NULL WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("NOT-IN-with-NULL WHERE SQL plan should build");
 
     assert!(
         not_in_plan.scalar_plan().filter_expr.is_some(),
@@ -981,13 +973,12 @@ fn compile_sql_command_numeric_equality_on_nat_field_keeps_strict_plan_parity() 
 
     assert_eq!(
         strip_semantic_filter_expr_for_parity(
-            query.plan().expect("SQL plan should build").into_inner(),
+            query.access_plan_for_test().expect("SQL plan should build"),
         ),
         strip_semantic_filter_expr_for_parity(
             fluent_query
-                .plan()
-                .expect("fluent nat-equality plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("fluent nat-equality plan should build"),
         ),
         "SQL nat equality should canonicalize its literal onto the strict runtime field variant",
     );
@@ -1005,9 +996,8 @@ fn compile_sql_command_typed_fluent_filter_matches_sql_canonical_predicate() {
         panic!("expected lowered SQL query command");
     };
     let sql_plan = sql_query
-        .plan()
-        .expect("SQL filter convergence plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("SQL filter convergence plan should build");
     let fluent_plan = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .filter(FilterExpr::or(vec![
             FilterExpr::and(vec![
@@ -1016,9 +1006,8 @@ fn compile_sql_command_typed_fluent_filter_matches_sql_canonical_predicate() {
             ]),
             FilterExpr::eq_field("age", "age"),
         ]))
-        .plan()
-        .expect("typed fluent filter convergence plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("typed fluent filter convergence plan should build");
 
     assert_eq!(
         sql_plan.scalar_plan().predicate,
@@ -1091,13 +1080,11 @@ fn compile_sql_command_typed_fluent_filter_matrix_matches_sql_canonical_predicat
             panic!("expected lowered SQL query command for {context}");
         };
         let sql_plan = sql_query
-            .plan()
-            .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err:?}"))
-            .into_inner();
+            .access_plan_for_test()
+            .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err:?}"));
         let fluent_plan = fluent_query
-            .plan()
-            .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err:?}"))
-            .into_inner();
+            .access_plan_for_test()
+            .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err:?}"));
 
         assert_eq!(
             sql_plan.scalar_plan().predicate,
@@ -1134,15 +1121,13 @@ fn compile_sql_explain_numeric_equality_on_nat_field_keeps_strict_plan_parity() 
     assert_eq!(
         strip_semantic_filter_expr_for_parity(
             query
-                .plan()
-                .expect("SQL explain query plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("SQL explain query plan should build"),
         ),
         strip_semantic_filter_expr_for_parity(
             fluent_query
-                .plan()
-                .expect("fluent nat-equality plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("fluent nat-equality plan should build"),
         ),
         "EXPLAIN EXECUTION should reuse the same canonical nat literal lowering as plain SQL execution",
     );
@@ -1164,11 +1149,10 @@ fn compile_sql_command_field_to_field_predicate_matches_fluent_intent() {
         .filter(crate::db::FieldRef::new("age").gt_field("age"));
 
     assert_eq!(
-        query.plan().expect("SQL plan should build").into_inner(),
+        query.access_plan_for_test().expect("SQL plan should build"),
         fluent_query
-            .plan()
-            .expect("fluent field-to-field plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("fluent field-to-field plan should build"),
         "field-to-field SQL lowering should match the canonical fluent predicate leaf",
     );
 }
@@ -1257,13 +1241,11 @@ fn compile_sql_command_order_by_field_alias_matches_canonical_order_target() {
     };
 
     let alias_plan = alias_query
-        .plan()
-        .expect("field alias plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("field alias plan should build");
     let canonical_plan = canonical_query
-        .plan()
-        .expect("canonical field plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("canonical field plan should build");
 
     assert_eq!(
         alias_plan.scalar_plan().order,
@@ -1549,9 +1531,8 @@ fn compile_sql_command_delete_unextractable_where_keeps_residual_filter_expr() {
     std::assert_matches!(query.mode(), QueryMode::Delete(_));
 
     let plan = query
-        .plan()
-        .expect("DELETE with expression-only WHERE should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("DELETE with expression-only WHERE should plan");
 
     assert!(
         plan.scalar_plan().filter_expr.is_some(),
@@ -1631,13 +1612,11 @@ fn compile_sql_command_delete_direct_starts_with_family_matches_like_delete_inte
         );
         assert_eq!(
             direct_query
-                .plan()
-                .expect("direct STARTS_WITH delete plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("direct STARTS_WITH delete plan should build"),
             like_query
-                .plan()
-                .expect("LIKE delete plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("LIKE delete plan should build"),
             "bounded direct STARTS_WITH delete lowering should match the established LIKE delete intent: {context}",
         );
     }
@@ -1689,13 +1668,11 @@ fn compile_sql_command_delete_wrapped_starts_with_family_matches_like_delete_int
         );
         assert_eq!(
             direct_query
-                .plan()
-                .expect("wrapped direct STARTS_WITH delete plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("wrapped direct STARTS_WITH delete plan should build"),
             like_query
-                .plan()
-                .expect("wrapped LIKE delete plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("wrapped LIKE delete plan should build"),
             "wrapped direct STARTS_WITH delete lowering should match the widened LIKE/ILIKE delete intent: {context}",
         );
     }
@@ -1714,9 +1691,8 @@ fn compile_sql_command_select_expression_order_lowers_to_expression_index_range(
     };
 
     let plan = query
-        .plan()
-        .expect("expression-order query should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("expression-order query should plan");
     let Some(spec) = plan.access.as_index_range_path() else {
         panic!("expression-order query should use one index-range access path");
     };
@@ -1745,7 +1721,7 @@ fn compile_sql_command_normalizes_qualified_expression_order_identifier() {
         panic!("expected lowered query command");
     };
     let explain = query
-        .plan()
+        .access_plan_for_test()
         .expect("qualified expression order should plan")
         .explain();
     let crate::db::query::explain::ExplainOrderBy::Fields(fields) = explain.order_by() else {
@@ -2124,9 +2100,9 @@ fn compile_sql_command_select_field_projection_lowers_to_scalar_field_selection(
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .expect("field-list plan should build")
-        .projection_spec();
+        .projection_spec(SqlLowerEntity::MODEL);
     let field_names = projection
         .fields()
         .map(|field| match field {
@@ -2156,9 +2132,9 @@ fn compile_sql_command_select_scalar_add_projection_lowers_to_binary_expr() {
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .expect("scalar arithmetic plan should build")
-        .projection_spec();
+        .projection_spec(SqlLowerEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
 
     assert_eq!(fields.len(), 1);
@@ -2194,9 +2170,9 @@ fn compile_sql_command_select_scalar_field_to_field_projection_lowers_to_binary_
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .expect("field-to-field arithmetic plan should build")
-        .projection_spec();
+        .projection_spec(SqlLowerEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
 
     assert_eq!(fields.len(), 1);
@@ -2252,9 +2228,9 @@ fn compile_sql_command_select_scalar_sub_mul_div_projection_lowers_to_binary_exp
         };
 
         let projection = query
-            .plan()
+            .access_plan_for_test()
             .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"))
-            .projection_spec();
+            .projection_spec(SqlLowerEntity::MODEL);
         let fields = projection.fields().collect::<Vec<_>>();
 
         assert_eq!(
@@ -2327,9 +2303,9 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
         };
 
         let projection = query
-            .plan()
+            .access_plan_for_test()
             .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"))
-            .projection_spec();
+            .projection_spec(SqlLowerEntity::MODEL);
         let fields = projection.fields().collect::<Vec<_>>();
 
         assert_eq!(
@@ -2378,9 +2354,8 @@ fn compile_sql_command_select_chained_scalar_projection_lowers_to_nested_binary_
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .unwrap_or_else(|err| panic!("chained scalar projection plan should build: {err:?}"))
-        .into_inner()
         .projection_selection;
 
     assert!(
@@ -2419,9 +2394,8 @@ fn compile_sql_command_select_searched_case_projection_lowers_to_case_expr() {
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .unwrap_or_else(|err| panic!("searched CASE projection plan should build: {err:?}"))
-        .into_inner()
         .projection_selection;
 
     assert!(
@@ -2465,11 +2439,10 @@ fn compile_sql_command_select_case_text_predicate_preserves_raw_target_expr() {
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .unwrap_or_else(|err| {
             panic!("searched CASE text predicate projection plan should build: {err:?}")
         })
-        .into_inner()
         .projection_selection;
 
     assert!(
@@ -2518,9 +2491,8 @@ fn compile_sql_command_select_searched_case_is_null_projection_lowers_to_case_ex
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .unwrap_or_else(|err| panic!("searched CASE IS NULL projection plan should build: {err:?}"))
-        .into_inner()
         .projection_selection;
 
     assert!(
@@ -2563,9 +2535,8 @@ fn compile_sql_command_select_searched_case_without_else_canonicalizes_to_null()
     };
 
     let projection = query
-        .plan()
+        .access_plan_for_test()
         .unwrap_or_else(|err| panic!("searched CASE without ELSE plan should build: {err:?}"))
-        .into_inner()
         .projection_selection;
 
     assert!(
@@ -2592,9 +2563,8 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
         "searched CASE WHERE SQL query",
     );
     let sql_plan = sql_query
-        .plan()
-        .expect("searched CASE WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("searched CASE WHERE SQL plan should build");
 
     assert!(
         sql_plan.scalar_plan().predicate.is_none(),
@@ -2673,9 +2643,8 @@ fn compile_sql_command_select_where_affine_numeric_compare_keeps_expression_auth
         "affine numeric WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("affine numeric WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("affine numeric WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -2714,9 +2683,8 @@ fn compile_sql_command_select_where_coalesce_and_nullif_preserves_filter_expr_wi
         "COALESCE/NULLIF WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("COALESCE/NULLIF WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("COALESCE/NULLIF WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -2763,9 +2731,8 @@ fn compile_sql_command_select_where_compare_constant_arguments_derive_predicate(
         "compare constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("compare constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("compare constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -2920,9 +2887,8 @@ fn compile_sql_command_select_where_casefold_compare_constant_arguments_derive_p
         "casefold compare constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("casefold compare constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("casefold compare constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -2961,9 +2927,8 @@ fn compile_sql_command_select_where_compare_and_true_constant_arguments_derive_p
         "compare and true constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("compare and true constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("compare and true constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -2997,9 +2962,8 @@ fn compile_sql_command_select_where_compare_and_false_constant_arguments_derive_
         "compare and false constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("compare and false constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("compare and false constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3023,9 +2987,8 @@ fn compile_sql_command_select_where_compare_or_false_constant_arguments_derive_p
         "compare or false constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("compare or false constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("compare or false constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3059,9 +3022,8 @@ fn compile_sql_command_select_where_compare_or_true_constant_arguments_derive_tr
         "compare or true constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("compare or true constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("compare or true constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3097,9 +3059,8 @@ fn compile_sql_command_select_where_null_test_constant_arguments_derive_boolean_
     for (sql, expected_value, expected_predicate, context) in cases {
         let sql_query = compile_sql_lower_query_command(sql, context);
         let plan = sql_query
-            .plan()
-            .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err:?}"))
-            .into_inner();
+            .access_plan_for_test()
+            .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err:?}"));
 
         assert!(
             matches!(
@@ -3125,9 +3086,8 @@ fn compile_sql_command_select_where_unary_text_wrapped_value_selection_preserves
         "unary text wrapped value-selection WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("unary text wrapped value-selection WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("unary text wrapped value-selection WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3183,9 +3143,8 @@ fn compile_sql_command_select_where_text_transform_operands_preserve_filter_expr
         "text transform WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("text transform WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("text transform WHERE SQL plan should build");
     let filter_expr = plan
         .scalar_plan()
         .filter_expr
@@ -3238,9 +3197,8 @@ fn compile_sql_command_select_where_text_predicate_wrapped_transform_preserves_f
         "text predicate wrapped transform WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("text predicate wrapped transform WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("text predicate wrapped transform WHERE SQL plan should build");
     let filter_expr =
         plan.scalar_plan().filter_expr.as_ref().expect(
             "text predicate wrapped transform WHERE should preserve semantic filter ownership",
@@ -3295,9 +3253,8 @@ fn compile_sql_command_select_where_text_predicate_expression_arguments_preserve
         "text predicate expression arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("text predicate expression arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("text predicate expression arguments WHERE SQL plan should build");
     let filter_expr = plan.scalar_plan().filter_expr.as_ref().expect(
         "text predicate expression arguments WHERE should preserve semantic filter ownership",
     );
@@ -3355,9 +3312,8 @@ fn compile_sql_command_select_where_text_predicate_constant_arguments_derive_pre
         "text predicate constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("text predicate constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("text predicate constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3389,9 +3345,8 @@ fn compile_sql_command_select_where_casefold_text_predicate_constant_arguments_d
         "casefold text predicate constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("casefold text predicate constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("casefold text predicate constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3435,9 +3390,8 @@ fn compile_sql_command_select_where_casefold_text_predicate_and_true_constant_ar
         "casefold text predicate and true constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("casefold text predicate and true constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("casefold text predicate and true constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3481,9 +3435,8 @@ fn compile_sql_command_select_where_casefold_text_predicate_or_false_constant_ar
         "casefold text predicate or false constant arguments WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("casefold text predicate or false constant arguments WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("casefold text predicate or false constant arguments WHERE SQL plan should build");
 
     assert!(
         matches!(
@@ -3526,9 +3479,8 @@ fn compile_sql_command_select_where_ilike_wrapped_transform_preserves_filter_exp
         "ILIKE wrapped transform WHERE SQL query",
     );
     let plan = sql_query
-        .plan()
-        .expect("ILIKE wrapped transform WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("ILIKE wrapped transform WHERE SQL plan should build");
     let filter_expr = plan
         .scalar_plan()
         .filter_expr
@@ -3604,13 +3556,11 @@ fn compile_sql_command_distinguishes_is_null_from_eq_null_predicates() {
 
     assert_ne!(
         is_null_query
-            .plan()
-            .expect("IS NULL SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("IS NULL SQL plan should build"),
         eq_null_query
-            .plan()
-            .expect("= NULL SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("= NULL SQL plan should build"),
         "IS NULL and = NULL should remain semantically distinct through SQL lowering",
     );
 }
@@ -3629,9 +3579,8 @@ fn compile_sql_command_select_where_searched_case_with_bool_field_stays_expressi
     };
 
     let sql_plan = sql_query
-        .plan()
-        .expect("searched CASE bool-field WHERE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("searched CASE bool-field WHERE SQL plan should build");
 
     assert!(
         sql_plan.scalar_plan().predicate.is_none(),
@@ -3691,13 +3640,11 @@ fn compile_sql_command_select_where_is_true_matches_bare_bool_field_plan_identit
 
     assert_eq!(
         wrapped_query
-            .plan()
-            .expect("IS TRUE bool-field SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("IS TRUE bool-field SQL plan should build"),
         canonical_query
-            .plan()
-            .expect("bare bool-field SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("bare bool-field SQL plan should build"),
         "IS TRUE should lower onto the same canonical scalar bool-field plan as the bare truth condition",
     );
     assert_eq!(
@@ -3733,13 +3680,11 @@ fn compile_sql_command_select_where_is_false_matches_not_bool_field_plan_identit
 
     assert_eq!(
         wrapped_query
-            .plan()
-            .expect("IS FALSE bool-field SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("IS FALSE bool-field SQL plan should build"),
         canonical_query
-            .plan()
-            .expect("NOT bool-field SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("NOT bool-field SQL plan should build"),
         "IS FALSE should lower onto the same canonical scalar bool-field plan as NOT <bool field>",
     );
     assert_eq!(
@@ -4202,13 +4147,11 @@ fn compile_sql_command_in_trailing_comma_matches_canonical_in_intent() {
 
     assert_eq!(
         sql_query
-            .plan()
-            .expect("IN with trailing comma SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("IN with trailing comma SQL plan should build"),
         canonical_query
-            .plan()
-            .expect("canonical IN SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("canonical IN SQL plan should build"),
         "SQL IN with trailing comma must match the canonical IN intent",
     );
 }
@@ -4747,9 +4690,8 @@ fn compile_sql_command_deduplicates_repeated_grouped_aggregate_input_leaves_in_p
         "grouped arithmetic projection with repeated aggregate-input leaves",
     );
     let planned = query
-        .plan()
-        .expect("grouped arithmetic projection with repeated aggregate-input leaves should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped arithmetic projection with repeated aggregate-input leaves should plan");
     let grouped = planned
         .grouped_plan()
         .expect("grouped arithmetic projection should keep grouped plan shape");
@@ -4784,7 +4726,7 @@ fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
         "grouped non-preserving computed ORDER BY",
     );
 
-    let err = query.plan().expect_err(
+    let err = query.access_plan_for_test().expect_err(
         "grouped ORDER BY expressions that do not preserve grouped-key order should remain fail-closed",
     );
 
@@ -5000,9 +4942,8 @@ fn compile_sql_command_normalizes_grouped_filtered_aggregate_order_by_alias_with
         panic!("grouped filtered aggregate ORDER BY alias should lower to a query command");
     };
     let plan = sql_query
-        .plan()
-        .expect("grouped filtered aggregate ORDER BY alias plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped filtered aggregate ORDER BY alias plan should build");
 
     assert_eq!(
         plan.scalar_plan()
@@ -5079,7 +5020,7 @@ fn compile_sql_command_accepts_grouped_aggregate_order_with_offset() {
     };
 
     query
-        .plan()
+        .access_plan_for_test()
         .expect("grouped aggregate ORDER BY with OFFSET should build through grouped Top-K");
 }
 
@@ -5100,9 +5041,8 @@ fn compile_sql_command_accepts_grouped_filtered_aggregate_order_by_alias_with_of
         );
     };
     let plan = sql_query
-        .plan()
-        .expect("grouped filtered aggregate ORDER BY alias with OFFSET should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped filtered aggregate ORDER BY alias with OFFSET should plan");
 
     assert_eq!(
         plan.scalar_plan()
@@ -5187,9 +5127,8 @@ fn compile_sql_command_accepts_projected_direct_bounded_numeric_order_terms() {
     };
 
     let plan = sql_query
-        .plan()
-        .expect("projected direct arithmetic order plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("projected direct arithmetic order plan should build");
     assert_eq!(
         plan.scalar_plan()
             .order
@@ -5215,9 +5154,8 @@ fn compile_sql_command_accepts_distinct_order_by_expression_derived_from_project
     };
 
     let plan = sql_query
-        .plan()
-        .expect("DISTINCT derived ORDER BY plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("DISTINCT derived ORDER BY plan should build");
     assert_eq!(
         plan.scalar_plan()
             .order
@@ -5303,13 +5241,11 @@ fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
 
     assert_eq!(
         sql_query
-            .plan()
-            .expect("grouped HAVING SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("grouped HAVING SQL plan should build"),
         fluent_query
-            .plan()
-            .expect("fluent grouped HAVING plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("fluent grouped HAVING plan should build"),
         "grouped HAVING SQL lowering and fluent grouped HAVING query must produce identical normalized planned intent",
     );
 }
@@ -5350,13 +5286,11 @@ fn compile_sql_command_select_grouped_having_is_null_parity_matches_fluent_inten
 
     assert_eq!(
         sql_query
-            .plan()
-            .expect("grouped HAVING IS [NOT] NULL SQL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("grouped HAVING IS [NOT] NULL SQL plan should build"),
         fluent_query
-            .plan()
-            .expect("fluent grouped HAVING IS [NOT] NULL plan should build")
-            .into_inner(),
+            .access_plan_for_test()
+            .expect("fluent grouped HAVING IS [NOT] NULL plan should build"),
         "grouped HAVING IS [NOT] NULL SQL lowering and fluent grouped HAVING query must produce identical normalized planned intent",
     );
 }
@@ -5378,7 +5312,7 @@ fn compile_sql_command_select_grouped_post_aggregate_having_exprs_lowers() {
     };
 
     sql_query
-        .plan()
+        .access_plan_for_test()
         .expect("grouped post-aggregate HAVING SQL plan should build");
 }
 
@@ -5398,9 +5332,8 @@ fn compile_sql_command_select_grouped_searched_case_having_exprs_lowers() {
     };
 
     let planned = query
-        .plan()
-        .expect("grouped searched CASE HAVING SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped searched CASE HAVING SQL plan should build");
     let grouped = planned
         .grouped_plan()
         .expect("grouped searched CASE HAVING SQL should keep grouped plan shape");
@@ -5438,9 +5371,8 @@ fn compile_sql_command_select_grouped_boolean_searched_case_having_canonicalizes
     };
 
     let planned = query
-        .plan()
-        .expect("grouped boolean searched CASE HAVING SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped boolean searched CASE HAVING SQL plan should build");
     let grouped = planned
         .grouped_plan()
         .expect("grouped boolean searched CASE HAVING SQL should keep grouped plan shape");
@@ -5617,9 +5549,8 @@ fn compile_sql_command_select_grouped_boolean_searched_case_without_else_canonic
     };
 
     let planned = query
-        .plan()
-        .expect("grouped searched CASE HAVING without ELSE SQL plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped searched CASE HAVING without ELSE SQL plan should build");
     let grouped = planned
         .grouped_plan()
         .expect("grouped searched CASE HAVING without ELSE should keep grouped plan shape");
@@ -5775,13 +5706,14 @@ fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executa
         .offset(1);
 
     // Phase 2: assert canonical planned identity + fingerprint parity.
-    let sql_compiled = sql_query.plan().expect("grouped SQL plan should build");
-    let fluent_compiled = fluent_query
-        .plan()
+    let sql_plan = sql_query
+        .access_plan_for_test()
+        .expect("grouped SQL plan should build");
+    let fluent_plan = fluent_query
+        .access_plan_for_test()
         .expect("fluent grouped plan should build");
     assert_eq!(
-        sql_compiled.into_inner(),
-        fluent_compiled.into_inner(),
+        sql_plan, fluent_plan,
         "grouped SQL lowering and fluent grouped query must produce identical normalized planned intent",
     );
     assert_eq!(
@@ -5820,11 +5752,14 @@ fn compile_sql_command_select_field_projection_parity_matches_query_and_executab
         .offset(1);
 
     // Phase 2: assert canonical planned identity + fingerprint parity.
-    let sql_compiled = sql_query.plan().expect("SQL plan should build");
-    let fluent_compiled = fluent_query.plan().expect("fluent plan should build");
+    let sql_plan = sql_query
+        .access_plan_for_test()
+        .expect("SQL plan should build");
+    let fluent_plan = fluent_query
+        .access_plan_for_test()
+        .expect("fluent plan should build");
     assert_eq!(
-        sql_compiled.into_inner(),
-        fluent_compiled.into_inner(),
+        sql_plan, fluent_plan,
         "SQL field-list lowering and fluent field-list query must produce identical normalized planned intent",
     );
     assert_eq!(
@@ -6251,9 +6186,8 @@ fn compile_sql_command_accepts_grouped_aggregate_input_expressions() {
         panic!("expected lowered grouped query command");
     };
     let planned = query
-        .plan()
-        .expect("grouped aggregate input SQL should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped aggregate input SQL should plan");
     let grouped = planned
         .grouped_plan()
         .expect("grouped aggregate input SQL should keep grouped plan shape");
@@ -6894,9 +6828,8 @@ fn compile_sql_global_aggregate_having_matches_fluent_global_aggregate_intent() 
             crate::value::InputValue::from(Value::Int64(1)),
         )
         .expect("global aggregate fluent HAVING should append")
-        .plan()
-        .expect("global aggregate fluent HAVING should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("global aggregate fluent HAVING should plan");
     let Some(grouped) = fluent.grouped_plan() else {
         panic!("global aggregate fluent HAVING should compile to grouped logical plan");
     };

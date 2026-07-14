@@ -5,7 +5,10 @@
 
 use candid::{Decode, Encode};
 use icydb::{
-    db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
+    db::{
+        RowProjectionOutput,
+        sql::{SqlGroupedRowsOutput, SqlQueryResult},
+    },
     value::OutputValue,
 };
 use serde_json::json;
@@ -407,7 +410,7 @@ fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
 #[test]
 fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
     let rendered = render_projection_shell_text(
-        SqlQueryRowsOutput {
+        RowProjectionOutput {
             entity: "Character".to_string(),
             columns: vec!["name".to_string()],
             rows: vec![vec![OutputValue::Text("alice".to_string())]],
@@ -425,7 +428,7 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
 #[test]
 fn projection_shell_text_renders_null_cells_as_sql_null() {
     let rendered = render_projection_shell_text(
-        SqlQueryRowsOutput {
+        RowProjectionOutput {
             entity: "Character".to_string(),
             columns: vec!["nickname".to_string()],
             rows: vec![vec![OutputValue::Null]],

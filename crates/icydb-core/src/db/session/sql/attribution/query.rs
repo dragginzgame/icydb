@@ -4,11 +4,11 @@
 use super::{
     SqlCompileAttribution, SqlExecutePhaseAttribution, SqlExecutionAttribution,
     SqlHybridCoveringAttribution, SqlOutputBlobAttribution, SqlPureCoveringAttribution,
-    SqlQueryCacheAttribution, SqlScalarAggregateAttribution,
-    output_blob::sql_output_blob_attribution,
+    SqlQueryCacheAttribution, output_blob::sql_output_blob_attribution,
 };
 use crate::db::{
     DirectDataRowAttribution, GroupedExecutionAttribution, KernelRowAttribution,
+    ScalarAggregateAttribution,
     diagnostics::StoreCounterSnapshot,
     session::sql::{
         cache::SqlCacheAttribution, compile::SqlCompilePhaseAttribution,
@@ -37,7 +37,7 @@ pub struct SqlQueryExecutionAttribution {
     pub direct_data_row: Option<DirectDataRowAttribution>,
     pub kernel_row: Option<KernelRowAttribution>,
     pub grouped: Option<GroupedExecutionAttribution>,
-    pub scalar_aggregate: Option<SqlScalarAggregateAttribution>,
+    pub scalar_aggregate: Option<ScalarAggregateAttribution>,
     pub pure_covering: Option<SqlPureCoveringAttribution>,
     pub hybrid_covering: Option<SqlHybridCoveringAttribution>,
     pub output_blob: SqlOutputBlobAttribution,
@@ -91,7 +91,7 @@ impl SqlQueryExecutionAttribution {
             direct_data_row: execute_phase.direct_data_row,
             kernel_row: execute_phase.kernel_row,
             grouped,
-            scalar_aggregate: SqlScalarAggregateAttribution::from_executor(
+            scalar_aggregate: ScalarAggregateAttribution::from_executor(
                 execute_phase.scalar_aggregate_terminal,
             ),
             pure_covering: SqlPureCoveringAttribution::from_local_instructions(

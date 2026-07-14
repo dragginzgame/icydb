@@ -4273,7 +4273,7 @@ fn execute_sql_grouped_query_with_attribution_reports_grouped_phase_split() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
 
     let (_result, attribution) = session
-        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age LIMIT 10",
         )
         .expect("grouped SQL attribution query should execute");

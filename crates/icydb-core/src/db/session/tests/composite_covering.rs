@@ -288,7 +288,9 @@ fn assert_explicit_pk_suffix_query_avoids_store_gets(
     );
 
     let (_result, attribution) = session
-        .execute_sql_query_with_attribution::<ExplicitPkSuffixIndexedSessionSqlEntity>(case.sql)
+        .execute_trusted_sql_query_with_attribution::<ExplicitPkSuffixIndexedSessionSqlEntity>(
+            case.sql,
+        )
         .unwrap_or_else(|err| {
             panic!(
                 "{} should execute as a covering query: {err:?}",
@@ -388,7 +390,7 @@ fn execute_sql_projection_explicit_primary_key_suffix_in_order_uses_lazy_multi_l
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<ExplicitPkSuffixIndexedSessionSqlEntity>(sql)
+        .execute_trusted_sql_query_with_attribution::<ExplicitPkSuffixIndexedSessionSqlEntity>(sql)
         .unwrap_or_else(|err| panic!("pk-suffix IN query should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("pk-suffix IN query should return projection rows");

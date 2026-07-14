@@ -45,16 +45,6 @@ pub(super) fn render_text_block(summary: &QueryAdmissionSummary) -> String {
     );
     push_text_option_u32(
         &mut out,
-        "response_byte_bound",
-        summary.response_byte_bound(),
-    );
-    push_text_field(
-        &mut out,
-        "response_byte_bound_kind",
-        summary.response_byte_bound_kind().as_str(),
-    );
-    push_text_option_u32(
-        &mut out,
         "primary_key_input_terms",
         summary.primary_key_input_terms(),
     );

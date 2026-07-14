@@ -261,13 +261,13 @@ pub enum GroupPlanError {
     /// GROUP BY must not repeat the same resolved group slot.
     DuplicateGroupField { field: String },
 
-    /// GROUP BY v1 does not accept DISTINCT unless adjacency eligibility is explicit.
+    /// GROUP BY does not accept DISTINCT unless adjacency eligibility is explicit.
     DistinctAdjacencyEligibilityRequired,
 
     /// GROUP BY ORDER BY shape must start with grouped-key prefix.
     OrderPrefixNotAlignedWithGroupKeys,
 
-    /// GROUP BY ORDER BY expression parses but is not order-admissible in grouped v1.
+    /// GROUP BY ORDER BY expression parses but is not admissible for grouped ordering.
     OrderExpressionNotAdmissible { term: String },
 
     /// Aggregate ORDER BY requires an explicit LIMIT for bounded execution.

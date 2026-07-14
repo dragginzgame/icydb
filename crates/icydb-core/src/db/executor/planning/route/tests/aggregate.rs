@@ -12,7 +12,8 @@ fn route_plan_aggregate_uses_route_owned_fast_path_order() {
     let route_plan = build_aggregate_route(&plan, AggregateKind::Exists);
 
     assert_eq!(route_plan.fast_path_order(), &AGGREGATE_FAST_PATH_ORDER);
-    assert_eq!(route_plan.grouped_observability(), None);
+    assert_eq!(route_plan.grouped_execution_mode(), None);
+    assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
 
 #[test]

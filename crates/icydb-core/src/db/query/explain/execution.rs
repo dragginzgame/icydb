@@ -112,9 +112,6 @@ pub(in crate::db) mod property_keys {
     pub(in crate::db) const FETCH: &str = "fetch";
     pub(in crate::db) const GROUPED_EXECUTION_MODE: &str = "grouped_execution_mode";
     pub(in crate::db) const GROUPED_PLAN_FALLBACK_REASON: &str = "grouped_plan_fallback_reason";
-    pub(in crate::db) const GROUPED_ROUTE_ELIGIBLE: &str = "grouped_route_eligible";
-    pub(in crate::db) const GROUPED_ROUTE_OUTCOME: &str = "grouped_route_outcome";
-    pub(in crate::db) const GROUPED_ROUTE_REJECTION_REASON: &str = "grouped_route_rejection_reason";
     #[cfg(feature = "sql-explain")]
     pub(in crate::db) const AGGREGATE_DIRECT_COUNT_METADATA_ELIGIBLE: &str =
         "aggregate_direct_count_metadata_eligible";

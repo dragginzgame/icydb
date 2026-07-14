@@ -263,7 +263,7 @@ impl ConfigInitSurfaceArgs {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(crate) enum ConfigInitUpdatePolicy {
     /// Public-safe at-most-one-row primary-key update policy.
-    #[value(name = "primary-key", alias = "primary_key")]
+    #[value(name = "primary-key")]
     PrimaryKey,
     /// Public-safe explicit primary-key-ordered bounded update policy.
     Bounded,

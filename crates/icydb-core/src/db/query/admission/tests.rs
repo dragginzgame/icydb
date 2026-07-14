@@ -1,4 +1,4 @@
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU32;
 
 use crate::{
     db::{
@@ -31,37 +31,17 @@ const ADMISSION_INDEX: IndexModel = IndexModel::generated(
 );
 
 #[test]
-fn public_read_policy_has_safe_finite_defaults() {
+fn public_read_policy_has_safe_defaults() {
     let max_rows = NonZeroU32::new(50).expect("test max rows is non-zero");
-    let max_bytes = NonZeroU32::new(32_768).expect("test max bytes is non-zero");
-    let policy = QueryAdmissionPolicy::public_read(max_rows, max_bytes);
+    let policy = QueryAdmissionPolicy::public_read(max_rows);
 
     assert_eq!(policy.lane(), QueryAdmissionLane::PublicRead);
     assert!(policy.require_limit());
     assert!(policy.require_index());
-    assert!(policy.reject_non_zero_offset());
     assert!(!policy.allow_full_scan());
     assert!(!policy.allow_materialized_sort());
     assert_eq!(policy.max_returned_rows(), Some(max_rows));
-    assert_eq!(policy.max_response_bytes(), Some(max_bytes));
-    assert!(policy.public_caps_are_finite());
     assert!(!policy.grouped().has_hard_limits());
-}
-
-#[test]
-fn admin_policy_is_broader_but_still_budgeted() {
-    let max_rows = NonZeroU32::new(100).expect("test max rows is non-zero");
-    let max_scanned = NonZeroU64::new(1_000).expect("test scan cap is non-zero");
-    let max_bytes = NonZeroU32::new(65_536).expect("test max bytes is non-zero");
-    let policy = QueryAdmissionPolicy::admin_ad_hoc(max_rows, max_scanned, max_bytes);
-
-    assert_eq!(policy.lane(), QueryAdmissionLane::AdminAdHoc);
-    assert!(!policy.require_limit());
-    assert!(!policy.require_index());
-    assert!(policy.allow_full_scan());
-    assert!(policy.allow_materialized_sort());
-    assert_eq!(policy.max_scanned_rows(), Some(max_scanned));
-    assert_eq!(policy.max_materialized_rows(), Some(max_rows));
 }
 
 #[test]
@@ -84,11 +64,10 @@ fn grouped_policy_requires_group_and_memory_budgets() {
 }
 
 #[test]
-fn only_proven_or_enforced_bounds_admit_public_reads() {
+fn proven_or_enforced_bounds_admit_public_reads() {
     assert!(QueryBoundKind::Exact.admits_public_read());
     assert!(QueryBoundKind::ConservativeUpperBound.admits_public_read());
     assert!(QueryBoundKind::EnforcedRuntimeCap.admits_public_read());
-    assert!(!QueryBoundKind::EstimateOnly.admits_public_read());
     assert!(!QueryBoundKind::Unavailable.admits_public_read());
 }
 
@@ -102,46 +81,17 @@ fn access_kind_classifies_secondary_indexes_and_full_scans() {
 #[test]
 fn rejection_maps_to_stable_diagnostic() {
     let rejection = QueryAdmissionRejection::PublicQueryRequiresLimit;
-    let diagnostic = rejection.diagnostic();
 
     assert_eq!(
-        rejection.error_code(),
-        icydb_diagnostic_code::ErrorCode::QUERY_READ_PUBLIC_REQUIRES_LIMIT
-    );
-    assert_eq!(
-        diagnostic.code(),
-        icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission
-    );
-}
-
-#[test]
-fn summaries_keep_decision_and_rejection_aligned() {
-    let admitted = QueryAdmissionSummary::admitted(
-        QueryAdmissionLane::PublicRead,
-        QueryAdmissionAccessKind::ByKey,
-    );
-    let rejected = QueryAdmissionSummary::rejected(
-        QueryAdmissionLane::PublicRead,
-        QueryAdmissionAccessKind::FullScan,
-        QueryAdmissionRejection::UnboundedFullScanRejected,
-    );
-
-    assert_eq!(admitted.decision(), QueryAdmissionDecision::Admitted);
-    assert_eq!(admitted.rejection(), None);
-    assert_eq!(rejected.decision(), QueryAdmissionDecision::Rejected);
-    assert_eq!(
-        rejected.rejection(),
-        Some(QueryAdmissionRejection::UnboundedFullScanRejected)
+        rejection.code(),
+        icydb_diagnostic_code::QueryReadAdmissionCode::PublicQueryRequiresLimit,
     );
 }
 
 #[test]
 fn admission_summary_renders_stable_verbose_explain_block() {
-    let summary = QueryAdmissionSummary::rejected(
-        QueryAdmissionLane::PublicRead,
-        QueryAdmissionAccessKind::FullScan,
-        QueryAdmissionRejection::UnboundedFullScanRejected,
-    );
+    let summary =
+        public_read_policy().evaluate(summary_for_path(AccessPath::<Value>::FullScan, Some(5), 0));
 
     let rendered = summary.render_text_block();
 
@@ -284,7 +234,7 @@ fn plan_summary_classifies_residual_and_requested_ordering() {
         fields: vec![OrderTerm::field("tag", OrderDirection::Asc)],
     });
 
-    let summary = QueryAdmissionSummary::from_plan(QueryAdmissionLane::AdminAdHoc, &plan);
+    let summary = QueryAdmissionSummary::from_plan(QueryAdmissionLane::DiagnosticExplain, &plan);
 
     assert_eq!(
         summary.residual_filter(),
@@ -423,20 +373,6 @@ fn public_read_evaluation_rejects_primary_key_set_above_returned_row_policy() {
     assert_eq!(
         evaluated.rejection(),
         Some(QueryAdmissionRejection::ReturnedRowBoundExceedsPolicy)
-    );
-}
-
-#[test]
-fn public_read_evaluation_rejects_non_zero_offset() {
-    let policy = public_read_policy();
-    let summary = summary_for_index_prefix(Some(5), 1);
-
-    let evaluated = policy.evaluate(summary);
-
-    assert_eq!(evaluated.decision(), QueryAdmissionDecision::Rejected);
-    assert_eq!(
-        evaluated.rejection(),
-        Some(QueryAdmissionRejection::PublicQueryOffsetRejected)
     );
 }
 
@@ -621,10 +557,7 @@ fn diagnostic_explain_policy_rejects_row_execution() {
 }
 
 fn public_read_policy() -> QueryAdmissionPolicy {
-    QueryAdmissionPolicy::public_read(
-        NonZeroU32::new(50).expect("test public row cap is non-zero"),
-        NonZeroU32::new(32_768).expect("test public byte cap is non-zero"),
-    )
+    QueryAdmissionPolicy::public_read(NonZeroU32::new(50).expect("test public row cap is non-zero"))
 }
 
 fn public_grouped_read_policy(distinct_entries: Option<NonZeroU32>) -> QueryAdmissionPolicy {

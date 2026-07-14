@@ -258,7 +258,7 @@ fn plan_from_query<E>(query: Query<E>, label: &str) -> PreparedExecutionPlan<E>
 where
     E: EntityKind + EntityValue,
 {
-    query.plan().map_or_else(
+    query.access_plan_for_test().map_or_else(
         |err| panic!("{label} plan should build: {err}"),
         PreparedExecutionPlan::from,
     )
@@ -838,7 +838,7 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(u32_eq_predicate("group", 7))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("bytes expected-baseline plan should build"),
         )
@@ -917,7 +917,7 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter_predicate(u32_eq_predicate("group", 7))
                     .order_term(crate::db::asc("rank"))
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("bytes_by expected-baseline plan should build"),
             )
@@ -1277,7 +1277,7 @@ fn aggregate_path_by_id_windowed_count_scans_one_candidate_key() {
                 .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(1)
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("by-id windowed COUNT plan should build"),
         )

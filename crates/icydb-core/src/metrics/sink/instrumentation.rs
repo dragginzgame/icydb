@@ -9,8 +9,7 @@ use std::marker::PhantomData;
 #[cfg(feature = "sql")]
 use super::SqlCompileRejectPhase;
 use super::{
-    CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, MetricsEvent,
-    PreparedShapeFinalizationOutcome, record,
+    CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, MetricsEvent, record,
 };
 
 /// Span
@@ -154,15 +153,9 @@ pub(crate) fn record_accepted_schema_footprint_for_path(
     });
 }
 
-/// Record one executor authority prepared-shape finalization outcome.
-pub(crate) fn record_prepared_shape_finalization_for_path(
-    entity_path: &'static str,
-    outcome: PreparedShapeFinalizationOutcome,
-) {
-    record(MetricsEvent::PreparedShapeFinalization {
-        entity_path,
-        outcome,
-    });
+/// Record that executor authority received an already-finalized prepared shape.
+pub(crate) fn record_prepared_shape_already_finalized_for_path(entity_path: &'static str) {
+    record(MetricsEvent::PreparedShapeAlreadyFinalized { entity_path });
 }
 
 /// Record the latest observed entry count for one cache family.

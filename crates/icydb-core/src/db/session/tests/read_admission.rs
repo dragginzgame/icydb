@@ -8,109 +8,26 @@ use super::{
     FilteredIndexedSessionSqlEntity, HeapSessionSqlEntity, IndexedSessionSqlEntity,
     JournaledSessionSqlEntity, SessionPrincipalKeyEntity, SessionSqlCompositeWriteEntity,
     SessionSqlEntity, SessionSqlSignedWriteEntity, SessionUniquePrefixOffsetEntity,
-    assert_query_plan_expr_unknown_field, assert_query_plan_predicate_invalid_field,
-    assert_sql_lowering_detail, heap_sql_session, indexed_sql_session, journaled_sql_session,
-    reset_heap_session_sql_store, reset_indexed_session_sql_store,
+    assert_query_plan_expr_unknown_field, heap_sql_session, indexed_sql_session,
+    journaled_sql_session, reset_heap_session_sql_store, reset_indexed_session_sql_store,
     reset_journaled_session_sql_store, reset_session_sql_store,
     seed_filtered_composite_indexed_session_sql_entities, seed_indexed_session_sql_entities,
     seed_session_sql_entities, seed_unique_prefix_offset_session_entities, sql_session,
 };
 use crate::db::{
-    QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionRejection,
-    QueryAdmissionSummary, QueryBoundKind, QueryError, ResponseCardinalityExt, SqlStatementResult,
+    QueryError, ResponseCardinalityExt, SqlStatementResult,
     query::{
-        admission::{GroupedAdmissionPolicy, QueryAdmissionPolicy},
+        admission::{
+            GroupedAdmissionPolicy, QueryAdmissionAccessKind, QueryAdmissionDecision,
+            QueryAdmissionPolicy, QueryAdmissionRejection, QueryAdmissionSummary, QueryBoundKind,
+        },
         intent::IntentError,
         plan::AggregateKind,
     },
 };
 use icydb_diagnostic_code::{
-    DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryReadAdmissionCode, SqlLoweringCode,
+    DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryReadAdmissionCode,
 };
-
-#[test]
-fn public_read_sql_rejects_missing_limit_before_execution() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%'",
-            &public_read_policy(10),
-        )
-        .expect_err("public read SQL should reject missing LIMIT");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::PublicQueryRequiresLimit,
-        "missing LIMIT",
-    );
-}
-
-#[test]
-fn public_read_sql_rejects_full_scan_even_with_limit() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
-            &public_read_policy(10),
-        )
-        .expect_err("public read SQL should reject full scan");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::UnboundedFullScanRejected,
-        "full scan",
-    );
-}
-
-#[test]
-fn public_read_sql_rejects_global_count_full_scan() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            "SELECT COUNT(*) FROM SessionSqlEntity",
-            &public_read_policy(10),
-        )
-        .expect_err("public read SQL should reject global COUNT over full scan");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::UnboundedFullScanRejected,
-        "global count full scan",
-    );
-}
-
-#[test]
-fn public_read_sql_admits_indexed_bounded_scalar_select() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' \
-             ORDER BY name ASC, id ASC LIMIT 2",
-            &public_read_policy(10),
-        )
-        .expect("public read SQL should admit indexed bounded SELECT");
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("indexed bounded SELECT should return projection rows");
-    };
-
-    assert_eq!(row_count, 2);
-    assert_eq!(rows.len(), 2);
-}
 
 #[test]
 fn public_read_fluent_admission_rejects_missing_limit_before_execution() {
@@ -175,12 +92,6 @@ fn public_read_fluent_admission_admits_indexed_bounded_scalar_query() {
         "bounded typed/fluent public reads should prove an index-backed route",
     );
     assert_eq!(summary.returned_row_bound(), Some(2));
-    assert_eq!(summary.response_byte_bound(), None);
-    assert_eq!(
-        summary.response_byte_bound_kind(),
-        QueryBoundKind::Unavailable,
-        "non-executing fluent admission should not claim response-byte proof",
-    );
 }
 
 #[test]
@@ -414,31 +325,6 @@ fn public_read_fluent_by_ids_rejects_duplicate_raw_input_terms_above_policy() {
     assert_eq!(summary.returned_row_bound(), Some(1));
     assert_eq!(summary.primary_key_input_terms(), Some(3));
     assert_eq!(summary.primary_key_input_payload_bytes(), Some(48));
-}
-
-#[test]
-fn public_read_sql_rejects_primary_key_in_payload_bytes_above_policy() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let first_id = crate::types::Ulid::from_u128(19_786);
-    let second_id = crate::types::Ulid::from_u128(19_787);
-    let third_id = crate::types::Ulid::from_u128(19_788);
-    let sql = format!(
-        "SELECT name FROM IndexedSessionSqlEntity WHERE id IN ('{first_id}', '{second_id}', '{third_id}')"
-    );
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            &sql,
-            &public_read_policy_with_primary_key_input_caps(10, 10, 32),
-        )
-        .expect_err("SQL primary-key IN payload budget should reject before execution");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy,
-        "primary-key input payload cap",
-    );
 }
 
 #[test]
@@ -1470,193 +1356,6 @@ fn default_fluent_execute_rows_applies_residual_after_primary_key_in_filter_with
     assert_eq!(names, vec!["Mira".to_string(), "Sam".to_string()]);
 }
 
-#[test]
-fn public_read_sql_admits_primary_key_filter_without_limit() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let id = crate::types::Ulid::from_u128(18_805);
-    session
-        .insert(IndexedSessionSqlEntity {
-            id,
-            name: "Mira".to_string(),
-            age: 40,
-        })
-        .expect("test row should insert");
-
-    let sql = format!("SELECT name FROM IndexedSessionSqlEntity WHERE id = '{id}'");
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            sql.as_str(),
-            &public_read_policy(10),
-        )
-        .expect("public read SQL primary-key filter should not need explicit LIMIT");
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("primary-key SQL filter should return projection rows");
-    };
-
-    assert_eq!(row_count, 1);
-    assert_eq!(
-        rows,
-        vec![vec![crate::value::OutputValue::Text("Mira".to_string())]],
-    );
-}
-
-#[test]
-fn public_read_sql_admits_commuted_primary_key_filter_without_limit() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let id = crate::types::Ulid::from_u128(19_740);
-    session
-        .insert(IndexedSessionSqlEntity {
-            id,
-            name: "Mira".to_string(),
-            age: 40,
-        })
-        .expect("test row should insert");
-
-    let sql = format!("SELECT name FROM IndexedSessionSqlEntity WHERE '{id}' = id");
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            sql.as_str(),
-            &public_read_policy(10),
-        )
-        .expect("commuted SQL primary-key filter should not need explicit LIMIT");
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("commuted primary-key SQL filter should return projection rows");
-    };
-
-    assert_eq!(row_count, 1);
-    assert_eq!(
-        rows,
-        vec![vec![crate::value::OutputValue::Text("Mira".to_string())]],
-    );
-}
-
-#[test]
-fn public_read_sql_applies_residual_after_primary_key_filter_without_limit() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let id = crate::types::Ulid::from_u128(18_833);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Mira".to_string(),
-            age: 40,
-        })
-        .expect("test row should insert");
-
-    let sql = format!("SELECT name FROM SessionSqlEntity WHERE id = '{id}' AND age > 99");
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            sql.as_str(),
-            &public_read_policy(1),
-        )
-        .expect("public read SQL primary-key filter plus residual should not need explicit LIMIT");
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("primary-key SQL filter plus residual should return projection rows");
-    };
-
-    assert_eq!(row_count, 0);
-    assert!(
-        rows.is_empty(),
-        "SQL primary-key exact access must not bypass a false residual predicate",
-    );
-}
-
-#[test]
-fn public_read_sql_applies_residual_after_commuted_primary_key_filter_without_limit() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let id = crate::types::Ulid::from_u128(19_741);
-    session
-        .insert(SessionSqlEntity {
-            id,
-            name: "Mira".to_string(),
-            age: 40,
-        })
-        .expect("test row should insert");
-
-    let sql = format!("SELECT name FROM SessionSqlEntity WHERE '{id}' = id AND age > 99");
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            sql.as_str(),
-            &public_read_policy(1),
-        )
-        .expect("commuted SQL primary-key filter plus residual should not need explicit LIMIT");
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("commuted primary-key SQL filter plus residual should return projection rows");
-    };
-
-    assert_eq!(row_count, 0);
-    assert!(
-        rows.is_empty(),
-        "commuted SQL primary-key exact access must not bypass a false residual predicate",
-    );
-}
-
-#[test]
-fn public_read_sql_primary_key_parameter_shape_fails_before_admission() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity WHERE id = ?",
-            &public_read_policy(10),
-        )
-        .expect_err("SQL parameter placeholders are not a supported exact-key binding surface");
-
-    assert_sql_lowering_detail(err, SqlLoweringCode::ParameterPlacement);
-}
-
-#[test]
-fn public_read_sql_primary_key_wrong_type_literal_fails_before_admission() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity WHERE id = 'not-a-ulid' LIMIT 1",
-            &public_read_policy(10),
-        )
-        .expect_err("wrong-type primary-key literal should fail validation before admission");
-
-    assert_query_plan_predicate_invalid_field(err, "id", "wrong-type SQL primary-key literal");
-}
-
-#[test]
-fn public_read_sql_commuted_primary_key_wrong_type_literal_fails_before_admission() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity WHERE 'not-a-ulid' = id LIMIT 1",
-            &public_read_policy(10),
-        )
-        .expect_err(
-            "commuted wrong-type primary-key literal should fail validation before admission",
-        );
-
-    assert_query_plan_predicate_invalid_field(
-        err,
-        "id",
-        "commuted wrong-type SQL primary-key literal",
-    );
-}
-
 #[cfg(feature = "sql-explain")]
 #[test]
 fn sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key() {
@@ -1664,7 +1363,7 @@ fn sql_explain_expression_wrapped_primary_key_does_not_canonicalize_to_exact_key
     let session = sql_session();
 
     let result = session
-        .execute_sql_query::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_query::<SessionSqlWriteEntity>(
             "EXPLAIN EXECUTION SELECT name FROM SessionSqlWriteEntity \
              WHERE id + 0 = 1 ORDER BY id ASC LIMIT 1",
         )
@@ -1687,7 +1386,7 @@ fn sql_explain_commuted_primary_key_filter_canonicalizes_to_exact_key() {
     let id = crate::types::Ulid::from_u128(19_742);
 
     let result = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             format!("EXPLAIN EXECUTION SELECT name FROM SessionSqlEntity WHERE '{id}' = id")
                 .as_str(),
         )
@@ -1700,213 +1399,6 @@ fn sql_explain_commuted_primary_key_filter_canonicalizes_to_exact_key() {
         explain.contains("ByKeyLookup") && explain.contains("planner_primary_key_lookup"),
         "commuted primary-key predicates should explain as exact-key canonicalization: {explain}",
     );
-}
-
-#[test]
-fn public_read_sql_admits_primary_key_in_filter_without_limit() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let first_id = crate::types::Ulid::from_u128(18_830);
-    let second_id = crate::types::Ulid::from_u128(18_831);
-    let third_id = crate::types::Ulid::from_u128(18_832);
-    for (id, name, age) in [
-        (first_id, "Sam", 30),
-        (second_id, "Sasha", 24),
-        (third_id, "Mira", 40),
-    ] {
-        session
-            .insert(IndexedSessionSqlEntity {
-                id,
-                name: name.to_string(),
-                age,
-            })
-            .expect("test row should insert");
-    }
-
-    let sql = format!(
-        "SELECT name FROM IndexedSessionSqlEntity WHERE id IN ('{third_id}', '{first_id}', '{first_id}')"
-    );
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            sql.as_str(),
-            &public_read_policy(2),
-        )
-        .expect("public read SQL primary-key IN filter should not need explicit LIMIT");
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("primary-key SQL IN filter should return projection rows");
-    };
-    let mut names = text_projection_values(rows, "primary-key SQL IN projection");
-    names.sort();
-
-    assert_eq!(row_count, 2);
-    assert_eq!(names, vec!["Mira".to_string(), "Sam".to_string()]);
-}
-
-#[test]
-fn public_read_sql_rejects_primary_key_in_deduped_count_above_policy() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let first_id = crate::types::Ulid::from_u128(19_783);
-    let second_id = crate::types::Ulid::from_u128(19_784);
-    let third_id = crate::types::Ulid::from_u128(19_785);
-
-    let sql = format!(
-        "SELECT name FROM IndexedSessionSqlEntity \
-         WHERE id IN ('{third_id}', '{first_id}', '{second_id}', '{second_id}')"
-    );
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            sql.as_str(),
-            &public_read_policy(2),
-        )
-        .expect_err("public read SQL should reject deduped primary-key IN count above policy");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy,
-        "primary-key SQL IN deduped count above returned-row policy",
-    );
-}
-
-#[test]
-fn public_read_sql_primary_key_in_filter_orders_deterministically_without_limit() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let first_id = crate::types::Ulid::from_u128(19_750);
-    let second_id = crate::types::Ulid::from_u128(19_751);
-    let third_id = crate::types::Ulid::from_u128(19_752);
-    for (id, name, age) in [
-        (first_id, "first", 30),
-        (second_id, "second", 24),
-        (third_id, "third", 40),
-    ] {
-        session
-            .insert(IndexedSessionSqlEntity {
-                id,
-                name: name.to_string(),
-                age,
-            })
-            .expect("test row should insert");
-    }
-
-    for (direction, expected) in [
-        ("ASC", vec!["first", "second", "third"]),
-        ("DESC", vec!["third", "second", "first"]),
-    ] {
-        let unsorted_sql = format!(
-            "SELECT name FROM IndexedSessionSqlEntity \
-             WHERE id IN ('{third_id}', '{first_id}', '{first_id}', '{second_id}') \
-             ORDER BY id {direction}"
-        );
-        let canonical_sql = format!(
-            "SELECT name FROM IndexedSessionSqlEntity \
-             WHERE id IN ('{first_id}', '{second_id}', '{third_id}') \
-             ORDER BY id {direction}"
-        );
-        let unsorted_names = public_read_sql_text_projection_values::<IndexedSessionSqlEntity>(
-            &session,
-            unsorted_sql.as_str(),
-            3,
-            "unsorted primary-key SQL IN ordered projection",
-        );
-        let canonical_names = public_read_sql_text_projection_values::<IndexedSessionSqlEntity>(
-            &session,
-            canonical_sql.as_str(),
-            3,
-            "canonical primary-key SQL IN ordered projection",
-        );
-
-        assert_eq!(unsorted_names, expected, "ORDER BY id {direction}");
-        assert_eq!(
-            unsorted_names, canonical_names,
-            "primary-key SQL IN result order must be independent of input-list order and duplicates",
-        );
-    }
-}
-
-#[test]
-fn public_read_sql_primary_key_in_filter_materializes_finite_non_key_order() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let first_id = crate::types::Ulid::from_u128(19_770);
-    let second_id = crate::types::Ulid::from_u128(19_771);
-    let third_id = crate::types::Ulid::from_u128(19_772);
-    for (id, name, age) in [
-        (first_id, "first", 30),
-        (second_id, "second", 24),
-        (third_id, "third", 40),
-    ] {
-        session
-            .insert(IndexedSessionSqlEntity {
-                id,
-                name: name.to_string(),
-                age,
-            })
-            .expect("test row should insert");
-    }
-
-    let sql = format!(
-        "SELECT name FROM IndexedSessionSqlEntity \
-         WHERE id IN ('{third_id}', '{first_id}', '{first_id}', '{second_id}') \
-         ORDER BY age DESC, id ASC"
-    );
-    let names = public_read_sql_text_projection_values::<IndexedSessionSqlEntity>(
-        &session,
-        sql.as_str(),
-        3,
-        "finite primary-key SQL IN plus non-key ordered projection",
-    );
-
-    assert_eq!(names, vec!["third", "first", "second"]);
-}
-
-#[test]
-fn public_read_sql_applies_residual_after_primary_key_in_filter_without_limit() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let first_id = crate::types::Ulid::from_u128(18_834);
-    let second_id = crate::types::Ulid::from_u128(18_835);
-    let third_id = crate::types::Ulid::from_u128(18_836);
-    for (id, name, age) in [
-        (first_id, "Sam", 30),
-        (second_id, "Sasha", 24),
-        (third_id, "Mira", 40),
-    ] {
-        session
-            .insert(SessionSqlEntity {
-                id,
-                name: name.to_string(),
-                age,
-            })
-            .expect("test row should insert");
-    }
-
-    let sql = format!(
-        "SELECT name FROM SessionSqlEntity \
-         WHERE id IN ('{third_id}', '{first_id}', '{second_id}', '{second_id}') AND age >= 30"
-    );
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<SessionSqlEntity>(
-            sql.as_str(),
-            &public_read_policy(3),
-        )
-        .expect(
-            "public read SQL primary-key IN filter plus residual should not need explicit LIMIT",
-        );
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("primary-key SQL IN filter plus residual should return projection rows");
-    };
-    let mut names = text_projection_values(rows, "primary-key SQL IN residual projection");
-    names.sort();
-
-    assert_eq!(row_count, 2);
-    assert_eq!(names, vec!["Mira".to_string(), "Sam".to_string()]);
 }
 
 #[test]
@@ -2160,29 +1652,6 @@ fn default_fluent_execute_rows_rejects_unindexed_full_scan_without_policy_setup(
         err,
         QueryReadAdmissionCode::UnboundedFullScanRejected,
         "default fluent execute_rows full scan",
-    );
-}
-
-#[test]
-fn default_fluent_execute_rejects_non_zero_offset_without_policy_setup() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .offset(1)
-        .execute()
-        .expect_err("default fluent execute should reject non-zero OFFSET");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::PublicQueryOffsetRejected,
-        "default fluent execute offset",
     );
 }
 
@@ -2785,97 +2254,6 @@ fn trusted_read_unchecked_execute_rows_bypasses_default_admission_explicitly() {
 }
 
 #[test]
-fn public_read_sql_rejects_non_zero_offset() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' \
-             ORDER BY name ASC, id ASC LIMIT 1 OFFSET 1",
-            &public_read_policy(10),
-        )
-        .expect_err("public read SQL should reject non-zero OFFSET");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::PublicQueryOffsetRejected,
-        "non-zero OFFSET",
-    );
-}
-
-#[test]
-fn public_read_sql_rejects_returned_row_bound_above_policy() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' \
-             ORDER BY name ASC, id ASC LIMIT 2",
-            &public_read_policy(1),
-        )
-        .expect_err("public read SQL should reject LIMIT above returned-row policy");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy,
-        "returned-row cap",
-    );
-}
-
-#[test]
-fn public_read_sql_rejects_response_bytes_above_policy() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' \
-             ORDER BY name ASC, id ASC LIMIT 1",
-            &public_read_policy_with_response_bytes(10, 1),
-        )
-        .expect_err("public read SQL should reject responses above byte policy");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit,
-        "response-byte cap",
-    );
-}
-
-#[test]
-fn public_read_sql_rejects_unresolved_order_materialized_sort() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_filtered_composite_indexed_session_sql_entities(
-        &session,
-        &[
-            (1, "Sam", true, "gold", "sam", 30),
-            (2, "Sasha", true, "gold", "sasha", 24),
-            (3, "Mira", true, "silver", "mira", 40),
-        ],
-    );
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<FilteredIndexedSessionSqlEntity>(
-            "SELECT name FROM FilteredIndexedSessionSqlEntity \
-             WHERE active = true AND tier = 'gold' ORDER BY age ASC, id ASC LIMIT 2",
-            &public_read_policy(10),
-        )
-        .expect_err("public read SQL should reject materialized sort");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::SortRequiresMaterialization,
-        "materialized sort",
-    );
-}
-
-#[test]
 fn public_read_fluent_admission_rejects_unresolved_order_materialized_sort() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -2903,27 +2281,6 @@ fn public_read_fluent_admission_rejects_unresolved_order_materialized_sort() {
         &summary,
         QueryAdmissionRejection::SortRequiresMaterialization,
         "fluent materialized sort",
-    );
-}
-
-#[test]
-fn public_read_sql_rejects_grouped_query_without_group_budgets() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(*) FROM IndexedSessionSqlEntity \
-             WHERE name LIKE 'S%' GROUP BY name",
-            &public_read_policy(10),
-        )
-        .expect_err("public read SQL should reject grouped query without group budgets");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::GroupedQueryRequiresLimits,
-        "missing grouped budgets",
     );
 }
 
@@ -2966,7 +2323,7 @@ fn public_read_fluent_admission_rejects_grouped_query_without_query_hard_limits(
     let err = session
         .ensure_query_read_admission_policy(
             query.query(),
-            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+            &public_grouped_read_policy(10, 10, 8192, None),
         )
         .expect_err("fluent grouped admission should require query hard limits");
 
@@ -2975,30 +2332,6 @@ fn public_read_fluent_admission_rejects_grouped_query_without_query_hard_limits(
         QueryReadAdmissionCode::GroupedQueryRequiresLimits,
         "fluent grouped missing query hard limits",
     );
-}
-
-#[test]
-fn public_read_sql_admits_grouped_query_with_group_budgets_without_limit() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(*) FROM IndexedSessionSqlEntity \
-             WHERE name LIKE 'S%' GROUP BY name",
-            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
-        )
-        .expect("public read SQL should admit grouped query with explicit group budgets");
-    let SqlStatementResult::Grouped {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("grouped public SELECT should return grouped rows");
-    };
-
-    assert_eq!(row_count, 2);
-    assert_eq!(rows.len(), 2);
 }
 
 #[test]
@@ -3017,7 +2350,7 @@ fn public_read_fluent_admission_admits_grouped_query_with_group_budgets_without_
     let summary = session
         .evaluate_query_read_admission_policy(
             query.query(),
-            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+            &public_grouped_read_policy(10, 10, 8192, None),
         )
         .expect("fluent grouped admission should produce a summary");
     let grouped = summary
@@ -3055,7 +2388,7 @@ fn public_read_fluent_admission_rejects_grouped_query_above_policy_budgets() {
     let summary = session
         .evaluate_query_read_admission_policy(
             query.query(),
-            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+            &public_grouped_read_policy(10, 10, 8192, None),
         )
         .expect("fluent grouped admission should produce a summary");
 
@@ -3063,27 +2396,6 @@ fn public_read_fluent_admission_rejects_grouped_query_above_policy_budgets() {
         &summary,
         QueryAdmissionRejection::GroupedQueryExceedsBudget,
         "fluent grouped budget above policy",
-    );
-}
-
-#[test]
-fn public_read_sql_rejects_distinct_grouped_query_without_distinct_budget() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sam", 31), ("Sasha", 24)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(DISTINCT age) FROM IndexedSessionSqlEntity \
-             WHERE name LIKE 'S%' GROUP BY name",
-            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
-        )
-        .expect_err("public read SQL should reject distinct grouped query without distinct budget");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::GroupedQueryRequiresLimits,
-        "missing grouped distinct budget",
     );
 }
 
@@ -3103,7 +2415,7 @@ fn public_read_fluent_admission_rejects_distinct_grouped_query_without_distinct_
     let summary = session
         .evaluate_query_read_admission_policy(
             query.query(),
-            &public_grouped_read_policy(10, 10, 8192, None, 32_768),
+            &public_grouped_read_policy(10, 10, 8192, None),
         )
         .expect("fluent grouped distinct admission should produce a summary");
     let grouped = summary
@@ -3134,7 +2446,7 @@ fn public_read_fluent_admission_admits_distinct_grouped_query_with_distinct_budg
     let summary = session
         .evaluate_query_read_admission_policy(
             query.query(),
-            &public_grouped_read_policy(10, 10, 8192, NonZeroU32::new(64), 32_768),
+            &public_grouped_read_policy(10, 10, 8192, NonZeroU32::new(64)),
         )
         .expect("fluent grouped distinct admission should produce a summary");
     let grouped = summary
@@ -3147,34 +2459,13 @@ fn public_read_fluent_admission_admits_distinct_grouped_query_with_distinct_budg
 }
 
 #[test]
-fn public_read_sql_rejects_grouped_response_bytes_above_policy() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .execute_sql_query_with_read_admission_policy::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(*) FROM IndexedSessionSqlEntity \
-             WHERE name LIKE 'S%' GROUP BY name",
-            &public_grouped_read_policy(10, 10, 8192, None, 1),
-        )
-        .expect_err("public read SQL should reject grouped responses above byte policy");
-
-    assert_read_admission_rejection(
-        err,
-        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit,
-        "grouped response-byte cap",
-    );
-}
-
-#[test]
 fn trusted_sql_query_path_keeps_existing_unbounded_admin_behavior() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
 
     let result = session
-        .execute_sql_query::<SessionSqlEntity>("SELECT name FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SELECT name FROM SessionSqlEntity")
         .expect("trusted SQL query path should keep existing behavior");
     let SqlStatementResult::Projection { row_count, .. } = result else {
         panic!("trusted SQL query should return projection rows");
@@ -3184,16 +2475,8 @@ fn trusted_sql_query_path_keeps_existing_unbounded_admin_behavior() {
 }
 
 const fn public_read_policy(max_rows: u32) -> QueryAdmissionPolicy {
-    public_read_policy_with_response_bytes(max_rows, 32_768)
-}
-
-const fn public_read_policy_with_response_bytes(
-    max_rows: u32,
-    max_response_bytes: u32,
-) -> QueryAdmissionPolicy {
     QueryAdmissionPolicy::public_read(
         NonZeroU32::new(max_rows).expect("test max rows should be non-zero"),
-        NonZeroU32::new(max_response_bytes).expect("test byte cap should be non-zero"),
     )
 }
 
@@ -3215,11 +2498,9 @@ const fn public_grouped_read_policy(
     max_groups: u32,
     max_group_bytes: u32,
     max_distinct_entries: Option<NonZeroU32>,
-    max_response_bytes: u32,
 ) -> QueryAdmissionPolicy {
     QueryAdmissionPolicy::public_read(
         NonZeroU32::new(max_rows).expect("test max rows should be non-zero"),
-        NonZeroU32::new(max_response_bytes).expect("test byte cap should be non-zero"),
     )
     .with_grouped_policy(GroupedAdmissionPolicy::bounded(
         NonZeroU32::new(max_groups).expect("test group cap should be non-zero"),
@@ -3539,44 +2820,4 @@ fn assert_primary_key_exact_admission_summary(summary: &QueryAdmissionSummary, c
         QueryBoundKind::ConservativeUpperBound,
         "{context}",
     );
-}
-
-fn text_projection_values(rows: Vec<Vec<crate::value::OutputValue>>, context: &str) -> Vec<String> {
-    rows.into_iter()
-        .map(|mut row| {
-            assert!(
-                row.len() == 1,
-                "{context}: expected one projected column, got {row:?}",
-            );
-            match row.pop() {
-                Some(crate::value::OutputValue::Text(value)) => value,
-                value => panic!("{context}: expected text projection value, got {value:?}"),
-            }
-        })
-        .collect()
-}
-
-fn public_read_sql_text_projection_values<E>(
-    session: &crate::db::DbSession<super::SessionSqlCanister>,
-    sql: &str,
-    max_rows: u32,
-    context: &str,
-) -> Vec<String>
-where
-    E: crate::db::PersistedRow<Canister = super::SessionSqlCanister>,
-{
-    let result = session
-        .execute_sql_query_with_read_admission_policy::<E>(sql, &public_read_policy(max_rows))
-        .unwrap_or_else(|err| {
-            panic!("{context}: SQL should execute as bounded public read: {err}")
-        });
-    let SqlStatementResult::Projection {
-        row_count, rows, ..
-    } = result
-    else {
-        panic!("{context}: SQL should return projection rows");
-    };
-    assert_eq!(row_count as usize, rows.len(), "{context}");
-
-    text_projection_values(rows, context)
 }

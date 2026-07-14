@@ -89,7 +89,7 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     let escaped_sql = call::candid_escape_string(sql);
     match call_kind {
         route::SqlShellCallKind::Query => {
-            execute_sql_query(environment, canister, endpoint, &escaped_sql)
+            execute_trusted_sql_query(environment, canister, endpoint, &escaped_sql)
         }
         route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
             execute_sql_update_call(environment, canister, endpoint, &escaped_sql)
@@ -105,7 +105,7 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> ConfiguredEndpoint 
     }
 }
 
-fn execute_sql_query(
+fn execute_trusted_sql_query(
     environment: &str,
     canister: &str,
     endpoint: ConfiguredEndpoint,
@@ -243,7 +243,7 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn render_projection_shell_text(
-        rows: icydb::db::sql::SqlQueryRowsOutput,
+        rows: icydb::db::RowProjectionOutput,
         attribution: Option<ShellPerfAttribution>,
     ) -> String {
         super::render::render_projection_shell_text(rows, attribution, None)

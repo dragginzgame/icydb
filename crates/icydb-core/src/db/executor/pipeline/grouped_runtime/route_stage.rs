@@ -53,15 +53,13 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
         },
     )?;
 
-    // The route plan remains the single owner of grouped observability.
-    let grouped_route_observability = grouped_route_plan
-        .grouped_observability()
+    // The route plan remains the single owner of grouped execution mode.
+    let grouped_execution_mode = grouped_route_plan
+        .grouped_execution_mode()
         .ok_or_else(InternalError::query_executor_invariant)?;
-    let grouped_route_execution_mode = grouped_route_observability.execution_mode();
-    let grouped_execution_mode = grouped_route_observability.grouped_execution_mode();
     debug_assert!(
         matches!(
-            grouped_route_execution_mode,
+            grouped_route_plan.execution_mode(),
             RouteExecutionMode::Materialized
         ),
         "grouped execution must remain materialized",

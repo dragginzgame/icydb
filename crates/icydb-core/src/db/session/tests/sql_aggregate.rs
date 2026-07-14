@@ -222,7 +222,7 @@ fn global_aggregate_attribution_reports_buffered_terminal_work() {
     );
 
     let (_result, attribution) = session
-        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT SUM(age + 1), AVG(age + 1), \
              COUNT(*) FILTER (WHERE age >= 30) \
              FROM SessionSqlEntity",
@@ -277,7 +277,7 @@ fn global_aggregate_attribution_keeps_count_equivalent_terms_on_fast_path() {
     );
 
     let (_result, count_attribution) = session
-        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT COUNT(*) FROM SessionSqlEntity",
         )
         .expect("diagnostics count fast-path attribution query should execute");
@@ -287,7 +287,7 @@ fn global_aggregate_attribution_keeps_count_equivalent_terms_on_fast_path() {
     );
 
     let (_result, literal_count_attribution) = session
-        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT COUNT(1) FROM SessionSqlEntity",
         )
         .expect("diagnostics literal count fast-path attribution query should execute");
@@ -297,7 +297,7 @@ fn global_aggregate_attribution_keeps_count_equivalent_terms_on_fast_path() {
     );
 
     let (_result, duplicate_count_attribution) = session
-        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT COUNT(*), COUNT(name), COUNT(*) FROM SessionSqlEntity",
         )
         .expect("diagnostics duplicate count-equivalent query should execute");
@@ -322,7 +322,7 @@ fn global_aggregate_attribution_fans_out_count_equivalent_terms_around_buffered_
     );
 
     let (mixed_result, mixed_attribution) = session
-        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT COUNT(*), SUM(age), COUNT(name) FROM SessionSqlEntity",
         )
         .expect("diagnostics mixed count-equivalent and buffered aggregate query should execute");
@@ -940,12 +940,6 @@ fn global_aggregate_wrapped_output_order_alias_is_inert_for_singleton_result() {
     );
 }
 
-// This parity test is intentionally table-shaped so whole-window and bounded
-// aggregate equivalence stay on one readable contract table.
-#[expect(
-    clippy::too_many_lines,
-    reason = "aggregate SQL/fluent parity matrix is intentionally table-shaped"
-)]
 #[test]
 fn global_aggregate_sql_matches_canonical_fluent_terminals() {
     reset_session_sql_store();
@@ -1031,50 +1025,25 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "AVG(DISTINCT age)",
     );
 
-    // Phase 2: prove bounded aggregate windows against the same fluent
-    // aggregate terminals over equivalent ordered windows.
+    // Phase 2: prove trusted SQL OFFSET windows directly. Fluent reads do not
+    // expose OFFSET; their scalable continuation contract is cursor-based.
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
-        Value::Nat64(u64::from(
-            session
-                .load::<SessionSqlEntity>()
-                .trusted_read_unchecked()
-                .order_term(crate::db::desc("age"))
-                .limit(2)
-                .offset(1)
-                .count()
-                .expect("bounded fluent count should succeed"),
-        )),
-        "bounded COUNT(*) window",
+        Value::Nat64(2),
+        "trusted SQL COUNT(*) OFFSET window",
     );
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
-        session
-            .load::<SessionSqlEntity>()
-            .trusted_read_unchecked()
-            .order_term(crate::db::desc("age"))
-            .limit(2)
-            .offset(1)
-            .sum_by("age")
-            .expect("bounded fluent sum_by(age) should succeed")
-            .map_or(Value::Null, Value::Decimal),
-        "bounded SUM(age) window",
+        Value::Decimal(crate::types::Decimal::from(52u64)),
+        "trusted SQL SUM(age) OFFSET window",
     );
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
-        session
-            .load::<SessionSqlEntity>()
-            .trusted_read_unchecked()
-            .order_term(crate::db::asc("age"))
-            .limit(2)
-            .offset(1)
-            .avg_by("age")
-            .expect("bounded fluent avg_by(age) should succeed")
-            .map_or(Value::Null, Value::Decimal),
-        "bounded AVG(age) window",
+        Value::Decimal(crate::types::Decimal::from(26u64)),
+        "trusted SQL AVG(age) OFFSET window",
     );
 }
 
@@ -1099,7 +1068,7 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
     );
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
-        "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+        "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
         Value::Nat64(2),
         "COUNT(*) SQL should execute through the shared count-terminal route",
     );
@@ -1114,7 +1083,6 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
         .trusted_read_unchecked()
         .order_term(crate::db::desc("age"))
         .limit(2)
-        .offset(1)
         .count()
         .expect("equivalent fluent count should succeed");
     assert_eq!(fluent_count, 2);
@@ -1142,7 +1110,7 @@ fn global_aggregate_query_execution_context_reuses_compile_catalog() {
     session.clear_query_plan_cache_for_tests();
     DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
         )
         .expect("context-owned SQL global aggregate should execute")
@@ -1229,7 +1197,7 @@ fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with
     );
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
-        "SELECT COUNT(name) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+        "SELECT COUNT(name) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
         Value::Nat64(2),
         "COUNT(non-null field) SQL should execute through the shared count-terminal route",
     );
@@ -1244,7 +1212,6 @@ fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with
         .trusted_read_unchecked()
         .order_term(crate::db::desc("age"))
         .limit(2)
-        .offset(1)
         .count()
         .expect("equivalent fluent count should succeed");
     assert_eq!(fluent_count, 2);

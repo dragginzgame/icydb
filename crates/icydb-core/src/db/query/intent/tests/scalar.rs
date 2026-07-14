@@ -40,7 +40,7 @@ fn assert_unordered_pagination_rejects(label: &str, limit: Option<u32>, offset: 
     }
 
     let err = query
-        .plan()
+        .access_plan_for_test()
         .expect_err("unordered pagination shape must fail");
 
     assert!(
@@ -109,7 +109,7 @@ fn delete_query_rejects_grouped_shape_during_intent_validation() {
         .delete()
         .group_by("name")
         .expect("group field should resolve")
-        .plan()
+        .access_plan_for_test()
         .expect_err("delete queries must reject grouped logical shape during intent validation");
 
     std::assert_matches!(
@@ -126,7 +126,7 @@ fn load_rejects_duplicate_non_primary_order_field() {
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::desc("name"))
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect_err("duplicate non-primary order field must fail");
 
     assert!(query_error_is_order_plan_error(&err, |inner| {
@@ -157,7 +157,7 @@ fn load_ordered_pagination_is_allowed() {
         .order_term(crate::db::asc("name"))
         .limit(10)
         .offset(2)
-        .plan()
+        .access_plan_for_test()
         .expect("ordered pagination should plan");
 }
 
@@ -220,9 +220,8 @@ fn direct_count_cardinality_candidate_requires_full_visible_filter_coverage() {
 fn ordered_plan_appends_primary_key_tie_break() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("name"))
-        .plan()
-        .expect("ordered plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("ordered plan should build");
     let order = plan
         .scalar_plan()
         .order
@@ -244,9 +243,8 @@ fn ordered_plan_preserves_explicit_primary_key_position() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("id"))
         .order_term(crate::db::asc("name"))
-        .plan()
-        .expect("ordered plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("ordered plan should build");
     let order = plan
         .scalar_plan()
         .order
@@ -316,14 +314,12 @@ fn typed_by_ids_matches_by_id_access() {
 
     let by_id = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .by_id(key)
-        .plan()
-        .expect("by_id plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("by_id plan");
     let by_ids = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .by_ids([key])
-        .plan()
-        .expect("by_ids plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("by_ids plan");
 
     assert_eq!(
         by_id.logical, by_ids.logical,
@@ -361,19 +357,16 @@ fn explicit_key_access_override_keeps_generic_planner_owned_reason() {
 
     let by_id = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .by_id(key)
-        .plan()
-        .expect("by_id plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("by_id plan");
     let by_ids = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .by_ids([key])
-        .plan()
-        .expect("by_ids plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("by_ids plan");
     let singleton = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
         .singleton()
-        .plan()
-        .expect("singleton plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("singleton plan");
 
     assert_eq!(
         by_id.access_choice().chosen_reason.code(),
@@ -398,9 +391,8 @@ fn by_id_limit_one_without_order_simplifies_paging_shape() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .by_id(key)
         .limit(1)
-        .plan()
-        .expect("by_id + limit(1) plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("by_id + limit(1) plan should build");
 
     assert!(
         plan.scalar_plan().page.is_none(),
@@ -552,9 +544,8 @@ fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
 fn singleton_uses_default_key() {
     let plan = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
         .singleton()
-        .plan()
-        .expect("singleton plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("singleton plan");
 
     std::assert_matches!(
         plan.access,
@@ -668,9 +659,8 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         .order_term(crate::db::asc("name"))
         .limit(10)
         .offset(2)
-        .plan()
-        .expect("typed plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("typed plan");
 
     assert_eq!(model_as_typed, typed_plan);
 }
@@ -678,9 +668,8 @@ fn typed_plan_matches_model_plan_for_same_intent() {
 #[test]
 fn query_distinct_defaults_to_false() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .plan()
-        .expect("typed plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("typed plan");
 
     assert!(
         !plan.scalar_plan().distinct,
@@ -692,9 +681,8 @@ fn query_distinct_defaults_to_false() {
 fn query_distinct_sets_logical_plan_flag() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .distinct()
-        .plan()
-        .expect("typed plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("typed plan");
 
     assert!(
         plan.scalar_plan().distinct,
@@ -704,12 +692,12 @@ fn query_distinct_sets_logical_plan_flag() {
 
 #[cfg(feature = "sql")]
 #[test]
-fn compiled_query_projection_spec_lowers_scalar_fields_in_model_order() {
-    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .plan()
+fn access_plan_projection_spec_lowers_scalar_fields_in_model_order() {
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .access_plan_for_test()
         .expect("plan should build");
-    let field_names = compiled
-        .projection_spec()
+    let field_names = plan
+        .projection_spec(PlanEntity::MODEL)
         .fields()
         .map(|field| match field {
             ProjectionField::Scalar {

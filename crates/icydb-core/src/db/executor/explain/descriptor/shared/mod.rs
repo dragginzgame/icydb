@@ -25,9 +25,9 @@ use crate::{
                 property_keys, property_values,
             },
             plan::{
-                AccessChoiceExplainSnapshot, AccessPlanProjection, AccessPlannedQuery,
-                AggregateKind, DistinctExecutionStrategy, OrderDirection, OrderSpec,
-                explain_access_strategy_label, project_explain_access_path,
+                AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex, AccessPlanProjection,
+                AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy, OrderDirection,
+                OrderSpec, explain_access_strategy_label, project_explain_access_path,
             },
         },
     },
@@ -275,7 +275,12 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
     );
     node.node_properties.insert(
         property_keys::ACCESS_REJECTIONS,
-        value_list(access_choice.rejected.iter().cloned()),
+        value_list(
+            access_choice
+                .rejected
+                .iter()
+                .map(AccessChoiceRejectedIndex::label),
+        ),
     );
 
     Ok(())

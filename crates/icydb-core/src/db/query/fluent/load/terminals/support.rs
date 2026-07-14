@@ -20,10 +20,7 @@ use crate::{
             fluent::load::FluentLoadQuery,
             intent::{IntentError, QueryError},
             plan::FieldSlot,
-            read_intent::{
-                COMPLETE_SMALL_EXECUTION_LIMIT, COMPLETE_SMALL_MAX_ROWS,
-                PUBLIC_PAGE_MAX_RESPONSE_BYTES,
-            },
+            read_intent::{COMPLETE_SMALL_EXECUTION_LIMIT, COMPLETE_SMALL_MAX_ROWS},
         },
     },
     entity::EntityValue,
@@ -329,10 +326,8 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         let query = self.query().with_load_limit(COMPLETE_SMALL_EXECUTION_LIMIT);
-        let policy = QueryAdmissionPolicy::public_read(
-            non_zero_u32(COMPLETE_SMALL_EXECUTION_LIMIT)?,
-            non_zero_u32(PUBLIC_PAGE_MAX_RESPONSE_BYTES)?,
-        );
+        let policy =
+            QueryAdmissionPolicy::public_read(non_zero_u32(COMPLETE_SMALL_EXECUTION_LIMIT)?);
 
         self.session
             .ensure_query_read_admission_policy(&query, &policy)?;

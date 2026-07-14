@@ -23,7 +23,7 @@ fn singleton_only_round_trips_through_runtime_load() {
 
     let plan = Query::<SingletonUnitEntity>::new(MissingRowPolicy::Ignore)
         .singleton()
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("singleton load plan should build");
     let response = load.execute(plan).expect("singleton load should succeed");
@@ -56,7 +56,7 @@ fn executor_save_then_delete_round_trip() {
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(saved.id().key())
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");
@@ -101,7 +101,7 @@ fn delete_replays_incomplete_commit_marker() {
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(saved.id().key())
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");
@@ -127,7 +127,7 @@ fn load_replays_incomplete_commit_marker_after_startup_recovery() {
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("load plan should build");
     let response = load.execute(plan).expect("load should succeed");

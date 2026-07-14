@@ -3,14 +3,10 @@
 //! Does not own: route planning decisions or planner capability derivation policy.
 //! Boundary: exposes stable execution-shape DTOs consumed by route, load, and runtime code.
 
-mod observability;
 mod plan;
 
 use crate::db::{direction::Direction, query::plan::GroupedPlanStrategy};
 
-pub(in crate::db::executor) use observability::{
-    GroupedRouteDecisionOutcome, GroupedRouteObservability, GroupedRouteRejectionReason,
-};
 pub(in crate::db::executor) use plan::ExecutionRoutePlan;
 
 ///

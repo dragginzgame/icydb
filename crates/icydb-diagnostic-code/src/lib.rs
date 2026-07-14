@@ -410,18 +410,10 @@ pub enum QueryReadAdmissionCode {
     PublicQueryRequiresLimit,
     PublicQueryRequiresIndex,
     UnboundedFullScanRejected,
-    ScanBoundUnavailable,
-    ScanBoundExceedsPolicy,
-    EstimatedOnlyBoundRejected,
     SortRequiresMaterialization,
-    MaterializationExceedsBudget,
-    ProjectionResponseMayExceedLimit,
     GroupedQueryRequiresLimits,
     GroupedQueryExceedsBudget,
     DiagnosticLaneDoesNotExecute,
-    IntrospectionDisabledForLane,
-    UnsupportedStatementForQueryLane,
-    PublicQueryOffsetRejected,
     ReturnedRowBoundExceedsPolicy,
     PrimaryKeyInputExceedsPolicy,
 }
@@ -932,7 +924,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 202);
+        assert_eq!(last, 194);
     }
 
     #[test]

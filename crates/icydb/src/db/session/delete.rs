@@ -7,7 +7,7 @@
 use crate::{
     db::{
         DbSession,
-        query::{CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, QueryTracePlan},
+        query::{ExplainPlan, FilterExpr, QueryTracePlan},
         response::RowProjectionOutput,
         session::macros::impl_session_query_shape_methods,
     },
@@ -92,16 +92,6 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     /// Build logical explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, Error> {
         Ok(self.inner.explain()?)
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, Error> {
-        Ok(self.inner.planned()?)
-    }
-
-    /// Build the compiled executable plan for this query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, Error> {
-        Ok(self.inner.plan()?)
     }
 
     /// Return every declared field from each deleted row.
@@ -215,16 +205,6 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     /// Build logical explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, Error> {
         Ok(self.inner.explain()?)
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, Error> {
-        Ok(self.inner.planned()?)
-    }
-
-    /// Build the compiled executable plan for this query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, Error> {
-        Ok(self.inner.plan()?)
     }
 
     /// Execute this delete and return one row projection payload.

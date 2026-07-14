@@ -13,10 +13,9 @@ use crate::db::{
             contracts::{
                 RouteCapabilityFacts, RouteContinuationPlan,
                 execution::{
-                    AggregateSeekSpec, GroupedExecutionMode, GroupedRouteDecisionOutcome,
-                    GroupedRouteObservability, GroupedRouteRejectionReason,
-                    IndexPrefixChildExpansionHint, IndexRangeLimitSpec, LoadOrderRouteMode,
-                    LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
+                    AggregateSeekSpec, GroupedExecutionMode, IndexPrefixChildExpansionHint,
+                    IndexRangeLimitSpec, LoadOrderRouteMode, LoadOrderRouteReason,
+                    RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
                 },
                 shape::{FastPathOrder, RouteShapeKind},
             },
@@ -142,51 +141,22 @@ impl ExecutionRoutePlan {
         matches!(self.execution_mode, RouteExecutionMode::Materialized)
     }
 
-    /// Project grouped route observability payload when grouped routing is active.
-    ///
-    /// Non-grouped routes intentionally report no grouped diagnostics payload.
+    /// Return the grouped execution mode selected by route planning.
     #[must_use]
-    pub(in crate::db::executor) fn grouped_observability(
+    pub(in crate::db::executor) const fn grouped_execution_mode(
         &self,
-    ) -> Option<GroupedRouteObservability> {
-        match self.route_shape_kind() {
-            RouteShapeKind::AggregateGrouped => {
-                let (Some(grouped_plan_strategy), Some(grouped_execution_mode)) =
-                    (self.grouped_plan_strategy, self.grouped_execution_mode)
-                else {
-                    debug_assert!(
-                        false,
-                        "grouped route observability requires grouped payloads"
-                    );
-                    return None;
-                };
-                let eligible = self.fast_path_order.is_empty();
-                let (outcome, rejection_reason) = if eligible {
-                    debug_assert!(
-                        matches!(self.execution_mode, RouteExecutionMode::Materialized),
-                        "grouped route observability currently models only materialized grouped execution",
-                    );
-                    (GroupedRouteDecisionOutcome::MaterializedFallback, None)
-                } else {
-                    (
-                        GroupedRouteDecisionOutcome::Rejected,
-                        Some(GroupedRouteRejectionReason::CapabilityMismatch),
-                    )
-                };
+    ) -> Option<GroupedExecutionMode> {
+        self.grouped_execution_mode
+    }
 
-                Some(GroupedRouteObservability {
-                    outcome,
-                    rejection_reason,
-                    planner_fallback_reason: grouped_plan_strategy.fallback_reason(),
-                    eligible,
-                    execution_mode: self.execution_mode(),
-                    grouped_execution_mode,
-                })
-            }
-            RouteShapeKind::LoadScalar
-            | RouteShapeKind::AggregateCount
-            | RouteShapeKind::AggregateNonCount
-            | RouteShapeKind::MutationDelete => None,
+    /// Return the planner-owned reason for selecting hash-group execution.
+    #[must_use]
+    pub(in crate::db::executor) const fn grouped_plan_fallback_reason(
+        &self,
+    ) -> Option<crate::db::query::plan::GroupedPlanFallbackReason> {
+        match self.grouped_plan_strategy {
+            Some(strategy) => strategy.fallback_reason(),
+            None => None,
         }
     }
 

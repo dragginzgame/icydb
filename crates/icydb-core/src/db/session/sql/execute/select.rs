@@ -4,17 +4,6 @@
 //! Does not own: SQL command routing, write execution, or EXPLAIN rendering.
 //! Boundary: keeps SELECT plan-to-result adaptation out of the SQL execution hub.
 
-#[cfg(test)]
-mod read_budget;
-#[cfg(test)]
-use read_budget::prepared_read_admission_plan_with_execution_caps;
-#[cfg(test)]
-pub(super) use read_budget::{
-    enforce_read_admission_policy, enforce_sql_read_response_byte_policy,
-};
-
-#[cfg(test)]
-use crate::db::query::admission::QueryAdmissionPolicy;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::{
     query::QueryPlanCompilePhaseAttribution,
@@ -362,34 +351,6 @@ impl<C: CanisterKind> DbSession<C> {
             projection,
             cache_attribution,
         )
-    }
-
-    #[cfg(test)]
-    pub(super) fn execute_select_compiled_sql_with_context_and_read_admission_policy<E>(
-        &self,
-        query: &StructuralQuery,
-        context: &SqlCompiledCommandExecutionContext,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let resolved = self.resolve_select_prepared_plan_for_context::<E>(query, context)?;
-        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
-        let prepared_plan =
-            prepared_read_admission_plan_with_execution_caps(policy, prepared_plan)?;
-
-        enforce_read_admission_policy(policy, &prepared_plan)?;
-
-        let result = self.execute_select_compiled_sql_from_prepared_plan::<E>(
-            query,
-            prepared_plan,
-            projection,
-            cache_attribution,
-        )?;
-        enforce_sql_read_response_byte_policy(policy, &result.0)?;
-
-        Ok(result)
     }
 
     #[cfg(feature = "diagnostics")]

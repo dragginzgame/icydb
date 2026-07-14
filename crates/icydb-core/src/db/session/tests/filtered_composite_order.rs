@@ -216,7 +216,7 @@ fn execute_sql_projection_filtered_composite_order_only_pushdown_keeps_reads_bou
                LIMIT 2";
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<FilteredIndexedSessionSqlEntity>(sql)
+        .execute_trusted_sql_query_with_attribution::<FilteredIndexedSessionSqlEntity>(sql)
         .unwrap_or_else(|err| {
             panic!("filtered composite order-only query should execute: {err:?}")
         });

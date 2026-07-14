@@ -21,7 +21,6 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(1)
             .limit(4)
     };
 
@@ -61,6 +60,7 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
     assert_eq!(
         distinct_values,
         SessionAggregateResult::Values(outputs(vec![
+            Value::Nat64(40),
             Value::Nat64(30),
             Value::Nat64(20),
             Value::Nat64(10),
@@ -122,7 +122,6 @@ fn session_aggregate_values_by_unknown_field_fails_before_scan_budget_consumptio
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(0)
             .limit(3)
     };
 
@@ -170,7 +169,6 @@ fn session_aggregate_take_matches_execute_prefix() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(1)
             .limit(4)
     };
 
@@ -227,7 +225,6 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(0)
             .limit(5)
     };
     let ordering_expected = ordering_window()
@@ -338,7 +335,6 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
                 .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
-                .offset(0)
                 .limit(5)
         };
         let ranked_rows = match terminal {

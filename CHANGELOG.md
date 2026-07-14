@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.203.x] ⚠️ - 2026-07-14 - Legacy Architecture Hard Cut
+
+Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)
+
+- `0.203.0` hard-cuts obsolete query, admission, response, and diagnostic
+  surfaces so the current execution path has one authority. Potentially
+  breaking: removed APIs and diagnostic numbers have no aliases.
+
 ## [0.202.x] ⚠️ - 2026-07-13 - Explicit Rust Defaults
 
 Detailed notes: [docs/changelog/0.202.md](docs/changelog/0.202.md)

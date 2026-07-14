@@ -4,16 +4,17 @@
 //! Does not own: production implementation or public API ownership.
 //! Boundary: verifies facade contracts through local module behavior.
 
-use crate::db::sql::{
-    SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_describe_lines,
-    render_show_columns_lines, render_show_entities_lines, render_show_entities_verbose_lines,
-    render_show_indexes_lines, render_show_memory_lines, render_show_stores_lines,
-    render_show_stores_verbose_lines, sql_query_result_from_statement,
-};
 use crate::db::{
     EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription, EntityIndexDescription,
     EntityRelationCardinality, EntityRelationDescription, EntityRelationStrength,
     EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
+    response::RowProjectionOutput,
+    sql::{
+        SqlGroupedRowsOutput, SqlQueryResult, render_describe_lines, render_show_columns_lines,
+        render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
+        render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
+        sql_query_result_from_statement,
+    },
 };
 use crate::value::OutputValue;
 
@@ -314,7 +315,7 @@ fn render_show_memory_lines_output_contract_vector_is_stable() {
 
 #[test]
 fn sql_query_result_projection_render_lines_output_contract_vector_is_stable() {
-    let projection = SqlQueryRowsOutput {
+    let projection = RowProjectionOutput {
         entity: "User".to_string(),
         columns: vec!["name".to_string()],
         rows: vec![vec![text("alice")]],
@@ -339,7 +340,7 @@ fn sql_query_result_projection_render_lines_output_contract_vector_is_stable() {
 
 #[test]
 fn sql_query_result_projection_render_lines_empty_table_omits_trailing_separator() {
-    let projection = SqlQueryRowsOutput {
+    let projection = RowProjectionOutput {
         entity: "User".to_string(),
         columns: vec![
             "name".to_string(),
@@ -397,7 +398,7 @@ fn sql_query_result_grouped_render_lines_output_contract_vector_is_stable() {
 
 #[test]
 fn sql_query_result_row_count_footer_uses_grouped_decimal_formatting() {
-    let projection = SqlQueryRowsOutput {
+    let projection = RowProjectionOutput {
         entity: "User".to_string(),
         columns: vec!["name".to_string()],
         rows: Vec::new(),
@@ -443,7 +444,7 @@ fn sql_query_result_from_statement_preserves_text_projection_values() {
 
     assert_eq!(
         result,
-        SqlQueryResult::Projection(SqlQueryRowsOutput {
+        SqlQueryResult::Projection(RowProjectionOutput {
             entity: "User".to_string(),
             columns: vec!["lower(name)".to_string()],
             rows: vec![vec![text("alice")], vec![text("bob")]],
@@ -483,13 +484,13 @@ fn sql_query_result_from_statement_keeps_blob_projection_typed_until_rendering()
 #[test]
 fn sql_query_result_blob_projection_candid_payload_stays_binary_not_hex() {
     let blob = vec![0xab; 4_096];
-    let typed = SqlQueryResult::Projection(SqlQueryRowsOutput {
+    let typed = SqlQueryResult::Projection(RowProjectionOutput {
         entity: "Blob".to_string(),
         columns: vec!["thumbnail".to_string()],
         rows: vec![vec![OutputValue::Blob(blob.clone())]],
         row_count: 1,
     });
-    let rendered = SqlQueryResult::Projection(SqlQueryRowsOutput {
+    let rendered = SqlQueryResult::Projection(RowProjectionOutput {
         entity: "Blob".to_string(),
         columns: vec!["thumbnail".to_string()],
         rows: vec![vec![text(
@@ -542,7 +543,7 @@ fn sql_query_result_from_statement_preserves_semantic_projection_value_variants(
 
     assert_eq!(
         result,
-        SqlQueryResult::Projection(SqlQueryRowsOutput {
+        SqlQueryResult::Projection(RowProjectionOutput {
             entity: "Scalar".to_string(),
             columns: vec![
                 "nat_value".to_string(),
@@ -589,7 +590,7 @@ fn sql_query_result_from_statement_preserves_scalar_arithmetic_and_round_project
 
     assert_eq!(
         result,
-        SqlQueryResult::Projection(SqlQueryRowsOutput {
+        SqlQueryResult::Projection(RowProjectionOutput {
             entity: "User".to_string(),
             columns: vec!["age - 1".to_string(), "ROUND(age / 3, 2)".to_string()],
             rows: vec![
@@ -622,7 +623,7 @@ fn sql_query_result_from_statement_preserves_fixed_scale_for_zero_round_projecti
 
     assert_eq!(
         result,
-        SqlQueryResult::Projection(SqlQueryRowsOutput {
+        SqlQueryResult::Projection(RowProjectionOutput {
             entity: "User".to_string(),
             columns: vec!["ROUND(age / 10, 3)".to_string()],
             rows: vec![vec![text("0.000")]],
@@ -648,7 +649,7 @@ fn sql_query_result_from_statement_preserves_fixed_scale_for_aliased_round_proje
 
     assert_eq!(
         result,
-        SqlQueryResult::Projection(SqlQueryRowsOutput {
+        SqlQueryResult::Projection(RowProjectionOutput {
             entity: "User".to_string(),
             columns: vec!["dextrisma".to_string()],
             rows: vec![vec![text("16.000")]],

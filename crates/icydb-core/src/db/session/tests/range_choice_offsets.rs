@@ -28,25 +28,26 @@ fn deterministic_range_choice_descriptor(
     descending: bool,
     offset: Option<u32>,
 ) -> ExplainExecutionNodeDescriptor {
-    let mut load = session
-        .load::<SessionDeterministicRangeEntity>()
-        .trusted_read_unchecked()
+    let mut query = Query::<SessionDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(deterministic_range_choice_filter());
-    load = if descending {
-        load.order_term(crate::db::desc("score"))
+    query = if descending {
+        query
+            .order_term(crate::db::desc("score"))
             .order_term(crate::db::desc("label"))
             .order_term(crate::db::desc("id"))
     } else {
-        load.order_term(crate::db::asc("score"))
+        query
+            .order_term(crate::db::asc("score"))
             .order_term(crate::db::asc("label"))
             .order_term(crate::db::asc("id"))
     };
     if let Some(offset) = offset {
-        load = load.offset(offset);
+        query = query.offset(offset);
     }
+    let query = query.limit(2);
 
-    load.limit(2)
-        .explain_execution()
+    session
+        .explain_query_execution_with_visible_indexes(&query)
         .expect("session deterministic range explain_execution should build")
 }
 
@@ -59,44 +60,45 @@ fn order_only_fallback_descriptor(
     offset: Option<u32>,
 ) -> ExplainExecutionNodeDescriptor {
     if composite {
-        let mut load = session
-            .load::<SessionDeterministicChoiceEntity>()
-            .trusted_read_unchecked();
-        load = if descending {
-            load.order_term(crate::db::desc("tier"))
+        let mut query = Query::<SessionDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore);
+        query = if descending {
+            query
+                .order_term(crate::db::desc("tier"))
                 .order_term(crate::db::desc("handle"))
                 .order_term(crate::db::desc("id"))
         } else {
-            load.order_term(crate::db::asc("tier"))
+            query
+                .order_term(crate::db::asc("tier"))
                 .order_term(crate::db::asc("handle"))
                 .order_term(crate::db::asc("id"))
         };
         if let Some(offset) = offset {
-            load = load.offset(offset);
+            query = query.offset(offset);
         }
+        let query = query.limit(2);
 
-        return load
-            .limit(2)
-            .explain_execution()
+        return session
+            .explain_query_execution_with_visible_indexes(&query)
             .expect("session deterministic composite order-only explain_execution should build");
     }
 
-    let mut load = session
-        .load::<SessionOrderOnlyChoiceEntity>()
-        .trusted_read_unchecked();
-    load = if descending {
-        load.order_term(crate::db::desc("alpha"))
+    let mut query = Query::<SessionOrderOnlyChoiceEntity>::new(MissingRowPolicy::Ignore);
+    query = if descending {
+        query
+            .order_term(crate::db::desc("alpha"))
             .order_term(crate::db::desc("id"))
     } else {
-        load.order_term(crate::db::asc("alpha"))
+        query
+            .order_term(crate::db::asc("alpha"))
             .order_term(crate::db::asc("id"))
     };
     if let Some(offset) = offset {
-        load = load.offset(offset);
+        query = query.offset(offset);
     }
+    let query = query.limit(2);
 
-    load.limit(2)
-        .explain_execution()
+    session
+        .explain_query_execution_with_visible_indexes(&query)
         .expect("session deterministic order-only explain_execution should build")
 }
 
@@ -254,41 +256,26 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
         ],
     );
 
-    let asc = session
-        .load::<SessionOrderOnlyChoiceEntity>()
-        .trusted_read_unchecked()
+    let asc_query = Query::<SessionOrderOnlyChoiceEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("alpha"))
         .order_term(crate::db::asc("id"))
         .offset(1)
-        .limit(2)
-        .execute()
+        .limit(2);
+    let asc = session
+        .execute_query_result(&asc_query)
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("ascending order-only offset window should execute");
     let asc_alpha = asc
         .iter()
         .map(|row| row.entity_ref().alpha.as_str())
         .collect::<Vec<_>>();
-    let asc_paged = session
-        .load::<SessionOrderOnlyChoiceEntity>()
-        .trusted_read_unchecked()
-        .order_term(crate::db::asc("alpha"))
-        .order_term(crate::db::asc("id"))
-        .offset(1)
-        .page(2)
-        .expect("ascending order-only offset paged window should execute");
-    let asc_paged_alpha = asc_paged
-        .iter()
-        .map(|row| row.entity_ref().alpha.as_str())
-        .collect::<Vec<_>>();
-
-    let desc = session
-        .load::<SessionOrderOnlyChoiceEntity>()
-        .trusted_read_unchecked()
+    let desc_query = Query::<SessionOrderOnlyChoiceEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("alpha"))
         .order_term(crate::db::desc("id"))
         .offset(1)
-        .limit(2)
-        .execute()
+        .limit(2);
+    let desc = session
+        .execute_query_result(&desc_query)
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("descending order-only offset window should execute");
     let desc_alpha = desc
@@ -296,11 +283,6 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
         .map(|row| row.entity_ref().alpha.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        asc_paged_alpha,
-        vec!["bravo", "charlie"],
-        "order-only paged windows should preserve the same shifted fallback index order",
-    );
     assert_eq!(
         asc_alpha,
         vec!["bravo", "charlie"],
@@ -412,20 +394,19 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
             .expect("composite order-only offset seed insert should succeed");
     }
 
-    // Phase 2: assert the compiled query still carries the logical offset so
+    // Phase 2: assert logical explain still carries the offset so
     // the runtime check isolates window application, not planning.
-    let planned = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .trusted_read_unchecked()
+    let query = Query::<SessionDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("tier"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
         .offset(1)
-        .limit(2)
-        .planned()
-        .expect("composite order-only offset plan should build");
+        .limit(2);
+    let explain = session
+        .explain_query_with_visible_indexes(&query)
+        .expect("composite order-only offset explain should build");
     assert_eq!(
-        planned.explain().page(),
+        explain.page(),
         &crate::db::query::explain::ExplainPagination::Page {
             limit: Some(2),
             offset: 1,
@@ -433,45 +414,19 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
         "composite order-only offset plans must preserve the logical offset at the planner boundary",
     );
 
-    // Phase 3: execute the public entity surface and lock the shifted ordered
-    // window directly.
+    // Phase 3: execute the internal structural query and lock the shifted
+    // ordered window directly.
     let response = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .trusted_read_unchecked()
-        .order_term(crate::db::asc("tier"))
-        .order_term(crate::db::asc("handle"))
-        .order_term(crate::db::asc("id"))
-        .offset(1)
-        .limit(2)
-        .execute()
+        .execute_query_result(&query)
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("composite order-only offset window should execute");
     let handles = response
         .iter()
         .map(|row| row.entity_ref().handle.as_str())
         .collect::<Vec<_>>();
-    let paged = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .trusted_read_unchecked()
-        .order_term(crate::db::asc("tier"))
-        .order_term(crate::db::asc("handle"))
-        .order_term(crate::db::asc("id"))
-        .offset(1)
-        .page(2)
-        .expect("composite order-only offset paged window should execute");
-    let paged_handles = paged
-        .iter()
-        .map(|row| row.entity_ref().handle.as_str())
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        paged_handles,
-        vec!["charlie", "delta"],
-        "composite order-only paged windows should preserve the same shifted index order",
-    );
     assert_eq!(
         handles,
         vec!["charlie", "delta"],
-        "composite order-only offset windows should preserve the shifted index order on the public entity surface",
+        "composite order-only offset windows should preserve the shifted internal query order",
     );
 }

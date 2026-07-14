@@ -3,8 +3,8 @@ use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{
-        EntitySchemaDescription,
-        sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
+        EntitySchemaDescription, RowProjectionOutput,
+        sql::{SqlGroupedRowsOutput, SqlQueryResult},
     },
     diagnostic::DiagnosticCode,
 };
@@ -158,14 +158,14 @@ fn ddl_contract_sql(sql: &str, contract: &str) -> String {
     }
 }
 
-fn expect_projection(result: SqlQueryResult) -> SqlQueryRowsOutput {
+fn expect_projection(result: SqlQueryResult) -> RowProjectionOutput {
     match result {
         SqlQueryResult::Projection(rows) => rows,
         other => panic!("expected projection payload, got {other:?}"),
     }
 }
 
-fn first_projected_text(output: &SqlQueryRowsOutput) -> String {
+fn first_projected_text(output: &RowProjectionOutput) -> String {
     output
         .rendered_rows()
         .into_iter()
@@ -175,7 +175,7 @@ fn first_projected_text(output: &SqlQueryRowsOutput) -> String {
 }
 
 fn assert_projection_rendered(
-    output: &SqlQueryRowsOutput,
+    output: &RowProjectionOutput,
     entity: &str,
     columns: &[&str],
     rows: &[&[&str]],

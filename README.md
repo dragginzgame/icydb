@@ -187,7 +187,7 @@ through session/library reduced single-entity SQL:
 ```rust
 use icydb::prelude::*;
 
-let rows = db!().execute_sql_query::<User>(
+let rows = db!().execute_trusted_sql_query::<User>(
     "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
 )?;
 
@@ -200,9 +200,10 @@ let ddl = db!().execute_sql_ddl::<User>(
 )?;
 ```
 
-`execute_sql_query` is the trusted/admin SQL lane. It is not public-safe for
-caller-controlled SQL by itself; public reads should prefer typed/fluent APIs or
-an application-owned SQL allowlist after caller authorization.
+`execute_trusted_sql_query` is an explicit trusted/admin SQL bypass. It is not
+public-safe for caller-controlled SQL by itself; public reads should prefer
+typed/fluent APIs or an application-owned SQL allowlist after caller
+authorization.
 
 ## SQL Scope
 

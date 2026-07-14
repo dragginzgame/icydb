@@ -548,7 +548,7 @@ where
     // Execute the same SQL through one session repeatedly so a real
     // session-local compiled-command cache can move the compile side honestly.
     for _ in 0..runs {
-        let (result, attribution) = session.execute_sql_query_with_attribution::<E>(sql)?;
+        let (result, attribution) = session.execute_trusted_sql_query_with_attribution::<E>(sql)?;
         if first_result.is_none() {
             first_result = Some(result);
         }
@@ -1250,7 +1250,7 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_query::<PerfAuditUser>(sql.as_str())
+    db().execute_trusted_sql_query::<PerfAuditUser>(sql.as_str())
 }
 
 /// Execute one PerfAuditUser-only SQL query and attach one local instruction
@@ -1259,7 +1259,7 @@ fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1273,7 +1273,7 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 #[query]
 fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_query::<PerfAuditUser>(sql.as_str())?;
+    let result = db().execute_trusted_sql_query::<PerfAuditUser>(sql.as_str())?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
     Ok(SqlTotalOnlyPerfResult {
@@ -1309,7 +1309,7 @@ fn query_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icyd
 #[update]
 fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1646,7 +1646,7 @@ fn measure_journaled_user_sql_write_materialization_perf()
 #[query]
 fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1660,7 +1660,7 @@ fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[query]
 fn query_heap_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_query::<PerfAuditHeapUser>(sql.as_str())?;
+    let result = db().execute_trusted_sql_query::<PerfAuditHeapUser>(sql.as_str())?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
     Ok(SqlTotalOnlyPerfResult {
@@ -1705,7 +1705,7 @@ fn query_heap_user_fluent_with_perf() -> Result<FluentQueryPerfResult, icydb::Er
 #[update]
 fn warm_heap_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1730,7 +1730,7 @@ fn query_heap_user_loop_with_perf(
 #[query]
 fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1746,7 +1746,7 @@ fn query_journaled_user_total_only_perf(
     sql: String,
 ) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_query::<PerfAuditJournaledUser>(sql.as_str())?;
+    let result = db().execute_trusted_sql_query::<PerfAuditJournaledUser>(sql.as_str())?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
     Ok(SqlTotalOnlyPerfResult {
@@ -1818,7 +1818,7 @@ fn query_journaled_user_fluent_with_perf() -> Result<FluentQueryPerfResult, icyd
 #[update]
 fn warm_journaled_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1841,7 +1841,7 @@ fn query_journaled_user_loop_with_perf(
 #[cfg(feature = "sql")]
 #[query]
 fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_query::<PerfAuditAccount>(sql.as_str())
+    db().execute_trusted_sql_query::<PerfAuditAccount>(sql.as_str())
 }
 
 /// Execute one PerfAuditAccount-only SQL query and attach one local instruction
@@ -1850,7 +1850,7 @@ fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1865,7 +1865,7 @@ fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Err
 #[update]
 fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1896,7 +1896,7 @@ fn query_account_loop_with_perf(
 #[cfg(feature = "sql")]
 #[query]
 fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_query::<PerfAuditBlob>(sql.as_str())
+    db().execute_trusted_sql_query::<PerfAuditBlob>(sql.as_str())
 }
 
 /// Execute one PerfAuditBlob-only SQL query and attach one local instruction
@@ -1905,7 +1905,7 @@ fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1919,7 +1919,7 @@ fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 #[update]
 fn warm_blob_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1939,7 +1939,7 @@ fn query_blob_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResul
 #[cfg(feature = "sql")]
 #[query]
 fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_query::<PerfAuditToken>(sql.as_str())
+    db().execute_trusted_sql_query::<PerfAuditToken>(sql.as_str())
 }
 
 /// Execute one PerfAuditToken-only SQL query and attach one local instruction
@@ -1948,7 +1948,7 @@ fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1962,7 +1962,7 @@ fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error
 #[update]
 fn warm_token_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
+        db().execute_trusted_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -2627,7 +2627,7 @@ fn focused_sql_user_row(
     sql: &str,
     explanation: &str,
 ) -> FocusedPkPerfRow {
-    match db().execute_sql_query_with_attribution::<PerfAuditUser>(sql) {
+    match db().execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql) {
         Ok((result, attribution)) => FocusedPkPerfRow {
             scenario_key: scenario_key.to_string(),
             terminal: terminal.to_string(),

@@ -78,11 +78,11 @@ fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
     (delta, result)
 }
 
-// Fold the public SQL response-packaging phase onto the outward top-level perf
+// Fold the trusted SQL response-packaging phase onto the outward top-level perf
 // contract so shell-facing totals remain exhaustive across compile, planner,
 // store, executor, and decode.
 #[cfg(feature = "diagnostics")]
-const fn finalize_public_sql_query_attribution(
+const fn finalize_trusted_sql_query_attribution(
     mut attribution: crate::db::SqlQueryExecutionAttribution,
     response_decode_local_instructions: u64,
 ) -> crate::db::SqlQueryExecutionAttribution {
@@ -118,22 +118,22 @@ impl<C: CanisterKind> DbSession<C> {
     /// This helper does not make caller-controlled SQL public-safe. Public
     /// endpoints should prefer ordinary typed/fluent reads, or use an
     /// application-owned SQL allowlist before entering this trusted lane.
-    pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    pub fn execute_trusted_sql_query<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
         Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner.execute_sql_query::<E>(sql)?,
+            self.inner.execute_trusted_sql_query::<E>(sql)?,
         ))
     }
 
     /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
     ///
     /// This helper is used by generated controller-gated SQL surfaces and keeps
-    /// the same trusted-lane caller contract as `execute_sql_query`.
+    /// the same explicit trusted-boundary contract as `execute_trusted_sql_query`.
     #[cfg(not(feature = "diagnostics"))]
     #[doc(hidden)]
-    pub fn execute_sql_query_with_perf_attribution<E>(
+    pub fn execute_trusted_sql_query_with_perf_attribution<E>(
         &self,
         sql: &str,
     ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
@@ -141,7 +141,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: crate::traits::EntityFor<C>,
     {
         Ok((
-            self.execute_sql_query::<E>(sql)?,
+            self.execute_trusted_sql_query::<E>(sql)?,
             SqlQueryPerfAttribution::default(),
         ))
     }
@@ -149,17 +149,17 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
     ///
     /// This helper is used by generated controller-gated SQL surfaces and keeps
-    /// the same trusted-lane caller contract as `execute_sql_query`.
+    /// the same explicit trusted-boundary contract as `execute_trusted_sql_query`.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
-    pub fn execute_sql_query_with_perf_attribution<E>(
+    pub fn execute_trusted_sql_query_with_perf_attribution<E>(
         &self,
         sql: &str,
     ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
     where
         E: crate::traits::EntityFor<C>,
     {
-        let (result, attribution) = self.execute_sql_query_with_attribution::<E>(sql)?;
+        let (result, attribution) = self.execute_trusted_sql_query_with_attribution::<E>(sql)?;
 
         Ok((result, SqlQueryPerfAttribution::from(attribution)))
     }
@@ -167,24 +167,26 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one trusted/admin reduced SQL query and report the top-level
     /// compile/execute cost split at the SQL seam.
     ///
-    /// This helper keeps the same trusted-lane caller contract as
-    /// `execute_sql_query`.
+    /// This helper keeps the same explicit trusted-boundary contract as
+    /// `execute_trusted_sql_query`.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
-    pub fn execute_sql_query_with_attribution<E>(
+    pub fn execute_trusted_sql_query_with_attribution<E>(
         &self,
         sql: &str,
     ) -> Result<(SqlQueryResult, crate::db::SqlQueryExecutionAttribution), Error>
     where
         E: crate::traits::EntityFor<C>,
     {
-        let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
+        let (result, mut attribution) = self
+            .inner
+            .execute_trusted_sql_query_with_attribution::<E>(sql)?;
         let (response_decode_local_instructions, result) =
             measure_sql_response_decode_stage(|| {
                 Self::sql_query_result_from_statement::<E>(result)
             });
         attribution =
-            finalize_public_sql_query_attribution(attribution, response_decode_local_instructions);
+            finalize_trusted_sql_query_attribution(attribution, response_decode_local_instructions);
 
         Ok((result, attribution))
     }
@@ -322,7 +324,7 @@ impl<C: CanisterKind> DbSession<C> {
 
 #[cfg(all(test, feature = "diagnostics"))]
 mod tests {
-    use super::finalize_public_sql_query_attribution;
+    use super::finalize_trusted_sql_query_attribution;
     use crate::db::SqlQueryExecutionAttribution;
 
     #[test]
@@ -349,7 +351,7 @@ mod tests {
         attribution.execute_local_instructions = 47;
         attribution.total_local_instructions = 58;
 
-        let finalized = finalize_public_sql_query_attribution(attribution, 19);
+        let finalized = finalize_trusted_sql_query_attribution(attribution, 19);
 
         assert_eq!(
             finalized.execute_local_instructions,
@@ -360,14 +362,14 @@ mod tests {
                 .saturating_add(finalized.execution.executor_local_instructions)
                 .saturating_add(finalized.execution.response_finalization_local_instructions)
                 .saturating_add(finalized.response_decode_local_instructions),
-            "public SQL execute totals should include planner, store, executor, and decode work",
+            "trusted SQL execute totals should include planner, store, executor, and decode work",
         );
         assert_eq!(
             finalized.total_local_instructions,
             finalized
                 .compile_local_instructions
                 .saturating_add(finalized.execute_local_instructions),
-            "public SQL total instructions should remain exhaustive across compiler, planner, store, executor, and decode",
+            "trusted SQL total instructions should remain exhaustive across compiler, planner, store, executor, and decode",
         );
     }
 }

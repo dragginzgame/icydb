@@ -6,8 +6,7 @@
 use crate::metrics::{
     sink::{
         CacheKind, CacheMissReason, CacheOutcome, MetricsEvent, PlanChoiceReason,
-        PreparedShapeFinalizationOutcome, SchemaReconcileOutcome, SchemaTransitionOutcome,
-        SqlCompileRejectPhase, record,
+        SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, record,
     },
     state::{
         CompactMetric, CompactMetricsReport, EntityCounters, EventOps, MetricRatio,
@@ -359,7 +358,6 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "plan_choice_required_order_primary_key_range_preferred",
         "plan_choice_singleton_primary_key_child_access_preferred",
         "prepared_shape_already_finalized",
-        "prepared_shape_generated_fallback",
         "rows_inserted",
         "rows_updated",
         "rows_replaced",
@@ -899,18 +897,12 @@ fn plan_choice_reason_metrics_accumulate_by_reason_and_entity() {
 }
 
 #[test]
-fn prepared_shape_finalization_metrics_accumulate_by_outcome_and_entity() {
+fn prepared_shape_already_finalized_metrics_accumulate_by_entity() {
     reset_all();
 
-    for outcome in [
-        PreparedShapeFinalizationOutcome::AlreadyFinalized,
-        PreparedShapeFinalizationOutcome::GeneratedFallback,
-    ] {
-        record(MetricsEvent::PreparedShapeFinalization {
-            entity_path: "metrics::tests::PreparedShapeEntity",
-            outcome,
-        });
-    }
+    record(MetricsEvent::PreparedShapeAlreadyFinalized {
+        entity_path: "metrics::tests::PreparedShapeEntity",
+    });
 
     let report = report_window_start(None);
     let counters = report
@@ -918,7 +910,6 @@ fn prepared_shape_finalization_metrics_accumulate_by_outcome_and_entity() {
         .expect("prepared-shape finalization fixture should produce counters");
     let ops = counters.ops();
     assert_eq!(ops.prepared_shape_already_finalized(), 1);
-    assert_eq!(ops.prepared_shape_generated_fallback(), 1);
 
     let summary = report
         .entity_counters()
@@ -926,7 +917,6 @@ fn prepared_shape_finalization_metrics_accumulate_by_outcome_and_entity() {
         .expect("prepared-shape finalization fixture should produce entity summary");
     assert_eq!(summary.path(), "metrics::tests::PreparedShapeEntity");
     assert_eq!(summary.prepared_shape_already_finalized(), 1);
-    assert_eq!(summary.prepared_shape_generated_fallback(), 1);
 }
 
 #[test]
@@ -1086,7 +1076,6 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         plan_choice_required_order_primary_key_range_preferred: 178,
         plan_choice_singleton_primary_key_child_access_preferred: 179,
         prepared_shape_already_finalized: 187,
-        prepared_shape_generated_fallback: 188,
         rows_loaded: 8,
         rows_saved: 23,
         rows_inserted: 27,
@@ -1230,7 +1219,6 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "plan_choice_required_order_primary_key_range_preferred",
         "plan_choice_singleton_primary_key_child_access_preferred",
         "prepared_shape_already_finalized",
-        "prepared_shape_generated_fallback",
         "rows_loaded",
         "rows_saved",
         "rows_inserted",
@@ -1409,7 +1397,6 @@ fn entity_summary_candid_shape_is_stable() {
         179
     );
     assert_eq!(summary.prepared_shape_already_finalized(), 187);
-    assert_eq!(summary.prepared_shape_generated_fallback(), 188);
     assert_eq!(summary.rows_saved(), 23);
     assert_eq!(summary.rows_inserted(), 27);
     assert_eq!(summary.rows_updated(), 28);

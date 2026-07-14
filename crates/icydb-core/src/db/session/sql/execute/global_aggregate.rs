@@ -3,8 +3,6 @@
 //! Does not own: SQL aggregate semantic lowering, HAVING evaluation, projection evaluation, or reducers.
 //! Boundary: adapts lowered SQL aggregate intent onto executor-owned structural aggregate execution.
 
-#[cfg(test)]
-use crate::db::query::admission::QueryAdmissionPolicy;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
@@ -32,8 +30,6 @@ use super::direct_count::MeasuredDirectCountCardinalityOutcome;
 use super::direct_count::{
     DirectCountCardinalityOutcome, DirectCountCardinalityTarget, direct_count_rows_statement_result,
 };
-#[cfg(test)]
-use super::select::{enforce_read_admission_policy, enforce_sql_read_response_byte_policy};
 #[cfg(feature = "diagnostics")]
 use crate::db::session::{
     query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution,
@@ -265,39 +261,6 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             },
         )
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_compiled_statement_ref_with_read_admission_policy<
-        E,
-    >(
-        &self,
-        compiled: &CompiledSqlCommand,
-        command: &SqlGlobalAggregateCommand,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
-            .map_err(QueryError::execute)?;
-        let resolved = self.resolve_compiled_global_aggregate_prepared_plan::<E>(
-            compiled, command, &catalog, None,
-        )?;
-        let (prepared_plan, cache_attribution) = resolved.into_parts();
-
-        enforce_read_admission_policy(policy, &prepared_plan)?;
-
-        let (result, _) = self.execute_global_aggregate_with_prepared_plan::<E>(
-            command,
-            &catalog,
-            &prepared_plan,
-            cache_attribution,
-        )?;
-        enforce_sql_read_response_byte_policy(policy, &result)?;
-
-        Ok(result)
     }
 
     #[cfg(feature = "diagnostics")]

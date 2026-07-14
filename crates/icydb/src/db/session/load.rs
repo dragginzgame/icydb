@@ -10,10 +10,7 @@ mod partial_window;
 use crate::{
     db::{
         ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
-        query::{
-            AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
-            QueryTracePlan,
-        },
+        query::{AggregateExpr, CompareOp, ExplainPlan, FilterExpr, QueryTracePlan},
         response::{QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
@@ -157,16 +154,6 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, Error> {
         Ok(self.inner.trace()?)
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, Error> {
-        Ok(self.inner.planned()?)
-    }
-
-    /// Build the compiled executable plan for this query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, Error> {
-        Ok(self.inner.plan()?)
     }
 
     /// Build logical explain metadata for the current query.

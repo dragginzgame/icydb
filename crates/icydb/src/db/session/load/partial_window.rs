@@ -9,7 +9,7 @@
 use crate::{
     db::{
         ExplainExecutionNodeDescriptor,
-        query::{CompiledQuery, ExplainPlan, PlannedQuery, QueryTracePlan},
+        query::{ExplainPlan, QueryTracePlan},
         response::{QueryResponse, Response},
     },
     error::Error,
@@ -77,16 +77,6 @@ impl<E: Entity> PartialWindowLoadQuery<'_, E> {
     /// Build one trace payload without executing the partial-window query.
     pub fn trace(&self) -> Result<QueryTracePlan, Error> {
         Ok(self.inner.trace()?)
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, Error> {
-        Ok(self.inner.planned()?)
-    }
-
-    /// Build the compiled executable plan for this partial-window query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, Error> {
-        Ok(self.inner.plan()?)
     }
 
     /// Build logical explain metadata for the current partial-window query.

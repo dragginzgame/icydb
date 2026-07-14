@@ -99,15 +99,6 @@ fn write_admission_json(admission: &QueryAdmissionSummary, out: &mut String) {
     );
     write_optional_u32(
         &mut object,
-        "response_byte_bound",
-        admission.response_byte_bound(),
-    );
-    object.field_str(
-        "response_byte_bound_kind",
-        admission.response_byte_bound_kind().as_str(),
-    );
-    write_optional_u32(
-        &mut object,
         "primary_key_input_terms",
         admission.primary_key_input_terms(),
     );

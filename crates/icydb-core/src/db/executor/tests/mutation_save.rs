@@ -3617,7 +3617,7 @@ fn unique_index_delete_then_insert_same_value_succeeds() {
     let delete_plan = Query::<UniqueEmailEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(original)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("delete plan should build");
     let deleted = delete

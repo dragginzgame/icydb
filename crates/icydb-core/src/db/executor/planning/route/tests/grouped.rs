@@ -42,9 +42,6 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         execution: GroupedExecutionConfig::unbounded(),
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
         route_plan.route_shape_kind(),
@@ -60,21 +57,11 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
     assert_eq!(route_plan.fast_path_order(), &[]);
     assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
-    assert_eq!(grouped_observability.rejection_reason(), None);
-    assert_eq!(
-        grouped_observability.planner_fallback_reason(),
+        route_plan.grouped_plan_fallback_reason(),
         Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch)
     );
-    assert!(grouped_observability.eligible());
     assert_eq!(
-        grouped_observability.execution_mode(),
-        RouteExecutionMode::Materialized
-    );
-    assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::HashMaterialized
     );
 }
@@ -99,9 +86,6 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         execution: GroupedExecutionConfig::with_hard_limits(1, 1),
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
         route_plan.route_shape_kind(),
@@ -117,21 +101,11 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
     assert_eq!(route_plan.fast_path_order(), &[]);
     assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
-    assert_eq!(grouped_observability.rejection_reason(), None);
-    assert_eq!(
-        grouped_observability.planner_fallback_reason(),
+        route_plan.grouped_plan_fallback_reason(),
         Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch)
     );
-    assert!(grouped_observability.eligible());
     assert_eq!(
-        grouped_observability.execution_mode(),
-        RouteExecutionMode::Materialized
-    );
-    assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::HashMaterialized
     );
 }
@@ -164,16 +138,13 @@ fn route_plan_grouped_wrapper_reports_prefix_mismatch_for_misaligned_grouped_ord
         )],
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::HashMaterialized
     );
     assert_eq!(
-        grouped_observability.planner_fallback_reason(),
+        route_plan.grouped_plan_fallback_reason(),
         Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch)
     );
 }
@@ -203,16 +174,13 @@ fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped
         fields: vec![additive_rank_order_term(OrderDirection::Asc)],
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::HashMaterialized
     );
     assert_eq!(
-        grouped_observability.planner_fallback_reason(),
+        route_plan.grouped_plan_fallback_reason(),
         Some(GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible)
     );
 }
@@ -278,19 +246,12 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         execution: GroupedExecutionConfig::unbounded(),
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized
     );
-    assert_eq!(grouped_observability.planner_fallback_reason(), None);
-    assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
+    assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
 
 #[test]
@@ -317,19 +278,12 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_ind
         execution: GroupedExecutionConfig::unbounded(),
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized
     );
-    assert_eq!(grouped_observability.planner_fallback_reason(), None);
-    assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
+    assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
 
 #[test]
@@ -356,19 +310,12 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index
         execution: GroupedExecutionConfig::unbounded(),
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized
     );
-    assert_eq!(grouped_observability.planner_fallback_reason(), None);
-    assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
+    assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
 
 #[test]
@@ -395,19 +342,12 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index
         execution: GroupedExecutionConfig::unbounded(),
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized
     );
-    assert_eq!(grouped_observability.planner_fallback_reason(), None);
-    assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
+    assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
 
 #[test]
@@ -433,19 +373,12 @@ fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_pre
     });
     grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat64(7)));
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized
     );
-    assert_eq!(grouped_observability.planner_fallback_reason(), None);
-    assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
+    assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
 
 #[test]
@@ -470,19 +403,12 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_sha
         execution: GroupedExecutionConfig::unbounded(),
     });
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized
     );
-    assert_eq!(grouped_observability.planner_fallback_reason(), None);
-    assert_eq!(
-        grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedFallback
-    );
+    assert_eq!(route_plan.grouped_plan_fallback_reason(), None);
 }
 
 #[test]
@@ -508,16 +434,13 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_filter_p
     });
     grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat64(7)));
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::HashMaterialized
     );
     assert_eq!(
-        grouped_observability.planner_fallback_reason(),
+        route_plan.grouped_plan_fallback_reason(),
         Some(GroupedPlanFallbackReason::ResidualFilterBlocksGroupedOrder)
     );
 }
@@ -557,9 +480,6 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_non_streaming_havi
         }),
     );
     let route_plan = build_grouped_route_plan(&grouped);
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should project grouped observability payload");
     let planner_strategy =
         grouped_plan_strategy(&grouped).expect("grouped plans should project strategy");
 
@@ -569,11 +489,11 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_non_streaming_havi
         "non-streaming grouped HAVING expressions should force the hash-group fallback",
     );
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::HashMaterialized
     );
     assert_eq!(
-        grouped_observability.planner_fallback_reason(),
+        route_plan.grouped_plan_fallback_reason(),
         Some(GroupedPlanFallbackReason::HavingBlocksGroupedOrder)
     );
 }
@@ -702,7 +622,7 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
 }
 
 #[test]
-fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
+fn route_plan_grouped_wrapper_execution_contract_is_frozen() {
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
@@ -715,22 +635,15 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
             execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
         });
     let route_plan = build_grouped_route_plan(&grouped);
-    let observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should always project grouped observability for grouped intents");
     let actual = (
-        observability.outcome(),
-        observability.rejection_reason(),
-        observability.eligible(),
-        observability.execution_mode(),
-        observability.grouped_execution_mode(),
+        route_plan.execution_mode(),
+        grouped_execution_mode(&route_plan),
+        route_plan.grouped_plan_fallback_reason(),
     );
     let expected = (
-        GroupedRouteDecisionOutcome::MaterializedFallback,
-        None,
-        true,
         RouteExecutionMode::Materialized,
         GroupedExecutionMode::HashMaterialized,
+        Some(GroupedPlanFallbackReason::GroupKeyOrderUnavailable),
     );
 
     assert_eq!(actual, expected);
@@ -763,7 +676,6 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             GroupedPlanStrategy::ordered_group(),
             None,
             GroupedExecutionMode::OrderedMaterialized,
-            true,
         )
     );
 
@@ -805,7 +717,6 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::HavingBlocksGroupedOrder),
             None,
             GroupedExecutionMode::HashMaterialized,
-            true,
         )
     );
 
@@ -828,7 +739,6 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::DistinctGroupingNotAdmitted),
             Some(GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired),
             GroupedExecutionMode::HashMaterialized,
-            true,
         )
     );
 }
@@ -860,7 +770,6 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
                 ),
                 None,
                 GroupedExecutionMode::HashMaterialized,
-                true,
             ),
             "global DISTINCT grouped strategy snapshot should stay stable for {kind:?}",
         );
@@ -890,7 +799,6 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
             ),
             None,
             GroupedExecutionMode::HashMaterialized,
-            true,
         ),
         "primary-key-value grouped aggregates should stay on the generic grouped rows family",
     );
@@ -926,7 +834,6 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
             ),
             None,
             GroupedExecutionMode::HashMaterialized,
-            true,
         ),
         "mixed grouped aggregate sets should collapse to the generic grouped rows family",
     );
@@ -983,11 +890,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
         },
     )
     .expect("mixed grouped route test should build grouped route plan");
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("mixed grouped route should always project grouped observability");
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized,
         "mixed grouped count+sum shapes should keep the ordered grouped execution family when group-key order is proven",
     );
@@ -1070,15 +974,12 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         route_plan.execution_mode(),
         RouteExecutionMode::Materialized
     );
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route should always project grouped observability");
     assert_eq!(
-        grouped_observability.execution_mode(),
+        route_plan.execution_mode(),
         RouteExecutionMode::Materialized
     );
     assert_eq!(
-        grouped_observability.grouped_execution_mode(),
+        grouped_execution_mode(&route_plan),
         GroupedExecutionMode::OrderedMaterialized
     );
 }

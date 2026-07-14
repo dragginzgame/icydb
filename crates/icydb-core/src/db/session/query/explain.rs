@@ -99,21 +99,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(prepared_plan.plan_hash_hex())
     }
 
-    /// Require one typed/fluent query plan to satisfy the default bounded read policy.
-    #[doc(hidden)]
-    pub fn ensure_default_query_read_admission<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<QueryAdmissionSummary, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        self.ensure_query_read_admission_policy(
-            query,
-            &QueryAdmissionPolicy::default_bounded_read(),
-        )
-    }
-
     /// Evaluate one typed/fluent query plan against a read-admission policy.
     ///
     /// This does not execute rows or prove a final response-byte size. Public
@@ -147,8 +132,8 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Require one typed/fluent query plan to be admitted by a read-admission policy.
     ///
-    /// This returns the admitted plan summary on success, or the same compact
-    /// read-admission `QueryError` family used by policy-bound SQL reads.
+    /// This returns the admitted plan summary on success, or the compact
+    /// read-admission `QueryError` family used by ordinary fluent reads.
     pub(in crate::db) fn ensure_query_read_admission_policy<E>(
         &self,
         query: &Query<E>,
@@ -286,7 +271,10 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This lightweight surface is intended for developer diagnostics:
     /// plan hash, access strategy summary, and planner/executor route shape.
-    pub fn trace_query<E>(&self, query: &Query<E>) -> Result<QueryTracePlan, QueryError>
+    pub(in crate::db) fn trace_query<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<QueryTracePlan, QueryError>
     where
         E: EntityKind<Canister = C>,
     {

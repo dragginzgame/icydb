@@ -91,14 +91,13 @@ else
 
   for required_contract_token in \
     "\`PublicRead\`" \
-    "\`AdminAdHoc\`" \
     "\`DiagnosticExplain\`" \
+    "trusted bypass surfaces" \
     "generated \`icydb_query\`" \
-    "hidden prebuilt-query execution" \
     "\`trusted_read_unchecked()\` fluent lane" \
     "\`trusted_read_unchecked()\`" \
-    "\`execute_sql_query\`" \
-    "execute_sql_query_with_perf_attribution" \
+    "\`execute_trusted_sql_query\`" \
+    "execute_trusted_sql_query_with_perf_attribution" \
     "docs/guides/read-intent.md" \
     "\`page(limit)\`" \
     "\`next_page(limit, cursor)\`" \
@@ -114,7 +113,6 @@ else
 
   for required_budget_literal in \
     "maximum returned rows: 100" \
-    "maximum plan-level response bytes: 128 KiB" \
     "100 groups, 64 KiB per group, and 1024 distinct entries"
   do
     require_file_literal "$DOC" "budget literal" "$required_budget_literal"
@@ -122,7 +120,7 @@ else
 
   declare -A required_contract_concepts=(
     ["generated icydb_query remains controller gated"]="generated .*icydb_query.*controller-gated"
-    ["caller-controlled SQL is not public-safe"]="caller-controlled SQL.*execute_sql_query"
+    ["caller-controlled SQL is not public-safe"]="caller-controlled SQL.*execute_trusted_sql_query"
     ["generated SQL has no public-read config"]="sql\\.public_read"
     ["generated non-controller public SQL endpoints remain forbidden"]="non-controller.*generated SQL query endpoint"
     ["read-intent guidance is discoverable"]="read-intent\\.md"
@@ -269,8 +267,8 @@ require_file_pattern \
 
 require_file_pattern \
   "$README_DOC" \
-  "execute_sql_query is documented as trusted/admin" \
-  "execute_sql_query.*trusted/admin"
+  "execute_trusted_sql_query is documented as trusted/admin" \
+  "execute_trusted_sql_query.*trusted/admin"
 
 require_file_pattern \
   "$INSTALLING_DOC" \
@@ -296,7 +294,6 @@ if [[ ! -f "$ADMISSION_POLICY_SOURCE" ]]; then
 else
   for required_source_constant in \
     "const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;" \
-    "const DEFAULT_BOUNDED_READ_RESPONSE_BYTES: u32 = 128 * 1024;" \
     "const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;" \
     "const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;" \
     "const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;"
@@ -343,7 +340,6 @@ else
   for required_read_intent_constant in \
     "const PUBLIC_PAGE_DEFAULT_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
     "const PUBLIC_PAGE_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
-    "const PUBLIC_PAGE_MAX_RESPONSE_BYTES: u32 =" \
     "const COMPLETE_SMALL_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;" \
     "const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;" \
     "const COMPLETE_SMALL_EXECUTION_LIMIT: u32 =" \
@@ -391,7 +387,6 @@ else
     "execute_with_policy" \
     "with_query_policy" \
     "execute_query_with_read_admission_policy" \
-    "execute_sql_query_with_read_admission_policy" \
     "QueryAdmissionPolicy" \
     "GroupedAdmissionPolicy" \
     "public_custom" \
@@ -454,9 +449,9 @@ else
   fi
 
   if ! printf '%s\n' "$production_generated_sql" \
-    | rg -F --quiet "execute_sql_query_with_perf_attribution"
+    | rg -F --quiet "execute_trusted_sql_query_with_perf_attribution"
   then
-    echo "[ERROR] Generated icydb_query admin lane must keep using the trusted perf-attributed SQL helper." >&2
+    echo "[ERROR] Generated icydb_query must keep using the explicit trusted perf-attributed SQL helper." >&2
     status=1
   fi
 
@@ -474,12 +469,6 @@ else
     status=1
   fi
 
-  if printf '%s\n' "$production_generated_sql" \
-    | rg -F --quiet "execute_sql_query_with_read_admission_policy"
-  then
-    echo "[ERROR] Generated SQL glue must not use removed custom read-policy helpers." >&2
-    status=1
-  fi
 fi
 
 if [[ ! -f "$CONFIG_PARSE" ]]; then

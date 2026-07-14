@@ -256,15 +256,14 @@ impl MetricsSink for GlobalMetricsSink {
                     record_entity_plan_choice_reason(entry, reason);
                 });
             }
-            MetricsEvent::PreparedShapeFinalization {
-                entity_path,
-                outcome,
-            } => {
+            MetricsEvent::PreparedShapeAlreadyFinalized { entity_path } => {
                 metrics::with_state_mut(|m| {
-                    record_global_prepared_shape_finalization_outcome(&mut m.ops, outcome);
+                    m.ops.prepared_shape_already_finalized =
+                        m.ops.prepared_shape_already_finalized.saturating_add(1);
 
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    record_entity_prepared_shape_finalization_outcome(entry, outcome);
+                    entry.prepared_shape_already_finalized =
+                        entry.prepared_shape_already_finalized.saturating_add(1);
                 });
             }
             MetricsEvent::RelationValidation {

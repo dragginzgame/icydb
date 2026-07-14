@@ -273,7 +273,7 @@ fn execute_sql_projection_expression_order_key_only_covering_query_avoids_store_
     // covering read route fully row-store-free for one key-only expression
     // order query.
     let (_result, attribution) = session
-        .execute_sql_query_with_attribution::<ExpressionIndexedSessionSqlEntity>(
+        .execute_trusted_sql_query_with_attribution::<ExpressionIndexedSessionSqlEntity>(
             "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
         )
         .expect("expression-order key-only covering query should execute");
@@ -312,7 +312,7 @@ fn execute_sql_projection_expression_order_projected_expression_uses_pure_coveri
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<ExpressionIndexedSessionSqlEntity>(sql)
+        .execute_trusted_sql_query_with_attribution::<ExpressionIndexedSessionSqlEntity>(sql)
         .expect("expression-order expression projection covering query should execute");
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("expression-order expression projection should return projection rows");
@@ -406,7 +406,7 @@ fn sql_compiled_cache_hit_expression_index_plan_miss_reuses_catalog_authority_sc
     session.clear_query_plan_cache_for_tests();
     DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
     let result = session
-        .execute_sql_query::<ExpressionIndexedSessionSqlEntity>(sql)
+        .execute_trusted_sql_query::<ExpressionIndexedSessionSqlEntity>(sql)
         .expect("compiled-cache-hit expression-index query should execute");
     let counters =
         DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
@@ -454,9 +454,8 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
             "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
         )
         .expect("expression-order SQL query should lower")
-        .plan()
-        .expect("expression-order SQL query should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("expression-order SQL query should plan");
     let lowered_access = lower_access(ExpressionIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
         .expect("expression-order access plan should lower to one raw index range");
     let [spec] = lowered_access.index_range_specs() else {

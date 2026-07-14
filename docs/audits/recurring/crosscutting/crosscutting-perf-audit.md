@@ -35,9 +35,9 @@ Primary owners:
   * shared query-plan cache attribution
   * typed/fluent phase attribution
 * `db/session/sql/mod.rs`
-  * `execute_sql_query`
+  * `execute_trusted_sql_query`
   * `execute_sql_update`
-  * `execute_sql_query_with_attribution`
+  * `execute_trusted_sql_query_with_attribution`
   * SQL compile cache attribution
 * `db/session/sql/execute/*`
   * `execute_compiled_sql`
@@ -310,9 +310,9 @@ For each supported scenario, sample what exists:
   typed/fluent lane
 * typed/fluent load query execution
 * typed/fluent paged query execution
-* `DbSession::execute_sql_query::<E>(...)`
+* `DbSession::execute_trusted_sql_query::<E>(...)`
 * `DbSession::execute_sql_update::<E>(...)`
-* `DbSession::execute_sql_query_with_attribution::<E>(...)` when diagnostics are
+* `DbSession::execute_trusted_sql_query_with_attribution::<E>(...)` when diagnostics are
   available
 * current explain SQL surface
 * generated dispatch or canister shell wrappers, but only when the report maps
@@ -459,7 +459,7 @@ Recommended current scans:
 
 * `rg -n "sql_perf_scenarios|fluent_perf_scenarios|scenario_key|baseline_path|maybe_write_blessed_baseline" testing/integration/tests/sql_perf_audit.rs testing/integration/tests/fluent_perf_audit.rs`
 * `rg -n "SqlQueryExecutionAttribution|QueryExecutionAttribution|store_get_calls|grouped_stream_local_instructions" crates/icydb-core/src canisters/audit/sql_perf/src`
-* `rg -n "execute_sql_query|execute_sql_update|execute_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
+* `rg -n "execute_trusted_sql_query|execute_sql_update|execute_trusted_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
 * `rg -n "compile_sql_command|compile_sql_query|compile_sql_update" crates/icydb-core/src/db`
 * `rg -n "execute_sql_projection_rows_for_canister|sql_select_prepared_plan|execute_grouped_sql_statement_from_prepared_plan_with" crates/icydb-core/src/db`
 * `rg -n "EXPLAIN|cursor|continuation|GROUP BY|HAVING|DISTINCT|LIMIT|OFFSET" crates/icydb-core/src/db`

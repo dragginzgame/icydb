@@ -17,11 +17,11 @@ use crate::{
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
-                AccessChoiceResidualBurden, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
-                GroupedPlanAggregateFamily, GroupedPlanFallbackReason, GroupedPlanStrategy,
-                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
-                explain_access_strategy_label, expr::Expr, grouped_plan_strategy,
-                render_scalar_filter_expr_plan_label,
+                AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessPlannedQuery,
+                AggregateKind, DeleteLimitSpec, GroupedPlanAggregateFamily,
+                GroupedPlanFallbackReason, GroupedPlanStrategy, LogicalPlan, OrderDirection,
+                OrderSpec, PageSpec, QueryMode, ScalarPlan, explain_access_strategy_label,
+                expr::Expr, grouped_plan_strategy, render_scalar_filter_expr_plan_label,
             },
         },
     },
@@ -487,7 +487,8 @@ impl ExplainAccessDecisionV1 {
         snapshot: &AccessChoiceExplainSnapshot,
     ) -> Self {
         let selected_label = explain_access_strategy_label(selected_access);
-        let selected_candidate = selected_candidate_summary(&selected_label, &snapshot.candidates);
+        let selected_candidate =
+            selected_candidate_summary(selected_index_name(selected_access), &snapshot.candidates);
 
         Self {
             schema_version: Self::SCHEMA_VERSION,
@@ -512,7 +513,7 @@ impl ExplainAccessDecisionV1 {
             rejections: snapshot
                 .rejected
                 .iter()
-                .map(|rejection| ExplainRejectedIndexV1::from_rejection(rejection))
+                .map(ExplainRejectedIndexV1::from_rejection)
                 .collect(),
             residual: ExplainResidualSummaryV1::from_selected_access_and_candidate(
                 selected_access,
@@ -633,7 +634,7 @@ pub struct ExplainAccessCandidateV1 {
 impl ExplainAccessCandidateV1 {
     fn from_candidate(candidate: &AccessChoiceCandidateExplainSummary) -> Self {
         Self {
-            label: candidate.label.clone(),
+            label: candidate.label(),
             exact: candidate.exact,
             filtered: candidate.filtered,
             range_bound_count: candidate.range_bound_count,
@@ -654,22 +655,20 @@ pub struct ExplainEligibleAlternativeV1 {
 /// Rejected index candidate summary recorded by the planner.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainRejectedIndexV1 {
-    /// Semantic index name when parsed from the planner rejection label.
+    /// Semantic index name carried by the planner rejection.
     pub index_name: Option<String>,
-    /// Planner-owned rejection reason code when parsed from the rejection label.
+    /// Planner-owned rejection reason code.
     pub reason: Option<String>,
-    /// Original planner rejection label.
+    /// Stable rendered planner rejection label.
     pub label: String,
 }
 
 impl ExplainRejectedIndexV1 {
-    fn from_rejection(rejection: &str) -> Self {
-        let (index_name, reason) = parse_rejected_index_label(rejection);
-
+    fn from_rejection(rejection: &AccessChoiceRejectedIndex) -> Self {
         Self {
-            index_name,
-            reason,
-            label: rejection.to_string(),
+            index_name: Some(rejection.index_name().to_string()),
+            reason: Some(rejection.reason_code().to_string()),
+            label: rejection.label(),
         }
     }
 }
@@ -959,13 +958,14 @@ where
 }
 
 fn selected_candidate_summary<'a>(
-    selected_label: &str,
+    selected_index_name: Option<&str>,
     candidates: &'a [AccessChoiceCandidateExplainSummary],
 ) -> Option<&'a AccessChoiceCandidateExplainSummary> {
+    let selected_index_name = selected_index_name?;
+
     candidates
         .iter()
-        .find(|candidate| candidate.label == selected_label)
-        .or_else(|| (candidates.len() == 1).then(|| &candidates[0]))
+        .find(|candidate| candidate.index_name() == selected_index_name)
 }
 
 const fn selected_index_name(access: &ExplainAccessPath) -> Option<&str> {
@@ -1012,17 +1012,6 @@ const fn bound_constraint_count(bound: &Bound<Value>) -> usize {
     match bound {
         Bound::Included(_) | Bound::Excluded(_) => 1,
         Bound::Unbounded => 0,
-    }
-}
-
-fn parse_rejected_index_label(rejection: &str) -> (Option<String>, Option<String>) {
-    let Some(rest) = rejection.strip_prefix("index:") else {
-        return (None, None);
-    };
-
-    match rest.split_once('=') {
-        Some((index_name, reason)) => (Some(index_name.to_string()), Some(reason.to_string())),
-        None => (Some(rest.to_string()), None),
     }
 }
 

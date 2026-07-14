@@ -8,22 +8,18 @@
 //!
 //! Re-exports the typed query builders, semantic query types, and facade-only
 //! helper modules used by downstream canister code.
+//! Normal endpoint code constructs a fluent query from `DbSession` and executes a semantic terminal;
+//! the raw core query representation stays internal.
 
 pub use icydb_core::db::{
-    AccessRequirementError, AccessRequirementViolation, AggregateExpr, CompareOp, CompiledQuery,
+    AccessRequirementError, AccessRequirementViolation, AggregateExpr, CompareOp,
     ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
     ExplainEligibleAlternativeV1, ExplainPlan, ExplainRejectedIndexV1, ExplainResidualSummaryV1,
     ExplainSelectedAccessV1, FieldRef, FilterExpr, FilterValue, MissingRowPolicy,
-    NumericProjectionExpr, OrderDirection, OrderExpr, OrderTerm, PlannedQuery, QueryTracePlan,
+    NumericProjectionExpr, OrderDirection, OrderExpr, OrderTerm, QueryTracePlan,
     RequiredAccessPath, RoundProjectionExpr, TextProjectionExpr, TraceExecutionFamily,
     TraceReuseArtifactClass, TraceReuseEvent, ValueProjectionExpr, add, asc, avg, contains, count,
     count_by, desc, div, ends_with, exists, field, first, last, left, length, lower, ltrim, max,
     max_by, min, min_by, mul, position, replace, right, round, round_expr, rtrim, starts_with, sub,
     substring, substring_with_length, sum, trim, upper,
 };
-
-// Low-level direct-query intent remains available to facade internals and
-// diagnostics. Normal endpoint code should use `DbSession::load::<E>()` plus a semantic terminal
-// instead of constructing `Query<E>` directly.
-#[doc(hidden)]
-pub use icydb_core::db::Query;

@@ -303,7 +303,7 @@ fn seed_optional_field_null_values_fixture() {
 fn optional_field_null_plan() -> PreparedExecutionPlan<PhaseEntity> {
     Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("optional-field null-semantics plan should build")
 }
@@ -416,7 +416,7 @@ fn seed_missing_field_parity_fixture() {
 fn missing_field_parity_plan() -> PreparedExecutionPlan<PushdownParityEntity> {
     Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("missing-field parity plan should build")
 }
@@ -531,7 +531,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .limit(5)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("field-target count-distinct plan should build")
     };
@@ -552,7 +552,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
             .order_term(crate::db::desc("id"))
             .offset(50)
             .limit(5)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("empty-window count-distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -579,7 +579,7 @@ fn aggregate_projection_count_distinct_supports_non_orderable_fields() {
         &load,
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("non-orderable count-distinct plan should build"),
         planned_slot::<PhaseEntity>("tags"),
@@ -630,7 +630,7 @@ fn aggregate_projection_count_distinct_list_order_semantics_are_stable() {
         &load,
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("list-order count-distinct plan should build"),
         planned_slot::<PhaseEntity>("tags"),
@@ -746,7 +746,7 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("direction-invariant ASC plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -758,7 +758,7 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("rank"))
             .order_term(crate::db::desc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("direction-invariant DESC plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -799,7 +799,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
     let non_distinct_response = load
         .execute(
             build_query(false)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("non-distinct count-distinct baseline plan should build"),
         )
@@ -807,7 +807,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
     let distinct_response = load
         .execute(
             build_query(true)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct count-distinct baseline plan should build"),
         )
@@ -816,7 +816,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
     let non_distinct_count = execute_projection_count_distinct_boundary(
         &load,
         build_query(false)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("non-distinct count-distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -825,7 +825,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
     let distinct_count = execute_projection_count_distinct_boundary(
         &load,
         build_query(true)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("distinct count-distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -859,7 +859,7 @@ fn aggregate_projection_values_by_distinct_remains_row_level() {
             .filter_predicate(u32_eq_predicate("group", 7))
             .distinct()
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("values_by distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -889,7 +889,7 @@ fn aggregate_projection_covering_constant_projection_terminals_match_effective_w
             .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(3)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("covering-constant projection plan should build")
     };
@@ -989,7 +989,7 @@ fn aggregate_projection_covering_projection_matches_row_materialized_projection(
             .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(3)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("covering-index projection plan should build")
     };
@@ -1073,7 +1073,7 @@ fn aggregate_projection_covering_index_distinct_non_leading_component_preserves_
             .order_term(crate::db::asc("group"))
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("covering non-leading distinct plan should build")
     };
@@ -1282,7 +1282,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-index projection plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -1305,7 +1305,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-index projection with-ids plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -1341,7 +1341,7 @@ fn aggregate_projection_distinct_values_by_matches_effective_window_projection()
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("distinct_values_by plan should build")
     };
@@ -1380,7 +1380,7 @@ fn aggregate_projection_distinct_values_by_matches_values_by_first_observed_dedu
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("distinct-values invariant plan should build")
     };
@@ -1441,7 +1441,7 @@ fn aggregate_projection_count_distinct_optional_field_null_values_are_rejected_c
     let build_plan_asc = || {
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("rank"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("optional-field null-semantics ASC plan should build")
     };
@@ -1449,7 +1449,7 @@ fn aggregate_projection_count_distinct_optional_field_null_values_are_rejected_c
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::desc("rank"))
             .order_term(crate::db::desc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("optional-field null-semantics DESC plan should build")
     };
@@ -1594,7 +1594,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-projection plan should build"),
         planned_slot::<PushdownParityEntity>("group"),
@@ -1617,7 +1617,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-projection with-ids plan should build"),
         planned_slot::<PushdownParityEntity>("group"),
@@ -1750,7 +1750,7 @@ fn aggregate_projection_terminals_preserve_scan_budget_parity_with_execute_matri
                 .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(4)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("projection scan-budget matrix plan should build")
         };

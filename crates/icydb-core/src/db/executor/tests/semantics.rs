@@ -23,11 +23,11 @@ fn query_execution_pipeline_snapshot<E>(query: &Query<E>) -> String
 where
     E: EntityKind + EntityValue,
 {
-    // Phase 1: compile query intent into one executor-owned executable plan contract.
-    let compiled = query
-        .plan()
-        .expect("execution pipeline snapshot should build compiled query");
-    let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
+    // Phase 1: build query intent into one executor-owned executable plan contract.
+    let plan = query
+        .access_plan_for_test()
+        .expect("execution pipeline snapshot should build access plan");
+    let executable = crate::db::executor::PreparedExecutionPlan::<E>::from(plan);
 
     // Phase 2: derive canonical execution descriptor JSON from executable-plan contracts.
     let descriptor_json = executable
@@ -64,12 +64,12 @@ fn query_execution_pipeline_projection_snapshot<E>(query: &Query<E>) -> String
 where
     E: EntityKind + EntityValue,
 {
-    // Phase 1: compile query intent into one executable plan + canonical projection columns.
-    let compiled = query
-        .plan()
-        .expect("execution pipeline projection snapshot should build compiled query");
-    let projection_columns = projection_columns_snapshot(&compiled.projection_spec());
-    let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
+    // Phase 1: build query intent into one executable plan + canonical projection columns.
+    let plan = query
+        .access_plan_for_test()
+        .expect("execution pipeline projection snapshot should build access plan");
+    let projection_columns = projection_columns_snapshot(&plan.projection_spec(E::MODEL));
+    let executable = crate::db::executor::PreparedExecutionPlan::<E>::from(plan);
 
     // Phase 2: derive canonical execution descriptor JSON from executable-plan contracts.
     let descriptor_json = executable
@@ -92,11 +92,11 @@ fn query_grouped_execution_pipeline_snapshot<E>(query: &Query<E>) -> String
 where
     E: EntityKind + EntityValue,
 {
-    // Phase 1: compile grouped query intent into one executor-owned executable plan contract.
-    let compiled = query
-        .plan()
-        .expect("grouped execution pipeline snapshot should build compiled query");
-    let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
+    // Phase 1: build grouped query intent into one executor-owned executable plan contract.
+    let plan = query
+        .access_plan_for_test()
+        .expect("grouped execution pipeline snapshot should build access plan");
+    let executable = crate::db::executor::PreparedExecutionPlan::<E>::from(plan);
     let authority = EntityAuthority::for_generated_type_for_test::<E>()
         .with_cursor_schema_info_for_test(
             crate::db::schema::SchemaInfo::cached_for_generated_entity_model(E::MODEL).clone(),
@@ -107,7 +107,7 @@ where
         crate::db::query::plan::grouped_executor_handoff(executable.logical_plan())
             .expect("grouped execution pipeline snapshot should project grouped handoff");
 
-    // Phase 2: derive grouped route observability from grouped handoff contracts.
+    // Phase 2: derive grouped execution truth from grouped handoff contracts.
     let route_plan = build_execution_route_plan(
         grouped_handoff.base(),
         RoutePlanRequest::Grouped {
@@ -115,15 +115,15 @@ where
         },
     )
     .expect("grouped execution pipeline snapshot should build grouped route plan");
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped execution pipeline snapshot should project grouped observability");
+    let grouped_execution_mode = route_plan
+        .grouped_execution_mode()
+        .expect("grouped execution pipeline snapshot should carry grouped execution mode");
     let descriptor_json = executable
         .explain_load_execution_node_descriptor()
         .expect("grouped execution pipeline snapshot should build grouped execution descriptor")
         .render_json_canonical();
 
-    // Phase 3: join executable snapshot, grouped route observability, and grouped descriptor.
+    // Phase 3: join executable snapshot, grouped route truth, and grouped descriptor.
     [
         executable
             .render_snapshot_canonical()
@@ -134,24 +134,11 @@ where
             "route_continuation_mode={:?}",
             route_plan.continuation().mode()
         ),
-        format!("grouped_outcome={:?}", grouped_observability.outcome()),
-        format!(
-            "grouped_rejection={:?}",
-            grouped_observability.rejection_reason()
-        ),
         format!(
             "grouped_planner_fallback_reason={:?}",
-            grouped_observability.planner_fallback_reason()
+            route_plan.grouped_plan_fallback_reason()
         ),
-        format!("grouped_eligible={}", grouped_observability.eligible()),
-        format!(
-            "grouped_route_execution_mode={:?}",
-            grouped_observability.execution_mode()
-        ),
-        format!(
-            "grouped_execution_mode={:?}",
-            grouped_observability.grouped_execution_mode()
-        ),
+        format!("grouped_execution_mode={grouped_execution_mode:?}"),
         format!("execution_descriptor_json={descriptor_json}"),
     ]
     .join("\n")
@@ -312,13 +299,9 @@ explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), a
 route_shape_kind=AggregateGrouped
 route_execution_mode=Materialized
 route_continuation_mode=Initial
-grouped_outcome=MaterializedFallback
-grouped_rejection=None
 grouped_planner_fallback_reason=None
-grouped_eligible=true
-grouped_route_execution_mode=Materialized
 grouped_execution_mode=OrderedMaterialized
-execution_descriptor_json={"node_id":0,"node_type":"IndexPrefixScan","layer":"scan","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Nat64(7)"]},"predicate_pushdown_mode":"none","predicate_pushdown":null,"filter_expr":null,"residual_filter_expr":null,"fast_path_selected":false,"fast_path_reason":"mat_fallback","residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_id":1,"node_type":"IndexPredicatePrefilter","layer":"pipeline","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"full","predicate_pushdown":"strict_all_or_none","filter_expr":null,"residual_filter_expr":null,"fast_path_selected":null,"fast_path_reason":null,"residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Nat64(7)\")"}},{"node_id":2,"node_type":"GroupedAggregateOrderedMaterialized","layer":"aggregate","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"filter_expr":null,"residual_filter_expr":null,"fast_path_selected":null,"fast_path_reason":null,"residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"aggregate_contract":"Text(\"grouped\")","aggregate_physical":"Text(\"ordered_materialized\")","grouped_execution_mode":"Text(\"ordered_materialized\")","grouped_plan_fallback_reason":"Text(\"none\")","grouped_route_eligible":"Bool(true)","grouped_route_outcome":"Text(\"materialized_fallback\")","grouped_route_rejection_reason":"Text(\"none\")"}},{"node_id":3,"node_type":"LimitOffset","layer":"terminal","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"filter_expr":null,"residual_filter_expr":null,"fast_path_selected":null,"fast_path_reason":null,"residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Nat64(0)"}}],"node_properties":{"acc_alts":"List([])","acc_choice":"Text(\"IndexPrefix(group_rank)\")","acc_reason":"Text(\"selected_index_not_projected\")","acc_reject":"List([])","cont_mode":"Text(\"initial\")","cov_read_kind":"Text(\"materialized\")","cov_read_route":"Text(\"materialized\")","cov_scan_reason":"Text(\"proj_not_cov\")","fast_path":"Text(\"none\")","fast_reason":"Text(\"mat_fallback\")","fast_reject":"List([])","grouped_execution_mode":"Text(\"ordered_materialized\")","grouped_plan_fallback_reason":"Text(\"none\")","grouped_route_eligible":"Bool(true)","grouped_route_outcome":"Text(\"materialized_fallback\")","grouped_route_rejection_reason":"Text(\"none\")","ord_route_mode":"Text(\"direct_streaming\")","ord_route_reason":"Text(\"none\")","pred_idx_cap":"Text(\"fully_indexable\")","prefix_len":"Nat64(1)","prefix_values":"List([Nat64(7)])","proj_fields":"List([Text(\"group\"), Text(\"aggregate\")])","proj_pushdown":"Bool(false)","resume_from":"Text(\"none\")","scan_dir":"Text(\"asc\")"}}"#.to_string();
+execution_descriptor_json={"node_id":0,"node_type":"IndexPrefixScan","layer":"scan","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Nat64(7)"]},"predicate_pushdown_mode":"none","predicate_pushdown":null,"filter_expr":null,"residual_filter_expr":null,"fast_path_selected":false,"fast_path_reason":"mat_fallback","residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_id":1,"node_type":"IndexPredicatePrefilter","layer":"pipeline","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"full","predicate_pushdown":"strict_all_or_none","filter_expr":null,"residual_filter_expr":null,"fast_path_selected":null,"fast_path_reason":null,"residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Nat64(7)\")"}},{"node_id":2,"node_type":"GroupedAggregateOrderedMaterialized","layer":"aggregate","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"filter_expr":null,"residual_filter_expr":null,"fast_path_selected":null,"fast_path_reason":null,"residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"aggregate_contract":"Text(\"grouped\")","aggregate_physical":"Text(\"ordered_materialized\")","grouped_execution_mode":"Text(\"ordered_materialized\")","grouped_plan_fallback_reason":"Text(\"none\")"}},{"node_id":3,"node_type":"LimitOffset","layer":"terminal","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"filter_expr":null,"residual_filter_expr":null,"fast_path_selected":null,"fast_path_reason":null,"residual_filter_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Nat64(0)"}}],"node_properties":{"acc_alts":"List([])","acc_choice":"Text(\"IndexPrefix(group_rank)\")","acc_reason":"Text(\"selected_index_not_projected\")","acc_reject":"List([])","cont_mode":"Text(\"initial\")","cov_read_kind":"Text(\"materialized\")","cov_read_route":"Text(\"materialized\")","cov_scan_reason":"Text(\"proj_not_cov\")","fast_path":"Text(\"none\")","fast_reason":"Text(\"mat_fallback\")","fast_reject":"List([])","grouped_execution_mode":"Text(\"ordered_materialized\")","grouped_plan_fallback_reason":"Text(\"none\")","ord_route_mode":"Text(\"direct_streaming\")","ord_route_reason":"Text(\"none\")","pred_idx_cap":"Text(\"fully_indexable\")","prefix_len":"Nat64(1)","prefix_values":"List([Nat64(7)])","proj_fields":"List([Text(\"group\"), Text(\"aggregate\")])","proj_pushdown":"Bool(false)","resume_from":"Text(\"none\")","scan_dir":"Text(\"asc\")"}}"#.to_string();
 
     assert_eq!(
         actual, expected,

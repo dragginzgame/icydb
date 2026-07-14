@@ -40,7 +40,7 @@ fn validate_group_policy_violation(reason: Option<GroupPlanError>) -> Result<(),
     reason.map_or(Ok(()), |reason| Err(PlanError::from(reason)))
 }
 
-// Validate grouped DISTINCT policy gates for grouped v1 hardening.
+// Validate grouped DISTINCT adjacency and HAVING policy gates.
 fn validate_grouped_distinct_policy(
     logical: &ScalarPlan,
     has_having: bool,

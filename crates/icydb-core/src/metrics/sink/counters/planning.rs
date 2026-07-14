@@ -2,9 +2,7 @@
 //! Does not own planning, route selection, or metrics event dispatch.
 
 use crate::metrics::{
-    sink::{
-        GroupedPlanExecutionMode, PlanChoiceReason, PlanKind, PreparedShapeFinalizationOutcome,
-    },
+    sink::{GroupedPlanExecutionMode, PlanChoiceReason, PlanKind},
     state as metrics,
 };
 
@@ -151,27 +149,6 @@ pub(in crate::metrics::sink) const fn record_global_grouped_plan_mode(
     }
 }
 
-// Prepared shape finalization sits at the executor authority boundary. Count
-// whether a plan arrived with schema-selected static metadata already frozen or
-// needed the generated-model fallback at lowering time.
-#[remain::check]
-pub(in crate::metrics::sink) const fn record_global_prepared_shape_finalization_outcome(
-    ops: &mut metrics::EventOps,
-    outcome: PreparedShapeFinalizationOutcome,
-) {
-    #[remain::sorted]
-    match outcome {
-        PreparedShapeFinalizationOutcome::AlreadyFinalized => {
-            ops.prepared_shape_already_finalized =
-                ops.prepared_shape_already_finalized.saturating_add(1);
-        }
-        PreparedShapeFinalizationOutcome::GeneratedFallback => {
-            ops.prepared_shape_generated_fallback =
-                ops.prepared_shape_generated_fallback.saturating_add(1);
-        }
-    }
-}
-
 // Mirror global plan attribution into the owning entity summary so operators
 // can identify which model is causing full scans, unions, or expensive grouped
 // routes without correlating separate counters.
@@ -291,26 +268,6 @@ pub(in crate::metrics::sink) const fn record_entity_plan_choice_reason(
             ops.plan_choice_singleton_primary_key_child_access_preferred = ops
                 .plan_choice_singleton_primary_key_child_access_preferred
                 .saturating_add(1);
-        }
-    }
-}
-
-// Mirror prepared static execution-planning contract authority outcomes to entity summaries so one
-// model still using generated fallback can be found from metrics alone.
-#[remain::check]
-pub(in crate::metrics::sink) const fn record_entity_prepared_shape_finalization_outcome(
-    ops: &mut metrics::EntityCounters,
-    outcome: PreparedShapeFinalizationOutcome,
-) {
-    #[remain::sorted]
-    match outcome {
-        PreparedShapeFinalizationOutcome::AlreadyFinalized => {
-            ops.prepared_shape_already_finalized =
-                ops.prepared_shape_already_finalized.saturating_add(1);
-        }
-        PreparedShapeFinalizationOutcome::GeneratedFallback => {
-            ops.prepared_shape_generated_fallback =
-                ops.prepared_shape_generated_fallback.saturating_add(1);
         }
     }
 }

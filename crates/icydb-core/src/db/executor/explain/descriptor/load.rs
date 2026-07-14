@@ -23,9 +23,10 @@ use crate::{
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
-                AccessChoiceResidualBurden, AccessPlannedQuery, CoveringExistingRowMode,
-                CoveringHybridReadExecutionPlan, CoveringProjectionOrder, CoveringReadFieldSource,
-                access_plan_label, covering_read_execution_plan_from_fields_with_primary_key_names,
+                AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessPlannedQuery,
+                CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
+                CoveringReadFieldSource, access_plan_label,
+                covering_read_execution_plan_from_fields_with_primary_key_names,
                 covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
                 grouped_executor_handoff,
             },
@@ -196,18 +197,14 @@ struct LoadOrderRouteObservability {
 }
 
 ///
-/// GroupedRouteObservabilityProjection
+/// GroupedExecutionProjection
 ///
-/// GroupedRouteObservabilityProjection names the grouped-route observability
-/// fields projected into descriptor node properties and verbose diagnostics so
-/// this module no longer passes those values around as anonymous tuples.
+/// GroupedExecutionProjection names the route-selected execution mode and the
+/// planner-owned fallback reason projected into grouped diagnostics.
 ///
 
-struct GroupedRouteObservabilityProjection {
-    outcome: &'static str,
-    rejection_reason: &'static str,
+struct GroupedExecutionProjection {
     planner_fallback_reason: &'static str,
-    eligible: bool,
     execution_mode: &'static str,
 }
 
@@ -510,19 +507,17 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         "access_choice_alternatives",
         &verbose_preparation.access_choice.alternatives,
     ));
+    let access_choice_rejections = verbose_preparation
+        .access_choice
+        .rejected
+        .iter()
+        .map(AccessChoiceRejectedIndex::label)
+        .collect::<Vec<_>>();
     lines.push(route_diagnostic_line_debug(
         "access_choice_rejections",
-        &verbose_preparation.access_choice.rejected,
+        &access_choice_rejections,
     ));
-    if let Some(observability) = grouped_route_observability(route_plan) {
-        lines.push(descriptor_route_property_line(
-            "diag.r.grouped_route_outcome",
-            observability.outcome,
-        ));
-        lines.push(descriptor_route_property_line(
-            "diag.r.grouped_route_rejection_reason",
-            observability.rejection_reason,
-        ));
+    if let Some(observability) = grouped_execution_projection(route_plan) {
         lines.push(descriptor_route_property_line(
             "diag.r.grouped_plan_fallback_reason",
             observability.planner_fallback_reason,
@@ -554,11 +549,11 @@ fn render_access_choice_verbose_section(
         lines.push(format!("    - {}", verbose_preparation.chosen_access_label));
     } else {
         for candidate in &verbose_preparation.access_choice.candidates {
-            lines.push(format!("    - {}", candidate.label));
+            lines.push(format!("    - {}", candidate.label()));
         }
         lines.push("  Scoring:".to_string());
         for candidate in &verbose_preparation.access_choice.candidates {
-            lines.push(format!("    {}:", candidate.label));
+            lines.push(format!("    {}:", candidate.label()));
             if candidate.exact {
                 lines.push("      exact_match: true".to_string());
             }
@@ -692,30 +687,17 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     )
 }
 
-// Project grouped route observability directly onto the access root so the
-// descriptor exposes planner fallback versus route rejection without inference.
+// Project grouped execution truth directly onto the access root.
 fn annotate_grouped_route_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
-    let Some(observability) = grouped_route_observability(route_plan) else {
+    let Some(observability) = grouped_execution_projection(route_plan) else {
         return;
     };
     node.node_properties.insert(
-        property_keys::GROUPED_ROUTE_OUTCOME,
-        Value::from(observability.outcome),
-    );
-    node.node_properties.insert(
-        property_keys::GROUPED_ROUTE_REJECTION_REASON,
-        Value::from(observability.rejection_reason),
-    );
-    node.node_properties.insert(
         property_keys::GROUPED_PLAN_FALLBACK_REASON,
         Value::from(observability.planner_fallback_reason),
-    );
-    node.node_properties.insert(
-        property_keys::GROUPED_ROUTE_ELIGIBLE,
-        Value::from(observability.eligible),
     );
     node.node_properties.insert(
         property_keys::GROUPED_EXECUTION_MODE,
@@ -729,8 +711,8 @@ fn grouped_aggregate_execution_node_descriptor(
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
-    let grouped_observability = route_plan.grouped_observability()?;
-    let node_type = match grouped_observability.grouped_execution_mode() {
+    let grouped_execution_mode = route_plan.grouped_execution_mode()?;
+    let node_type = match grouped_execution_mode {
         GroupedExecutionMode::HashMaterialized => {
             ExplainExecutionNodeType::GroupedAggregateHashMaterialized
         }
@@ -746,7 +728,7 @@ fn grouped_aggregate_execution_node_descriptor(
     annotate_aggregate_execution_identity_properties(
         &mut node.node_properties,
         "grouped",
-        grouped_observability.grouped_execution_mode().code(),
+        grouped_execution_mode.code(),
     );
     annotate_grouped_route_node_properties(&mut node, route_plan);
 
@@ -762,21 +744,16 @@ const fn load_order_route_observability(
     }
 }
 
-fn grouped_route_observability(
+fn grouped_execution_projection(
     route_plan: &ExecutionRoutePlan,
-) -> Option<GroupedRouteObservabilityProjection> {
-    let grouped_observability = route_plan.grouped_observability()?;
+) -> Option<GroupedExecutionProjection> {
+    let grouped_execution_mode = route_plan.grouped_execution_mode()?;
 
-    Some(GroupedRouteObservabilityProjection {
-        outcome: grouped_observability.outcome().code(),
-        rejection_reason: grouped_observability
-            .rejection_reason()
+    Some(GroupedExecutionProjection {
+        planner_fallback_reason: route_plan
+            .grouped_plan_fallback_reason()
             .map_or("none", |reason| reason.code()),
-        planner_fallback_reason: grouped_observability
-            .planner_fallback_reason()
-            .map_or("none", |reason| reason.code()),
-        eligible: grouped_observability.eligible(),
-        execution_mode: grouped_observability.grouped_execution_mode().code(),
+        execution_mode: grouped_execution_mode.code(),
     })
 }
 

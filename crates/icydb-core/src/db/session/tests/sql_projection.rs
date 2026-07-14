@@ -137,7 +137,7 @@ fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled
     #[cfg(feature = "diagnostics")]
     {
         let (_result, attribution) = session
-            .execute_sql_query_with_attribution::<JournaledSessionSqlEntity>(
+            .execute_trusted_sql_query_with_attribution::<JournaledSessionSqlEntity>(
                 "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 1",
             )
             .expect("journaled repeated projection should execute with attribution");

@@ -279,7 +279,7 @@ fn delete_emits_remove_from_prepared_row_deltas() {
         let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(id)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("delete plan should build");
         delete.execute(plan).expect("delete should succeed");
@@ -342,7 +342,7 @@ fn delete_relation_emits_reverse_index_remove_delta() {
         let plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(source_id)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("source delete plan should build");
         DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
@@ -378,7 +378,7 @@ fn blocked_target_delete_emits_relation_validation_metrics() {
         let plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(target_id)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("target delete plan should build");
         DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
@@ -418,7 +418,7 @@ fn allowed_target_delete_emits_relation_lookup_without_block() {
         let plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(target_id)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("target delete plan should build");
         DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
@@ -526,13 +526,14 @@ fn scalar_load_emits_rows_filtered_and_rows_emitted_metrics() {
     .expect("seed insert C should succeed");
 
     let events = capture_metrics(|| {
-        DbSession::new(DB)
-            .load::<SimpleEntity>()
-            .trusted_read_unchecked()
+        let session = DbSession::new(DB);
+        let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
             .offset(1)
-            .limit(1)
-            .execute()
+            .limit(1);
+
+        session
+            .execute_query_result(&query)
             .expect("scalar load should succeed");
     });
 

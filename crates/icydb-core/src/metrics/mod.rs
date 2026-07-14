@@ -10,10 +10,9 @@ mod state;
 // re-exports
 pub use sink::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
-    MetricsEvent, MetricsSink, MutationCommitClass, PlanChoiceReason, PlanKind,
-    PreparedShapeFinalizationOutcome, SaveMutationKind, SchemaReconcileOutcome,
-    SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind, compact_metrics_report,
-    metrics_report, metrics_reset_all,
+    MetricsEvent, MetricsSink, MutationCommitClass, PlanChoiceReason, PlanKind, SaveMutationKind,
+    SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
+    compact_metrics_report, metrics_report, metrics_reset_all,
 };
 pub use state::{
     CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport, EntitySummary,

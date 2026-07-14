@@ -255,7 +255,7 @@ fn build_phase_rank_page_plan(descending: bool, limit: u32) -> PreparedExecution
     };
 
     ordered
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("phase rank page plan should build")
 }
@@ -1009,8 +1009,8 @@ fn build_distinct_secondary_offset_fast_plan(
     };
 
     ordered
-        .plan()
-        .map(PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(PreparedExecutionPlan::<PushdownParityEntity>::from)
         .expect("distinct secondary offset fast-path plan should build")
 }
 
@@ -1033,7 +1033,7 @@ fn build_distinct_secondary_offset_fallback_plan(
     };
 
     ordered
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("distinct secondary offset fallback plan should build")
 }
@@ -1095,7 +1095,7 @@ fn build_distinct_index_range_offset_fallback_plan(
     };
 
     ordered
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("distinct index-range offset fallback plan should build")
 }
@@ -1234,7 +1234,7 @@ fn execute_unique_index_range_code_page_asc(
         .filter_predicate(predicate)
         .order_term(crate::db::asc("code"))
         .limit(limit)
-        .plan()
+        .access_plan_for_test()
         .map_or_else(
             |_| panic!("{context} plan should build"),
             PreparedExecutionPlan::from,
@@ -1371,7 +1371,7 @@ fn assert_resume_from_terminal_entity_exhausts_range(
         .filter_predicate(pushdown_group_predicate(7))
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("terminal resume plan should build");
     let boundary = Some(CursorBoundary {
@@ -1406,7 +1406,7 @@ where
     let items = load
         .execute(
             query
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("full-query plan should build"),
         )
@@ -1434,7 +1434,7 @@ where
     for _ in 0..max_pages {
         let plan = build_query()
             .limit(limit)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("paged limit-matrix plan should build");
         let boundary = plan
@@ -1564,7 +1564,7 @@ fn execute_indexed_metrics_tag_page_desc(
         .filter_predicate(predicate)
         .order_term(crate::db::desc("tag"))
         .limit(limit)
-        .plan()
+        .access_plan_for_test()
         .map_or_else(
             |_| panic!("{context} plan should build"),
             PreparedExecutionPlan::from,
@@ -1588,7 +1588,7 @@ fn execute_indexed_metrics_tag_page_desc_from_boundary(
         .filter_predicate(predicate)
         .order_term(crate::db::desc("tag"))
         .limit(limit)
-        .plan()
+        .access_plan_for_test()
         .map_or_else(
             |_| panic!("{context} plan should build"),
             PreparedExecutionPlan::from,
@@ -1609,7 +1609,7 @@ fn execute_indexed_metrics_tag_page_asc_from_boundary(
         .filter_predicate(predicate)
         .order_term(crate::db::asc("tag"))
         .limit(limit)
-        .plan()
+        .access_plan_for_test()
         .map_or_else(
             |_| panic!("{context} plan should build"),
             PreparedExecutionPlan::from,
@@ -1652,7 +1652,7 @@ fn execute_pushdown_rank_page_asc(
             .filter_predicate(predicate)
             .order_term(crate::db::asc("rank"))
             .limit(10)
-            .plan()
+            .access_plan_for_test()
             .map_or_else(
                 |_| panic!("{context} plan should build"),
                 PreparedExecutionPlan::from,
@@ -1673,7 +1673,7 @@ fn execute_pushdown_rank_page_desc(
             .filter_predicate(predicate)
             .order_term(crate::db::desc("rank"))
             .limit(10)
-            .plan()
+            .access_plan_for_test()
             .map_or_else(
                 |_| panic!("{context} plan should build"),
                 PreparedExecutionPlan::from,
@@ -1978,7 +1978,7 @@ fn build_rank_unique_pushdown_plan(
     };
 
     query
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("rank-unique pushdown plan should build")
 }
@@ -2041,7 +2041,7 @@ fn build_mixed_direction_resume_plan(
     };
 
     query
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("mixed-direction resume plan should build")
 }
@@ -2145,7 +2145,7 @@ fn build_simple_ordered_page_plan(
     };
 
     query
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("simple ordered pagination plan should build")
 }
@@ -2374,7 +2374,7 @@ fn build_simple_by_ids_ordered_page_plan(
     };
 
     query
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("simple by-ids ordered pagination plan should build")
 }
@@ -3158,9 +3158,8 @@ fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shap
         .order_term(crate::db::asc("id"))
         .limit(2)
         .offset(1)
-        .plan()
+        .access_plan_for_test()
         .expect("query signature plan should build")
-        .into_inner()
         .continuation_signature(SimpleEntity::PATH);
 
     let page_plan_a = build_simple_ordered_page_plan(false, 2, 1);
@@ -3447,7 +3446,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .filter_predicate(predicate.clone())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("page1 parity plan should build");
     let page1_boundary = page1_plan
@@ -3473,7 +3472,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("page2 parity plan should build");
     let page2_boundary = page2_plan
@@ -3517,7 +3516,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("pushdown plan should build");
     let pushdown_page = load
@@ -3528,7 +3527,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .by_ids(group7_ids.iter().copied())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("fallback plan should build");
     let fallback_page = load
@@ -3593,7 +3592,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .filter_predicate(predicate.clone())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("seed plan should build");
     let seed_page = load
@@ -3612,7 +3611,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("pushdown page2 plan should build");
     let pushdown_page2 = load
@@ -3626,7 +3625,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .by_ids(group7_ids.iter().copied())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("fallback page2 plan should build");
     let fallback_page2 = load
@@ -3700,7 +3699,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("parity load plan should build");
     let response = load.execute(plan).expect("parity load should execute");
@@ -3731,7 +3730,7 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
     let pushdown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("pushdown plan should build");
     let prefix_specs = pushdown_plan
@@ -3770,7 +3769,7 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("fallback plan should build"),
         )
@@ -3822,7 +3821,7 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
         .filter_predicate(predicate)
         .order_term(crate::db::desc("rank"))
         .order_term(crate::db::desc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("descending parity load plan should build");
     let response = load
@@ -3868,7 +3867,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .filter_predicate(predicate.clone())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("index-range page plan should build");
     let page = load
@@ -3898,7 +3897,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
                 .by_ids(fallback_ids.iter().copied())
                 .order_term(crate::db::asc("rank"))
                 .limit(2)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("fallback page plan should build"),
             ValidatedCursor::none(),
@@ -3921,8 +3920,8 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
-        .map(PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(PreparedExecutionPlan::<PushdownParityEntity>::from)
         .expect("comparison plan should build");
     let index_model = comparison_plan
         .logical_plan()
@@ -4059,8 +4058,8 @@ fn load_cursor_pagination_pk_trace_reports_non_top_n_variant_without_page_limit(
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
-        .plan()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(crate::db::executor::PreparedExecutionPlan::<SimpleEntity>::from)
         .expect("pk non-top-n trace plan should build");
 
     let (page, trace) = load
@@ -4457,8 +4456,8 @@ fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_term(crate::db::desc("rank"))
                 .limit(4)
-                .plan()
-                .map(crate::db::executor::PreparedExecutionPlan::from)
+                .access_plan_for_test()
+                .map(crate::db::executor::PreparedExecutionPlan::<PhaseEntity>::from)
                 .expect("descending tie-break plan should build"),
             ValidatedCursor::none(),
         )
@@ -4500,7 +4499,7 @@ fn load_cursor_rejects_signature_mismatch() {
     let asc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("rank"))
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("ascending cursor plan should build");
     let asc_page = load
@@ -4509,8 +4508,8 @@ fn load_cursor_rejects_signature_mismatch() {
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_term(crate::db::asc("rank"))
                 .limit(1)
-                .plan()
-                .map(crate::db::executor::PreparedExecutionPlan::from)
+                .access_plan_for_test()
+                .map(crate::db::executor::PreparedExecutionPlan::<PhaseEntity>::from)
                 .expect("ascending boundary plan should build")
                 .prepare_cursor(None)
                 .expect("ascending boundary should plan"),
@@ -4523,8 +4522,8 @@ fn load_cursor_rejects_signature_mismatch() {
     let desc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("rank"))
         .limit(1)
-        .plan()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(crate::db::executor::PreparedExecutionPlan::<PhaseEntity>::from)
         .expect("descending plan should build");
     let err = desc_plan
         .prepare_cursor(Some(
@@ -4756,7 +4755,7 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
             };
 
             ordered
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("secondary offset continuation plan should build")
         };
@@ -4863,7 +4862,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                 };
 
                 ordered
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("index-range offset fallback plan should build")
             },
@@ -4887,7 +4886,7 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_consumed_keys() {
         } else {
             base.order_term(crate::db::asc("id"))
         }
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("pk fast-path budget plan should build");
 
@@ -4931,8 +4930,8 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
-        .map(PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(PreparedExecutionPlan::<PushdownParityEntity>::from)
         .expect("pushdown seed plan should build");
     let pushdown_seed_page = load
         .execute_paged_with_cursor(pushdown_seed_plan, ValidatedCursor::none())
@@ -4946,8 +4945,8 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
         .by_ids(group7_ids.iter().copied())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
-        .map(PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(PreparedExecutionPlan::<PushdownParityEntity>::from)
         .expect("fallback seed plan should build");
     let fallback_seed_page = load
         .execute_paged_with_cursor(fallback_seed_plan, ValidatedCursor::none())
@@ -4973,8 +4972,8 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
         .by_ids(group7_ids.iter().copied())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
-        .map(PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(PreparedExecutionPlan::<PushdownParityEntity>::from)
         .expect("fallback resume plan should build");
     let err = fallback_resume_plan
         .prepare_cursor(Some(
@@ -5523,7 +5522,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
     let pushdown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("composite between-equivalent plan should build");
     let index_model = pushdown_plan
@@ -5550,7 +5549,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
                     &rows, 7, 10, 30,
                 ))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("between-equivalent fallback plan should build"),
         )
@@ -5585,7 +5584,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
     let exclusive_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(exclusive_predicate)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("composite exclusive edge plan should build");
     exclusive_plan
@@ -5601,7 +5600,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(pushdown_ids_in_group_rank_range(&rows, 7, 0, MAX_RANK))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite exclusive edge fallback plan should build"),
         )
@@ -5619,7 +5618,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(inclusive_predicate)
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite inclusive edge plan should build"),
         )
@@ -5651,8 +5650,8 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
         .filter_predicate(predicate.clone())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
-        .map(PreparedExecutionPlan::from)
+        .access_plan_for_test()
+        .map(PreparedExecutionPlan::<PushdownParityEntity>::from)
         .expect("composite range pagination plan should build");
     pushdown_seed_plan
         .logical_plan()
@@ -5669,7 +5668,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
                 .filter_predicate(predicate.clone())
                 .order_term(crate::db::asc("rank"))
                 .limit(2)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite range pushdown page plan should build")
         },
@@ -5685,7 +5684,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
                 .by_ids(fallback_seed_ids.iter().copied())
                 .order_term(crate::db::asc("rank"))
                 .limit(2)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite range fallback page plan should build")
         },
@@ -5756,7 +5755,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate.clone())
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite monotonicity unbounded plan should build"),
         )
@@ -5784,8 +5783,8 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
             .filter_predicate(predicate.clone())
             .order_term(crate::db::asc("rank"))
             .limit(3)
-            .plan()
-            .map(PreparedExecutionPlan::from)
+            .access_plan_for_test()
+            .map(PreparedExecutionPlan::<PushdownParityEntity>::from)
             .expect("composite monotonicity boundary plan should build");
         let page = load
             .execute_paged_with_cursor(
@@ -5793,7 +5792,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
                     .filter_predicate(predicate.clone())
                     .order_term(crate::db::asc("rank"))
                     .limit(3)
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("composite monotonicity page plan should build"),
                 boundary_plan
@@ -6147,7 +6146,7 @@ fn load_single_field_between_equivalent_pushdown_matches_expected_order() {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(tag_between_equivalent_predicate(10, 30))
                 .order_term(crate::db::asc("tag"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("single-field between-equivalent plan should build"),
         )
@@ -6171,7 +6170,7 @@ fn load_index_multi_lookup_limited_page_bounds_index_entry_reads() {
         .filter_predicate(tag_in_predicate(&[10, 30]))
         .order_term(crate::db::asc("id"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("limited indexed IN page plan should build");
     let index_entries_before = IndexStore::current_entry_read_count();
@@ -6205,7 +6204,7 @@ fn load_index_multi_lookup_sparse_values_prunes_empty_prefix_range_scans() {
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
     let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(tag_in_predicate(&sparse_tags))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("sparse indexed IN plan should build");
     let deferred_raw_bounds_before =
@@ -6252,7 +6251,7 @@ fn load_index_prefix_empty_value_skips_range_scan() {
             CompareOp::Eq,
             Value::Nat64(250),
         ))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("empty indexed equality plan should build");
     let range_scans_before = IndexStore::current_range_scan_call_count();
@@ -6356,7 +6355,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(tag_range_predicate(0, MAX_TAG))
                 .order_term(crate::db::asc("tag"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("single-field extreme-edge exclusive plan should build"),
         )
@@ -6373,7 +6372,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(tag_between_equivalent_predicate(0, MAX_TAG))
                 .order_term(crate::db::asc("tag"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("single-field extreme-edge inclusive plan should build"),
         )
@@ -6414,7 +6413,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate.clone())
                 .order_term(crate::db::asc("code"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("unique unbounded plan should build"),
         )
@@ -6544,7 +6543,7 @@ proptest! {
                 Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                     .filter_predicate(predicate.clone())
                     .order_term(crate::db::asc("code"))
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("property matrix unbounded plan should build"),
             )
@@ -6690,15 +6689,25 @@ fn load_single_field_range_pushdown_parity_matrix_is_table_driven() {
         let query = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(predicate_from_field_bounds("tag", case.bounds));
         let executed = if case.descending {
-            load.execute(query.order_term(crate::db::desc("tag")).plan().map_or_else(
-                |_| panic!("single-field {} desc plan should build", case.name),
-                PreparedExecutionPlan::from,
-            ))
+            load.execute(
+                query
+                    .order_term(crate::db::desc("tag"))
+                    .access_plan_for_test()
+                    .map_or_else(
+                        |_| panic!("single-field {} desc plan should build", case.name),
+                        PreparedExecutionPlan::from,
+                    ),
+            )
         } else {
-            load.execute(query.order_term(crate::db::asc("tag")).plan().map_or_else(
-                |_| panic!("single-field {} asc plan should build", case.name),
-                PreparedExecutionPlan::from,
-            ))
+            load.execute(
+                query
+                    .order_term(crate::db::asc("tag"))
+                    .access_plan_for_test()
+                    .map_or_else(
+                        |_| panic!("single-field {} asc plan should build", case.name),
+                        PreparedExecutionPlan::from,
+                    ),
+            )
         }
         .unwrap_or_else(|_| panic!("single-field {} execution should succeed", case.name));
 
@@ -6788,23 +6797,17 @@ fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
     for case in cases {
         let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(predicate_from_group_rank_bounds(7, case.bounds));
-        let executed = if case.descending {
-            load.execute(
-                query
-                    .order_term(crate::db::desc("rank"))
-                    .plan()
-                    .map_or_else(
-                        |_| panic!("composite {} desc plan should build", case.name),
-                        PreparedExecutionPlan::from,
-                    ),
-            )
+        let (order, direction) = if case.descending {
+            (crate::db::desc("rank"), "desc")
         } else {
-            load.execute(query.order_term(crate::db::asc("rank")).plan().map_or_else(
-                |_| panic!("composite {} asc plan should build", case.name),
+            (crate::db::asc("rank"), "asc")
+        };
+        let executed = load
+            .execute(query.order_term(order).access_plan_for_test().map_or_else(
+                |_| panic!("composite {} {direction} plan should build", case.name),
                 PreparedExecutionPlan::from,
             ))
-        }
-        .unwrap_or_else(|_| panic!("composite {} execution should succeed", case.name));
+            .unwrap_or_else(|_| panic!("composite {} execution should succeed", case.name));
 
         assert_eq!(
             pushdown_ids_from_response(&executed),
@@ -7116,7 +7119,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         let (_page, trace) = load
             .execute_paged_with_cursor_traced(
                 query
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("trace outcome plan should build for case"),
                 ValidatedCursor::none(),
@@ -7284,7 +7287,7 @@ fn load_row_distinct_keeps_rows_with_same_projected_values_when_decoded_key_diff
                 .filter_predicate(pushdown_group_predicate(7))
                 .distinct()
                 .order_term(crate::db::asc("id"))
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("row DISTINCT projection-invariant plan should build"),
         )
@@ -7421,7 +7424,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
                     .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct secondary DESC seed plan should build"),
                 ValidatedCursor::none(),
@@ -7447,7 +7450,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
                 .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct secondary DESC plan should build")
         },
@@ -7475,7 +7478,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                     .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC fast-path seed plan should build"),
                 ValidatedCursor::none(),
@@ -7496,7 +7499,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                     .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC fallback seed plan should build"),
                 ValidatedCursor::none(),
@@ -7520,7 +7523,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC fast-path plan should build")
         },
@@ -7531,7 +7534,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC fallback plan should build")
         },
@@ -7573,7 +7576,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                     .order_term(crate::db::asc("id"))
                     .distinct()
                     .limit(limit)
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct mixed-direction index-shape seed plan should build"),
                 ValidatedCursor::none(),
@@ -7597,7 +7600,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                 .order_term(crate::db::asc("id"))
                 .distinct()
                 .limit(limit)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct mixed-direction index-shape plan should build")
         },
@@ -7608,7 +7611,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                 .order_term(crate::db::asc("id"))
                 .distinct()
                 .limit(limit)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct mixed-direction fallback plan should build")
         },
@@ -7646,7 +7649,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                     .distinct()
                     .limit(limit)
                     .offset(1)
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC PK fast-path seed plan should build"),
                 ValidatedCursor::none(),
@@ -7667,7 +7670,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                     .distinct()
                     .limit(limit)
                     .offset(1)
-                    .plan()
+                    .access_plan_for_test()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC PK fallback seed plan should build"),
                 ValidatedCursor::none(),
@@ -7690,7 +7693,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .distinct()
                 .limit(limit)
                 .offset(1)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC PK fast-path plan should build")
         },
@@ -7701,7 +7704,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .distinct()
                 .limit(limit)
                 .offset(1)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC PK fallback plan should build")
         },
@@ -7747,7 +7750,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                 .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC index-range fallback plan should build")
         },
@@ -8120,7 +8123,7 @@ fn load_secondary_in_order_top_n_preserves_branch_prefix_order() {
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))
             .limit(4)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("secondary IN branch-order plan should build")
     };
@@ -8135,7 +8138,7 @@ fn load_secondary_in_order_top_n_preserves_branch_prefix_order() {
         .order_term(crate::db::asc("rank"))
         .order_term(crate::db::asc("id"))
         .limit(4)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("fallback branch-order plan should build");
 
@@ -8565,7 +8568,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .filter_predicate(predicate.clone())
         .order_term(crate::db::desc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("index-path desc page1 plan should build");
     let index_path_page1 = load
@@ -8576,7 +8579,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .by_ids(group7_ids.iter().copied())
         .order_term(crate::db::desc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("by-ids desc page1 plan should build");
     let by_ids_page1 = load
@@ -8602,7 +8605,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .filter_predicate(predicate)
         .order_term(crate::db::desc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("index-path desc page2 plan should build");
     let index_path_page2 = load
@@ -8616,7 +8619,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .by_ids(group7_ids.iter().copied())
         .order_term(crate::db::desc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("by-ids desc page2 plan should build");
     let by_ids_page2 = load
@@ -8645,7 +8648,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .filter_predicate(predicate.clone())
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("prefix window page1 plan should build");
     let page1 = load
@@ -8660,7 +8663,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("prefix window page2 plan should build");
     let page2_boundary = page2_plan
@@ -8785,7 +8788,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate.clone())
                 .order_term(crate::db::asc("tag"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("single-field asc plan should build"),
         )
@@ -8795,7 +8798,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate)
                 .order_term(crate::db::desc("tag"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("single-field desc plan should build"),
         )
@@ -8843,7 +8846,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate.clone())
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("composite asc plan should build"),
         )
@@ -8853,7 +8856,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate)
                 .order_term(crate::db::desc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("composite desc plan should build"),
         )
@@ -8905,7 +8908,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate.clone())
                 .order_term(crate::db::asc("code"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("unique asc plan should build"),
         )
@@ -8915,7 +8918,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(predicate)
                 .order_term(crate::db::desc("code"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("unique desc plan should build"),
         )
@@ -9027,7 +9030,7 @@ fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor()
         .filter_predicate(predicate)
         .order_term(crate::db::asc("tag"))
         .limit(4)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("single-field exact-size page plan should build");
     let validated_cursor = page_plan
@@ -9079,7 +9082,7 @@ fn load_composite_range_limit_terminal_page_suppresses_cursor() {
             .filter_predicate(predicate.clone())
             .order_term(crate::db::asc("rank"))
             .limit(3)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("composite terminal-page plan should build");
         let validated_cursor = page_plan
@@ -10048,7 +10051,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
                     rank_not_20_strict,
                 ]))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("index-shape plan should build"),
             ValidatedCursor::none(),
@@ -10064,7 +10067,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
                     rank_not_20_fallback,
                 ]))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("fallback plan should build"),
             ValidatedCursor::none(),
@@ -10155,7 +10158,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
             .order_term(crate::db::asc("rank"))
             .distinct()
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("fast distinct plan should build")
     };
@@ -10168,7 +10171,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
             .order_term(crate::db::asc("rank"))
             .distinct()
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("fallback distinct plan should build")
     };
@@ -10322,7 +10325,7 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
             .order_term(crate::db::desc("rank"))
             .distinct()
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("fast descending distinct plan should build")
     };
@@ -10335,7 +10338,7 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
             .order_term(crate::db::desc("rank"))
             .distinct()
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("fallback descending distinct plan should build")
     };
@@ -10469,7 +10472,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
                     label_contains_keep.clone(),
                 ]))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("strict IN fast plan should build"),
             ValidatedCursor::none(),
@@ -10486,7 +10489,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
                     label_contains_keep,
                 ]))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("fallback IN plan should build"),
             ValidatedCursor::none(),
@@ -10592,12 +10595,12 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
 
             if descending {
                 base.order_term(crate::db::desc("rank"))
-                    .plan()
+                    .access_plan_for_test()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fast bounded-range descending plan should build")
             } else {
                 base.order_term(crate::db::asc("rank"))
-                    .plan()
+                    .access_plan_for_test()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fast bounded-range ascending plan should build")
             }
@@ -10615,12 +10618,12 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
 
             if descending {
                 base.order_term(crate::db::desc("rank"))
-                    .plan()
+                    .access_plan_for_test()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fallback bounded-range descending plan should build")
             } else {
                 base.order_term(crate::db::asc("rank"))
-                    .plan()
+                    .access_plan_for_test()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fallback bounded-range ascending plan should build")
             }

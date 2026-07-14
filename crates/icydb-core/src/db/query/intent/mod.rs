@@ -26,7 +26,5 @@ pub(in crate::db::query) use key_access::{
     project_key_access_for_planning,
 };
 pub(in crate::db::query) use model::QueryModel;
-pub use query::PlannedQuery;
-pub(in crate::db) use query::StructuralQuery;
-pub use query::{CompiledQuery, Query};
+pub(in crate::db) use query::{Query, StructuralQuery};
 pub(in crate::db::query::intent) use state::QueryIntent;

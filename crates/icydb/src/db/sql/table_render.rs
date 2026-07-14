@@ -7,10 +7,8 @@
 use crate::db::{
     EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
     MemoryCatalogDescription, StoreCatalogDescription,
-    sql::{
-        SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryRowsOutput,
-        value_render::render_projection_rows,
-    },
+    response::RowProjectionOutput,
+    sql::{SqlGroupedRowsOutput, value_render::render_projection_rows},
 };
 
 #[cfg_attr(
@@ -413,23 +411,8 @@ fn render_catalog_path_tail(path: &str) -> &str {
     )
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Render one SQL projection payload into pretty table lines for shell output."
-)]
 #[must_use]
-pub fn render_projection_lines(_entity: &str, projection: &SqlProjectionRows) -> Vec<String> {
-    let rows = render_projection_rows(projection.rows());
-
-    render_projection_display_rows_lines(
-        projection.columns(),
-        rows.as_slice(),
-        projection.row_count(),
-    )
-}
-
-#[must_use]
-pub(in crate::db::sql) fn render_query_rows_lines(projection: &SqlQueryRowsOutput) -> Vec<String> {
+pub(in crate::db::sql) fn render_query_rows_lines(projection: &RowProjectionOutput) -> Vec<String> {
     let rows = render_projection_rows(projection.rows.as_slice());
 
     render_projection_display_rows_lines(

@@ -101,7 +101,7 @@ const fn plan_shape_load_with_delete_limit_violated(ctx: PlanShapePolicyContext)
     !ctx.is_delete_mode && ctx.has_delete_window
 }
 
-// GROUP BY v1 uses canonical grouped key ordering when ORDER BY is omitted,
+// GROUP BY uses canonical grouped key ordering when ORDER BY is omitted,
 // so grouped pagination remains deterministic without an explicit sort clause.
 const fn plan_shape_unordered_scalar_load_pagination_violated(ctx: PlanShapePolicyContext) -> bool {
     !ctx.is_delete_mode && ctx.has_page && !ctx.has_order && !ctx.grouped

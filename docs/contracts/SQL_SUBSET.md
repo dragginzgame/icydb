@@ -36,7 +36,7 @@ cross-entity/cross-canister transaction coordination.
 Typed and fluent APIs are the canonical public surfaces.
 The remaining public SQL surfaces are:
 
-- `execute_sql_query::<E>(...)`
+- `execute_trusted_sql_query::<E>(...)`
 - `execute_sql_update::<E>(...)`
 - `execute_sql_ddl::<E>(...)`
 
@@ -295,7 +295,7 @@ Mutation ownership still primarily lives on typed and fluent APIs:
 
 Public SQL ownership is split deliberately:
 
-- `execute_sql_query::<E>(...)` owns read, explain, and introspection SQL
+- `execute_trusted_sql_query::<E>(...)` owns read, explain, and introspection SQL
 - `execute_sql_update::<E>(...)` owns state-changing SQL
 - `execute_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
 

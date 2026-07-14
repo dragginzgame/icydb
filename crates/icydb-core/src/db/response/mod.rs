@@ -185,14 +185,6 @@ pub struct Response<R: ResponseRow>(Vec<R>);
 
 pub type EntityResponse<E> = Response<Row<E>>;
 
-///
-/// ProjectionResponse
-///
-/// Scalar projection response transport alias.
-///
-
-pub type ProjectionResponse<E> = Response<ProjectedRow<E>>;
-
 impl<R: ResponseRow> Response<R> {
     /// Construct one response from ordered rows.
     #[must_use]

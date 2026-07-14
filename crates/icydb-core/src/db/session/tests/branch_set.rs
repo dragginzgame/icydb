@@ -889,7 +889,7 @@ fn delete_branch_entity_by_id(session: &DbSession<SessionSqlCanister>, id: Ulid)
     let plan = Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(id)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("branch cursor mutation delete plan should build");
     let deleted_rows = session
@@ -1169,7 +1169,7 @@ fn session_branch_set_sql_over_cap_pruned_by_not_in_uses_branch_route() {
     assert_target_top_n_fetch(&descriptor);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("pruned over-cap branch SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("pruned over-cap branch SQL should return projection rows");
@@ -1247,7 +1247,7 @@ fn session_branch_set_sql_over_cap_covering_fallback_does_not_prelimit_prefix_st
     let sql = branch_target_over_cap_sparse_sql("id", OVER_CAP_LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("over-cap covered fallback SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("over-cap covered fallback SQL should return projection rows");
@@ -1281,7 +1281,7 @@ fn session_branch_set_sql_over_cap_hybrid_fallback_hydrates_only_page_rows_after
     let sql = branch_target_over_cap_sparse_sql("id, title", OVER_CAP_LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("over-cap hybrid fallback SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("over-cap hybrid fallback SQL should return projection rows");
@@ -1468,7 +1468,7 @@ fn session_branch_set_sql_skewed_branch_refill_preserves_order_and_stops_at_look
     assert_target_top_n_fetch(&descriptor);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("skewed branch SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("skewed branch SQL should return projection rows");
@@ -1854,7 +1854,7 @@ fn session_branch_set_sql_key_only_projection_is_covered_and_bounded() {
     let sql = branch_target_sql("id", BRANCH_LIMIT);
 
     let (_result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("covered branch SQL should execute: {err:?}"));
 
     assert_eq!(
@@ -1887,7 +1887,7 @@ fn session_branch_set_sql_wide_sparse_route_prunes_empty_branch_streams() {
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("sparse wide branch SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("sparse wide branch SQL should return projection rows");
@@ -1923,7 +1923,7 @@ fn session_branch_set_sql_index_residual_covering_projection_stays_row_store_fre
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("index-residual covered branch SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("index-residual covered branch SQL should return projection rows");
@@ -1953,7 +1953,7 @@ fn session_branch_set_sql_rejected_prefix_predicate_skips_covering_range_scan() 
     let sql = branch_target_rejected_prefix_predicate_sql("id, stage", BRANCH_LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("rejected-prefix covered branch SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("rejected-prefix covered branch SQL should return projection rows");
@@ -1986,7 +1986,7 @@ fn session_branch_set_sql_rejected_prefix_predicate_skips_scalar_range_scan() {
     let sql = branch_target_rejected_prefix_predicate_sql("id, title", BRANCH_LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("rejected-prefix non-covered branch SQL should execute: {err:?}")
         });
@@ -2021,7 +2021,7 @@ fn session_branch_set_sql_rejected_multi_prefix_predicate_skips_scalar_range_sca
     let sql = branch_target_rejected_multi_prefix_predicate_sql("id, title", BRANCH_LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("rejected multi-prefix non-covered branch SQL should execute: {err:?}")
         });
@@ -2056,7 +2056,7 @@ fn session_branch_set_sql_noncovered_projection_hydrates_only_bounded_page_rows(
     let sql = branch_target_sql("id, title", BRANCH_LIMIT);
 
     let (_result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("non-covered branch SQL should execute: {err:?}"));
 
     assert!(
@@ -2135,7 +2135,7 @@ fn session_branch_set_sql_count_covered_predicate_uses_prefix_cardinality() {
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("covered branch COUNT SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("covered branch COUNT SQL should return a projection row");
@@ -2191,7 +2191,7 @@ fn session_branch_set_sql_sparse_in_count_uses_direct_prefix_cardinality() {
     let sql = sparse_collection_count_sql();
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("sparse collection COUNT SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("sparse collection COUNT SQL should return a projection row");
@@ -2237,7 +2237,7 @@ fn session_branch_set_sql_missing_sparse_in_count_uses_empty_prefix_cardinality(
     let sql = missing_sparse_collection_count_sql();
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("missing sparse collection COUNT SQL should execute: {err:?}")
         });
@@ -2450,7 +2450,7 @@ fn session_branch_set_fluent_large_sparse_in_cached_plan_rechecks_liveness_after
         .filter(crate::db::query::builder::FieldRef::new("id").eq(late_id))
         .order_term(crate::db::asc("id"))
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("late-branch cleanup delete plan should build");
     let deleted_rows = session
@@ -2515,7 +2515,7 @@ fn session_branch_set_sql_sparse_in_key_only_page_uses_covering_multi_lookup() {
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("sparse collection page SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("sparse collection page SQL should return projection rows");
@@ -2551,7 +2551,7 @@ fn session_branch_set_sql_sparse_in_child_prefix_over_cap_falls_back_safely() {
     let sql = sparse_collection_sql("id", LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("over-cap sparse collection page SQL should execute: {err:?}")
         });
@@ -2590,7 +2590,7 @@ fn session_branch_set_sql_sparse_in_exact_cap_ignores_trailing_empty_parent_pref
     let sql = combined_child_prefix_exact_cap_with_missing_sql("id", LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("exact-cap sparse collection page SQL should execute: {err:?}")
         });
@@ -2628,7 +2628,7 @@ fn session_branch_set_sql_sparse_in_combined_child_prefix_over_cap_falls_back_co
     let sql = combined_child_prefix_over_cap_sql("id", LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("combined over-cap sparse collection page SQL should execute: {err:?}")
         });
@@ -2666,7 +2666,7 @@ fn session_branch_set_sql_sparse_in_combined_child_prefix_over_cap_decodes_index
     let sql = combined_child_prefix_over_cap_sql("id, collection_id", LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("combined over-cap sparse component projection SQL should execute: {err:?}")
         });
@@ -2704,7 +2704,7 @@ fn session_branch_set_sql_sparse_in_combined_child_prefix_over_cap_hydrates_page
     let sql = combined_child_prefix_over_cap_sql("id, collection_id, title", LIMIT);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| {
             panic!("combined over-cap sparse hybrid projection SQL should execute: {err:?}")
         });
@@ -3039,7 +3039,7 @@ fn session_branch_set_sql_sparse_in_desc_uses_reverse_child_prefix_expansion() {
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("sparse collection DESC SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("sparse collection DESC SQL should return projection rows");
@@ -3069,7 +3069,7 @@ fn session_branch_set_sql_sparse_in_key_only_empty_expansion_returns_empty_page(
     let sql = missing_sparse_collection_sql("id", 8);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("missing sparse collection page SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("missing sparse collection page SQL should return projection rows");
@@ -3098,7 +3098,7 @@ fn session_branch_set_sql_missing_exact_covering_prefix_skips_range_scan() {
     let sql = missing_collection_stage_sql("id", 8);
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("missing exact covering SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("missing exact covering SQL should return projection rows");
@@ -3150,7 +3150,7 @@ fn session_branch_set_sql_sparse_in_hybrid_page_expands_child_prefix_streams() {
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("sparse collection hybrid SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("sparse collection hybrid SQL should return projection rows");
@@ -3392,7 +3392,7 @@ fn session_branch_set_sql_count_duplicate_branch_literals_use_unique_prefix_card
     );
 
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .execute_trusted_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
         .unwrap_or_else(|err| panic!("duplicate-literal branch COUNT SQL should execute: {err:?}"));
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("duplicate-literal branch COUNT SQL should return a projection row");

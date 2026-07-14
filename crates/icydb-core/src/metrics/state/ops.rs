@@ -150,7 +150,6 @@ pub struct EventOps {
     pub(crate) plan_choice_required_order_primary_key_range_preferred: u64,
     pub(crate) plan_choice_singleton_primary_key_child_access_preferred: u64,
     pub(crate) prepared_shape_already_finalized: u64,
-    pub(crate) prepared_shape_generated_fallback: u64,
 
     // Rows touched
     pub(crate) rows_loaded: u64,
@@ -656,11 +655,6 @@ impl EventOps {
     #[must_use]
     pub const fn prepared_shape_already_finalized(&self) -> u64 {
         self.prepared_shape_already_finalized
-    }
-
-    #[must_use]
-    pub const fn prepared_shape_generated_fallback(&self) -> u64 {
-        self.prepared_shape_generated_fallback
     }
 
     #[must_use]

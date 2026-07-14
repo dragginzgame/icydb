@@ -284,23 +284,8 @@ const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'s
         QueryReadAdmissionCode::UnboundedFullScanRejected => {
             "public read queries cannot execute an unbounded full scan"
         }
-        QueryReadAdmissionCode::ScanBoundUnavailable => {
-            "the planner could not prove a scan bound for this read"
-        }
-        QueryReadAdmissionCode::ScanBoundExceedsPolicy => {
-            "the proven scan bound exceeds this endpoint's read budget"
-        }
-        QueryReadAdmissionCode::EstimatedOnlyBoundRejected => {
-            "estimated-only scan bounds are not sufficient for this read lane"
-        }
         QueryReadAdmissionCode::SortRequiresMaterialization => {
             "this read requires materializing rows for ORDER BY"
-        }
-        QueryReadAdmissionCode::MaterializationExceedsBudget => {
-            "materialized rows exceed this endpoint's read budget"
-        }
-        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit => {
-            "projected response size may exceed this endpoint's byte budget"
         }
         QueryReadAdmissionCode::GroupedQueryRequiresLimits => {
             "grouped reads require explicit group and memory budgets"
@@ -310,15 +295,6 @@ const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'s
         }
         QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute => {
             "diagnostic EXPLAIN lanes cannot execute rows"
-        }
-        QueryReadAdmissionCode::IntrospectionDisabledForLane => {
-            "introspection is disabled for this read lane"
-        }
-        QueryReadAdmissionCode::UnsupportedStatementForQueryLane => {
-            "this SQL statement is not supported by the selected read lane"
-        }
-        QueryReadAdmissionCode::PublicQueryOffsetRejected => {
-            "public read queries cannot use a non-zero OFFSET"
         }
         QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy => {
             "the returned-row bound exceeds this endpoint's read budget"
@@ -335,22 +311,11 @@ const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'stat
             "use page(...), next_page(...), collect_complete(), an exact aggregate, exact primary-key access, grouped_limits(...), or partial_window(...) for deliberate partial rows"
         }
         QueryReadAdmissionCode::PublicQueryRequiresIndex
-        | QueryReadAdmissionCode::UnboundedFullScanRejected
-        | QueryReadAdmissionCode::ScanBoundUnavailable
-        | QueryReadAdmissionCode::EstimatedOnlyBoundRejected => {
+        | QueryReadAdmissionCode::UnboundedFullScanRejected => {
             "add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint"
-        }
-        QueryReadAdmissionCode::ScanBoundExceedsPolicy => {
-            "tighten the predicate or lower the query bound so the proven scan fits the endpoint budget"
         }
         QueryReadAdmissionCode::SortRequiresMaterialization => {
             "order by the selected index order, remove the sort, or keep the query on a trusted admin path"
-        }
-        QueryReadAdmissionCode::MaterializationExceedsBudget => {
-            "reduce the materialized row bound or use an index-backed order that avoids materialization"
-        }
-        QueryReadAdmissionCode::ProjectionResponseMayExceedLimit => {
-            "return fewer rows or narrower projections before exposing the read publicly"
         }
         QueryReadAdmissionCode::GroupedQueryRequiresLimits => {
             "add grouped_limits(max_groups, max_group_bytes) and keep DISTINCT aggregates within policy"
@@ -360,15 +325,6 @@ const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'stat
         }
         QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute => {
             "run EXPLAIN for diagnostics only, then execute through an admitted ordinary or trusted lane"
-        }
-        QueryReadAdmissionCode::IntrospectionDisabledForLane => {
-            "use a controller-gated diagnostic/admin endpoint for introspection"
-        }
-        QueryReadAdmissionCode::UnsupportedStatementForQueryLane => {
-            "use an ordinary typed/fluent read shape or a controller-gated trusted SQL endpoint"
-        }
-        QueryReadAdmissionCode::PublicQueryOffsetRejected => {
-            "use cursor pagination instead of OFFSET"
         }
         QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy => {
             "lower LIMIT or split the query into smaller cursor-paged reads"
@@ -538,37 +494,37 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
 const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static str {
     match mismatch {
         SqlSurfaceMismatchCode::QueryRejectsInsert => {
-            "execute_sql_query rejects INSERT; use execute_sql_update::<E>()"
+            "execute_trusted_sql_query rejects INSERT; use execute_sql_update::<E>()"
         }
         SqlSurfaceMismatchCode::QueryRejectsUpdate => {
-            "execute_sql_query rejects UPDATE; use execute_sql_update::<E>()"
+            "execute_trusted_sql_query rejects UPDATE; use execute_sql_update::<E>()"
         }
         SqlSurfaceMismatchCode::QueryRejectsDelete => {
-            "execute_sql_query rejects DELETE; use execute_sql_update::<E>()"
+            "execute_trusted_sql_query rejects DELETE; use execute_sql_update::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsSelect => {
-            "execute_sql_update rejects SELECT; use execute_sql_query::<E>()"
+            "execute_sql_update rejects SELECT; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsExplain => {
-            "execute_sql_update rejects EXPLAIN; use execute_sql_query::<E>()"
+            "execute_sql_update rejects EXPLAIN; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsDescribe => {
-            "execute_sql_update rejects DESCRIBE; use execute_sql_query::<E>()"
+            "execute_sql_update rejects DESCRIBE; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowIndexes => {
-            "execute_sql_update rejects SHOW INDEXES; use execute_sql_query::<E>()"
+            "execute_sql_update rejects SHOW INDEXES; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowColumns => {
-            "execute_sql_update rejects SHOW COLUMNS; use execute_sql_query::<E>()"
+            "execute_sql_update rejects SHOW COLUMNS; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowEntities => {
-            "execute_sql_update rejects SHOW ENTITIES; use execute_sql_query::<E>()"
+            "execute_sql_update rejects SHOW ENTITIES; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowStores => {
-            "execute_sql_update rejects SHOW STORES; use execute_sql_query::<E>()"
+            "execute_sql_update rejects SHOW STORES; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowMemory => {
-            "execute_sql_update rejects SHOW MEMORY; use execute_sql_query::<E>()"
+            "execute_sql_update rejects SHOW MEMORY; use execute_trusted_sql_query::<E>()"
         }
     }
 }
@@ -879,7 +835,7 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_QUERY_SQL_SURFACE_MISMATCH: execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+            "E_QUERY_SQL_SURFACE_MISMATCH: execute_trusted_sql_query rejects INSERT; use execute_sql_update::<E>()",
         );
     }
 
@@ -955,10 +911,6 @@ mod tests {
                 "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries cannot execute an unbounded full scan; fix: add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint",
             ),
             (
-                icydb::diagnostic::QueryReadAdmissionCode::PublicQueryOffsetRejected,
-                "E_QUERY_READ_ADMISSION: query read admission rejected: public read queries cannot use a non-zero OFFSET; fix: use cursor pagination instead of OFFSET",
-            ),
-            (
                 icydb::diagnostic::QueryReadAdmissionCode::GroupedQueryRequiresLimits,
                 "E_QUERY_READ_ADMISSION: query read admission rejected: grouped reads require explicit group and memory budgets; fix: add grouped_limits(max_groups, max_group_bytes) and keep DISTINCT aggregates within policy",
             ),
@@ -989,18 +941,10 @@ mod tests {
             icydb::diagnostic::QueryReadAdmissionCode::PublicQueryRequiresLimit,
             icydb::diagnostic::QueryReadAdmissionCode::PublicQueryRequiresIndex,
             icydb::diagnostic::QueryReadAdmissionCode::UnboundedFullScanRejected,
-            icydb::diagnostic::QueryReadAdmissionCode::ScanBoundUnavailable,
-            icydb::diagnostic::QueryReadAdmissionCode::ScanBoundExceedsPolicy,
-            icydb::diagnostic::QueryReadAdmissionCode::EstimatedOnlyBoundRejected,
             icydb::diagnostic::QueryReadAdmissionCode::SortRequiresMaterialization,
-            icydb::diagnostic::QueryReadAdmissionCode::MaterializationExceedsBudget,
-            icydb::diagnostic::QueryReadAdmissionCode::ProjectionResponseMayExceedLimit,
             icydb::diagnostic::QueryReadAdmissionCode::GroupedQueryRequiresLimits,
             icydb::diagnostic::QueryReadAdmissionCode::GroupedQueryExceedsBudget,
             icydb::diagnostic::QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute,
-            icydb::diagnostic::QueryReadAdmissionCode::IntrospectionDisabledForLane,
-            icydb::diagnostic::QueryReadAdmissionCode::UnsupportedStatementForQueryLane,
-            icydb::diagnostic::QueryReadAdmissionCode::PublicQueryOffsetRejected,
             icydb::diagnostic::QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy,
             icydb::diagnostic::QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy,
         ];

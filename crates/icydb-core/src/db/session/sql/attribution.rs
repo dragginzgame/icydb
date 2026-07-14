@@ -19,8 +19,6 @@ mod phase;
 mod query;
 
 #[cfg(feature = "diagnostics")]
-pub type SqlScalarAggregateAttribution = crate::db::ScalarAggregateAttribution;
-#[cfg(feature = "diagnostics")]
 pub use cache::SqlQueryCacheAttribution;
 #[cfg(feature = "diagnostics")]
 pub use compile::SqlCompileAttribution;

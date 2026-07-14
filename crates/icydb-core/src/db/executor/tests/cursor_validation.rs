@@ -34,9 +34,8 @@ fn scalar_phase_plan() -> (
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("rank"))
         .limit(1)
-        .plan()
-        .expect("scalar phase query should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("scalar phase query should plan");
     let continuation = plan
         .planned_continuation_contract(<PhaseEntity as crate::traits::Path>::PATH)
         .expect("scalar phase load plan should project continuation contract");
@@ -57,9 +56,8 @@ fn grouped_pushdown_plan() -> (
         .expect("grouped query should build")
         .aggregate(crate::db::count())
         .limit(1)
-        .plan()
-        .expect("grouped query should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped query should plan");
     let continuation = plan
         .planned_continuation_contract(<PushdownParityEntity as crate::traits::Path>::PATH)
         .expect("grouped load plan should project continuation contract");
@@ -150,9 +148,8 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
     let foreign_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
         .limit(1)
-        .plan()
-        .expect("foreign entity plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("foreign entity plan should build");
     let foreign_contract = foreign_plan
         .planned_continuation_contract(<SimpleEntity as crate::traits::Path>::PATH)
         .expect("foreign entity load plan should project continuation contract");
@@ -173,9 +170,8 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
         let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
             .limit(1)
-            .plan()
-            .expect("local entity plan should build")
-            .into_inner();
+            .access_plan_for_test()
+            .expect("local entity plan should build");
 
         PreparedExecutionPlan::new(plan)
     };
@@ -197,9 +193,8 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
         .order_term(crate::db::asc("rank"))
         .limit(1)
         .offset(2)
-        .plan()
-        .expect("offset plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("offset plan should build");
     let continuation = plan
         .planned_continuation_contract(<PhaseEntity as crate::traits::Path>::PATH)
         .expect("offset load plan should project continuation contract");
@@ -236,9 +231,8 @@ fn grouped_cursor_rejects_cross_shape_resume_token_at_plan_time() {
         .expect("grouped source query should build")
         .aggregate(crate::db::count())
         .limit(1)
-        .plan()
-        .expect("grouped source plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped source plan should build");
     let source_contract = source_plan
         .planned_continuation_contract(<PushdownParityEntity as crate::traits::Path>::PATH)
         .expect("grouped source plan should project continuation contract");
@@ -256,9 +250,8 @@ fn grouped_cursor_rejects_cross_shape_resume_token_at_plan_time() {
         .expect("grouped target query should build")
         .aggregate(crate::db::count())
         .limit(1)
-        .plan()
-        .expect("grouped target plan should build")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("grouped target plan should build");
     let target_plan: PreparedExecutionPlan<PushdownParityEntity> =
         PreparedExecutionPlan::new(target_plan);
     let err = unwrap_cursor_plan_error(

@@ -9,7 +9,7 @@ use crate::{
         query::{
             explain::{ExplainExecutionNodeDescriptor, ExplainPlan},
             fluent::load::{FluentLoadQuery, LoadQueryResult},
-            intent::{CompiledQuery, PlannedQuery, Query, QueryError},
+            intent::QueryError,
             trace::QueryTracePlan,
         },
     },
@@ -44,12 +44,6 @@ where
     }
 
     /// Borrow the current immutable query intent.
-    #[doc(hidden)]
-    #[must_use]
-    pub const fn query(&self) -> &Query<E> {
-        self.inner.query()
-    }
-
     /// Execute this partial window with diagnostics attribution.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
@@ -85,16 +79,6 @@ where
     /// Build one trace payload without executing the partial-window query.
     pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
         self.inner.trace()
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.inner.planned()
-    }
-
-    /// Build the compiled executable plan for this partial-window query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.inner.plan()
     }
 }
 

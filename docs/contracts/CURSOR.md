@@ -1,63 +1,90 @@
-# Cursor Pagination Checkpoint (Historical Note)
+# IcyDB Cursor Pagination Contract
 
-Date: 2026-02-12
+This document describes the current cursor representation and implementation
+boundary. The normative pagination semantics are defined in
+[`QUERY_CONTRACT.md`](QUERY_CONTRACT.md).
 
-This file captures a point-in-time audit checkpoint.
-Normative cursor guarantees are defined in `docs/contracts/QUERY_CONTRACT.md`.
-Release tracking for cursor-related work lives in
-`docs/design/archive/0.9-referential-integrity/0.9-status.md` and
-`docs/design/archive/0.10-index-ordering/0.10-status.md`.
+The current source owners are:
 
-Post-0.196 note: the "no cursor pushdown" statements below are historical
-checkpoint observations, not current normative behavior. 0.196 added
-route-dependent ordered-read and limit-stop execution evidence for routes that
-can prove the requested order and cursor boundary. The semantic cursor contract
-remains the one in `QUERY_CONTRACT.md`.
+- `crates/icydb-core/src/db/cursor/token/codec.rs` for bounded binary encoding;
+- `crates/icydb-core/src/db/cursor/string.rs` for external hex text;
+- `crates/icydb-core/src/db/cursor/spine.rs` for decode and validation;
+- executor continuation planning for route-specific resume behavior.
 
-## Done
+## External Token Boundary
 
-- Completed a full cursor-pagination audit across planner, executor, and session/facade APIs.
-- Documented the concurrency contract explicitly in public/core docs as:
-  `best-effort and forward-only over live state`, with no snapshot/version pinning.
-- Updated doc comments in:
-  - `crates/icydb-core/src/db/session/`
-  - `crates/icydb/src/db/session/load.rs`
-  - `crates/icydb/src/db/response/paged.rs`
-- Confirmed execution behavior: cursor boundary and pagination are applied in post-access phase after rows are loaded/materialized and ordered.
-- Confirmed there is no cursor pushdown into index continuation seek/range in the current implementation.
+Cursor tokens are opaque to callers, but they are not confidential. Applications
+must pass them back unchanged and must not parse fields or depend on their wire
+layout.
 
-## Current Behavior (As Implemented)
+IcyDB emits lowercase hexadecimal text over the binary token. Decode accepts
+lowercase or uppercase hexadecimal digits. Empty, whitespace-only, odd-length,
+non-hexadecimal, and oversized tokens fail closed with typed cursor errors.
 
-- Cursor token is opaque by API contract, but not confidential:
-  - Internal token is CBOR bytes containing continuation signature + boundary slots.
-  - Public token is hex-encoded bytes.
-- Boundary slots reflect canonical index ordering (ordered components + PK tie-break), consistent with IndexKey v2 encoding.
-- Pagination continuity is deterministic per request, but not snapshot-isolated across requests.
-- Continuation is strict forward-only over the canonical boundary.
-- For a fixed query shape, rows are not duplicated across pages when ordered keys remain stable between requests.
-- Under concurrent writes, continuation reflects live state; updates that reorder rows can cause logical drift (skips/re-observation).
+The binary token is bounded to 8 KiB. The external hex form is bounded to twice
+that size before decode, so untrusted input cannot force an unbounded allocation.
 
-## Decision For This Checkpoint
+## Current Binary Wire
 
-- We are **not** implementing a cursor data-leakage fix in this pass.
-- No encryption/HMAC or server-side cursor-state tokenization is planned in this checkpoint.
+There is one accepted binary wire: `TOKEN_WIRE_VERSION = 2`. IcyDB does not
+retain a CBOR decoder or translate older cursor formats. A version mismatch,
+wrong scalar/grouped variant, truncated field, invalid value tag, invalid
+direction, invalid optional-field marker, or trailing byte is rejected.
 
-## Follow-up Ideas At The Time (Non-Leakage)
+Both scalar and grouped tokens begin with the wire version and token variant.
+The current payloads then carry:
 
-- Decide whether to optimize performance with cursor pushdown/range-seek semantics for large paged scans.
-- Add explicit tests for public hex cursor decode failures at API boundary.
-- Add explicit tests/docs for mutation-between-pages behavior (insert/update/delete drift expectations).
-- If needed later, evaluate secure cursor envelopes as a separate scoped change.
+- a continuation signature bound to the canonical query shape;
+- traversal direction;
+- the initial offset owned by the first page;
+- scalar canonical boundary slots and an optional index-range anchor, or the
+  grouped continuation key tuple.
 
-## Post-Checkpoint Observability Note (2026-03-11)
+The wire version is an internal protocol discriminator. Public APIs promise an
+opaque token, not a stable field layout.
 
-Cursor semantics remain as described above. Runtime diagnostics now also expose
-additive execution row-flow counters through metrics reporting:
+## Validation and Continuation
 
-- `rows_scanned`
-- `rows_filtered`
-- `rows_aggregated`
-- `rows_emitted`
+Decode is only the first gate. The cursor validation spine checks the token
+against the current entity and canonical query shape before execution. A cursor
+cannot be reused after changing the predicate, access shape, ordering, entity,
+direction, or other signature-owned pagination facts.
 
-These counters are observability-only and do not change cursor validation,
-cursor continuation compatibility, or live-state pagination guarantees.
+Continuation is strict and forward-only:
+
+`next page := rows whose canonical order is greater than the boundary`
+
+The canonical order is the requested order plus the primary-key tie-breaker.
+Cursor and non-zero offset modes cannot be mixed.
+
+## Execution Model
+
+Cursor semantics do not depend on the selected physical route. Every route must
+preserve the same canonical ordering, residual filtering, strict boundary, page
+limit, and lookahead behavior.
+
+When planning proves that an ordered access route can resume safely, execution
+may seek or stream from the continuation boundary and stop at the bounded page.
+Index-range routes may carry the validated raw-key anchor needed for that resume.
+When the proof is unavailable, execution uses the admitted materialize/filter/
+order/cursor/window path. A broader runtime fallback cannot bypass public-read
+admission.
+
+Diagnostics report the route and continuation mode chosen for the execution;
+they do not reconstruct a second cursor contract.
+
+## Live-State Semantics
+
+Pagination is best-effort and forward-only over live state. It is not snapshot
+isolated across requests. With a fixed query shape and stable ordered keys,
+pages do not overlap. Concurrent inserts, deletes, or updates to ordered fields
+may change which rows remain after the boundary.
+
+## Non-Goals
+
+The current cursor contract does not provide:
+
+- backward or random-page traversal;
+- snapshot isolation across page requests;
+- encryption, authentication, or server-side cursor storage;
+- decoding or translation of retired wire formats.

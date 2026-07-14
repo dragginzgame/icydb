@@ -67,7 +67,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("missing-ok stale-secondary load plan should build");
     let response = load
@@ -113,7 +113,7 @@ fn load_secondary_index_strict_missing_row_surfaces_corruption() {
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("strict stale-secondary load plan should build");
     let err = load

@@ -12,8 +12,8 @@ pub mod sql;
 
 // Public facade-owned response/session surfaces.
 pub use response::{
-    ExecutionTrace, GroupedRow, MutationResult, PagedResponse, ProjectedRow, ProjectionResponse,
-    ProjectionRows, Response, RowProjectionOutput,
+    ExecutionTrace, GroupedRow, MutationResult, PagedResponse, ProjectedRow, Response,
+    RowProjectionOutput,
 };
 pub use session::{
     DbSession, FluentLoadQuery, MutationMode, PartialWindowLoadQuery, SessionDeleteQuery,
@@ -32,13 +32,9 @@ pub use icydb_core::db::{
     EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
     EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
     ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource, IndexStoreSnapshot, MemoryCatalogDescription,
-    QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionGroupedSummary,
-    QueryAdmissionLane, QueryAdmissionOrdering, QueryAdmissionPlanShape, QueryAdmissionRejection,
-    QueryAdmissionResidualFilter, QueryAdmissionSummary, QueryBoundKind,
-    QueryMaterializationSummary, QueryTracePlan, ReadIntentKind, Row, SchemaStoreSnapshot,
-    StorageReport, StoreCatalogDescription, TraceExecutionFamily, TraceReuseArtifactClass,
-    TraceReuseEvent,
+    ExplainExecutionOrderingSource, IndexStoreSnapshot, MemoryCatalogDescription, QueryTracePlan,
+    ReadIntentKind, Row, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
+    TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.
@@ -84,7 +80,6 @@ pub use icydb_core::db::{
 pub use icydb_core::db::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlOutputBlobAttribution,
     SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
-    SqlScalarAggregateAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]

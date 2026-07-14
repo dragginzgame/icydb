@@ -14,17 +14,15 @@ mod structural_guards;
 use super::terminal::derive_load_terminal_fast_path_contract;
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder, GroupedExecutionMode,
-    GroupedExecutionModeContext, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
-    LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason, LoadTerminalFastPathContract,
-    RouteCapabilityFacts, RouteExecutionMode, RoutePlanRequest, RouteShapeKind, TopNSeekSpec,
-    build_execution_route_plan,
+    GroupedExecutionModeContext, LOAD_FAST_PATH_ORDER, LoadOrderRouteDecision, LoadOrderRouteMode,
+    LoadOrderRouteReason, LoadTerminalFastPathContract, RouteCapabilityFacts, RouteExecutionMode,
+    RoutePlanRequest, RouteShapeKind, TopNSeekSpec, build_execution_route_plan,
     capability_facts::{
         count_pushdown_existing_rows_shape_supported,
         index_multi_lookup_prefix_cardinality_preflight_shape_supported,
         index_range_limit_pushdown_shape_supported_for_model,
     },
-    derive_secondary_pushdown_applicability_from_contract,
-    grouped_ordered_runtime_revalidation_flag_count_guard, route_capability_flag_count_guard,
+    derive_secondary_pushdown_applicability_from_contract, route_capability_flag_count_guard,
     route_shape_kind_count_guard,
 };
 use crate::{
@@ -89,7 +87,6 @@ fn aggregate_having_expr(
 const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
 const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
 const ROUTE_SHAPE_KIND_BASELINE_0256: usize = 4;
-const ROUTE_GROUPED_RUNTIME_REVALIDATION_FLAG_BASELINE_0251: usize = 3;
 
 crate::test_canister! {
     ident = RouteCapabilityTestCanister,
@@ -527,6 +524,12 @@ fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionPlan {
     .expect("grouped route test helper should build grouped route plan")
 }
 
+fn grouped_execution_mode(route_plan: &ExecutionPlan) -> GroupedExecutionMode {
+    route_plan
+        .grouped_execution_mode()
+        .expect("grouped route should carry its selected execution mode")
+}
+
 fn scalar_aggregate_route_snapshot(
     plan: &AccessPlannedQuery,
     aggregate_expr: crate::db::query::builder::AggregateExpr,
@@ -570,10 +573,6 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
         },
     )
     .expect("grouped route snapshot should build grouped route plan");
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped route snapshot requires grouped observability payload");
-
     [
         "grouped=true".to_string(),
         format!("planner_strategy={planner_strategy:?}"),
@@ -582,11 +581,11 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
         format!("execution_mode={:?}", route_plan.execution_mode()),
         format!(
             "planner_fallback_reason={:?}",
-            grouped_observability.planner_fallback_reason()
+            route_plan.grouped_plan_fallback_reason()
         ),
         format!(
             "grouped_execution_mode={:?}",
-            grouped_observability.grouped_execution_mode()
+            grouped_execution_mode(&route_plan)
         ),
         format!("fold_mode={:?}", route_plan.aggregate_fold_mode),
     ]
@@ -599,7 +598,6 @@ fn grouped_policy_snapshot(
     GroupedPlanStrategy,
     Option<crate::db::query::plan::GroupDistinctPolicyReason>,
     GroupedExecutionMode,
-    bool,
 ) {
     let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
     let planner_strategy =
@@ -614,15 +612,10 @@ fn grouped_policy_snapshot(
         },
     )
     .expect("grouped policy snapshot should build grouped route plan");
-    let grouped_observability = route_plan
-        .grouped_observability()
-        .expect("grouped plans should always project grouped route observability");
-
     (
         planner_strategy,
         distinct_violation,
-        grouped_observability.grouped_execution_mode(),
-        grouped_observability.eligible(),
+        grouped_execution_mode(&route_plan),
     )
 }
 
@@ -641,15 +634,6 @@ fn route_feature_budget_shape_kinds_stay_within_soft_delta() {
     assert!(
         route_shape_kinds <= ROUTE_SHAPE_KIND_BASELINE_0256 + ROUTE_FEATURE_SOFT_BUDGET_DELTA,
         "route shape-kind partitioning exceeded soft feature budget; consolidate before adding more shape variants",
-    );
-}
-
-#[test]
-fn route_grouped_runtime_revalidation_flags_match_baseline() {
-    let flags = grouped_ordered_runtime_revalidation_flag_count_guard();
-    assert_eq!(
-        flags, ROUTE_GROUPED_RUNTIME_REVALIDATION_FLAG_BASELINE_0251,
-        "grouped ordered-route runtime revalidation flags changed; keep grouped semantics planner-owned and runtime revalidation capability-focused",
     );
 }
 

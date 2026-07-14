@@ -31,9 +31,7 @@ use crate::{
         },
     },
     error::InternalError,
-    metrics::sink::{
-        PreparedShapeFinalizationOutcome, record_prepared_shape_finalization_for_path,
-    },
+    metrics::sink::record_prepared_shape_already_finalized_for_path,
     model::entity::EntityModel,
     types::EntityTag,
     value::Value,
@@ -254,10 +252,7 @@ impl EntityAuthority {
         // metadata with accepted schema authority. Do not overwrite that
         // schema-selected slot contract while lowering the executor core.
         if plan.has_static_execution_planning_contract() {
-            record_prepared_shape_finalization_for_path(
-                self.entity_path(),
-                PreparedShapeFinalizationOutcome::AlreadyFinalized,
-            );
+            record_prepared_shape_already_finalized_for_path(self.entity_path());
             return Ok(());
         }
 
@@ -546,7 +541,6 @@ mod tests {
             .counters()
             .expect("authority finalization should record metrics");
         assert_eq!(counters.ops().prepared_shape_already_finalized(), 1);
-        assert_eq!(counters.ops().prepared_shape_generated_fallback(), 0);
     }
 
     #[test]

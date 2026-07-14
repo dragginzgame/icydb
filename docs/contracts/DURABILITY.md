@@ -10,10 +10,10 @@ work into one operational boundary.
 
 Evidence sources:
 
-- `docs/design/0.189-mega-audit-2/0.189-design.md`
-- `docs/design/0.189-mega-audit-2/audit-results.md`
-- `docs/design/0.190-ic-reliability-followup/0.190-design.md`
-- `docs/design/0.190-ic-reliability-followup/0.190-evidence.md`
+- `docs/design/archive/0.189-mega-audit-2/0.189-design.md`
+- `docs/design/archive/0.189-mega-audit-2/audit-results.md`
+- `docs/design/archive/0.190-ic-reliability-followup/0.190-design.md`
+- `docs/design/archive/0.190-ic-reliability-followup/0.190-evidence.md`
 - `docs/design/archive/0.191-durability-productization-format-policy/0.191-evidence.md`
 
 ## Scope

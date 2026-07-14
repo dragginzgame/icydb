@@ -20,7 +20,7 @@ pub(in crate::db) struct AccessChoiceExplainSnapshot {
     pub(in crate::db) chosen_reason: AccessChoiceSelectedReason,
     pub(in crate::db) candidates: Vec<AccessChoiceCandidateExplainSummary>,
     pub(in crate::db) alternatives: Vec<String>,
-    pub(in crate::db) rejected: Vec<String>,
+    pub(in crate::db) rejected: Vec<AccessChoiceRejectedIndex>,
     pub(in crate::db) primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
 }
 
@@ -194,6 +194,32 @@ impl AccessChoiceResidualBurden {
 }
 
 ///
+/// AccessChoiceCandidateKind
+///
+/// Typed planner identity for the index-backed access family represented by
+/// one eligible candidate summary.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AccessChoiceCandidateKind {
+    Prefix,
+    MultiLookup,
+    BranchSet,
+    Range,
+}
+
+impl AccessChoiceCandidateKind {
+    const fn label_prefix(self) -> &'static str {
+        match self {
+            Self::Prefix => "IndexPrefix",
+            Self::MultiLookup => "IndexMultiLookup",
+            Self::BranchSet => "IndexBranchSet",
+            Self::Range => "IndexRange",
+        }
+    }
+}
+
+///
 /// AccessChoiceCandidateExplainSummary
 ///
 /// AccessChoiceCandidateExplainSummary carries one planner-owned eligible
@@ -202,13 +228,34 @@ impl AccessChoiceResidualBurden {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AccessChoiceCandidateExplainSummary {
-    pub(in crate::db) label: String,
+    pub(super) kind: AccessChoiceCandidateKind,
+    pub(super) index_name: String,
     pub(in crate::db) exact: bool,
     pub(in crate::db) filtered: bool,
     pub(in crate::db) range_bound_count: usize,
     pub(in crate::db) order_compatible: bool,
     pub(in crate::db) residual_burden: AccessChoiceResidualBurden,
     pub(in crate::db) residual_predicate_terms: usize,
+}
+
+impl AccessChoiceCandidateExplainSummary {
+    /// Borrow the semantic index identity selected for this candidate.
+    #[must_use]
+    pub(in crate::db) const fn index_name(&self) -> &str {
+        self.index_name.as_str()
+    }
+
+    /// Render the stable candidate label at an outward diagnostics boundary.
+    #[must_use]
+    pub(in crate::db) fn label(&self) -> String {
+        let prefix = self.kind.label_prefix();
+        let mut label = String::with_capacity(prefix.len() + self.index_name.len() + 2);
+        label.push_str(prefix);
+        label.push('(');
+        label.push_str(self.index_name.as_str());
+        label.push(')');
+        label
+    }
 }
 
 ///
@@ -379,16 +426,50 @@ impl AccessChoiceRejectedReason {
             Self::Ranked(reason) => reason.code(),
         }
     }
+}
 
+///
+/// AccessChoiceRejectedIndex
+///
+/// Planner-owned semantic identity and typed cause for one rejected index
+/// candidate. String labels are projected only by diagnostics consumers.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AccessChoiceRejectedIndex {
+    index_name: String,
+    reason: AccessChoiceRejectedReason,
+}
+
+impl AccessChoiceRejectedIndex {
     #[must_use]
-    pub(in crate::db) fn render_for_index(self, index_name: &str) -> String {
-        let reason = self.code();
-        let mut out = String::with_capacity("index:".len() + index_name.len() + 1 + reason.len());
-        out.push_str("index:");
-        out.push_str(index_name);
-        out.push('=');
-        out.push_str(reason);
-        out
+    pub(super) const fn new(index_name: String, reason: AccessChoiceRejectedReason) -> Self {
+        Self { index_name, reason }
+    }
+
+    /// Borrow the rejected semantic index identity.
+    #[must_use]
+    pub(in crate::db) const fn index_name(&self) -> &str {
+        self.index_name.as_str()
+    }
+
+    /// Return the planner-owned typed rejection code.
+    #[must_use]
+    pub(in crate::db) const fn reason_code(&self) -> &'static str {
+        self.reason.code()
+    }
+
+    /// Render the stable diagnostics label at an outward boundary.
+    #[must_use]
+    pub(in crate::db) fn label(&self) -> String {
+        let reason = self.reason_code();
+        let mut label =
+            String::with_capacity("index:".len() + self.index_name.len() + 1 + reason.len());
+        label.push_str("index:");
+        label.push_str(self.index_name.as_str());
+        label.push('=');
+        label.push_str(reason);
+        label
     }
 }
 
@@ -406,6 +487,18 @@ pub(super) enum AccessChoiceFamily {
     MultiLookup,
     BranchSet,
     Range,
+}
+
+impl AccessChoiceFamily {
+    pub(super) const fn candidate_kind(self) -> Option<AccessChoiceCandidateKind> {
+        match self {
+            Self::NonIndex => None,
+            Self::Prefix => Some(AccessChoiceCandidateKind::Prefix),
+            Self::MultiLookup => Some(AccessChoiceCandidateKind::MultiLookup),
+            Self::BranchSet => Some(AccessChoiceCandidateKind::BranchSet),
+            Self::Range => Some(AccessChoiceCandidateKind::Range),
+        }
+    }
 }
 
 ///

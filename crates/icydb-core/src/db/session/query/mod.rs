@@ -11,7 +11,6 @@ mod execution;
 mod explain;
 mod fluent;
 mod paging;
-mod planning;
 
 pub(in crate::db) use cache::QueryPlanCacheAttribution;
 #[cfg(feature = "diagnostics")]

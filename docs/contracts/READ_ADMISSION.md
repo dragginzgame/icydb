@@ -1,9 +1,9 @@
 # IcyDB Read Admission Contract
 
-This document defines the operational lane contract for read execution
-surfaces. Query semantics remain documented in `QUERY_CONTRACT.md`,
+This document defines the admission and trusted-bypass contract for read
+execution surfaces. Query semantics remain documented in `QUERY_CONTRACT.md`,
 `QUERY_PRACTICE.md`, and `SQL_SUBSET.md`; this document answers which surfaces
-may execute reads and which admission lane they use.
+are policy-evaluated and which explicitly bypass that policy.
 
 ## Core Rule
 
@@ -14,25 +14,26 @@ Ordinary typed/fluent read execution is bounded by default. Normal endpoint
 code should use `load::<E>()` plus a semantic terminal such as `try_one()`,
 `page(...)`, `collect_complete()`, `exists()`, or an exact aggregate helper.
 Fluent `execute`, `execute_rows`, cursor-paged `execute`, and fluent terminal
-execution methods use the built-in default bounded-read policy. The hidden prebuilt-query execution helpers use the same gate when internal/generated
-tooling intentionally owns low-level query construction. Trusted
+execution methods use the built-in default bounded-read policy. Trusted
 maintenance/admin fluent code that has already enforced caller authorization
 and its own resource policy must mark the query with
 `trusted_read_unchecked()` before executing the normal fluent terminal.
 
-The current lanes are:
+The current evaluated admission lanes are:
 
 - `PublicRead`: caller-facing bounded reads. These require finite returned-row
-  and response-byte caps, reject unsafe full scans by default, reject non-zero
-  `OFFSET`, and require explicit grouped budgets for grouped queries. Exact
-  primary-key `by_id(...)` / `by_ids(...)` reads may use their selected
-  key-count upper bound as the returned-row cap.
-- `AdminAdHoc`: trusted/controller-gated operational reads. These may use the
-  broad SQL query helper, but the endpoint must remain visibly controller
-  gated and must not be mistaken for a public read surface.
+  caps, reject unsafe full scans by default, and require explicit grouped
+  budgets for grouped queries. Exact primary-key `by_id(...)` / `by_ids(...)`
+  reads may use their selected key-count upper bound as the returned-row cap.
+  The fluent surface does not expose `OFFSET`; public continuation is
+  cursor/keyset-based through `page(...)` and `next_page(...)`.
 - `DiagnosticExplain`: EXPLAIN-only diagnostics. This lane may parse, lower,
   plan, and evaluate admission, but it must not execute data rows.
-- `DevTest`: local tests and harnesses only.
+
+Trusted SQL and trusted fluent maintenance reads do not manufacture a policy
+lane. They are explicit trusted bypass surfaces outside evaluated
+read-admission policy and require caller-owned authorization and resource
+control. Generated SQL retains its separate controller gate.
 
 Estimates may be reported by diagnostics, but estimates do not authorize
 `PublicRead` execution.
@@ -45,13 +46,12 @@ diagnostic before doing the broader work.
 
 ## Read Surface Inventory
 
-| Surface | Lane | Guard | Query execution authority |
+| Surface | Admission or bypass | Guard | Query execution authority |
 | --- | --- | --- | --- |
-| `DbSession::execute_sql_query::<E>` | `AdminAdHoc` by caller contract | caller-owned | Trusted single-entity SQL query helper. It is not public-safe by itself. |
-| `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, non-zero offset, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound. |
-| hidden prebuilt-query diagnostics | diagnostic only | built-in planning guards | Internal/generated tooling path for trace/attribution callers that intentionally inspect low-level `Query<E>` construction. It is not a row-execution endpoint API and should not be taught as a read-intent recipe. |
+| `DbSession::execute_trusted_sql_query::<E>` | trusted bypass | caller-owned | Explicit trusted single-entity SQL query helper. It is not public-safe by itself. |
+| `FluentLoadQuery::execute` / `execute_rows` / terminal execution / paged `execute` | `PublicRead` default policy | built-in plus caller auth | Ordinary typed/fluent execution. It rejects unsafe full scans, materialized sorts, missing row bounds, and grouped reads without query hard limits. Exact selected primary-key access supplies its own row bound; cursor/keyset methods own continuation. |
 | `trusted_read_unchecked()` fluent lane | trusted caller contract | caller-owned | Explicit bypass for maintenance/admin fluent code with its own authorization and resource policy. It is not public-safe by itself. Fluent load queries use normal terminal names after entering the trusted lane. |
-| generated `icydb_query` | `AdminAdHoc` | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
+| generated `icydb_query` | trusted bypass | controller-gated | Generated SQL query endpoint. It uses the trusted perf-attributed SQL helper and remains admin-only. |
 | generated `icydb_ddl` | not a read-admission lane | controller-gated | Schema mutation frontend, governed by DDL admission and schema authority. |
 | generated `icydb_update` | not a read-admission lane | controller-gated | SQL write endpoint, governed by explicit write policy. |
 | generated `icydb_schema` / `icydb_schema_check` | diagnostic/admin | controller-gated | Accepted-schema diagnostics, not row-query execution. |
@@ -59,9 +59,9 @@ diagnostic before doing the broader work.
 | generated `icydb_metrics` / `icydb_metrics_extended` | diagnostic | build-option gated | Metrics diagnostics, not row-query execution. |
 
 IcyDB does not generate non-controller public SQL read endpoints. A canister
-must not expose caller-controlled SQL through `execute_sql_query`; that helper
-is a trusted/admin lane. Generated `icydb.toml` SQL settings intentionally have
-no `sql.public_read` key.
+must not expose caller-controlled SQL through `execute_trusted_sql_query`;
+that helper explicitly bypasses public-read policy. Generated `icydb.toml` SQL
+settings intentionally have no `sql.public_read` key.
 
 ## Which API should I use?
 
@@ -77,7 +77,7 @@ For migration examples and endpoint-intent guidance, see
 | process a trusted maintenance batch | `trusted_read_unchecked().admin_batch(AdminBatchRequest::...)` | Admin batches are trusted-only, cursor-batched, and use an engine-owned batch size. They are not public list shortcuts. |
 | run controller diagnostics | generated/admin diagnostic surfaces | Caller authorization and an explicit resource policy are required before running broad diagnostics. |
 | explain why a query fails | EXPLAIN or admission diagnostics | Diagnostics describe planning/admission; they do not bypass recovery or authorize execution. |
-| paginate public results | cursor-paged ordinary execution | Prefer cursor pagination; non-zero `OFFSET` is rejected by the public lane. |
+| paginate public results | cursor-paged ordinary execution | Use `page(...)` and `next_page(...)`; fluent `OFFSET` is intentionally not exposed. |
 | run a broad maintenance scan | trusted execution | Keep it controller/admin-only and apply a maintenance resource policy. |
 | expose arbitrary SQL publicly | do not | Generated SQL remains controller-gated; caller-facing SQL must be application-owned and tightly allowlisted. |
 
@@ -121,7 +121,7 @@ Required properties:
 
 - it must call `icydb_sql_surface_require_controller("query")` before
   dispatch;
-- it may use `execute_sql_query_with_perf_attribution` as the trusted
+- it may use `execute_trusted_sql_query_with_perf_attribution` as the trusted
   controller/admin helper;
 - it must not silently become a `PublicRead` endpoint;
 - introspection remains separately controlled by generated SQL surface flags;
@@ -201,12 +201,10 @@ let users = db()
 The default typed/fluent policy is intentionally conservative:
 
 - maximum returned rows: 100;
-- maximum plan-level response bytes: 128 KiB where the surface can prove it;
 - full scans are rejected;
 - an index-backed access proof is required;
 - selected primary-key `by_id(...)` / `by_ids(...)` access may satisfy the
   returned-row bound from the exact key count;
-- non-zero `OFFSET` is rejected;
 - materialized sorts are rejected;
 - grouped reads require query-owned `grouped_limits(...)` and must fit within
   100 groups, 64 KiB per group, and 1024 distinct entries.
@@ -258,20 +256,12 @@ batch size is engine-owned.
 | Ordinary read without a finite row, exact selected primary-key access, or grouped bound | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | Choose the endpoint's read intent first: use `page(limit)` / `next_page(limit, cursor)` for public lists, `collect_complete()` for complete small sets, semantic `*_exact` helpers for exact aggregates, strict exact primary-key equality / bounded primary-key `IN (...)` / `by_id(...)` / bounded `by_ids(...)` for exact key reads, or grouped `grouped_limits(...)` when the grouped shape itself supplies the bound. Use `partial_window(...)` only for endpoints that deliberately return a partial row window. |
 | Ordinary read with `LIMIT 1` but no route-proven index access | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Add an index for the filter/order, tighten the predicate, or move the broad scan behind a controller/admin trusted path. |
 | Ordinary read whose selected route cannot prove an index-backed access path | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | Add a matching index or change the query to use an indexed predicate/order. |
-| Ordinary read whose selected plan cannot prove a scan bound | `QueryReadAdmissionCode::ScanBoundUnavailable` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
-| Ordinary read whose proven scan bound exceeds the public budget | `QueryReadAdmissionCode::ScanBoundExceedsPolicy` | Tighten the predicate or lower the query bound so the proven scan fits the endpoint budget. |
-| Ordinary read whose only scan bound is estimated | `QueryReadAdmissionCode::EstimatedOnlyBoundRejected` | Add a suitable index, tighten the predicate, or move the query behind a trusted admin endpoint. |
-| Ordinary read using non-zero `OFFSET` | `QueryReadAdmissionCode::PublicQueryOffsetRejected` | Use cursor pagination instead of offset pagination. |
 | Ordinary read ordered by a field the selected route cannot satisfy | `QueryReadAdmissionCode::SortRequiresMaterialization` | Order by the selected index order, add a suitable composite index, or keep the report trusted/admin-only. |
-| Ordinary read whose materialized row bound exceeds the public budget | `QueryReadAdmissionCode::MaterializationExceedsBudget` | Reduce the materialized row bound or use an index-backed order that avoids materialization. |
-| Ordinary read whose response may exceed the endpoint byte budget | `QueryReadAdmissionCode::ProjectionResponseMayExceedLimit` | Lower the row bound, return narrower projections, or split the read into smaller cursor-paged requests. |
 | Ordinary read whose returned-row bound exceeds the public row budget | `QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy` | Lower `LIMIT` or split the query into smaller cursor-paged reads. |
 | Ordinary exact primary-key `IN (...)` or typed `by_ids(...)` read whose key-list input work exceeds the public budget | `QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy` | Reduce the primary-key list or move the broad key-set read behind a trusted admin endpoint. |
 | Grouped read without query-owned group and memory limits | `QueryReadAdmissionCode::GroupedQueryRequiresLimits` | Add `grouped_limits(max_groups, max_group_bytes)` and keep `DISTINCT` aggregate state inside policy. |
 | Grouped read whose query-owned limits exceed the public policy | `QueryReadAdmissionCode::GroupedQueryExceedsBudget` | Lower `grouped_limits(...)`, reduce grouped `DISTINCT` state, or move the report behind a trusted/admin endpoint. |
 | EXPLAIN or diagnostic lane asked to execute rows | `QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute` | Use EXPLAIN for diagnostics only, then execute through an admitted ordinary or explicit trusted path. |
-| Introspection requested through a lane that does not expose it | `QueryReadAdmissionCode::IntrospectionDisabledForLane` | Use a controller-gated diagnostic/admin endpoint for introspection. |
-| Caller-controlled SQL sent to the trusted SQL helper | `QueryReadAdmissionCode::UnsupportedStatementForQueryLane` | Prefer typed/fluent reads or a tightly allowlisted application-owned SQL surface. |
 
 ## Copyable Rejection Examples
 
@@ -316,12 +306,10 @@ let same_user = db()
     .try_one()?;
 ```
 
-### Full scan, missing index proof, or missing scan bound
+### Full scan or missing index proof
 
 `QueryReadAdmissionCode::UnboundedFullScanRejected`
 `QueryReadAdmissionCode::PublicQueryRequiresIndex`
-`QueryReadAdmissionCode::ScanBoundUnavailable`
-`QueryReadAdmissionCode::EstimatedOnlyBoundRejected`
 
 ```rust
 let err = db()
@@ -356,59 +344,9 @@ let users = db()
     .execute_rows()?;
 ```
 
-### Proven scan bound above policy
-
-`QueryReadAdmissionCode::ScanBoundExceedsPolicy`
-
-```rust
-let err = db()
-    .load::<User>()
-    .filter(icydb::FieldRef::new("username").text_starts_with("s"))
-    .order_term(icydb::asc("username"))
-    .order_term(icydb::asc("id"))
-    .partial_window(1_000)
-    .execute_rows();
-```
-
-Fix it by tightening the predicate, lowering the page size, or moving the
-large report behind a trusted/admin endpoint:
-
-```rust
-let users_page = db()
-    .load::<User>()
-    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
-    .order_term(icydb::asc("username"))
-    .order_term(icydb::asc("id"))
-    .page(25)?;
-```
-
-### Non-zero offset
-
-`QueryReadAdmissionCode::PublicQueryOffsetRejected`
-
-```sql
-SELECT *
-FROM users
-WHERE username LIKE 'sam%'
-ORDER BY username, id
-LIMIT 10 OFFSET 10;
-```
-
-Use cursor pagination for caller-facing pages:
-
-```rust
-let page = db()
-    .load::<User>()
-    .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
-    .order_term(icydb::asc("username"))
-    .order_term(icydb::asc("id"))
-    .page(10)?;
-```
-
-### Materialized sort or materialization budget
+### Materialized sort
 
 `QueryReadAdmissionCode::SortRequiresMaterialization`
-`QueryReadAdmissionCode::MaterializationExceedsBudget`
 
 ```rust
 let err = db()
@@ -434,9 +372,8 @@ let users_page = db()
     .page(10)?;
 ```
 
-### Response or returned-row budget
+### Returned-row or primary-key input budget
 
-`QueryReadAdmissionCode::ProjectionResponseMayExceedLimit`
 `QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy`
 `QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy`
 
@@ -450,8 +387,7 @@ let err = db()
     .execute_rows();
 ```
 
-Fix it by reducing the row bound, using smaller cursor pages, or returning a
-narrower application-shaped response after the admitted read:
+Fix it by reducing the row bound or using smaller cursor pages:
 
 For exact primary-key `IN (...)` and typed `by_ids(...)` reads, the returned-row
 bound is still the deduplicated key count, but public read admission also caps
@@ -551,64 +487,6 @@ let users_page = db()
     .page(10)?;
 ```
 
-### Introspection from the wrong lane
-
-`QueryReadAdmissionCode::IntrospectionDisabledForLane`
-
-```rust
-// Do not expose introspection through arbitrary public read handlers.
-fn public_query(sql: String) -> Result<(), icydb::Error> {
-    db().execute_sql_query::<User>(&sql)?;
-    Ok(())
-}
-```
-
-Keep introspection behind a controller-gated diagnostic/admin endpoint:
-
-```rust
-fn controller_describe_users() -> Result<(), icydb::Error> {
-    require_controller()?;
-    db().execute_sql_query::<User>("DESCRIBE User")?;
-    Ok(())
-}
-```
-
-### Unsupported caller-controlled SQL
-
-`QueryReadAdmissionCode::UnsupportedStatementForQueryLane`
-
-```rust
-// Do not pass caller-controlled SQL into the trusted SQL helper.
-fn public_query(sql: String) -> Result<(), icydb::Error> {
-    db().execute_sql_query::<User>(&sql)?;
-    Ok(())
-}
-```
-
-Prefer a typed/fluent endpoint or a tightly allowlisted application-owned SQL
-surface:
-
-```rust
-fn public_users_by_prefix(
-    prefix: String,
-) -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
-    require_authenticated_user()?;
-
-    db()
-        .load::<User>()
-        .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
-        .order_term(icydb::asc("username"))
-        .order_term(icydb::asc("id"))
-        .page(25)
-}
-
-fn controller_sql(sql: String) -> Result<(), icydb::Error> {
-    require_controller()?;
-    db().execute_sql_query::<User>(&sql)?;
-    Ok(())
-}
-```
-
 ## EXPLAIN Admission Diagnostics
 
 EXPLAIN is the fastest way to see why a public read shape would fail, but it
@@ -654,7 +532,7 @@ If a public endpoint accepts caller-provided SQL, it must:
 
 - reject anonymous callers and perform any application authorization before
   entering IcyDB;
-- not pass that SQL to `execute_sql_query`;
+- not pass that SQL to `execute_trusted_sql_query`;
 - use an application-owned SQL parser/allowlist or a typed/fluent endpoint
   instead;
 - keep generated SQL endpoints controller-gated.
@@ -680,7 +558,7 @@ quietly drifting. They fail if:
   public-safe by itself;
 - internal `QueryAdmissionRejection` variants stop matching public
   `QueryReadAdmissionCode` variants one-for-one;
-- the documented default row, response-byte, group, group-byte, or distinct
+- the documented default row, group, group-byte, or distinct
   budgets drift from the source constants.
 
 ## Persisted Format

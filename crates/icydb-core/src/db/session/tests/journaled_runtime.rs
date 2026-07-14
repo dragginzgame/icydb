@@ -32,7 +32,7 @@ where
     E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let result = session
-        .execute_sql_query::<E>(sql)
+        .execute_trusted_sql_query::<E>(sql)
         .unwrap_or_else(|err| panic!("public SQL query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Projection { rows, .. } = result else {
@@ -50,7 +50,7 @@ where
     E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let result = session
-        .execute_sql_query::<E>(sql)
+        .execute_trusted_sql_query::<E>(sql)
         .unwrap_or_else(|err| panic!("public EXPLAIN query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Explain(explain) = result else {

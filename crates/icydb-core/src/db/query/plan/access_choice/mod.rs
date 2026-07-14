@@ -25,9 +25,8 @@ use crate::{
                     chosen_access_shape_projection, chosen_selection_reason,
                     evaluate_index_candidate, ranked_rejection_reason, sorted_index_refs,
                 },
-                model::AccessChoiceFamily,
+                model::{AccessChoiceCandidateKind, AccessChoiceFamily},
             },
-            access_plan_label as planner_access_plan_label,
             plan_access_selection_with_order_and_semantic_indexes,
         },
         schema::SchemaInfo,
@@ -54,8 +53,8 @@ fn same_score_competing_candidate_scan_count_for_tests() -> u64 {
 }
 
 pub(in crate::db) use self::model::{
-    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
-    AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
+    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
+    AccessChoiceResidualBurden, AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
 };
 
 fn semantic_candidate_indexes_from_generated_model_only(
@@ -124,6 +123,9 @@ fn project_access_choice_explain_snapshot_from_authority(
     if matches!(family, AccessChoiceFamily::NonIndex) {
         return plan.access_choice().clone();
     }
+    let Some(candidate_kind) = family.candidate_kind() else {
+        return AccessChoiceExplainSnapshot::selected_index_not_projected();
+    };
 
     let Some(chosen_index_name) = chosen_index_name else {
         return AccessChoiceExplainSnapshot::selected_index_not_projected();
@@ -161,8 +163,9 @@ fn project_access_choice_explain_snapshot_from_authority(
                 if index_name == chosen_index_name.as_str() =>
             {
                 candidates.push(project_candidate_explain_summary(
+                    candidate_kind,
+                    index_name,
                     score,
-                    &plan.access,
                     residual_burden_for_plan(plan),
                 ));
             }
@@ -176,8 +179,9 @@ fn project_access_choice_explain_snapshot_from_authority(
                     let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
                     let residual_burden = residual_burden_for_plan(&candidate_plan);
                     candidates.push(project_candidate_explain_summary(
+                        candidate_kind,
+                        index_name.clone(),
                         score,
-                        &candidate_access,
                         residual_burden,
                     ));
                     if score == chosen_score
@@ -190,18 +194,18 @@ fn project_access_choice_explain_snapshot_from_authority(
                         found_higher_residual_burden |= rejected_on_residual_burden;
                     }
                 }
-                rejected.push(
+                rejected.push(AccessChoiceRejectedIndex::new(
+                    index_name,
                     ranked_rejection_reason(
                         family,
                         score,
                         chosen_score,
                         rejected_on_residual_burden,
-                    )
-                    .render_for_index(index_name.as_str()),
-                );
+                    ),
+                ));
             }
             self::model::CandidateEvaluation::Rejected(reason) => {
-                rejected.push(reason.render_for_index(index_name.as_str()));
+                rejected.push(AccessChoiceRejectedIndex::new(index_name, reason));
             }
         }
     }
@@ -491,12 +495,14 @@ fn candidate_plan_with_access(
 // Project one verbose explain summary for an eligible candidate route using
 // the same candidate score and residual profile used by planner ranking.
 fn project_candidate_explain_summary(
+    kind: AccessChoiceCandidateKind,
+    index_name: String,
     score: crate::db::query::plan::planner::AccessCandidateScore,
-    access: &AccessPlan<Value>,
     residual_burden: ResidualBurdenProfile,
 ) -> AccessChoiceCandidateExplainSummary {
     AccessChoiceCandidateExplainSummary {
-        label: planner_access_plan_label(access),
+        kind,
+        index_name,
         exact: score.exact,
         filtered: score.filtered,
         range_bound_count: usize::from(score.range_bound_count),

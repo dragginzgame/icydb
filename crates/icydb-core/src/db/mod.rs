@@ -128,14 +128,9 @@ pub use predicate::{
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
 };
+pub(in crate::db) use query::intent::Query;
 pub use query::plan::validate::PlanError;
 pub use query::{
-    admission::{
-        QueryAdmissionAccessKind, QueryAdmissionDecision, QueryAdmissionGroupedSummary,
-        QueryAdmissionLane, QueryAdmissionOrdering, QueryAdmissionPlanShape,
-        QueryAdmissionRejection, QueryAdmissionResidualFilter, QueryAdmissionSummary,
-        QueryBoundKind, QueryMaterializationSummary,
-    },
     api::ResponseCardinalityExt,
     builder::{
         AggregateExpr, FieldRef, TextProjectionExpr, ValueProjectionExpr, avg, contains, count,
@@ -156,8 +151,8 @@ pub use query::{
         load::{FluentLoadQuery, LoadQueryResult, PartialWindowLoadQuery},
     },
     intent::{
-        AccessRequirementError, AccessRequirementViolation, CompiledQuery, IntentError,
-        PlannedQuery, Query, QueryError, QueryExecutionError, RequiredAccessPath,
+        AccessRequirementError, AccessRequirementViolation, IntentError, QueryError,
+        QueryExecutionError, RequiredAccessPath,
     },
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
     read_intent::{AdminBatchRequest, ReadIntentKind},
@@ -172,8 +167,8 @@ pub use registry::{
 };
 pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
-    PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, ProjectionResponse,
-    Response as RowResponse, ResponseError, ResponseRow, Row, WriteBatchResponse,
+    PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, Response as RowResponse,
+    ResponseError, ResponseRow, Row, WriteBatchResponse,
 };
 pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
@@ -208,7 +203,7 @@ pub use session::{
 pub use session::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
     SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
-    SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
+    SqlQueryExecutionAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]

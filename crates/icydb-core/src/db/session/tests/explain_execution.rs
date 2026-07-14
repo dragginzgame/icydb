@@ -677,7 +677,7 @@ fn execute_sql_projection_primary_key_covering_full_scan_returns_ordered_ids() {
         // directly instead of reading rows for a planner-proven PK-only covering
         // projection.
         let (_result, attribution) = session
-            .execute_sql_query_with_attribution::<SessionSqlEntity>(
+            .execute_trusted_sql_query_with_attribution::<SessionSqlEntity>(
                 "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
             )
             .expect("PK-only covering projection attribution should execute");
@@ -833,15 +833,14 @@ fn session_explain_execution_projects_descriptor_tree_for_ordered_limited_index_
         &[("Sam", 30), ("Sasha", 24), ("Soren", 18), ("Mira", 40)],
     );
 
-    let descriptor = session
-        .load::<IndexedSessionSqlEntity>()
-        .trusted_read_unchecked()
+    let query = Query::<IndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .offset(1)
-        .limit(2)
-        .explain_execution()
+        .limit(2);
+    let descriptor = session
+        .explain_query_execution_with_visible_indexes(&query)
         .expect("ordered limited indexed explain_execution should succeed");
 
     assert!(
@@ -925,11 +924,11 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         "planner boundary must hide non-ready secondary indexes before access selection",
     );
 
-    let compiled = planner_query
-        .plan_with_visible_indexes(&visible_indexes)
+    let plan = planner_query
+        .access_plan_for_test_with_visible_indexes(&visible_indexes)
         .expect("planning with no visible secondary indexes should still succeed");
     assert!(
-        matches!(compiled.explain().access(), ExplainAccessPath::FullScan),
+        matches!(plan.explain().access(), ExplainAccessPath::FullScan),
         "planner output must fall back to FullScan once the secondary index is no longer ready",
     );
 
@@ -1080,17 +1079,16 @@ fn session_explain_execution_text_and_json_surface_for_strict_index_prefix_shape
             (9_744, 8, 40),
         ],
     );
-    let query = session
-        .load::<SessionExplainEntity>()
-        .trusted_read_unchecked()
+    let query = Query::<SessionExplainEntity>::new(MissingRowPolicy::Ignore)
         .filter(FieldRef::new("group").eq(7_u64))
         .order_term(crate::db::asc("rank"))
         .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2);
 
-    let text_tree = query
-        .explain_execution_text()
+    let text_tree = session
+        .explain_query_execution_with_visible_indexes(&query)
+        .map(|descriptor| descriptor.render_text_tree())
         .expect("strict index-prefix execution text explain should succeed");
     assert!(
         text_tree.contains("IndexPrefixScan execution_mode="),
@@ -1106,8 +1104,8 @@ fn session_explain_execution_text_and_json_surface_for_strict_index_prefix_shape
         "execution text should expose one predicate-stage node",
     );
 
-    let descriptor_json = query
-        .explain_execution_json()
+    let descriptor_json = session
+        .explain_query_execution_json_with_visible_indexes(&query)
         .expect("strict index-prefix execution json explain should succeed");
     assert!(
         descriptor_json.contains("\"node_type\":\"IndexPrefixScan\""),

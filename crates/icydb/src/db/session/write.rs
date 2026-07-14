@@ -8,10 +8,7 @@
 
 use crate::{
     ErrorCode,
-    db::{
-        response::{ProjectionRows, RowProjectionOutput},
-        session::DbSession,
-    },
+    db::{response::RowProjectionOutput, session::DbSession},
     diagnostic::RuntimeBoundaryCode,
     error::{Error, ErrorOrigin},
     traits::CanisterKind,
@@ -138,10 +135,12 @@ impl<C: CanisterKind> DbSession<C> {
 
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
 
-        Ok(RowProjectionOutput::from_projection(
-            entity_name,
-            ProjectionRows::new(columns, rows, row_count),
-        ))
+        Ok(RowProjectionOutput {
+            entity: entity_name,
+            columns,
+            rows,
+            row_count,
+        })
     }
 
     fn returning_fields<I, S>(fields: I) -> Vec<String>

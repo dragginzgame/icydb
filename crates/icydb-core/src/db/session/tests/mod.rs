@@ -3675,9 +3675,8 @@ fn inspect_filtered_expression_order_only_raw_scan(
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
         .expect("filtered expression-order SQL query should lower")
-        .plan()
-        .expect("filtered expression-order SQL query should plan")
-        .into_inner();
+        .access_plan_for_test()
+        .expect("filtered expression-order SQL query should plan");
     let lowered_access = lower_access(FilteredIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
         .expect("filtered expression-order access plan should lower to one raw index range");
     let [spec] = lowered_access.index_range_specs() else {
@@ -4213,7 +4212,6 @@ fn run_session_aggregate_projection_terminal(
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(1)
             .limit(4)
     };
 
@@ -4247,7 +4245,6 @@ fn run_session_aggregate_rank_terminal(
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(0)
             .limit(5)
     };
 

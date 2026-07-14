@@ -124,7 +124,7 @@ fn aggregate_optimizations_bytes_by_strict_mode_surfaces_missing_row_corruption(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
                 .filter_predicate(u32_eq_predicate_strict("group", 7))
                 .order_term(crate::db::asc("rank"))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("strict bytes_by plan should build"),
             field_slot_for_test::<PushdownParityEntity>("rank"),
@@ -158,7 +158,7 @@ fn aggregate_optimizations_index_multi_lookup_count_uses_prefix_cardinality() {
             &load,
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(u32_in_predicate_strict("tag", &[10, 30]))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("indexed IN COUNT plan should build"),
         )
@@ -190,7 +190,7 @@ fn aggregate_optimizations_sparse_index_multi_lookup_count_batches_prefix_cardin
             &load,
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter_predicate(u32_in_predicate_strict("tag", values.as_slice()))
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("sparse indexed IN COUNT plan should build"),
         )
@@ -236,7 +236,7 @@ fn aggregate_optimizations_index_multi_lookup_count_limit_stops_prefix_cardinali
                 .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(1)
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("windowed indexed IN COUNT plan should build"),
         )
@@ -274,7 +274,7 @@ fn aggregate_optimizations_index_multi_lookup_exists_uses_prefix_cardinality() {
 
     let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_in_predicate_strict("tag", &[10, 30]))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("indexed IN EXISTS plan should build");
     let lookups_before = IndexStore::current_prefix_cardinality_lookup_count();
@@ -312,7 +312,7 @@ fn aggregate_optimizations_empty_index_prefix_exists_uses_prefix_cardinality() {
 
     let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_eq_predicate_strict("tag", 250))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("empty indexed EXISTS plan should build");
     let range_scans_before = IndexStore::current_range_scan_call_count();
@@ -354,7 +354,7 @@ fn aggregate_optimizations_by_ids_count_dedups_before_windowing() {
                 .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(1)
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("by_ids dedup COUNT plan should build"),
         )
@@ -386,7 +386,7 @@ fn aggregate_optimizations_by_ids_count_desc_window_preserves_scan_budget() {
                 .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(1)
-                .plan()
+                .access_plan_for_test()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("ordered by_ids DESC COUNT plan should build"),
         )
@@ -417,7 +417,7 @@ fn aggregate_optimizations_unordered_by_ids_count_preserves_canonical_dedup() {
                 Ulid::from_u128(8_702),
                 Ulid::from_u128(8_701),
             ])
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("unordered by-ids COUNT plan should build"),
     )

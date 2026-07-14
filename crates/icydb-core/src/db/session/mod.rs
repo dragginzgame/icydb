@@ -69,7 +69,7 @@ pub use sql::{
 pub use sql::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
     SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
-    SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
+    SqlQueryExecutionAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};

@@ -201,7 +201,7 @@ fn subtractive_rank_order_term(direction: OrderDirection) -> crate::db::query::p
 }
 
 // Assert one grouped aggregate terminal remains semantically admissible for the
-// shared grouped-v1 contract.
+// shared grouped contract.
 fn assert_grouped_terminal_accepts(
     label: &str,
     kind: AggregateKind,
@@ -226,7 +226,7 @@ fn assert_grouped_terminal_accepts(
     );
 
     validate_group_query_semantics(schema, model, &grouped)
-        .unwrap_or_else(|_| panic!("{label} should be accepted in grouped v1"));
+        .unwrap_or_else(|_| panic!("{label} should be accepted by grouped validation"));
 }
 
 // Assert one global DISTINCT grouped handoff lowers onto the expected executor

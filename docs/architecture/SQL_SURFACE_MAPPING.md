@@ -6,13 +6,12 @@ public APIs.
 `docs/contracts/SQL_SUBSET.md` is the normative contract.
 This file is intentionally implementation-facing.
 
-The current public-entrypoint proof ledger is:
+The historical 0.166 public-entrypoint proof ledger is archived at:
 
-- `docs/design/0.166-sql-surface-contract-proof-audit/sql-surface-matrix.md`
+- `docs/design/archive/0.166-sql-surface-contract-proof-audit/sql-surface-matrix.md`
 
-That matrix is the release-audit artifact for mapping each documented SQL
-claim to `execute_sql_query::<E>(...)`, `execute_sql_update::<E>(...)`, or
-`execute_sql_ddl::<E>(...)` coverage.
+It records the proof state at that release. The current contract and maintained
+entrypoint tests are authoritative for today's SQL surface.
 
 ## Why This File Exists
 
@@ -28,10 +27,6 @@ This file answers:
 - "Which public entrypoints expose that shape today?"
 - "Where does SQL already converge with typed/fluent behavior?"
 - "Where is SQL intentionally narrower than typed/fluent APIs?"
-
-Test-only helper names in `icydb-core` may still mention older lane-shaped SQL
-surfaces. Those helpers exist only to keep legacy matrix coverage stable; they
-are not part of the live public SQL API.
 
 ## Default Parity Rule
 
@@ -80,7 +75,7 @@ Legend:
 
 | surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | DDL | `EXPLAIN` | `DESCRIBE` / `SHOW` |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `execute_sql_query::<E>` | yes | yes | yes | yes | no | no | no | no | yes | yes |
+| `execute_trusted_sql_query::<E>` | yes | yes | yes | yes | no | no | no | no | yes | yes |
 | `execute_sql_update::<E>` | no | no | no | no | yes | yes | yes | no | no | no |
 | `execute_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
@@ -107,10 +102,9 @@ defaults are `local = true` and `ic = false`; unknown direct builds fail closed.
 
 ## What Is Already Stable
 
-The 0.166 SQL surface proof matrix is the canonical checklist for public
-entrypoint evidence. The implementation references below are supporting
-evidence for architecture and convergence, not replacements for public-surface
-tests.
+The archived 0.166 SQL surface proof matrix remains useful historical evidence.
+Current public entrypoints and maintained public-surface tests are authoritative;
+the implementation references below support architecture and convergence.
 
 The strongest SQL-to-typed convergence exists for the shared query lane:
 
@@ -133,7 +127,7 @@ query/runtime model with multiple frontends.
 
 The strongest public SQL execution split is now:
 
-- `execute_sql_query::<E>(...)` for read, explain, and introspection SQL
+- `execute_trusted_sql_query::<E>(...)` for read, explain, and introspection SQL
 - `execute_sql_update::<E>(...)` for row-mutation SQL
 - `execute_sql_ddl::<E>(...)` for accepted-catalog DDL SQL
 
@@ -344,7 +338,7 @@ the following remain true:
 - every admitted SQL mutation family is represented both in SQL and in one
   canonical typed or fluent mutation form
 - the live public SQL surface stays frozen to:
-  - `execute_sql_query::<E>(...)`
+  - `execute_trusted_sql_query::<E>(...)`
   - `execute_sql_update::<E>(...)`
   - `execute_sql_ddl::<E>(...)`
 - every admitted family has direct tests on the live surface rather than only

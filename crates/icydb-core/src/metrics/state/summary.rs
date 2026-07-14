@@ -101,7 +101,6 @@ pub struct EntitySummary {
     plan_choice_required_order_primary_key_range_preferred: u64,
     plan_choice_singleton_primary_key_child_access_preferred: u64,
     prepared_shape_already_finalized: u64,
-    prepared_shape_generated_fallback: u64,
     rows_loaded: u64,
     rows_saved: u64,
     rows_inserted: u64,
@@ -601,11 +600,6 @@ impl EntitySummary {
     }
 
     #[must_use]
-    pub const fn prepared_shape_generated_fallback(&self) -> u64 {
-        self.prepared_shape_generated_fallback
-    }
-
-    #[must_use]
     pub const fn rows_loaded(&self) -> u64 {
         self.rows_loaded
     }
@@ -974,7 +968,6 @@ impl EntitySummary {
             .saturating_add(self.plan_choice_required_order_primary_key_range_preferred)
             .saturating_add(self.plan_choice_singleton_primary_key_child_access_preferred)
             .saturating_add(self.prepared_shape_already_finalized)
-            .saturating_add(self.prepared_shape_generated_fallback)
             .saturating_add(self.rows_loaded)
             .saturating_add(self.rows_saved)
             .saturating_add(self.rows_inserted)
@@ -1132,7 +1125,6 @@ pub(in crate::metrics) fn entity_summary_from_counters(
         plan_choice_singleton_primary_key_child_access_preferred: ops
             .plan_choice_singleton_primary_key_child_access_preferred,
         prepared_shape_already_finalized: ops.prepared_shape_already_finalized,
-        prepared_shape_generated_fallback: ops.prepared_shape_generated_fallback,
         rows_loaded: ops.rows_loaded,
         rows_saved: ops.rows_saved,
         rows_inserted: ops.rows_inserted,

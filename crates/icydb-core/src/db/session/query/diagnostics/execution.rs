@@ -25,7 +25,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one typed query while reporting the compile/execute split at
     /// the shared fluent query seam.
     #[doc(hidden)]
-    pub fn execute_query_result_with_attribution<E>(
+    pub(in crate::db) fn execute_query_result_with_attribution<E>(
         &self,
         query: &Query<E>,
     ) -> Result<(LoadQueryResult<E>, QueryExecutionAttribution), QueryError>

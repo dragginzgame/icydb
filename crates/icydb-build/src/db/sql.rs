@@ -373,7 +373,7 @@ fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     quote! {
             Some(entity) if #entity_matches =>
             {
-                db().execute_sql_query_with_perf_attribution::<#entity_ty>(sql)
+                db().execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
             }
     }
 }
@@ -434,7 +434,7 @@ fn empty_sql_surface_query_dispatch() -> TokenStream {
 
 fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
     quote! {
-        db().execute_sql_query_with_perf_attribution::<#entity_ty>(sql)
+        db().execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
     }
 }
 
@@ -503,7 +503,7 @@ mod tests {
         surface_tokens.push_entity(&entity_ty);
 
         let surface = compact_tokens(quote!(#surface_tokens));
-        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
+        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
         assert!(surface.contains("execute_sql_ddl"));
         assert!(
             !surface.contains("execute_sql_update"),
@@ -535,14 +535,14 @@ mod tests {
         assert!(!endpoint.contains("name=\"icydb_list\""));
         assert!(!endpoint.contains("name=\"icydb_page\""));
         assert!(!endpoint.contains("name=\"icydb_count\""));
-        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
+        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
         assert!(!surface.contains("execute_sql_count"));
         assert!(!surface.contains("execute_fluent_count"));
         assert!(!surface.contains("execute_count"));
     }
 
     #[test]
-    fn generated_sql_query_endpoint_is_controller_gated_admin_lane() {
+    fn generated_sql_query_endpoint_guards_explicit_trusted_dispatch() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
 
@@ -556,12 +556,14 @@ mod tests {
         let surface = compact_tokens(quote!(#surface_tokens));
 
         assert!(endpoint.contains("name=\"icydb_query\""));
-        assert!(endpoint.contains("icydb_sql_surface_require_controller(\"query\")"));
-        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
-        assert!(
-            !surface.contains("execute_sql_query_with_read_admission_policy"),
-            "generated icydb_query is the controller-gated admin lane; public SQL must use a hand-written endpoint",
-        );
+        let controller_guard = endpoint
+            .find("icydb_sql_surface_require_controller(\"query\")")
+            .expect("generated query endpoint should require its controller guard");
+        let trusted_dispatch = endpoint
+            .find("__icydb_query_dispatch")
+            .expect("generated query endpoint should call its trusted dispatch");
+        assert!(controller_guard < trusted_dispatch);
+        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
         assert!(
             !endpoint.contains("QueryAdmissionPolicy"),
             "generated icydb_query must not hide an implicit read-admission policy",
@@ -586,7 +588,6 @@ mod tests {
         assert!(!surface.contains("__icydb_public_query_dispatch"));
         assert!(!surface.contains("QueryAdmissionPolicy::public_read"));
         assert!(!surface.contains("GroupedAdmissionPolicy::bounded"));
-        assert!(!surface.contains("execute_sql_query_with_read_admission_policy"));
     }
 
     #[test]
@@ -633,7 +634,7 @@ mod tests {
         assert!(surface.contains("sql_statement_dispatch"));
         assert!(surface.contains("requires_introspection"));
         assert!(surface.contains("SqlIntrospectionDisabled"));
-        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
+        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
     }
 
     #[test]

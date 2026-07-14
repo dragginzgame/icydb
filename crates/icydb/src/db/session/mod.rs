@@ -13,16 +13,7 @@ mod macros;
 mod sql;
 mod write;
 
-#[cfg(feature = "diagnostics")]
-use crate::db::response::QueryResponse;
-#[cfg(feature = "diagnostics")]
-use crate::traits::Entity;
-use crate::{
-    db::query::{MissingRowPolicy, Query, QueryTracePlan},
-    error::Error,
-    metrics::MetricsSink,
-    traits::CanisterKind,
-};
+use crate::{db::query::MissingRowPolicy, metrics::MetricsSink, traits::CanisterKind};
 
 use icydb_core as core;
 
@@ -49,14 +40,6 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    #[cfg(feature = "diagnostics")]
-    fn query_response_from_core<E>(inner: core::db::LoadQueryResult<E>) -> QueryResponse<E>
-    where
-        E: Entity,
-    {
-        QueryResponse::from_core(inner)
-    }
-
     // ------------------------------------------------------------------
     // Session configuration
     // ------------------------------------------------------------------
@@ -105,22 +88,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Execute one typed/fluent query while reporting the compile/execute
-    /// split at the shared query boundary.
-    #[cfg(feature = "diagnostics")]
-    #[doc(hidden)]
-    pub fn execute_query_result_with_attribution<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<(QueryResponse<E>, crate::db::QueryExecutionAttribution), Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        let (result, attribution) = self.inner.execute_query_result_with_attribution(query)?;
-
-        Ok((Self::query_response_from_core(result), attribution))
-    }
-
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
@@ -142,18 +109,5 @@ impl<C: CanisterKind> DbSession<C> {
         SessionDeleteQuery {
             inner: self.inner.delete_with_consistency::<E>(consistency),
         }
-    }
-
-    // ------------------------------------------------------------------
-    // Execution
-    // ------------------------------------------------------------------
-
-    /// Build one trace payload for a query without executing it.
-    #[doc(hidden)]
-    pub fn trace_query<E>(&self, query: &Query<E>) -> Result<QueryTracePlan, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(self.inner.trace_query(query)?)
     }
 }

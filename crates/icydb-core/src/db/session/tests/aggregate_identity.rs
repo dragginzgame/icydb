@@ -135,7 +135,6 @@ fn session_aggregate_identity_terminals_match_execute() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
-            .offset(1)
             .limit(3)
     };
     let expected = load_window()
@@ -229,7 +228,6 @@ fn session_aggregate_exists_not_exists_and_is_empty_share_early_stop_scan_budget
             .load::<SessionAggregateEntity>()
             .trusted_read_unchecked()
             .order_term(crate::db::asc("id"))
-            .offset(2)
     };
 
     let (actual_exists, exists_rows_scanned) =
@@ -254,8 +252,8 @@ fn session_aggregate_exists_not_exists_and_is_empty_share_early_stop_scan_budget
         "is_empty should be false when one matching row is present",
     );
     assert_eq!(
-        exists_rows_scanned, 3,
-        "exists should stop after offset + 1 rows on a non-empty ordered window",
+        exists_rows_scanned, 1,
+        "exists should stop after the first row on a non-empty ordered query",
     );
     assert_eq!(
         not_exists_rows_scanned, exists_rows_scanned,
@@ -388,7 +386,6 @@ fn session_aggregate_min_by_unknown_field_fails_before_scan_budget_consumption()
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(0)
             .limit(3)
     };
 
@@ -432,7 +429,6 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .offset(1)
             .limit(4)
     };
     let new_field_expected = new_field_window()

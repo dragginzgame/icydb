@@ -155,7 +155,7 @@ fn query_response_error_exposes_response_origin_compact_diagnostic() {
 #[test]
 fn query_read_admission_error_exposes_compact_diagnostic_detail() {
     let query_err =
-        QueryError::from(icydb_diagnostic_code::QueryReadAdmissionCode::PublicQueryOffsetRejected);
+        QueryError::from(icydb_diagnostic_code::QueryReadAdmissionCode::PublicQueryRequiresLimit);
     let diagnostic = query_err.diagnostic();
 
     assert_eq!(
@@ -166,7 +166,7 @@ fn query_read_admission_error_exposes_compact_diagnostic_detail() {
         diagnostic.detail(),
         Some(
             &icydb_diagnostic_code::DiagnosticDetail::QueryReadAdmission {
-                reason: icydb_diagnostic_code::QueryReadAdmissionCode::PublicQueryOffsetRejected,
+                reason: icydb_diagnostic_code::QueryReadAdmissionCode::PublicQueryRequiresLimit,
             }
         ),
     );

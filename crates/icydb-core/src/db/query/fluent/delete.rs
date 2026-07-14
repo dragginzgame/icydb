@@ -9,7 +9,7 @@ use crate::{
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, OrderTerm},
-            intent::{CompiledQuery, PlannedQuery, Query, QueryError},
+            intent::{Query, QueryError},
             trace::QueryTracePlan,
         },
         response::ResponseError,
@@ -63,9 +63,8 @@ where
     // ------------------------------------------------------------------
 
     /// Borrow the current immutable query intent.
-    #[doc(hidden)]
     #[must_use]
-    pub const fn query(&self) -> &Query<E> {
+    pub(in crate::db) const fn query(&self) -> &Query<E> {
         &self.query
     }
 
@@ -155,16 +154,6 @@ where
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
         self.map_session_query_output(DbSession::trace_query)
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.map_session_query_output(DbSession::planned_query_with_visible_indexes)
-    }
-
-    /// Build the compiled executable plan for this query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.map_session_query_output(DbSession::compile_query_with_visible_indexes)
     }
 
     // ------------------------------------------------------------------

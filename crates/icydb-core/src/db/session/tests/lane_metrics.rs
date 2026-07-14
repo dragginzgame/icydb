@@ -224,7 +224,7 @@ fn fluent_lane_metrics_mark_filtered_handle_route_loads_direct_data_rows() {
 }
 
 #[test]
-fn fluent_route_ordered_direct_data_row_loads_cap_rows_scanned_to_offset_plus_limit() {
+fn structural_route_ordered_direct_data_row_loads_cap_rows_scanned_to_offset_plus_limit() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -232,23 +232,23 @@ fn fluent_route_ordered_direct_data_row_loads_cap_rows_scanned_to_offset_plus_li
     // direct raw-row account perf slice.
     seed_filtered_handle_route_fixture(&session);
 
-    // Phase 2: capture executor scan metrics for one cursorless ordered page.
+    // Phase 2: capture executor scan metrics for one ordered internal window.
     // This direct lane now owns the same `offset + limit` early-stop contract
     // the retained-slot collector already used, so route-ordered loads should
     // stop after reading the final needed candidate while returning only the
     // post-offset page.
     let (rows, rows_scanned) =
         capture_rows_scanned_for_entity(FilteredIndexedSessionSqlEntity::PATH, || {
-            session
-                .load::<FilteredIndexedSessionSqlEntity>()
-                .trusted_read_unchecked()
+            let query = Query::<FilteredIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
                 .filter(crate::db::FieldRef::new("active").eq(true))
                 .filter(crate::db::FieldRef::new("tier").eq("gold"))
                 .order_term(crate::db::asc("handle"))
                 .order_term(crate::db::asc("id"))
                 .offset(1)
-                .limit(2)
-                .execute()
+                .limit(2);
+
+            session
+                .execute_query_result(&query)
                 .and_then(crate::db::LoadQueryResult::into_rows)
         });
     let rows = rows.expect("route-ordered filtered handle load should execute");

@@ -67,7 +67,7 @@ names.
 Primary owners:
 
 * `db/session/sql/mod.rs`
-  * `execute_sql_query`
+  * `execute_trusted_sql_query`
   * `execute_sql_update`
   * `compile_sql_query`
   * `compile_sql_update`
@@ -231,7 +231,7 @@ Check:
 
 Search targets:
 
-* `execute_sql_query`
+* `execute_trusted_sql_query`
 * `execute_sql_update`
 * `compile_sql_query`
 * `compile_sql_update`
@@ -509,7 +509,7 @@ Start with the checks IcyDB already uses as security-adjacent evidence:
 * `bash scripts/ci/check-memory-id-invariants.sh`
 * `bash scripts/ci/check-layer-authority-invariants.sh`
 * `cargo test -p icydb-core --features sql sql_query_surfaces_reject_non_query_statement_lanes_matrix -- --nocapture`
-* `cargo test -p icydb-core --features sql execute_sql_query_rejects_invalid_grouped_projection_shapes -- --nocapture`
+* `cargo test -p icydb-core --features sql execute_trusted_sql_query_rejects_invalid_grouped_projection_shapes -- --nocapture`
 * `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_rejects_validation_shape_matrix -- --nocapture`
 * `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_having_order_limit_composition_enforces_bounded_policy -- --nocapture`
 * `cargo test -p icydb-core --features sql db::executor::planning::route::tests::route_grouped_runtime_revalidation_flags_match_baseline -- --nocapture`

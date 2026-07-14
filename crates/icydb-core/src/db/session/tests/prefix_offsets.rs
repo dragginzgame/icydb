@@ -37,23 +37,24 @@ fn equality_prefix_suffix_order_descriptor(
     descending: bool,
     offset: Option<u32>,
 ) -> ExplainExecutionNodeDescriptor {
-    let mut load = session
-        .load::<SessionDeterministicRangeEntity>()
-        .trusted_read_unchecked()
+    let mut query = Query::<SessionDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(equality_prefix_suffix_order_filter());
-    load = if descending {
-        load.order_term(crate::db::desc("label"))
+    query = if descending {
+        query
+            .order_term(crate::db::desc("label"))
             .order_term(crate::db::desc("id"))
     } else {
-        load.order_term(crate::db::asc("label"))
+        query
+            .order_term(crate::db::asc("label"))
             .order_term(crate::db::asc("id"))
     };
     if let Some(offset) = offset {
-        load = load.offset(offset);
+        query = query.offset(offset);
     }
+    let query = query.limit(2);
 
-    load.limit(2)
-        .explain_execution()
+    session
+        .explain_query_execution_with_visible_indexes(&query)
         .expect("session equality-prefix suffix-order explain_execution should build")
 }
 
@@ -63,21 +64,21 @@ fn unique_prefix_offset_descriptor(
     session: &DbSession<SessionSqlCanister>,
     descending: bool,
 ) -> ExplainExecutionNodeDescriptor {
-    let mut load = session
-        .load::<SessionUniquePrefixOffsetEntity>()
-        .trusted_read_unchecked()
+    let mut query = Query::<SessionUniquePrefixOffsetEntity>::new(MissingRowPolicy::Ignore)
         .filter(crate::db::FieldRef::new("tier").eq("gold"));
-    load = if descending {
-        load.order_term(crate::db::desc("handle"))
+    query = if descending {
+        query
+            .order_term(crate::db::desc("handle"))
             .order_term(crate::db::desc("id"))
     } else {
-        load.order_term(crate::db::asc("handle"))
+        query
+            .order_term(crate::db::asc("handle"))
             .order_term(crate::db::asc("id"))
     };
+    query = query.limit(2).offset(1);
 
-    load.limit(2)
-        .offset(1)
-        .explain_execution()
+    session
+        .explain_query_execution_with_visible_indexes(&query)
         .expect("session unique-prefix offset explain_execution should build")
 }
 
@@ -256,26 +257,24 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
 
     // Phase 2: execute one ascending and one descending offset window on the
     // same equality-prefix suffix-order shape.
-    let asc = session
-        .load::<SessionDeterministicRangeEntity>()
-        .trusted_read_unchecked()
+    let asc_query = Query::<SessionDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(equality_prefix_suffix_order_filter())
         .order_term(crate::db::asc("label"))
         .order_term(crate::db::asc("id"))
         .offset(1)
-        .limit(2)
-        .execute()
+        .limit(2);
+    let asc = session
+        .execute_query_result(&asc_query)
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("ascending equality-prefix suffix-order offset window should execute");
-    let desc = session
-        .load::<SessionDeterministicRangeEntity>()
-        .trusted_read_unchecked()
+    let desc_query = Query::<SessionDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(equality_prefix_suffix_order_filter())
         .order_term(crate::db::desc("label"))
         .order_term(crate::db::desc("id"))
         .offset(1)
-        .limit(2)
-        .execute()
+        .limit(2);
+    let desc = session
+        .execute_query_result(&desc_query)
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("descending equality-prefix suffix-order offset window should execute");
 
@@ -315,15 +314,14 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
         ],
     );
 
-    let asc = session
-        .load::<SessionUniquePrefixOffsetEntity>()
-        .trusted_read_unchecked()
+    let asc_query = Query::<SessionUniquePrefixOffsetEntity>::new(MissingRowPolicy::Ignore)
         .filter(FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
         .limit(2)
-        .offset(1)
-        .execute()
+        .offset(1);
+    let asc = session
+        .execute_query_result(&asc_query)
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("unique-prefix ascending offset window should execute");
     let asc_handles = asc
@@ -331,15 +329,14 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
         .map(|row| row.entity_ref().handle.clone())
         .collect::<Vec<_>>();
 
-    let desc = session
-        .load::<SessionUniquePrefixOffsetEntity>()
-        .trusted_read_unchecked()
+    let desc_query = Query::<SessionUniquePrefixOffsetEntity>::new(MissingRowPolicy::Ignore)
         .filter(FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::desc("handle"))
         .order_term(crate::db::desc("id"))
         .limit(2)
-        .offset(1)
-        .execute()
+        .offset(1);
+    let desc = session
+        .execute_query_result(&desc_query)
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("unique-prefix descending offset window should execute");
     let desc_handles = desc

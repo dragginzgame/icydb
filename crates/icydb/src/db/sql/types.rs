@@ -9,7 +9,7 @@ use crate::db::sql::table_render::render_explain_lines;
 use crate::db::{
     EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
     MemoryCatalogDescription, StoreCatalogDescription,
-    response::{ProjectionRows, RowProjectionOutput},
+    response::RowProjectionOutput,
     sql::table_render::{
         SqlDdlRenderInput, render_count_lines, render_describe_lines, render_grouped_lines,
         render_query_rows_lines, render_show_columns_lines, render_show_entities_lines,
@@ -20,16 +20,6 @@ use crate::db::{
 
 use candid::CandidType;
 use serde::Deserialize;
-
-/// Compatibility alias for SQL endpoint callers. The concrete row payload now
-/// lives under `db::response` so fluent write-returning does not depend on the
-/// SQL module.
-pub type SqlProjectionRows = ProjectionRows;
-
-/// Compatibility alias for SQL endpoint callers. The concrete row payload now
-/// lives under `db::response` so fluent write-returning does not depend on the
-/// SQL module.
-pub type SqlQueryRowsOutput = RowProjectionOutput;
 
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -48,7 +38,7 @@ pub enum SqlQueryResult {
         entity: String,
         row_count: u32,
     },
-    Projection(SqlQueryRowsOutput),
+    Projection(RowProjectionOutput),
     Grouped(SqlGroupedRowsOutput),
     #[cfg(feature = "sql-explain")]
     Explain {

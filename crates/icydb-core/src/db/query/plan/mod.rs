@@ -36,8 +36,8 @@ use std::borrow::Cow;
 
 pub(in crate::db) use crate::model::canonicalize_filter_literal_for_kind;
 pub(in crate::db) use access_choice::{
-    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
-    AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
+    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
+    AccessChoiceResidualBurden, AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
 };
 pub(in crate::db::query) use access_choice::{
     rerank_access_plan_by_residual_burden_with_indexes,

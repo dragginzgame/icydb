@@ -2,22 +2,13 @@ use super::support::*;
 use crate::db::query::plan::expr::CaseWhenArm;
 
 #[test]
-fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
+fn plan_hash_snapshot_is_stable_across_diagnostic_surfaces() {
     // Phase 1: build one deterministic scalar query shape and capture baseline hash surfaces.
     let query = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore).by_id(Unit);
 
     let baseline_hash = query
         .plan_hash_hex()
         .expect("baseline plan hash should build");
-    let planned_hash = query
-        .planned()
-        .expect("planned query should build for hash parity")
-        .plan_hash_hex();
-    let compiled_hash = query
-        .plan()
-        .expect("compiled query should build for hash parity")
-        .plan_hash_hex();
-
     // Phase 2: force logical + execution explain surfaces for the same query shape.
     let _logical_explain = query
         .explain()
@@ -36,14 +27,6 @@ fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
     let hash_after_explain = query
         .plan_hash_hex()
         .expect("plan hash should still build after explain rendering");
-    assert_eq!(
-        baseline_hash, planned_hash,
-        "planned-query plan hash must match query plan-hash surface",
-    );
-    assert_eq!(
-        baseline_hash, compiled_hash,
-        "compiled-query plan hash must match query plan-hash surface",
-    );
     assert_eq!(
         baseline_hash, hash_after_explain,
         "explain rendering surfaces must not change semantic plan-hash identity",
@@ -72,31 +55,11 @@ fn canonical_equivalent_scalar_filter_shapes_share_query_plan_hash_surfaces() {
         .plan_hash_hex()
         .expect("right canonical-equivalent query should build a plan hash");
 
-    // Phase 2: require the public query, planned-query, compiled-query, and
-    // explain surfaces to follow the same canonical scalar filter identity.
+    // Phase 2: require the plan-hash and explain surfaces to follow the same
+    // canonical scalar filter identity.
     assert_eq!(
         left_hash, right_hash,
         "canonical-equivalent scalar filter spellings must share the outward query plan hash",
-    );
-    assert_eq!(
-        left.planned()
-            .expect("left planned query should build for canonical parity")
-            .plan_hash_hex(),
-        right
-            .planned()
-            .expect("right planned query should build for canonical parity")
-            .plan_hash_hex(),
-        "planned-query hash surface must follow the same canonical scalar filter identity",
-    );
-    assert_eq!(
-        left.plan()
-            .expect("left compiled query should build for canonical parity")
-            .plan_hash_hex(),
-        right
-            .plan()
-            .expect("right compiled query should build for canonical parity")
-            .plan_hash_hex(),
-        "compiled-query hash surface must follow the same canonical scalar filter identity",
     );
     assert_eq!(
         left.explain()
@@ -159,26 +122,6 @@ fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
         "canonical-equivalent grouped HAVING order must share the outward query plan hash",
     );
     assert_eq!(
-        left.planned()
-            .expect("left grouped planned query should build for canonical parity")
-            .plan_hash_hex(),
-        right
-            .planned()
-            .expect("right grouped planned query should build for canonical parity")
-            .plan_hash_hex(),
-        "planned grouped-query hash surface must follow canonical HAVING identity",
-    );
-    assert_eq!(
-        left.plan()
-            .expect("left grouped compiled query should build for canonical parity")
-            .plan_hash_hex(),
-        right
-            .plan()
-            .expect("right grouped compiled query should build for canonical parity")
-            .plan_hash_hex(),
-        "compiled grouped-query hash surface must follow canonical HAVING identity",
-    );
-    assert_eq!(
         left.explain()
             .expect("left grouped explain should build for canonical parity"),
         right
@@ -236,28 +179,6 @@ fn grouped_null_and_false_having_families_keep_distinct_plan_hash_surfaces() {
             .expect("grouped explicit-false family hash should build"),
         "grouped omitted-ELSE null-family and explicit-false family must stay distinct on outward plan-hash surfaces",
     );
-    assert_ne!(
-        omitted_else_null_family
-            .planned()
-            .expect("grouped omitted-ELSE null-family planned query should build")
-            .plan_hash_hex(),
-        explicit_false_family
-            .planned()
-            .expect("grouped explicit-false family planned query should build")
-            .plan_hash_hex(),
-        "planned grouped-query hash surface must keep the grouped null and false families distinct",
-    );
-    assert_ne!(
-        omitted_else_null_family
-            .plan()
-            .expect("grouped omitted-ELSE null-family compiled query should build")
-            .plan_hash_hex(),
-        explicit_false_family
-            .plan()
-            .expect("grouped explicit-false family compiled query should build")
-            .plan_hash_hex(),
-        "compiled grouped-query hash surface must keep the grouped null and false families distinct",
-    );
 }
 
 #[test]
@@ -278,26 +199,6 @@ fn scalar_queries_with_distinct_projection_shapes_keep_distinct_plan_hash_surfac
             .plan_hash_hex()
             .expect("right scalar projection hash should build"),
         "distinct scalar projection shapes must remain distinct on outward plan-hash surfaces",
-    );
-    assert_ne!(
-        left.planned()
-            .expect("left planned projection should build")
-            .plan_hash_hex(),
-        right
-            .planned()
-            .expect("right planned projection should build")
-            .plan_hash_hex(),
-        "planned-query hash surface must keep distinct scalar projection shapes separate",
-    );
-    assert_ne!(
-        left.plan()
-            .expect("left compiled projection should build")
-            .plan_hash_hex(),
-        right
-            .plan()
-            .expect("right compiled projection should build")
-            .plan_hash_hex(),
-        "compiled-query hash surface must keep distinct scalar projection shapes separate",
     );
 }
 

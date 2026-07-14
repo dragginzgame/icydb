@@ -1045,7 +1045,7 @@ fn aggregate_execution_unknown_rank_targets_fail_without_scan() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("aggregate unknown-field target plan should build")
     };
@@ -1135,7 +1135,7 @@ fn aggregate_execution_non_orderable_rank_targets_fail_without_scan() {
     let build_plan = || {
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("aggregate non-orderable target plan should build")
     };
@@ -1186,7 +1186,7 @@ fn aggregate_execution_field_target_extrema_select_deterministic_ids() {
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("aggregate extrema plan should build")
     };
@@ -1235,12 +1235,12 @@ fn aggregate_execution_field_target_tie_breaks_on_primary_key_ascending() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let min_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("field-target MIN tie-break plan should build");
     let max_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("field-target MAX tie-break plan should build");
 
@@ -1533,7 +1533,7 @@ fn aggregate_execution_field_extrema_negative_lock_distinct_and_offset_shapes_av
                     .filter_predicate(u32_eq_predicate("group", 7))
                     .distinct()
                     .order_term(crate::db::asc("rank"))
-                    .plan()
+                    .access_plan_for_test()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("distinct MIN(field) plan should build"),
                 planned_slot::<PushdownParityEntity>("rank"),
@@ -1548,7 +1548,7 @@ fn aggregate_execution_field_extrema_negative_lock_distinct_and_offset_shapes_av
                     .filter_predicate(u32_eq_predicate("group", 7))
                     .order_term(crate::db::asc("rank"))
                     .offset(2)
-                    .plan()
+                    .access_plan_for_test()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("offset MAX(field) plan should build"),
                 planned_slot::<PushdownParityEntity>("rank"),
@@ -1585,7 +1585,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &pushdown_load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("unknown-field MIN(field) plan should build"),
         planned_slot::<PushdownParityEntity>("missing_field"),
@@ -1595,7 +1595,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &pushdown_load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("unknown-field MEDIAN(field) plan should build"),
         planned_slot::<PushdownParityEntity>("missing_field"),
@@ -1605,7 +1605,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &pushdown_load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("unknown-field COUNT_DISTINCT(field) plan should build"),
         planned_slot::<PushdownParityEntity>("missing_field"),
@@ -1615,7 +1615,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &pushdown_load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("unknown-field MIN_MAX(field) plan should build"),
         planned_slot::<PushdownParityEntity>("missing_field"),
@@ -1625,7 +1625,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &pushdown_load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("non-numeric SUM(field) plan should build"),
         planned_slot::<PushdownParityEntity>("label"),
@@ -1664,7 +1664,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &phase_load,
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("non-orderable MIN(field) plan should build"),
         planned_slot::<PhaseEntity>("tags"),
@@ -1674,7 +1674,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &phase_load,
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("non-orderable MEDIAN(field) plan should build"),
         planned_slot::<PhaseEntity>("tags"),
@@ -1684,7 +1684,7 @@ fn aggregate_execution_field_terminal_error_classification_matrix() {
         &phase_load,
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("non-orderable MIN_MAX(field) plan should build"),
         planned_slot::<PhaseEntity>("tags"),
@@ -1765,7 +1765,7 @@ fn aggregate_execution_sum_distinct_uses_grouped_global_distinct_path() {
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("sum_distinct_by(rank) plan should build");
 
@@ -1796,7 +1796,7 @@ fn aggregate_execution_avg_distinct_uses_grouped_global_distinct_path() {
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("avg_distinct_by(rank) plan should build");
 
@@ -1828,13 +1828,13 @@ fn aggregate_execution_sum_distinct_is_insertion_order_invariant() {
     let plan_asc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("sum_distinct_by(rank) ASC plan should build");
     let plan_desc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::desc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("sum_distinct_by(rank) DESC plan should build");
 
@@ -1871,7 +1871,7 @@ fn aggregate_execution_sum_distinct_handles_large_values_without_wrap() {
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("sum_distinct_by(rank) large-value plan should build");
 
@@ -1904,7 +1904,7 @@ fn aggregate_execution_sum_distinct_preserves_decimal_integer_canonical_scale() 
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("sum_distinct_by(rank) canonical-scale plan should build");
 
@@ -2144,7 +2144,7 @@ fn aggregate_execution_nth_by_rank_selects_deterministic_positions() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("field-target nth plan should build")
     };
@@ -2231,7 +2231,7 @@ fn aggregate_execution_nth_boundary_matrix_respects_window_and_out_of_range() {
     let expected_response = load
         .execute(
             base_query()
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("nth boundary baseline plan should build"),
         )
@@ -2241,7 +2241,7 @@ fn aggregate_execution_nth_boundary_matrix_respects_window_and_out_of_range() {
         let actual = execute_nth_by_slot_terminal(
             &load,
             base_query()
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("nth boundary plan should build"),
             planned_slot::<PushdownParityEntity>("rank"),
@@ -2263,7 +2263,7 @@ fn aggregate_execution_nth_boundary_matrix_respects_window_and_out_of_range() {
             .order_term(crate::db::desc("id"))
             .offset(50)
             .limit(3)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("empty-window nth plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -2281,7 +2281,7 @@ fn aggregate_execution_nth_unknown_and_non_orderable_targets_fail_without_scan()
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let unknown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("field-target nth unknown-field plan should build");
     let (unknown_result, unknown_scanned) =
@@ -2304,7 +2304,7 @@ fn aggregate_execution_nth_unknown_and_non_orderable_targets_fail_without_scan()
     let phase_load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let non_orderable_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("field-target nth non-orderable plan should build");
     let (non_orderable_result, non_orderable_scanned) =
@@ -2339,7 +2339,7 @@ fn aggregate_execution_median_even_window_uses_lower_policy() {
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .limit(4)
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("field-target median plan should build")
     };
@@ -2374,7 +2374,7 @@ fn aggregate_execution_median_order_direction_invariant_on_same_window() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("median ASC plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -2385,7 +2385,7 @@ fn aggregate_execution_median_order_direction_invariant_on_same_window() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("median DESC plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -2405,7 +2405,7 @@ fn aggregate_execution_median_and_min_max_unknown_field_fail_without_scan() {
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_term(crate::db::asc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("unknown-field terminal plan should build")
     };
@@ -2456,7 +2456,7 @@ fn aggregate_execution_min_max_matches_individual_extrema() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
-            .plan()
+            .access_plan_for_test()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("field-target min-max plan should build")
     };
@@ -2545,7 +2545,7 @@ fn aggregate_execution_min_max_metamorphic_matrix_matches_individual_extrema() {
         let min_max = execute_min_max_by_slot_terminal(
             &load,
             build_query()
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("metamorphic min_max plan should build"),
             planned_slot::<PushdownParityEntity>("rank"),
@@ -2554,7 +2554,7 @@ fn aggregate_execution_min_max_metamorphic_matrix_matches_individual_extrema() {
         let min_by = execute_min_by_slot_terminal(
             &load,
             build_query()
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("metamorphic min plan should build"),
             planned_slot::<PushdownParityEntity>("rank"),
@@ -2563,7 +2563,7 @@ fn aggregate_execution_min_max_metamorphic_matrix_matches_individual_extrema() {
         let max_by = execute_max_by_slot_terminal(
             &load,
             build_query()
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("metamorphic max plan should build"),
             planned_slot::<PushdownParityEntity>("rank"),
@@ -2590,7 +2590,7 @@ fn aggregate_execution_min_max_empty_window_returns_none() {
             .order_term(crate::db::asc("id"))
             .offset(50)
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("empty-window min_max plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -2612,7 +2612,7 @@ fn aggregate_execution_min_max_single_row_returns_same_id_pair() {
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(1)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("single-row min_max plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
@@ -2632,7 +2632,7 @@ fn aggregate_execution_numeric_field_unknown_target_fails_without_scan() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("numeric field unknown-target plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
@@ -2657,7 +2657,7 @@ fn aggregate_execution_numeric_field_non_numeric_target_fails_without_scan() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("numeric field non-numeric target plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
@@ -2688,7 +2688,7 @@ fn aggregate_execution_top_k_by_direction_invariance_across_forced_access_shapes
             OrderDirection::Desc => query.order_term(crate::db::desc("id")),
         };
         let plan = query
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("top_k_by full-scan direction-invariance plan should build");
         assert!(
@@ -2731,7 +2731,7 @@ fn aggregate_execution_top_k_by_direction_invariance_across_forced_access_shapes
             OrderDirection::Desc => query.order_term(crate::db::desc("code")),
         };
         let plan = query
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("top_k_by index-range direction-invariance plan should build");
         assert!(
@@ -2766,7 +2766,7 @@ fn aggregate_execution_rank_k_one_extrema_equivalence_matrix() {
                 .filter_predicate(u32_eq_predicate("group", 7))
                 .order_term(crate::db::desc("id"))
                 .limit(4)
-                .plan()
+                .access_plan_for_test()
                 .map(PreparedExecutionPlan::from)
                 .expect("ranked k-one equivalence matrix plan should build")
         };
@@ -2846,7 +2846,7 @@ fn aggregate_execution_take_and_rank_terminals_k_zero_return_empty_with_execute_
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(3)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("k-zero terminal plan should build")
     };

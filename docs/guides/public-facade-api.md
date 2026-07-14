@@ -402,7 +402,7 @@ SQL session commands are available with the `sql` feature. They are
 trusted/admin surfaces unless wrapped by an application-owned policy.
 
 ```rust
-db.execute_sql_query::<E>(sql)
+db.execute_trusted_sql_query::<E>(sql)
 db.execute_sql_update::<E>(sql)
 db.execute_sql_ddl::<E>(sql)
 ```
@@ -423,8 +423,6 @@ These commands inspect a load or delete query without changing rows.
 ```rust
 .plan_hash_hex()
 .trace()
-.planned()
-.plan()
 .explain()
 ```
 
@@ -495,8 +493,8 @@ application-owned SQL ingress. Do not call them directly from ordinary endpoint
 code unless that endpoint owns the policy boundary explicitly.
 
 ```rust
-db.execute_sql_query_with_perf_attribution::<E>(sql)
-db.execute_sql_query_with_attribution::<E>(sql)
+db.execute_trusted_sql_query_with_perf_attribution::<E>(sql)
+db.execute_trusted_sql_query_with_attribution::<E>(sql)
 
 db.execute_validated_sql_public_primary_key_update::<E>(plan)
 db.execute_sql_public_primary_key_update::<E>(sql)
@@ -547,17 +545,6 @@ rows.ids()
 rows.contains_id(id)
 ```
 
-Projection responses:
-
-```rust
-ProjectionResponse::from_core(core_projection)
-
-projection.count()
-projection.exists()
-projection.rows()
-projection.iter()
-```
-
 Paged responses:
 
 ```rust
@@ -596,15 +583,12 @@ result.ids()
 Row projection payloads:
 
 ```rust
-ProjectionRows::new(columns, rows, row_count)
-projection.columns()
-projection.rows()
-projection.rendered_rows()
-projection.row_count()
-projection.into_columns_rows_and_count()
-
-RowProjectionOutput::from_projection(entity, projection)
-output.as_projection_rows()
+RowProjectionOutput {
+    entity,
+    columns,
+    rows,
+    row_count,
+}
 output.rendered_rows()
 
 render_output_value_text(value)

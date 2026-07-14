@@ -3,15 +3,14 @@
 //! Does not own: planner summary extraction, diagnostics DTOs, or text render.
 //! Boundary: applies policy to an already-built admission summary.
 
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU32;
 
 use super::{
-    QueryAdmissionAccessKind, QueryAdmissionLane, QueryAdmissionPlanShape, QueryAdmissionRejection,
-    QueryAdmissionSummary, QueryBoundKind, plan_summary,
+    QueryAdmissionAccessKind, QueryAdmissionLane, QueryAdmissionRejection, QueryAdmissionSummary,
+    QueryBoundKind, plan_summary,
 };
 
 pub(in crate::db::query) const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;
-pub(in crate::db::query) const DEFAULT_BOUNDED_READ_RESPONSE_BYTES: u32 = 128 * 1024;
 const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;
 const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;
 const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;
@@ -96,23 +95,6 @@ impl GroupedAdmissionPolicy {
     pub(in crate::db) const fn has_hard_limits(&self) -> bool {
         self.groups.is_some() && self.group_bytes.is_some()
     }
-
-    /// Project this admission policy into grouped execution caps.
-    #[must_use]
-    #[cfg(all(test, feature = "sql"))]
-    pub(in crate::db) const fn execution_config(
-        &self,
-    ) -> Option<crate::db::query::plan::GroupedExecutionConfig> {
-        match (self.groups, self.group_bytes) {
-            (Some(groups), Some(group_bytes)) => Some(
-                crate::db::query::plan::GroupedExecutionConfig::with_hard_limits(
-                    groups.get() as u64,
-                    group_bytes.get() as u64,
-                ),
-            ),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -139,44 +121,28 @@ enum MaterializedSortPolicy {
     Reject,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OffsetPolicy {
-    Allow,
-    RejectNonZero,
-}
-
 /// Read-admission policy attached to one query surface.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct QueryAdmissionPolicy {
     lane: QueryAdmissionLane,
     limit_requirement: LimitRequirement,
     max_returned_rows: Option<NonZeroU32>,
-    max_scanned_rows: Option<NonZeroU64>,
-    max_response_bytes: Option<NonZeroU32>,
     max_primary_key_input_terms: Option<NonZeroU32>,
     max_primary_key_input_bytes: Option<NonZeroU32>,
     index_requirement: IndexRequirement,
-    offset_policy: OffsetPolicy,
     full_scan_policy: FullScanPolicy,
     materialized_sort_policy: MaterializedSortPolicy,
-    max_materialized_rows: Option<NonZeroU32>,
-    max_projection_columns: Option<NonZeroU32>,
     grouped: GroupedAdmissionPolicy,
 }
 
 impl QueryAdmissionPolicy {
     /// Build the safe default policy for caller-facing bounded read endpoints.
     #[must_use]
-    pub(in crate::db) const fn public_read(
-        max_returned_rows: NonZeroU32,
-        max_response_bytes: NonZeroU32,
-    ) -> Self {
+    pub(in crate::db) const fn public_read(max_returned_rows: NonZeroU32) -> Self {
         Self {
             lane: QueryAdmissionLane::PublicRead,
             limit_requirement: LimitRequirement::Required,
             max_returned_rows: Some(max_returned_rows),
-            max_scanned_rows: None,
-            max_response_bytes: Some(max_response_bytes),
             max_primary_key_input_terms: Some(non_zero_default(
                 DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_TERMS,
             )),
@@ -184,28 +150,21 @@ impl QueryAdmissionPolicy {
                 DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_BYTES,
             )),
             index_requirement: IndexRequirement::Required,
-            offset_policy: OffsetPolicy::RejectNonZero,
             full_scan_policy: FullScanPolicy::Reject,
             materialized_sort_policy: MaterializedSortPolicy::Reject,
-            max_materialized_rows: None,
-            max_projection_columns: None,
             grouped: GroupedAdmissionPolicy::disabled(),
         }
     }
 
     /// Build the default bounded policy used by ordinary typed/fluent reads.
     ///
-    /// The policy rejects unindexed full scans, non-zero offsets, materialized
-    /// sorts, and queries without a proven row bound. Callers that intentionally
-    /// need a broader read must use an explicitly trusted execution method or
-    /// evaluate their own policy before executing.
+    /// The policy rejects unindexed full scans, materialized sorts, and queries
+    /// without a proven row bound. Public continuation remains cursor-based at
+    /// the fluent API boundary; trusted SQL owns its separate `OFFSET` semantics.
     #[must_use]
     pub(in crate::db) const fn default_bounded_read() -> Self {
-        Self::public_read(
-            non_zero_default(DEFAULT_BOUNDED_READ_MAX_ROWS),
-            non_zero_default(DEFAULT_BOUNDED_READ_RESPONSE_BYTES),
-        )
-        .with_grouped_policy(GroupedAdmissionPolicy::default_bounded_read())
+        Self::public_read(non_zero_default(DEFAULT_BOUNDED_READ_MAX_ROWS))
+            .with_grouped_policy(GroupedAdmissionPolicy::default_bounded_read())
     }
 
     /// Return this policy with explicit grouped execution budgets attached.
@@ -221,32 +180,6 @@ impl QueryAdmissionPolicy {
         self
     }
 
-    /// Build a trusted ad-hoc policy with explicit execution budgets.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn admin_ad_hoc(
-        max_returned_rows: NonZeroU32,
-        max_scanned_rows: NonZeroU64,
-        max_response_bytes: NonZeroU32,
-    ) -> Self {
-        Self {
-            lane: QueryAdmissionLane::AdminAdHoc,
-            limit_requirement: LimitRequirement::Optional,
-            max_returned_rows: Some(max_returned_rows),
-            max_scanned_rows: Some(max_scanned_rows),
-            max_response_bytes: Some(max_response_bytes),
-            max_primary_key_input_terms: None,
-            max_primary_key_input_bytes: None,
-            index_requirement: IndexRequirement::Optional,
-            offset_policy: OffsetPolicy::Allow,
-            full_scan_policy: FullScanPolicy::Allow,
-            materialized_sort_policy: MaterializedSortPolicy::Allow,
-            max_materialized_rows: Some(max_returned_rows),
-            max_projection_columns: None,
-            grouped: GroupedAdmissionPolicy::disabled(),
-        }
-    }
-
     /// Build an EXPLAIN-only policy that cannot execute rows.
     #[must_use]
     pub(in crate::db) const fn diagnostic_explain() -> Self {
@@ -254,16 +187,11 @@ impl QueryAdmissionPolicy {
             lane: QueryAdmissionLane::DiagnosticExplain,
             limit_requirement: LimitRequirement::Optional,
             max_returned_rows: None,
-            max_scanned_rows: None,
-            max_response_bytes: None,
             max_primary_key_input_terms: None,
             max_primary_key_input_bytes: None,
             index_requirement: IndexRequirement::Optional,
-            offset_policy: OffsetPolicy::Allow,
             full_scan_policy: FullScanPolicy::Allow,
             materialized_sort_policy: MaterializedSortPolicy::Allow,
-            max_materialized_rows: None,
-            max_projection_columns: None,
             grouped: GroupedAdmissionPolicy::disabled(),
         }
     }
@@ -287,30 +215,10 @@ impl QueryAdmissionPolicy {
         self.max_returned_rows
     }
 
-    /// Return the maximum rows that may be scanned.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn max_scanned_rows(&self) -> Option<NonZeroU64> {
-        self.max_scanned_rows
-    }
-
-    /// Return the maximum response bytes.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn max_response_bytes(&self) -> Option<NonZeroU32> {
-        self.max_response_bytes
-    }
-
     /// Return whether the selected plan must use an index-backed path.
     #[must_use]
     pub(in crate::db) const fn require_index(&self) -> bool {
         matches!(self.index_requirement, IndexRequirement::Required)
-    }
-
-    /// Return whether this surface rejects non-zero OFFSET execution.
-    #[must_use]
-    pub(in crate::db) const fn reject_non_zero_offset(&self) -> bool {
-        matches!(self.offset_policy, OffsetPolicy::RejectNonZero)
     }
 
     /// Return whether a full entity scan may execute.
@@ -325,26 +233,11 @@ impl QueryAdmissionPolicy {
         matches!(self.materialized_sort_policy, MaterializedSortPolicy::Allow)
     }
 
-    /// Return the maximum rows that may be materialized for sort/projection work.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn max_materialized_rows(&self) -> Option<NonZeroU32> {
-        self.max_materialized_rows
-    }
-
     /// Return grouped/aggregate budgets.
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) const fn grouped(&self) -> GroupedAdmissionPolicy {
         self.grouped
-    }
-
-    /// Return whether public-read construction kept the mandatory finite caps.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn public_caps_are_finite(&self) -> bool {
-        !matches!(self.lane, QueryAdmissionLane::PublicRead)
-            || (self.max_returned_rows.is_some() && self.max_response_bytes.is_some())
     }
 
     /// Return this policy with explicit primary-key input work caps.
@@ -382,10 +275,6 @@ impl QueryAdmissionPolicy {
             return Some(QueryAdmissionRejection::DiagnosticLaneDoesNotExecute);
         }
 
-        if matches!(summary.plan_shape(), QueryAdmissionPlanShape::Delete) {
-            return Some(QueryAdmissionRejection::UnsupportedStatementForQueryLane);
-        }
-
         if let Some(rejection) = self.grouped_rejection(summary) {
             return Some(rejection);
         }
@@ -411,15 +300,7 @@ impl QueryAdmissionPolicy {
             return Some(QueryAdmissionRejection::PublicQueryRequiresLimit);
         }
 
-        if self.reject_non_zero_offset() && summary.offset().unwrap_or_default() != 0 {
-            return Some(QueryAdmissionRejection::PublicQueryOffsetRejected);
-        }
-
         if let Some(rejection) = self.returned_row_bound_rejection(summary) {
-            return Some(rejection);
-        }
-
-        if let Some(rejection) = self.scan_bound_rejection(summary) {
             return Some(rejection);
         }
 
@@ -465,48 +346,15 @@ impl QueryAdmissionPolicy {
     ) -> Option<QueryAdmissionRejection> {
         let max_returned_rows = self.max_returned_rows?;
 
-        if matches!(
-            summary.returned_row_bound_kind(),
-            QueryBoundKind::EstimateOnly
-        ) {
-            return Some(QueryAdmissionRejection::EstimatedOnlyBoundRejected);
-        }
-
-        if !summary.returned_row_bound_kind().admits_public_read() {
-            return Some(QueryAdmissionRejection::ScanBoundUnavailable);
-        }
-
-        let Some(returned_row_bound) = summary.returned_row_bound() else {
-            return Some(QueryAdmissionRejection::ScanBoundUnavailable);
+        let Some(returned_row_bound) = summary
+            .returned_row_bound()
+            .filter(|_| summary.returned_row_bound_kind().admits_public_read())
+        else {
+            return Some(QueryAdmissionRejection::PublicQueryRequiresLimit);
         };
 
         if returned_row_bound > max_returned_rows.get() {
             return Some(QueryAdmissionRejection::ReturnedRowBoundExceedsPolicy);
-        }
-
-        None
-    }
-
-    fn scan_bound_rejection(
-        &self,
-        summary: &QueryAdmissionSummary,
-    ) -> Option<QueryAdmissionRejection> {
-        let max_scanned_rows = self.max_scanned_rows?;
-
-        if matches!(summary.scan_bound_kind(), QueryBoundKind::EstimateOnly) {
-            return Some(QueryAdmissionRejection::EstimatedOnlyBoundRejected);
-        }
-
-        if !summary.scan_bound_kind().admits_public_read() {
-            return Some(QueryAdmissionRejection::ScanBoundUnavailable);
-        }
-
-        let Some(scan_bound) = summary.scan_bound() else {
-            return Some(QueryAdmissionRejection::ScanBoundUnavailable);
-        };
-
-        if scan_bound > max_scanned_rows.get() {
-            return Some(QueryAdmissionRejection::ScanBoundExceedsPolicy);
         }
 
         None
@@ -546,14 +394,7 @@ impl QueryAdmissionPolicy {
             return Some(QueryAdmissionRejection::SortRequiresMaterialization);
         }
 
-        let max_materialized_rows = self.max_materialized_rows?;
-        let materialized_rows = summary.materialization().materialized_rows()?;
-
-        if materialized_rows > max_materialized_rows.get() {
-            Some(QueryAdmissionRejection::MaterializationExceedsBudget)
-        } else {
-            None
-        }
+        None
     }
 }
 

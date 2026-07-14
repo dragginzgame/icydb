@@ -267,7 +267,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 //   indicate executor/planner contract breaches.
 
 #[cfg(test)]
-use crate::{db::CompiledQuery, entity::EntityKind};
+use crate::entity::EntityKind;
 use crate::{
     db::{cursor::CursorPlanError, data::DecodedDataStoreKey, query::plan::AccessPlannedQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -409,11 +409,11 @@ impl From<ExecutorError> for InternalError {
 }
 
 #[cfg(test)]
-impl<E> From<CompiledQuery<E>> for PreparedExecutionPlan<E>
+impl<E> From<AccessPlannedQuery> for PreparedExecutionPlan<E>
 where
     E: EntityKind,
 {
-    fn from(value: CompiledQuery<E>) -> Self {
-        Self::new(value.into_plan())
+    fn from(value: AccessPlannedQuery) -> Self {
+        Self::new(value)
     }
 }

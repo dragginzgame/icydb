@@ -35,22 +35,6 @@ where
         resolve_aggregate_target_field_slot_with_schema(E::MODEL, &schema, field.as_ref())
     }
 
-    pub(super) fn ensure_cursor_mode_ready(&self) -> Result<(), QueryError> {
-        // Cursor-mode fluent queries only need the paged policy gate when a
-        // continuation token is actually present on the request boundary.
-        if self.cursor_token.is_some() {
-            validate_fluent_paged_mode(
-                self.query.has_grouping(),
-                self.query.has_explicit_order(),
-                self.query.load_spec(),
-            )
-            .map_err(IntentError::from)
-            .map_err(QueryError::intent)?;
-        }
-
-        Ok(())
-    }
-
     pub(super) fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
         validate_fluent_paged_mode(
             self.query.has_grouping(),

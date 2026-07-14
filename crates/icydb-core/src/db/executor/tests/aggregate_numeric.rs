@@ -158,7 +158,7 @@ fn aggregate_numeric_constant_false_window_returns_terminal_zeros_without_scan_b
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter_predicate(Predicate::False)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("constant-false aggregate plan should build")
     };
@@ -238,7 +238,7 @@ fn aggregate_numeric_sum_and_avg_use_decimal_projection() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("numeric field aggregate plan should build")
     };
@@ -279,7 +279,7 @@ fn aggregate_numeric_predicate_page_window_keeps_filtered_sum_and_avg() {
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("predicate paged numeric aggregate plan should build")
     };
@@ -305,7 +305,7 @@ fn aggregate_numeric_pk_page_window_keeps_effective_sum_and_avg() {
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("pk-ordered paged numeric aggregate plan should build")
     };
@@ -331,7 +331,7 @@ fn aggregate_numeric_pk_page_window_scans_offset_plus_limit_rows() {
         .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("pk-ordered paged numeric aggregate plan should build");
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
@@ -356,7 +356,7 @@ fn aggregate_numeric_pk_desc_page_window_keeps_effective_sum_and_avg() {
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("pk-desc ordered paged numeric aggregate plan should build")
     };
@@ -388,7 +388,7 @@ fn aggregate_numeric_by_ids_page_window_keeps_deduped_sum_and_avg() {
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("ordered by-ids paged numeric aggregate plan should build")
     };
@@ -419,7 +419,7 @@ fn aggregate_numeric_by_ids_page_window_scans_offset_plus_limit_rows() {
         .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("ordered by-ids paged numeric aggregate plan should build");
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
@@ -475,7 +475,7 @@ fn aggregate_numeric_by_id_keeps_single_row_sum_and_avg() {
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .by_id(Ulid::from_u128(8_9702))
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("by-id numeric aggregate plan should build")
     };
@@ -497,7 +497,7 @@ fn aggregate_numeric_paged_by_id_keeps_single_row_sum_and_avg() {
             .order_term(crate::db::asc("id"))
             .offset(0)
             .limit(1)
-            .plan()
+            .access_plan_for_test()
             .map(PreparedExecutionPlan::from)
             .expect("paged by-id numeric aggregate plan should build")
     };
@@ -518,7 +518,7 @@ fn aggregate_numeric_paged_by_id_scans_exactly_one_row() {
         .order_term(crate::db::asc("id"))
         .offset(0)
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .map(PreparedExecutionPlan::from)
         .expect("paged by-id numeric aggregate plan should build");
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {

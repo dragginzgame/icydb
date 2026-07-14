@@ -3,17 +3,12 @@
 //! Does not own: planner proof, executor routing, or public policy builders.
 //! Boundary: one internal authority for 0.198 engine-owned read-intent limits.
 
-use crate::db::query::admission::{
-    DEFAULT_BOUNDED_READ_MAX_ROWS, DEFAULT_BOUNDED_READ_RESPONSE_BYTES,
-};
+use crate::db::query::admission::DEFAULT_BOUNDED_READ_MAX_ROWS;
 use candid::CandidType;
 use serde::Deserialize;
 
 pub(in crate::db::query) const PUBLIC_PAGE_DEFAULT_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
 pub(in crate::db::query) const PUBLIC_PAGE_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
-pub(in crate::db::query) const PUBLIC_PAGE_MAX_RESPONSE_BYTES: u32 =
-    DEFAULT_BOUNDED_READ_RESPONSE_BYTES;
-
 pub(in crate::db::query) const COMPLETE_SMALL_MAX_ROWS: u32 = DEFAULT_BOUNDED_READ_MAX_ROWS;
 pub(in crate::db::query) const COMPLETE_SMALL_LOOKAHEAD_ROWS: u32 = 1;
 pub(in crate::db::query) const COMPLETE_SMALL_EXECUTION_LIMIT: u32 =

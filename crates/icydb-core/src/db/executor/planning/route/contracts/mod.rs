@@ -11,8 +11,6 @@ pub(in crate::db::executor) use crate::db::executor::{
     AccessWindow, ContinuationMode, RouteContinuationPlan,
 };
 pub(in crate::db::executor) use capability_facts::RouteCapabilityFacts;
-#[cfg(test)]
-pub(in crate::db::executor) use execution::GroupedRouteDecisionOutcome;
 pub use execution::RouteExecutionMode;
 pub(in crate::db::executor) use execution::{
     AggregateSeekSpec, ExecutionRoutePlan, GroupedExecutionMode, GroupedExecutionModeContext,

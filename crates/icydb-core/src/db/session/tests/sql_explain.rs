@@ -121,7 +121,7 @@ where
     E: PersistedRow<Canister = SessionSqlCanister>,
 {
     let result = session
-        .execute_sql_query::<E>(sql)
+        .execute_trusted_sql_query::<E>(sql)
         .unwrap_or_else(|err| panic!("public EXPLAIN query should succeed: {sql}: {err}"));
 
     let SqlStatementResult::Explain(explain) = result else {
@@ -132,7 +132,7 @@ where
 }
 
 #[test]
-fn execute_sql_query_explain_plan_matrix_returns_public_explain_payload() {
+fn execute_trusted_sql_query_explain_plan_matrix_returns_public_explain_payload() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -168,7 +168,7 @@ fn execute_sql_query_explain_plan_matrix_returns_public_explain_payload() {
 }
 
 #[test]
-fn execute_sql_query_explain_execution_matrix_returns_public_explain_payload() {
+fn execute_trusted_sql_query_explain_execution_matrix_returns_public_explain_payload() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -206,7 +206,7 @@ fn execute_sql_query_explain_execution_matrix_returns_public_explain_payload() {
 }
 
 #[test]
-fn execute_sql_query_explain_execution_json_returns_finalized_admission_payload() {
+fn execute_trusted_sql_query_explain_execution_json_returns_finalized_admission_payload() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -232,7 +232,7 @@ fn execute_sql_query_explain_execution_json_returns_finalized_admission_payload(
 }
 
 #[test]
-fn execute_sql_query_explain_execution_json_global_aggregate_returns_terminal_array() {
+fn execute_trusted_sql_query_explain_execution_json_global_aggregate_returns_terminal_array() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -256,7 +256,7 @@ fn execute_sql_query_explain_execution_json_global_aggregate_returns_terminal_ar
 }
 
 #[test]
-fn execute_sql_query_explain_json_matrix_returns_public_explain_payload() {
+fn execute_trusted_sql_query_explain_json_matrix_returns_public_explain_payload() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -296,7 +296,7 @@ fn execute_sql_query_explain_json_matrix_returns_public_explain_payload() {
 }
 
 #[test]
-fn execute_sql_query_explain_unsupported_features_fail_closed_publicly() {
+fn execute_trusted_sql_query_explain_unsupported_features_fail_closed_publicly() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -315,7 +315,7 @@ fn execute_sql_query_explain_unsupported_features_fail_closed_publicly() {
         ),
     ] {
         assert_unsupported_sql_surface_result(
-            session.execute_sql_query::<SessionSqlEntity>(sql),
+            session.execute_trusted_sql_query::<SessionSqlEntity>(sql),
             context,
         );
     }
@@ -651,7 +651,7 @@ fn explain_sql_execution_separates_index_pushdown_from_residual_predicate() {
 }
 
 #[test]
-fn execute_sql_query_explain_execution_separates_index_pushdown_from_residual_predicate() {
+fn execute_trusted_sql_query_explain_execution_separates_index_pushdown_from_residual_predicate() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);

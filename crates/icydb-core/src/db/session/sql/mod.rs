@@ -25,8 +25,6 @@ use crate::db::executor::{
     current_pure_covering_row_assembly_local_instructions,
 };
 #[cfg(test)]
-use crate::db::query::admission::QueryAdmissionPolicy;
-#[cfg(test)]
 use crate::db::sql::parser::{SqlStatement, parse_sql};
 use crate::{
     db::{DbSession, PersistedRow, QueryError},
@@ -43,7 +41,7 @@ pub(in crate::db::session::sql) use attribution::SqlQueryExecutionAttributionInp
 pub use attribution::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
     SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
-    SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
+    SqlQueryExecutionAttribution,
 };
 pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
 pub(in crate::db::session::sql) use cache::{
@@ -116,11 +114,13 @@ fn measured<T>(stage: impl FnOnce() -> Result<T, QueryError>) -> Result<(u64, T)
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Execute one single-entity reduced SQL query or introspection statement.
+    /// Execute one trusted/admin single-entity reduced SQL query or introspection statement.
     ///
     /// This surface stays hard-bound to `E`, rejects state-changing SQL, and
-    /// returns SQL-shaped statement output instead of typed entities.
-    pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
+    /// returns SQL-shaped statement output instead of typed entities. It
+    /// intentionally bypasses public-read admission, so its caller must own
+    /// authorization and resource policy.
+    pub fn execute_trusted_sql_query<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
@@ -129,30 +129,11 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_compiled_sql_context_owned::<E>(compiled)
     }
 
-    /// Execute one reduced SQL query only if the selected plan satisfies the
-    /// supplied read-admission policy.
-    ///
-    /// This is the explicit bounded-read seam for caller-facing endpoints. The
-    /// normal `execute_sql_query` method remains the trusted/admin SQL lane.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_sql_query_with_read_admission_policy<E>(
-        &self,
-        sql: &str,
-        policy: &QueryAdmissionPolicy,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C>,
-    {
-        let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
-
-        self.execute_compiled_sql_context_with_read_admission_policy::<E>(&compiled, policy)
-    }
-
     /// Execute one reduced SQL query while reporting the compile/execute split
     /// at the top-level SQL seam.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
-    pub fn execute_sql_query_with_attribution<E>(
+    pub fn execute_trusted_sql_query_with_attribution<E>(
         &self,
         sql: &str,
     ) -> Result<(SqlStatementResult, SqlQueryExecutionAttribution), QueryError>

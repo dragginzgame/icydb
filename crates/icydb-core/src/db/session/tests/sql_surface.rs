@@ -369,9 +369,8 @@ fn assert_compiled_select_query_matches_lowered_identity_for_entity<E>(
             .expect("compiled session query plan should build")
             .fingerprint(),
         lowered_query
-            .plan()
+            .access_plan_for_test()
             .expect("canonical lowered query plan should build")
-            .into_inner()
             .fingerprint(),
         "{context} must preserve the same canonical logical plan identity as the lowered internal form",
     );
@@ -584,9 +583,9 @@ fn sql_query_lowering_projection_matrix_normalizes_to_scalar_fields() {
         let query = lower_select_query_for_tests::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
         let projection = query
-            .plan()
+            .access_plan_for_test()
             .unwrap_or_else(|err| panic!("{context} plan should build: {err}"))
-            .projection_spec();
+            .projection_spec(SessionSqlEntity::MODEL);
         let field_names = projection
             .fields()
             .map(|field| match field {
@@ -728,7 +727,7 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
     let session = sql_session();
 
     let SqlStatementResult::Describe(describe) = session
-        .execute_sql_query::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
         .expect("DESCRIBE should execute through public SQL query entrypoint")
     else {
         panic!("DESCRIBE should return a describe payload");
@@ -740,7 +739,7 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
     );
 
     let SqlStatementResult::ShowColumns(columns) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
         .expect("SHOW COLUMNS should execute through public SQL query entrypoint")
     else {
         panic!("SHOW COLUMNS should return a column metadata payload");
@@ -752,13 +751,13 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
     );
 
     let SqlStatementResult::ShowIndexes(show_indexes_from) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should execute through public SQL query entrypoint")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
     };
     let SqlStatementResult::ShowIndexes(show_indexes_in) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES IN SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES IN SessionSqlEntity")
         .expect("SHOW INDEXES IN should execute through public SQL query entrypoint")
     else {
         panic!("SHOW INDEXES IN should return an index metadata payload");
@@ -777,7 +776,7 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         entities: show_entities,
         verbose: false,
     } = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW ENTITIES")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW ENTITIES")
         .expect("SHOW ENTITIES should execute through public SQL query entrypoint")
     else {
         panic!("SHOW ENTITIES should return an entity metadata payload");
@@ -794,7 +793,7 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         stores: show_stores,
         verbose: false,
     } = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW STORES")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW STORES")
         .expect("SHOW STORES should execute through public SQL query entrypoint")
     else {
         panic!("SHOW STORES should return a store metadata payload");
@@ -806,7 +805,7 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
     );
 
     let SqlStatementResult::ShowMemory(show_memory) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW MEMORY")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW MEMORY")
         .expect("SHOW MEMORY should execute through public SQL query entrypoint")
     else {
         panic!("SHOW MEMORY should return a memory metadata payload");
@@ -866,7 +865,7 @@ fn assert_journaled_show_entities_compact_metadata(session: &DbSession<SessionSq
         entities,
         verbose: false,
     } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES")
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES")
         .expect("SHOW ENTITIES should execute for journaled catalog")
     else {
         panic!("SHOW ENTITIES should return entity catalog metadata");
@@ -891,7 +890,7 @@ fn assert_journaled_show_stores_and_memory_metadata(session: &DbSession<SessionS
         stores,
         verbose: false,
     } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW STORES")
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>("SHOW STORES")
         .expect("SHOW STORES should execute for journaled catalog")
     else {
         panic!("SHOW STORES should return store catalog metadata");
@@ -904,7 +903,7 @@ fn assert_journaled_show_stores_and_memory_metadata(session: &DbSession<SessionS
     );
 
     let SqlStatementResult::ShowMemory(memory) = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW MEMORY")
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>("SHOW MEMORY")
         .expect("SHOW MEMORY should execute for journaled catalog")
     else {
         panic!("SHOW MEMORY should return memory catalog metadata");
@@ -923,7 +922,9 @@ fn assert_journaled_show_entity_metadata(session: &DbSession<SessionSqlCanister>
         entities,
         verbose: false,
     } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITY JournaledSessionSqlEntity")
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>(
+            "SHOW ENTITY JournaledSessionSqlEntity",
+        )
         .expect("SHOW ENTITY should execute for journaled catalog")
     else {
         panic!("SHOW ENTITY should return entity catalog metadata");
@@ -944,7 +945,9 @@ fn assert_journaled_show_entity_metadata(session: &DbSession<SessionSqlCanister>
         entities,
         verbose: false,
     } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITY journaledsessionsqlentity")
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>(
+            "SHOW ENTITY journaledsessionsqlentity",
+        )
         .expect("SHOW ENTITY should match catalog entity names case-insensitively")
     else {
         panic!("SHOW ENTITY should return entity catalog metadata");
@@ -966,7 +969,7 @@ fn assert_journaled_verbose_catalog_metadata(session: &DbSession<SessionSqlCanis
         entities,
         verbose: true,
     } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES VERBOSE")
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES VERBOSE")
         .expect("SHOW ENTITIES VERBOSE should execute for journaled catalog")
     else {
         panic!("SHOW ENTITIES VERBOSE should return verbose entity catalog metadata");
@@ -982,7 +985,7 @@ fn assert_journaled_verbose_catalog_metadata(session: &DbSession<SessionSqlCanis
         entities,
         verbose: true,
     } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>(
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>(
             "SHOW ENTITY JournaledSessionSqlEntity VERBOSE",
         )
         .expect("SHOW ENTITY VERBOSE should execute for journaled catalog")
@@ -1009,7 +1012,7 @@ fn assert_journaled_verbose_catalog_metadata(session: &DbSession<SessionSqlCanis
         stores,
         verbose: true,
     } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW STORES VERBOSE")
+        .execute_trusted_sql_query::<JournaledSessionSqlEntity>("SHOW STORES VERBOSE")
         .expect("SHOW STORES VERBOSE should execute for journaled catalog")
     else {
         panic!("SHOW STORES VERBOSE should return verbose store catalog metadata");
@@ -1316,7 +1319,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
 }
 
 #[test]
-fn execute_sql_query_rejects_unsupported_sql_families() {
+fn execute_trusted_sql_query_rejects_unsupported_sql_families() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -1389,14 +1392,14 @@ fn execute_sql_query_rejects_unsupported_sql_families() {
 
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(
-            session.execute_sql_query::<SessionSqlEntity>(sql),
+            session.execute_trusted_sql_query::<SessionSqlEntity>(sql),
             context,
         );
     }
 }
 
 #[test]
-fn execute_sql_query_rejects_unsupported_expression_sql_families() {
+fn execute_trusted_sql_query_rejects_unsupported_expression_sql_families() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -1437,14 +1440,14 @@ fn execute_sql_query_rejects_unsupported_expression_sql_families() {
 
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(
-            session.execute_sql_query::<SessionSqlEntity>(sql),
+            session.execute_trusted_sql_query::<SessionSqlEntity>(sql),
             context,
         );
     }
 
     assert!(
         session
-            .execute_sql_query::<SessionSqlEntity>(
+            .execute_trusted_sql_query::<SessionSqlEntity>(
                 "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age HAVING name LIKE 'A%'",
             )
             .is_err(),
@@ -1453,7 +1456,7 @@ fn execute_sql_query_rejects_unsupported_expression_sql_families() {
 }
 
 #[test]
-fn execute_sql_query_rejects_invalid_grouped_projection_shapes() {
+fn execute_trusted_sql_query_rejects_invalid_grouped_projection_shapes() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -1476,7 +1479,9 @@ fn execute_sql_query_rejects_invalid_grouped_projection_shapes() {
         ),
     ] {
         assert!(
-            session.execute_sql_query::<SessionSqlEntity>(sql).is_err(),
+            session
+                .execute_trusted_sql_query::<SessionSqlEntity>(sql)
+                .is_err(),
             "{context} should stay outside the public grouped SQL projection surface",
         );
     }
@@ -2777,7 +2782,7 @@ fn sql_statement_dispatch_marks_operational_introspection() {
 }
 
 #[test]
-fn execute_sql_query_rejects_supported_single_entity_mutation_shapes() {
+fn execute_trusted_sql_query_rejects_supported_single_entity_mutation_shapes() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -2799,23 +2804,23 @@ fn execute_sql_query_rejects_supported_single_entity_mutation_shapes() {
         ),
     ] {
         let err = session
-            .execute_sql_query::<SessionSqlWriteEntity>(sql)
+            .execute_trusted_sql_query::<SessionSqlWriteEntity>(sql)
             .expect_err(context);
         assert_sql_surface_mismatch_detail(err, expected);
     }
 }
 
 #[test]
-fn execute_sql_query_admits_supported_single_entity_read_shapes() {
+fn execute_trusted_sql_query_admits_supported_single_entity_read_shapes() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
 
     let scalar = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
         )
-        .expect("execute_sql_query should admit scalar SELECT");
+        .expect("execute_trusted_sql_query should admit scalar SELECT");
     let SqlStatementResult::Projection {
         columns,
         rows,
@@ -2823,29 +2828,29 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
         ..
     } = scalar
     else {
-        panic!("execute_sql_query scalar SELECT should emit projection rows");
+        panic!("execute_trusted_sql_query scalar SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["name".to_string()]);
     assert_eq!(rows, vec![vec![output(Value::Text("ada".to_string()))]]);
     assert_eq!(row_count, 1);
 
     let grouped = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
         )
-        .expect("execute_sql_query should admit grouped SELECT");
+        .expect("execute_trusted_sql_query should admit grouped SELECT");
     let SqlStatementResult::Grouped {
         columns, row_count, ..
     } = grouped
     else {
-        panic!("execute_sql_query grouped SELECT should emit grouped rows");
+        panic!("execute_trusted_sql_query grouped SELECT should emit grouped rows");
     };
     assert_eq!(columns, vec!["age".to_string(), "COUNT(*)".to_string()]);
     assert_eq!(row_count, 2);
 
     let aggregate = session
-        .execute_sql_query::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect("execute_sql_query should admit global aggregate SELECT");
+        .execute_trusted_sql_query::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect("execute_trusted_sql_query should admit global aggregate SELECT");
     let SqlStatementResult::Projection {
         columns,
         rows,
@@ -2853,7 +2858,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
         ..
     } = aggregate
     else {
-        panic!("execute_sql_query aggregate SELECT should emit projection rows");
+        panic!("execute_trusted_sql_query aggregate SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
     assert_eq!(rows, vec![vec![output(Value::Nat64(3))]]);
@@ -2861,7 +2866,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
 }
 
 #[test]
-fn execute_sql_query_admits_grouped_boolean_computed_projection() {
+fn execute_trusted_sql_query_admits_grouped_boolean_computed_projection() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
@@ -2873,7 +2878,7 @@ fn execute_sql_query_admits_grouped_boolean_computed_projection() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT age, CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END AS multi \
              FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
         )
@@ -2910,7 +2915,7 @@ fn execute_sql_query_admits_grouped_boolean_computed_projection() {
 }
 
 #[test]
-fn execute_sql_query_admits_grouped_post_aggregate_computed_projection() {
+fn execute_trusted_sql_query_admits_grouped_post_aggregate_computed_projection() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
@@ -2922,7 +2927,7 @@ fn execute_sql_query_admits_grouped_post_aggregate_computed_projection() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT age, CASE WHEN COUNT(*) > 1 THEN 'multi' ELSE 'single' END AS bucket \
              FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
         )
@@ -2965,7 +2970,7 @@ fn execute_sql_query_admits_grouped_post_aggregate_computed_projection() {
 }
 
 #[test]
-fn execute_sql_query_admits_bounded_scalar_boolean_computed_projection() {
+fn execute_trusted_sql_query_admits_bounded_scalar_boolean_computed_projection() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 32), ("carol", 19)]);
@@ -2976,7 +2981,7 @@ fn execute_sql_query_admits_bounded_scalar_boolean_computed_projection() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, CASE WHEN age >= 30 THEN TRUE ELSE FALSE END AS adult \
              FROM SessionSqlEntity ORDER BY age ASC, name ASC",
         )
@@ -3010,7 +3015,7 @@ fn execute_sql_query_admits_bounded_scalar_boolean_computed_projection() {
 }
 
 #[test]
-fn execute_sql_query_admits_grouped_key_text_function_projection() {
+fn execute_trusted_sql_query_admits_grouped_key_text_function_projection() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -3030,7 +3035,7 @@ fn execute_sql_query_admits_grouped_key_text_function_projection() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT TRIM(name) AS trimmed_name, COUNT(*) AS total \
              FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
         )
@@ -3069,7 +3074,7 @@ fn execute_sql_query_admits_grouped_key_text_function_projection() {
 }
 
 #[test]
-fn execute_sql_query_preserves_deterministic_projection_shape() {
+fn execute_trusted_sql_query_preserves_deterministic_projection_shape() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 32)]);
@@ -3080,7 +3085,7 @@ fn execute_sql_query_preserves_deterministic_projection_shape() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name AS display_name, age, LENGTH(name) AS name_len, UPPER(name) \
              FROM SessionSqlEntity \
              ORDER BY age ASC, name ASC LIMIT 2",
@@ -3122,7 +3127,7 @@ fn execute_sql_query_preserves_deterministic_projection_shape() {
 }
 
 #[test]
-fn execute_sql_query_defines_order_by_null_ordering() {
+fn execute_trusted_sql_query_defines_order_by_null_ordering() {
     reset_session_sql_store();
     let session = sql_session();
     seed_nullable_session_sql_entities(
@@ -3141,7 +3146,7 @@ fn execute_sql_query_defines_order_by_null_ordering() {
         row_count: asc_row_count,
         ..
     } = session
-        .execute_sql_query::<SessionNullableSqlEntity>(
+        .execute_trusted_sql_query::<SessionNullableSqlEntity>(
             "SELECT name, nickname \
              FROM SessionNullableSqlEntity \
              ORDER BY nickname ASC, name ASC",
@@ -3184,7 +3189,7 @@ fn execute_sql_query_defines_order_by_null_ordering() {
         row_count: desc_row_count,
         ..
     } = session
-        .execute_sql_query::<SessionNullableSqlEntity>(
+        .execute_trusted_sql_query::<SessionNullableSqlEntity>(
             "SELECT name, nickname \
              FROM SessionNullableSqlEntity \
              ORDER BY nickname DESC, name ASC",
@@ -3223,7 +3228,7 @@ fn execute_sql_query_defines_order_by_null_ordering() {
 }
 
 #[test]
-fn execute_sql_query_composes_supported_scalar_and_grouped_forms() {
+fn execute_trusted_sql_query_composes_supported_scalar_and_grouped_forms() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -3243,7 +3248,7 @@ fn execute_sql_query_composes_supported_scalar_and_grouped_forms() {
         row_count: scalar_row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name AS display_name, LENGTH(name) AS name_len \
              FROM SessionSqlEntity \
              WHERE name LIKE 'a%' AND age >= 20 \
@@ -3273,7 +3278,7 @@ fn execute_sql_query_composes_supported_scalar_and_grouped_forms() {
         row_count: grouped_row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, COUNT(*) AS rows, SUM(age) AS total \
              FROM SessionSqlEntity \
              WHERE age >= 20 \
@@ -3313,7 +3318,7 @@ fn execute_sql_query_composes_supported_scalar_and_grouped_forms() {
 }
 
 #[test]
-fn execute_sql_query_preserves_group_key_declaration_order() {
+fn execute_trusted_sql_query_preserves_group_key_declaration_order() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -3328,7 +3333,7 @@ fn execute_sql_query_preserves_group_key_declaration_order() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, age, COUNT(*) AS rows \
              FROM SessionSqlEntity \
              GROUP BY name, age \
@@ -3378,7 +3383,7 @@ fn execute_sql_query_preserves_group_key_declaration_order() {
 }
 
 #[test]
-fn execute_sql_query_preserves_scalar_distinct_ordered_window() {
+fn execute_trusted_sql_query_preserves_scalar_distinct_ordered_window() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -3392,7 +3397,7 @@ fn execute_sql_query_preserves_scalar_distinct_ordered_window() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
         )
         .expect("scalar DISTINCT ordered window should execute through public query")
@@ -3413,7 +3418,7 @@ fn execute_sql_query_preserves_scalar_distinct_ordered_window() {
 }
 
 #[test]
-fn execute_sql_query_groups_null_keys_and_applies_having_after_aggregation() {
+fn execute_trusted_sql_query_groups_null_keys_and_applies_having_after_aggregation() {
     reset_session_sql_store();
     let session = sql_session();
     seed_nullable_session_sql_entities(
@@ -3434,7 +3439,7 @@ fn execute_sql_query_groups_null_keys_and_applies_having_after_aggregation() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionNullableSqlEntity>(
+        .execute_trusted_sql_query::<SessionNullableSqlEntity>(
             "SELECT nickname, COUNT(*) AS rows \
              FROM SessionNullableSqlEntity \
              GROUP BY nickname \
@@ -3475,7 +3480,7 @@ fn execute_sql_query_groups_null_keys_and_applies_having_after_aggregation() {
 }
 
 #[test]
-fn execute_sql_query_preserves_parenthesized_boolean_predicate_semantics() {
+fn execute_trusted_sql_query_preserves_parenthesized_boolean_predicate_semantics() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -3490,7 +3495,7 @@ fn execute_sql_query_preserves_parenthesized_boolean_predicate_semantics() {
     );
 
     let left = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, age \
              FROM SessionSqlEntity \
              WHERE (age = 21 AND name = 'ada') OR (age = 32 AND name = 'ally') \
@@ -3498,7 +3503,7 @@ fn execute_sql_query_preserves_parenthesized_boolean_predicate_semantics() {
         )
         .expect("parenthesized boolean predicate should execute through the public query surface");
     let right = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, age \
              FROM SessionSqlEntity \
              WHERE ((name = 'ally') AND (age = 32)) OR (name = 'ada' AND age = 21) \
@@ -3547,7 +3552,7 @@ fn execute_sql_query_preserves_parenthesized_boolean_predicate_semantics() {
 }
 
 #[test]
-fn execute_sql_query_having_terms_are_not_auto_projected() {
+fn execute_trusted_sql_query_having_terms_are_not_auto_projected() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
@@ -3558,7 +3563,7 @@ fn execute_sql_query_having_terms_are_not_auto_projected() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT COUNT(*) AS rows FROM SessionSqlEntity HAVING AVG(age) > 20",
         )
         .expect("global HAVING should execute through the public query surface")
@@ -3580,7 +3585,7 @@ fn execute_sql_query_having_terms_are_not_auto_projected() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT age, COUNT(*) AS rows \
              FROM SessionSqlEntity \
              GROUP BY age \
@@ -3618,7 +3623,7 @@ fn execute_sql_query_having_terms_are_not_auto_projected() {
 }
 
 #[test]
-fn execute_sql_query_preserves_deterministic_aggregate_labels() {
+fn execute_trusted_sql_query_preserves_deterministic_aggregate_labels() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("ada", 32)]);
@@ -3626,7 +3631,7 @@ fn execute_sql_query_preserves_deterministic_aggregate_labels() {
     let SqlStatementResult::Projection {
         columns, row_count, ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT COUNT(*), SUM(age + 1), ROUND(AVG(age), 2) AS avg_age \
              FROM SessionSqlEntity",
         )
@@ -3651,7 +3656,7 @@ fn execute_sql_query_preserves_deterministic_aggregate_labels() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, COUNT(*) AS rows, SUM(age + 1) \
              FROM SessionSqlEntity \
              GROUP BY name \
@@ -3678,7 +3683,7 @@ fn execute_sql_query_preserves_deterministic_aggregate_labels() {
 }
 
 #[test]
-fn execute_sql_query_evaluates_basic_global_aggregate_loads() {
+fn execute_trusted_sql_query_evaluates_basic_global_aggregate_loads() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 20), ("bob", 32), ("ada", 40)]);
@@ -3689,7 +3694,7 @@ fn execute_sql_query_evaluates_basic_global_aggregate_loads() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT COUNT(*) AS rows, SUM(age) AS total_age, \
                     MIN(age) AS youngest, MAX(age) AS oldest \
              FROM SessionSqlEntity",
@@ -3720,7 +3725,7 @@ fn execute_sql_query_evaluates_basic_global_aggregate_loads() {
     assert_eq!(row_count, 1);
 
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT COUNT(*) AS rows, SUM(age) AS total_age \
              FROM SessionSqlEntity WHERE age > 99",
         )
@@ -3736,7 +3741,7 @@ fn execute_sql_query_evaluates_basic_global_aggregate_loads() {
 }
 
 #[test]
-fn execute_sql_query_evaluates_basic_grouped_aggregate_loads() {
+fn execute_trusted_sql_query_evaluates_basic_grouped_aggregate_loads() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 20), ("bob", 32), ("ada", 40)]);
@@ -3748,7 +3753,7 @@ fn execute_sql_query_evaluates_basic_grouped_aggregate_loads() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, COUNT(*) AS rows, SUM(age) AS total_age \
              FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
         )
@@ -3801,7 +3806,7 @@ fn execute_sql_query_evaluates_basic_grouped_aggregate_loads() {
 }
 
 #[test]
-fn execute_sql_query_evaluates_aggregate_input_expressions() {
+fn execute_trusted_sql_query_evaluates_aggregate_input_expressions() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("ada", 32)]);
@@ -3812,7 +3817,7 @@ fn execute_sql_query_evaluates_aggregate_input_expressions() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT SUM(age + 1) AS shifted_sum, \
                     AVG(CASE WHEN age >= 30 THEN age ELSE 0 END) AS adult_avg \
              FROM SessionSqlEntity",
@@ -3846,7 +3851,7 @@ fn execute_sql_query_evaluates_aggregate_input_expressions() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, SUM(age + 1) AS shifted_sum \
              FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
         )
@@ -3886,7 +3891,7 @@ fn execute_sql_query_evaluates_aggregate_input_expressions() {
 }
 
 #[test]
-fn execute_sql_query_evaluates_aggregate_distinct_and_filter_terminals() {
+fn execute_trusted_sql_query_evaluates_aggregate_distinct_and_filter_terminals() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -3906,7 +3911,7 @@ fn execute_sql_query_evaluates_aggregate_distinct_and_filter_terminals() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT COUNT(DISTINCT age) AS distinct_ages, \
                     SUM(age) FILTER (WHERE age >= 30) AS filtered_sum \
              FROM SessionSqlEntity",
@@ -3936,7 +3941,7 @@ fn execute_sql_query_evaluates_aggregate_distinct_and_filter_terminals() {
         next_cursor,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, COUNT(DISTINCT age) AS distinct_ages, \
                     SUM(age) FILTER (WHERE age >= 30) AS filtered_sum \
              FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
@@ -3997,7 +4002,7 @@ fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
 
     assert_sql_lowering_detail(
         session
-            .execute_sql_query::<SessionSqlEntity>(sql)
+            .execute_trusted_sql_query::<SessionSqlEntity>(sql)
             .expect_err("query surface should reject parsed DDL before execution"),
         SqlLoweringCode::SqlDdlExecutionUnsupported,
     );
@@ -4008,7 +4013,7 @@ fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
         SqlLoweringCode::SqlDdlExecutionUnsupported,
     );
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES should execute after rejected wrong-surface DDL")
     else {
         panic!("SHOW INDEXES should return index metadata after rejected wrong-surface DDL");
@@ -5221,7 +5226,7 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, nickname FROM SessionSqlEntity WHERE name = 'Ada'",
         )
         .expect("SQL reads should materialize omitted nullable DDL fields as NULL")
@@ -5664,7 +5669,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
         row_count,
         ..
     } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT name, score FROM SessionSqlEntity WHERE name = 'Ada'",
         )
         .expect("SQL reads should materialize omitted defaulted DDL fields from accepted defaults")
@@ -5694,7 +5699,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
     assert_eq!(row_count, 1);
 
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT score FROM SessionSqlEntity WHERE name = 'Bea'",
         )
         .expect("SQL reads should observe the accepted default applied by SQL INSERT")
@@ -5782,12 +5787,12 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
     .expect("explicit NULL should remain distinct from default omission");
 
     let omitted = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT score FROM SessionSqlEntity WHERE name = 'OmittedDefault'",
         )
         .expect("omitted default row should remain readable");
     let explicit_null = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT score FROM SessionSqlEntity WHERE name = 'ExplicitNull'",
         )
         .expect("explicit NULL row should remain readable");
@@ -5813,7 +5818,7 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
     .expect("an authored update should persist the accepted DDL field payload");
 
     let explicit_null = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT score FROM SessionSqlEntity WHERE name = 'ExplicitNull'",
         )
         .expect("updated explicit NULL row should remain readable");
@@ -5823,7 +5828,7 @@ fn sql_insert_distinguishes_omitted_database_default_from_explicit_null() {
     assert_eq!(rows, vec![vec![output(Value::Null)]]);
 
     let authored = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT score FROM SessionSqlEntity WHERE name = 'OmittedDefault'",
         )
         .expect("updated authored DDL value should remain readable");
@@ -6082,7 +6087,7 @@ fn execute_sql_ddl_publishes_supported_nullable_drop_default() {
         .expect("typed inserts should remain valid after nullable DROP DEFAULT");
 
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_sql_query::<SessionSqlEntity>(
+        .execute_trusted_sql_query::<SessionSqlEntity>(
             "SELECT nickname FROM SessionSqlEntity WHERE name = 'Ada'",
         )
         .expect("SQL reads should materialize omitted nullable fields as NULL after DROP DEFAULT")
@@ -6644,7 +6649,7 @@ fn execute_sql_ddl_rename_column_updates_field_path_index_metadata() {
         .expect("RENAME COLUMN should update dependent field-path index metadata");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read renamed field-path index metadata")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -6686,7 +6691,7 @@ fn execute_sql_ddl_rename_column_updates_expression_index_metadata() {
         .expect("RENAME COLUMN should update dependent expression index metadata");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read renamed expression index metadata")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -6728,7 +6733,7 @@ fn execute_sql_ddl_rename_column_updates_filtered_index_predicate_metadata() {
         .expect("RENAME COLUMN should update dependent filtered index metadata");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read renamed filtered index metadata")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -6974,7 +6979,7 @@ fn execute_sql_ddl_publishes_supported_expression_index() {
         "accepted schema publication should expose the DDL-created expression index",
     );
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted expression index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7077,7 +7082,7 @@ fn execute_sql_ddl_rejects_duplicate_expression_index_contract_without_publicati
         .expect_err("duplicate expression index contracts should reject");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after duplicate expression rejection")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7122,7 +7127,7 @@ fn execute_sql_ddl_publishes_supported_unique_expression_index() {
     assert_eq!(report.index_keys_written(), 3);
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted expression index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7153,7 +7158,7 @@ fn execute_sql_ddl_rejects_duplicate_unique_expression_values_without_publicatio
         .expect_err("duplicate normalized values should reject unique expression index publication");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after rejected DDL")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7399,7 +7404,7 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
         "accepted schema publication should expose the DDL-created index",
     );
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted published index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7465,7 +7470,7 @@ fn execute_sql_ddl_publishes_supported_filtered_field_path_index() {
         "accepted schema publication should expose the filtered DDL-created index",
     );
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted published index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7512,7 +7517,7 @@ fn execute_sql_ddl_publishes_supported_unique_field_path_index() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted published index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7552,7 +7557,7 @@ fn execute_sql_ddl_publishes_and_drops_supported_multi_field_path_index() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted published index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7609,7 +7614,7 @@ fn execute_sql_ddl_treats_asc_index_order_as_default_order() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted published index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7640,7 +7645,7 @@ fn execute_sql_ddl_rejects_desc_index_order_without_publication() {
     );
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted index set after rejected DDL")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7681,7 +7686,7 @@ fn execute_sql_ddl_publishes_supported_unique_multi_field_path_index() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should read the accepted published index set")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7710,7 +7715,7 @@ fn execute_sql_ddl_rejects_duplicate_unique_field_path_values_without_publicatio
         .expect_err("duplicate values should reject unique field-path index publication");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after rejected DDL")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7854,7 +7859,7 @@ fn execute_sql_ddl_drops_supported_index_with_typed_target_shorthand() {
     assert_eq!(report.field_path(), ["age".to_string()]);
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after shorthand index drop")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -7900,7 +7905,7 @@ fn execute_sql_ddl_drops_supported_unique_ddl_published_index() {
     assert_eq!(report.field_path(), ["name".to_string()]);
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .execute_trusted_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
         .expect("SHOW INDEXES FROM should remain readable after unique index drop")
     else {
         panic!("SHOW INDEXES FROM should return an index metadata payload");
@@ -8446,7 +8451,7 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
     };
     assert_eq!(row_count, 1);
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_sql_query::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_query::<SessionSqlWriteEntity>(
             "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
         )
         .expect("post-INSERT projection query should execute")
@@ -8473,7 +8478,7 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
     };
     assert_eq!(row_count, 1);
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_sql_query::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_query::<SessionSqlWriteEntity>(
             "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
         )
         .expect("post-UPDATE projection query should execute")
@@ -8500,7 +8505,9 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
     };
     assert_eq!(row_count, 1);
     let SqlStatementResult::Projection { rows, .. } = session
-        .execute_sql_query::<SessionSqlWriteEntity>("SELECT COUNT(*) FROM SessionSqlWriteEntity")
+        .execute_trusted_sql_query::<SessionSqlWriteEntity>(
+            "SELECT COUNT(*) FROM SessionSqlWriteEntity",
+        )
         .expect("post-DELETE count query should execute")
     else {
         panic!("post-DELETE count query should emit projection rows");

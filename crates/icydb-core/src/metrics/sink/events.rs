@@ -237,21 +237,6 @@ pub enum PlanChoiceReason {
 }
 
 ///
-/// PreparedShapeFinalizationOutcome
-///
-/// Stable executor authority outcome buckets for prepared static execution-planning contract
-/// finalization. These counters show whether executor lowering preserved an
-/// already-frozen schema-selected shape or applied the generated-model fallback.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[remain::sorted]
-pub enum PreparedShapeFinalizationOutcome {
-    AlreadyFinalized,
-    GeneratedFallback,
-}
-
-///
 /// GroupedPlanExecutionMode
 ///
 /// Canonical grouped-plan mode carried by metrics events.
@@ -335,9 +320,8 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         reason: PlanChoiceReason,
     },
-    PreparedShapeFinalization {
+    PreparedShapeAlreadyFinalized {
         entity_path: &'static str,
-        outcome: PreparedShapeFinalizationOutcome,
     },
     RelationValidation {
         entity_path: &'static str,

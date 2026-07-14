@@ -13,7 +13,7 @@ use crate::{
             explain::ExplainPlan,
             expr::{FilterExpr, OrderTerm},
             fluent::load::PartialWindowLoadQuery,
-            intent::{CompiledQuery, PlannedQuery, Query, QueryError},
+            intent::{Query, QueryError},
             trace::QueryTracePlan,
         },
     },
@@ -58,9 +58,8 @@ where
     // ------------------------------------------------------------------
 
     /// Borrow the current immutable query intent.
-    #[doc(hidden)]
     #[must_use]
-    pub const fn query(&self) -> &Query<E> {
+    pub(in crate::db) const fn query(&self) -> &Query<E> {
         &self.query
     }
 
@@ -206,17 +205,6 @@ where
         self.map_query(|query| query.limit(limit))
     }
 
-    /// Apply a low-level row offset inside core planner/session tests and SQL
-    /// lowering.
-    ///
-    /// Public fluent callers should use `page(limit)` /
-    /// `next_page(limit, cursor)` rather than offset pagination.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn offset(self, offset: u32) -> Self {
-        self.map_query(|query| query.offset(offset))
-    }
-
     pub(super) fn with_cursor_token(mut self, token: impl Into<String>) -> Self {
         self.cursor_token = Some(token.into());
         self
@@ -267,18 +255,6 @@ where
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
         self.map_session_query_output(DbSession::trace_query)
-    }
-
-    /// Build the validated logical plan without compiling execution details.
-    pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.ensure_cursor_mode_ready()?;
-        self.map_session_query_output(DbSession::planned_query_with_visible_indexes)
-    }
-
-    /// Build the compiled executable plan for this query.
-    pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.ensure_cursor_mode_ready()?;
-        self.map_session_query_output(DbSession::compile_query_with_visible_indexes)
     }
 }
 

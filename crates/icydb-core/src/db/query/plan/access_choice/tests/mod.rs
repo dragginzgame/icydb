@@ -9,8 +9,9 @@ use super::{
         evaluate_prefix_compare_candidate, evaluate_range_candidate,
     },
     model::{
-        AccessChoiceFamily, AccessChoiceRankingReason, AccessChoiceRejectedReason,
-        AccessChoiceSelectedReason, CandidateEvaluation, CandidateScore,
+        AccessChoiceCandidateExplainSummary, AccessChoiceFamily, AccessChoiceRankingReason,
+        AccessChoiceRejectedReason, AccessChoiceSelectedReason, CandidateEvaluation,
+        CandidateScore,
     },
 };
 use crate::{
@@ -946,7 +947,7 @@ fn chosen_residual_burden_preference_scans_same_score_candidates_once() {
     );
 
     super::reset_same_score_competing_candidate_scan_count_for_tests();
-    let _snapshot = super::project_access_choice_explain_snapshot_from_authority(
+    let snapshot = super::project_access_choice_explain_snapshot_from_authority(
         &ACCESS_CHOICE_MODEL,
         visible_indexes.as_slice(),
         schema,
@@ -957,6 +958,27 @@ fn chosen_residual_burden_preference_scans_same_score_candidates_once() {
         super::same_score_competing_candidate_scan_count_for_tests(),
         0,
         "access-choice EXPLAIN should derive residual facts from its main candidate loop",
+    );
+    assert_eq!(snapshot.candidates.len(), 2);
+    assert_eq!(
+        snapshot
+            .candidates
+            .iter()
+            .map(AccessChoiceCandidateExplainSummary::index_name)
+            .collect::<Vec<_>>(),
+        vec!["access_choice::email_lower", "access_choice::email_upper"],
+        "candidate identity should remain structured and deterministic",
+    );
+    assert_eq!(snapshot.rejected.len(), 1);
+    assert_eq!(
+        snapshot.rejected[0].index_name(),
+        "access_choice::email_upper"
+    );
+    assert_eq!(snapshot.rejected[0].reason_code(), "lexicographic_tiebreak");
+    assert_eq!(
+        snapshot.rejected[0].label(),
+        "index:access_choice::email_upper=lexicographic_tiebreak",
+        "outward rendering should project the typed rejection without reparsing",
     );
 }
 

@@ -51,8 +51,6 @@ pub(super) fn summary_from_plan(
         scan_bound_kind,
         returned_row_bound,
         returned_row_bound_kind,
-        response_byte_bound: None,
-        response_byte_bound_kind: QueryBoundKind::Unavailable,
         primary_key_input_terms: primary_key_input_resource
             .map(PrimaryKeyInputResourceSummary::raw_term_count),
         primary_key_input_payload_bytes: primary_key_input_resource

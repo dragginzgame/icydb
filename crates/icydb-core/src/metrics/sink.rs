@@ -17,7 +17,7 @@ pub(crate) use instrumentation::record_sql_compile_reject_for_path;
 pub(crate) use instrumentation::{
     PathSpan, Span, record_accepted_schema_footprint_for_path, record_cache_entries,
     record_cache_event_for_path, record_cache_miss_reason_for_path, record_exec_error_for_path,
-    record_prepared_shape_finalization_for_path, record_schema_store_footprint_for_path,
+    record_prepared_shape_already_finalized_for_path, record_schema_store_footprint_for_path,
 };
 use std::cell::RefCell;
 #[cfg(test)]
@@ -25,9 +25,8 @@ use std::rc::Rc;
 
 pub use events::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
-    MetricsEvent, MutationCommitClass, PlanChoiceReason, PlanKind,
-    PreparedShapeFinalizationOutcome, SaveMutationKind, SchemaReconcileOutcome,
-    SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
+    MetricsEvent, MutationCommitClass, PlanChoiceReason, PlanKind, SaveMutationKind,
+    SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
 };
 
 thread_local! {

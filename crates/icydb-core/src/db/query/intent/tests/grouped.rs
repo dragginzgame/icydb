@@ -10,12 +10,11 @@ type GroupedIntentPlanContractCase<'a> = (
     bool,
 );
 type GroupedIntentErrorCase<'a> = (&'a str, fn() -> QueryError, fn(&QueryError) -> bool);
-type GroupedIntentPlanResultBuilder =
-    fn() -> Result<crate::db::CompiledQuery<PlanEntity>, QueryError>;
+type GroupedIntentPlanResultBuilder = fn() -> Result<AccessPlannedQuery, QueryError>;
 type GroupedIntentPlanResultCase<'a> = (
     &'a str,
     GroupedIntentPlanResultBuilder,
-    fn(Result<crate::db::CompiledQuery<PlanEntity>, QueryError>) -> bool,
+    fn(Result<AccessPlannedQuery, QueryError>) -> bool,
 );
 
 fn assert_grouped_query_error_case(
@@ -33,7 +32,7 @@ fn assert_grouped_query_error_case(
 fn assert_grouped_plan_result_case(
     label: &str,
     build_result: GroupedIntentPlanResultBuilder,
-    predicate: fn(Result<crate::db::CompiledQuery<PlanEntity>, QueryError>) -> bool,
+    predicate: fn(Result<AccessPlannedQuery, QueryError>) -> bool,
 ) {
     assert!(
         predicate(build_result()),
@@ -41,84 +40,75 @@ fn assert_grouped_plan_result_case(
     );
 }
 
-fn grouped_load_limit_without_order_result()
--> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
+fn grouped_load_limit_without_order_result() -> Result<AccessPlannedQuery, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
 }
 
-fn grouped_load_distinct_without_adjacency_result()
--> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
+fn grouped_load_distinct_without_adjacency_result() -> Result<AccessPlannedQuery, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
         .distinct()
-        .plan()
+        .access_plan_for_test()
 }
 
-fn grouped_load_order_prefix_mismatch_result()
--> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
+fn grouped_load_order_prefix_mismatch_result() -> Result<AccessPlannedQuery, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("id"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
 }
 
-fn grouped_load_order_prefix_alignment_result()
--> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
+fn grouped_load_order_prefix_alignment_result() -> Result<AccessPlannedQuery, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("name"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
 }
 
-fn grouped_load_order_without_limit_result()
--> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
+fn grouped_load_order_without_limit_result() -> Result<AccessPlannedQuery, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("name"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
-        .plan()
+        .access_plan_for_test()
 }
 
-fn grouped_load_distinct_count_terminal_result()
--> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
+fn grouped_load_distinct_count_terminal_result() -> Result<AccessPlannedQuery, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count().distinct())
-        .plan()
+        .access_plan_for_test()
 }
 
-fn grouped_load_distinct_count_field_terminal_result()
--> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
+fn grouped_load_distinct_count_field_terminal_result() -> Result<AccessPlannedQuery, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(count_by("name").distinct())
-        .plan()
+        .access_plan_for_test()
 }
 
-fn grouped_plan_result_is_ok(
-    result: Result<crate::db::CompiledQuery<PlanEntity>, QueryError>,
-) -> bool {
+fn grouped_plan_result_is_ok(result: Result<AccessPlannedQuery, QueryError>) -> bool {
     result.is_ok()
 }
 
 fn grouped_plan_result_has_distinct_adjacency_error(
-    result: Result<crate::db::CompiledQuery<PlanEntity>, QueryError>,
+    result: Result<AccessPlannedQuery, QueryError>,
 ) -> bool {
     let Err(err) = result else {
         return false;
@@ -133,7 +123,7 @@ fn grouped_plan_result_has_distinct_adjacency_error(
 }
 
 fn grouped_plan_result_has_order_prefix_mismatch(
-    result: Result<crate::db::CompiledQuery<PlanEntity>, QueryError>,
+    result: Result<AccessPlannedQuery, QueryError>,
 ) -> bool {
     let Err(err) = result else {
         return false;
@@ -148,7 +138,7 @@ fn grouped_plan_result_has_order_prefix_mismatch(
 }
 
 fn grouped_plan_result_has_order_requires_limit(
-    result: Result<crate::db::CompiledQuery<PlanEntity>, QueryError>,
+    result: Result<AccessPlannedQuery, QueryError>,
 ) -> bool {
     let Err(err) = result else {
         return false;
@@ -166,7 +156,7 @@ fn grouped_global_distinct_mixed_terminal_shape_error() -> QueryError {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::count_by("name").distinct())
         .aggregate(crate::db::count())
-        .plan()
+        .access_plan_for_test()
         .expect_err(
             "global grouped distinct without group keys should reject mixed aggregate shape",
         )
@@ -177,14 +167,14 @@ fn grouped_distinct_unsupported_kind_error() -> QueryError {
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(exists().distinct())
-        .plan()
+        .access_plan_for_test()
         .expect_err("grouped distinct exists should remain rejected")
 }
 
 fn grouped_global_distinct_non_numeric_sum_error() -> QueryError {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(sum("name").distinct())
-        .plan()
+        .access_plan_for_test()
         .expect_err("global sum(distinct non-numeric field) should fail")
 }
 
@@ -200,7 +190,7 @@ fn grouped_having_with_distinct_error() -> QueryError {
         )
         .expect("having aggregate clause should append on grouped query")
         .distinct()
-        .plan()
+        .access_plan_for_test()
         .expect_err("grouped having with distinct should be rejected in this release")
 }
 
@@ -217,7 +207,7 @@ fn grouped_ordered_having_with_distinct_error() -> QueryError {
         )
         .expect("having aggregate clause should append on grouped query")
         .distinct()
-        .plan()
+        .access_plan_for_test()
         .expect_err(
             "grouped having with distinct should be rejected even when grouped order prefix is aligned",
         )
@@ -266,9 +256,8 @@ fn helper_grouped_count_plan() -> AccessPlannedQuery {
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
-        .plan()
+        .access_plan_for_test()
         .expect("helper grouped count should plan")
-        .into_inner()
 }
 
 fn builder_grouped_count_plan() -> AccessPlannedQuery {
@@ -276,41 +265,36 @@ fn builder_grouped_count_plan() -> AccessPlannedQuery {
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(count())
-        .plan()
+        .access_plan_for_test()
         .expect("builder grouped count should plan")
-        .into_inner()
 }
 
 fn helper_global_distinct_count_plan() -> AccessPlannedQuery {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::count_by("name").distinct())
-        .plan()
+        .access_plan_for_test()
         .expect("helper global count(distinct field) should plan")
-        .into_inner()
 }
 
 fn builder_global_distinct_count_plan() -> AccessPlannedQuery {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(count_by("name").distinct())
-        .plan()
+        .access_plan_for_test()
         .expect("builder global count(distinct field) should plan")
-        .into_inner()
 }
 
 fn helper_global_distinct_sum_plan() -> AccessPlannedQuery {
     Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::sum("rank").distinct())
-        .plan()
+        .access_plan_for_test()
         .expect("helper global sum(distinct field) should plan")
-        .into_inner()
 }
 
 fn builder_global_distinct_sum_plan() -> AccessPlannedQuery {
     Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(sum("rank").distinct())
-        .plan()
+        .access_plan_for_test()
         .expect("builder global sum(distinct field) should plan")
-        .into_inner()
 }
 
 fn helper_grouped_count_ordered_limited_plan() -> AccessPlannedQuery {
@@ -320,9 +304,8 @@ fn helper_grouped_count_ordered_limited_plan() -> AccessPlannedQuery {
         .expect("group field should resolve")
         .aggregate(crate::db::count())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("helper grouped count plan should build")
-        .into_inner()
 }
 
 fn builder_grouped_count_ordered_limited_plan() -> AccessPlannedQuery {
@@ -332,45 +315,40 @@ fn builder_grouped_count_ordered_limited_plan() -> AccessPlannedQuery {
         .expect("group field should resolve")
         .aggregate(count())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("builder grouped count plan should build")
-        .into_inner()
 }
 
 fn helper_global_distinct_count_limited_plan() -> AccessPlannedQuery {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::count_by("name").distinct())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("helper grouped global distinct count plan should build")
-        .into_inner()
 }
 
 fn builder_global_distinct_count_limited_plan() -> AccessPlannedQuery {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(count_by("name").distinct())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("builder grouped global distinct count plan should build")
-        .into_inner()
 }
 
 fn helper_global_distinct_sum_limited_plan() -> AccessPlannedQuery {
     Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::sum("rank").distinct())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("helper grouped global distinct sum plan should build")
-        .into_inner()
 }
 
 fn builder_global_distinct_sum_limited_plan() -> AccessPlannedQuery {
     Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(sum("rank").distinct())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("builder grouped global distinct sum plan should build")
-        .into_inner()
 }
 
 fn helper_grouped_multi_aggregate_limited_plan() -> AccessPlannedQuery {
@@ -380,9 +358,8 @@ fn helper_grouped_multi_aggregate_limited_plan() -> AccessPlannedQuery {
         .aggregate(crate::db::count())
         .aggregate(crate::db::max())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("helper grouped multi-aggregate plan should build")
-        .into_inner()
 }
 
 fn builder_grouped_multi_aggregate_limited_plan() -> AccessPlannedQuery {
@@ -392,9 +369,8 @@ fn builder_grouped_multi_aggregate_limited_plan() -> AccessPlannedQuery {
         .aggregate(count())
         .aggregate(max())
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .expect("builder grouped multi-aggregate plan should build")
-        .into_inner()
 }
 
 fn assert_grouped_builder_explain_parity(
@@ -530,10 +506,10 @@ fn grouped_distinct_terminal_acceptance_matrix() {
 fn grouped_global_distinct_count_field_without_group_by_is_allowed() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::count_by("name").distinct())
-        .plan()
+        .access_plan_for_test()
         .expect("global grouped count(distinct field) should plan");
 
-    let Some(grouped) = plan.into_inner().grouped_plan().cloned() else {
+    let Some(grouped) = plan.grouped_plan().cloned() else {
         panic!("global grouped distinct field aggregate must compile to grouped logical plan");
     };
     assert!(
@@ -590,41 +566,36 @@ fn grouped_aggregate_builder_terminal_matrix_matches_helper_fingerprints() {
                 .expect("group field should resolve")
                 .aggregate(crate::db::exists())
                 .limit(1)
-                .plan()
-                .expect("helper grouped exists plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("helper grouped exists plan should build"),
             "first" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(crate::db::first())
                 .limit(1)
-                .plan()
-                .expect("helper grouped first plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("helper grouped first plan should build"),
             "last" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(crate::db::last())
                 .limit(1)
-                .plan()
-                .expect("helper grouped last plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("helper grouped last plan should build"),
             "min" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(crate::db::min())
                 .limit(1)
-                .plan()
-                .expect("helper grouped min plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("helper grouped min plan should build"),
             "max" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(crate::db::max())
                 .limit(1)
-                .plan()
-                .expect("helper grouped max plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("helper grouped max plan should build"),
             _ => unreachable!("terminal matrix is fixed"),
         };
         let builder_plan = match terminal {
@@ -633,41 +604,36 @@ fn grouped_aggregate_builder_terminal_matrix_matches_helper_fingerprints() {
                 .expect("group field should resolve")
                 .aggregate(exists())
                 .limit(1)
-                .plan()
-                .expect("builder grouped exists plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("builder grouped exists plan should build"),
             "first" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(first())
                 .limit(1)
-                .plan()
-                .expect("builder grouped first plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("builder grouped first plan should build"),
             "last" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(last())
                 .limit(1)
-                .plan()
-                .expect("builder grouped last plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("builder grouped last plan should build"),
             "min" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(min())
                 .limit(1)
-                .plan()
-                .expect("builder grouped min plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("builder grouped min plan should build"),
             "max" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
                 .group_by("name")
                 .expect("group field should resolve")
                 .aggregate(max())
                 .limit(1)
-                .plan()
-                .expect("builder grouped max plan should build")
-                .into_inner(),
+                .access_plan_for_test()
+                .expect("builder grouped max plan should build"),
             _ => unreachable!("terminal matrix is fixed"),
         };
 
@@ -776,10 +742,10 @@ fn grouped_aggregate_builder_max_field_terminal_is_allowed() {
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(max_by("name"))
-        .plan()
+        .access_plan_for_test()
         .expect("grouped max(field) should now plan");
 
-    let projection = plan.projection_spec();
+    let projection = plan.projection_spec(PlanEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
     assert_eq!(
         fields.len(),
@@ -825,10 +791,10 @@ fn global_aggregate_having_without_group_by_is_allowed() {
             crate::value::InputValue::from(Value::Nat64(0)),
         )
         .expect("global aggregate HAVING should append after aggregate declaration")
-        .plan()
+        .access_plan_for_test()
         .expect("global aggregate HAVING without GROUP BY should plan");
 
-    let Some(grouped) = plan.into_inner().grouped_plan().cloned() else {
+    let Some(grouped) = plan.grouped_plan().cloned() else {
         panic!("global aggregate HAVING should compile to grouped logical plan");
     };
     assert!(
@@ -843,14 +809,14 @@ fn global_aggregate_having_without_group_by_is_allowed() {
 
 #[cfg(feature = "sql")]
 #[test]
-fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {
-    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+fn access_plan_projection_spec_lowers_grouped_shape_in_declaration_order() {
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group by should resolve")
         .aggregate(count())
-        .plan()
+        .access_plan_for_test()
         .expect("grouped plan should build");
-    let projection = compiled.projection_spec();
+    let projection = plan.projection_spec(PlanEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
     assert_eq!(
         fields.len(),
@@ -884,12 +850,12 @@ fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {
 
 #[cfg(feature = "sql")]
 #[test]
-fn compiled_query_projection_spec_preserves_global_distinct_aggregate_identity() {
-    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+fn access_plan_projection_spec_preserves_global_distinct_aggregate_identity() {
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(count_by("name").distinct())
-        .plan()
+        .access_plan_for_test()
         .expect("global distinct grouped plan should build");
-    let projection = compiled.projection_spec();
+    let projection = plan.projection_spec(PlanEntity::MODEL);
     let fields = projection.fields().collect::<Vec<_>>();
     assert_eq!(
         fields.len(),

@@ -36,7 +36,7 @@ fn load_filter_after_access_with_optional_equality() {
     let match_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter_predicate(equals_opt_value)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("optional equality plan should build");
     let match_response = load
@@ -57,7 +57,7 @@ fn load_filter_after_access_with_optional_equality() {
     let mismatch_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter_predicate(no_match)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("mismatch plan should build");
     let mismatch_response = load
@@ -128,7 +128,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
         .order_term(crate::db::asc("rank"))
         .limit(1)
         .offset(1)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("in+text ordered page plan should build");
     let response = load
@@ -173,7 +173,7 @@ fn load_contains_filters_after_by_id_access() {
     let hit_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter_predicate(contains_nine)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("contains hit plan should build");
     let hit = load.execute(hit_plan).expect("contains hit should execute");
@@ -188,7 +188,7 @@ fn load_contains_filters_after_by_id_access() {
     let miss_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter_predicate(contains_missing)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("contains miss plan should build");
     let miss = load
@@ -252,7 +252,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
         .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(1)
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("filtered delete plan should build");
     let deleted = delete
@@ -273,7 +273,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let remaining_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("rank"))
-        .plan()
+        .access_plan_for_test()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("remaining load plan should build");
     let remaining = load

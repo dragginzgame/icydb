@@ -12,15 +12,14 @@ mod write;
 use crate::{error::Error, traits::EntityKind, types::Id};
 
 use icydb_core::db::{
-    EntityResponse as CoreEntityResponse, ProjectionResponse as CoreProjectionResponse,
-    ResponseCardinalityExt as CoreResponseCardinalityExt,
+    EntityResponse as CoreEntityResponse, ResponseCardinalityExt as CoreResponseCardinalityExt,
 };
 
 // re-exports
 pub use icydb_core::db::{ExecutionTrace, GroupedRow, ProjectedRow};
 pub use paged::{PagedGroupedResponse, PagedResponse};
 pub use query::QueryResponse;
-pub use rows::{ProjectionRows, RowProjectionOutput, render_output_value_text};
+pub use rows::{RowProjectionOutput, render_output_value_text};
 pub use write::*;
 
 ///
@@ -114,67 +113,5 @@ impl<E: EntityKind> Response<E> {
     /// Check whether the response contains the given primary key.
     pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.inner.contains_id(id)
-    }
-}
-
-///
-/// ProjectionResponse
-///
-/// Public facade over projection-shaped query results.
-/// Wraps the core projection response and exposes projection-row iteration and
-/// cardinality checks on the facade surface.
-///
-
-#[derive(Debug)]
-pub struct ProjectionResponse<E: EntityKind> {
-    inner: CoreProjectionResponse<E>,
-}
-
-impl<E: EntityKind> ProjectionResponse<E> {
-    /// Construct a facade projection response from a core projection response.
-    #[must_use]
-    pub const fn from_core(inner: CoreProjectionResponse<E>) -> Self {
-        Self { inner }
-    }
-
-    /// Return the number of projected rows.
-    #[must_use]
-    pub const fn count(&self) -> u32 {
-        self.inner.count()
-    }
-
-    /// Return whether at least one projected row exists.
-    #[must_use]
-    pub const fn exists(&self) -> bool {
-        !self.inner.is_empty()
-    }
-
-    /// Consume and return projected rows in response order.
-    #[must_use]
-    pub fn rows(self) -> Vec<ProjectedRow<E>> {
-        self.inner.rows()
-    }
-
-    /// Borrow an iterator over projected rows in response order.
-    pub fn iter(&self) -> std::slice::Iter<'_, ProjectedRow<E>> {
-        self.inner.iter()
-    }
-}
-
-impl<'a, E: EntityKind> IntoIterator for &'a ProjectionResponse<E> {
-    type Item = &'a ProjectedRow<E>;
-    type IntoIter = std::slice::Iter<'a, ProjectedRow<E>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<E: EntityKind> IntoIterator for ProjectionResponse<E> {
-    type Item = ProjectedRow<E>;
-    type IntoIter = std::vec::IntoIter<ProjectedRow<E>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.rows().into_iter()
     }
 }

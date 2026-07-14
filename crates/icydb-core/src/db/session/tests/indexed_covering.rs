@@ -166,7 +166,7 @@ fn execute_sql_projection_index_covering_residual_predicate_avoids_row_store_get
                ORDER BY name ASC \
                LIMIT 2";
     let (_result, attribution) = session
-        .execute_sql_query_with_attribution::<IndexedSessionSqlEntity>(sql)
+        .execute_trusted_sql_query_with_attribution::<IndexedSessionSqlEntity>(sql)
         .expect("index-covered residual predicate projection should execute with attribution");
 
     assert_eq!(
@@ -186,7 +186,7 @@ fn execute_sql_projection_index_covering_order_only_pushdown_keeps_reads_bounded
                ORDER BY name ASC, id ASC \
                LIMIT 2";
     let (result, attribution) = session
-        .execute_sql_query_with_attribution::<IndexedSessionSqlEntity>(sql)
+        .execute_trusted_sql_query_with_attribution::<IndexedSessionSqlEntity>(sql)
         .expect("secondary-order covering projection should execute with attribution");
     let SqlStatementResult::Projection { rows, .. } = result else {
         panic!("secondary-order covering projection should return projection rows");
