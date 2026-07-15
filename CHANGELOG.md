@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Fixes default-feature core compilation after schema-publication hardening by
+  keeping startup mutation metrics and SQL-only publication exports aligned
+  with their actual feature ownership.
+
 ## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)

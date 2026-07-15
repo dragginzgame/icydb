@@ -4,8 +4,9 @@ use crate::db::schema::PersistedSchemaSnapshot;
 ///
 /// SchemaFieldPathIndexMutationMetrics
 ///
-/// Metrics emitted after the completed field-path index mutation is accepted.
-/// This type carries only the facts consumed after schema publication.
+/// Metrics produced by one completed physical field-path index mutation.
+/// Startup reconciliation consumes row counts before schema publication, while
+/// SQL DDL reports the same accepted mutation facts after publication.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,6 +17,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexMutationMetrics {
 }
 
 impl SchemaFieldPathIndexMutationMetrics {
+    /// Build metrics from the completed physical mutation report.
     #[must_use]
     pub(in crate::db::schema) const fn new(
         entity_path: &'static str,
@@ -29,17 +31,19 @@ impl SchemaFieldPathIndexMutationMetrics {
         }
     }
 
+    /// Return the accepted entity path covered by the mutation.
     #[must_use]
     pub(in crate::db::schema) const fn entity_path(&self) -> &'static str {
         self.entity_path
     }
 
-    #[cfg(any(test, feature = "sql"))]
+    /// Return the number of source rows inspected by physical mutation.
     #[must_use]
     pub(in crate::db::schema) const fn rows_scanned(&self) -> usize {
         self.rows_scanned
     }
 
+    /// Return the number of physical index keys written by the mutation.
     #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db::schema) const fn index_keys_written(&self) -> usize {

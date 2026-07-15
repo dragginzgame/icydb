@@ -53,6 +53,7 @@ impl DeferredStartupFieldPathIndexPublication {
 }
 
 pub(super) struct SchemaFieldPathIndexAdditionOutcome {
+    #[cfg(feature = "sql")]
     metrics: SchemaFieldPathIndexMutationMetrics,
     deferred_startup_publication: Option<DeferredStartupFieldPathIndexPublication>,
 }
@@ -138,9 +139,11 @@ pub(super) fn execute_supported_field_path_index_addition(
             return Err(error);
         }
     };
+    #[cfg(feature = "sql")]
     let metrics = publication.metrics.clone();
     if catalog_scope.is_startup() {
         return Ok(SchemaFieldPathIndexAdditionOutcome {
+            #[cfg(feature = "sql")]
             metrics,
             deferred_startup_publication: Some(DeferredStartupFieldPathIndexPublication {
                 publication,
@@ -157,6 +160,7 @@ pub(super) fn execute_supported_field_path_index_addition(
     }
 
     Ok(SchemaFieldPathIndexAdditionOutcome {
+        #[cfg(feature = "sql")]
         metrics,
         deferred_startup_publication: None,
     })
@@ -240,6 +244,7 @@ impl SchemaMutationCatalogScope {
         self.accepted_before_identity.is_none()
     }
 
+    /// Publish the accepted SQL DDL snapshot through the catalog revision gate.
     pub(super) fn publish_sql_ddl_accepted_snapshot(
         self,
         store: StoreHandle,
@@ -254,7 +259,10 @@ impl SchemaMutationCatalogScope {
         return publish_accepted_entity_snapshot_revision(store, expected, accepted_after);
 
         #[cfg(not(feature = "sql"))]
-        Err(InternalError::store_invariant())
+        {
+            let _ = (store, accepted_after);
+            Err(InternalError::store_invariant())
+        }
     }
 
     pub(super) fn publication_error_allows_physical_rollback(

@@ -74,9 +74,9 @@ pub(in crate::db) use recovery::ensure_recovered;
 #[cfg(test)]
 pub(in crate::db::commit) use recovery::mark_schema_reconciliation_dirty_for_tests;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
-pub(in crate::db) use schema_publication::{
-    publish_accepted_schema_candidate, publish_accepted_schema_candidate_with_row_puts,
-};
+pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
+#[cfg(feature = "sql")]
+pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_row_puts;
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
 
