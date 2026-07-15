@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Fixes default-feature core compilation after schema-publication hardening by
   keeping startup mutation metrics and SQL-only publication exports aligned
   with their actual feature ownership.
+- Removes a stale recovery test that treated volatile rows as durable and
+  expected canonical journal folds to re-run live mutation admission.
 
 ## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
 
