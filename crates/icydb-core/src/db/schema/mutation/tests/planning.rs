@@ -84,7 +84,6 @@ fn runner_input_binds_accepted_snapshots_to_the_same_mutation_plan() {
     let input = super::SchemaMutationRunnerInput::new(&before, &after, plan.clone())
         .expect("same-entity accepted snapshots should build runner input");
 
-    assert_eq!(input.accepted_before().entity_path(), before.entity_path());
     assert_eq!(
         input.accepted_after().fields().len(),
         before.fields().len() + 1,
@@ -132,68 +131,6 @@ fn runner_input_rejects_cross_entity_snapshot_pairs() {
         super::SchemaMutationRunnerInput::new(&before, &wrong_pk, MutationPlan::exact_match()),
         Err(super::SchemaMutationRunnerInputError::PrimaryKeyField),
     );
-}
-
-#[test]
-fn runtime_epoch_identity_tracks_accepted_snapshot_changes() {
-    let before = base_snapshot();
-    let repeated_before = base_snapshot();
-    let added = nullable_text_field("nickname", 3, 2);
-    let after = append_fields_snapshot(&before, &[added]);
-
-    let before_epoch = super::SchemaMutationRuntimeEpoch::from_snapshot(&before)
-        .expect("base snapshot should hash into runtime epoch");
-    let repeated_epoch = super::SchemaMutationRuntimeEpoch::from_snapshot(&repeated_before)
-        .expect("same snapshot should hash into runtime epoch");
-    let after_epoch = super::SchemaMutationRuntimeEpoch::from_snapshot(&after)
-        .expect("changed snapshot should hash into runtime epoch");
-
-    assert_eq!(before_epoch, repeated_epoch);
-    assert_ne!(before_epoch, after_epoch);
-    assert_eq!(before_epoch.entity_path(), before.entity_path());
-    assert_eq!(after_epoch.schema_version(), after.version());
-    assert_ne!(
-        before_epoch.snapshot_fingerprint(),
-        after_epoch.snapshot_fingerprint(),
-    );
-}
-
-#[test]
-fn publication_identity_keeps_staged_epoch_invisible_until_published() {
-    let before = base_snapshot();
-    let added = nullable_text_field("nickname", 3, 2);
-    let after = append_fields_snapshot(&before, std::slice::from_ref(&added));
-    let input = super::SchemaMutationRunnerInput::new(
-        &before,
-        &after,
-        SchemaMutationRequest::AppendOnlyFields(std::slice::from_ref(&added)).into(),
-    )
-    .expect("same-entity metadata input should build");
-
-    let staged = super::SchemaMutationPublicationIdentity::from_input(
-        &input,
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    )
-    .expect("staged publication identity should derive from snapshots");
-    let published = super::SchemaMutationPublicationIdentity::from_input(
-        &input,
-        super::SchemaMutationStoreVisibility::Published,
-    )
-    .expect("published publication identity should derive from snapshots");
-
-    assert!(staged.changes_epoch());
-    assert_eq!(
-        staged.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(staged.visible_epoch(), staged.before_epoch());
-    assert_eq!(staged.published_epoch(), None);
-    assert_eq!(published.visible_epoch(), published.after_epoch());
-    assert_eq!(
-        published.store_visibility(),
-        super::SchemaMutationStoreVisibility::Published,
-    );
-    assert_eq!(published.published_epoch(), Some(published.after_epoch()));
 }
 
 #[test]

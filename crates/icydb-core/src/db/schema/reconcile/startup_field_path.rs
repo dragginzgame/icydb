@@ -18,10 +18,9 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, PersistedSchemaSnapshot, SchemaFieldPathIndexMutationMetrics,
             SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRebuildTarget,
-            SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerFailure,
-            SchemaFieldPathIndexRunnerReport, SchemaMutationAcceptedSnapshotPublicationSink,
-            SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
-            SchemaMutationRuntimeInvalidationSink, transition::SchemaTransitionPlan,
+            SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerError,
+            SchemaFieldPathIndexRunnerReport, SchemaMutationRunnerInput,
+            transition::SchemaTransitionPlan,
         },
     },
     error::InternalError,
@@ -63,8 +62,6 @@ pub(super) fn execute_supported_field_path_index_addition(
         decode_field_path_rebuild_rows(raw_rows.as_slice(), entity_tag, entity_path, row_contract)?;
     rebuild_gate.validate_before_physical_work(store, target, rows.len())?;
 
-    let mut invalidation_sink = StartupSchemaMutationInvalidationSink;
-    let mut publication_sink = StartupSchemaMutationPublicationSink;
     let report = store.with_index_mut(|index_store| {
         if index_store.state() != IndexState::Ready {
             return Err(InternalError::store_unsupported());
@@ -86,19 +83,28 @@ pub(super) fn execute_supported_field_path_index_addition(
             predicate_program.as_ref(),
             rebuild_rows,
             index_store,
-            &mut invalidation_sink,
-            &mut publication_sink,
         )
-        .map_err(field_path_runner_failure_error)
+        .map_err(SchemaFieldPathIndexRunnerError::into_internal_error)
     })?;
 
-    let publication = StartupFieldPathPublicationDecision::from_runner_report(
+    let publication = match StartupFieldPathPublicationDecision::from_runner_report(
         store,
         &rebuild_gate,
         target,
         &report,
-    )?;
-    publication.publish_accepted_snapshot(store, publication_gate, accepted_after)?;
+    ) {
+        Ok(publication) => publication,
+        Err(error) => {
+            store.with_index_mut(|index_store| report.rollback_physical_work(index_store));
+            return Err(error);
+        }
+    };
+    if let Err(error) =
+        publication.publish_accepted_snapshot(store, publication_gate, accepted_after)
+    {
+        store.with_index_mut(|index_store| report.rollback_physical_work(index_store));
+        return Err(error);
+    }
 
     Ok(publication.metrics)
 }
@@ -345,16 +351,13 @@ impl StartupFieldPathPublicationDecision {
         report: &SchemaFieldPathIndexRunnerReport,
     ) -> Result<Self, InternalError> {
         let metrics = report.mutation_metrics(rebuild_gate.entity_path);
-        if !report.runner_report().physical_work_allows_publication() {
-            return Err(InternalError::store_unsupported());
-        }
-        let target_entries = u64::try_from(report.runner_report().index_keys_written())
+        let target_entries = u64::try_from(report.staged_validation().entry_count())
             .map_err(|_| InternalError::store_unsupported())?;
 
         rebuild_gate.validate_before_schema_publication(
             store,
             target,
-            report.runner_report().rows_scanned(),
+            report.staged_validation().source_rows(),
         )?;
 
         Ok(Self {
@@ -552,33 +555,4 @@ pub(super) fn decode_field_path_rebuild_rows<'a>(
             })
         })
         .collect()
-}
-
-fn field_path_runner_failure_error(_failure: SchemaFieldPathIndexRunnerFailure) -> InternalError {
-    InternalError::store_unsupported()
-}
-
-pub(super) struct StartupSchemaMutationInvalidationSink;
-
-impl SchemaMutationRuntimeInvalidationSink for StartupSchemaMutationInvalidationSink {
-    fn invalidate_runtime_schema(
-        &mut self,
-        _store: &str,
-        _before: &SchemaMutationRuntimeEpoch,
-        _after: &SchemaMutationRuntimeEpoch,
-    ) {
-    }
-}
-
-pub(super) struct StartupSchemaMutationPublicationSink;
-
-impl SchemaMutationAcceptedSnapshotPublicationSink for StartupSchemaMutationPublicationSink {
-    fn publish_accepted_schema(
-        &mut self,
-        _store: &str,
-        _accepted_after: &PersistedSchemaSnapshot,
-        _before: &SchemaMutationRuntimeEpoch,
-        _after: &SchemaMutationRuntimeEpoch,
-    ) {
-    }
 }

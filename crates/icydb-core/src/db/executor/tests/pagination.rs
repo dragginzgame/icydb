@@ -2220,7 +2220,7 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
                 .collect::<Vec<_>>(),
             execution
                 .continuation_cursor()
-                .map(crate::db::encode_cursor),
+                .map(crate::db::cursor::encode_cursor),
         )
     })
 }
@@ -2275,7 +2275,7 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
                 .collect::<Vec<_>>(),
             execution
                 .continuation_cursor()
-                .map(crate::db::encode_cursor),
+                .map(crate::db::cursor::encode_cursor),
         )
     })
 }
@@ -2332,7 +2332,7 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
                 .collect::<Vec<_>>(),
             execution
                 .continuation_cursor()
-                .map(crate::db::encode_cursor),
+                .map(crate::db::cursor::encode_cursor),
         )
     })
 }

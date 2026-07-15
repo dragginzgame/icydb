@@ -11,7 +11,7 @@ use crate::db::{
     },
     key_taxonomy::PrimaryKeyValue,
     predicate::PredicateProgram,
-    schema::{PersistedFieldSnapshot, PersistedSchemaSnapshot},
+    schema::PersistedFieldSnapshot,
 };
 use crate::error::InternalError;
 use crate::types::EntityTag;
@@ -121,11 +121,6 @@ pub(in crate::db) use index::{
     derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_path_index_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after,
     resolve_sql_ddl_secondary_index_drop_candidate,
-};
-
-mod identity;
-pub(in crate::db::schema) use identity::{
-    SchemaMutationPublicationIdentity, SchemaMutationRuntimeEpoch,
 };
 
 mod staged_index_validation;

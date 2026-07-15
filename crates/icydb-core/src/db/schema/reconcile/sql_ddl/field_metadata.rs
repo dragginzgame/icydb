@@ -1,8 +1,9 @@
 use crate::{
     db::{
         data::{
-            DecodedDataStoreKey, SlotReader, StoreVisit, StructuralSlotReader,
-            canonical_row_from_dense_slot_payloads,
+            CanonicalRow, DecodedDataStoreKey, RawDataStoreKey, RawRow, SlotReader, StoreVisit,
+            StructuralSlotReader, canonical_row_from_dense_slot_payloads,
+            canonical_row_from_stored_raw_row,
         },
         registry::StoreHandle,
         schema::{
@@ -19,8 +20,16 @@ use crate::{
 
 use super::{
     super::startup_field_path::{SchemaPublicationGate, catalog_backed_row_contract_for_rebuild},
-    SqlDdlPublicationEnvelope,
+    SqlDdlPublicationEnvelope, validate_sql_ddl_drop_schema_gate,
 };
+
+/// One pending dense-row rewrite retaining the exact accepted-before bytes
+/// until accepted-schema publication commits the new layout.
+struct SqlDdlFieldDropRowRewrite {
+    key: RawDataStoreKey,
+    before: RawRow,
+    after: CanonicalRow,
+}
 
 /// Execute one SQL DDL field drop by rewriting rows to the accepted dense
 /// layout before publishing the compacted catalog snapshot.
@@ -48,6 +57,13 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
         envelope.before(),
         envelope.after(),
         target,
+    )?;
+    validate_sql_ddl_drop_schema_gate(
+        store,
+        entity_tag,
+        entity_path,
+        envelope.before(),
+        "before row rewrite",
     )?;
     let contract = catalog_backed_row_contract_for_rebuild(
         store,
@@ -89,24 +105,48 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
                     None => contract.missing_slot_payload(*slot),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            rewritten.push((
-                raw_key.clone(),
-                canonical_row_from_dense_slot_payloads(&payloads)?,
-            ));
+            rewritten.push(SqlDdlFieldDropRowRewrite {
+                key: raw_key.clone(),
+                before: raw_row.clone(),
+                after: canonical_row_from_dense_slot_payloads(&payloads)?,
+            });
             Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
         })?;
 
         Ok::<_, InternalError>(rewritten)
     })?;
     let rows_scanned = rewritten.len();
-    store.with_data_mut(|data_store| {
-        for (raw_key, row) in rewritten {
-            data_store.insert(raw_key, row);
+    let rewrite_result = store.with_data_mut(|data_store| {
+        for rewrite in &rewritten {
+            if data_store.insert(rewrite.key.clone(), rewrite.after.clone())
+                != Some(rewrite.before.clone())
+            {
+                return Err(InternalError::store_corruption());
+            }
         }
+        Ok::<_, InternalError>(())
     });
-    envelope.publish()?;
+    if let Err(error) = rewrite_result {
+        rollback_sql_ddl_field_drop_rows(store, &rewritten);
+        return Err(error);
+    }
+    if let Err(error) = envelope.publish() {
+        rollback_sql_ddl_field_drop_rows(store, &rewritten);
+        return Err(error);
+    }
 
     Ok(rows_scanned)
+}
+
+fn rollback_sql_ddl_field_drop_rows(store: StoreHandle, rewritten: &[SqlDdlFieldDropRowRewrite]) {
+    store.with_data_mut(|data_store| {
+        for rewrite in rewritten {
+            data_store.insert(
+                rewrite.key.clone(),
+                canonical_row_from_stored_raw_row(rewrite.before.clone()),
+            );
+        }
+    });
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(

@@ -14,65 +14,30 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
     StageRowsFailed,
     StagedStoreRejected,
     IsolatedStoreValidationFailed,
-    RuntimeInvalidationIdentity,
-    SnapshotPublicationRejected,
-    PublishedStoreRejected,
+    ReadyStoreRejected,
 }
 
-///
-/// SchemaFieldPathIndexRunnerFailure
-///
-/// Typed failure report for a field-path runner attempt. Failures that occur
-/// after staged physical writes can carry the rollback report that restored
-/// the isolated store image before the runner returned.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerFailure {
-    error: SchemaFieldPathIndexRunnerError,
-    rollback_report: Option<Box<SchemaFieldPathIndexStagedStoreRollbackReport>>,
-}
-
-impl SchemaFieldPathIndexRunnerFailure {
-    #[must_use]
-    const fn without_rollback(error: SchemaFieldPathIndexRunnerError) -> Self {
-        Self {
-            error,
-            rollback_report: None,
+impl SchemaFieldPathIndexRunnerError {
+    /// Collapse the runner's typed phase failure into the shared runtime
+    /// taxonomy without treating runner-internal contradictions as supported
+    /// schema rejections.
+    pub(in crate::db::schema) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::UnsupportedMutationPlan | Self::StageRowsFailed | Self::StagedStoreRejected => {
+                InternalError::store_unsupported()
+            }
+            Self::TargetMismatch
+            | Self::IsolatedStoreValidationFailed
+            | Self::ReadyStoreRejected => InternalError::store_invariant(),
         }
-    }
-
-    #[must_use]
-    fn with_rollback(
-        error: SchemaFieldPathIndexRunnerError,
-        rollback_report: SchemaFieldPathIndexStagedStoreRollbackReport,
-    ) -> Self {
-        Self {
-            error,
-            rollback_report: Some(Box::new(rollback_report)),
-        }
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn error(&self) -> SchemaFieldPathIndexRunnerError {
-        self.error
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) fn rollback_report(
-        &self,
-    ) -> Option<&SchemaFieldPathIndexStagedStoreRollbackReport> {
-        self.rollback_report.as_deref()
     }
 }
 
 /// SchemaFieldPathIndexRunnerReport
 ///
-/// End-to-end runner report for one accepted field-path index rebuild. It
-/// binds the staged write, isolated physical validation, runtime invalidation,
-/// and accepted snapshot publication handoff into one typed result.
+/// Physical runner report for one accepted field-path index rebuild. Accepted
+/// snapshot publication remains outside this report and is owned by the
+/// reconciliation publication gate.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -80,14 +45,9 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerReport {
     #[cfg(test)]
     store: String,
     #[cfg(test)]
-    write_report: SchemaFieldPathIndexStagedStoreWriteReport,
-    #[cfg(test)]
     validation: SchemaFieldPathIndexIsolatedIndexStoreValidation,
-    #[cfg(test)]
-    invalidation_report: SchemaFieldPathIndexRuntimeInvalidationReport,
-    #[cfg(test)]
-    publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
-    published_store_report: SchemaFieldPathIndexPublishedStoreReport,
+    rollback_plan: SchemaFieldPathIndexStagedStoreRollbackPlan,
+    ready_store_report: SchemaFieldPathIndexReadyStoreReport,
 }
 
 impl SchemaFieldPathIndexRunnerReport {
@@ -95,14 +55,6 @@ impl SchemaFieldPathIndexRunnerReport {
     #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn write_report(
-        &self,
-    ) -> &SchemaFieldPathIndexStagedStoreWriteReport {
-        &self.write_report
     }
 
     #[must_use]
@@ -115,41 +67,25 @@ impl SchemaFieldPathIndexRunnerReport {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::schema) const fn invalidation_report(
+    pub(in crate::db::schema) const fn ready_store_report(
         &self,
-    ) -> &SchemaFieldPathIndexRuntimeInvalidationReport {
-        &self.invalidation_report
+    ) -> &SchemaFieldPathIndexReadyStoreReport {
+        &self.ready_store_report
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn publication_report(
+    pub(in crate::db::schema) const fn staged_validation(
         &self,
-    ) -> &SchemaFieldPathIndexSnapshotPublicationReport {
-        &self.publication_report
+    ) -> SchemaFieldPathIndexStagedValidation {
+        self.ready_store_report.staged_validation()
     }
 
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn published_store_report(
-        &self,
-    ) -> &SchemaFieldPathIndexPublishedStoreReport {
-        &self.published_store_report
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn runner_report(
-        &self,
-    ) -> &SchemaFieldPathIndexMutationProgress {
-        self.published_store_report.runner_report()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) fn publication_readiness(
-        &self,
-    ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
-        self.published_store_report.publication_readiness()
+    pub(in crate::db::schema) fn rollback_physical_work(&self, index_store: &mut IndexStore) {
+        SchemaFieldPathIndexRunner::rollback_index_store(
+            self.rollback_plan.store(),
+            &self.rollback_plan,
+            index_store,
+        );
     }
 
     #[must_use]
@@ -159,8 +95,8 @@ impl SchemaFieldPathIndexRunnerReport {
     ) -> SchemaFieldPathIndexMutationMetrics {
         SchemaFieldPathIndexMutationMetrics::new(
             entity_path,
-            self.runner_report().rows_scanned(),
-            self.runner_report().index_keys_written(),
+            self.staged_validation().source_rows(),
+            self.staged_validation().entry_count(),
         )
     }
 }
@@ -168,17 +104,13 @@ impl SchemaFieldPathIndexRunnerReport {
 ///
 /// Narrow physical runner for one accepted field-path index rebuild. The
 /// runner only accepts the schema-owned field-path execution shape and keeps
-/// row staging, isolated store mutation, runtime invalidation, and snapshot
-/// publication handoff in a fixed order.
+/// row staging, isolated store mutation, and physical validation in one fixed
+/// order.
 ///
 
 pub(in crate::db::schema) struct SchemaFieldPathIndexRunner;
 
 impl SchemaFieldPathIndexRunner {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "runner boundary keeps schema input, target, row stream, physical store, and publication sinks explicit"
-    )]
     pub(in crate::db::schema) fn run<'a>(
         input: &SchemaMutationRunnerInput<'_>,
         entity_tag: EntityTag,
@@ -186,11 +118,8 @@ impl SchemaFieldPathIndexRunner {
         predicate_program: Option<&PredicateProgram>,
         rows: impl IntoIterator<Item = SchemaFieldPathIndexRebuildRow<'a>>,
         index_store: &mut IndexStore,
-        invalidation_sink: &mut impl SchemaMutationRuntimeInvalidationSink,
-        publication_sink: &mut impl SchemaMutationAcceptedSnapshotPublicationSink,
-    ) -> Result<SchemaFieldPathIndexRunnerReport, SchemaFieldPathIndexRunnerFailure> {
-        Self::validate_mutation_plan(input.mutation_plan(), &target)
-            .map_err(SchemaFieldPathIndexRunnerFailure::without_rollback)?;
+    ) -> Result<SchemaFieldPathIndexRunnerReport, SchemaFieldPathIndexRunnerError> {
+        Self::validate_mutation_plan(input.mutation_plan(), &target)?;
         let target_index_id = IndexId::new(entity_tag, target.ordinal());
 
         let staged = SchemaFieldPathIndexStagedRebuild::from_rows(
@@ -200,89 +129,50 @@ impl SchemaFieldPathIndexRunner {
             predicate_program,
             rows,
         )
-        .map_err(|_| {
-            SchemaFieldPathIndexRunnerFailure::without_rollback(
-                SchemaFieldPathIndexRunnerError::StageRowsFailed,
-            )
-        })?;
-        let staged_store =
-            SchemaFieldPathIndexStagedStore::from_rebuild(&staged).map_err(|_| {
-                SchemaFieldPathIndexRunnerFailure::without_rollback(
-                    SchemaFieldPathIndexRunnerError::StagedStoreRejected,
-                )
-            })?;
+        .map_err(|_| SchemaFieldPathIndexRunnerError::StageRowsFailed)?;
+        let staged_store = SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
+            .map_err(|_| SchemaFieldPathIndexRunnerError::StagedStoreRejected)?;
         let store = staged_store.store().to_string();
-        let (write_report, validation) = {
+        let (validation, rollback_plan) = {
             let mut writer = SchemaFieldPathIndexIsolatedIndexStoreWriter::new(&store, index_store);
             let batch = staged_store.write_batch(&writer);
-            let write_report = batch.write_to(&mut writer);
+            let rollback_plan = batch.rollback_plan();
+            batch.write_to(&mut writer);
             let Ok(validation) = writer.validate_batch_for_target_index(&target_index_id, &batch)
             else {
-                let rollback_report = batch.rollback_plan().rollback_to(&mut writer);
-                return Err(SchemaFieldPathIndexRunnerFailure::with_rollback(
-                    SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed,
-                    rollback_report,
-                ));
+                rollback_plan.rollback_to(&mut writer);
+                writer.index_store.mark_ready();
+                return Err(SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed);
             };
 
-            (write_report, validation)
+            (validation, rollback_plan)
         };
-        let invalidation_plan =
-            SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
-                &validation,
-                input,
-            )
-            .map_err(|_| {
-                SchemaFieldPathIndexRunnerFailure::without_rollback(
-                    SchemaFieldPathIndexRunnerError::RuntimeInvalidationIdentity,
-                )
-            })?;
-        let invalidation_report = invalidation_plan.invalidate_runtime_state(invalidation_sink);
-        let publication_plan =
-            SchemaFieldPathIndexSnapshotPublicationPlan::from_runtime_invalidation_report(
-                &invalidation_report,
-                input,
-            )
-            .map_err(|_| {
-                SchemaFieldPathIndexRunnerFailure::without_rollback(
-                    SchemaFieldPathIndexRunnerError::SnapshotPublicationRejected,
-                )
-            })?;
-        let publication_report = publication_plan.publish_snapshot(publication_sink);
-        let published_store_plan =
-            SchemaFieldPathIndexPublishedStorePlan::from_validated_publication(
-                &validation,
-                &publication_report,
-            )
-            .map_err(|_| {
-                SchemaFieldPathIndexRunnerFailure::without_rollback(
-                    SchemaFieldPathIndexRunnerError::PublishedStoreRejected,
-                )
-            })?;
-        let published_store_report = published_store_plan
-            .publish_index_store_for_target_index(&target_index_id, index_store)
-            .map_err(|_| {
-                SchemaFieldPathIndexRunnerFailure::without_rollback(
-                    SchemaFieldPathIndexRunnerError::PublishedStoreRejected,
-                )
-            })?;
-
-        #[cfg(not(test))]
-        let _ = write_report;
+        let ready_store_plan = SchemaFieldPathIndexReadyStorePlan::from_validation(&validation);
+        let Ok(ready_store_report) =
+            ready_store_plan.mark_index_store_ready_for_target_index(&target_index_id, index_store)
+        else {
+            Self::rollback_index_store(&store, &rollback_plan, index_store);
+            return Err(SchemaFieldPathIndexRunnerError::ReadyStoreRejected);
+        };
 
         Ok(SchemaFieldPathIndexRunnerReport {
             #[cfg(test)]
             store,
             #[cfg(test)]
-            write_report,
-            #[cfg(test)]
             validation,
-            #[cfg(test)]
-            invalidation_report,
-            #[cfg(test)]
-            publication_report,
-            published_store_report,
+            rollback_plan,
+            ready_store_report,
         })
+    }
+
+    fn rollback_index_store(
+        store: &str,
+        rollback_plan: &SchemaFieldPathIndexStagedStoreRollbackPlan,
+        index_store: &mut IndexStore,
+    ) {
+        let mut writer = SchemaFieldPathIndexIsolatedIndexStoreWriter::new(store, index_store);
+        rollback_plan.rollback_to(&mut writer);
+        writer.index_store.mark_ready();
     }
 
     fn validate_mutation_plan(

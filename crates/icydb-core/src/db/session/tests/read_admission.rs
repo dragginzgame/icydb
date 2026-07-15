@@ -1831,7 +1831,7 @@ fn default_fluent_page_uses_cursor_for_continuation() {
         .iter()
         .map(|row| row.entity_ref().name.as_str())
         .collect::<Vec<_>>();
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("first page should emit a continuation cursor"),
@@ -1892,7 +1892,7 @@ fn trusted_fluent_admin_batch_uses_hardcoded_batch_and_cursor_continuation() {
         .trusted_read_unchecked()
         .admin_batch(crate::db::AdminBatchRequest::new())
         .expect("trusted admin batch should execute");
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first_batch
             .continuation_cursor()
             .expect("first admin batch should emit a continuation cursor"),

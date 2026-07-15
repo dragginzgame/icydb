@@ -2858,7 +2858,7 @@ fn sql_canister_update_endpoint_rejects_primary_key_update_with_extra_guard_with
     assert_eq!(
         err.code(),
         ErrorCode::RUNTIME_UNSUPPORTED,
-        "generated SQL update endpoint should reject extra guard predicates under the v1 PK policy",
+        "generated SQL update endpoint should reject extra guard predicates under the current primary-key policy",
     );
     assert_eq!(
         err.origin(),

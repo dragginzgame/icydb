@@ -14,7 +14,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStore {
     store: String,
     entries: Vec<SchemaFieldPathIndexStagedEntry>,
     validation: SchemaFieldPathIndexStagedValidation,
-    report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStore {
@@ -22,13 +21,11 @@ impl SchemaFieldPathIndexStagedStore {
         rebuild: &SchemaFieldPathIndexStagedRebuild,
     ) -> Result<Self, SchemaFieldPathIndexStagedValidationError> {
         let validation = rebuild.validate()?;
-        let report = rebuild.validated_runner_report()?;
 
         Ok(Self {
             store: rebuild.target().store().to_string(),
             entries: rebuild.entries().to_vec(),
             validation,
-            report,
         })
     }
 
@@ -49,38 +46,13 @@ impl SchemaFieldPathIndexStagedStore {
         self.validation
     }
 
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn report(&self) -> &SchemaFieldPathIndexMutationProgress {
-        &self.report
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.validation.store_visibility()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) fn physical_work_allows_publication(&self) -> bool {
-        self.report.physical_work_allows_publication()
-    }
-
-    #[must_use]
     #[cfg(test)]
     pub(in crate::db::schema) fn write_to(
         &self,
         writer: &mut impl SchemaFieldPathIndexStagedStoreWriter,
-    ) -> SchemaFieldPathIndexStagedStoreWriteReport {
+    ) {
         for entry in &self.entries {
             writer.write_staged_entry(&self.store, entry.key(), entry.entry());
-        }
-
-        SchemaFieldPathIndexStagedStoreWriteReport {
-            store: self.store.clone(),
-            intended_entries: self.entries.len(),
-            store_visibility: self.store_visibility(),
-            runner_report: self.report.clone(),
         }
     }
 
@@ -103,21 +75,7 @@ impl SchemaFieldPathIndexStagedStore {
             store: self.store.clone(),
             entries: self.entries.clone(),
             rollback_snapshots,
-            store_visibility: self.store_visibility(),
-            runner_report: self.report.clone(),
-        }
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) fn discard(self) -> SchemaFieldPathIndexStagedDiscardReport {
-        let store_visibility = self.store_visibility();
-        let discarded_entries = self.entries.len();
-
-        SchemaFieldPathIndexStagedDiscardReport {
-            store: self.store,
-            discarded_entries,
-            store_visibility,
+            validation: self.validation,
         }
     }
 }
@@ -148,51 +106,6 @@ pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreWriter {
 }
 
 ///
-/// SchemaFieldPathIndexStagedStoreWriteReport
-///
-/// Typed report after a staged-store writer has accepted all write intents from
-/// an in-memory field-path rebuild buffer. This is still staged-only: it does
-/// not imply physical `IndexStore` mutation, runtime invalidation, or snapshot
-/// publication.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteReport {
-    store: String,
-    intended_entries: usize,
-    store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaFieldPathIndexMutationProgress,
-}
-
-impl SchemaFieldPathIndexStagedStoreWriteReport {
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn intended_entries(&self) -> usize {
-        self.intended_entries
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn runner_report(
-        &self,
-    ) -> &SchemaFieldPathIndexMutationProgress {
-        &self.runner_report
-    }
-}
-
-///
 /// SchemaFieldPathIndexStagedStoreWriteBatch
 ///
 /// Isolated staged write batch for one field-path index rebuild. It carries the
@@ -205,8 +118,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteBatch {
     store: String,
     entries: Vec<SchemaFieldPathIndexStagedEntry>,
     rollback_snapshots: Vec<SchemaFieldPathIndexStagedStoreRollbackSnapshot>,
-    store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaFieldPathIndexMutationProgress,
+    validation: SchemaFieldPathIndexStagedValidation,
 }
 
 impl SchemaFieldPathIndexStagedStoreWriteBatch {
@@ -229,32 +141,16 @@ impl SchemaFieldPathIndexStagedStoreWriteBatch {
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
+    pub(in crate::db::schema) const fn validation(&self) -> SchemaFieldPathIndexStagedValidation {
+        self.validation
     }
 
-    #[must_use]
-    pub(in crate::db::schema) const fn runner_report(
-        &self,
-    ) -> &SchemaFieldPathIndexMutationProgress {
-        &self.runner_report
-    }
-
-    #[must_use]
     pub(in crate::db::schema) fn write_to(
         &self,
         writer: &mut impl SchemaFieldPathIndexStagedStoreWriter,
-    ) -> SchemaFieldPathIndexStagedStoreWriteReport {
+    ) {
         for entry in &self.entries {
             writer.write_staged_entry(&self.store, entry.key(), entry.entry());
-        }
-
-        SchemaFieldPathIndexStagedStoreWriteReport {
-            store: self.store.clone(),
-            intended_entries: self.entries.len(),
-            store_visibility: self.store_visibility,
-            runner_report: self.runner_report.clone(),
         }
     }
 
@@ -272,8 +168,6 @@ impl SchemaFieldPathIndexStagedStoreWriteBatch {
         SchemaFieldPathIndexStagedStoreRollbackPlan {
             store: self.store.clone(),
             actions,
-            store_visibility: self.store_visibility,
-            runner_report: self.runner_report.clone(),
         }
     }
 }
@@ -324,13 +218,10 @@ impl SchemaFieldPathIndexStagedStoreRollbackSnapshot {
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackPlan {
     store: String,
     actions: Vec<SchemaFieldPathIndexStagedStoreRollbackAction>,
-    store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStoreRollbackPlan {
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db::schema) const fn store(&self) -> &str {
         self.store.as_str()
     }
@@ -343,48 +234,19 @@ impl SchemaFieldPathIndexStagedStoreRollbackPlan {
         self.actions.as_slice()
     }
 
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn runner_report(
-        &self,
-    ) -> &SchemaFieldPathIndexMutationProgress {
-        &self.runner_report
-    }
-
-    #[must_use]
     pub(in crate::db::schema) fn rollback_to(
         &self,
         writer: &mut impl SchemaFieldPathIndexStagedStoreRollbackWriter,
-    ) -> SchemaFieldPathIndexStagedStoreRollbackReport {
-        let mut restored_entries = 0usize;
-        let mut removed_entries = 0usize;
-
+    ) {
         for action in &self.actions {
             match action {
                 SchemaFieldPathIndexStagedStoreRollbackAction::Restore { store, key, entry } => {
                     writer.restore_staged_entry(store, key, entry);
-                    restored_entries = restored_entries.saturating_add(1);
                 }
                 SchemaFieldPathIndexStagedStoreRollbackAction::Remove { store, key } => {
                     writer.remove_staged_entry(store, key);
-                    removed_entries = removed_entries.saturating_add(1);
                 }
             }
-        }
-
-        SchemaFieldPathIndexStagedStoreRollbackReport {
-            store: self.store.clone(),
-            actions_applied: self.actions.len(),
-            restored_entries,
-            removed_entries,
-            store_visibility: self.store_visibility,
-            runner_report: self.runner_report.clone(),
         }
     }
 }
@@ -406,65 +268,6 @@ pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreRollbackWriter {
     );
 
     fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey);
-}
-
-///
-/// SchemaFieldPathIndexStagedStoreRollbackReport
-///
-/// Typed diagnostics after a rollback plan has been accepted by a rollback
-/// writer. This reports staged rollback intent only; publication remains
-/// blocked until physical execution, validation, invalidation, and snapshot
-/// publication are all wired.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackReport {
-    store: String,
-    actions_applied: usize,
-    restored_entries: usize,
-    removed_entries: usize,
-    store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaFieldPathIndexMutationProgress,
-}
-
-impl SchemaFieldPathIndexStagedStoreRollbackReport {
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn actions_applied(&self) -> usize {
-        self.actions_applied
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn restored_entries(&self) -> usize {
-        self.restored_entries
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn removed_entries(&self) -> usize {
-        self.removed_entries
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn runner_report(
-        &self,
-    ) -> &SchemaFieldPathIndexMutationProgress {
-        &self.runner_report
-    }
 }
 
 /// SchemaFieldPathIndexStagedStoreRollbackAction
@@ -526,38 +329,5 @@ impl SchemaFieldPathIndexStagedStoreRollbackAction {
             Self::Restore { entry, .. } => Some(entry),
             Self::Remove { .. } => None,
         }
-    }
-}
-
-///
-/// SchemaFieldPathIndexStagedDiscardReport
-///
-/// Typed cleanup report for discarding one in-memory staged field-path rebuild
-/// buffer before stores are mutated.
-///
-
-#[cfg(test)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaFieldPathIndexStagedDiscardReport {
-    store: String,
-    discarded_entries: usize,
-    store_visibility: SchemaMutationStoreVisibility,
-}
-
-#[cfg(test)]
-impl SchemaFieldPathIndexStagedDiscardReport {
-    #[must_use]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn discarded_entries(&self) -> usize {
-        self.discarded_entries
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
     }
 }

@@ -111,19 +111,6 @@ impl AdminBatchRequest {
         }
     }
 
-    /// Return this request with an opaque continuation cursor.
-    #[must_use]
-    pub fn with_cursor(mut self, cursor: impl Into<String>) -> Self {
-        self.cursor = Some(cursor.into());
-        self
-    }
-
-    /// Return the opaque continuation cursor, if supplied.
-    #[must_use]
-    pub fn cursor(&self) -> Option<&str> {
-        self.cursor.as_deref()
-    }
-
     pub(in crate::db::query) fn into_cursor(self) -> Option<String> {
         self.cursor
     }

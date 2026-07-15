@@ -54,10 +54,12 @@ pub(in crate::db) use runtime::{
 };
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;
+pub(crate) use string::CursorDecodeError;
+use string::decode_cursor;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use string::encode_cursor;
 #[cfg(test)]
 pub(in crate::db) use string::encode_grouped_cursor_token;
-#[expect(unreachable_pub)]
-pub use string::{CursorDecodeError, decode_cursor, encode_cursor};
 pub(in crate::db) use token::{ContinuationToken, TokenWireError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 pub(in crate::db) use validated::{ValidatedCursor, ValidatedGroupedCursor};

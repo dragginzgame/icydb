@@ -1310,8 +1310,6 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
         plan.mutation_plan().clone(),
     )
     .expect("runner input should bind accepted snapshots");
-    let mut invalidation_sink = startup_field_path::StartupSchemaMutationInvalidationSink;
-    let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
     let report = RECONCILE_INDEX_STORE
         .with_borrow_mut(|index_store| {
             let rebuild_rows = rows
@@ -1324,8 +1322,6 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
                 None,
                 rebuild_rows,
                 index_store,
-                &mut invalidation_sink,
-                &mut publication_sink,
             )
         })
         .expect("field-path runner should publish physical work");
@@ -1398,8 +1394,6 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
         plan.mutation_plan().clone(),
     )
     .expect("runner input should bind accepted snapshots");
-    let mut invalidation_sink = startup_field_path::StartupSchemaMutationInvalidationSink;
-    let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
     let report = RECONCILE_INDEX_STORE
         .with_borrow_mut(|index_store| {
             let rebuild_rows = rows
@@ -1412,8 +1406,6 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
                 None,
                 rebuild_rows,
                 index_store,
-                &mut invalidation_sink,
-                &mut publication_sink,
             )
         })
         .expect("field-path runner should publish physical work");
@@ -1426,6 +1418,11 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
         &report,
     )
     .expect_err("row drift after runner should reject schema publication");
+    RECONCILE_INDEX_STORE.with_borrow_mut(|index_store| {
+        report.rollback_physical_work(index_store);
+        assert_eq!(index_store.len(), 0);
+        assert_eq!(index_store.state(), IndexState::Ready);
+    });
 
     let latest = RECONCILE_SCHEMA_STORE
         .with_borrow(|store| {
@@ -1477,8 +1474,6 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
         plan.mutation_plan().clone(),
     )
     .expect("runner input should bind accepted snapshots");
-    let mut invalidation_sink = startup_field_path::StartupSchemaMutationInvalidationSink;
-    let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
     let report = RECONCILE_INDEX_STORE
         .with_borrow_mut(|index_store| {
             let rebuild_rows = rows
@@ -1491,8 +1486,6 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
                 None,
                 rebuild_rows,
                 index_store,
-                &mut invalidation_sink,
-                &mut publication_sink,
             )
         })
         .expect("field-path runner should publish physical work");
@@ -1523,6 +1516,11 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
             &expected,
         )
         .expect_err("physical store drift after runner should reject schema publication");
+    RECONCILE_INDEX_STORE.with_borrow_mut(|index_store| {
+        report.rollback_physical_work(index_store);
+        assert_eq!(index_store.len(), 1);
+        assert_eq!(index_store.state(), IndexState::Ready);
+    });
 
     let latest = RECONCILE_SCHEMA_STORE
         .with_borrow(|store| {

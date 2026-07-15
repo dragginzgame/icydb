@@ -28,24 +28,16 @@ fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutat
         .expect("valid staged rebuild should write into an in-memory staged store buffer");
     let mut writer = RecordingStagedStoreWriter::default();
 
-    let report = buffer.write_to(&mut writer);
+    buffer.write_to(&mut writer);
 
-    assert_eq!(report.store(), "test::mutation::by_name");
-    assert_eq!(report.intended_entries(), 2);
-    assert_eq!(
-        report.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(report.runner_report().rows_scanned(), 2);
-    assert_eq!(report.runner_report().index_keys_written(), 2);
-    assert!(!report.runner_report().physical_work_allows_publication());
+    assert_eq!(buffer.validation().source_rows(), 2);
+    assert_eq!(buffer.validation().entry_count(), 2);
     assert_eq!(writer.writes.len(), 2);
     for ((store, key, entry), staged_entry) in writer.writes.iter().zip(buffer.entries()) {
         assert_eq!(store, "test::mutation::by_name");
         assert_eq!(key, staged_entry.key());
         assert_eq!(entry, staged_entry.entry());
     }
-    assert!(!buffer.physical_work_allows_publication());
 }
 
 #[test]
@@ -87,11 +79,7 @@ fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
     assert_eq!(batch.store(), "test::mutation::by_name");
     assert_eq!(batch.entries(), buffer.entries());
     assert_eq!(batch.rollback_snapshots().len(), 2);
-    assert_eq!(
-        batch.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(batch.runner_report().index_keys_written(), 2);
+    assert_eq!(batch.validation().entry_count(), 2);
     assert_eq!(batch.rollback_snapshots()[0].store(), buffer.store());
     assert_eq!(
         batch.rollback_snapshots()[0].key(),
@@ -109,14 +97,8 @@ fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
     assert_eq!(batch.rollback_snapshots()[1].previous_entry(), None);
 
     let mut writer = RecordingStagedStoreWriter::default();
-    let report = batch.write_to(&mut writer);
+    batch.write_to(&mut writer);
 
-    assert_eq!(report.intended_entries(), 2);
-    assert_eq!(
-        report.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert!(!report.runner_report().physical_work_allows_publication());
     assert_eq!(writer.writes.len(), 2);
 }
 
@@ -159,11 +141,6 @@ fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
 
     assert_eq!(rollback_plan.store(), "test::mutation::by_name");
     assert_eq!(rollback_plan.actions().len(), 2);
-    assert_eq!(
-        rollback_plan.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(rollback_plan.runner_report().index_keys_written(), 2);
     assert_eq!(rollback_plan.actions()[0].store(), buffer.store());
     assert_eq!(rollback_plan.actions()[0].key(), buffer.entries()[1].key());
     assert_eq!(rollback_plan.actions()[0].restore_entry(), None);
@@ -172,11 +149,6 @@ fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
     assert_eq!(
         rollback_plan.actions()[1].restore_entry(),
         Some(&previous_entry),
-    );
-    assert!(
-        !rollback_plan
-            .runner_report()
-            .physical_work_allows_publication()
     );
 }
 
@@ -216,17 +188,8 @@ fn field_path_rebuild_rollback_plan_reports_mocked_restore_and_remove_actions() 
     let rollback_plan = buffer.write_batch(&read_view).rollback_plan();
     let mut writer = RecordingStagedStoreRollbackWriter::default();
 
-    let report = rollback_plan.rollback_to(&mut writer);
+    rollback_plan.rollback_to(&mut writer);
 
-    assert_eq!(report.store(), "test::mutation::by_name");
-    assert_eq!(report.actions_applied(), 2);
-    assert_eq!(report.restored_entries(), 1);
-    assert_eq!(report.removed_entries(), 1);
-    assert_eq!(
-        report.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert!(!report.runner_report().physical_work_allows_publication());
     assert_eq!(writer.actions.len(), 2);
     assert_eq!(writer.actions[0].0, buffer.store());
     assert_eq!(writer.actions[0].1, *buffer.entries()[1].key());
@@ -244,29 +207,15 @@ fn field_path_rebuild_isolated_index_store_writer_writes_and_rolls_back() {
         super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
 
     let batch = buffer.write_batch(&writer);
-    let write_report = batch.write_to(&mut writer);
+    batch.write_to(&mut writer);
     let validation = writer
         .validate_batch(&batch)
         .expect("isolated IndexStore should validate against staged batch");
 
     assert_eq!(writer.store(), buffer.store());
-    assert_eq!(
-        writer.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly
-    );
     assert_eq!(writer.index_state(), IndexState::Building);
     assert_eq!(writer.len(), 2);
     assert_eq!(writer.generation(), writer.generation_before() + 2);
-    assert_eq!(write_report.intended_entries(), 2);
-    assert_eq!(
-        write_report.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert!(
-        !write_report
-            .runner_report()
-            .physical_work_allows_publication()
-    );
     assert_eq!(
         writer.get(buffer.entries()[0].key()),
         Some(buffer.entries()[0].entry().clone()),
@@ -280,35 +229,11 @@ fn field_path_rebuild_isolated_index_store_writer_writes_and_rolls_back() {
     assert_eq!(validation.index_state(), IndexState::Building);
     assert_eq!(validation.generation_before(), writer.generation_before());
     assert_eq!(validation.generation_after(), writer.generation());
-    assert_eq!(
-        validation.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    let publication_readiness = validation.publication_readiness();
-    assert_eq!(
-        publication_readiness.blockers(),
-        &[
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::RuntimeStateNotInvalidated,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
-        ],
-    );
-    assert!(!publication_readiness.allows_publication());
+    batch.rollback_plan().rollback_to(&mut writer);
 
-    let rollback_report = batch.rollback_plan().rollback_to(&mut writer);
-
-    assert_eq!(rollback_report.actions_applied(), 2);
-    assert_eq!(rollback_report.removed_entries(), 2);
-    assert_eq!(rollback_report.restored_entries(), 0);
     assert_eq!(writer.len(), 0);
     assert_eq!(writer.generation(), writer.generation_before() + 4);
     assert_eq!(writer.index_state(), IndexState::Building);
-    assert!(
-        !rollback_report
-            .runner_report()
-            .physical_work_allows_publication()
-    );
 }
 
 #[test]
@@ -328,20 +253,11 @@ fn field_path_rebuild_isolated_index_store_validation_fails_closed() {
         Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreMismatch),
     );
 
-    let mut published_store = initialized_index_store(237);
-    let mut writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+    let mut ready_state_store = initialized_index_store(236);
+    let writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
         buffer.store(),
-        &mut published_store,
+        &mut ready_state_store,
     );
-    writer.store_visibility = super::SchemaMutationStoreVisibility::Published;
-    assert_eq!(
-        writer.validate_batch(&batch),
-        Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::PublishedVisibility),
-    );
-
-    let mut ready_store = initialized_index_store(236);
-    let writer =
-        super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut ready_store);
     writer.index_store.mark_ready();
     assert_eq!(
         writer.validate_batch(&batch),
@@ -380,7 +296,7 @@ fn field_path_rebuild_isolated_index_store_validation_fails_closed() {
         buffer.store(),
         &mut mismatch_store,
     );
-    let _ = batch.write_to(&mut writer);
+    batch.write_to(&mut writer);
     writer
         .index_store
         .insert(buffer.entries()[0].key().clone(), previous_entry);
@@ -404,7 +320,7 @@ fn field_path_rebuild_isolated_index_store_validation_can_scope_to_target_index(
     let mut writer =
         super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
     let batch = buffer.write_batch(&writer);
-    let _ = batch.write_to(&mut writer);
+    batch.write_to(&mut writer);
     writer.index_store.insert(other_key, other_entry);
 
     assert_eq!(
@@ -429,7 +345,7 @@ fn field_path_rebuild_isolated_index_store_validation_rejects_extra_target_entri
     let mut writer =
         super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
     let batch = buffer.write_batch(&writer);
-    let _ = batch.write_to(&mut writer);
+    batch.write_to(&mut writer);
     writer
         .index_store
         .insert(extra_entry.key().clone(), extra_entry.entry().clone());
@@ -441,162 +357,7 @@ fn field_path_rebuild_isolated_index_store_validation_rejects_extra_target_entri
 }
 
 #[test]
-fn field_path_rebuild_runtime_invalidation_records_epoch_handoff_without_publication() {
-    let buffer = staged_name_index_store();
-    let mut index_store = initialized_index_store(232);
-    let mut writer =
-        super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
-    let batch = buffer.write_batch(&writer);
-    let _ = batch.write_to(&mut writer);
-    let validation = writer
-        .validate_batch(&batch)
-        .expect("isolated IndexStore should validate before invalidation");
-    let before = base_snapshot();
-    let after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
-    let plan: MutationPlan =
-        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .into();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, plan)
-        .expect("same-entity accepted snapshots should build runner input");
-
-    let invalidation_plan =
-        super::SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
-            &validation,
-            &input,
-        )
-        .expect("validated staged store should bind runtime invalidation epochs");
-    let mut sink = RecordingRuntimeInvalidationSink::default();
-    let report = invalidation_plan.invalidate_runtime_state(&mut sink);
-
-    assert_eq!(invalidation_plan.store(), buffer.store());
-    assert_eq!(invalidation_plan.entry_count(), 2);
-    assert!(invalidation_plan.requires_invalidation());
-    assert_eq!(
-        invalidation_plan.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(sink.invalidations.len(), 1);
-    assert_eq!(sink.invalidations[0].0, buffer.store());
-    assert_eq!(
-        &sink.invalidations[0].1,
-        invalidation_plan.publication_identity().before_epoch(),
-    );
-    assert_eq!(
-        &sink.invalidations[0].2,
-        invalidation_plan.publication_identity().after_epoch(),
-    );
-    assert_eq!(report.store(), buffer.store());
-    assert_eq!(report.entry_count(), 2);
-    assert_eq!(report.invalidated_epochs(), 1);
-    assert_eq!(
-        report.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(
-        report.publication_identity().visible_epoch(),
-        invalidation_plan.publication_identity().before_epoch(),
-    );
-    assert!(
-        report
-            .runner_report()
-            .has_completed_phase(super::SchemaMutationRunnerPhase::InvalidateRuntimeState),
-    );
-    assert!(
-        !report
-            .runner_report()
-            .has_completed_phase(super::SchemaMutationRunnerPhase::PublishSnapshot),
-    );
-    assert!(!report.runner_report().physical_work_allows_publication());
-    let readiness = report.publication_readiness();
-    assert_eq!(
-        readiness.blockers(),
-        &[
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
-        ],
-    );
-    assert!(!readiness.allows_publication());
-}
-
-#[test]
-fn field_path_rebuild_snapshot_publication_handoff_keeps_physical_store_staged() {
-    let validation = validated_isolated_name_index_store(231);
-    let (before, after, execution_plan) = field_path_index_runner_context();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
-        .expect("same-entity accepted snapshots should build runner input");
-    let invalidation_plan =
-        super::SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
-            &validation,
-            &input,
-        )
-        .expect("validated staged store should bind runtime invalidation epochs");
-    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
-    let invalidation_report = invalidation_plan.invalidate_runtime_state(&mut invalidation_sink);
-
-    let publication_plan =
-        super::SchemaFieldPathIndexSnapshotPublicationPlan::from_runtime_invalidation_report(
-            &invalidation_report,
-            &input,
-        )
-        .expect("runtime invalidation should allow snapshot publication planning");
-    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
-    let publication_report = publication_plan.publish_snapshot(&mut publication_sink);
-
-    assert_eq!(publication_plan.store(), validation.store());
-    assert_eq!(publication_plan.entry_count(), validation.entry_count());
-    assert_eq!(publication_plan.accepted_after(), &after);
-    assert_eq!(publication_sink.publications.len(), 1);
-    assert_eq!(publication_sink.publications[0].0, validation.store());
-    assert_eq!(publication_sink.publications[0].1, after);
-    assert_eq!(
-        &publication_sink.publications[0].2,
-        publication_plan.publication_identity().before_epoch(),
-    );
-    assert_eq!(
-        &publication_sink.publications[0].3,
-        publication_plan.publication_identity().after_epoch(),
-    );
-    assert_eq!(
-        publication_report.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(
-        publication_report.publication_identity().visible_epoch(),
-        publication_plan.publication_identity().after_epoch(),
-    );
-    assert_eq!(
-        publication_report.publication_identity().published_epoch(),
-        Some(publication_plan.publication_identity().after_epoch()),
-    );
-    assert_eq!(
-        publication_report.accepted_after(),
-        publication_plan.accepted_after()
-    );
-    assert!(
-        publication_report
-            .runner_report()
-            .has_completed_phase(super::SchemaMutationRunnerPhase::PublishSnapshot),
-    );
-    assert!(
-        !publication_report
-            .runner_report()
-            .physical_work_allows_publication()
-    );
-    let readiness = publication_report.publication_readiness();
-    assert_eq!(
-        readiness.blockers(),
-        &[
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
-        ],
-    );
-    assert!(!readiness.allows_publication());
-}
-
-#[test]
-fn field_path_rebuild_published_store_can_scope_to_target_index() {
+fn field_path_rebuild_ready_store_can_scope_to_target_index() {
     let buffer = staged_name_index_store();
     let target = accepted_name_field_path_target();
     let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
@@ -614,58 +375,30 @@ fn field_path_rebuild_published_store_can_scope_to_target_index() {
             &mut index_store,
         );
         batch = buffer.write_batch(&writer);
-        let _ = batch.write_to(&mut writer);
+        batch.write_to(&mut writer);
         writer.index_store.insert(other_key, other_entry);
         validation = writer
             .validate_batch_for_target_index(&target_index_id, &batch)
             .expect("target-scoped validation should ignore unrelated index entries");
     }
-    let (before, after, execution_plan) = field_path_index_runner_context();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
-        .expect("same-entity accepted snapshots should build runner input");
-    let invalidation_plan =
-        super::SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
-            &validation,
-            &input,
-        )
-        .expect("validated staged store should bind runtime invalidation epochs");
-    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
-    let invalidation_report = invalidation_plan.invalidate_runtime_state(&mut invalidation_sink);
-    let publication_plan =
-        super::SchemaFieldPathIndexSnapshotPublicationPlan::from_runtime_invalidation_report(
-            &invalidation_report,
-            &input,
-        )
-        .expect("runtime invalidation should allow snapshot publication planning");
-    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
-    let publication_report = publication_plan.publish_snapshot(&mut publication_sink);
-    let published_store_plan =
-        super::SchemaFieldPathIndexPublishedStorePlan::from_validated_publication(
-            &validation,
-            &publication_report,
-        )
-        .expect("validated physical work and snapshot publication should plan store publication");
+    let ready_store_plan = super::SchemaFieldPathIndexReadyStorePlan::from_validation(&validation);
 
     assert_eq!(
-        published_store_plan.publish_index_store(&mut index_store),
-        Err(super::SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch),
+        ready_store_plan.mark_index_store_ready(&mut index_store),
+        Err(super::SchemaFieldPathIndexReadyStoreError::EntryCountMismatch),
     );
-    let report = published_store_plan
-        .publish_index_store_for_target_index(&target_index_id, &mut index_store)
-        .expect("target-scoped store publication should ignore unrelated index entries");
+    let report = ready_store_plan
+        .mark_index_store_ready_for_target_index(&target_index_id, &mut index_store)
+        .expect("target-scoped ready-state transition should ignore unrelated index entries");
 
     assert_eq!(report.entry_count(), batch.entries().len());
     assert_eq!(report.index_state(), IndexState::Ready);
-    assert_eq!(
-        report.store_visibility(),
-        super::SchemaMutationStoreVisibility::Published,
-    );
     assert_eq!(index_store.len(), 3);
     assert_eq!(index_store.state(), IndexState::Ready);
 }
 
 #[test]
-fn field_path_rebuild_published_store_scope_rejects_extra_target_entries() {
+fn field_path_rebuild_ready_store_scope_rejects_extra_target_entries() {
     let buffer = staged_name_index_store();
     let target = accepted_name_field_path_target();
     let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
@@ -678,42 +411,18 @@ fn field_path_rebuild_published_store_scope_rejects_extra_target_entries() {
             &mut index_store,
         );
         let batch = buffer.write_batch(&writer);
-        let _ = batch.write_to(&mut writer);
+        batch.write_to(&mut writer);
         validation = writer
             .validate_batch_for_target_index(&target_index_id, &batch)
             .expect("target-scoped validation should pass before extra target entry appears");
     }
-    let (before, after, execution_plan) = field_path_index_runner_context();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
-        .expect("same-entity accepted snapshots should build runner input");
-    let invalidation_plan =
-        super::SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
-            &validation,
-            &input,
-        )
-        .expect("validated staged store should bind runtime invalidation epochs");
-    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
-    let invalidation_report = invalidation_plan.invalidate_runtime_state(&mut invalidation_sink);
-    let publication_plan =
-        super::SchemaFieldPathIndexSnapshotPublicationPlan::from_runtime_invalidation_report(
-            &invalidation_report,
-            &input,
-        )
-        .expect("runtime invalidation should allow snapshot publication planning");
-    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
-    let publication_report = publication_plan.publish_snapshot(&mut publication_sink);
-    let published_store_plan =
-        super::SchemaFieldPathIndexPublishedStorePlan::from_validated_publication(
-            &validation,
-            &publication_report,
-        )
-        .expect("validated physical work and snapshot publication should plan store publication");
+    let ready_store_plan = super::SchemaFieldPathIndexReadyStorePlan::from_validation(&validation);
     index_store.insert(extra_entry.key().clone(), extra_entry.entry().clone());
 
     assert_eq!(
-        published_store_plan
-            .publish_index_store_for_target_index(&target_index_id, &mut index_store,),
-        Err(super::SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch),
+        ready_store_plan
+            .mark_index_store_ready_for_target_index(&target_index_id, &mut index_store,),
+        Err(super::SchemaFieldPathIndexReadyStoreError::EntryCountMismatch),
     );
 }
 
@@ -727,18 +436,13 @@ fn field_path_rebuild_staged_overlay_writes_and_rolls_back_without_index_store()
     );
 
     let batch = buffer.write_batch(&overlay);
-    let write_report = batch.write_to(&mut overlay);
+    batch.write_to(&mut overlay);
     let overlay_validation = overlay
         .validate_batch(&batch)
         .expect("overlay should validate against the staged write batch");
 
     assert_eq!(overlay.store(), buffer.store());
     assert_eq!(overlay.len(), 2);
-    assert_eq!(
-        overlay.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(write_report.intended_entries(), 2);
     assert_eq!(
         overlay.get(buffer.entries()[0].key()),
         Some(buffer.entries()[0].entry()),
@@ -749,51 +453,15 @@ fn field_path_rebuild_staged_overlay_writes_and_rolls_back_without_index_store()
     );
     assert_eq!(overlay_validation.store(), buffer.store());
     assert_eq!(overlay_validation.entry_count(), 2);
-    assert_eq!(
-        overlay_validation.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(overlay_validation.runner_report().index_keys_written(), 2);
-    assert!(
-        !overlay_validation
-            .runner_report()
-            .physical_work_allows_publication()
-    );
-    let publication_readiness = overlay_validation.publication_readiness();
-    assert_eq!(publication_readiness.store(), buffer.store());
-    assert_eq!(publication_readiness.entry_count(), 2);
-    assert_eq!(
-        publication_readiness.blockers(),
-        &[
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::RuntimeStateNotInvalidated,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
-            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
-        ],
-    );
-    assert!(!publication_readiness.allows_publication());
-    assert!(
-        !publication_readiness
-            .runner_report()
-            .physical_work_allows_publication()
-    );
+    assert_eq!(batch.validation().entry_count(), 2);
+    batch.rollback_plan().rollback_to(&mut overlay);
 
-    let rollback_report = batch.rollback_plan().rollback_to(&mut overlay);
-
-    assert_eq!(rollback_report.actions_applied(), 2);
-    assert_eq!(rollback_report.restored_entries(), 1);
-    assert_eq!(rollback_report.removed_entries(), 1);
     assert_eq!(overlay.len(), 1);
     assert_eq!(
         overlay.get(buffer.entries()[0].key()),
         Some(&previous_entry)
     );
     assert_eq!(overlay.get(buffer.entries()[1].key()), None);
-    assert!(
-        !rollback_report
-            .runner_report()
-            .physical_work_allows_publication()
-    );
 }
 
 #[test]
@@ -809,13 +477,6 @@ fn field_path_rebuild_staged_overlay_validation_fails_closed() {
     assert_eq!(
         wrong_store.validate_batch(&batch),
         Err(super::SchemaFieldPathIndexStagedStoreOverlayValidationError::StoreMismatch),
-    );
-
-    let mut published_overlay = super::SchemaFieldPathIndexStagedStoreOverlay::new(buffer.store());
-    published_overlay.store_visibility = super::SchemaMutationStoreVisibility::Published;
-    assert_eq!(
-        published_overlay.validate_batch(&batch),
-        Err(super::SchemaFieldPathIndexStagedStoreOverlayValidationError::PublishedVisibility),
     );
 
     let partial_overlay = super::SchemaFieldPathIndexStagedStoreOverlay::from_entries(

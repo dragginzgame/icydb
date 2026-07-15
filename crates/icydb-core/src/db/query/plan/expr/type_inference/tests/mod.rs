@@ -134,7 +134,7 @@ fn accepted_profile_schema_with_nested_rank(kind: AcceptedFieldKind) -> SchemaIn
         ],
     ));
 
-    SchemaInfo::from_accepted_snapshot_for_model(&PROFILE_MODEL, &accepted)
+    SchemaInfo::from_snapshot_with_generated_model_for_test(&PROFILE_MODEL, &accepted)
 }
 
 fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {
@@ -183,7 +183,7 @@ fn infer_field_type_uses_accepted_schema_field_type() {
             LeafCodec::StructuralFallback,
         )],
     ));
-    let schema = SchemaInfo::from_accepted_snapshot_for_model(model, &accepted);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(model, &accepted);
     let expr = Expr::Field(FieldId::new("rank"));
 
     let inferred = infer_expr_type(&expr, &schema).expect("field should infer");

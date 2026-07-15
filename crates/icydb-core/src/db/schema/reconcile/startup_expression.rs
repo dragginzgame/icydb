@@ -65,7 +65,7 @@ pub(super) fn execute_supported_expression_index_addition(
         decode_field_path_rebuild_rows(raw_rows.as_slice(), entity_tag, entity_path, row_contract)?;
     rebuild_gate.validate_before_physical_work(store, rows.len())?;
 
-    let (rows_scanned, index_keys_written) = store.with_index_mut(|index_store| {
+    let physical_mutation = store.with_index_mut(|index_store| {
         execute_expression_index_store_mutation(
             index_store,
             entity_tag,
@@ -76,17 +76,26 @@ pub(super) fn execute_supported_expression_index_addition(
             &input,
         )
     })?;
-    rebuild_gate.validate_before_schema_publication(store, rows_scanned)?;
-    validate_expression_physical_store_before_schema_publication(
-        store,
-        entity_tag,
-        entity_path,
-        target,
-        index_keys_written,
-    )?;
-    publication_gate.publish_accepted_snapshot(store, accepted_after)?;
+    let publication_result = (|| {
+        rebuild_gate.validate_before_schema_publication(store, physical_mutation.rows_scanned())?;
+        validate_expression_physical_store_before_schema_publication(
+            store,
+            entity_tag,
+            entity_path,
+            target,
+            physical_mutation.index_keys_written(),
+        )?;
+        publication_gate.publish_accepted_snapshot(store, accepted_after)
+    })();
+    if let Err(error) = publication_result {
+        store.with_index_mut(|index_store| physical_mutation.rollback(index_store));
+        return Err(error);
+    }
 
-    Ok((rows_scanned, index_keys_written))
+    Ok((
+        physical_mutation.rows_scanned(),
+        physical_mutation.index_keys_written(),
+    ))
 }
 
 fn validate_expression_mutation_plan(
@@ -125,7 +134,7 @@ fn execute_expression_index_store_mutation(
     predicate_program: Option<&PredicateProgram>,
     rows: &[StartupDecodedFieldPathRebuildRow<'_>],
     input: &SchemaMutationRunnerInput<'_>,
-) -> Result<(usize, usize), InternalError> {
+) -> Result<StartupExpressionPhysicalMutation, InternalError> {
     if index_store.state() != IndexState::Ready {
         return Err(InternalError::store_unsupported());
     }
@@ -157,9 +166,33 @@ fn execute_expression_index_store_mutation(
         &target_index_id,
         staged.entries(),
     )?;
-    index_store.mark_ready();
 
-    Ok((validation.source_rows(), validation.entry_count()))
+    Ok(StartupExpressionPhysicalMutation {
+        rows_scanned: validation.source_rows(),
+        entries: staged.entries().to_vec(),
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StartupExpressionPhysicalMutation {
+    rows_scanned: usize,
+    entries: Vec<SchemaExpressionIndexStagedEntry>,
+}
+
+impl StartupExpressionPhysicalMutation {
+    const fn rows_scanned(&self) -> usize {
+        self.rows_scanned
+    }
+
+    const fn index_keys_written(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn rollback(&self, index_store: &mut IndexStore) {
+        index_store.mark_building();
+        rollback_expression_index_store_batch(index_store, &self.entries);
+        index_store.mark_ready();
+    }
 }
 
 fn publish_expression_index_store_batch(

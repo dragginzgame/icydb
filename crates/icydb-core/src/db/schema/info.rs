@@ -149,9 +149,8 @@ fn persisted_kind_has_strong_relation(kind: &AcceptedFieldKind) -> bool {
 /// SchemaFieldInfo
 ///
 /// Compact per-field schema entry used by `SchemaInfo`.
-/// Keeps reduced predicate type metadata and the temporary generated field-kind
-/// bridge in one table while accepted persisted facts become the field-list
-/// authority for SQL/session paths.
+/// Generated field kinds and nested models exist only on model-only views;
+/// accepted views carry persisted contracts and an accepted enum catalog.
 ///
 
 #[derive(Clone, Debug)]
@@ -177,7 +176,7 @@ struct SchemaFieldInfo {
 /// Compact field-path index contract exposed by `SchemaInfo`.
 /// Accepted schema views source this from persisted index snapshots; generated
 /// schema views source it from generated field-only index metadata for
-/// proposal/model-only compatibility callers.
+/// proposal and model-only callers.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SchemaIndexInfo {
@@ -417,7 +416,7 @@ impl SchemaIndexExpressionInfo {
 ///
 /// Compact key-item contract for one field-path index component.
 /// Accepted schema views carry durable field IDs and persisted kinds; generated
-/// compatibility views omit field IDs until generated metadata is reconciled.
+/// proposal views omit field IDs until generated metadata is reconciled.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SchemaIndexFieldPathInfo {
@@ -624,7 +623,7 @@ impl SchemaInfo {
     ///
     /// Accepted schema views source this from persisted field snapshots, while
     /// generated schema views retain generated field metadata for test-only
-    /// compatibility callers.
+    /// model queries.
     #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db) fn field_nullable(&self, name: &str) -> Option<bool> {
@@ -714,7 +713,7 @@ impl SchemaInfo {
     ///
     /// Accepted schema views source this from persisted index contracts.
     /// Generated schema views source it from generated field-only indexes for
-    /// proposal/model-only compatibility.
+    /// proposal and model-only use.
     #[must_use]
     pub(in crate::db) const fn field_path_indexes(&self) -> &[SchemaIndexInfo] {
         self.indexes.as_slice()
@@ -860,39 +859,17 @@ impl SchemaInfo {
         Self::from_trusted_field_models(fields)
     }
 
-    /// Build one owned schema view from an accepted persisted snapshot.
+    /// Build one snapshot-shaped model bridge for focused tests.
     ///
-    /// This is the live-schema counterpart to the generated metadata cache.
-    /// Accepted nested-path authority comes from persisted nested leaf
-    /// descriptors; generated nested metadata is retained only for model-only
-    /// views and compile-time/test bridge parity.
+    /// This intentionally lacks accepted catalog authority. Production runtime
+    /// paths must use `from_accepted_snapshot_and_catalog_for_model`.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) fn from_accepted_snapshot_for_model(
+    pub(in crate::db) fn from_snapshot_with_generated_model_for_test(
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
     ) -> Self {
-        Self::from_accepted_snapshot_for_model_with_expression_indexes(model, schema, false)
-    }
-
-    /// Build one owned schema view from an accepted persisted snapshot and
-    /// optionally project accepted expression-index metadata.
-    ///
-    /// Expression-index metadata is intentionally opt-in until planner/write
-    /// routing consumes it. The ordinary accepted `SchemaInfo` path is hot
-    /// during query loops and should not pay for staged DTO projection.
-    #[must_use]
-    pub(in crate::db) fn from_accepted_snapshot_for_model_with_expression_indexes(
-        model: &EntityModel,
-        schema: &AcceptedSchemaSnapshot,
-        include_expression_indexes: bool,
-    ) -> Self {
-        Self::from_accepted_snapshot_for_model_with_catalog(
-            model,
-            schema,
-            None,
-            include_expression_indexes,
-        )
+        Self::from_snapshot_for_model(model, schema, None, false)
     }
 
     /// Build one accepted schema view retaining its immutable enum catalog.
@@ -903,7 +880,7 @@ impl SchemaInfo {
         enum_catalog: AcceptedEnumCatalogHandle,
         include_expression_indexes: bool,
     ) -> Self {
-        Self::from_accepted_snapshot_for_model_with_catalog(
+        Self::from_snapshot_for_model(
             model,
             schema,
             Some(enum_catalog),
@@ -911,7 +888,7 @@ impl SchemaInfo {
         )
     }
 
-    fn from_accepted_snapshot_for_model_with_catalog(
+    fn from_snapshot_for_model(
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
         enum_catalog: Option<AcceptedEnumCatalogHandle>,
@@ -927,7 +904,10 @@ impl SchemaInfo {
             .fields()
             .iter()
             .map(|field| {
-                let generated_field = generated_field_by_name(model, field.name());
+                let generated_field = enum_catalog
+                    .is_none()
+                    .then(|| generated_field_by_name(model, field.name()))
+                    .flatten();
                 let slot = snapshot
                     .row_layout()
                     .slot_for_field(field.id())
@@ -1028,11 +1008,11 @@ impl SchemaInfo {
     /// allocation work to every existing accepted schema view.
     #[must_use]
     #[cfg(test)]
-    fn from_accepted_snapshot_for_model_including_expression_indexes(
+    pub(in crate::db) fn from_snapshot_with_generated_model_and_expression_indexes_for_test(
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
     ) -> Self {
-        Self::from_accepted_snapshot_for_model_with_expression_indexes(model, schema, true)
+        Self::from_snapshot_for_model(model, schema, None, true)
     }
 
     /// Return one cached schema view for a trusted generated entity model.
@@ -1228,9 +1208,8 @@ fn schema_index_field_path_info_from_accepted(
     }
 }
 
-// Resolve generated nested metadata for compile-time-only schema views. Accepted
-// schema views use persisted nested leaf descriptors before this fallback is
-// considered.
+// Resolve generated nested metadata for compile-time-only schema views.
+// Accepted schema views use persisted nested leaf descriptors instead.
 fn resolve_nested_field_path_kind(fields: &[FieldModel], segments: &[String]) -> Option<FieldKind> {
     let (segment, rest) = segments.split_first()?;
     let field = fields

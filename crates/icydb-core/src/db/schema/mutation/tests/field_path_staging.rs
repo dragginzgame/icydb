@@ -148,10 +148,6 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
     assert_eq!(staged.source_rows(), 3);
     assert_eq!(staged.skipped_rows(), 1);
     assert_eq!(staged.entries().len(), 2);
-    assert_eq!(
-        staged.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
     assert!(
         staged
             .entries()
@@ -183,10 +179,6 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
     assert_eq!(validation.entry_count(), 2);
     assert_eq!(validation.source_rows(), 3);
     assert_eq!(validation.skipped_rows(), 1);
-    assert_eq!(
-        validation.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
 }
 
 #[test]
@@ -220,26 +212,11 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
         duplicate.validate(),
         Err(super::SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries),
     );
-    let rejection = duplicate
-        .validated_runner_report()
-        .expect_err("invalid staged state should reject runner reporting");
-    assert_eq!(
-        rejection,
-        super::SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries,
-    );
-
     let mut mismatched_count = staged.clone();
     mismatched_count.skipped_rows = 1;
     assert_eq!(
         mismatched_count.validate(),
         Err(super::SchemaFieldPathIndexStagedValidationError::EntryCountMismatch),
-    );
-
-    let mut published = staged;
-    published.store_visibility = super::SchemaMutationStoreVisibility::Published;
-    assert_eq!(
-        published.validate(),
-        Err(super::SchemaFieldPathIndexStagedValidationError::PublishedVisibility),
     );
 }
 
@@ -302,7 +279,7 @@ fn field_path_unique_rebuild_validation_accepts_distinct_components() {
 }
 
 #[test]
-fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication() {
+fn field_path_rebuild_validation_reports_staged_counts() {
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");
     let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
@@ -330,29 +307,13 @@ fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication(
     )
     .expect("field-path rebuild rows should stage into raw index entries");
 
-    let report = staged
-        .validated_runner_report()
-        .expect("valid staged rebuild output should produce runner diagnostics");
+    let validation = staged
+        .validate()
+        .expect("valid staged rebuild output should validate");
 
-    assert_eq!(
-        report.completed_phases(),
-        &[
-            super::SchemaMutationRunnerPhase::Preflight,
-            super::SchemaMutationRunnerPhase::StageStores,
-            super::SchemaMutationRunnerPhase::BuildPhysicalState,
-            super::SchemaMutationRunnerPhase::ValidatePhysicalState,
-        ],
-    );
-    assert_eq!(
-        report.store_visibility(),
-        Some(super::SchemaMutationStoreVisibility::StagedOnly),
-    );
-    assert_eq!(report.rows_scanned(), 3);
-    assert_eq!(report.rows_skipped(), 1);
-    assert_eq!(report.index_keys_written(), 2);
-    assert!(report.has_completed_phase(super::SchemaMutationRunnerPhase::ValidatePhysicalState));
-    assert!(!report.has_completed_phase(super::SchemaMutationRunnerPhase::InvalidateRuntimeState));
-    assert!(!report.physical_work_allows_publication());
+    assert_eq!(validation.source_rows(), 3);
+    assert_eq!(validation.skipped_rows(), 1);
+    assert_eq!(validation.entry_count(), 2);
 }
 
 #[test]
@@ -386,19 +347,5 @@ fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
     assert_eq!(buffer.store(), "test::mutation::by_name");
     assert_eq!(buffer.entries(), staged.entries());
     assert_eq!(buffer.validation().entry_count(), 2);
-    assert_eq!(
-        buffer.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(buffer.report().rows_scanned(), 2);
-    assert_eq!(buffer.report().index_keys_written(), 2);
-    assert!(!buffer.physical_work_allows_publication());
-
-    let discard = buffer.discard();
-    assert_eq!(discard.store(), "test::mutation::by_name");
-    assert_eq!(discard.discarded_entries(), 2);
-    assert_eq!(
-        discard.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
+    assert_eq!(buffer.validation().source_rows(), 2);
 }

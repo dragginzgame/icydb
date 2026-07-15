@@ -38,7 +38,7 @@ impl<E: EntityKind> QueryResponse<E> {
                     grouped.into_rows_cursor_and_trace();
                 let next_cursor = continuation_cursor
                     .as_deref()
-                    .map(icydb_core::db::encode_cursor);
+                    .map(icydb_core::db::encode_hex_lower);
 
                 Self::Grouped(PagedGroupedResponse::new(
                     rows,

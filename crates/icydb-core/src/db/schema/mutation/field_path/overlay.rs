@@ -12,7 +12,6 @@ use std::collections::BTreeMap;
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlay {
     store: String,
     entries: BTreeMap<RawIndexStoreKey, IndexEntryValue>,
-    pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
 impl SchemaFieldPathIndexStagedStoreOverlay {
@@ -21,7 +20,6 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
         Self {
             store: store.to_string(),
             entries: BTreeMap::new(),
-            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
         }
     }
 
@@ -33,7 +31,6 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
         Self {
             store: store.to_string(),
             entries: entries.into_iter().collect(),
-            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
         }
     }
 
@@ -52,11 +49,6 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
         self.entries.get(key)
     }
 
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
     pub(in crate::db::schema) fn validate_batch(
         &self,
         batch: &SchemaFieldPathIndexStagedStoreWriteBatch,
@@ -66,9 +58,6 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
     > {
         if self.store != batch.store() {
             return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::StoreMismatch);
-        }
-        if self.store_visibility != SchemaMutationStoreVisibility::StagedOnly {
-            return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::PublishedVisibility);
         }
         if self.entries.len() != batch.entries().len() {
             return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::EntryCountMismatch);
@@ -86,8 +75,6 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
         Ok(SchemaFieldPathIndexStagedStoreOverlayValidation {
             store: self.store.clone(),
             entry_count: self.entries.len(),
-            store_visibility: self.store_visibility,
-            runner_report: batch.runner_report().clone(),
         })
     }
 
@@ -136,14 +123,13 @@ impl SchemaFieldPathIndexStagedStoreRollbackWriter for SchemaFieldPathIndexStage
 /// SchemaFieldPathIndexStagedStoreOverlayValidationError
 ///
 /// Fail-closed validation reasons for isolated staged-store overlays. These
-/// checks keep overlay state from being treated as publication-ready unless it
+/// checks keep overlay state from being treated as physically ready unless it
 /// exactly matches the validated staged write batch.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreOverlayValidationError {
     StoreMismatch,
-    PublishedVisibility,
     EntryCountMismatch,
     MissingEntry,
     EntryMismatch,
@@ -154,15 +140,13 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreOverlayValidationE
 ///
 /// Positive validation report for an isolated staged-store overlay after it has
 /// accepted one staged write batch. This report remains staged-only and does
-/// not imply publication readiness.
+/// not imply physical ready state.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlayValidation {
     store: String,
     entry_count: usize,
-    store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStoreOverlayValidation {
@@ -174,24 +158,5 @@ impl SchemaFieldPathIndexStagedStoreOverlayValidation {
     #[must_use]
     pub(in crate::db::schema) const fn entry_count(&self) -> usize {
         self.entry_count
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn runner_report(
-        &self,
-    ) -> &SchemaFieldPathIndexMutationProgress {
-        &self.runner_report
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) fn publication_readiness(
-        &self,
-    ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
-        SchemaFieldPathIndexStagedStorePublicationReadiness::from_overlay_validation(self)
     }
 }

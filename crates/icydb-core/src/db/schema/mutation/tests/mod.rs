@@ -46,25 +46,6 @@ struct RecordingStagedStoreReadView {
     entries: BTreeMap<(String, RawIndexStoreKey), IndexEntryValue>,
 }
 
-#[derive(Default)]
-struct RecordingRuntimeInvalidationSink {
-    invalidations: Vec<(
-        String,
-        super::SchemaMutationRuntimeEpoch,
-        super::SchemaMutationRuntimeEpoch,
-    )>,
-}
-
-#[derive(Default)]
-struct RecordingAcceptedSnapshotPublicationSink {
-    publications: Vec<(
-        String,
-        PersistedSchemaSnapshot,
-        super::SchemaMutationRuntimeEpoch,
-        super::SchemaMutationRuntimeEpoch,
-    )>,
-}
-
 impl RecordingStagedStoreReadView {
     fn insert(&mut self, store: &str, key: RawIndexStoreKey, entry: IndexEntryValue) {
         self.entries.insert((store.to_string(), key), entry);
@@ -97,37 +78,6 @@ impl super::SchemaFieldPathIndexStagedStoreRollbackWriter for RecordingStagedSto
 
     fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey) {
         self.actions.push((store.to_string(), key.clone(), None));
-    }
-}
-
-impl super::SchemaMutationRuntimeInvalidationSink for RecordingRuntimeInvalidationSink {
-    fn invalidate_runtime_schema(
-        &mut self,
-        store: &str,
-        before: &super::SchemaMutationRuntimeEpoch,
-        after: &super::SchemaMutationRuntimeEpoch,
-    ) {
-        self.invalidations
-            .push((store.to_string(), before.clone(), after.clone()));
-    }
-}
-
-impl super::SchemaMutationAcceptedSnapshotPublicationSink
-    for RecordingAcceptedSnapshotPublicationSink
-{
-    fn publish_accepted_schema(
-        &mut self,
-        store: &str,
-        accepted_after: &PersistedSchemaSnapshot,
-        before: &super::SchemaMutationRuntimeEpoch,
-        after: &super::SchemaMutationRuntimeEpoch,
-    ) {
-        self.publications.push((
-            store.to_string(),
-            accepted_after.clone(),
-            before.clone(),
-            after.clone(),
-        ));
     }
 }
 
@@ -333,21 +283,6 @@ fn initialized_index_store(memory_id: u8) -> IndexStore {
     let mut store = IndexStore::init_journaled(test_memory(memory_id));
     store.clear();
     store
-}
-
-fn validated_isolated_name_index_store(
-    memory_id: u8,
-) -> super::SchemaFieldPathIndexIsolatedIndexStoreValidation {
-    let buffer = staged_name_index_store();
-    let mut index_store = initialized_index_store(memory_id);
-    let mut writer =
-        super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
-    let batch = buffer.write_batch(&writer);
-    let _ = batch.write_to(&mut writer);
-
-    writer
-        .validate_batch(&batch)
-        .expect("isolated IndexStore should validate against staged batch")
 }
 
 fn field_path_index_runner_context() -> (

@@ -1518,7 +1518,7 @@ fn session_branch_set_sql_cursor_continuation_resumes_branch_streams_after_bound
         "first branch-set page should match the first global primary-key window",
     );
 
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first
             .continuation_cursor()
             .expect("first branch-set page should emit a continuation cursor"),
@@ -1559,7 +1559,7 @@ fn session_branch_set_sql_cursor_exact_pages_exhaust_without_final_cursor() {
         "first exact branch page should return the first ordered window",
     );
 
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first
             .continuation_cursor()
             .expect("first exact branch page should emit a continuation cursor"),
@@ -1604,7 +1604,7 @@ fn session_branch_set_sql_cursor_continuation_handles_deleted_boundary_and_unsee
         "first branch-set page should establish the cursor boundary",
     );
 
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first
             .continuation_cursor()
             .expect("first branch-set page should emit a continuation cursor"),
@@ -1652,7 +1652,7 @@ fn session_branch_set_sql_cursor_continuation_does_not_replay_branch_prefix_entr
         .execute_load_query_paged_with_trace(&query, None)
         .unwrap_or_else(|err| panic!("first branch-set page should execute: {err:?}"))
         .into_execution();
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first
             .continuation_cursor()
             .expect("first branch-set page should emit a continuation cursor"),
@@ -2818,12 +2818,12 @@ fn session_branch_set_sql_sparse_in_cursor_continuation_resumes_expanded_child_p
         "SQL and fluent sparse expanded first pages should share key order",
     );
 
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first
             .continuation_cursor()
             .expect("first sparse expanded page should emit a continuation cursor"),
     );
-    let fluent_cursor = crate::db::encode_cursor(
+    let fluent_cursor = crate::db::cursor::encode_cursor(
         fluent_first
             .continuation_cursor()
             .expect("first fluent sparse expanded page should emit a continuation cursor"),
@@ -2902,7 +2902,7 @@ fn session_branch_set_sql_sparse_in_desc_cursor_resumes_expanded_child_prefixes(
         "first DESC sparse expanded page should match the first reverse primary-key window",
     );
 
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first
             .continuation_cursor()
             .expect("first DESC sparse expanded page should emit a continuation cursor"),

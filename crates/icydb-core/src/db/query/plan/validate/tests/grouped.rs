@@ -251,7 +251,7 @@ fn accepted_schema_with_team_layout_slot(team_slot: SchemaFieldSlot) -> SchemaIn
         ],
     ));
 
-    SchemaInfo::from_accepted_snapshot_for_model(model(), &snapshot)
+    SchemaInfo::from_snapshot_with_generated_model_for_test(model(), &snapshot)
 }
 
 // Build one top-level persisted field descriptor for accepted-schema validation

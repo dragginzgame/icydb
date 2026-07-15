@@ -452,7 +452,7 @@ fn cached_for_generated_entity_model_reuses_one_schema_instance() {
 fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
     let snapshot = accepted_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
 
-    let schema = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot);
     let name_type = schema.field("name").expect("accepted field should exist");
 
     assert!(literal_matches_type(&Value::Blob(vec![1, 2, 3]), name_type));
@@ -467,7 +467,7 @@ fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
 fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
     let snapshot = accepted_schema_with_name_kind(AcceptedFieldKind::Nat64);
-    let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+    let accepted = SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot);
 
     assert_eq!(
         generated.canonicalize_strict_sql_literal("name", &Value::Int64(7)),
@@ -484,7 +484,7 @@ fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind(
 fn accepted_snapshot_schema_info_uses_persisted_sql_capabilities() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
     let snapshot = accepted_schema_with_name_kind(AcceptedFieldKind::Blob { max_len: None });
-    let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+    let accepted = SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot);
 
     let generated_name = generated
         .sql_capabilities("name")
@@ -507,7 +507,7 @@ fn accepted_snapshot_schema_info_uses_row_layout_slot_authority() {
         SchemaFieldSlot::new(9),
         SchemaFieldSlot::new(1),
     );
-    let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+    let accepted = SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot);
 
     assert_eq!(generated.field_slot_index("name"), Some(0));
     assert_eq!(accepted.field_slot_index("name"), Some(9));
@@ -522,7 +522,7 @@ fn accepted_snapshot_schema_info_uses_row_layout_slot_authority() {
 #[test]
 fn accepted_snapshot_schema_info_exposes_ordered_primary_key_names() {
     let snapshot = accepted_schema_with_composite_primary_key();
-    let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+    let accepted = SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot);
 
     assert_eq!(accepted.scalar_primary_key_name(), None);
     assert_eq!(accepted.primary_key_names(), ["id", "age"]);
@@ -534,9 +534,12 @@ fn accepted_snapshot_schema_info_uses_persisted_index_membership() {
     let unindexed_snapshot =
         accepted_schema_with_name_kind(AcceptedFieldKind::Text { max_len: None });
     let indexed_snapshot = accepted_schema_with_name_index();
-    let accepted_unindexed =
-        SchemaInfo::from_accepted_snapshot_for_model(&INDEXED_MODEL, &unindexed_snapshot);
-    let accepted_indexed = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &indexed_snapshot);
+    let accepted_unindexed = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        &INDEXED_MODEL,
+        &unindexed_snapshot,
+    );
+    let accepted_indexed =
+        SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &indexed_snapshot);
 
     assert!(generated.field_is_indexed("name"));
     assert!(!generated.field_is_indexed("id"));
@@ -579,7 +582,7 @@ fn accepted_index_field_contract_rejects_foreign_component_metadata() {
 #[test]
 fn accepted_snapshot_schema_info_exposes_persisted_field_path_indexes() {
     let snapshot = accepted_schema_with_name_index();
-    let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+    let accepted = SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot);
     let indexes = accepted.field_path_indexes();
 
     assert_eq!(indexes.len(), 1);
@@ -606,7 +609,7 @@ fn accepted_snapshot_schema_info_exposes_persisted_field_path_indexes() {
 #[test]
 fn accepted_snapshot_schema_info_exposes_persisted_expression_indexes() {
     let snapshot = accepted_schema_with_lower_name_index();
-    let accepted = SchemaInfo::from_accepted_snapshot_for_model_including_expression_indexes(
+    let accepted = SchemaInfo::from_snapshot_with_generated_model_and_expression_indexes_for_test(
         &MODEL, &snapshot,
     );
 
@@ -674,7 +677,8 @@ fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
         vec![FieldId::new(2)],
     )]);
     let accepted_relation = AcceptedSchemaSnapshot::new(accepted_relation);
-    let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &accepted_relation);
+    let accepted =
+        SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &accepted_relation);
 
     assert!(!generated.has_any_strong_relations());
     assert!(accepted.has_any_strong_relations());
@@ -725,7 +729,7 @@ fn accepted_snapshot_schema_info_uses_persisted_nested_leaf_type() {
             ),
         ],
     ));
-    let schema = SchemaInfo::from_accepted_snapshot_for_model(&PROFILE_MODEL, &accepted);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(&PROFILE_MODEL, &accepted);
     let path = vec!["rank".to_string()];
     let nested_type = schema
         .nested_field_type("profile", path.as_slice())

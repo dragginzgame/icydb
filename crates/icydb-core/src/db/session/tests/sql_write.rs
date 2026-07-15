@@ -1096,7 +1096,7 @@ fn fluent_paged_load_resumes_composite_primary_key_rows_without_duplicates() {
         vec![Id::from_key(first_key), Id::from_key(second_key)],
         "first composite-key page should preserve ordered row identity",
     );
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("first composite-key page should emit a cursor"),

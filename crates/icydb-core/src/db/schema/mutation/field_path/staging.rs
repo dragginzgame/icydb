@@ -41,7 +41,7 @@ impl<'a> SchemaFieldPathIndexRebuildRow<'a> {
 /// SchemaFieldPathIndexStagedEntry
 ///
 /// One raw index-store entry produced during staged field-path rebuild work.
-/// It remains staged until the runner validates and publishes it.
+/// It remains staged until the runner writes and validates it.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,8 +65,8 @@ impl SchemaFieldPathIndexStagedEntry {
 ///
 /// SchemaFieldPathIndexStagedRebuild
 ///
-/// In-memory staged field-path index state. This is not a published store and
-/// must not be made planner-visible until validation and publication complete.
+/// In-memory staged field-path index state. This is never directly visible to
+/// planners and cannot reach ready state without physical-store validation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,7 +75,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedRebuild {
     pub(in crate::db::schema) entries: Vec<SchemaFieldPathIndexStagedEntry>,
     source_rows: usize,
     pub(in crate::db::schema) skipped_rows: usize,
-    pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
 impl SchemaFieldPathIndexStagedRebuild {
@@ -123,7 +122,6 @@ impl SchemaFieldPathIndexStagedRebuild {
             entries,
             source_rows,
             skipped_rows,
-            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
         })
     }
 
@@ -149,20 +147,10 @@ impl SchemaFieldPathIndexStagedRebuild {
         self.skipped_rows
     }
 
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
     pub(in crate::db::schema) fn validate(
         &self,
     ) -> Result<SchemaFieldPathIndexStagedValidation, SchemaFieldPathIndexStagedValidationError>
     {
-        if self.store_visibility != SchemaMutationStoreVisibility::StagedOnly {
-            return Err(SchemaFieldPathIndexStagedValidationError::PublishedVisibility);
-        }
-
         let expected_entries = self
             .source_rows
             .checked_sub(self.skipped_rows)
@@ -186,17 +174,7 @@ impl SchemaFieldPathIndexStagedRebuild {
             entry_count: self.entries.len(),
             source_rows: self.source_rows,
             skipped_rows: self.skipped_rows,
-            store_visibility: self.store_visibility,
         })
-    }
-
-    pub(in crate::db::schema) fn validated_runner_report(
-        &self,
-    ) -> Result<SchemaFieldPathIndexMutationProgress, SchemaFieldPathIndexStagedValidationError>
-    {
-        let validation = self.validate()?;
-
-        Ok(SchemaFieldPathIndexMutationProgress::field_path_index_staged(validation))
     }
 }
 
@@ -215,12 +193,11 @@ fn has_duplicate_unique_components(
 /// SchemaFieldPathIndexStagedValidationError
 ///
 /// Fail-closed validation result for staged field-path rebuild output. The
-/// runner must validate staged output before any store publication.
+/// runner must validate staged output before physical store mutation.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexStagedValidationError {
-    PublishedVisibility,
     SkippedRowsExceedSourceRows,
     EntryCountMismatch,
     UnsortedOrDuplicateEntries,
@@ -232,7 +209,7 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedValidationError {
 /// SchemaFieldPathIndexStagedValidation
 ///
 /// Positive validation report for one in-memory field-path rebuild. The report
-/// intentionally stays small until physical runner diagnostics consume it.
+/// is the sole row/key-count contract carried into physical store mutation.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -240,7 +217,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedValidation {
     entry_count: usize,
     source_rows: usize,
     skipped_rows: usize,
-    store_visibility: SchemaMutationStoreVisibility,
 }
 
 impl SchemaFieldPathIndexStagedValidation {
@@ -258,10 +234,5 @@ impl SchemaFieldPathIndexStagedValidation {
     #[cfg(test)]
     pub(in crate::db::schema) const fn skipped_rows(self) -> usize {
         self.skipped_rows
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
     }
 }

@@ -36,10 +36,6 @@ fn expression_rebuild_stages_sorted_entries_without_publication() {
             .all(|pair| pair[0].key() < pair[1].key()),
         "staged expression entries should be raw-key sorted"
     );
-    assert_eq!(
-        staged.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
 }
 
 #[test]
@@ -68,10 +64,6 @@ fn expression_rebuild_validation_reports_staged_counts_without_publication() {
     assert_eq!(validation.entry_count(), 2);
     assert_eq!(validation.source_rows(), 2);
     assert_eq!(validation.skipped_rows(), 0);
-    assert_eq!(
-        validation.store_visibility(),
-        super::SchemaMutationStoreVisibility::StagedOnly,
-    );
 }
 
 #[test]

@@ -14,8 +14,8 @@ mod overlay;
 #[cfg(test)]
 pub(in crate::db::schema) use self::overlay::*;
 
-mod publication;
-pub(in crate::db::schema) use self::publication::*;
+mod physical_store;
+pub(in crate::db::schema) use self::physical_store::*;
 
 mod runner;
 pub(in crate::db::schema) use self::runner::*;

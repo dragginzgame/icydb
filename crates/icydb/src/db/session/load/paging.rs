@@ -57,7 +57,9 @@ impl<E: Entity> FluentLoadQuery<'_, E> {
     ) -> PagedResponse<E> {
         let read_intent = execution.read_intent();
         let (response, continuation_cursor) = execution.into_response_and_cursor();
-        let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
+        let next_cursor = continuation_cursor
+            .as_deref()
+            .map(core::db::encode_hex_lower);
 
         PagedResponse::new(response.entities(), next_cursor, read_intent)
     }

@@ -395,9 +395,6 @@ engine-owned; callers may only provide continuation cursors.
 ```rust
 AdminBatchRequest::new()
 AdminBatchRequest::next(cursor)
-
-request.with_cursor(cursor)
-request.cursor()
 ```
 
 SQL session commands are available with the `sql` feature. They are

@@ -200,7 +200,9 @@ fn assert_grouped_statement_matches_prepared_grouped_runtime(
     );
     assert_eq!(
         next_cursor,
-        prepared.continuation_cursor().map(crate::db::encode_cursor),
+        prepared
+            .continuation_cursor()
+            .map(crate::db::cursor::encode_cursor),
         "{context} should preserve prepared grouped cursor bytes on the SQL statement surface",
     );
 }
@@ -528,7 +530,9 @@ fn grouped_and_global_singleton_aggregate_lanes_match_having_and_projection_sema
             "{context} grouped singleton fixture should stay in one key",
         );
         assert_eq!(
-            grouped.continuation_cursor().map(crate::db::encode_cursor),
+            grouped
+                .continuation_cursor()
+                .map(crate::db::cursor::encode_cursor),
             None,
             "{context} grouped singleton fixture should fully materialize",
         );
@@ -2203,7 +2207,7 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
         runtime_outputs(first_page.rows()[0].aggregate_values()),
         [Value::Nat64(2)]
     );
-    let cursor_one = crate::db::encode_cursor(
+    let cursor_one = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("first grouped SQL page should emit continuation cursor"),
@@ -2225,7 +2229,7 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
         runtime_outputs(second_page.rows()[0].aggregate_values()),
         [Value::Nat64(1)]
     );
-    let cursor_two = crate::db::encode_cursor(
+    let cursor_two = crate::db::cursor::encode_cursor(
         second_page
             .continuation_cursor()
             .expect("second grouped SQL page should emit continuation cursor"),
@@ -2298,7 +2302,7 @@ fn grouped_select_helper_multi_aggregate_having_offset_limit_cursor_resumes_cons
             Value::Decimal(crate::types::Decimal::from(90_u64)),
         ],
     );
-    let first_cursor = crate::db::encode_cursor(
+    let first_cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("first multi-aggregate grouped page should emit continuation cursor"),
@@ -2354,7 +2358,7 @@ fn grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy(
         None,
     )
     .expect("first grouped SQL page should execute");
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("first grouped SQL page should emit continuation cursor"),
@@ -3228,7 +3232,7 @@ fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_column
     let second_page = execute_grouped_select_for_tests::<SessionSqlEntity>(
         &session,
         sql,
-        Some(&crate::db::encode_cursor(first_cursor)),
+        Some(&crate::db::cursor::encode_cursor(first_cursor)),
     )
     .expect("second grouped computed-projection page should succeed");
     assert_eq!(
@@ -3298,7 +3302,7 @@ fn grouped_select_pagination_accepts_full_group_key_tie_break_order() {
         [Value::Nat64(10), Value::Text("alpha".to_string())],
     );
 
-    let first_cursor = crate::db::encode_cursor(
+    let first_cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("first grouped full-key page should emit cursor"),
@@ -3311,7 +3315,7 @@ fn grouped_select_pagination_accepts_full_group_key_tie_break_order() {
         [Value::Nat64(10), Value::Text("bravo".to_string())],
     );
 
-    let second_cursor = crate::db::encode_cursor(
+    let second_cursor = crate::db::cursor::encode_cursor(
         second_page
             .continuation_cursor()
             .expect("second grouped full-key page should emit cursor"),
@@ -3324,7 +3328,7 @@ fn grouped_select_pagination_accepts_full_group_key_tie_break_order() {
         [Value::Nat64(20), Value::Text("charlie".to_string())],
     );
 
-    let third_cursor = crate::db::encode_cursor(
+    let third_cursor = crate::db::cursor::encode_cursor(
         third_page
             .continuation_cursor()
             .expect("third grouped full-key page should emit cursor"),
@@ -4182,7 +4186,7 @@ fn grouped_select_additive_desc_order_preserves_rows_and_cursor_progression() {
         Value::Nat64(30)
     );
 
-    let first_cursor = crate::db::encode_cursor(
+    let first_cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("first grouped computed-desc page should emit cursor"),

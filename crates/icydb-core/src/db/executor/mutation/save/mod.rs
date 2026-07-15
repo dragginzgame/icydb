@@ -189,7 +189,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         )
         .expect("test save executor schema snapshot should be accepted");
         let accepted_schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted);
+            SchemaInfo::from_snapshot_with_generated_model_for_test(E::MODEL, &accepted);
         let accepted_schema_fingerprint =
             crate::db::schema::accepted_commit_schema_fingerprint(&accepted)
                 .expect("test save executor schema fingerprint should derive");

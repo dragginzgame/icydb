@@ -99,10 +99,9 @@ pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
 pub(in crate::db::schema) use mutation::{
     MutationPlan, MutationPublicationPreflight, SchemaFieldPathIndexMutationMetrics,
-    SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerFailure,
-    SchemaFieldPathIndexRunnerReport, SchemaMutationAcceptedSnapshotPublicationSink,
-    SchemaMutationRequest, SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
-    SchemaMutationRuntimeInvalidationSink, schema_mutation_request_for_snapshots,
+    SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerError,
+    SchemaFieldPathIndexRunnerReport, SchemaMutationRequest, SchemaMutationRunnerInput,
+    schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{

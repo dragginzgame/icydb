@@ -5,9 +5,9 @@ use super::*;
 ///
 /// Adapter from staged field-path index write and rollback contracts into a
 /// caller-provided isolated `IndexStore`. The adapter marks the supplied store
-/// as building and keeps schema mutation visibility staged-only; callers must
-/// not pass a runtime-visible store until publication and invalidation wiring
-/// exists.
+/// as building and keeps schema mutation visibility staged-only. The runner
+/// must validate the batch or roll it back before returning the store to ready
+/// state.
 ///
 
 pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
@@ -15,7 +15,6 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreWriter<'a
     pub(in crate::db::schema) index_store: &'a mut IndexStore,
     #[cfg(test)]
     generation_before: u64,
-    pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
 impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
@@ -29,7 +28,6 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
             index_store,
             #[cfg(test)]
             generation_before,
-            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
         }
     }
 
@@ -69,12 +67,6 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
         self.index_store.state()
     }
 
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
     #[cfg(test)]
     pub(in crate::db::schema) fn validate_batch(
         &self,
@@ -108,15 +100,13 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
         if self.store != batch.store() {
             return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreMismatch);
         }
-        if self.store_visibility != SchemaMutationStoreVisibility::StagedOnly {
-            return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::PublishedVisibility);
-        }
         if self.index_store.state() != IndexState::Building {
             return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreNotBuilding);
         }
 
-        let expected_entry_count =
-            u64::try_from(batch.entries().len()).expect("staged entry count should fit in u64");
+        let expected_entry_count = u64::try_from(batch.entries().len()).map_err(|_| {
+            SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch
+        })?;
         match target_index_id {
             Some(target_index_id) => {
                 if self.target_index_entry_count(target_index_id)? != expected_entry_count {
@@ -161,8 +151,7 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
             #[cfg(test)]
             generation_after: self.index_store.generation(),
             index_state: self.index_store.state(),
-            store_visibility: self.store_visibility,
-            runner_report: batch.runner_report().clone(),
+            validation: batch.validation(),
         })
     }
 
@@ -234,13 +223,12 @@ impl SchemaFieldPathIndexStagedStoreRollbackWriter
 ///
 /// Fail-closed validation reasons for an isolated `IndexStore` after staged
 /// writes have been applied. These checks keep a physical staged store from
-/// becoming a publication candidate unless it exactly matches the staged batch.
+/// returning to ready state unless it exactly matches the staged batch.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexIsolatedIndexStoreValidationError {
     StoreMismatch,
-    PublishedVisibility,
     StoreNotBuilding,
     EntryCountMismatch,
     IndexKeyDecode,
@@ -254,7 +242,7 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexIsolatedIndexStoreValidationE
 ///
 /// Positive validation report for an isolated `IndexStore` after staged
 /// field-path index writes have landed. The report records generation movement
-/// and building-state visibility, but does not mark the store publishable.
+/// and building-state visibility, but does not mark the store ready.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -266,8 +254,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreValidatio
     #[cfg(test)]
     generation_after: u64,
     index_state: IndexState,
-    store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaFieldPathIndexMutationProgress,
+    validation: SchemaFieldPathIndexStagedValidation,
 }
 
 impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
@@ -294,29 +281,15 @@ impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn index_state(&self) -> IndexState {
         self.index_state
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn runner_report(
+    pub(in crate::db::schema) const fn staged_validation(
         &self,
-    ) -> &SchemaFieldPathIndexMutationProgress {
-        &self.runner_report
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) fn publication_readiness(
-        &self,
-    ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
-        SchemaFieldPathIndexStagedStorePublicationReadiness::from_isolated_index_store_validation(
-            self,
-        )
+    ) -> SchemaFieldPathIndexStagedValidation {
+        self.validation
     }
 }

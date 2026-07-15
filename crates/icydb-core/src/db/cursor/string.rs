@@ -3,9 +3,11 @@
 //! Does not own: binary token wire encoding or continuation validation semantics.
 //! Boundary: cursor-owned binary token bytes -> lowercase hex external token text.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::codec::hex::encode_hex_lower;
+use crate::db::cursor::token::MAX_CURSOR_TOKEN_BYTES;
 #[cfg(test)]
 use crate::db::cursor::{GroupedContinuationToken, TokenWireError};
-use crate::db::{codec::hex::encode_hex_lower, cursor::token::MAX_CURSOR_TOKEN_BYTES};
 
 // External cursor tokens are lowercase hex over binary cursor token bytes, so
 // the string limit must allow the full binary token budget after hex expansion.
@@ -30,7 +32,8 @@ pub enum CursorDecodeError {
 
 /// Encode raw cursor bytes as a lowercase hex token.
 #[must_use]
-pub fn encode_cursor(bytes: &[u8]) -> String {
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn encode_cursor(bytes: &[u8]) -> String {
     encode_hex_lower(bytes)
 }
 
@@ -47,7 +50,7 @@ pub(in crate::db) fn encode_grouped_cursor_token(
 /// Decode a lowercase/uppercase hex cursor token into raw bytes.
 ///
 /// The token may include surrounding whitespace, which is trimmed.
-pub fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
+pub(in crate::db) fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
     // Phase 1: normalize input and enforce envelope-level bounds.
     let token = token.trim();
 

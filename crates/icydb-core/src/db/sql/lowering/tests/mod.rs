@@ -423,7 +423,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: AcceptedFieldKind) -> SchemaIn
         ],
     ));
 
-    SchemaInfo::from_accepted_snapshot_for_model(SqlLowerEntity::MODEL, &snapshot)
+    SchemaInfo::from_snapshot_with_generated_model_for_test(SqlLowerEntity::MODEL, &snapshot)
 }
 
 // Build an intentionally incomplete accepted schema view for authority tests.
@@ -468,7 +468,7 @@ fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
         ],
     ));
 
-    SchemaInfo::from_accepted_snapshot_for_model(SqlLowerEntity::MODEL, &snapshot)
+    SchemaInfo::from_snapshot_with_generated_model_for_test(SqlLowerEntity::MODEL, &snapshot)
 }
 
 // Build an accepted schema variant where the `name` field exposes one nested
@@ -539,7 +539,7 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
         ],
     ));
 
-    SchemaInfo::from_accepted_snapshot_for_model(SqlLowerEntity::MODEL, &snapshot)
+    SchemaInfo::from_snapshot_with_generated_model_for_test(SqlLowerEntity::MODEL, &snapshot)
 }
 
 // Lower one global aggregate SQL command through the shared reduced SQL lane

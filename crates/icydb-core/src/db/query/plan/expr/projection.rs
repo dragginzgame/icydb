@@ -698,7 +698,7 @@ mod tests {
             ],
         ));
 
-        SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot)
+        SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &snapshot)
     }
 
     #[test]

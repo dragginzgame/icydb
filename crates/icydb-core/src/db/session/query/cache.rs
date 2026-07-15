@@ -119,19 +119,24 @@ thread_local! {
 fn schema_info_for_plan_cache_authority(
     authority: &EntityAuthority,
     accepted_schema: &AcceptedSchemaSnapshot,
-) -> SchemaInfo {
+) -> Result<SchemaInfo, QueryError> {
     if let Some(schema_info) = authority.accepted_schema_info()
         && (!accepted_schema_has_expression_indexes(accepted_schema)
             || !schema_info.expression_indexes().is_empty())
     {
-        return schema_info.clone();
+        return Ok(schema_info.clone());
     }
 
-    SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+    let enum_catalog = authority
+        .accepted_enum_catalog_handle()
+        .map_err(QueryError::execute)?
+        .clone();
+    Ok(SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
         authority.model(),
         accepted_schema,
+        enum_catalog,
         true,
-    )
+    ))
 }
 
 fn accepted_schema_has_expression_indexes(accepted_schema: &AcceptedSchemaSnapshot) -> bool {
@@ -424,7 +429,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let schema_info = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
             schema_info_for_plan_cache_authority(&authority, schema.accepted_schema())
-        });
+        })?;
         if query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
             return self.cached_trivial_scalar_load_plan_for_authority_recording(
                 authority,

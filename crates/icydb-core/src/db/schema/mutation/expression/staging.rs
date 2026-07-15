@@ -42,7 +42,7 @@ impl<'a> SchemaExpressionIndexRebuildRow<'a> {
 /// SchemaExpressionIndexStagedEntry
 ///
 /// One raw index-store entry produced during staged expression-index rebuild
-/// work. It remains staged until the runner validates and publishes it.
+/// work. It remains staged until the runner writes and validates it.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -67,8 +67,8 @@ impl SchemaExpressionIndexStagedEntry {
 ///
 /// SchemaExpressionIndexStagedRebuild
 ///
-/// In-memory staged expression-index state. This is not a published store and
-/// must not be made planner-visible until validation and publication complete.
+/// In-memory staged expression-index state. This is never directly visible to
+/// planners and cannot reach ready state without physical-store validation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,7 +77,6 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedRebuild {
     entries: Vec<SchemaExpressionIndexStagedEntry>,
     source_rows: usize,
     skipped_rows: usize,
-    store_visibility: SchemaMutationStoreVisibility,
 }
 
 impl SchemaExpressionIndexStagedRebuild {
@@ -125,7 +124,6 @@ impl SchemaExpressionIndexStagedRebuild {
             entries,
             source_rows,
             skipped_rows,
-            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
         })
     }
 
@@ -152,20 +150,10 @@ impl SchemaExpressionIndexStagedRebuild {
         self.skipped_rows
     }
 
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
     pub(in crate::db::schema) fn validate(
         &self,
     ) -> Result<SchemaExpressionIndexStagedValidation, SchemaExpressionIndexStagedValidationError>
     {
-        if self.store_visibility != SchemaMutationStoreVisibility::StagedOnly {
-            return Err(SchemaExpressionIndexStagedValidationError::PublishedVisibility);
-        }
-
         let expected_entries = self
             .source_rows
             .checked_sub(self.skipped_rows)
@@ -189,7 +177,6 @@ impl SchemaExpressionIndexStagedRebuild {
             entry_count: self.entries.len(),
             source_rows: self.source_rows,
             skipped_rows: self.skipped_rows,
-            store_visibility: self.store_visibility,
         })
     }
 }
@@ -213,7 +200,6 @@ fn has_duplicate_unique_components(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaExpressionIndexStagedValidationError {
-    PublishedVisibility,
     SkippedRowsExceedSourceRows,
     EntryCountMismatch,
     UnsortedOrDuplicateEntries,
@@ -232,11 +218,11 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedValidation {
     entry_count: usize,
     source_rows: usize,
     skipped_rows: usize,
-    store_visibility: SchemaMutationStoreVisibility,
 }
 
 impl SchemaExpressionIndexStagedValidation {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn entry_count(&self) -> usize {
         self.entry_count
     }
@@ -250,11 +236,5 @@ impl SchemaExpressionIndexStagedValidation {
     #[cfg(test)]
     pub(in crate::db::schema) const fn skipped_rows(&self) -> usize {
         self.skipped_rows
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
     }
 }

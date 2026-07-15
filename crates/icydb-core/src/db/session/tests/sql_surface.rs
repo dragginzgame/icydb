@@ -3,18 +3,21 @@ use crate::{
     db::{
         FieldRef, MutationMode, asc,
         codec::{decode_row_payload_bytes, serialize_row_payload},
-        data::{RawRow, encode_value_with_model_proposal_for_test},
+        data::{DecodedDataStoreKey, RawRow, encode_value_with_model_proposal_for_test},
         executor::EntityAuthority,
-        index::{IndexKey, IndexStoreVisit},
+        index::{IndexEntryValue, IndexKey, IndexState, IndexStoreVisit, RawIndexStoreKey},
         response::Row,
         schema::{
-            AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
-            AcceptedSchemaSnapshot, PersistedFieldOrigin, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, SchemaDdlMutationAdmissionError,
-            SchemaDdlSchemaVersionAdmissionError, SchemaInfo, SchemaVersion,
-            accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_method_version,
-            compiled_schema_proposal_for_model, enum_catalog::build_initial_accepted_enum_catalog,
-            execute_admin_sql_ddl_field_addition, persisted_schema_snapshot_decode_count_for_tests,
+            AcceptedCatalogIdentity, AcceptedEnumCatalogHandle, AcceptedFieldKind,
+            AcceptedSchemaRevision, AcceptedSchemaSnapshot, PersistedFieldOrigin,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+            SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
+            SchemaVersion, accepted_schema_cache_fingerprint,
+            accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
+            enum_catalog::build_initial_accepted_enum_catalog,
+            execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_drop,
+            execute_admin_sql_ddl_secondary_index_drop,
+            persisted_schema_snapshot_decode_count_for_tests,
             publish_test_accepted_schema_snapshot,
             reset_persisted_schema_snapshot_decode_count_for_tests,
         },
@@ -125,6 +128,35 @@ fn ddl_expected_sql(sql: &str, expected_schema_version: u32) -> String {
     } else {
         format!("{sql} {contract}")
     }
+}
+
+fn publication_rejecting_identity(identity: AcceptedCatalogIdentity) -> AcceptedCatalogIdentity {
+    let rejected_revision = identity
+        .accepted_schema_revision()
+        .checked_next()
+        .expect("test accepted-schema revision should advance");
+
+    AcceptedCatalogIdentity::new(
+        identity.entity_tag(),
+        identity.entity_path(),
+        identity.store_path(),
+        rejected_revision,
+        identity.accepted_schema_version(),
+        identity.accepted_schema_fingerprint(),
+    )
+}
+
+fn session_sql_index_entries_for_test() -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
+    SESSION_SQL_INDEX_STORE.with_borrow(|index_store| {
+        let mut entries = Vec::new();
+        index_store
+            .visit_entries(|raw_key, value| {
+                entries.push((raw_key.clone(), value.clone()));
+                Ok::<_, ()>(IndexStoreVisit::Continue)
+            })
+            .expect("infallible test index-store visitor should complete");
+        entries
+    })
 }
 
 fn assert_sql_ddl_admission_detail(err: QueryError, expected: SchemaDdlAdmissionError) {
@@ -4479,8 +4511,10 @@ fn sql_ddl_alter_table_drop_column_binds_ddl_owned_trailing_field() {
         .expect("setup ADD COLUMN should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
         2,
@@ -4631,8 +4665,10 @@ fn sql_ddl_alter_table_drop_column_rejects_any_composite_primary_key_field() {
             before.indexes().to_vec(),
         ),
     );
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
         .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
 
@@ -4668,8 +4704,10 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
         .expect("setup ADD COLUMN should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let index_statement = parse_sql(&ddl_transition_sql(
         "CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)",
         2,
@@ -4686,8 +4724,10 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
         .expect("setup CREATE INDEX should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
         .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
 
@@ -4727,8 +4767,10 @@ fn sql_ddl_alter_table_drop_column_compacts_non_trailing_ddl_fields() {
             .expect("setup ADD COLUMN should derive accepted-after metadata")
             .accepted_after()
             .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let add_handle_statement = parse_sql(&ddl_transition_sql(
         "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
         2,
@@ -4745,8 +4787,10 @@ fn sql_ddl_alter_table_drop_column_compacts_non_trailing_ddl_fields() {
         .expect("second setup ADD COLUMN should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
         3,
@@ -4813,8 +4857,10 @@ fn sql_ddl_alter_table_rename_column_binds_ddl_owned_field() {
         .expect("setup ADD COLUMN should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
         .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
 
@@ -4927,8 +4973,10 @@ fn sql_ddl_alter_table_rename_column_updates_field_path_index_metadata() {
         .expect("setup ADD COLUMN should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let index_statement = parse_sql(&ddl_transition_sql(
         "CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)",
         2,
@@ -4945,8 +4993,10 @@ fn sql_ddl_alter_table_rename_column_updates_field_path_index_metadata() {
         .expect("setup CREATE INDEX should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
         3,
@@ -4993,8 +5043,10 @@ fn sql_ddl_alter_table_rename_column_updates_expression_index_metadata() {
         .expect("setup ADD COLUMN should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let index_statement = parse_sql(&ddl_transition_sql(
         "CREATE INDEX session_sql_lower_nickname_idx ON SessionSqlEntity (LOWER(nickname))",
         2,
@@ -5011,8 +5063,10 @@ fn sql_ddl_alter_table_rename_column_updates_expression_index_metadata() {
         .expect("setup expression CREATE INDEX should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
         3,
@@ -5063,8 +5117,10 @@ fn sql_ddl_alter_table_rename_column_updates_filtered_index_predicate_metadata()
         .expect("setup ADD COLUMN should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let index_statement = parse_sql(
         &ddl_transition_sql(
             "CREATE INDEX session_sql_filtered_nickname_idx ON SessionSqlEntity (nickname) WHERE nickname IS NOT NULL",
@@ -5083,8 +5139,10 @@ fn sql_ddl_alter_table_rename_column_updates_filtered_index_predicate_metadata()
         .expect("setup filtered CREATE INDEX should derive accepted-after metadata")
         .accepted_after()
         .clone();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
         3,
@@ -5523,8 +5581,10 @@ fn execute_admin_sql_ddl_publication_rechecks_bound_accepted_identity() {
         .expect("accepted schema catalog bootstrap should succeed");
     let accepted_before = catalog.snapshot().clone();
     let accepted_before_identity = catalog.identity();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let stale_statement = parse_sql(&ddl_transition_sql(
         "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
         1,
@@ -6382,6 +6442,89 @@ fn execute_admin_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
 }
 
 #[test]
+fn execute_admin_sql_ddl_drop_column_rolls_back_rows_when_publication_rejects() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+            1,
+        ))
+        .expect("setup nullable ADD COLUMN should publish before rejected DROP COLUMN");
+    let id = Ulid::from_u128(15_818);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed insert should persist the accepted-before row shape");
+
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema catalog should load before rejected DROP COLUMN");
+    let accepted_before = catalog.snapshot().clone();
+    let rejecting_identity = publication_rejecting_identity(catalog.identity());
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
+    let statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
+        2,
+    ))
+    .expect("DROP COLUMN should parse before rollback validation");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("DROP COLUMN should bind against the current accepted schema");
+    let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("DROP COLUMN should derive an accepted-after candidate");
+    let raw_key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(id)
+        .expect("test entity key should build")
+        .to_raw()
+        .expect("test entity key should encode");
+    let row_before = SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
+        data_store
+            .get(&raw_key)
+            .expect("test entity row should exist before rejected DROP COLUMN")
+    });
+    let store = SESSION_SQL_DB
+        .recovered_store(SessionSqlStore::PATH)
+        .expect("session SQL store should be recovered for rejected DROP COLUMN");
+
+    let error = execute_admin_sql_ddl_field_drop(
+        store,
+        SessionSqlEntity::ENTITY_TAG,
+        SessionSqlEntity::PATH,
+        &accepted_before,
+        rejecting_identity,
+        &derivation,
+    )
+    .expect_err("publication rejection should fail DROP COLUMN after its physical attempt");
+
+    assert!(matches!(
+        error.detail(),
+        Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost))
+    ));
+    SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
+        assert_eq!(
+            data_store.get(&raw_key),
+            Some(row_before),
+            "rejected DROP COLUMN must restore the accepted-before row bytes",
+        );
+    });
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|schema_store| {
+        let latest = schema_store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("accepted schema should remain readable after rejected DROP COLUMN")
+            .expect("accepted-before schema should remain published");
+        assert_eq!(&latest, accepted_before.persisted_snapshot());
+    });
+}
+
+#[test]
 fn execute_admin_sql_ddl_drop_column_if_exists_reports_no_op_for_missing_column() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -6929,10 +7072,9 @@ fn execute_admin_sql_ddl_publishes_supported_expression_index() {
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
             .expect("DDL-published schema snapshot should remain accepted");
 
-        SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+        SchemaInfo::from_snapshot_with_generated_model_and_expression_indexes_for_test(
             SessionSqlEntity::MODEL,
             &accepted,
-            true,
         )
     });
 
@@ -7186,8 +7328,10 @@ fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
 #[test]
 fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
         1,
@@ -7199,7 +7343,7 @@ fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
 
     let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
         .expect("bound CREATE INDEX should derive an accepted-after schema snapshot");
-    let accepted_after = SchemaInfo::from_accepted_snapshot_for_model(
+    let accepted_after = SchemaInfo::from_snapshot_with_generated_model_for_test(
         SessionSqlEntity::MODEL,
         derivation.accepted_after(),
     );
@@ -7226,8 +7370,10 @@ fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
 #[test]
 fn sql_ddl_create_index_preparation_reports_non_executed_command() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
         1,
@@ -7268,8 +7414,10 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
 #[test]
 fn sql_ddl_create_expression_index_preparation_reports_non_executed_command() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
-    let schema =
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
     let statement = parse_sql(&ddl_transition_sql(
         "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
         1,
@@ -7368,7 +7516,7 @@ fn execute_admin_sql_ddl_publishes_supported_field_path_index() {
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
             .expect("DDL-published schema snapshot should remain accepted");
 
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted)
+        SchemaInfo::from_snapshot_with_generated_model_for_test(SessionSqlEntity::MODEL, &accepted)
     });
 
     assert_eq!(
@@ -7436,7 +7584,7 @@ fn execute_admin_sql_ddl_publishes_supported_filtered_field_path_index() {
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
             .expect("DDL-published schema snapshot should remain accepted");
 
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted)
+        SchemaInfo::from_snapshot_with_generated_model_for_test(SessionSqlEntity::MODEL, &accepted)
     });
 
     assert_eq!(
@@ -7626,6 +7774,81 @@ fn execute_admin_sql_ddl_drop_index_compacts_surviving_metadata_and_physical_key
     assert_eq!(physical_ordinals, vec![1, 1, 1]);
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_admin_sql_ddl_drop_index_rolls_back_keys_when_publication_rejects() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+            1,
+        ))
+        .expect("first DDL index should publish before rejected DROP INDEX");
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)",
+            2,
+        ))
+        .expect("second DDL index should publish before rejected DROP INDEX");
+
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema catalog should load before rejected DROP INDEX");
+    let accepted_before = catalog.snapshot().clone();
+    let rejecting_identity = publication_rejecting_identity(catalog.identity());
+    let schema = SchemaInfo::from_snapshot_with_generated_model_for_test(
+        SessionSqlEntity::MODEL,
+        &accepted_before,
+    );
+    let statement = parse_sql(&ddl_transition_sql(
+        "DROP INDEX session_sql_age_idx ON SessionSqlEntity",
+        3,
+    ))
+    .expect("DROP INDEX should parse before rollback validation");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("DROP INDEX should bind against the current accepted schema");
+    let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("DROP INDEX should derive an accepted-after candidate");
+    let entries_before = session_sql_index_entries_for_test();
+    let store = SESSION_SQL_DB
+        .recovered_store(SessionSqlStore::PATH)
+        .expect("session SQL store should be recovered for rejected DROP INDEX");
+
+    let error = execute_admin_sql_ddl_secondary_index_drop(
+        store,
+        SessionSqlEntity::ENTITY_TAG,
+        SessionSqlEntity::PATH,
+        &accepted_before,
+        rejecting_identity,
+        &derivation,
+    )
+    .expect_err("publication rejection should fail DROP INDEX after its physical attempt");
+
+    assert!(matches!(
+        error.detail(),
+        Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost))
+    ));
+    assert_eq!(
+        session_sql_index_entries_for_test(),
+        entries_before,
+        "rejected DROP INDEX must restore removed and remapped keys exactly",
+    );
+    SESSION_SQL_INDEX_STORE.with_borrow(|index_store| {
+        assert_eq!(index_store.state(), IndexState::Ready);
+    });
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|schema_store| {
+        let latest = schema_store
+            .current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("accepted schema should remain readable after rejected DROP INDEX")
+            .expect("accepted-before schema should remain published");
+        assert_eq!(&latest, accepted_before.persisted_snapshot());
+    });
 }
 
 #[test]
@@ -7843,7 +8066,7 @@ fn execute_admin_sql_ddl_drops_supported_ddl_published_index() {
         let accepted = AcceptedSchemaSnapshot::try_new(latest)
             .expect("DDL-dropped schema snapshot should remain accepted");
 
-        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted)
+        SchemaInfo::from_snapshot_with_generated_model_for_test(SessionSqlEntity::MODEL, &accepted)
     });
 
     assert_eq!(
@@ -8094,7 +8317,7 @@ fn execute_admin_sql_ddl_publication_rejects_pre_ddl_continuation_cursor() {
         .execute_load_query_paged_with_trace(&query, None)
         .expect("pre-DDL first page should execute")
         .into_execution();
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("pre-DDL first page should emit a continuation cursor"),
@@ -8311,7 +8534,7 @@ fn execute_sql_field_ddl_publication_rejects_pre_ddl_continuation_cursor() {
         .execute_load_query_paged_with_trace(&query, None)
         .expect("pre-field-DDL first page should execute")
         .into_execution();
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         first_page
             .continuation_cursor()
             .expect("pre-field-DDL first page should emit a continuation cursor"),

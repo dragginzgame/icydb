@@ -34,7 +34,7 @@ fn paged_keys(page: &PagedLoadExecution<SessionSqlEntity>) -> Vec<Ulid> {
 }
 
 fn encoded_scalar_cursor(page: &PagedLoadExecution<SessionSqlEntity>, context: &str) -> String {
-    crate::db::encode_cursor(
+    crate::db::cursor::encode_cursor(
         page.continuation_cursor()
             .unwrap_or_else(|| panic!("{context} should emit a continuation cursor")),
     )
@@ -82,7 +82,7 @@ fn encoded_indexed_scalar_cursor(
     page: &PagedLoadExecution<IndexedSessionSqlEntity>,
     context: &str,
 ) -> String {
-    crate::db::encode_cursor(
+    crate::db::cursor::encode_cursor(
         page.continuation_cursor()
             .unwrap_or_else(|| panic!("{context} should emit a continuation cursor")),
     )
@@ -411,7 +411,7 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
     );
 
     // Phase 4: resume both surfaces from their cursor and compare the next page.
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         sql_first
             .continuation_cursor()
             .expect("first scalar page should emit a continuation cursor"),
@@ -464,7 +464,7 @@ fn primary_key_stream_resume_crosses_chunk_boundary_without_gaps() {
         .execute_load_query_paged_with_trace(&query, None)
         .expect("first primary stream chunk page should execute")
         .into_execution();
-    let first_cursor = crate::db::encode_cursor(
+    let first_cursor = crate::db::cursor::encode_cursor(
         first
             .continuation_cursor()
             .expect("first chunked primary page should emit a cursor"),
@@ -485,7 +485,7 @@ fn primary_key_stream_resume_crosses_chunk_boundary_without_gaps() {
         .execute_load_query_paged_with_trace(&query, Some(first_cursor.as_str()))
         .expect("second primary stream chunk page should execute")
         .into_execution();
-    let second_cursor = crate::db::encode_cursor(
+    let second_cursor = crate::db::cursor::encode_cursor(
         second
             .continuation_cursor()
             .expect("second chunked primary page should emit a cursor"),
@@ -971,7 +971,7 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
 
     // Phase 3: resume both grouped surfaces from the same cursor and compare
     // the next grouped payload and cursor state.
-    let cursor = crate::db::encode_cursor(
+    let cursor = crate::db::cursor::encode_cursor(
         sql_first
             .continuation_cursor()
             .expect("first grouped page should emit a continuation cursor"),

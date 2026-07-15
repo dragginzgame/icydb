@@ -7,18 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Generated database accessors no longer duplicate `Result`'s must-use
-  annotation, restoring Rust 1.97 Clippy-clean canister builds.
-- Strong-relation discovery now rejects scalar targets without registered
-  runtime authority.
-
 ## [0.203.x] ⚠️ - 2026-07-14 - Legacy Architecture Hard Cut
 
 Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)
 
-- `0.203.2` completes the second hard-cut excavation with typed bootstrap and
-  one canonical schema-mutation authority. Potentially breaking: removed APIs
-  and renamed authority or diagnostic surfaces have no compatibility aliases.
+- `0.203.2` completes the second hard-cut excavation with typed bootstrap,
+  canonical schema/publication authority, and atomic destructive DDL.
+  Potentially breaking: removed APIs and renamed authority or diagnostic
+  surfaces have no compatibility aliases.
 
 - `0.203.1` completes the pre-1.0 format and identity hard cut and repairs dense
   field-drop rewrites. Potentially breaking: existing stores and cursors are

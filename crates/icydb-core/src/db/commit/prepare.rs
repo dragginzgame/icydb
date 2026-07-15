@@ -541,13 +541,15 @@ where
             authority.model,
             &selection,
         )?;
+    let enum_catalog = selection.enum_catalog().clone();
     let (accepted, row_contract) = accepted_authority.into_parts();
     Ok(AcceptedCommitSchemaContracts {
         row_contract,
         schema_info: (!accepted.persisted_snapshot().indexes().is_empty()).then(|| {
-            SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            SchemaInfo::from_accepted_snapshot_and_catalog_for_model(
                 authority.model,
                 &accepted,
+                enum_catalog,
                 true,
             )
         }),
