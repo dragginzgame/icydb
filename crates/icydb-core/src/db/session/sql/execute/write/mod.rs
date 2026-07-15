@@ -137,7 +137,7 @@ where
             ))
         }
         CompiledSqlCommand::Update(statement) => {
-            let result = session.execute_sql_update_statement::<E>(statement, catalog);
+            let result = session.execute_trusted_sql_mutation_statement::<E>(statement, catalog);
             Some(sql_write_statement_result_with_default_cache::<E, C>(
                 SqlWriteKind::Update,
                 result,

@@ -11,9 +11,7 @@ use crate::{
         executor::{
             EntityAuthority,
             delete::types::{DeleteExecutionAuthority, PreparedDeleteCommit},
-            mutation::{
-                commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
-            },
+            mutation::commit_delete_row_ops_with_window_for_path,
         },
         registry::StoreHandle,
     },
@@ -76,8 +74,6 @@ where
     Ok(PreparedDeleteCommit { row_ops })
 }
 
-// Bridge the final delete commit apply through the existing typed fallback
-// only at the wrapper edge so the structural delete core stays shared.
 pub(in crate::db::executor::delete) fn apply_delete_commit_window_for_type<E>(
     db: &Db<E::Canister>,
     authority: EntityAuthority,
@@ -87,14 +83,5 @@ pub(in crate::db::executor::delete) fn apply_delete_commit_window_for_type<E>(
 where
     E: EntityKind + EntityValue,
 {
-    if db.has_runtime_hooks() {
-        commit_delete_row_ops_with_window_for_path(
-            db,
-            authority.entity_path(),
-            row_ops,
-            apply_phase,
-        )
-    } else {
-        commit_delete_row_ops_with_window::<E>(db, row_ops, apply_phase)
-    }
+    commit_delete_row_ops_with_window_for_path(db, authority.entity_path(), row_ops, apply_phase)
 }

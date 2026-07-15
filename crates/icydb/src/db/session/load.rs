@@ -63,9 +63,8 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
 
     /// Return a deliberately partial row window.
     ///
-    /// This is the hard-cut replacement for raw public read `.limit(...)` on
-    /// load queries. Use it only when the endpoint contract is "the first N
-    /// rows under this order." Use `page(...)` for public pages,
+    /// Use it only when the endpoint contract is "the first N rows under this
+    /// order." Use `page(...)` for public pages,
     /// `collect_complete()` for complete small sets, and exact aggregate
     /// helpers for semantic aggregates.
     #[must_use]

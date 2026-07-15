@@ -56,23 +56,19 @@ pub(in crate::db::schema) fn classify_schema_mutation_delta<'a>(
 pub(in crate::db::schema) fn schema_mutation_request_for_snapshots<'a>(
     actual: &PersistedSchemaSnapshot,
     expected: &'a PersistedSchemaSnapshot,
-) -> SchemaMutationRequest<'a> {
-    SchemaMutationRequest::from(classify_schema_mutation_delta(actual, expected))
-}
-
-impl<'a> From<SchemaMutationDelta<'a>> for SchemaMutationRequest<'a> {
-    fn from(delta: SchemaMutationDelta<'a>) -> Self {
-        match delta {
-            SchemaMutationDelta::AppendOnlyFields(fields) => Self::AppendOnlyFields(fields),
-            SchemaMutationDelta::AddFieldPathIndex(index) => {
-                Self::from_accepted_field_path_index(index).unwrap_or(Self::Incompatible)
-            }
-            SchemaMutationDelta::AddExpressionIndex(index) => {
-                Self::from_accepted_expression_index(index).unwrap_or(Self::Incompatible)
-            }
-            SchemaMutationDelta::ExactMatch => Self::ExactMatch,
-            SchemaMutationDelta::Incompatible => Self::Incompatible,
+) -> Option<SchemaMutationRequest<'a>> {
+    match classify_schema_mutation_delta(actual, expected) {
+        SchemaMutationDelta::AppendOnlyFields(fields) => {
+            Some(SchemaMutationRequest::AppendOnlyFields(fields))
         }
+        SchemaMutationDelta::AddFieldPathIndex(index) => {
+            SchemaMutationRequest::from_accepted_field_path_index(index).ok()
+        }
+        SchemaMutationDelta::AddExpressionIndex(index) => {
+            SchemaMutationRequest::from_accepted_expression_index(index).ok()
+        }
+        SchemaMutationDelta::ExactMatch => Some(SchemaMutationRequest::ExactMatch),
+        SchemaMutationDelta::Incompatible => None,
     }
 }
 

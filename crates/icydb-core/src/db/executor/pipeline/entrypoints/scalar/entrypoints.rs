@@ -17,7 +17,9 @@ use crate::{
             EntityAuthority, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
             ScalarContinuationContext, StoreResolver,
             pipeline::{
-                contracts::{CursorPage, LoadExecutor, StructuralCursorPage},
+                contracts::{
+                    CursorPage, LoadExecutor, ProjectionMaterializationMode, StructuralCursorPage,
+                },
                 entrypoints::scalar::{
                     materialized::{
                         execute_prepared_scalar_route_runtime,
@@ -25,7 +27,6 @@ use crate::{
                     },
                     runtime::{
                         InitialScalarPlanRuntimeOptions, PreparedScalarRouteRuntime,
-                        ScalarProjectionRuntimeMode,
                         prepare_initial_scalar_route_runtime_from_plan,
                         prepare_resumed_scalar_route_runtime_from_plan,
                     },
@@ -178,7 +179,7 @@ where
         db,
         debug,
         plan,
-        InitialScalarPlanRuntimeOptions::unpaged_rows(ScalarProjectionRuntimeMode::None),
+        InitialScalarPlanRuntimeOptions::unpaged_rows(ProjectionMaterializationMode::None),
     )?;
 
     // Phase 2: execute the shared scalar runtime and return the structural page.
@@ -205,7 +206,7 @@ where
             db,
             debug,
             plan,
-            InitialScalarPlanRuntimeOptions::unpaged_rows(ScalarProjectionRuntimeMode::None),
+            InitialScalarPlanRuntimeOptions::unpaged_rows(ProjectionMaterializationMode::None),
         )?;
 
     // Phase 2: execute the shared scalar runtime and return the structural page.
@@ -272,7 +273,9 @@ where
         debug,
         plan,
         retained_slot_layout,
-        InitialScalarPlanRuntimeOptions::unpaged_rows(ScalarProjectionRuntimeMode::RetainSlotRows),
+        InitialScalarPlanRuntimeOptions::unpaged_rows(
+            ProjectionMaterializationMode::RetainSlotRows,
+        ),
     )?;
 
     // Phase 2: execute through the scalar runtime up to the post-access/window

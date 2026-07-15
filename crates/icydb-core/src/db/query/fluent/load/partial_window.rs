@@ -43,7 +43,6 @@ where
         Self { inner }
     }
 
-    /// Borrow the current immutable query intent.
     /// Execute this partial window with diagnostics attribution.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]

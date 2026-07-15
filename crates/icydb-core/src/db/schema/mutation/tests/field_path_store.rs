@@ -2,9 +2,6 @@ use super::*;
 
 #[test]
 fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutation() {
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");
     let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
@@ -27,9 +24,8 @@ fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutat
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
-    let buffer =
-        super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
-            .expect("valid staged rebuild should write into an in-memory staged store buffer");
+    let buffer = super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
+        .expect("valid staged rebuild should write into an in-memory staged store buffer");
     let mut writer = RecordingStagedStoreWriter::default();
 
     let report = buffer.write_to(&mut writer);
@@ -54,9 +50,6 @@ fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutat
 
 #[test]
 fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publication() {
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");
     let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
@@ -79,9 +72,8 @@ fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
-    let buffer =
-        super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
-            .expect("valid staged rebuild should write into an in-memory staged store buffer");
+    let buffer = super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
+        .expect("valid staged rebuild should write into an in-memory staged store buffer");
     let previous_entry = <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![9]));
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
@@ -130,9 +122,6 @@ fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
 
 #[test]
 fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");
     let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
@@ -155,9 +144,8 @@ fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
-    let buffer =
-        super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
-            .expect("valid staged rebuild should write into an in-memory staged store buffer");
+    let buffer = super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
+        .expect("valid staged rebuild should write into an in-memory staged store buffer");
     let previous_entry = <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![9]));
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
@@ -194,9 +182,6 @@ fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
 
 #[test]
 fn field_path_rebuild_rollback_plan_reports_mocked_restore_and_remove_actions() {
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");
     let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
@@ -219,9 +204,8 @@ fn field_path_rebuild_rollback_plan_reports_mocked_restore_and_remove_actions() 
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
-    let buffer =
-        super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
-            .expect("valid staged rebuild should write into an in-memory staged store buffer");
+    let buffer = super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
+        .expect("valid staged rebuild should write into an in-memory staged store buffer");
     let previous_entry = <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![9]));
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
@@ -469,10 +453,11 @@ fn field_path_rebuild_runtime_invalidation_records_epoch_handoff_without_publica
         .expect("isolated IndexStore should validate before invalidation");
     let before = base_snapshot();
     let after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, plan.execution_plan())
+    let plan: MutationPlan =
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+            .expect("non-unique field-path index should lower")
+            .into();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, plan)
         .expect("same-entity accepted snapshots should build runner input");
 
     let invalidation_plan =

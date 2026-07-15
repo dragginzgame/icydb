@@ -12,7 +12,7 @@ use crate::model::field::{FieldStorageDecode, LeafCodec};
 pub(in crate::db) enum SchemaDdlFieldAdditionCandidateError {
     /// An accepted field already uses the requested SQL column name.
     Duplicate,
-    /// Required ADD COLUMN without a database default is not executable yet.
+    /// Required ADD COLUMN without a database default cannot backfill existing rows.
     RequiredWithoutDefault,
 }
 

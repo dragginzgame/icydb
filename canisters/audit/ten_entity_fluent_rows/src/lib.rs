@@ -9,7 +9,7 @@ icydb::start!();
 
 #[ic_cdk::query]
 fn query_ten_entity_fluent_rows() -> Result<u32, icydb::Error> {
-    let rows = db()
+    let rows = db()?
         .load::<TenSimpleEntity01>()
         .order_term(asc("id"))
         .partial_window(1)

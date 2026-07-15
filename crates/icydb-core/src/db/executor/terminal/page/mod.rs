@@ -23,7 +23,7 @@ use crate::{
         executor::{
             OrderReadableRow, OrderedKeyStreamBox, ScalarContinuationContext,
             measure_execution_stats_phase,
-            pipeline::contracts::{KernelPageMaterializationRequest, MaterializedExecutionPayload},
+            pipeline::contracts::{KernelPageMaterializationRequest, StructuralCursorPage},
             projection::ProjectionValidationRow,
             record_projection,
             route::LoadOrderRouteMode,
@@ -260,7 +260,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
 pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>(
     request: KernelPageMaterializationRequest<'a>,
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
-) -> Result<(MaterializedExecutionPayload, usize, usize), InternalError> {
+) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
     let KernelPageMaterializationRequest {
         authority,
         plan,

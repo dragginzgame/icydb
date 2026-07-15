@@ -52,7 +52,7 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 icydb_schema_surface_require_controller()?;
 
                 Ok(vec![
-                    #(db().try_describe_entity::<#entity_tys>()?),*
+                    #(db()?.try_describe_entity::<#entity_tys>()?),*
                 ])
             }
 
@@ -62,8 +62,8 @@ impl quote::ToTokens for SchemaSurfaceTokens {
 
                 Ok(vec![
                     #(::icydb::db::EntitySchemaCheckDescription::new(
-                        db().describe_entity::<#entity_tys>(),
-                        db().try_describe_entity::<#entity_tys>()?,
+                        db()?.describe_entity::<#entity_tys>(),
+                        db()?.try_describe_entity::<#entity_tys>()?,
                     )),*
                 ])
             }

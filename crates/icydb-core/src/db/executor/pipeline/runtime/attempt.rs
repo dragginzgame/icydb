@@ -8,11 +8,11 @@ use crate::db::executor::pipeline::contracts::KernelRowsExecutionAttempt;
 use crate::{
     db::{
         executor::{
-            ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationContext,
+            ExecutionRoutePlan, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::{
                 contracts::{
-                    ExecutionInputs, MaterializedExecutionAttempt, MaterializedExecutionPayload,
-                    ResolvedExecutionKeyStream,
+                    ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
+                    StructuralCursorPage,
                 },
                 operators::decorate_resolved_execution_key_stream,
                 runtime::ExecutionMaterializationContract,
@@ -23,7 +23,7 @@ use crate::{
     error::InternalError,
 };
 
-type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, usize);
+type MaterializedExecutionPayloadResult = (StructuralCursorPage, usize, usize);
 
 ///
 /// ExecutionAttemptKernel
@@ -49,7 +49,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     // request shapes stay aligned on predicate/projection/retained-slot wiring.
     fn materialization_contract<'req>(
         &'req self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> ExecutionMaterializationContract<'req> {
         ExecutionMaterializationContract {
             plan: self.inputs.plan(),
@@ -68,7 +68,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     /// attempt kernel.
     pub(in crate::db::executor) fn materialize_resolved_execution_stream<'req>(
         &'req self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         continuation: &'req ScalarContinuationContext,
         key_stream: &'req mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
@@ -87,7 +87,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     /// decoration contract for this prepared execution-input boundary.
     pub(in crate::db::executor) fn resolve_execution_key_stream(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         let resolved =
@@ -104,7 +104,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     /// stream decoration through structural page materialization.
     pub(in crate::db::executor) fn materialize_route_attempt(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         continuation: &ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
@@ -132,7 +132,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn materialize_route_attempt_kernel_rows(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         continuation: &ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {

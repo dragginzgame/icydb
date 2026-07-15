@@ -23,17 +23,6 @@ fn route_planner_public_surface_has_single_route_builder() {
             source.contains("build_execution_route_plan"),
             "route planning modules must re-export the single canonical route builder",
         );
-        for forbidden in [
-            "build_execution_route_plan_for_load",
-            "build_execution_route_plan_for_mutation",
-            "build_execution_route_plan_for_aggregate_spec",
-            "build_execution_route_plan_for_grouped_plan",
-        ] {
-            assert!(
-                !source.contains(forbidden),
-                "route planning public surface must not re-export legacy per-family builders: {forbidden}",
-            );
-        }
     }
 }
 

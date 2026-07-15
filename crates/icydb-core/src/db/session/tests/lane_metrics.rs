@@ -70,7 +70,7 @@ fn fluent_lane_metrics_mark_filtered_order_age_loads_direct_filtered_data_rows()
             .filter(crate::db::FieldRef::new("active").eq(true))
             .order_term(crate::db::asc("age"))
             .order_term(crate::db::asc("id"))
-            .limit(3)
+            .partial_window(3)
             .execute()
             .and_then(crate::db::LoadQueryResult::into_rows)
     });
@@ -125,7 +125,7 @@ fn fluent_lane_metrics_mark_field_bound_between_loads_direct_filtered_data_rows(
             .trusted_read_unchecked()
             .filter(crate::db::FieldRef::new("score").between_fields("min_score", "max_score"))
             .order_term(crate::db::asc("id"))
-            .limit(3)
+            .partial_window(3)
             .execute()
             .and_then(crate::db::LoadQueryResult::into_rows)
     });
@@ -186,7 +186,7 @@ fn fluent_lane_metrics_mark_filtered_handle_route_loads_direct_data_rows() {
             .filter(crate::db::FieldRef::new("tier").eq("gold"))
             .order_term(crate::db::asc("handle"))
             .order_term(crate::db::asc("id"))
-            .limit(2)
+            .partial_window(2)
             .execute()
             .and_then(crate::db::LoadQueryResult::into_rows)
     });

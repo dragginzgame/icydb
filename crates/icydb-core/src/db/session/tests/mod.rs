@@ -356,10 +356,55 @@ thread_local! {
     };
 }
 
-static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
-static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
-    Db::new(&INDEXED_SESSION_SQL_STORE_REGISTRY);
-static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&HEAP_SESSION_SQL_STORE_REGISTRY);
+static SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
+    EntityRuntimeHooks::for_entity::<SessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlFieldPathEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlRecordFieldPathEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionNullableSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlWriteEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlCompositeWriteEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlBlobEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlGeneratedFieldEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlGeneratedTimestampEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlManagedWriteEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlGeneratedKeyManagedWriteEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlSignedWriteEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlSelfRelationEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlMixedNumericCompareEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlBoolCompareEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlFloatCompareEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionSqlFieldBoundRangeEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionPrincipalKeyEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionAggregateEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionTemporalEntity>(),
+];
+static INDEXED_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
+    EntityRuntimeHooks::for_entity::<IndexedSessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<CompositeIndexedSessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<BranchIndexedSessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<ExplicitPkSuffixIndexedSessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<FilteredIndexedSessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<ExpressionIndexedSessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionExplainEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionDeterministicChoiceEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionDeterministicRangeEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionRangeStrengthEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionResidualRankingEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionUniquePrefixOffsetEntity>(),
+    EntityRuntimeHooks::for_entity::<SessionOrderOnlyChoiceEntity>(),
+];
+static HEAP_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] =
+    &[EntityRuntimeHooks::for_entity::<HeapSessionSqlEntity>()];
+static SESSION_SQL_DB: Db<SessionSqlCanister> =
+    Db::new_with_hooks(&SESSION_SQL_STORE_REGISTRY, SESSION_SQL_RUNTIME_HOOKS);
+static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+    &INDEXED_SESSION_SQL_STORE_REGISTRY,
+    INDEXED_SESSION_SQL_RUNTIME_HOOKS,
+);
+static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+    &HEAP_SESSION_SQL_STORE_REGISTRY,
+    HEAP_SESSION_SQL_RUNTIME_HOOKS,
+);
 static MIXED_HEAP_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
     EntityRuntimeHooks::for_entity::<SessionSqlSelfRelationEntity>(),
     EntityRuntimeHooks::for_entity::<HeapSessionSqlEntity>(),
@@ -2062,7 +2107,7 @@ static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
 crate::test_entity! {
     ident = SessionSqlSelfRelationEntity,
     entity_name = "SessionSqlSelfRelationEntity",
-    tag = EntityTag::new(0x1056),
+    tag = EntityTag::new(0x105F),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
     key_type = u64,
@@ -4290,7 +4335,6 @@ fn run_session_aggregate_projection_terminal(
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(4)
     };
 
     match terminal {
@@ -4323,7 +4367,6 @@ fn run_session_aggregate_rank_terminal(
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(5)
     };
 
     match (terminal, output) {

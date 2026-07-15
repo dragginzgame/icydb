@@ -44,10 +44,13 @@ impl<'a, E> FluentLoadQuery<'a, E>
 where
     E: EntityKind,
 {
-    pub(in crate::db) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
+    pub(in crate::db) const fn new(
+        session: &'a DbSession<E::Canister>,
+        missing_row_policy: crate::db::predicate::MissingRowPolicy,
+    ) -> Self {
         Self {
             session,
-            query,
+            query: Query::new(missing_row_policy),
             cursor_token: None,
             trusted_read_unchecked: false,
         }
@@ -192,17 +195,6 @@ where
     #[must_use]
     pub fn partial_window(self, limit: u32) -> PartialWindowLoadQuery<'a, E> {
         PartialWindowLoadQuery::new(self.map_query(|query| query.limit(limit)))
-    }
-
-    /// Apply a low-level row limit inside core planner/session tests and SQL
-    /// lowering.
-    ///
-    /// Public fluent callers should use `partial_window(...)`, `page(...)`,
-    /// `collect_complete()`, or a semantic terminal instead.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn limit(self, limit: u32) -> Self {
-        self.map_query(|query| query.limit(limit))
     }
 
     pub(super) fn with_cursor_token(mut self, token: impl Into<String>) -> Self {

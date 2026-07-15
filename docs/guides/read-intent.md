@@ -52,7 +52,7 @@ Exact lookup:
 
 ```rust
 // Before: partial row window spelling.
-let user = db()
+let user = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
     .partial_window(1)
@@ -60,7 +60,7 @@ let user = db()
     .try_entity()?;
 
 // After: exact-key spelling.
-let user = db()
+let user = db()?
     .load::<User>()
     .by_id(icydb::Id::<User>::from_key(user_id))
     .try_one()?;
@@ -70,7 +70,7 @@ Public list:
 
 ```rust
 // Before: a row cap that can look like a complete list.
-let users = db()
+let users = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("country").eq(country))
     .order_term(icydb::asc("username"))
@@ -79,7 +79,7 @@ let users = db()
     .execute_rows()?;
 
 // After: public cursor page.
-let users = db()
+let users = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("country").eq(country))
     .order_term(icydb::asc("username"))
@@ -91,7 +91,7 @@ Complete small set:
 
 ```rust
 // Before: silent truncation if there are more than N matching rows.
-let members = db()
+let members = db()?
     .load::<Member>()
     .filter(icydb::FieldRef::new("team_id").eq(team_id))
     .order_term(icydb::asc("id"))
@@ -99,7 +99,7 @@ let members = db()
     .execute_rows()?;
 
 // After: complete or fail with TooManyRows.
-let members = db()
+let members = db()?
     .load::<Member>()
     .filter(icydb::FieldRef::new("team_id").eq(team_id))
     .order_term(icydb::asc("id"))
@@ -110,7 +110,7 @@ Exact aggregate:
 
 ```rust
 // Anti-pattern: row count of a partial bounded window.
-let active = db()
+let active = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("active").eq(true))
     .partial_window(100)
@@ -118,7 +118,7 @@ let active = db()
     .count();
 
 // Preferred: exact count over the admitted shape.
-let active = db()
+let active = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("active").eq(true))
     .count_exact()?;
@@ -128,14 +128,14 @@ Trusted maintenance:
 
 ```rust
 // Before: easy to copy into a public endpoint by accident.
-let rows = db()
+let rows = db()?
     .load::<LedgerEntry>()
     .order_term(icydb::asc("id"))
     .partial_window(500)
     .execute_rows()?;
 
 // After: visibly trusted and cursor-batched.
-let rows = db()
+let rows = db()?
     .load::<LedgerEntry>()
     .order_term(icydb::asc("id"))
     .trusted_read_unchecked()
@@ -178,7 +178,7 @@ Exact row:
 ```rust
 #[ic_cdk::query]
 fn get_user(user_id: UserKey) -> Result<Option<User>, icydb::Error> {
-    db()
+    db()?
         .load::<User>()
         .by_id(icydb::Id::<User>::from_key(user_id))
         .try_one()
@@ -190,7 +190,7 @@ Public page:
 ```rust
 #[ic_cdk::query]
 fn list_users(prefix: String, cursor: Option<String>) -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
-    let query = db()
+    let query = db()?
         .load::<User>()
         .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
         .order_term(icydb::asc("username"))
@@ -208,7 +208,7 @@ Complete small set:
 ```rust
 #[ic_cdk::query]
 fn matching_users(prefix: String) -> Result<Vec<User>, icydb::Error> {
-    db()
+    db()?
         .load::<User>()
         .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
         .order_term(icydb::asc("username"))
@@ -222,7 +222,7 @@ Exact aggregate:
 ```rust
 #[ic_cdk::query]
 fn count_users(country: String) -> Result<u32, icydb::Error> {
-    db()
+    db()?
         .load::<User>()
         .filter(icydb::FieldRef::new("country").eq(country))
         .count_exact()
@@ -241,7 +241,7 @@ fn admin_user_batch(cursor: Option<String>) -> Result<icydb::db::PagedResponse<U
         icydb::db::AdminBatchRequest::next,
     );
 
-    db()
+    db()?
         .load::<User>()
         .order_term(icydb::asc("id"))
         .trusted_read_unchecked()
@@ -257,7 +257,7 @@ generated controller-gated SQL diagnostics and from any future codegen work.
 Exact lookup should be proved by key access, not by a partial row window.
 
 ```rust
-let user = db()
+let user = db()?
     .load::<User>()
     .by_id(icydb::Id::<User>::from_key(user_id))
     .try_one()?;
@@ -267,7 +267,7 @@ When accepted-schema primary-key canonicalization can prove the shape, strict
 primary-key equality is also exact-key access:
 
 ```rust
-let user = db()
+let user = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
     .try_one()?;
@@ -276,7 +276,7 @@ let user = db()
 Avoid:
 
 ```rust
-let user = db()
+let user = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
     .partial_window(1)
@@ -290,7 +290,7 @@ The extra limit is not the proof. The selected exact-key route is the proof.
 Use `exists()` or `not_exists()` for boolean existence checks.
 
 ```rust
-let exists = db()
+let exists = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("email").eq(email))
     .exists()?;
@@ -300,7 +300,7 @@ let exists = db()
 because it makes the caller contract ambiguous.
 
 ```rust
-let err = db()
+let err = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("email").eq(email))
     .partial_window(1)
@@ -321,22 +321,22 @@ terminal.
 Use exact aggregate terminals when the endpoint promises an exact answer.
 
 ```rust
-let count = db()
+let count = db()?
     .load::<Token>()
     .filter(icydb::FieldRef::new("collection_id").eq(collection_id))
     .count_exact()?;
 
-let total = db()
+let total = db()?
     .load::<LedgerEntry>()
     .filter(icydb::FieldRef::new("account_id").eq(account_id))
     .sum_exact("amount")?;
 
-let oldest = db()
+let oldest = db()?
     .load::<LedgerEntry>()
     .filter(icydb::FieldRef::new("account_id").eq(account_id))
     .min_exact_by("created_at")?;
 
-let average = db()
+let average = db()?
     .load::<LedgerEntry>()
     .filter(icydb::FieldRef::new("account_id").eq(account_id))
     .avg_exact("amount")?;
@@ -360,7 +360,7 @@ page size belongs to the cursor-page intent, not to the low-level row-window
 modifier.
 
 ```rust
-let page = db()
+let page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
     .order_term(icydb::asc("username"))
@@ -378,7 +378,7 @@ For public endpoints:
 Continue with the cursor through the next request:
 
 ```rust
-let page = db()
+let page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
     .order_term(icydb::asc("username"))
@@ -395,7 +395,7 @@ Use `collect_complete()` when the endpoint promises every matching row and the
 complete result must fit under the default public-read small-set cap.
 
 ```rust
-let users = db()
+let users = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with(prefix))
     .order_term(icydb::asc("username"))
@@ -427,7 +427,7 @@ If the set is not known to be small, choose one of:
 maintenance code that owns its own authorization and resource policy.
 
 ```rust
-let rows = db()
+let rows = db()?
     .load::<LedgerEntry>()
     .order_term(icydb::asc("id"))
     .partial_window(100)
@@ -439,7 +439,7 @@ Use `admin_batch(...)` when trusted maintenance code needs cursor-batched
 processing with an engine-owned batch size:
 
 ```rust
-let batch = db()
+let batch = db()?
     .load::<LedgerEntry>()
     .order_term(icydb::asc("id"))
     .trusted_read_unchecked()
@@ -449,7 +449,7 @@ let batch = db()
 Continue the batch with the returned cursor:
 
 ```rust
-let batch = db()
+let batch = db()?
     .load::<LedgerEntry>()
     .order_term(icydb::asc("id"))
     .trusted_read_unchecked()

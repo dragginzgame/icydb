@@ -1078,12 +1078,16 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
         "COUNT(*) SQL should populate one shared query-plan cache entry",
     );
 
-    let fluent_count = session
+    let fluent_query = session
         .load::<SessionSqlEntity>()
         .trusted_read_unchecked()
-        .order_term(crate::db::desc("age"))
-        .limit(2)
-        .count()
+        .order_term(crate::db::desc("age"));
+    let fluent_query = fluent_query.query().with_load_limit(2);
+    let fluent_count = session
+        .execute_fluent_count_rows_terminal(
+            &fluent_query,
+            crate::db::query::builder::CountRowsTerminal::new(),
+        )
         .expect("equivalent fluent count should succeed");
     assert_eq!(fluent_count, 2);
     assert_eq!(
@@ -1207,12 +1211,16 @@ fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with
         "COUNT(non-null field) SQL should populate one shared query-plan cache entry",
     );
 
-    let fluent_count = session
+    let fluent_query = session
         .load::<SessionSqlEntity>()
         .trusted_read_unchecked()
-        .order_term(crate::db::desc("age"))
-        .limit(2)
-        .count()
+        .order_term(crate::db::desc("age"));
+    let fluent_query = fluent_query.query().with_load_limit(2);
+    let fluent_count = session
+        .execute_fluent_count_rows_terminal(
+            &fluent_query,
+            crate::db::query::builder::CountRowsTerminal::new(),
+        )
         .expect("equivalent fluent count should succeed");
     assert_eq!(fluent_count, 2);
     assert_eq!(

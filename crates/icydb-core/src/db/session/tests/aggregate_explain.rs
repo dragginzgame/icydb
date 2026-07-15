@@ -110,7 +110,6 @@ fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
-            .limit(2)
     };
 
     let expected_response = load_window()
@@ -196,7 +195,6 @@ fn session_aggregate_bytes_by_unknown_field_fails_before_scan_budget_consumption
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(3)
     };
 
     let (result, scanned_rows) =

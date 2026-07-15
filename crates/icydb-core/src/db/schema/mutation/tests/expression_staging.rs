@@ -43,10 +43,7 @@ fn expression_rebuild_stages_sorted_entries_without_publication() {
 }
 
 #[test]
-fn expression_rebuild_validation_reports_runner_diagnostics_without_publication() {
-    let plan = SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
-        .expect("accepted expression index should lower")
-        .lower_to_plan();
+fn expression_rebuild_validation_reports_staged_counts_without_publication() {
     let first = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Ada".to_string()))],
     };
@@ -68,31 +65,12 @@ fn expression_rebuild_validation_reports_runner_diagnostics_without_publication(
     let validation = staged
         .validate()
         .expect("valid expression staged rebuild should validate");
-    let report = staged
-        .validated_runner_report(&plan.execution_plan())
-        .expect("validated expression staged rebuild should produce runner diagnostics");
-
     assert_eq!(validation.entry_count(), 2);
     assert_eq!(validation.source_rows(), 2);
     assert_eq!(validation.skipped_rows(), 0);
     assert_eq!(
         validation.store_visibility(),
         super::SchemaMutationStoreVisibility::StagedOnly,
-    );
-    assert_eq!(report.rows_scanned(), 2);
-    assert_eq!(report.rows_skipped(), 0);
-    assert_eq!(report.index_keys_written(), 2);
-    assert_eq!(
-        report.required_capabilities(),
-        &[
-            super::SchemaMutationRunnerCapability::BuildExpressionIndex,
-            super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
-            super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
-        ],
-    );
-    assert!(
-        !report.physical_work_allows_publication(),
-        "staged expression rebuilds should not become publishable before runner publication phases"
     );
 }
 

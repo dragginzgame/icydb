@@ -5,8 +5,7 @@ use super::model::*;
 use crate::db::{
     QueryError,
     session::sql::write_policy::{
-        SqlGeneratedWritePolicyKind, SqlWriteBoundedPlanProof, SqlWriteExecutionBounds,
-        SqlWritePlanCore, SqlWritePrimaryKeyPlanProof, SqlWriteShapePolicyRejection,
+        SqlWriteExecutionBounds, SqlWritePlanCore, SqlWriteShapePolicyRejection,
         SqlWriteStatementShape, SqlWriteStatementShapeInput, classify_write_statement_shape,
     },
     sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql_with_attribution},
@@ -17,7 +16,7 @@ use crate::db::{
 /// This helper parses and inspects statement shape only. It does not execute
 /// mutation work or validate field existence beyond the caller-provided primary
 /// key context.
-pub fn classify_sql_delete_policy(
+pub(in crate::db) fn classify_sql_delete_policy(
     sql: &str,
     policy: SqlDeleteExposurePolicy,
     context: SqlDeletePolicyContext<'_>,
@@ -42,7 +41,12 @@ pub(in crate::db) fn classify_sql_delete_statement_policy(
     let classification = classify_delete_statement(statement, context);
     let rejection = delete_policy_rejection(policy, &classification, context);
     let plan = if rejection.is_none() {
-        validated_delete_plan(statement, policy, &classification, context)
+        Some(validated_delete_plan(
+            statement,
+            policy,
+            &classification,
+            context,
+        ))
     } else {
         None
     };
@@ -69,12 +73,7 @@ const fn delete_policy_rejection(
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
 ) -> Option<SqlDeletePolicyRejection> {
-    if let Some(rejection) = generated_policy_rejection(policy) {
-        return Some(rejection);
-    }
-
     match policy {
-        SqlDeleteExposurePolicy::SessionWriteCurrent | SqlDeleteExposurePolicy::AdminBulk => None,
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => {
             write_shape_policy_rejection(classification.write_shape.primary_key_policy_rejection())
         }
@@ -83,9 +82,6 @@ const fn delete_policy_rejection(
                 .write_shape
                 .bounded_deterministic_policy_rejection(context.write_bounds()),
         ),
-        SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => {
-            generated_policy_rejection(policy)
-        }
     }
 }
 
@@ -105,37 +101,19 @@ fn validated_delete_plan(
     policy: SqlDeleteExposurePolicy,
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
-) -> Option<SqlValidatedDeletePlan> {
-    let execution_bounds = execution_bounds(policy, classification, context)?;
+) -> SqlValidatedDeletePlan {
+    let execution_bounds = execution_bounds(policy, classification, context);
     match policy {
-        SqlDeleteExposurePolicy::SessionWriteCurrent => Some(
-            SqlValidatedDeletePlan::SessionCurrent(SqlSessionCurrentDeletePlan {
-                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
-            }),
-        ),
-        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => Some(
+        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => {
             SqlValidatedDeletePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyDeletePlan {
-                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
-                primary_key_proof: SqlWritePrimaryKeyPlanProof::from_field_names(
-                    context.primary_key_fields,
-                ),
-            }),
-        ),
-        SqlDeleteExposurePolicy::PublicBoundedDeterministic => Some(
-            SqlValidatedDeletePlan::PublicBoundedDeterministic(SqlPublicBoundedDeletePlan {
-                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
-                bounded_proof: SqlWriteBoundedPlanProof::from_admitted_shape(
-                    &classification.write_shape,
-                    context.primary_key_fields,
-                )?,
-            }),
-        ),
-        SqlDeleteExposurePolicy::AdminBulk => {
-            Some(SqlValidatedDeletePlan::AdminBulk(SqlAdminBulkDeletePlan {
-                core: SqlWritePlanCore::from_borrowed(statement, classification, execution_bounds),
-            }))
+                core: SqlWritePlanCore::from_borrowed(statement, execution_bounds),
+            })
         }
-        SqlDeleteExposurePolicy::GeneratedQuery | SqlDeleteExposurePolicy::GeneratedDdl => None,
+        SqlDeleteExposurePolicy::PublicBoundedDeterministic => {
+            SqlValidatedDeletePlan::PublicBoundedDeterministic(SqlPublicBoundedDeletePlan {
+                core: SqlWritePlanCore::from_borrowed(statement, execution_bounds),
+            })
+        }
     }
 }
 
@@ -143,24 +121,10 @@ const fn execution_bounds(
     policy: SqlDeleteExposurePolicy,
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
-) -> Option<SqlWriteExecutionBounds> {
+) -> SqlWriteExecutionBounds {
     classification
         .write_shape
         .execution_bounds_for_exposure_class(policy.exposure_class(), context.write_bounds())
-}
-
-const fn generated_policy_rejection(
-    policy: SqlDeleteExposurePolicy,
-) -> Option<SqlDeletePolicyRejection> {
-    match policy.exposure_class().generated_policy_kind() {
-        Some(SqlGeneratedWritePolicyKind::Query) => {
-            Some(SqlDeletePolicyRejection::GeneratedQueryRejectsDelete)
-        }
-        Some(SqlGeneratedWritePolicyKind::Ddl) => {
-            Some(SqlDeletePolicyRejection::GeneratedDdlRejectsDelete)
-        }
-        None => None,
-    }
 }
 
 fn classify_write_shape(

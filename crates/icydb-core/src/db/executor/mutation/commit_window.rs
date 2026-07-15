@@ -3,6 +3,10 @@
 //! Does not own: save/delete logical planning or relation policy decisions.
 //! Boundary: shared commit marker and prepared-op apply pipeline for mutations.
 
+#[cfg(test)]
+use crate::db::schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot};
+#[cfg(test)]
+use crate::traits::Path;
 use crate::{
     db::journal::{JournalBatch, JournalRecord},
     db::{
@@ -22,12 +26,11 @@ use crate::{
         },
         key_taxonomy::PrimaryKeyValue,
         registry::{StoreCommitParticipation, StoreHandle, StoreRecoveryCapability},
-        schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     entity::{EntityKind, EntityValue},
     error::InternalError,
     metrics::sink::{MetricsEvent, MutationCommitClass, record},
-    traits::{CanisterKind, Path},
+    traits::CanisterKind,
 };
 use std::{
     cell::RefCell,
@@ -516,6 +519,7 @@ pub(in crate::db::executor) fn emit_index_delta_metrics<E: EntityKind>(delta: &P
 // Preflight row ops while streaming all apply metadata needed by the commit
 // window. The prepared rows still must be retained until the commit marker is
 // durably opened, but guard and metric derivation no longer need later passes.
+#[cfg(test)]
 fn preflight_prepare_row_op_batch<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: &[CommitRowOp],
@@ -525,6 +529,7 @@ fn preflight_prepare_row_op_batch<E: EntityKind + EntityValue>(
     preflight_prepare_row_op_batch_with_schema_fingerprint::<E>(db, row_ops, schema_fingerprint)
 }
 
+#[cfg(test)]
 fn accepted_commit_schema_fingerprint_for_type<E>(
     db: &Db<E::Canister>,
 ) -> Result<CommitSchemaFingerprint, InternalError>
@@ -633,6 +638,7 @@ fn preflight_prepare_row_ops_with_overlay<C: CanisterKind>(
 ///
 /// This is the single orchestration entry point for executor commit-window
 /// setup so save/delete paths stay behaviorally aligned.
+#[cfg(test)]
 pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: Vec<CommitRowOp>,
@@ -773,42 +779,6 @@ fn apply_prepared_single_row_op(
     })
 }
 
-/// Open one commit window and apply row ops through the shared apply boundary.
-///
-/// Save/delete executors should use this helper so commit-window sequencing
-/// (preflight marker open + mechanical apply) stays behaviorally aligned.
-pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + EntityValue>(
-    db: &Db<E::Canister>,
-    row_ops: Vec<CommitRowOp>,
-    apply_phase: &'static str,
-    on_index_applied: impl FnOnce(&PreparedRowOpDelta),
-    on_data_applied: impl FnOnce(),
-) -> Result<(), InternalError> {
-    let OpenCommitWindow {
-        commit,
-        prepared_row_ops,
-        journal_appends,
-        index_store_guards,
-        delta,
-        commit_class,
-    } = open_commit_window::<E>(db, row_ops)?;
-    record_mutation_commit_plan(E::PATH, commit_class);
-    let synchronized_store_handles =
-        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
-
-    apply_prepared_row_ops(
-        commit,
-        apply_phase,
-        prepared_row_ops,
-        journal_appends,
-        index_store_guards,
-        || on_index_applied(&delta),
-        on_data_applied,
-    )?;
-    mark_store_handles_index_ready(synchronized_store_handles.as_slice());
-    Ok(())
-}
-
 /// Commit save-mode row operations through one shared commit window with a
 /// caller-resolved schema fingerprint.
 pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_fingerprint<
@@ -862,29 +832,6 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_finger
     )?;
     mark_store_handles_index_ready(synchronized_store_handles.as_slice());
     Ok(())
-}
-
-/// Commit delete-mode row operations through one typed commit window.
-pub(in crate::db::executor) fn commit_delete_row_ops_with_window<E: EntityKind + EntityValue>(
-    db: &Db<E::Canister>,
-    row_ops: Vec<CommitRowOp>,
-    apply_phase: &'static str,
-) -> Result<(), InternalError> {
-    if row_ops.len() == 1 {
-        let Some(row_op) = row_ops.into_iter().next() else {
-            return Err(InternalError::query_executor_invariant());
-        };
-
-        return commit_single_delete_row_op_with_window::<E>(db, row_op, apply_phase);
-    }
-
-    commit_row_ops_with_window::<E>(
-        db,
-        row_ops,
-        apply_phase,
-        |delta| emit_index_delta_metrics::<E>(delta),
-        || {},
-    )
 }
 
 /// Commit delete-mode row operations through one nongeneric commit window.
@@ -1029,41 +976,6 @@ fn commit_prepared_single_row_op_with_window(
     mark_store_handles_index_ready(synchronized_store_handles.as_slice());
 
     Ok(())
-}
-
-// Commit one delete-mode row operation through the typed single-row
-// commit-window fast path.
-fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
-    db: &Db<E::Canister>,
-    row_op: CommitRowOp,
-    apply_phase: &'static str,
-) -> Result<(), InternalError> {
-    let context = db.context::<E>();
-    let prepared_row_op =
-        prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
-            db,
-            &row_op,
-            &context,
-            &context,
-            accepted_commit_schema_fingerprint_for_type::<E>(db)?,
-        )?;
-    let synchronized_store_handles =
-        synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
-    let affected_store_handles =
-        affected_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
-    record_mutation_commit_plan(
-        E::PATH,
-        classify_mutation_commit_plan(affected_store_handles.as_slice()),
-    );
-    commit_prepared_single_row_op_with_window(
-        db,
-        row_op,
-        prepared_row_op,
-        synchronized_store_handles,
-        apply_phase,
-        |delta| emit_index_delta_metrics::<E>(delta),
-        || {},
-    )
 }
 
 // Commit one delete-mode row operation through the runtime-hook single-row

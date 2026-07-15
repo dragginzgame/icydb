@@ -228,9 +228,9 @@ where
 // Build the accepted-schema row contract used by delete relation validation.
 //
 // Relation validation reads source rows directly from storage, not from commit
-// marker before-images. It must therefore decode old source rows through the
-// accepted layout so appended nullable fields do not make unrelated relation
-// checks fail on generated-only slot-count validation.
+// marker before-images. It therefore decodes rows written at an earlier
+// accepted append-only layout revision through the accepted layout, so newly
+// appended nullable fields do not make unrelated relation checks fail.
 fn accepted_source_row_contract<S>(
     source_store: StoreHandle,
 ) -> Result<StructuralRowContract, InternalError>

@@ -7,9 +7,6 @@
 use crate::db::executor::terminal::KernelRow;
 use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
 
-/// Shared materialization payload for one scalar execution attempt.
-pub(in crate::db::executor) type MaterializedExecutionPayload = StructuralCursorPage;
-
 ///
 /// MaterializedExecutionAttempt
 ///
@@ -18,7 +15,7 @@ pub(in crate::db::executor) type MaterializedExecutionPayload = StructuralCursor
 ///
 
 pub(in crate::db::executor) struct MaterializedExecutionAttempt {
-    pub(in crate::db::executor) payload: MaterializedExecutionPayload,
+    pub(in crate::db::executor) payload: StructuralCursorPage,
     pub(in crate::db::executor) rows_scanned: usize,
     pub(in crate::db::executor) post_access_rows: usize,
     pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
@@ -67,7 +64,7 @@ impl MaterializedExecutionAttempt {
     // Split one materialized execution attempt into payload + observability metrics.
     pub(in crate::db::executor) fn into_payload_and_metrics(
         self,
-    ) -> (MaterializedExecutionPayload, ExecutionOutcomeMetrics) {
+    ) -> (StructuralCursorPage, ExecutionOutcomeMetrics) {
         let metrics = ExecutionOutcomeMetrics {
             optimization: self.optimization,
             rows_scanned: self.rows_scanned,

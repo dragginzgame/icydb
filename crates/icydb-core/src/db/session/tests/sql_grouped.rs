@@ -4305,9 +4305,9 @@ fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
         .expect("group_by(age) should resolve")
         .aggregate(crate::db::count())
         .order_term(crate::db::asc("age"))
-        .limit(10);
-    let (_result, attribution) = session
-        .execute_query_result_with_attribution(query.query())
+        .partial_window(10);
+    let (_result, attribution) = query
+        .execute_with_attribution()
         .expect("grouped fluent attribution query should execute");
     let grouped = attribution
         .grouped

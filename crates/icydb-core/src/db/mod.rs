@@ -88,8 +88,6 @@ pub use diagnostics::{
     IntegrityStoreSnapshot, IntegrityTotals, SchemaStoreSnapshot, StorageReport,
     StoreSnapshotStorageMode,
 };
-#[doc(hidden)]
-pub use executor::EntityAuthority;
 pub use executor::MutationMode;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 #[cfg(feature = "diagnostics")]
@@ -167,8 +165,8 @@ pub use registry::{
 };
 pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
-    PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, Response as RowResponse,
-    ResponseError, ResponseRow, Row, WriteBatchResponse,
+    PagedLoadExecution, PagedLoadExecutionWithTrace, Response as RowResponse, ResponseError,
+    ResponseRow, Row, WriteBatchResponse,
 };
 pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
@@ -180,18 +178,10 @@ pub use schema::{
 pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
-    DbSession, SqlAdminBulkDeletePlan, SqlAdminBulkUpdatePlan, SqlDdlExecutionStatus,
-    SqlDdlMutationKind, SqlDdlPreparationReport, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
-    SqlDeletePolicyRejection, SqlDeletePolicyReport, SqlDeleteStatementClassification,
-    SqlPublicBoundedDeletePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan,
-    SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentDeletePlan, SqlSessionCurrentUpdatePlan,
+    DbSession, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
     SqlStatementDispatch, SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface,
-    SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
-    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateStatementClassification,
-    SqlValidatedDeletePlan, SqlValidatedUpdatePlan, SqlWriteExecutionBounds, SqlWriteOrderProof,
-    SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteStatementShape, SqlWriteWhereProof,
-    classify_sql_delete_policy, classify_sql_update_policy, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
+    sql_statement_dispatch, sql_statement_entity_name, sql_statement_shell_surface,
+    sql_statement_surface,
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{
@@ -204,6 +194,13 @@ pub use session::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
     SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
     SqlQueryExecutionAttribution,
+};
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db) use session::{
+    SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan, SqlPublicPrimaryKeyUpdatePlan,
+    SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedDeletePlan,
+    SqlValidatedUpdatePlan, classify_sql_delete_policy, classify_sql_update_policy,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
@@ -304,13 +301,6 @@ pub(crate) struct Db<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> Db<C> {
-    /// Construct a db handle without per-entity runtime hooks.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
-        Self::new_with_hooks(store, &[])
-    }
-
     /// Construct a db handle with explicit per-entity runtime hook wiring.
     #[must_use]
     pub(crate) const fn new_with_hooks(
@@ -435,12 +425,6 @@ impl<C: CanisterKind> Db<C> {
 }
 
 impl<C: CanisterKind> Db<C> {
-    /// Return whether this db has any registered runtime hook callbacks.
-    #[must_use]
-    pub(crate) const fn has_runtime_hooks(&self) -> bool {
-        runtime_hooks::has_runtime_hooks(self.entity_runtime_hooks)
-    }
-
     /// Return one deterministic list of registered runtime stores.
     #[must_use]
     pub(crate) fn runtime_store_catalog(&self) -> Vec<StoreCatalogDescription> {

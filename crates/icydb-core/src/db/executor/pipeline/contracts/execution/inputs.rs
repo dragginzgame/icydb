@@ -18,7 +18,7 @@ use crate::{
                 contracts::ScalarMaterializationCapabilities,
                 runtime::{ExecutionRuntimeAdapter, compile_retained_slot_layout_for_mode},
             },
-            projection::PreparedSlotProjectionValidation,
+            projection::PreparedProjectionContract,
             route::LoadOrderRouteMode,
             terminal::{RetainedSlotLayout, RetainedSlotRow},
             traversal::row_read_consistency_for_plan,
@@ -41,7 +41,7 @@ use crate::{
 
 pub(in crate::db::executor) struct PreparedExecutionProjection {
     retained_slot_layout: Option<RetainedSlotLayout>,
-    projection_validation: Option<Rc<PreparedSlotProjectionValidation>>,
+    projection_validation: Option<Rc<PreparedProjectionContract>>,
 }
 
 impl PreparedExecutionProjection {
@@ -61,7 +61,7 @@ impl PreparedExecutionProjection {
     pub(in crate::db::executor) fn compile(
         authority: EntityAuthority,
         plan: &AccessPlannedQuery,
-        prepared_projection_validation: Option<Rc<PreparedSlotProjectionValidation>>,
+        prepared_projection_validation: Option<Rc<PreparedProjectionContract>>,
         prepared_retained_slot_layout: Option<RetainedSlotLayout>,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
@@ -114,7 +114,7 @@ impl PreparedExecutionProjection {
     #[must_use]
     pub(in crate::db::executor) fn projection_validation(
         &self,
-    ) -> Option<&PreparedSlotProjectionValidation> {
+    ) -> Option<&PreparedProjectionContract> {
         self.projection_validation.as_deref()
     }
 
@@ -465,7 +465,7 @@ impl<'a> ExecutionInputs<'a> {
     #[must_use]
     pub(in crate::db::executor) fn prepared_projection_validation(
         &self,
-    ) -> Option<&PreparedSlotProjectionValidation> {
+    ) -> Option<&PreparedProjectionContract> {
         self.prepared_projection.projection_validation()
     }
 

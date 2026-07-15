@@ -6,8 +6,7 @@
 use crate::db::executor::{
     ExecutionTrace,
     pipeline::{
-        contracts::{MaterializedExecutionPayload, StructuralCursorPage},
-        entrypoints::scalar::materialized::ScalarPathExecution,
+        contracts::StructuralCursorPage, entrypoints::scalar::materialized::ScalarPathExecution,
         runtime::finalize_structural_page_for_path,
     },
 };
@@ -18,7 +17,7 @@ pub(super) fn finalize_scalar_structural_path_execution(
     execution: ScalarPathExecution,
 ) -> (StructuralCursorPage, Option<ExecutionTrace>) {
     let (payload, metrics, mut trace, execution_time_micros) = execution;
-    let page: MaterializedExecutionPayload = payload;
+    let page: StructuralCursorPage = payload;
     let page = finalize_structural_page_for_path(
         entity_path,
         page,

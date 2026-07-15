@@ -420,18 +420,6 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::QueryResponseGroupedRowsRequired => {
             "query response contains scalar rows"
         }
-        RuntimeBoundaryCode::MutationResultEntityRequired => {
-            "mutation result contains a count, not one entity"
-        }
-        RuntimeBoundaryCode::MutationResultEntitiesRequired => {
-            "mutation result contains a count, not entity rows"
-        }
-        RuntimeBoundaryCode::MutationResultIdRequired => {
-            "mutation result contains a count, not one entity id"
-        }
-        RuntimeBoundaryCode::MutationResultIdsRequired => {
-            "mutation result contains a count, not entity ids"
-        }
         RuntimeBoundaryCode::RowProjectionFieldNotConfigured => {
             "requested projection field is not configured for this entity"
         }
@@ -494,37 +482,37 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
 const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static str {
     match mismatch {
         SqlSurfaceMismatchCode::QueryRejectsInsert => {
-            "execute_trusted_sql_query rejects INSERT; use execute_sql_update::<E>()"
+            "execute_trusted_sql_query rejects INSERT; use execute_trusted_sql_mutation::<E>()"
         }
         SqlSurfaceMismatchCode::QueryRejectsUpdate => {
-            "execute_trusted_sql_query rejects UPDATE; use execute_sql_update::<E>()"
+            "execute_trusted_sql_query rejects UPDATE; use execute_trusted_sql_mutation::<E>()"
         }
         SqlSurfaceMismatchCode::QueryRejectsDelete => {
-            "execute_trusted_sql_query rejects DELETE; use execute_sql_update::<E>()"
+            "execute_trusted_sql_query rejects DELETE; use execute_trusted_sql_mutation::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsSelect => {
-            "execute_sql_update rejects SELECT; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SELECT; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsExplain => {
-            "execute_sql_update rejects EXPLAIN; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects EXPLAIN; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsDescribe => {
-            "execute_sql_update rejects DESCRIBE; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects DESCRIBE; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowIndexes => {
-            "execute_sql_update rejects SHOW INDEXES; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW INDEXES; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowColumns => {
-            "execute_sql_update rejects SHOW COLUMNS; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW COLUMNS; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowEntities => {
-            "execute_sql_update rejects SHOW ENTITIES; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW ENTITIES; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowStores => {
-            "execute_sql_update rejects SHOW STORES; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW STORES; use execute_trusted_sql_query::<E>()"
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowMemory => {
-            "execute_sql_update rejects SHOW MEMORY; use execute_trusted_sql_query::<E>()"
+            "execute_trusted_sql_mutation rejects SHOW MEMORY; use execute_trusted_sql_query::<E>()"
         }
     }
 }
@@ -750,9 +738,9 @@ mod tests {
 
     #[test]
     fn renders_compact_read_admission_code_report() {
-        let report = render_error_code_report("188").expect("188 should parse");
+        let report = render_error_code_report("184").expect("184 should parse");
 
-        assert!(report.contains("IcyDB diagnostic E188"), "{report}");
+        assert!(report.contains("IcyDB diagnostic E184"), "{report}");
         assert!(report.contains("E_QUERY_READ_ADMISSION"), "{report}");
         assert!(
             report.contains("public read queries cannot execute an unbounded full scan"),
@@ -835,7 +823,7 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_QUERY_SQL_SURFACE_MISMATCH: execute_trusted_sql_query rejects INSERT; use execute_sql_update::<E>()",
+            "E_QUERY_SQL_SURFACE_MISMATCH: execute_trusted_sql_query rejects INSERT; use execute_trusted_sql_mutation::<E>()",
         );
     }
 

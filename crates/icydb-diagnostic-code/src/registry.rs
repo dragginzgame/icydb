@@ -202,333 +202,325 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::QueryResponseRowsRequired });
     RUNTIME_BOUNDARY_QUERY_RESPONSE_GROUPED_ROWS_REQUIRED = 32 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::QueryResponseGroupedRowsRequired });
-    RUNTIME_BOUNDARY_MUTATION_RESULT_ENTITY_REQUIRED = 33 => RuntimeUnsupported,
-        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationResultEntityRequired });
-    RUNTIME_BOUNDARY_MUTATION_RESULT_ENTITIES_REQUIRED = 34 => RuntimeUnsupported,
-        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationResultEntitiesRequired });
-    RUNTIME_BOUNDARY_MUTATION_RESULT_ID_REQUIRED = 35 => RuntimeUnsupported,
-        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationResultIdRequired });
-    RUNTIME_BOUNDARY_MUTATION_RESULT_IDS_REQUIRED = 36 => RuntimeUnsupported,
-        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationResultIdsRequired });
-    RUNTIME_BOUNDARY_ROW_PROJECTION_FIELD_NOT_CONFIGURED = 37 => RuntimeUnsupported,
+    RUNTIME_BOUNDARY_ROW_PROJECTION_FIELD_NOT_CONFIGURED = 33 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::RowProjectionFieldNotConfigured });
 
-    SQL_FEATURE_AGGREGATE_FILTER_CLAUSE = 38 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_AGGREGATE_FILTER_CLAUSE = 34 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AggregateFilterClause });
-    SQL_FEATURE_ALTER_STATEMENT_BEYOND_ALTER_TABLE = 39 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_STATEMENT_BEYOND_ALTER_TABLE = 35 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterStatementBeyondAlterTable });
-    SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_DUPLICATE_DEFAULT = 40 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_DUPLICATE_DEFAULT = 36 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAddColumnDuplicateDefault });
-    SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_MODIFIERS = 41 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_MODIFIERS = 37 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAddColumnModifiers });
-    SQL_FEATURE_ALTER_TABLE_ADD_STATEMENT_BEYOND_ADD_COLUMN = 42 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ADD_STATEMENT_BEYOND_ADD_COLUMN = 38 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAddStatementBeyondAddColumn });
-    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_DROP_UNSUPPORTED_ACTION = 43 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_DROP_UNSUPPORTED_ACTION = 39 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAlterColumnDropUnsupportedAction });
-    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_MODIFIERS = 44 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_MODIFIERS = 40 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAlterColumnModifiers });
-    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_SET_UNSUPPORTED_ACTION = 45 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_SET_UNSUPPORTED_ACTION = 41 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAlterColumnSetUnsupportedAction });
-    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_UNSUPPORTED_ACTION = 46 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_UNSUPPORTED_ACTION = 42 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAlterColumnUnsupportedAction });
-    SQL_FEATURE_ALTER_TABLE_ALTER_STATEMENT_BEYOND_ALTER_COLUMN = 47 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_ALTER_STATEMENT_BEYOND_ALTER_COLUMN = 43 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableAlterStatementBeyondAlterColumn });
-    SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_IF_EXISTS_SYNTAX = 48 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_IF_EXISTS_SYNTAX = 44 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableDropColumnIfExistsSyntax });
-    SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_MODIFIERS = 49 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_MODIFIERS = 45 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableDropColumnModifiers });
-    SQL_FEATURE_ALTER_TABLE_DROP_STATEMENT_BEYOND_DROP_COLUMN = 50 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_DROP_STATEMENT_BEYOND_DROP_COLUMN = 46 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableDropStatementBeyondDropColumn });
-    SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MISSING_TO = 51 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MISSING_TO = 47 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableRenameColumnMissingTo });
-    SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MODIFIERS = 52 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MODIFIERS = 48 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableRenameColumnModifiers });
-    SQL_FEATURE_ALTER_TABLE_RENAME_STATEMENT_BEYOND_RENAME_COLUMN = 53 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_RENAME_STATEMENT_BEYOND_RENAME_COLUMN = 49 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableRenameStatementBeyondRenameColumn });
-    SQL_FEATURE_ALTER_TABLE_UNSUPPORTED_OPERATION = 54 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ALTER_TABLE_UNSUPPORTED_OPERATION = 50 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::AlterTableUnsupportedOperation });
-    SQL_FEATURE_COLUMN_ALIAS = 55 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_COLUMN_ALIAS = 51 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ColumnAlias });
-    SQL_FEATURE_CREATE_INDEX_IF_NOT_EXISTS_SYNTAX = 56 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_CREATE_INDEX_IF_NOT_EXISTS_SYNTAX = 52 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::CreateIndexIfNotExistsSyntax });
-    SQL_FEATURE_CREATE_INDEX_KEY_ORDERING_MODIFIERS = 57 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_CREATE_INDEX_KEY_ORDERING_MODIFIERS = 53 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::CreateIndexKeyOrderingModifiers });
-    SQL_FEATURE_CREATE_INDEX_MODIFIERS = 58 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_CREATE_INDEX_MODIFIERS = 54 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::CreateIndexModifiers });
-    SQL_FEATURE_CREATE_STATEMENT_BEYOND_CREATE_INDEX = 59 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_CREATE_STATEMENT_BEYOND_CREATE_INDEX = 55 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::CreateStatementBeyondCreateIndex });
-    SQL_FEATURE_DESCRIBE_MODIFIER = 60 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_DESCRIBE_MODIFIER = 56 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::DescribeModifier });
-    SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_EXPECTED_CLAUSE = 61 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_EXPECTED_CLAUSE = 57 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::DdlSchemaVersionDuplicateExpectedClause });
-    SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_SET_CLAUSE = 62 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_SET_CLAUSE = 58 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::DdlSchemaVersionDuplicateSetClause });
-    SQL_FEATURE_DROP_INDEX_MODIFIERS = 63 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_DROP_INDEX_MODIFIERS = 59 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::DropIndexModifiers });
-    SQL_FEATURE_DROP_INDEX_IF_EXISTS_SYNTAX = 64 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_DROP_INDEX_IF_EXISTS_SYNTAX = 60 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::DropIndexIfExistsSyntax });
-    SQL_FEATURE_DROP_STATEMENT_BEYOND_DROP_INDEX = 65 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_DROP_STATEMENT_BEYOND_DROP_INDEX = 61 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::DropStatementBeyondDropIndex });
-    SQL_FEATURE_EXPRESSION_INDEX_UNSUPPORTED_FUNCTION = 66 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_EXPRESSION_INDEX_UNSUPPORTED_FUNCTION = 62 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ExpressionIndexUnsupportedFunction });
-    SQL_FEATURE_HAVING = 67 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_HAVING = 63 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::Having });
-    SQL_FEATURE_INSERT = 68 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_INSERT = 64 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::Insert });
-    SQL_FEATURE_JOIN = 69 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_JOIN = 65 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::Join });
-    SQL_FEATURE_LIKE_PATTERN_BEYOND_TRAILING_PREFIX = 70 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_LIKE_PATTERN_BEYOND_TRAILING_PREFIX = 66 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::LikePatternBeyondTrailingPrefix });
-    SQL_FEATURE_LOWER_FIELD_PREDICATE_UNSUPPORTED = 71 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_LOWER_FIELD_PREDICATE_UNSUPPORTED = 67 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::LowerFieldPredicateUnsupported });
-    SQL_FEATURE_MULTI_STATEMENT_SQL = 72 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_MULTI_STATEMENT_SQL = 68 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::MultiStatementSql });
-    SQL_FEATURE_NESTED_AGGREGATE_INPUT = 73 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_NESTED_AGGREGATE_INPUT = 69 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::NestedAggregateInput });
-    SQL_FEATURE_NESTED_PROJECTION_FUNCTION_IN_ARITHMETIC = 74 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_NESTED_PROJECTION_FUNCTION_IN_ARITHMETIC = 70 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::NestedProjectionFunctionInArithmetic });
-    SQL_FEATURE_ORDER_BY_UNSUPPORTED_FORM = 75 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ORDER_BY_UNSUPPORTED_FORM = 71 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::OrderByUnsupportedForm });
-    SQL_FEATURE_OTHER = 76 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_OTHER = 72 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::Other });
-    SQL_FEATURE_PREDICATE_STARTS_WITH_FIRST_ARGUMENT = 77 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_PREDICATE_STARTS_WITH_FIRST_ARGUMENT = 73 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::PredicateStartsWithFirstArgument });
-    SQL_FEATURE_QUOTED_IDENTIFIERS = 78 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_QUOTED_IDENTIFIERS = 74 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::QuotedIdentifiers });
-    SQL_FEATURE_RETURNING_UNSUPPORTED_SHAPE = 79 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_RETURNING_UNSUPPORTED_SHAPE = 75 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ReturningUnsupportedShape });
-    SQL_FEATURE_SCALAR_FUNCTION_EXPRESSION_POSITION = 80 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SCALAR_FUNCTION_EXPRESSION_POSITION = 76 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ScalarFunctionExpressionPosition });
-    SQL_FEATURE_SCALE_TAKING_NUMERIC_FUNCTION_EXPRESSION_POSITION = 81 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SCALE_TAKING_NUMERIC_FUNCTION_EXPRESSION_POSITION = 77 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ScaleTakingNumericFunctionExpressionPosition });
-    SQL_FEATURE_SEARCHED_CASE_GROUPED_ORDER_BY = 82 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SEARCHED_CASE_GROUPED_ORDER_BY = 78 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::SearchedCaseGroupedOrderBy });
-    SQL_FEATURE_SHOW_COLUMNS_MODIFIERS = 83 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SHOW_COLUMNS_MODIFIERS = 79 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowColumnsModifiers });
-    SQL_FEATURE_SHOW_ENTITIES_MODIFIERS = 84 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SHOW_ENTITIES_MODIFIERS = 80 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowEntitiesModifiers });
-    SQL_FEATURE_SHOW_INDEXES_MODIFIERS = 85 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SHOW_INDEXES_MODIFIERS = 81 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowIndexesModifiers });
-    SQL_FEATURE_SHOW_MEMORY_MODIFIERS = 86 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SHOW_MEMORY_MODIFIERS = 82 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowMemoryModifiers });
-    SQL_FEATURE_SHOW_STORES_MODIFIERS = 87 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SHOW_STORES_MODIFIERS = 83 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowStoresModifiers });
-    SQL_FEATURE_SHOW_UNSUPPORTED_COMMAND = 88 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SHOW_UNSUPPORTED_COMMAND = 84 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowUnsupportedCommand });
-    SQL_FEATURE_SIMPLE_CASE_EXPRESSION = 89 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SIMPLE_CASE_EXPRESSION = 85 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::SimpleCaseExpression });
-    SQL_FEATURE_STANDALONE_LITERAL_PROJECTION_ITEM = 90 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_STANDALONE_LITERAL_PROJECTION_ITEM = 86 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::StandaloneLiteralProjectionItem });
-    SQL_FEATURE_SUPPORTED_GROUPED_ORDER_BY_EXPRESSION_FAMILY = 91 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SUPPORTED_GROUPED_ORDER_BY_EXPRESSION_FAMILY = 87 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::SupportedGroupedOrderByExpressionFamily });
-    SQL_FEATURE_SUPPORTED_ORDER_BY_EXPRESSION_FAMILY = 92 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_SUPPORTED_ORDER_BY_EXPRESSION_FAMILY = 88 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::SupportedOrderByExpressionFamily });
-    SQL_FEATURE_UNION_INTERSECT_EXCEPT = 93 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_UNION_INTERSECT_EXCEPT = 89 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::UnionIntersectExcept });
-    SQL_FEATURE_UNSUPPORTED_FUNCTION_NAMESPACE = 94 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_UNSUPPORTED_FUNCTION_NAMESPACE = 90 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::UnsupportedFunctionNamespace });
-    SQL_FEATURE_UPDATE = 95 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_UPDATE = 91 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::Update });
-    SQL_FEATURE_UPPER_FIELD_PREDICATE_UNSUPPORTED = 96 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_UPPER_FIELD_PREDICATE_UNSUPPORTED = 92 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::UpperFieldPredicateUnsupported });
-    SQL_FEATURE_WINDOW_FUNCTION = 97 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_WINDOW_FUNCTION = 93 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::WindowFunction });
-    SQL_FEATURE_WITH = 98 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_WITH = 94 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::With });
-    SQL_FEATURE_NUMERIC_SCALE_FUNCTION_ARGUMENTS = 99 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_NUMERIC_SCALE_FUNCTION_ARGUMENTS = 95 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::NumericScaleFunctionArguments });
-    SQL_FEATURE_ORDER_BY_FIELD_NOT_ORDERABLE = 100 => QueryUnsupportedSqlFeature,
+    SQL_FEATURE_ORDER_BY_FIELD_NOT_ORDERABLE = 96 => QueryUnsupportedSqlFeature,
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::OrderByFieldNotOrderable });
 
-    SQL_SURFACE_QUERY_REJECTS_INSERT = 101 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_QUERY_REJECTS_INSERT = 97 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::QueryRejectsInsert });
-    SQL_SURFACE_QUERY_REJECTS_UPDATE = 102 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_QUERY_REJECTS_UPDATE = 98 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::QueryRejectsUpdate });
-    SQL_SURFACE_QUERY_REJECTS_DELETE = 103 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_QUERY_REJECTS_DELETE = 99 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::QueryRejectsDelete });
-    SQL_SURFACE_UPDATE_REJECTS_SELECT = 104 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_SELECT = 100 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsSelect });
-    SQL_SURFACE_UPDATE_REJECTS_EXPLAIN = 105 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_EXPLAIN = 101 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsExplain });
-    SQL_SURFACE_UPDATE_REJECTS_DESCRIBE = 106 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_DESCRIBE = 102 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsDescribe });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_INDEXES = 107 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_SHOW_INDEXES = 103 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowIndexes });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_COLUMNS = 108 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_SHOW_COLUMNS = 104 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowColumns });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_ENTITIES = 109 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_SHOW_ENTITIES = 105 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowEntities });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_STORES = 110 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_SHOW_STORES = 106 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowStores });
-    SQL_SURFACE_UPDATE_REJECTS_SHOW_MEMORY = 111 => QuerySqlSurfaceMismatch,
+    SQL_SURFACE_UPDATE_REJECTS_SHOW_MEMORY = 107 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowMemory });
 
-    SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION = 112 => SchemaDdlAdmission,
+    SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION = 108 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::MissingExpectedSchemaVersion });
-    SCHEMA_DDL_MISSING_NEXT_SCHEMA_VERSION = 113 => SchemaDdlAdmission,
+    SCHEMA_DDL_MISSING_NEXT_SCHEMA_VERSION = 109 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::MissingNextSchemaVersion });
-    SCHEMA_DDL_STALE_EXPECTED_SCHEMA_VERSION = 114 => SchemaDdlAdmission,
+    SCHEMA_DDL_STALE_EXPECTED_SCHEMA_VERSION = 110 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::StaleExpectedSchemaVersion });
-    SCHEMA_DDL_INVALID_EXPECTED_SCHEMA_VERSION = 115 => SchemaDdlAdmission,
+    SCHEMA_DDL_INVALID_EXPECTED_SCHEMA_VERSION = 111 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::InvalidExpectedSchemaVersion });
-    SCHEMA_DDL_INVALID_NEXT_SCHEMA_VERSION = 116 => SchemaDdlAdmission,
+    SCHEMA_DDL_INVALID_NEXT_SCHEMA_VERSION = 112 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::InvalidNextSchemaVersion });
-    SCHEMA_DDL_ACCEPTED_SCHEMA_CHANGE_WITHOUT_VERSION_BUMP = 117 => SchemaDdlAdmission,
+    SCHEMA_DDL_ACCEPTED_SCHEMA_CHANGE_WITHOUT_VERSION_BUMP = 113 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::AcceptedSchemaChangeWithoutVersionBump });
-    SCHEMA_DDL_EMPTY_VERSION_BUMP = 118 => SchemaDdlAdmission,
+    SCHEMA_DDL_EMPTY_VERSION_BUMP = 114 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::EmptyVersionBump });
-    SCHEMA_DDL_VERSION_GAP = 119 => SchemaDdlAdmission,
+    SCHEMA_DDL_VERSION_GAP = 115 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::VersionGap });
-    SCHEMA_DDL_VERSION_ROLLBACK = 120 => SchemaDdlAdmission,
+    SCHEMA_DDL_VERSION_ROLLBACK = 116 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::VersionRollback });
-    SCHEMA_DDL_FINGERPRINT_METHOD_MISMATCH = 121 => SchemaDdlAdmission,
+    SCHEMA_DDL_FINGERPRINT_METHOD_MISMATCH = 117 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::FingerprintMethodMismatch });
-    SCHEMA_DDL_UNSUPPORTED_TRANSITION_CLASS = 122 => SchemaDdlAdmission,
+    SCHEMA_DDL_UNSUPPORTED_TRANSITION_CLASS = 118 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::UnsupportedTransitionClass });
-    SCHEMA_DDL_PHYSICAL_RUNNER_MISSING = 123 => SchemaDdlAdmission,
+    SCHEMA_DDL_PHYSICAL_RUNNER_MISSING = 119 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::PhysicalRunnerMissing });
-    SCHEMA_DDL_VALIDATION_FAILED = 124 => SchemaDdlAdmission,
+    SCHEMA_DDL_VALIDATION_FAILED = 120 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::ValidationFailed });
-    SCHEMA_DDL_PUBLICATION_RACE_LOST = 125 => SchemaDdlAdmission,
+    SCHEMA_DDL_PUBLICATION_RACE_LOST = 121 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::PublicationRaceLost });
-    SCHEMA_DDL_INVALID_ADD_COLUMN_DEFAULT = 126 => SchemaDdlAdmission,
+    SCHEMA_DDL_INVALID_ADD_COLUMN_DEFAULT = 122 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::InvalidAddColumnDefault });
-    SCHEMA_DDL_INVALID_ALTER_COLUMN_DEFAULT = 127 => SchemaDdlAdmission,
+    SCHEMA_DDL_INVALID_ALTER_COLUMN_DEFAULT = 123 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::InvalidAlterColumnDefault });
-    SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED = 128 => SchemaDdlAdmission,
+    SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED = 124 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::GeneratedIndexDropRejected });
-    SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED = 129 => SchemaDdlAdmission,
+    SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED = 125 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported });
-    SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED = 130 => SchemaDdlAdmission,
+    SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED = 126 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected });
-    SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED = 131 => SchemaDdlAdmission,
+    SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED = 127 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::GeneratedFieldNullabilityChangeRejected });
-    SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED = 132 => SchemaDdlAdmission,
+    SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED = 128 => SchemaDdlAdmission,
         detail(SchemaDdlAdmission { reason: SchemaDdlAdmissionCode::SetNotNullValidationFailed });
 
-    QUERY_SQL_WRITE_BOUNDARY = 133 => QuerySqlWriteBoundary;
-    SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE = 134 => QuerySqlWriteBoundary,
+    QUERY_SQL_WRITE_BOUNDARY = 129 => QuerySqlWriteBoundary;
+    SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE = 130 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::PrimaryKeyLiteralShape });
-    SQL_WRITE_PRIMARY_KEY_LITERAL_INCOMPATIBLE = 135 => QuerySqlWriteBoundary,
+    SQL_WRITE_PRIMARY_KEY_LITERAL_INCOMPATIBLE = 131 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible });
-    SQL_WRITE_MISSING_PRIMARY_KEY = 136 => QuerySqlWriteBoundary,
+    SQL_WRITE_MISSING_PRIMARY_KEY = 132 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::MissingPrimaryKey });
-    SQL_WRITE_MISSING_REQUIRED_FIELDS = 137 => QuerySqlWriteBoundary,
+    SQL_WRITE_MISSING_REQUIRED_FIELDS = 133 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::MissingRequiredFields });
-    SQL_WRITE_EXPLICIT_MANAGED_FIELD = 138 => QuerySqlWriteBoundary,
+    SQL_WRITE_EXPLICIT_MANAGED_FIELD = 134 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExplicitManagedField });
-    SQL_WRITE_EXPLICIT_GENERATED_FIELD = 139 => QuerySqlWriteBoundary,
+    SQL_WRITE_EXPLICIT_GENERATED_FIELD = 135 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExplicitGeneratedField });
-    SQL_WRITE_INSERT_SELECT_REQUIRES_SCALAR = 140 => QuerySqlWriteBoundary,
+    SQL_WRITE_INSERT_SELECT_REQUIRES_SCALAR = 136 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::InsertSelectRequiresScalar });
-    SQL_WRITE_INSERT_SELECT_AGGREGATE_PROJECTION = 141 => QuerySqlWriteBoundary,
+    SQL_WRITE_INSERT_SELECT_AGGREGATE_PROJECTION = 137 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::InsertSelectAggregateProjection });
-    SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH = 142 => QuerySqlWriteBoundary,
+    SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH = 138 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::InsertSelectWidthMismatch });
-    SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION = 143 => QuerySqlWriteBoundary,
+    SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION = 139 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::UpdatePrimaryKeyMutation });
-    SQL_WRITE_INVALID_FIELD_LITERAL = 144 => QuerySqlWriteBoundary,
+    SQL_WRITE_INVALID_FIELD_LITERAL = 140 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::InvalidFieldLiteral });
-    SQL_WRITE_UNKNOWN_RETURNING_FIELD = 145 => QuerySqlWriteBoundary,
+    SQL_WRITE_UNKNOWN_RETURNING_FIELD = 141 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::UnknownReturningField });
-    SQL_WRITE_DUPLICATE_RETURNING_FIELD = 146 => QuerySqlWriteBoundary,
+    SQL_WRITE_DUPLICATE_RETURNING_FIELD = 142 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::DuplicateReturningField });
-    SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE = 147 => QuerySqlWriteBoundary,
+    SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE = 143 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::UpdateMissingWherePredicate });
-    SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE = 148 => QuerySqlWriteBoundary,
+    SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE = 144 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::WriteOrderByUnsupportedShape });
 
-    QUERY_UNSUPPORTED_PROJECTION = 149 => QueryUnsupportedProjection;
-    QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED = 150 => QueryUnsupportedProjection,
+    QUERY_UNSUPPORTED_PROJECTION = 145 => QueryUnsupportedProjection;
+    QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED = 146 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::NumericLiteralRequired });
-    QUERY_PROJECTION_NUMERIC_SCALE_ARGUMENTS = 151 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_NUMERIC_SCALE_ARGUMENTS = 147 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::NumericScaleArguments });
-    QUERY_PROJECTION_NESTED_FIELD_PATH_PREVIEW = 152 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_NESTED_FIELD_PATH_PREVIEW = 148 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::NestedFieldPathPreview });
-    QUERY_PROJECTION_CASE_CONDITION_BOOLEAN_REQUIRED = 153 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_CASE_CONDITION_BOOLEAN_REQUIRED = 149 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::CaseConditionBooleanRequired });
-    QUERY_PROJECTION_NUMERIC_INPUT_REQUIRED = 154 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_NUMERIC_INPUT_REQUIRED = 150 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::NumericInputRequired });
-    QUERY_PROJECTION_TEXT_OR_BLOB_INPUT_REQUIRED = 155 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_TEXT_OR_BLOB_INPUT_REQUIRED = 151 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::TextOrBlobInputRequired });
-    QUERY_PROJECTION_TEXT_INPUT_REQUIRED = 156 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_TEXT_INPUT_REQUIRED = 152 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::TextInputRequired });
-    QUERY_PROJECTION_TEXT_OR_NULL_ARGUMENT_REQUIRED = 157 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_TEXT_OR_NULL_ARGUMENT_REQUIRED = 153 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::TextOrNullArgumentRequired });
-    QUERY_PROJECTION_INTEGER_OR_NULL_ARGUMENT_REQUIRED = 158 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_INTEGER_OR_NULL_ARGUMENT_REQUIRED = 154 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::IntegerOrNullArgumentRequired });
-    QUERY_PROJECTION_UNARY_OPERAND_INCOMPATIBLE = 159 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_UNARY_OPERAND_INCOMPATIBLE = 155 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::UnaryOperandIncompatible });
-    QUERY_PROJECTION_BINARY_OPERANDS_INCOMPATIBLE = 160 => QueryUnsupportedProjection,
+    QUERY_PROJECTION_BINARY_OPERANDS_INCOMPATIBLE = 156 => QueryUnsupportedProjection,
         detail(QueryProjection { reason: QueryProjectionCode::BinaryOperandsIncompatible });
 
-    QUERY_RESULT_SHAPE_MISMATCH = 161 => QueryResultShapeMismatch;
-    QUERY_RESULT_EXPECTED_ROWS = 162 => QueryResultShapeMismatch,
+    QUERY_RESULT_SHAPE_MISMATCH = 157 => QueryResultShapeMismatch;
+    QUERY_RESULT_EXPECTED_ROWS = 158 => QueryResultShapeMismatch,
         detail(QueryResultShape { reason: QueryResultShapeCode::ExpectedRows });
-    QUERY_RESULT_EXPECTED_GROUPED = 163 => QueryResultShapeMismatch,
+    QUERY_RESULT_EXPECTED_GROUPED = 159 => QueryResultShapeMismatch,
         detail(QueryResultShape { reason: QueryResultShapeCode::ExpectedGroupedRows });
 
-    SQL_LOWERING_ENTITY_MISMATCH = 164 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_ENTITY_MISMATCH = 160 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::EntityMismatch });
-    SQL_LOWERING_SELECT_PROJECTION_SHAPE = 165 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_SELECT_PROJECTION_SHAPE = 161 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::SelectProjectionShape });
-    SQL_LOWERING_SELECT_DISTINCT = 166 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_SELECT_DISTINCT = 162 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::SelectDistinct });
-    SQL_LOWERING_DISTINCT_ORDER_BY_PROJECTION = 167 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_DISTINCT_ORDER_BY_PROJECTION = 163 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::DistinctOrderByProjection });
-    SQL_LOWERING_GLOBAL_AGGREGATE_PROJECTION = 168 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_GLOBAL_AGGREGATE_PROJECTION = 164 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::GlobalAggregateProjection });
-    SQL_LOWERING_GLOBAL_AGGREGATE_GROUP_BY = 169 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_GLOBAL_AGGREGATE_GROUP_BY = 165 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::GlobalAggregateGroupBy });
-    SQL_LOWERING_SELECT_GROUP_BY_SHAPE = 170 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_SELECT_GROUP_BY_SHAPE = 166 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::SelectGroupByShape });
-    SQL_LOWERING_GROUPED_PROJECTION_EXPLICIT_LIST_REQUIRED = 171 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_GROUPED_PROJECTION_EXPLICIT_LIST_REQUIRED = 167 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::GroupedProjectionExplicitListRequired });
-    SQL_LOWERING_GROUPED_PROJECTION_AGGREGATE_REQUIRED = 172 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_GROUPED_PROJECTION_AGGREGATE_REQUIRED = 168 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::GroupedProjectionAggregateRequired });
-    SQL_LOWERING_GROUPED_PROJECTION_NON_GROUP_FIELD = 173 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_GROUPED_PROJECTION_NON_GROUP_FIELD = 169 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::GroupedProjectionNonGroupField });
-    SQL_LOWERING_GROUPED_PROJECTION_SCALAR_AFTER_AGGREGATE = 174 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_GROUPED_PROJECTION_SCALAR_AFTER_AGGREGATE = 170 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::GroupedProjectionScalarAfterAggregate });
-    SQL_LOWERING_HAVING_REQUIRES_GROUP_BY = 175 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_HAVING_REQUIRES_GROUP_BY = 171 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::HavingRequiresGroupBy });
-    SQL_LOWERING_SELECT_HAVING_SHAPE = 176 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_SELECT_HAVING_SHAPE = 172 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::SelectHavingShape });
-    SQL_LOWERING_AGGREGATE_INPUT_EXPRESSIONS = 177 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_AGGREGATE_INPUT_EXPRESSIONS = 173 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::AggregateInputExpressions });
-    SQL_LOWERING_WHERE_EXPRESSION_SHAPE = 178 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_WHERE_EXPRESSION_SHAPE = 174 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::WhereExpressionShape });
-    SQL_LOWERING_PARAMETER_PLACEMENT = 179 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_PARAMETER_PLACEMENT = 175 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::ParameterPlacement });
-    SQL_LOWERING_SQL_DDL_EXECUTION_UNSUPPORTED = 180 => QueryUnsupportedSqlFeature,
+    SQL_LOWERING_SQL_DDL_EXECUTION_UNSUPPORTED = 176 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::SqlDdlExecutionUnsupported });
 
-    SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE = 181 => QuerySqlWriteBoundary,
+    SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE = 177 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ReturningResponseTooLarge });
-    SQL_WRITE_RETURNING_ROWS_TOO_MANY = 182 => QuerySqlWriteBoundary,
+    SQL_WRITE_RETURNING_ROWS_TOO_MANY = 178 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ReturningRowsTooMany });
-    RUNTIME_BOUNDARY_SQL_INTROSPECTION_DISABLED = 183 => RuntimeUnsupported,
+    RUNTIME_BOUNDARY_SQL_INTROSPECTION_DISABLED = 179 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlIntrospectionDisabled });
-    SQL_WRITE_STAGED_ROWS_TOO_MANY = 184 => QuerySqlWriteBoundary,
+    SQL_WRITE_STAGED_ROWS_TOO_MANY = 180 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::StagedRowsTooMany });
 
-    QUERY_READ_ADMISSION = 185 => QueryReadAdmission;
-    QUERY_READ_PUBLIC_REQUIRES_LIMIT = 186 => QueryReadAdmission,
+    QUERY_READ_ADMISSION = 181 => QueryReadAdmission;
+    QUERY_READ_PUBLIC_REQUIRES_LIMIT = 182 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PublicQueryRequiresLimit });
-    QUERY_READ_PUBLIC_REQUIRES_INDEX = 187 => QueryReadAdmission,
+    QUERY_READ_PUBLIC_REQUIRES_INDEX = 183 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PublicQueryRequiresIndex });
-    QUERY_READ_UNBOUNDED_FULL_SCAN_REJECTED = 188 => QueryReadAdmission,
+    QUERY_READ_UNBOUNDED_FULL_SCAN_REJECTED = 184 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::UnboundedFullScanRejected });
-    QUERY_READ_SORT_REQUIRES_MATERIALIZATION = 189 => QueryReadAdmission,
+    QUERY_READ_SORT_REQUIRES_MATERIALIZATION = 185 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::SortRequiresMaterialization });
-    QUERY_READ_GROUPED_QUERY_REQUIRES_LIMITS = 190 => QueryReadAdmission,
+    QUERY_READ_GROUPED_QUERY_REQUIRES_LIMITS = 186 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::GroupedQueryRequiresLimits });
-    QUERY_READ_GROUPED_QUERY_EXCEEDS_BUDGET = 191 => QueryReadAdmission,
+    QUERY_READ_GROUPED_QUERY_EXCEEDS_BUDGET = 187 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::GroupedQueryExceedsBudget });
-    QUERY_READ_DIAGNOSTIC_LANE_DOES_NOT_EXECUTE = 192 => QueryReadAdmission,
+    QUERY_READ_DIAGNOSTIC_LANE_DOES_NOT_EXECUTE = 188 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute });
-    QUERY_READ_RETURNED_ROW_BOUND_EXCEEDS_POLICY = 193 => QueryReadAdmission,
+    QUERY_READ_RETURNED_ROW_BOUND_EXCEEDS_POLICY = 189 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy });
-    QUERY_READ_PRIMARY_KEY_INPUT_EXCEEDS_POLICY = 194 => QueryReadAdmission,
+    QUERY_READ_PRIMARY_KEY_INPUT_EXCEEDS_POLICY = 190 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy });
 }

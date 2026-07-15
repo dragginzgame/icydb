@@ -30,13 +30,6 @@ enum PagedTerminal {
 }
 
 impl PagedTerminal {
-    const fn raw_limit_error(self) -> IntentError {
-        match self {
-            Self::PublicPage => IntentError::raw_limit_before_page_terminal(),
-            Self::TrustedAdminBatch => IntentError::raw_limit_before_admin_batch_terminal(),
-        }
-    }
-
     const fn read_intent(self) -> ReadIntentKind {
         match self {
             Self::PublicPage => ReadIntentKind::PublicPage,
@@ -71,7 +64,6 @@ where
     ///
     /// Cursor pagination requires:
     /// - explicit `order_term(...)`
-    /// - no prior row-window cap
     ///
     /// Results are deterministic under canonical ordering, but continuation is
     /// best-effort and forward-only over live state.
@@ -111,8 +103,7 @@ where
     ///
     /// This terminal is intentionally unavailable on the normal public read
     /// lane. Callers must opt into `trusted_read_unchecked()` before invoking
-    /// it, and a prior row-window cap is rejected because the batch size is
-    /// owned by IcyDB.
+    /// it. The batch size is owned by IcyDB.
     pub fn admin_batch(
         self,
         request: AdminBatchRequest,
@@ -131,7 +122,6 @@ where
         cursor: Option<String>,
         terminal: PagedTerminal,
     ) -> Result<PagedLoadQuery<'a, E>, QueryError> {
-        self.ensure_semantic_terminal_owns_limit(terminal.raw_limit_error())?;
         self.ensure_page_request_owns_cursor()?;
         terminal.validate(&self)?;
 

@@ -359,7 +359,7 @@ macro_rules! start {
     };
 }
 
-// Access the current canister's database session; use `db!().debug()` for verbose tracing.
+// Access the current canister's fallible database session; propagate with `db!()?`.
 #[macro_export]
 #[expect(clippy::crate_in_macro_def)]
 macro_rules! db {

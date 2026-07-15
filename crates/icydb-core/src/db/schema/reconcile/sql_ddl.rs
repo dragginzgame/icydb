@@ -23,11 +23,11 @@ use super::{
 };
 
 pub(in crate::db) use field_metadata::{
-    execute_sql_ddl_field_default_change, execute_sql_ddl_field_drop,
-    execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_rename,
+    execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
+    execute_admin_sql_ddl_field_nullability_change, execute_admin_sql_ddl_field_rename,
 };
 
-pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
+pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -48,13 +48,10 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
         SchemaTransitionPlanKind::AddFieldPathIndex,
         "add_field_path_index",
     )?;
-    let supported = plan
-        .supported_developer_physical_path()
-        .map_err(|rejection| {
-            let _ = rejection;
-            InternalError::store_unsupported()
-        })?;
-    if supported.target() != derivation.admission().target() {
+    let target = plan
+        .field_path_index_target()
+        .ok_or_else(InternalError::store_unsupported)?;
+    if Some(target) != derivation.admission().field_path_target() {
         return Err(InternalError::store_unsupported());
     }
 
@@ -72,7 +69,7 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
 
 /// Execute one supported SQL DDL expression index addition through the schema
 /// mutation staging and publication boundary.
-pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
+pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -109,7 +106,7 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
 }
 
 /// Execute one metadata-only SQL DDL additive-field publication.
-pub(in crate::db) fn execute_sql_ddl_field_addition(
+pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -257,7 +254,7 @@ fn publish_sql_ddl_accepted_snapshot(
 
 /// Execute one supported SQL DDL secondary-index drop by cleaning the target
 /// physical index namespace before publishing the accepted-after schema.
-pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
+pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,

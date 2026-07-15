@@ -5,10 +5,10 @@ use crate::{
             ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
             can_use_bounded_direct_order_collection,
             pipeline::contracts::{
-                CursorEmissionMode, MaterializedExecutionPayload, PageCursor,
-                ScalarMaterializationCapabilities,
+                CursorEmissionMode, PageCursor, ScalarMaterializationCapabilities,
+                StructuralCursorPage,
             },
-            projection::PreparedSlotProjectionValidation,
+            projection::PreparedProjectionContract,
             route::{
                 LoadOrderRouteMode, access_order_satisfied_by_route_mode,
                 branch_set_page_keep_cap_shape_supported,
@@ -201,7 +201,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
         &self,
         rows: Vec<KernelRow>,
         next_cursor: Option<PageCursor>,
-    ) -> Result<MaterializedExecutionPayload, InternalError> {
+    ) -> Result<StructuralCursorPage, InternalError> {
         self.post_scan_tail.finalize_payload(rows, next_cursor)
     }
 }
@@ -251,7 +251,7 @@ impl<'a> CursorlessShortPathPlan<'a> {
         &self,
         plan: &AccessPlannedQuery,
         mut rows: Vec<KernelRow>,
-    ) -> Result<(MaterializedExecutionPayload, usize), InternalError> {
+    ) -> Result<(StructuralCursorPage, usize), InternalError> {
         self.post_scan_tail.apply_with_pre_applied_page_window(
             plan,
             &mut rows,
@@ -278,7 +278,7 @@ impl<'a> CursorlessShortPathPlan<'a> {
 struct ResolvedScalarStructuralPolicy<'a> {
     residual_filter_scan_mode: ResidualFilterScanMode,
     kernel_row_scan_strategy: KernelRowScanStrategy<'a>,
-    projection_validation: Option<&'a PreparedSlotProjectionValidation>,
+    projection_validation: Option<&'a PreparedProjectionContract>,
     final_payload_strategy: FinalPayloadStrategy,
 }
 

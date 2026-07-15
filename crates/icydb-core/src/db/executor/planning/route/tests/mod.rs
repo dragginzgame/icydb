@@ -31,7 +31,7 @@ use crate::{
         cursor::{CursorBoundary, ValidatedCursor},
         direction::Direction,
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan,
             aggregate::AggregateFoldMode,
             aggregate::capability::AggregateFieldExtremaIneligibilityReason,
             planning::{
@@ -252,7 +252,7 @@ fn build_load_route_plan_for_authority(
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
-) -> Result<ExecutionPlan, crate::error::InternalError> {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let finalized = finalized_plan_for_authority(authority.clone(), plan);
 
     build_execution_route_plan(
@@ -268,7 +268,7 @@ fn build_load_route_plan_for_authority(
 
 fn build_load_route_plan(
     plan: &AccessPlannedQuery,
-) -> Result<ExecutionPlan, crate::error::InternalError> {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     build_load_route_plan_for_authority(
         route_capability_authority(),
         plan,
@@ -280,14 +280,14 @@ fn build_load_route_plan(
 fn build_load_route_plan_with_continuation(
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
-) -> Result<ExecutionPlan, crate::error::InternalError> {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     build_load_route_plan_for_authority(route_capability_authority(), plan, continuation, None)
 }
 
 fn build_load_route_plan_with_probe_hint(
     plan: &AccessPlannedQuery,
     probe_fetch_hint: Option<usize>,
-) -> Result<ExecutionPlan, crate::error::InternalError> {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     build_load_route_plan_for_authority(
         route_capability_authority(),
         plan,
@@ -298,7 +298,7 @@ fn build_load_route_plan_with_probe_hint(
 
 fn build_unique_load_route_plan(
     plan: &AccessPlannedQuery,
-) -> Result<ExecutionPlan, crate::error::InternalError> {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     build_load_route_plan_for_authority(
         unique_route_capability_authority(),
         plan,
@@ -337,7 +337,7 @@ fn load_index_multi_lookup_prefix_cardinality_preflight_shape_supported(
 
 fn build_mutation_route_plan(
     plan: &AccessPlannedQuery,
-) -> Result<ExecutionPlan, crate::error::InternalError> {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let authority = route_capability_authority();
     let finalized = finalized_plan_for_authority(authority, plan);
 
@@ -346,7 +346,7 @@ fn build_mutation_route_plan(
 
 fn build_initial_load_route_plan(
     plan: &AccessPlannedQuery,
-) -> Result<ExecutionPlan, crate::error::InternalError> {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let authority = route_capability_authority();
     let finalized = finalized_plan_for_authority(authority.clone(), plan);
 
@@ -371,7 +371,7 @@ fn derive_load_terminal_fast_path_contract_for_test(
     derive_load_terminal_fast_path_contract(authority, &finalized, strict_predicate_compatible)
 }
 
-fn build_aggregate_route(plan: &AccessPlannedQuery, kind: AggregateKind) -> ExecutionPlan {
+fn build_aggregate_route(plan: &AccessPlannedQuery, kind: AggregateKind) -> ExecutionRoutePlan {
     let aggregate_expr = match kind {
         AggregateKind::Count => aggregate_builder::count(),
         AggregateKind::Exists => aggregate_builder::exists(),
@@ -388,7 +388,7 @@ fn build_aggregate_route(plan: &AccessPlannedQuery, kind: AggregateKind) -> Exec
 fn build_aggregate_spec_route(
     plan: &AccessPlannedQuery,
     aggregate_expr: crate::db::query::builder::AggregateExpr,
-) -> ExecutionPlan {
+) -> ExecutionRoutePlan {
     let authority = route_capability_authority();
     let finalized = finalized_plan_for_authority(authority.clone(), plan);
     let execution_preparation =
@@ -514,7 +514,7 @@ fn grouped_field_slot(field: &str) -> FieldSlot {
         .unwrap_or_else(|| panic!("group field should resolve: {field}"))
 }
 
-fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionPlan {
+fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionRoutePlan {
     let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
     let grouped_handoff =
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
@@ -528,7 +528,7 @@ fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionPlan {
     .expect("grouped route test helper should build grouped route plan")
 }
 
-fn grouped_execution_mode(route_plan: &ExecutionPlan) -> GroupedExecutionMode {
+fn grouped_execution_mode(route_plan: &ExecutionRoutePlan) -> GroupedExecutionMode {
     route_plan
         .grouped_execution_mode()
         .expect("grouped route should carry its selected execution mode")

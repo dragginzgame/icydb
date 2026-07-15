@@ -12,7 +12,7 @@ icydb::start!();
 #[cfg(feature = "sql")]
 #[ic_cdk::query]
 fn query_one_entity_sql() -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_trusted_sql_query::<OneSimpleEntity01>("SELECT COUNT(*) FROM OneSimpleEntity01")
+    db()?.execute_trusted_sql_query::<OneSimpleEntity01>("SELECT COUNT(*) FROM OneSimpleEntity01")
 }
 
 #[cfg(feature = "candid-export")]

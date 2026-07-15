@@ -2,8 +2,8 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
-            pipeline::contracts::{MaterializedExecutionPayload, PageCursor, StructuralCursorPage},
-            projection::{PreparedSlotProjectionValidation, validate_prepared_projection_row},
+            pipeline::contracts::{PageCursor, StructuralCursorPage},
+            projection::{PreparedProjectionContract, validate_prepared_projection_row},
         },
         query::plan::AccessPlannedQuery,
     },
@@ -39,7 +39,7 @@ pub(super) enum StructuralPostScanPageWindowStrategy {
 #[derive(Clone, Copy)]
 pub(super) struct StructuralPostScanTailStrategy<'a> {
     page_window_strategy: StructuralPostScanPageWindowStrategy,
-    projection_validation: Option<&'a PreparedSlotProjectionValidation>,
+    projection_validation: Option<&'a PreparedProjectionContract>,
     final_payload_strategy: FinalPayloadStrategy,
 }
 
@@ -48,7 +48,7 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
     // window, projection validation, and final payload policy.
     pub(super) const fn new(
         page_window_strategy: StructuralPostScanPageWindowStrategy,
-        projection_validation: Option<&'a PreparedSlotProjectionValidation>,
+        projection_validation: Option<&'a PreparedProjectionContract>,
         final_payload_strategy: FinalPayloadStrategy,
     ) -> Self {
         Self {
@@ -95,7 +95,7 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
         &self,
         rows: Vec<KernelRow>,
         next_cursor: Option<PageCursor>,
-    ) -> Result<MaterializedExecutionPayload, InternalError> {
+    ) -> Result<StructuralCursorPage, InternalError> {
         finalize_structural_cursor_payload(
             rows,
             self.final_payload_strategy.finalize_mode(next_cursor),
@@ -222,8 +222,8 @@ fn apply_cursorless_short_path_page_window<T>(plan: &AccessPlannedQuery, rows: &
 // Require the prepared projection-validation bundle whenever a retained-slot
 // path still asks the shared executor validator to run.
 pub(super) fn required_prepared_projection_validation(
-    prepared_projection_validation: Option<&PreparedSlotProjectionValidation>,
-) -> Result<&PreparedSlotProjectionValidation, InternalError> {
+    prepared_projection_validation: Option<&PreparedProjectionContract>,
+) -> Result<&PreparedProjectionContract, InternalError> {
     prepared_projection_validation.ok_or_else(InternalError::query_executor_invariant)
 }
 
@@ -232,7 +232,7 @@ pub(super) fn required_prepared_projection_validation(
 pub(in crate::db::executor) fn finalize_structural_cursor_payload(
     rows: Vec<KernelRow>,
     finalize_mode: StructuralCursorPayloadStrategy,
-) -> Result<MaterializedExecutionPayload, InternalError> {
+) -> Result<StructuralCursorPage, InternalError> {
     match finalize_mode {
         StructuralCursorPayloadStrategy::DataRows { next_cursor } => Ok(StructuralCursorPage::new(
             collect_structural_data_rows(rows)?,
@@ -264,7 +264,7 @@ fn collect_structural_data_rows(rows: Vec<KernelRow>) -> Result<Vec<DataRow>, In
 // Run the shared slot-row projection validator from already-prepared
 // projection state when this tail still owns that validation pass.
 fn validate_prepared_projection_rows(
-    prepared_projection_validation: Option<&PreparedSlotProjectionValidation>,
+    prepared_projection_validation: Option<&PreparedProjectionContract>,
     rows: &[KernelRow],
 ) -> Result<(), InternalError> {
     let Some(prepared_projection_validation) = prepared_projection_validation else {

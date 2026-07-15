@@ -30,9 +30,7 @@ pub(in crate::db) use metrics::ProjectionMaterializationMetricsRecorder;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use plan::PreparedProjectionPlan;
 pub(in crate::db) use plan::{PreparedProjectionContract, prepare_projection_contract_from_plan};
-pub(in crate::db::executor) use plan::{
-    PreparedSlotProjectionValidation, ProjectionValidationRow, validate_prepared_projection_row,
-};
+pub(in crate::db::executor) use plan::{ProjectionValidationRow, validate_prepared_projection_row};
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use structural::MaterializedProjectionRows;
 #[cfg(feature = "sql")]

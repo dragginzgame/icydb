@@ -14,18 +14,15 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStore {
     store: String,
     entries: Vec<SchemaFieldPathIndexStagedEntry>,
     validation: SchemaFieldPathIndexStagedValidation,
-    report: SchemaMutationRunnerReport,
+    report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStore {
     pub(in crate::db::schema) fn from_rebuild(
         rebuild: &SchemaFieldPathIndexStagedRebuild,
-        execution_plan: &SchemaMutationExecutionPlan,
-    ) -> Result<Self, SchemaMutationRunnerRejection> {
-        let validation = rebuild.validate().map_err(|_| {
-            SchemaMutationRunnerRejection::validation_failed(RebuildRequirement::IndexRebuild)
-        })?;
-        let report = rebuild.validated_runner_report(execution_plan)?;
+    ) -> Result<Self, SchemaFieldPathIndexStagedValidationError> {
+        let validation = rebuild.validate()?;
+        let report = rebuild.validated_runner_report()?;
 
         Ok(Self {
             store: rebuild.target().store().to_string(),
@@ -54,7 +51,7 @@ impl SchemaFieldPathIndexStagedStore {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::schema) const fn report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn report(&self) -> &SchemaFieldPathIndexMutationProgress {
         &self.report
     }
 
@@ -142,9 +139,8 @@ pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreReadView {
 /// SchemaFieldPathIndexStagedStoreWriter
 ///
 /// Write-intent sink for one validated staged field-path index-store buffer.
-/// The contract exposes accepted store identity and raw index entries without
-/// handing out a physical `IndexStore`; concrete physical mutation remains
-/// deferred until the staged-store isolation boundary exists.
+/// The contract exposes accepted store identity and raw index entries while
+/// keeping concrete physical mutation behind the isolated-store boundary.
 ///
 
 pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreWriter {
@@ -165,7 +161,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteReport {
     store: String,
     intended_entries: usize,
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStoreWriteReport {
@@ -189,7 +185,9 @@ impl SchemaFieldPathIndexStagedStoreWriteReport {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 }
@@ -199,8 +197,7 @@ impl SchemaFieldPathIndexStagedStoreWriteReport {
 ///
 /// Isolated staged write batch for one field-path index rebuild. It carries the
 /// accepted raw write intents plus rollback snapshots captured from the
-/// physical read view, but still leaves actual `IndexStore` mutation to a later
-/// isolated-store runner.
+/// physical read view. The isolated-store writer consumes this batch.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -209,7 +206,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteBatch {
     entries: Vec<SchemaFieldPathIndexStagedEntry>,
     rollback_snapshots: Vec<SchemaFieldPathIndexStagedStoreRollbackSnapshot>,
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStoreWriteBatch {
@@ -238,7 +235,9 @@ impl SchemaFieldPathIndexStagedStoreWriteBatch {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 
@@ -282,8 +281,8 @@ impl SchemaFieldPathIndexStagedStoreWriteBatch {
 ///
 /// SchemaFieldPathIndexStagedStoreRollbackSnapshot
 ///
-/// Previous physical entry captured before one staged raw index write. A later
-/// physical rollback phase can replay these snapshots in reverse write order.
+/// Previous physical entry captured before one staged raw index write. The
+/// rollback phase replays these snapshots in reverse write order.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -326,7 +325,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackPlan {
     store: String,
     actions: Vec<SchemaFieldPathIndexStagedStoreRollbackAction>,
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStoreRollbackPlan {
@@ -352,7 +351,9 @@ impl SchemaFieldPathIndexStagedStoreRollbackPlan {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 
@@ -423,7 +424,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackReport {
     restored_entries: usize,
     removed_entries: usize,
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStoreRollbackReport {
@@ -459,7 +460,9 @@ impl SchemaFieldPathIndexStagedStoreRollbackReport {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 }
@@ -530,8 +533,7 @@ impl SchemaFieldPathIndexStagedStoreRollbackAction {
 /// SchemaFieldPathIndexStagedDiscardReport
 ///
 /// Typed cleanup report for discarding one in-memory staged field-path rebuild
-/// buffer. Physical rollback will later use a store-backed version of this
-/// boundary; this shape keeps staged cleanup explicit before stores are mutated.
+/// buffer before stores are mutated.
 ///
 
 #[cfg(test)]

@@ -222,7 +222,7 @@ fn session_fluent_verbose_explain_reports_shared_query_plan_reuse_after_first_bu
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2);
+        .partial_window(2);
 
     let first = query
         .explain_execution_verbose()
@@ -265,7 +265,7 @@ fn session_fluent_verbose_explain_keeps_distinct_semantic_identity_on_reuse_miss
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
+        .partial_window(2)
         .explain_execution_verbose()
         .expect("left fluent verbose explain should build");
     let right = session
@@ -274,7 +274,7 @@ fn session_fluent_verbose_explain_keeps_distinct_semantic_identity_on_reuse_miss
         .filter(crate::db::FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::desc("age"))
         .order_term(crate::db::desc("id"))
-        .limit(1)
+        .partial_window(1)
         .explain_execution_verbose()
         .expect("right fluent verbose explain should build");
     let left_diagnostics = session_verbose_diagnostics_map(&left);

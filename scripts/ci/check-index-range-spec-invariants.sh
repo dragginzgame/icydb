@@ -211,18 +211,6 @@ if [[ -n "$direct_stream_combinator_matches" ]]; then
   status=1
 fi
 
-legacy_stream_reducer_matches="$(
-  rg -n --no-heading --color=never \
-    "reduce_key_streams|fold_key_streams" \
-    crates/icydb-core/src/db/executor \
-    || true
-)"
-if [[ -n "$legacy_stream_reducer_matches" ]]; then
-  echo "[ERROR] Executor stream-set reduction must stay on the shared ordered stream tree." >&2
-  echo "$legacy_stream_reducer_matches" >&2
-  status=1
-fi
-
 if [[ $status -ne 0 ]]; then
   echo "[FAIL] Index-range spec invariant checks failed." >&2
   exit 1

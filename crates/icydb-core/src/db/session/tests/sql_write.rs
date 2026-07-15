@@ -1138,7 +1138,7 @@ fn execute_sql_insert_rejects_missing_composite_primary_key_component() {
 }
 
 #[test]
-fn execute_sql_update_rejects_composite_primary_key_mutation() {
+fn execute_trusted_sql_mutation_rejects_composite_primary_key_mutation() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -3525,7 +3525,7 @@ fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
 }
 
 #[test]
-fn execute_sql_update_insert_values_rejects_public_staged_row_cap_before_commit() {
+fn execute_trusted_sql_mutation_insert_values_rejects_public_staged_row_cap_before_commit() {
     reset_session_sql_store();
     let session = sql_session();
     let row_count = DEFAULT_PUBLIC_INSERT_STAGED_ROWS + 1;
@@ -3536,7 +3536,7 @@ fn execute_sql_update_insert_values_rejects_public_staged_row_cap_before_commit(
     let sql = format!("INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES {values}");
 
     let err = session
-        .execute_sql_update::<SessionSqlWriteEntity>(&sql)
+        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(&sql)
         .expect_err("public update surface INSERT VALUES should enforce staged-row cap");
 
     assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::StagedRowsTooMany);
@@ -3547,7 +3547,7 @@ fn execute_sql_update_insert_values_rejects_public_staged_row_cap_before_commit(
 }
 
 #[test]
-fn execute_sql_update_insert_select_rejects_public_staged_row_cap_before_commit() {
+fn execute_trusted_sql_mutation_insert_select_rejects_public_staged_row_cap_before_commit() {
     reset_session_sql_store();
     let session = sql_session();
     let source_count = DEFAULT_PUBLIC_INSERT_STAGED_ROWS + 1;
@@ -3567,7 +3567,7 @@ fn execute_sql_update_insert_select_rejects_public_staged_row_cap_before_commit(
     .expect("baseline projection should succeed");
 
     let err = session
-        .execute_sql_update::<SessionSqlEntity>(
+        .execute_trusted_sql_mutation::<SessionSqlEntity>(
             "INSERT INTO SessionSqlEntity (name, age) \
              SELECT name, age FROM SessionSqlEntity ORDER BY id ASC",
         )
@@ -3765,7 +3765,7 @@ fn execute_sql_statement_insert_and_update_returning_projection_matrix() {
 }
 
 #[test]
-fn execute_sql_update_reuses_authority_schema_info_for_selector() {
+fn execute_trusted_sql_mutation_reuses_authority_schema_info_for_selector() {
     reset_session_sql_store();
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21)]);
@@ -3793,12 +3793,12 @@ fn execute_sql_update_reuses_authority_schema_info_for_selector() {
 }
 
 #[test]
-fn execute_sql_update_returning_star_public_entrypoint_projects_rows() {
+fn execute_trusted_sql_mutation_returning_star_public_entrypoint_projects_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
     let insert = session
-        .execute_sql_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) \
              VALUES (1, 'Ada', 21) RETURNING *",
         )
@@ -3824,7 +3824,7 @@ fn execute_sql_update_returning_star_public_entrypoint_projects_rows() {
     assert_eq!(row_count, 1);
 
     let update = session
-        .execute_sql_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING *",
         )
         .expect("public SQL update entrypoint should admit UPDATE RETURNING *");
@@ -3849,7 +3849,7 @@ fn execute_sql_update_returning_star_public_entrypoint_projects_rows() {
     assert_eq!(row_count, 1);
 
     let delete = session
-        .execute_sql_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
             "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING *",
         )
         .expect("public SQL update entrypoint should admit DELETE RETURNING *");
@@ -3879,12 +3879,12 @@ fn execute_sql_update_returning_star_public_entrypoint_projects_rows() {
 }
 
 #[test]
-fn execute_sql_update_returning_field_list_public_entrypoint_projects_rows() {
+fn execute_trusted_sql_mutation_returning_field_list_public_entrypoint_projects_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
     let insert = session
-        .execute_sql_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) \
              VALUES (1, 'Ada', 21) RETURNING name, age",
         )
@@ -3909,7 +3909,7 @@ fn execute_sql_update_returning_field_list_public_entrypoint_projects_rows() {
     assert_eq!(row_count, 1);
 
     let update = session
-        .execute_sql_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id, age",
         )
         .expect("public SQL update entrypoint should admit UPDATE field-list RETURNING");
@@ -3930,7 +3930,7 @@ fn execute_sql_update_returning_field_list_public_entrypoint_projects_rows() {
     assert_eq!(row_count, 1);
 
     let delete = session
-        .execute_sql_update::<SessionSqlWriteEntity>(
+        .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(
             "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING name",
         )
         .expect("public SQL update entrypoint should admit DELETE field-list RETURNING");
@@ -4026,7 +4026,7 @@ fn execute_sql_statement_returning_field_list_rejects_invalid_fields_before_muta
 }
 
 #[test]
-fn execute_sql_update_rejects_unsupported_sql_without_mutation() {
+fn execute_trusted_sql_mutation_rejects_unsupported_sql_without_mutation() {
     reset_session_sql_store();
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21)]);
@@ -4074,7 +4074,7 @@ fn execute_sql_update_rejects_unsupported_sql_without_mutation() {
     for (sql, context) in cases {
         assert!(
             session
-                .execute_sql_update::<SessionSqlWriteEntity>(sql)
+                .execute_trusted_sql_mutation::<SessionSqlWriteEntity>(sql)
                 .is_err(),
             "{context}",
         );

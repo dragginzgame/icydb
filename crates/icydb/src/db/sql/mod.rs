@@ -16,7 +16,6 @@ mod tests;
 mod types;
 mod value_render;
 
-pub use crate::db::response::render_output_value_text as render_value_text;
 pub(crate) use convert::sql_query_result_from_statement;
 #[cfg(feature = "sql-explain")]
 pub use table_render::render_explain_lines;

@@ -208,9 +208,9 @@ impl AcceptedSchemaSnapshot {
 /// PersistedSchemaSnapshot
 ///
 /// Owned schema snapshot for one live entity schema.
-/// This is the shape intended for the future `icydb_schema` payload; it is
-/// separate from generated `EntityModel` so startup reconciliation can compare
-/// stored authority with the compiled proposal.
+/// This is the accepted schema store payload. It is separate from generated
+/// `EntityModel` so startup reconciliation can compare stored authority with
+/// the compiled proposal.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1068,7 +1068,8 @@ pub(in crate::db) enum PersistedFieldOrigin {
 ///
 /// Owned schema snapshot for one live field.
 /// It carries durable identity, current slot placement, type/storage metadata,
-/// and the database-level default contract used by future reconciliation.
+/// and the database-level default contract used by reconciliation and runtime
+/// value admission.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -79,10 +79,10 @@ fn public_read_fluent_admission_admits_indexed_bounded_scalar_query() {
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(2);
+        .order_term(crate::db::asc("id"));
+    let query = query.query().with_load_limit(2);
     let summary = session
-        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .evaluate_query_read_admission_policy(&query, &public_read_policy(10))
         .expect("fluent indexed bounded admission should produce a summary");
 
     assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
@@ -476,10 +476,10 @@ fn public_read_fluent_admission_rejects_partial_composite_primary_key_as_full_sc
         .load::<SessionSqlCompositeWriteEntity>()
         .filter(crate::db::FieldRef::new("tenant_id").eq(7_u64))
         .order_term(crate::db::asc("tenant_id"))
-        .order_term(crate::db::asc("local_id"))
-        .limit(1);
+        .order_term(crate::db::asc("local_id"));
+    let query = query.query().with_load_limit(1);
     let summary = session
-        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .evaluate_query_read_admission_policy(&query, &public_read_policy(10))
         .expect("partial composite primary-key admission should produce a summary");
 
     assert_admission_summary_rejection(
@@ -860,7 +860,7 @@ fn default_fluent_count_exact_counts_primary_key_filters_without_limit() {
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .count_exact()
-        .expect("primary-key exact count should not require a raw limit");
+        .expect("primary-key exact count should use its terminal-owned admission bound");
     let missing = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(crate::types::Ulid::from_u128(19_757)))
@@ -888,42 +888,42 @@ fn default_fluent_exact_aggregate_explain_reports_read_intent() {
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_count_exact()
-        .expect("exact count explain should not require a raw limit");
+        .expect("exact count explain should use its terminal-owned admission bound");
     let sum_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_sum_exact("age")
-        .expect("exact sum explain should not require a raw limit");
+        .expect("exact sum explain should use its terminal-owned admission bound");
     let min_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_min_id_exact()
-        .expect("exact min explain should not require a raw limit");
+        .expect("exact min explain should use its terminal-owned admission bound");
     let min_by_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_min_exact_by("age")
-        .expect("exact min-by explain should not require a raw limit");
+        .expect("exact min-by explain should use its terminal-owned admission bound");
     let max_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_max_id_exact()
-        .expect("exact max explain should not require a raw limit");
+        .expect("exact max explain should use its terminal-owned admission bound");
     let max_by_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_max_exact_by("age")
-        .expect("exact max-by explain should not require a raw limit");
+        .expect("exact max-by explain should use its terminal-owned admission bound");
     let avg_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_avg_exact("age")
-        .expect("exact avg explain should not require a raw limit");
+        .expect("exact avg explain should use its terminal-owned admission bound");
     let exists_plan = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .explain_exists()
-        .expect("exists explain should not require a raw limit");
+        .expect("exists explain should use its terminal-owned admission bound");
 
     assert_eq!(count_plan.terminal(), AggregateKind::Count);
     assert_eq!(
@@ -984,7 +984,7 @@ fn default_fluent_sum_exact_sums_primary_key_filters_without_limit() {
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .sum_exact("age")
-        .expect("primary-key exact sum should not require a raw limit");
+        .expect("primary-key exact sum should use its terminal-owned admission bound");
     let missing = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(crate::types::Ulid::from_u128(19_759)))
@@ -1014,27 +1014,27 @@ fn default_fluent_min_max_avg_exact_use_primary_key_filters_without_limit() {
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .min_id_exact()
-        .expect("primary-key exact min should not require a raw limit");
+        .expect("primary-key exact min should use its terminal-owned admission bound");
     let existing_min_by = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .min_exact_by("age")
-        .expect("primary-key exact min-by should not require a raw limit");
+        .expect("primary-key exact min-by should use its terminal-owned admission bound");
     let existing_max = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .max_id_exact()
-        .expect("primary-key exact max should not require a raw limit");
+        .expect("primary-key exact max should use its terminal-owned admission bound");
     let existing_max_by = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .max_exact_by("age")
-        .expect("primary-key exact max-by should not require a raw limit");
+        .expect("primary-key exact max-by should use its terminal-owned admission bound");
     let existing_avg = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(id))
         .avg_exact("age")
-        .expect("primary-key exact avg should not require a raw limit");
+        .expect("primary-key exact avg should use its terminal-owned admission bound");
     let missing_min = session
         .load::<SessionSqlEntity>()
         .filter(crate::db::FieldRef::new("id").eq(missing_id))
@@ -1062,7 +1062,7 @@ fn default_fluent_min_max_avg_exact_use_primary_key_filters_without_limit() {
 }
 
 #[test]
-fn default_fluent_collect_complete_returns_indexed_small_set_without_raw_limit() {
+fn default_fluent_collect_complete_uses_terminal_owned_complete_set_bound() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
@@ -1583,10 +1583,10 @@ fn public_read_session_ensure_admission_returns_admitted_summary() {
         .load::<IndexedSessionSqlEntity>()
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(2);
+        .order_term(crate::db::asc("id"));
+    let load = load.query().with_load_limit(2);
     let summary = session
-        .ensure_query_read_admission_policy(load.query(), &public_read_policy(10))
+        .ensure_query_read_admission_policy(&load, &public_read_policy(10))
         .expect("session ensure admission should return the admitted summary");
 
     assert_eq!(summary.decision(), QueryAdmissionDecision::Admitted);
@@ -1603,7 +1603,7 @@ fn default_fluent_execute_rejects_unindexed_full_scan() {
     let err = session
         .load::<SessionSqlEntity>()
         .order_term(crate::db::asc("age"))
-        .limit(1)
+        .partial_window(1)
         .execute()
         .expect_err("default fluent execute should reject unindexed full scans");
 
@@ -1624,7 +1624,7 @@ fn default_fluent_execute_with_attribution_rejects_unindexed_full_scan() {
     let err = session
         .load::<SessionSqlEntity>()
         .order_term(crate::db::asc("age"))
-        .limit(1)
+        .partial_window(1)
         .execute_with_attribution()
         .expect_err("hidden fluent attribution should not bypass default read admission");
 
@@ -1644,7 +1644,7 @@ fn default_fluent_execute_rows_rejects_unindexed_full_scan_without_policy_setup(
     let err = session
         .load::<SessionSqlEntity>()
         .order_term(crate::db::asc("age"))
-        .limit(1)
+        .partial_window(1)
         .execute_rows()
         .expect_err("default fluent execute_rows should reject unindexed full scans");
 
@@ -1674,7 +1674,7 @@ fn default_fluent_execute_rejects_materialized_sort_without_policy_setup() {
         .filter(crate::db::FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
+        .partial_window(2)
         .execute()
         .expect_err("default fluent execute should reject materialized sorts");
 
@@ -1743,77 +1743,6 @@ fn default_fluent_terminal_rejects_unindexed_full_scan() {
         QueryReadAdmissionCode::UnboundedFullScanRejected,
         "default fluent terminal full scan",
     );
-}
-
-#[test]
-fn default_fluent_exists_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .exists()
-        .expect_err("exists() should own existence bounds instead of accepting raw limits");
-
-    assert_raw_limit_before_exists_terminal(err, "default fluent exists raw limit");
-}
-
-#[test]
-fn default_fluent_not_exists_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .not_exists()
-        .expect_err("not_exists() should share the exists raw-limit intent gate");
-
-    assert_raw_limit_before_exists_terminal(err, "default fluent not_exists raw limit");
-}
-
-#[test]
-fn default_fluent_explain_exists_rejects_prior_raw_limit_before_planning() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .explain_exists()
-        .expect_err("explain_exists() should report the same raw-limit intent conflict");
-
-    assert_raw_limit_before_exists_terminal(err, "default fluent explain_exists raw limit");
-}
-
-#[test]
-fn default_fluent_page_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .page(2)
-        .expect_err("page() should own page size instead of accepting raw limits");
-
-    assert_raw_limit_before_page_terminal(err, "default fluent page raw limit");
 }
 
 #[test]
@@ -1944,25 +1873,6 @@ fn default_fluent_admin_batch_requires_trusted_read_unchecked() {
 }
 
 #[test]
-fn trusted_fluent_admin_batch_rejects_prior_raw_limit_before_planning() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .trusted_read_unchecked()
-        .admin_batch(crate::db::AdminBatchRequest::new())
-        .expect_err("admin_batch should own the trusted batch size");
-
-    assert_raw_limit_before_admin_batch_terminal(err, "trusted fluent admin_batch raw limit");
-}
-
-#[test]
 fn trusted_fluent_admin_batch_uses_hardcoded_batch_and_cursor_continuation() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2029,7 +1939,7 @@ fn default_fluent_execute_admits_indexed_bounded_query() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
+        .partial_window(2)
         .execute()
         .expect("default fluent execute should admit indexed bounded reads");
 
@@ -2037,7 +1947,7 @@ fn default_fluent_execute_admits_indexed_bounded_query() {
 }
 
 #[test]
-fn default_fluent_execute_rows_keeps_low_level_raw_limit_window() {
+fn default_fluent_execute_rows_honors_explicit_partial_window() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
@@ -2047,180 +1957,15 @@ fn default_fluent_execute_rows_keeps_low_level_raw_limit_window() {
         .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
+        .partial_window(2)
         .execute_rows()
-        .expect("execute_rows() remains the low-level bounded row-window terminal");
+        .expect("execute_rows() should materialize the explicit partial window");
 
     assert_eq!(response.count(), 2);
 }
 
 #[test]
-fn default_fluent_count_keeps_low_level_raw_limit_window() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let count = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(2)
-        .count()
-        .expect("count() keeps the existing effective-window aggregate contract");
-
-    assert_eq!(count, 2);
-}
-
-#[test]
-fn default_fluent_count_exact_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .count_exact()
-        .expect_err("count_exact() should reject raw row-window limits");
-
-    assert_raw_limit_before_count_exact_terminal(err, "default fluent count_exact raw limit");
-}
-
-#[test]
-fn default_fluent_sum_by_keeps_low_level_raw_limit_window() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let sum = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(2)
-        .sum_by("age")
-        .expect("sum_by() keeps the existing effective-window aggregate contract");
-
-    assert_eq!(sum, Some(crate::types::Decimal::from(54_u64)));
-}
-
-#[test]
-fn default_fluent_sum_exact_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .sum_exact("age")
-        .expect_err("sum_exact() should reject raw row-window limits");
-
-    assert_raw_limit_before_sum_exact_terminal(err, "default fluent sum_exact raw limit");
-}
-
-#[test]
-fn default_fluent_min_id_exact_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let min_err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .min_id_exact()
-        .expect_err("min_id_exact() should reject raw row-window limits");
-    let min_by_err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .min_exact_by("age")
-        .expect_err("min_exact_by() should reject raw row-window limits");
-
-    assert_raw_limit_before_exact_min_terminal(min_err, "default fluent min_id_exact raw limit");
-    assert_raw_limit_before_exact_min_terminal(min_by_err, "default fluent min_exact_by raw limit");
-}
-
-#[test]
-fn default_fluent_max_id_exact_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let max_err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .max_id_exact()
-        .expect_err("max_id_exact() should reject raw row-window limits");
-    let max_by_err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .max_exact_by("age")
-        .expect_err("max_exact_by() should reject raw row-window limits");
-
-    assert_raw_limit_before_exact_max_terminal(max_err, "default fluent max_id_exact raw limit");
-    assert_raw_limit_before_exact_max_terminal(max_by_err, "default fluent max_exact_by raw limit");
-}
-
-#[test]
-fn default_fluent_avg_exact_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .avg_exact("age")
-        .expect_err("avg_exact() should reject raw row-window limits");
-
-    assert_raw_limit_before_avg_exact_terminal(err, "default fluent avg_exact raw limit");
-}
-
-#[test]
-fn default_fluent_collect_complete_rejects_prior_raw_limit_before_admission() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
-
-    let err = session
-        .load::<IndexedSessionSqlEntity>()
-        .filter(crate::db::FieldRef::new("name").text_starts_with("S"))
-        .order_term(crate::db::asc("name"))
-        .order_term(crate::db::asc("id"))
-        .limit(1)
-        .collect_complete()
-        .expect_err("collect_complete() should reject raw row-window limits");
-
-    assert_raw_limit_before_collect_complete_terminal(
-        err,
-        "default fluent collect_complete raw limit",
-    );
-}
-
-#[test]
-fn trusted_read_unchecked_execute_keeps_existing_unbounded_behavior() {
+fn trusted_read_unchecked_execute_runs_explicit_unbounded_read() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
@@ -2228,7 +1973,7 @@ fn trusted_read_unchecked_execute_keeps_existing_unbounded_behavior() {
     let response = session
         .load::<SessionSqlEntity>()
         .order_term(crate::db::asc("age"))
-        .limit(1)
+        .partial_window(1)
         .trusted_read_unchecked()
         .execute()
         .expect("trusted_read_unchecked fluent execute should keep existing behavior");
@@ -2245,7 +1990,7 @@ fn trusted_read_unchecked_execute_rows_bypasses_default_admission_explicitly() {
     let response = session
         .load::<SessionSqlEntity>()
         .order_term(crate::db::asc("age"))
-        .limit(1)
+        .partial_window(1)
         .trusted_read_unchecked()
         .execute_rows()
         .expect("trusted_read_unchecked should explicitly bypass default read admission");
@@ -2271,10 +2016,10 @@ fn public_read_fluent_admission_rejects_unresolved_order_materialized_sort() {
         .filter(crate::db::FieldRef::new("active").eq(true))
         .filter(crate::db::FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("age"))
-        .order_term(crate::db::asc("id"))
-        .limit(2);
+        .order_term(crate::db::asc("id"));
+    let query = query.query().with_load_limit(2);
     let summary = session
-        .evaluate_query_read_admission_policy(query.query(), &public_read_policy(10))
+        .evaluate_query_read_admission_policy(&query, &public_read_policy(10))
         .expect("fluent materialized-sort admission should produce a summary");
 
     assert_admission_summary_rejection(
@@ -2459,7 +2204,7 @@ fn public_read_fluent_admission_admits_distinct_grouped_query_with_distinct_budg
 }
 
 #[test]
-fn trusted_sql_query_path_keeps_existing_unbounded_admin_behavior() {
+fn trusted_sql_query_path_runs_explicit_unbounded_admin_read() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("Alice", 30), ("Bob", 24)]);
@@ -2536,195 +2281,6 @@ fn assert_query_not_found(err: QueryError, context: &str) {
             kind: icydb_diagnostic_code::QueryErrorKind::NotFound,
         }),
         "{context}: diagnostic detail drifted",
-    );
-}
-
-fn assert_raw_limit_before_exists_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeExistsTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_page_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforePageTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_count_exact_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeCountExactTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_sum_exact_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeSumExactTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_exact_min_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeMinExactTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_exact_max_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeMaxExactTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_avg_exact_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeAvgExactTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_collect_complete_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeCollectCompleteTerminal),
-        "{context}: intent error variant drifted",
-    );
-}
-
-fn assert_raw_limit_before_admin_batch_terminal(err: QueryError, context: &str) {
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::QueryIntent,
-        "{context}: diagnostic code drifted",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&DiagnosticDetail::QueryKind {
-            kind: QueryErrorKind::Intent,
-        }),
-        "{context}: diagnostic detail drifted",
-    );
-    std::assert_matches!(
-        err,
-        QueryError::Intent(IntentError::RawLimitBeforeAdminBatchTerminal),
-        "{context}: intent error variant drifted",
     );
 }
 

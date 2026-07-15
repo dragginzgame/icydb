@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            AccessStreamBindings, ExecutionPlan, ExecutionProfileStats, ExecutionTrace,
+            AccessStreamBindings, ExecutionProfileStats, ExecutionRoutePlan, ExecutionTrace,
             ScalarContinuationContext, TraversalRuntime,
             diagnostics::execution_trace_for_access,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -76,7 +76,7 @@ pub(super) fn finish_scalar_kernel_observability(
 // Apply route hints and continuation invariants shared by scalar materialized
 // pages and aggregate row sinks before the kernel receives the route plan.
 const fn prepare_scalar_route_for_execution(
-    route_plan: &mut ExecutionPlan,
+    route_plan: &mut ExecutionRoutePlan,
     continuation: &ScalarContinuationContext,
     unpaged_rows_mode: bool,
     top_n_seek_requires_lookahead: bool,
@@ -99,14 +99,14 @@ const fn prepare_scalar_route_for_execution(
 pub(super) fn execute_prepared_scalar_kernel<T>(
     prepared: PreparedScalarRouteRuntime,
     adjust_route: impl FnOnce(
-        &mut ExecutionPlan,
+        &mut ExecutionRoutePlan,
         &AccessPlannedQuery,
         &ScalarContinuationContext,
         &crate::db::executor::ExecutionPreparation,
     ),
     execute: impl FnOnce(
         &ExecutionInputs<'_>,
-        &ExecutionPlan,
+        &ExecutionRoutePlan,
         &ScalarContinuationContext,
     ) -> Result<T, InternalError>,
 ) -> Result<PreparedScalarKernelExecution<T>, InternalError> {

@@ -409,14 +409,10 @@ impl AcceptedRelationTargetAuthority {
         db: &'db Db<C>,
         source_path: &str,
         field_name: &str,
-    ) -> Result<Option<&'db EntityRuntimeHooks<C>>, InternalError>
+    ) -> Result<&'db EntityRuntimeHooks<C>, InternalError>
     where
         C: CanisterKind,
     {
-        if !db.has_runtime_hooks() {
-            return Ok(None);
-        }
-
         let hook = db
             .runtime_hook_for_entity_tag(self.entity_tag)
             .map_err(|err| {
@@ -473,7 +469,7 @@ impl AcceptedRelationTargetAuthority {
             ));
         }
 
-        Ok(Some(hook))
+        Ok(hook)
     }
 }
 

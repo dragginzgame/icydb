@@ -150,11 +150,10 @@ impl AcceptedSchemaCatalogContext {
         E: EntityKind,
     {
         self.debug_assert_matches_entity::<E>();
-        let authority = EntityAuthority::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH);
         let (accepted_row_layout, row_proof) =
             AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 &self.snapshot,
-                authority.model(),
+                E::MODEL,
             )?;
         let row_decode_contract =
             accepted_row_layout.row_decode_contract(self.enum_catalog.clone());
@@ -167,13 +166,14 @@ impl AcceptedSchemaCatalogContext {
             self.enum_catalog()
         ));
 
-        Ok(
-            authority.with_accepted_row_decode_contract(
-                row_proof,
-                row_decode_contract,
-                schema_info,
-            ),
-        )
+        Ok(EntityAuthority::from_accepted_row_decode_contract(
+            E::MODEL,
+            E::ENTITY_TAG,
+            E::Store::PATH,
+            row_proof,
+            row_decode_contract,
+            schema_info,
+        ))
     }
 
     #[cfg(feature = "sql")]

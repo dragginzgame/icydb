@@ -6,4 +6,4 @@
 
 mod entity;
 
-pub use entity::EntityAuthority;
+pub(in crate::db) use entity::EntityAuthority;

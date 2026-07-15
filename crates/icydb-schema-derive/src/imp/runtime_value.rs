@@ -125,7 +125,7 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
 }
 
 // Generated authoring values stay name-based until accepted-catalog admission.
-// Build InputValue recursively here without constructing the legacy runtime
+// Build InputValue recursively here without constructing an intermediate runtime
 // enum representation as an intermediate value.
 fn enum_input_value_tokens(node: &Enum) -> TokenStream {
     let ident = node.def.ident();

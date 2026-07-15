@@ -228,7 +228,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute a policy-validated public primary-key SQL `DELETE` plan.
     #[doc(hidden)]
-    pub fn execute_validated_sql_public_primary_key_delete<E>(
+    pub(in crate::db) fn execute_validated_sql_public_primary_key_delete<E>(
         &self,
         plan: &SqlPublicPrimaryKeyDeletePlan,
     ) -> Result<SqlStatementResult, QueryError>
@@ -240,7 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute a policy-validated bounded deterministic SQL `DELETE` plan.
     #[doc(hidden)]
-    pub fn execute_validated_sql_public_bounded_delete<E>(
+    pub(in crate::db) fn execute_validated_sql_public_bounded_delete<E>(
         &self,
         plan: &SqlPublicBoundedDeletePlan,
     ) -> Result<SqlStatementResult, QueryError>

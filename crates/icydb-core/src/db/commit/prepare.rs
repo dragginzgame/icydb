@@ -515,9 +515,9 @@ fn decode_commit_marker_structural_slots<'a>(
 //
 // Commit preparation may need to inspect committed rows while rebuilding
 // unique-index proofs and reverse-index mutations. Those storage reads must use
-// the same accepted row and index contracts as mutation staging so append-only
-// nullable rows do not fail on generated-only slot-count validation during
-// preflight.
+// the same accepted row and index contracts as mutation staging so rows from
+// an earlier accepted append-only layout revision remain valid when nullable
+// fields have since been appended.
 fn accepted_commit_schema_contracts<C>(
     db: &Db<C>,
     authority: &CommitPrepareAuthority,

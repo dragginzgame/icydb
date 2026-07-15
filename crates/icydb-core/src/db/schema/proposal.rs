@@ -698,8 +698,8 @@ fn compiled_primary_key_field_ids(model: &EntityModel) -> Vec<FieldId> {
 }
 
 // Check the initial proposal projection remains a pure slot-order projection.
-// Startup reconciliation will replace this deterministic first-snapshot ID
-// assignment with stored IDs once a live persisted schema exists.
+// Startup reconciliation preserves accepted stored IDs when a live schema
+// already exists; this deterministic assignment belongs only to first contact.
 fn debug_assert_compiled_schema_proposal_invariants(
     model: &EntityModel,
     proposal: &CompiledSchemaProposal,

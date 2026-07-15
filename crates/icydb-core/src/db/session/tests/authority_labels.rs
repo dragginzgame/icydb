@@ -170,11 +170,6 @@ fn execute_sql_statement_explain_execution_secondary_covering_order_field_buildi
             && !explain.contains("index_state"),
         "building indexes must disappear from planner visibility and explain as a materialized full-scan fallback: {explain}",
     );
-    assert!(
-        !explain.contains("witness_validated") && !explain.contains("storage_existence_witness"),
-        "building indexes must not leave legacy secondary covering labels behind once they are planner-invisible: {explain}",
-    );
-
     let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",

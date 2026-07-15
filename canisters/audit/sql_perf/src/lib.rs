@@ -504,7 +504,7 @@ where
         return Err(invalid_perf_loop_runs_error());
     }
 
-    let session = db();
+    let session = db()?;
     let mut first_result = None;
     let mut total_compile_local_instructions = 0_u64;
     let mut total_compile_cache_key_local_instructions = 0_u64;
@@ -995,7 +995,7 @@ fn query_fluent_scenario_loop(
         return Err(invalid_perf_loop_runs_error());
     }
 
-    let session = db();
+    let session = db()?;
     let mut first_outcome = None;
     let mut total_compile_local_instructions = 0_u64;
     let mut total_compile_schema_catalog_local_instructions = 0_u64;
@@ -1211,12 +1211,12 @@ fn query_fluent_scenario_loop(
 /// Clear all dedicated perf fixture rows from this canister.
 #[update(name = "icydb_fixtures_reset")]
 fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
-    db().delete::<PerfAuditAccount>().execute()?;
-    db().delete::<PerfAuditBlob>().execute()?;
-    db().delete::<PerfAuditHeapUser>().execute()?;
-    db().delete::<PerfAuditJournaledUser>().execute()?;
-    db().delete::<PerfAuditToken>().execute()?;
-    db().delete::<PerfAuditUser>().execute()?;
+    db()?.delete::<PerfAuditAccount>().execute()?;
+    db()?.delete::<PerfAuditBlob>().execute()?;
+    db()?.delete::<PerfAuditHeapUser>().execute()?;
+    db()?.delete::<PerfAuditJournaledUser>().execute()?;
+    db()?.delete::<PerfAuditToken>().execute()?;
+    db()?.delete::<PerfAuditUser>().execute()?;
 
     Ok(())
 }
@@ -1225,12 +1225,12 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
 #[update(name = "icydb_fixtures_load")]
 fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
-    db().insert_many_atomic(perf_audit_users())?;
-    db().insert_many_atomic(perf_audit_heap_users())?;
-    db().insert_many_atomic(perf_audit_journaled_users())?;
-    db().insert_many_atomic(perf_audit_blobs())?;
-    db().insert_many_atomic(perf_audit_accounts())?;
-    db().insert_many_atomic(perf_audit_tokens())?;
+    db()?.insert_many_atomic(perf_audit_users())?;
+    db()?.insert_many_atomic(perf_audit_heap_users())?;
+    db()?.insert_many_atomic(perf_audit_journaled_users())?;
+    db()?.insert_many_atomic(perf_audit_blobs())?;
+    db()?.insert_many_atomic(perf_audit_accounts())?;
+    db()?.insert_many_atomic(perf_audit_tokens())?;
 
     Ok(())
 }
@@ -1241,7 +1241,7 @@ fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
 #[update]
 fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
-    db().insert_many_atomic(perf_audit_journaled_reentry_probe_users())?;
+    db()?.insert_many_atomic(perf_audit_journaled_reentry_probe_users())?;
 
     Ok(())
 }
@@ -1250,7 +1250,7 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_trusted_sql_query::<PerfAuditUser>(sql.as_str())
+    db()?.execute_trusted_sql_query::<PerfAuditUser>(sql.as_str())
 }
 
 /// Execute one PerfAuditUser-only SQL query and attach one local instruction
@@ -1259,7 +1259,7 @@ fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1273,7 +1273,7 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 #[query]
 fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_trusted_sql_query::<PerfAuditUser>(sql.as_str())?;
+    let result = db()?.execute_trusted_sql_query::<PerfAuditUser>(sql.as_str())?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
     Ok(SqlTotalOnlyPerfResult {
@@ -1288,7 +1288,7 @@ fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icy
 #[query]
 fn query_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let response = db()
+    let response = db()?
         .load::<PerfAuditUser>()
         .order_asc("id")
         .partial_window(1)
@@ -1309,7 +1309,7 @@ fn query_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icyd
 #[update]
 fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1323,7 +1323,7 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[cfg(feature = "sql")]
 #[update]
 fn update_user_sql(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_update::<PerfAuditUser>(sql.as_str())
+    db()?.execute_trusted_sql_mutation::<PerfAuditUser>(sql.as_str())
 }
 
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
@@ -1378,7 +1378,7 @@ where
     E: EntityFor<PerfAuditCanister>,
     B: Fn(i32, &str, i32) -> E + Copy,
 {
-    let session = db();
+    let session = db()?;
     let first_row = build(base_id, "first-insert", 41);
     let start = ic_cdk::api::performance_counter(1);
     session.insert(first_row)?;
@@ -1490,7 +1490,7 @@ where
     E: EntityFor<PerfAuditCanister>,
 {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_update::<E>(sql)?;
+    let result = db()?.execute_trusted_sql_mutation::<E>(sql)?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
     let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
 
@@ -1513,25 +1513,25 @@ where
     let delete_count_start = base_id + 4_000;
     let delete_returning_start = base_id + 5_000;
 
-    db().insert_many_atomic(sql_write_window_rows(
+    db()?.insert_many_atomic(sql_write_window_rows(
         update_count_start,
         "update-count",
         41,
         build,
     ))?;
-    db().insert_many_atomic(sql_write_window_rows(
+    db()?.insert_many_atomic(sql_write_window_rows(
         update_returning_start,
         "update-returning",
         51,
         build,
     ))?;
-    db().insert_many_atomic(sql_write_window_rows(
+    db()?.insert_many_atomic(sql_write_window_rows(
         delete_count_start,
         "delete-count",
         61,
         build,
     ))?;
-    db().insert_many_atomic(sql_write_window_rows(
+    db()?.insert_many_atomic(sql_write_window_rows(
         delete_returning_start,
         "delete-returning",
         71,
@@ -1646,7 +1646,7 @@ fn measure_journaled_user_sql_write_materialization_perf()
 #[query]
 fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1660,7 +1660,7 @@ fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[query]
 fn query_heap_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_trusted_sql_query::<PerfAuditHeapUser>(sql.as_str())?;
+    let result = db()?.execute_trusted_sql_query::<PerfAuditHeapUser>(sql.as_str())?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
     Ok(SqlTotalOnlyPerfResult {
@@ -1675,7 +1675,7 @@ fn query_heap_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult
 #[query]
 fn query_heap_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let response = db()
+    let response = db()?
         .load::<PerfAuditHeapUser>()
         .order_asc("id")
         .partial_window(1)
@@ -1705,7 +1705,7 @@ fn query_heap_user_fluent_with_perf() -> Result<FluentQueryPerfResult, icydb::Er
 #[update]
 fn warm_heap_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditHeapUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1730,7 +1730,7 @@ fn query_heap_user_loop_with_perf(
 #[query]
 fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1746,7 +1746,7 @@ fn query_journaled_user_total_only_perf(
     sql: String,
 ) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_trusted_sql_query::<PerfAuditJournaledUser>(sql.as_str())?;
+    let result = db()?.execute_trusted_sql_query::<PerfAuditJournaledUser>(sql.as_str())?;
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
     Ok(SqlTotalOnlyPerfResult {
@@ -1762,7 +1762,7 @@ fn query_journaled_user_total_only_perf(
 fn query_journaled_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icydb::Error>
 {
     let start = ic_cdk::api::performance_counter(1);
-    let response = db()
+    let response = db()?
         .load::<PerfAuditJournaledUser>()
         .order_asc("id")
         .partial_window(1)
@@ -1784,7 +1784,7 @@ fn query_journaled_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfRe
 #[update]
 fn measure_journaled_reentry_perf() -> Result<FluentTotalOnlyPerfResult, icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
-    let response = db()
+    let response = db()?
         .load::<PerfAuditJournaledUser>()
         .order_asc("id")
         .partial_window(1)
@@ -1818,7 +1818,7 @@ fn query_journaled_user_fluent_with_perf() -> Result<FluentQueryPerfResult, icyd
 #[update]
 fn warm_journaled_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1841,7 +1841,7 @@ fn query_journaled_user_loop_with_perf(
 #[cfg(feature = "sql")]
 #[query]
 fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_trusted_sql_query::<PerfAuditAccount>(sql.as_str())
+    db()?.execute_trusted_sql_query::<PerfAuditAccount>(sql.as_str())
 }
 
 /// Execute one PerfAuditAccount-only SQL query and attach one local instruction
@@ -1850,7 +1850,7 @@ fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1865,7 +1865,7 @@ fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Err
 #[update]
 fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1878,7 +1878,7 @@ fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb
 #[cfg(feature = "sql")]
 #[update]
 fn update_account_sql(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_update::<PerfAuditAccount>(sql.as_str())
+    db()?.execute_trusted_sql_mutation::<PerfAuditAccount>(sql.as_str())
 }
 
 /// Execute the same PerfAuditAccount-only SQL query repeatedly inside one
@@ -1896,7 +1896,7 @@ fn query_account_loop_with_perf(
 #[cfg(feature = "sql")]
 #[query]
 fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_trusted_sql_query::<PerfAuditBlob>(sql.as_str())
+    db()?.execute_trusted_sql_query::<PerfAuditBlob>(sql.as_str())
 }
 
 /// Execute one PerfAuditBlob-only SQL query and attach one local instruction
@@ -1905,7 +1905,7 @@ fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1919,7 +1919,7 @@ fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 #[update]
 fn warm_blob_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1939,7 +1939,7 @@ fn query_blob_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResul
 #[cfg(feature = "sql")]
 #[query]
 fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_trusted_sql_query::<PerfAuditToken>(sql.as_str())
+    db()?.execute_trusted_sql_query::<PerfAuditToken>(sql.as_str())
 }
 
 /// Execute one PerfAuditToken-only SQL query and attach one local instruction
@@ -1948,7 +1948,7 @@ fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1962,7 +1962,7 @@ fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error
 #[update]
 fn warm_token_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =
-        db().execute_trusted_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
+        db()?.execute_trusted_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
@@ -2148,7 +2148,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current exact primary-key filter over PerfAuditUser",
-            db().load::<PerfAuditUser>().filter_eq("id", 1_i32)
+            db()?.load::<PerfAuditUser>().filter_eq("id", 1_i32)
         )),
         "pk.scalar.generated.filter.missing.try_one" => Ok(focused_fluent_row!(
             scenario.as_str(),
@@ -2157,7 +2157,9 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current missing exact primary-key filter over PerfAuditHeapUser",
-            db().load::<PerfAuditHeapUser>().filter_eq("id", 99_999_i32)
+            db()?
+                .load::<PerfAuditHeapUser>()
+                .filter_eq("id", 99_999_i32)
         )),
         "pk.scalar.generated.by_id.existing.try_one" => Ok(focused_fluent_row!(
             scenario.as_str(),
@@ -2166,7 +2168,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current explicit by_id baseline over PerfAuditUser",
-            db().load::<PerfAuditUser>().by_id(Id::from_key(1_i32))
+            db()?.load::<PerfAuditUser>().by_id(Id::from_key(1_i32))
         )),
         "pk.scalar.external.filter.existing.try_one" => Ok(focused_contract_row(
             scenario.as_str(),
@@ -2229,7 +2231,8 @@ fn capture_pk_canonicalization_focused_scenario(
             0_u32,
             0_u32,
             "measured current empty primary-key IN filter",
-            db().load::<PerfAuditUser>()
+            db()?
+                .load::<PerfAuditUser>()
                 .filter_in("id", Vec::<i32>::new())
         )),
         "pk.in.fluent.one" => Ok(focused_fluent_row!(
@@ -2239,7 +2242,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current one-value primary-key IN filter",
-            db().load::<PerfAuditUser>().filter_in("id", [1_i32])
+            db()?.load::<PerfAuditUser>().filter_in("id", [1_i32])
         )),
         "pk.in.fluent.duplicates" => Ok(focused_fluent_row!(
             scenario.as_str(),
@@ -2248,7 +2251,8 @@ fn capture_pk_canonicalization_focused_scenario(
             3_u32,
             2_u32,
             "measured current duplicate primary-key IN filter",
-            db().load::<PerfAuditUser>()
+            db()?
+                .load::<PerfAuditUser>()
                 .filter_in("id", [2_i32, 1_i32, 2_i32])
         )),
         "pk.in.fluent.multiple_mixed" => Ok(focused_fluent_row!(
@@ -2258,7 +2262,8 @@ fn capture_pk_canonicalization_focused_scenario(
             3_u32,
             2_u32,
             "measured current mixed existing/missing primary-key IN filter",
-            db().load::<PerfAuditUser>()
+            db()?
+                .load::<PerfAuditUser>()
                 .filter_in("id", [1_i32, 99_999_i32, 1_i32])
         )),
         "pk.in.fluent.raw_terms_over_budget" => Ok(focused_error_row(
@@ -2279,7 +2284,8 @@ fn capture_pk_canonicalization_focused_scenario(
             1_025_u32,
             1_025_u32,
             "measured current deduplicated primary-key IN public-read cap failure",
-            db().load::<PerfAuditUser>()
+            db()?
+                .load::<PerfAuditUser>()
                 .filter_in("id", 10_000_i32..11_025_i32)
         )),
         "pk.in.fluent.by_ids.raw_terms_over_budget" => Ok(focused_error_row(
@@ -2320,7 +2326,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current primary-key equality with true residual",
-            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+            db()?.load::<PerfAuditUser>().filter(FilterExpr::and(vec![
                 FieldRef::new("id").eq(1_i32),
                 FieldRef::new("active").eq(true),
             ]))
@@ -2332,7 +2338,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current primary-key equality with false residual",
-            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+            db()?.load::<PerfAuditUser>().filter(FilterExpr::and(vec![
                 FieldRef::new("id").eq(1_i32),
                 FieldRef::new("active").eq(false),
             ]))
@@ -2344,7 +2350,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current invalid residual on existing primary key fails closed",
-            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+            db()?.load::<PerfAuditUser>().filter(FilterExpr::and(vec![
                 FieldRef::new("id").eq(1_i32),
                 FieldRef::new("missing").eq(1_i32),
             ]))
@@ -2356,7 +2362,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current invalid residual on missing primary key fails closed",
-            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+            db()?.load::<PerfAuditUser>().filter(FilterExpr::and(vec![
                 FieldRef::new("id").eq(99_999_i32),
                 FieldRef::new("missing").eq(1_i32),
             ]))
@@ -2368,7 +2374,7 @@ fn capture_pk_canonicalization_focused_scenario(
             2_u32,
             0_u32,
             "measured current contradictory primary-key equality filter",
-            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+            db()?.load::<PerfAuditUser>().filter(FilterExpr::and(vec![
                 FieldRef::new("id").eq(1_i32),
                 FieldRef::new("id").eq(2_i32),
             ]))
@@ -2380,7 +2386,7 @@ fn capture_pk_canonicalization_focused_scenario(
             3_u32,
             0_u32,
             "measured current primary-key equality excluded by IN filter",
-            db().load::<PerfAuditUser>().filter(FilterExpr::and(vec![
+            db()?.load::<PerfAuditUser>().filter(FilterExpr::and(vec![
                 FieldRef::new("id").eq(1_i32),
                 FieldRef::new("id").in_list([2_i32, 3_i32]),
             ]))
@@ -2394,7 +2400,7 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current heap-store exact primary-key filter",
-            db().load::<PerfAuditHeapUser>().filter_eq("id", 1_i32)
+            db()?.load::<PerfAuditHeapUser>().filter_eq("id", 1_i32)
         )),
         "pk.store.journaled.existing" => Ok(focused_fluent_row!(
             scenario.as_str(),
@@ -2403,10 +2409,12 @@ fn capture_pk_canonicalization_focused_scenario(
             1_u32,
             1_u32,
             "measured current journaled-store exact primary-key filter",
-            db().load::<PerfAuditJournaledUser>().filter_eq("id", 1_i32)
+            db()?
+                .load::<PerfAuditJournaledUser>()
+                .filter_eq("id", 1_i32)
         )),
         "pk.store.heap.deleted" => {
-            let _ = db()
+            let _ = db()?
                 .delete::<PerfAuditHeapUser>()
                 .by_id(Id::from_key(2_i32))
                 .execute();
@@ -2417,11 +2425,11 @@ fn capture_pk_canonicalization_focused_scenario(
                 1_u32,
                 1_u32,
                 "measured current heap-store deleted exact-key lookup",
-                db().load::<PerfAuditHeapUser>().filter_eq("id", 2_i32)
+                db()?.load::<PerfAuditHeapUser>().filter_eq("id", 2_i32)
             ))
         }
         "pk.store.journaled.deleted" => {
-            let _ = db()
+            let _ = db()?
                 .delete::<PerfAuditJournaledUser>()
                 .by_id(Id::from_key(2_i32))
                 .execute();
@@ -2432,7 +2440,9 @@ fn capture_pk_canonicalization_focused_scenario(
                 1_u32,
                 1_u32,
                 "measured current journaled-store deleted exact-key lookup",
-                db().load::<PerfAuditJournaledUser>().filter_eq("id", 2_i32)
+                db()?
+                    .load::<PerfAuditJournaledUser>()
+                    .filter_eq("id", 2_i32)
             ))
         }
         "pk.noncanonical.unique_secondary" => Ok(focused_fluent_row!(
@@ -2442,7 +2452,7 @@ fn capture_pk_canonicalization_focused_scenario(
             0_u32,
             0_u32,
             "measured current secondary-field equality remains off primary-key access",
-            db().load::<PerfAuditUser>().filter_eq("name", "Alice")
+            db()?.load::<PerfAuditUser>().filter_eq("name", "Alice")
         )),
         "pk.noncanonical.partial_composite" => Ok(focused_error_row(
             scenario.as_str(),
@@ -2627,7 +2637,11 @@ fn focused_sql_user_row(
     sql: &str,
     explanation: &str,
 ) -> FocusedPkPerfRow {
-    match db().execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql) {
+    let execution = db().map_err(icydb::Error::from).and_then(|session| {
+        session.execute_trusted_sql_query_with_attribution::<PerfAuditUser>(sql)
+    });
+
+    match execution {
         Ok((result, attribution)) => FocusedPkPerfRow {
             scenario_key: scenario_key.to_string(),
             terminal: terminal.to_string(),
@@ -2711,7 +2725,23 @@ fn focused_sql_result_signature(result: &SqlQueryResult) -> String {
 
 #[cfg(feature = "sql")]
 fn focused_empty_count_row(scenario_key: &str) -> FocusedPkPerfRow {
-    let session = db();
+    let session = match db() {
+        Ok(session) => session,
+        Err(err) => {
+            let err = icydb::Error::from(err);
+            return focused_error_row(
+                scenario_key,
+                "count_exact",
+                "Empty",
+                "bootstrap_error",
+                Some(focused_error_code(&err)),
+                "Empty",
+                0,
+                0,
+                "database memory bootstrap failed",
+            );
+        }
+    };
     let query = session
         .load::<PerfAuditUser>()
         .filter_in("id", Vec::<i32>::new());
@@ -2752,7 +2782,23 @@ fn focused_empty_count_row(scenario_key: &str) -> FocusedPkPerfRow {
 
 #[cfg(feature = "sql")]
 fn focused_empty_require_one_row(scenario_key: &str) -> FocusedPkPerfRow {
-    let session = db();
+    let session = match db() {
+        Ok(session) => session,
+        Err(err) => {
+            let err = icydb::Error::from(err);
+            return focused_error_row(
+                scenario_key,
+                "require_one",
+                "Empty",
+                "bootstrap_error",
+                Some(focused_error_code(&err)),
+                "Empty",
+                0,
+                0,
+                "database memory bootstrap failed",
+            );
+        }
+    };
     let query = session
         .load::<PerfAuditUser>()
         .filter_in("id", Vec::<i32>::new());
@@ -2782,7 +2828,7 @@ fn focused_empty_require_one_row(scenario_key: &str) -> FocusedPkPerfRow {
             "empty primary-key require_one attribution failed",
         ),
     };
-    let terminal_result = db()
+    let terminal_result = session
         .load::<PerfAuditUser>()
         .filter_in("id", Vec::<i32>::new())
         .execute_rows()

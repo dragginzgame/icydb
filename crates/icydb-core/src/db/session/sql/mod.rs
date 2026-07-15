@@ -61,11 +61,9 @@ pub(in crate::db) use delete_policy::{
 #[cfg(test)]
 pub(in crate::db) const DEFAULT_PUBLIC_INSERT_STAGED_ROWS: u32 =
     write_policy::DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT;
-pub use delete_policy::{
-    SqlAdminBulkDeletePlan, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
-    SqlDeletePolicyRejection, SqlDeletePolicyReport, SqlDeleteStatementClassification,
-    SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan, SqlSessionCurrentDeletePlan,
-    SqlValidatedDeletePlan, classify_sql_delete_policy,
+pub(in crate::db) use delete_policy::{
+    SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+    SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
 };
 pub(in crate::db) use projection::SqlProjectionContract;
 pub use result::SqlStatementResult;
@@ -77,17 +75,13 @@ pub use surface::{
 pub(in crate::db) use update_policy::{
     DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
 };
-pub use update_policy::{
-    SqlAdminBulkUpdatePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
-    SqlSessionCurrentUpdatePlan, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy,
-    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
-    SqlUpdateStatementClassification, SqlValidatedUpdatePlan, classify_sql_update_policy,
+pub(in crate::db) use update_policy::{
+    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlUpdateExposurePolicy,
+    SqlUpdatePolicyContext, SqlValidatedUpdatePlan, classify_sql_update_policy,
 };
 pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
-pub use write_policy::{
-    SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds, SqlWriteReturningShape,
-    SqlWriteStatementShape, SqlWriteWhereProof,
-};
+#[cfg(test)]
+pub(in crate::db) use write_policy::{SqlWriteExecutionBounds, SqlWriteReturningBounds};
 
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
@@ -182,11 +176,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((result, attribution))
     }
 
-    /// Execute one single-entity reduced SQL mutation statement.
+    /// Execute one trusted single-entity reduced SQL mutation statement.
     ///
     /// This surface stays hard-bound to `E`, rejects read-only SQL, and
     /// returns SQL-shaped mutation output such as counts or `RETURNING` rows.
-    pub fn execute_sql_update<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
+    /// It does not apply a generated endpoint's primary-key or bounded-update
+    /// exposure policy, so its caller must own authorization and admission.
+    pub fn execute_trusted_sql_mutation<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {

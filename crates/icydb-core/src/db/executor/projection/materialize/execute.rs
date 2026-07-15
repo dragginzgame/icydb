@@ -8,12 +8,6 @@ use super::contracts::CompiledExpr;
 use super::contracts::{ProjectionSpec, compile_scalar_projection_expr_for_model_only};
 #[cfg(test)]
 use crate::db::executor::projection::eval::eval_compiled_expr_with_value_reader;
-#[cfg(test)]
-use crate::{
-    db::response::ProjectedRow,
-    entity::{EntityKind, EntityValue},
-    types::Id,
-};
 use crate::{
     db::{
         data::DataRow,
@@ -38,6 +32,15 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+#[cfg(test)]
+use crate::{
+    entity::{EntityKind, EntityValue},
+    types::Id,
+    value::OutputValue,
+};
+
+#[cfg(test)]
+type ProjectedEntityValues<E> = Vec<(Id<E>, Vec<OutputValue>)>;
 
 pub(super) fn project_slot_row(
     prepared_projection: &PreparedProjectionContract,
@@ -626,7 +629,7 @@ fn project_scalar_data_row_into(
 pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
     projection: &ProjectionSpec,
     rows: &[(Id<E>, E)],
-) -> Result<Vec<ProjectedRow<E>>, ProjectionEvalError>
+) -> Result<ProjectedEntityValues<E>, ProjectionEvalError>
 where
     E: EntityKind + EntityValue,
 {
@@ -648,7 +651,7 @@ where
             &mut read_slot,
             &mut |value| values.push(value),
         )?;
-        projected_rows.push(ProjectedRow::from_runtime_values(*id, values));
+        projected_rows.push((*id, values.into_iter().map(OutputValue::from).collect()));
     }
 
     Ok(projected_rows)

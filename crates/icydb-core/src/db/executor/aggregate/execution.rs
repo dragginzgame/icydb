@@ -8,7 +8,7 @@ use crate::{
         access::{LoweredAccess, LoweredAccessError, lower_access_with_schema_info},
         direction::Direction,
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
             LoweredIndexPrefixCardinalityPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             StoreResolver,
             aggregate::{AggregateKind, ScalarTerminalKind, field::FieldSlot},
@@ -42,7 +42,7 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec> {
         &'exec crate::db::access::ExecutableAccessPlan<'exec, Value>,
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
-    pub(in crate::db::executor) route_plan: &'exec ExecutionPlan,
+    pub(in crate::db::executor) route_plan: &'exec ExecutionRoutePlan,
     pub(in crate::db::executor) index_prefix_specs: &'exec [LoweredIndexPrefixSpec],
     pub(in crate::db::executor) index_range_specs: &'exec [LoweredIndexRangeSpec],
     pub(in crate::db::executor) index_predicate_program: Option<&'exec IndexPredicateProgram>,
@@ -197,7 +197,7 @@ impl PreparedAggregateSpec {
 pub(in crate::db::executor) struct AggregateExecutionDispatch {
     pub(in crate::db::executor) aggregate: PreparedAggregateSpec,
     pub(in crate::db::executor) direction: Direction,
-    pub(in crate::db::executor) route_plan: ExecutionPlan,
+    pub(in crate::db::executor) route_plan: ExecutionRoutePlan,
 }
 
 ///

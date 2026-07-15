@@ -89,14 +89,6 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     }
 }
 
-/// Return whether this db has any registered runtime hook callbacks.
-#[must_use]
-pub(in crate::db) const fn has_runtime_hooks<C: CanisterKind>(
-    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
-) -> bool {
-    !entity_runtime_hooks.is_empty()
-}
-
 /// Validate that each runtime hook owns one unique entity tag.
 ///
 /// This runs only in debug builds at hook table construction time so duplicate

@@ -87,7 +87,7 @@ impl GroupedRouteStage {
     /// Borrow route-owned grouped execution plan contract.
     pub(in crate::db::executor) const fn grouped_route_plan(
         &self,
-    ) -> &crate::db::executor::ExecutionPlan {
+    ) -> &crate::db::executor::ExecutionRoutePlan {
         &self.route_payload.grouped_route_plan
     }
 

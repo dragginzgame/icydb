@@ -120,15 +120,12 @@ fn stable_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init(
-                    {
-                        ensure_memory_bootstrap();
-                        ::icydb::__macro::ic_memory_key!(
-                            authority = #memory_authority,
-                            key = #stable_key,
-                            ty = #store_ty,
-                            id = #memory_id,
-                        )
-                    }
+                    ::icydb::__macro::ic_memory_key!(
+                        authority = #memory_authority,
+                        key = #stable_key,
+                        ty = #store_ty,
+                        id = #memory_id,
+                    )
                 )
             );
         }
@@ -148,15 +145,12 @@ fn journaled_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init_journaled(
-                    {
-                        ensure_memory_bootstrap();
-                        ::icydb::__macro::ic_memory_key!(
-                            authority = #memory_authority,
-                            key = #stable_key,
-                            ty = #store_ty,
-                            id = #memory_id,
-                        )
-                    }
+                    ::icydb::__macro::ic_memory_key!(
+                        authority = #memory_authority,
+                        key = #stable_key,
+                        ty = #store_ty,
+                        id = #memory_id,
+                    )
                 )
             );
         }
@@ -334,15 +328,11 @@ fn store_wiring_tokens(
     } = store_registry;
     let store_registry_init = if store_inits.is_empty() {
         quote! {
-            {
-                ensure_memory_bootstrap();
-                ::icydb::__macro::StoreRegistry::new()
-            }
+            ::icydb::__macro::StoreRegistry::new()
         }
     } else {
         quote! {
             {
-                ensure_memory_bootstrap();
                 let mut reg =
                     ::icydb::__macro::StoreRegistry::new();
                 #store_inits
@@ -366,21 +356,20 @@ fn store_wiring_tokens(
         );
 
         #journal_defs
-        fn ensure_memory_bootstrap() {
+        fn ensure_memory_bootstrap() ->
+            ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
+        {
             static MEMORY_BOOTSTRAP:
-                ::std::sync::OnceLock<::std::result::Result<(), ::std::string::String>> =
+                ::std::sync::OnceLock<
+                    ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
+                > =
                     ::std::sync::OnceLock::new();
 
-            let result = MEMORY_BOOTSTRAP.get_or_init(|| {
+            MEMORY_BOOTSTRAP.get_or_init(|| {
                 ::icydb::__macro::bootstrap_default_memory_manager()
-                    .map_err(|err| err.to_string())?;
-
-                Ok(())
-            });
-
-            if let Err(err) = result {
-                panic!("generated canister memory bootstrap should succeed: {err}");
-            }
+                    .map(|_allocations| ())
+                    .map_err(::icydb::db::DatabaseBootstrapError::from)
+            }).clone()
         }
 
         #data_defs
@@ -395,18 +384,24 @@ fn store_wiring_tokens(
 
         #[doc(hidden)]
         #[must_use]
-        pub fn core_db() -> ::icydb::__macro::CoreDbSession<#canister_path> {
-            ensure_memory_bootstrap();
+        pub fn core_db() -> ::std::result::Result<
+            ::icydb::__macro::CoreDbSession<#canister_path>,
+            ::icydb::db::DatabaseBootstrapError,
+        > {
+            ensure_memory_bootstrap()?;
 
-            ::icydb::__macro::CoreDbSession::<#canister_path>::new_with_hooks(
+            Ok(::icydb::__macro::CoreDbSession::<#canister_path>::new_with_hooks(
                 &STORE_REGISTRY,
                 ENTITY_RUNTIME_HOOKS
-            )
+            ))
         }
 
         #[must_use]
-        pub fn db() -> ::icydb::db::DbSession<#canister_path> {
-            ::icydb::db::DbSession::new(core_db())
+        pub fn db() -> ::std::result::Result<
+            ::icydb::db::DbSession<#canister_path>,
+            ::icydb::db::DatabaseBootstrapError,
+        > {
+            Ok(::icydb::db::DbSession::new(core_db()?))
         }
     }
 }
@@ -549,5 +544,17 @@ mod tests {
         assert!(!rendered.contains("allow(unused_mut)"));
         assert!(!rendered.contains("expect(clippy::let_and_return"));
         assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 2);
+        assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
+        assert!(rendered.contains("map_err(::icydb::db::DatabaseBootstrapError::from)"));
+        assert!(rendered.contains("ensure_memory_bootstrap()?"));
+        assert!(rendered.contains("pubfndb()->::std::result::Result<"));
+        assert!(
+            rendered
+                .matches("::icydb::db::DatabaseBootstrapError")
+                .count()
+                >= 4
+        );
+        assert!(!rendered.contains("Result<(),::std::string::String>"));
+        assert!(!rendered.contains("panic!("));
     }
 }

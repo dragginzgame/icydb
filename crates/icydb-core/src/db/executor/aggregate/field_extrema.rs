@@ -8,7 +8,7 @@ use crate::{
         data::{DataRow, DecodedDataStoreKey},
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel, ExecutionRoutePlan,
             KeyStreamLoopControl,
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput,
@@ -169,7 +169,7 @@ impl ExecutionKernel {
         kind: AggregateKind,
         field_slot: crate::db::executor::aggregate::field::FieldSlot,
         direction: Direction,
-        route_plan: &crate::db::executor::ExecutionPlan,
+        route_plan: &crate::db::executor::ExecutionRoutePlan,
     ) -> Result<ScalarAggregateOutput, InternalError> {
         let field_fast_path_eligible = if kind == AggregateKind::Min {
             route_plan.field_min_fast_path_eligible()
@@ -233,7 +233,7 @@ impl ExecutionKernel {
     fn fold_field_target_extrema_for_route_plan(
         prepared: &PreparedAggregateStreamingInputs<'_>,
         consistency: MissingRowPolicy,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         spec: &FieldExtremaFoldSpec,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         let row_layout = prepared.authority.row_layout()?;

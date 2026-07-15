@@ -11,7 +11,7 @@ use crate::db::{
     },
     key_taxonomy::PrimaryKeyValue,
     predicate::PredicateProgram,
-    schema::{FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot},
+    schema::{PersistedFieldSnapshot, PersistedSchemaSnapshot},
 };
 use crate::error::InternalError;
 use crate::types::EntityTag;
@@ -124,8 +124,6 @@ pub(in crate::db) use index::{
 };
 
 mod identity;
-#[cfg(test)]
-pub(in crate::db::schema::mutation) use identity::write_hash_bool;
 pub(in crate::db::schema) use identity::{
     SchemaMutationPublicationIdentity, SchemaMutationRuntimeEpoch,
 };
@@ -134,40 +132,6 @@ mod staged_index_validation;
 pub(in crate::db::schema) use staged_index_validation::{
     SchemaStagedIndexValidationError, staged_index_keys_have_duplicate_unique_components,
 };
-
-///
-/// SchemaMutation
-///
-/// SchemaMutation is the schema-owned description of one accepted catalog
-/// change. It is intentionally independent of SQL syntax so parser frontends
-/// must lower into this contract instead of becoming the migration authority.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum SchemaMutation {
-    NullableField {
-        field_id: FieldId,
-        name: String,
-        slot: SchemaFieldSlot,
-    },
-    DefaultedField {
-        field_id: FieldId,
-        name: String,
-        slot: SchemaFieldSlot,
-    },
-    FieldPathIndex {
-        target: SchemaFieldPathIndexRebuildTarget,
-    },
-    ExpressionIndex {
-        target: SchemaExpressionIndexRebuildTarget,
-    },
-    #[cfg(any(test, feature = "sql"))]
-    DropNonRequiredSecondaryIndex {
-        target: SchemaSecondaryIndexDropCleanupTarget,
-    },
-    #[cfg(test)]
-    AlterNullability { field_id: FieldId },
-}
 
 ///
 /// SchemaMutationRequest
@@ -187,15 +151,6 @@ pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
     AddExpressionIndex {
         target: SchemaExpressionIndexRebuildTarget,
     },
-    #[cfg(any(test, feature = "sql"))]
-    DropNonRequiredSecondaryIndex {
-        target: SchemaSecondaryIndexDropCleanupTarget,
-    },
-    #[cfg(test)]
-    AlterNullability {
-        field_id: FieldId,
-    },
-    Incompatible,
 }
 
 ///
@@ -214,126 +169,8 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
     ExpressionIndexRequiresExpressionKey,
 }
 
-///
-/// MutationCompatibility
-///
-/// Stable high-level compatibility bucket for one mutation plan. This is kept
-/// small so unsupported schema changes fail closed instead of leaking through
-/// as ad hoc snapshot rewrites.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum MutationCompatibility {
-    MetadataOnlySafe,
-    RequiresRebuild,
-    #[cfg(test)]
-    UnsupportedPreOne,
-    Incompatible,
-}
-
-///
-/// RebuildRequirement
-///
-/// Physical work required before a mutation can be considered runtime-visible.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum RebuildRequirement {
-    NoRebuild,
-    IndexRebuild,
-    FullDataRewrite,
-    #[cfg(test)]
-    Unsupported,
-}
-
-///
-/// SchemaRebuildAction
-///
-/// One physical rebuild action implied by a catalog mutation plan. These
-/// actions are planning facts only; publication remains blocked until an
-/// executor owns the physical work and validation boundary.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum SchemaRebuildAction {
-    BuildFieldPathIndex {
-        target: SchemaFieldPathIndexRebuildTarget,
-    },
-    BuildExpressionIndex {
-        target: SchemaExpressionIndexRebuildTarget,
-    },
-    #[cfg(any(test, feature = "sql"))]
-    DropSecondaryIndex {
-        target: SchemaSecondaryIndexDropCleanupTarget,
-    },
-    RewriteAllRows,
-    Unsupported {
-        reason: &'static str,
-    },
-}
-
-///
-/// SchemaRebuildPlan
-///
-/// Schema-owned physical work classification derived from a mutation plan.
-/// Reconciliation asks publication status before exposing a new accepted
-/// snapshot; rebuild plans are the audit/debug shape that will later feed the
-/// physical rebuild runner.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaRebuildPlan {
-    requirement: RebuildRequirement,
-    actions: Vec<SchemaRebuildAction>,
-}
-
-impl SchemaRebuildPlan {
-    const fn no_rebuild() -> Self {
-        Self {
-            requirement: RebuildRequirement::NoRebuild,
-            actions: Vec::new(),
-        }
-    }
-
-    const fn new(requirement: RebuildRequirement, actions: Vec<SchemaRebuildAction>) -> Self {
-        Self {
-            requirement,
-            actions,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn requirement(&self) -> RebuildRequirement {
-        self.requirement
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn actions(&self) -> &[SchemaRebuildAction] {
-        self.actions.as_slice()
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn requires_physical_work(&self) -> bool {
-        !matches!(self.requirement, RebuildRequirement::NoRebuild)
-    }
-
-    #[must_use]
-    const fn publication_blocker(&self) -> Option<MutationPublicationBlocker> {
-        if self.requires_physical_work() {
-            return Some(MutationPublicationBlocker::RebuildRequired(
-                self.requirement,
-            ));
-        }
-
-        None
-    }
-}
-
 mod runner;
 pub(in crate::db::schema) use self::runner::*;
-
-mod execution;
-pub(in crate::db::schema) use self::execution::*;
 
 mod field_path;
 pub(in crate::db::schema) use self::field_path::*;
@@ -343,341 +180,93 @@ mod expression;
 pub(in crate::db::schema) use self::expression::*;
 
 ///
-/// MutationPublicationBlocker
-///
-/// Fail-closed reason preventing one mutation plan from becoming accepted
-/// runtime schema. This is intentionally separate from the compatibility and
-/// rebuild enums so reconciliation asks one schema-owned publication gate
-/// instead of reimplementing publishability rules locally.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum MutationPublicationBlocker {
-    NotMetadataSafe(MutationCompatibility),
-    RebuildRequired(RebuildRequirement),
-}
-
-///
-/// MutationPublicationStatus
-///
-/// Runtime publication decision for one mutation plan.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum MutationPublicationStatus {
-    Publishable,
-    Blocked(MutationPublicationBlocker),
-}
-
-///
 /// MutationPlan
 ///
 /// Deterministic schema-owned plan for moving one accepted snapshot to the
-/// next. Startup reconciliation can currently execute only no-rebuild plans;
-/// future DDL/rebuild work should extend this type before widening behavior.
+/// next. Every variant is a current publication or physical-execution shape;
+/// rejected snapshot deltas never become mutation plans.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct MutationPlan {
-    mutations: Vec<SchemaMutation>,
-    compatibility: MutationCompatibility,
-    rebuild: RebuildRequirement,
+pub(in crate::db::schema) enum MutationPlan {
+    MetadataOnly,
+    FieldPathIndexRebuild {
+        target: SchemaFieldPathIndexRebuildTarget,
+    },
+    ExpressionIndexRebuild {
+        target: SchemaExpressionIndexRebuildTarget,
+    },
+}
+
+/// Schema-owned publication boundary for a current mutation plan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum MutationPublicationPreflight {
+    PublishableNow,
+    RequiresPhysicalWork,
 }
 
 impl MutationPlan {
     /// Build the no-op plan for equal accepted snapshots.
     pub(in crate::db::schema) const fn exact_match() -> Self {
-        Self {
-            mutations: Vec::new(),
-            compatibility: MutationCompatibility::MetadataOnlySafe,
-            rebuild: RebuildRequirement::NoRebuild,
-        }
+        Self::MetadataOnly
     }
 
-    /// Build the currently executable append-only field plan. The caller owns
-    /// validating nullable/default absence semantics before publishing it.
-    pub(in crate::db::schema) fn append_only_fields(fields: &[PersistedFieldSnapshot]) -> Self {
-        let mutations = fields
-            .iter()
-            .map(|field| {
-                if field.default().is_none() {
-                    SchemaMutation::NullableField {
-                        field_id: field.id(),
-                        name: field.name().to_string(),
-                        slot: field.slot(),
-                    }
-                } else {
-                    SchemaMutation::DefaultedField {
-                        field_id: field.id(),
-                        name: field.name().to_string(),
-                        slot: field.slot(),
-                    }
-                }
-            })
-            .collect();
-
-        Self {
-            mutations,
-            compatibility: MutationCompatibility::MetadataOnlySafe,
-            rebuild: RebuildRequirement::NoRebuild,
-        }
+    /// Plan a field-path index rebuild from accepted index metadata.
+    const fn field_path_index_addition(target: SchemaFieldPathIndexRebuildTarget) -> Self {
+        Self::FieldPathIndexRebuild { target }
     }
 
-    /// Stage a field-path index addition from accepted index metadata. This is
-    /// a planning artifact only until rebuild orchestration can construct and
-    /// validate the physical index safely.
-    fn field_path_index_addition(target: SchemaFieldPathIndexRebuildTarget) -> Self {
-        Self {
-            mutations: vec![SchemaMutation::FieldPathIndex { target }],
-            compatibility: MutationCompatibility::RequiresRebuild,
-            rebuild: RebuildRequirement::IndexRebuild,
-        }
+    /// Plan an accepted deterministic expression-index rebuild.
+    const fn expression_index_addition(target: SchemaExpressionIndexRebuildTarget) -> Self {
+        Self::ExpressionIndexRebuild { target }
     }
 
-    /// Stage an accepted deterministic expression index addition. This shares
-    /// the same rebuild bucket as field-path indexes but remains a separate
-    /// mutation so canonical expression metadata can be audited independently.
-    fn expression_index_addition(target: SchemaExpressionIndexRebuildTarget) -> Self {
-        Self {
-            mutations: vec![SchemaMutation::ExpressionIndex { target }],
-            compatibility: MutationCompatibility::RequiresRebuild,
-            rebuild: RebuildRequirement::IndexRebuild,
-        }
-    }
-
-    /// Stage a supported index drop. Runtime execution is deferred until store
-    /// cleanup and planner invalidation are wired through the mutation engine.
-    #[cfg(any(test, feature = "sql"))]
-    fn secondary_index_drop(target: SchemaSecondaryIndexDropCleanupTarget) -> Self {
-        Self {
-            mutations: vec![SchemaMutation::DropNonRequiredSecondaryIndex { target }],
-            compatibility: MutationCompatibility::RequiresRebuild,
-            rebuild: RebuildRequirement::IndexRebuild,
-        }
-    }
-
-    /// Stage a nullability alteration. Pre-1.0 this remains fail-closed because
-    /// existing data must be proven or rewritten before accepting it.
-    #[cfg(test)]
-    fn nullability_alteration(field_id: FieldId) -> Self {
-        Self {
-            mutations: vec![SchemaMutation::AlterNullability { field_id }],
-            compatibility: MutationCompatibility::UnsupportedPreOne,
-            rebuild: RebuildRequirement::Unsupported,
-        }
-    }
-
-    /// Build the generic incompatible plan used by guard tests and future
-    /// diagnostics for rejected snapshot changes.
-    const fn incompatible() -> Self {
-        Self {
-            mutations: Vec::new(),
-            compatibility: MutationCompatibility::Incompatible,
-            rebuild: RebuildRequirement::FullDataRewrite,
-        }
-    }
-
-    /// Borrow the ordered mutation list.
+    /// Return the sole publication decision for this plan.
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn mutations(&self) -> &[SchemaMutation] {
-        self.mutations.as_slice()
-    }
-
-    /// Return the stable compatibility bucket.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn compatibility(&self) -> MutationCompatibility {
-        self.compatibility
-    }
-
-    /// Return the physical rebuild requirement.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn rebuild_requirement(&self) -> RebuildRequirement {
-        self.rebuild
-    }
-
-    /// Decide whether this mutation plan can be published as accepted runtime
-    /// schema without additional physical rebuild work.
-    #[must_use]
-    pub(in crate::db::schema) fn publication_status(&self) -> MutationPublicationStatus {
-        if !matches!(self.compatibility, MutationCompatibility::MetadataOnlySafe) {
-            return MutationPublicationStatus::Blocked(
-                MutationPublicationBlocker::NotMetadataSafe(self.compatibility),
-            );
-        }
-
-        if let Some(blocker) = self.rebuild_plan().publication_blocker() {
-            return MutationPublicationStatus::Blocked(blocker);
-        }
-
-        MutationPublicationStatus::Publishable
-    }
-
-    /// Consult runner preflight before deciding whether publication can proceed.
-    /// `PhysicalWorkReady` is not publishable by itself; it only means a
-    /// future runner advertises the capabilities required before execution can
-    /// start.
-    #[must_use]
-    pub(in crate::db::schema) fn publication_preflight(
+    pub(in crate::db::schema) const fn publication_preflight(
         &self,
-        runner: &SchemaMutationRunnerContract,
     ) -> MutationPublicationPreflight {
-        match runner.preflight(&self.execution_plan()) {
-            SchemaMutationRunnerPreflight::NoPhysicalWork => match self.publication_status() {
-                MutationPublicationStatus::Publishable => {
-                    MutationPublicationPreflight::PublishableNow
-                }
-                MutationPublicationStatus::Blocked(blocker) => {
-                    MutationPublicationPreflight::Blocked(blocker)
-                }
-            },
-            SchemaMutationRunnerPreflight::Ready {
-                step_count,
-                required,
-            } => MutationPublicationPreflight::PhysicalWorkReady {
-                step_count,
-                required,
-            },
-            SchemaMutationRunnerPreflight::MissingCapabilities { missing } => {
-                MutationPublicationPreflight::MissingRunnerCapabilities { missing }
-            }
-            SchemaMutationRunnerPreflight::Rejected { requirement } => {
-                MutationPublicationPreflight::Rejected { requirement }
+        match self {
+            Self::MetadataOnly => MutationPublicationPreflight::PublishableNow,
+            Self::FieldPathIndexRebuild { .. } | Self::ExpressionIndexRebuild { .. } => {
+                MutationPublicationPreflight::RequiresPhysicalWork
             }
         }
     }
 
-    /// Derive the physical rebuild plan required before this catalog mutation
-    /// can safely become accepted runtime schema.
     #[must_use]
-    pub(in crate::db::schema) fn rebuild_plan(&self) -> SchemaRebuildPlan {
-        if matches!(self.rebuild, RebuildRequirement::NoRebuild) {
-            return SchemaRebuildPlan::no_rebuild();
-        }
-
-        let mut actions = Vec::new();
-        for mutation in &self.mutations {
-            match mutation {
-                SchemaMutation::NullableField { .. } | SchemaMutation::DefaultedField { .. } => {}
-                SchemaMutation::FieldPathIndex { target } => {
-                    actions.push(SchemaRebuildAction::BuildFieldPathIndex {
-                        target: target.clone(),
-                    });
-                }
-                SchemaMutation::ExpressionIndex { target } => {
-                    actions.push(SchemaRebuildAction::BuildExpressionIndex {
-                        target: target.clone(),
-                    });
-                }
-                #[cfg(any(test, feature = "sql"))]
-                SchemaMutation::DropNonRequiredSecondaryIndex { target } => {
-                    actions.push(SchemaRebuildAction::DropSecondaryIndex {
-                        target: target.clone(),
-                    });
-                }
-                #[cfg(test)]
-                SchemaMutation::AlterNullability { .. } => {
-                    actions.push(SchemaRebuildAction::Unsupported {
-                        reason: "alter nullability requires data proof or rewrite",
-                    });
-                }
-            }
-        }
-
-        if actions.is_empty() {
-            actions.push(match self.rebuild {
-                RebuildRequirement::FullDataRewrite => SchemaRebuildAction::RewriteAllRows,
-                #[cfg(test)]
-                RebuildRequirement::Unsupported => SchemaRebuildAction::Unsupported {
-                    reason: "unsupported schema mutation",
-                },
-                RebuildRequirement::IndexRebuild => SchemaRebuildAction::Unsupported {
-                    reason: "index rebuild mutation lacks an index target",
-                },
-                RebuildRequirement::NoRebuild => {
-                    unreachable!("schema mutation invariant",)
-                }
-            });
-        }
-
-        SchemaRebuildPlan::new(self.rebuild, actions)
-    }
-
-    /// Derive the future physical execution contract for this mutation plan.
-    /// Startup reconciliation still uses `publication_status` and remains
-    /// fail-closed for every plan that requires physical work.
-    #[must_use]
-    pub(in crate::db::schema) fn execution_plan(&self) -> SchemaMutationExecutionPlan {
-        SchemaMutationExecutionPlan::from_rebuild_plan(self.rebuild_plan())
-    }
-
-    /// Admit the developer-supported physical mutation shape: exactly one
-    /// field-path secondary index addition. This plan-level guard prevents
-    /// mixed catalog changes from slipping through a valid-looking execution
-    /// step sequence.
-    pub(in crate::db::schema) fn supported_developer_physical_path(
+    pub(in crate::db::schema) const fn field_path_index_target(
         &self,
-    ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
-        let [SchemaMutation::FieldPathIndex { target }] = self.mutations.as_slice() else {
-            return match self.rebuild {
-                RebuildRequirement::NoRebuild => {
-                    Err(SchemaMutationSupportedPathRejection::NoPhysicalWork)
-                }
-                RebuildRequirement::IndexRebuild => {
-                    Err(SchemaMutationSupportedPathRejection::UnsupportedMutationKind)
-                }
-                RebuildRequirement::FullDataRewrite => {
-                    Err(SchemaMutationSupportedPathRejection::UnsupportedRequirement(self.rebuild))
-                }
-                #[cfg(test)]
-                RebuildRequirement::Unsupported => {
-                    Err(SchemaMutationSupportedPathRejection::UnsupportedRequirement(self.rebuild))
-                }
-            };
-        };
-
-        let supported = self.execution_plan().supported_developer_execution_path()?;
-        if supported.target() != target {
-            return Err(SchemaMutationSupportedPathRejection::UnsupportedExecutionShape);
+    ) -> Option<&SchemaFieldPathIndexRebuildTarget> {
+        match self {
+            Self::FieldPathIndexRebuild { target } => Some(target),
+            Self::MetadataOnly | Self::ExpressionIndexRebuild { .. } => None,
         }
-
-        Ok(supported)
     }
 
-    /// Return how many appended fields are represented by this plan.
-    #[cfg(test)]
-    pub(in crate::db::schema) fn added_field_count(&self) -> usize {
-        self.mutations
-            .iter()
-            .filter(|mutation| {
-                matches!(
-                    mutation,
-                    SchemaMutation::NullableField { .. } | SchemaMutation::DefaultedField { .. }
-                )
-            })
-            .count()
+    #[cfg(any(test, feature = "sql"))]
+    #[must_use]
+    pub(in crate::db::schema) const fn expression_index_target(
+        &self,
+    ) -> Option<&SchemaExpressionIndexRebuildTarget> {
+        match self {
+            Self::ExpressionIndexRebuild { target } => Some(target),
+            Self::MetadataOnly | Self::FieldPathIndexRebuild { .. } => None,
+        }
     }
 }
 
-impl SchemaMutationRequest<'_> {
-    /// Lower this request into the deterministic mutation plan consumed by
-    /// transition, publication, and future rebuild orchestration.
-    #[must_use]
-    pub(in crate::db::schema) fn lower_to_plan(self) -> MutationPlan {
-        match self {
-            Self::ExactMatch => MutationPlan::exact_match(),
-            Self::AppendOnlyFields(fields) => MutationPlan::append_only_fields(fields),
-            Self::AddFieldPathIndex { target } => MutationPlan::field_path_index_addition(target),
-            Self::AddExpressionIndex { target } => MutationPlan::expression_index_addition(target),
-            #[cfg(any(test, feature = "sql"))]
-            Self::DropNonRequiredSecondaryIndex { target } => {
-                MutationPlan::secondary_index_drop(target)
+impl From<SchemaMutationRequest<'_>> for MutationPlan {
+    fn from(request: SchemaMutationRequest<'_>) -> Self {
+        match request {
+            SchemaMutationRequest::ExactMatch => Self::exact_match(),
+            SchemaMutationRequest::AppendOnlyFields(_) => Self::MetadataOnly,
+            SchemaMutationRequest::AddFieldPathIndex { target } => {
+                Self::field_path_index_addition(target)
             }
-            #[cfg(test)]
-            Self::AlterNullability { field_id } => MutationPlan::nullability_alteration(field_id),
-            Self::Incompatible => MutationPlan::incompatible(),
+            SchemaMutationRequest::AddExpressionIndex { target } => {
+                Self::expression_index_addition(target)
+            }
         }
     }
 }

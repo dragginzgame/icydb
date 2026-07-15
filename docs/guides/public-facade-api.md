@@ -83,13 +83,15 @@ These are the commands ordinary caller-facing endpoints should reach for first.
 
 ### Session Entry
 
-`DbSession<C>` is the canister-local facade returned by generated `db!()` /
-`db()` helpers. Normal endpoint code usually starts from `db.load::<E>()`,
-`db.delete::<E>()`, or a typed write command.
+`DbSession<C>` is the canister-local facade returned by the fallible generated
+`db!()` / `db()` helpers. Bootstrap failures preserve their typed
+`DatabaseBootstrapError` cause. Normal endpoint code propagates that boundary,
+then starts from `db.load::<E>()`, `db.delete::<E>()`, or a typed write command.
 
 ```rust
 DbSession::new(core_session)
 
+let db = db()?;
 db.load::<E>()
 db.load_with_consistency::<E>(policy)
 
@@ -403,8 +405,8 @@ trusted/admin surfaces unless wrapped by an application-owned policy.
 
 ```rust
 db.execute_trusted_sql_query::<E>(sql)
-db.execute_sql_update::<E>(sql)
-db.execute_sql_ddl::<E>(sql)
+db.execute_trusted_sql_mutation::<E>(sql)
+db.execute_admin_sql_ddl::<E>(sql)
 ```
 
 Do not expose caller-controlled SQL through these helpers in ordinary public
@@ -562,23 +564,17 @@ grouped.into_next_cursor()
 grouped.into_execution_trace()
 ```
 
-Write/mutation responses:
+Write/mutation results:
 
 ```rust
-MutationResult::from_count(row_count)
-MutationResult::from_entity(entity)
-MutationResult::from_entities(entities)
-MutationResult::from_core_batch(batch)
-
-result.row_count()
-result.count()
-result.is_empty()
-result.exists()
-result.entity()
-result.entities()
-result.id()
-result.ids()
+let inserted: E = db.insert(entity)?;
+let inserted_many: Vec<E> = db.insert_many_atomic(entities)?;
+let affected_rows: u32 = db.delete::<E>().max_affected(10).execute()?;
+let returning: RowProjectionOutput = db.insert_returning_all(entity)?;
 ```
+
+Typed writes return their current domain value directly. SQL mutations return
+`SqlQueryResult`; there is no separate mutation-response compatibility facade.
 
 Row projection payloads:
 

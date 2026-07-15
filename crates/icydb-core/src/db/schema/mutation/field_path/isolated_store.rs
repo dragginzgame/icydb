@@ -267,7 +267,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreValidatio
     generation_after: u64,
     index_state: IndexState,
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
@@ -304,7 +304,9 @@ impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 

@@ -24,7 +24,9 @@ use std::sync::{Mutex, OnceLock};
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
 const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBNOW";
-const LEGACY_STABLE_CELL_MAGIC: &[u8; 3] = b"SCL";
+// `ic-memory` initializes the control slot as a stable cell before IcyDB writes
+// its database boot record. Treat that pre-boot header as an empty marker.
+const PRE_BOOT_STABLE_CELL_MAGIC: &[u8; 3] = b"SCL";
 const DATABASE_BOOT_CHECKSUM_OFFSET: usize = 11;
 const DATABASE_BOOT_INITIALIZED_STATE: u8 = 0x01;
 const DATABASE_FORMAT_VERSION_CURRENT: DatabaseFormatVersion = DatabaseFormatVersion(1);
@@ -266,7 +268,7 @@ fn inspect_boot_record<M: Memory>(
     let mut bytes = [0_u8; DATABASE_BOOT_RECORD_BYTES];
     control_memory.read(0, &mut bytes);
     if bytes.iter().all(|byte| *byte == 0)
-        || &bytes[..LEGACY_STABLE_CELL_MAGIC.len()] == LEGACY_STABLE_CELL_MAGIC
+        || &bytes[..PRE_BOOT_STABLE_CELL_MAGIC.len()] == PRE_BOOT_STABLE_CELL_MAGIC
     {
         return Ok(BootInspection::Missing);
     }

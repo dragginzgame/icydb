@@ -9,16 +9,6 @@ use crate::db::executor::{
 };
 
 ///
-/// FieldExtremaIneligibilityReason
-///
-/// Route-surfaced alias of aggregate-policy field-extrema ineligibility reasons.
-/// This preserves route diagnostics while aggregate capability policy owns derivation.
-///
-
-pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
-    AggregateFieldExtremaIneligibilityReason;
-
-///
 /// RouteCapabilityFacts
 ///
 /// Canonical derived capability-fact snapshot for one logical plan and direction.
@@ -39,9 +29,9 @@ pub(in crate::db::executor) struct RouteCapabilityFacts {
     pub(in crate::db::executor) field_min_fast_path_eligible: bool,
     pub(in crate::db::executor) field_max_fast_path_eligible: bool,
     pub(in crate::db::executor) field_min_fast_path_ineligibility_reason:
-        Option<FieldExtremaIneligibilityReason>,
+        Option<AggregateFieldExtremaIneligibilityReason>,
     pub(in crate::db::executor) field_max_fast_path_ineligibility_reason:
-        Option<FieldExtremaIneligibilityReason>,
+        Option<AggregateFieldExtremaIneligibilityReason>,
 }
 
 impl RouteCapabilityFacts {

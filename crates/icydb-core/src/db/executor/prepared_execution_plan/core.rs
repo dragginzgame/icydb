@@ -8,7 +8,7 @@ use crate::{
         commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
             GroupedPaginationWindow, LoweredAccessError, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, ScalarContinuationContext, lower_access_with_schema_info,
             pipeline::{
@@ -77,7 +77,7 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) scalar_execution_preparation:
         OnceLock<ExecutionPreparation>,
     pub(in crate::db::executor::prepared_execution_plan) initial_scalar_route_plan:
-        OnceLock<ExecutionPlan>,
+        OnceLock<ExecutionRoutePlan>,
     pub(in crate::db::executor::prepared_execution_plan) shared_validation_emit_retained_slot_layout:
         OnceLock<Option<RetainedSlotLayout>>,
     pub(in crate::db::executor::prepared_execution_plan) retain_slot_rows_suppress_retained_slot_layout:
@@ -255,7 +255,7 @@ impl PreparedScalarPlanCore {
     pub(in crate::db::executor) fn get_or_init_initial_scalar_route_plan(
         &self,
         authority: EntityAuthority,
-    ) -> Result<ExecutionPlan, InternalError> {
+    ) -> Result<ExecutionRoutePlan, InternalError> {
         self.core.get_or_init_initial_scalar_route_plan(authority)
     }
 
@@ -448,7 +448,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_initial_scalar_route_plan(
         &self,
         authority: EntityAuthority,
-    ) -> Result<ExecutionPlan, InternalError> {
+    ) -> Result<ExecutionRoutePlan, InternalError> {
         if let Some(route_plan) = self.residents.initial_scalar_route_plan.get() {
             return Ok(route_plan.clone());
         }

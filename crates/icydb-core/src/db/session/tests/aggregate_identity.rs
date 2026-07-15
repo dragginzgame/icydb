@@ -135,7 +135,6 @@ fn session_aggregate_identity_terminals_match_execute() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
-            .limit(3)
     };
     let expected = load_window()
         .execute()
@@ -386,7 +385,6 @@ fn session_aggregate_min_by_unknown_field_fails_before_scan_budget_consumption()
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(3)
     };
 
     let (result, scanned_rows) =
@@ -429,7 +427,6 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(4)
     };
     let new_field_expected = new_field_window()
         .execute()
@@ -609,7 +606,6 @@ fn session_aggregate_nth_by_rank_uses_deterministic_rank_and_id_ordering() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(4)
     };
     let expected = load_window()
         .execute()

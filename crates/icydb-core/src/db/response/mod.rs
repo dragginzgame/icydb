@@ -9,9 +9,7 @@
 mod grouped;
 mod paged;
 
-#[cfg(test)]
-use crate::value::Value;
-use crate::{entity::EntityValue, prelude::*, types::Id, value::OutputValue};
+use crate::{entity::EntityValue, prelude::*, types::Id};
 
 mod private {
     ///
@@ -92,56 +90,6 @@ impl<E: EntityKind> From<(Id<E>, E)> for Row<E> {
 impl<E: EntityKind> private::Sealed for Row<E> {}
 
 impl<E: EntityKind> ResponseRow for Row<E> {}
-
-///
-/// ProjectedRow
-///
-/// One scalar projection output row emitted in planner declaration order.
-/// `values` carries evaluated expression outputs for this row.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectedRow<E: EntityKind> {
-    id: Id<E>,
-    values: Vec<OutputValue>,
-}
-
-impl<E: EntityKind> ProjectedRow<E> {
-    /// Construct one projected scalar row.
-    #[must_use]
-    pub const fn new(id: Id<E>, values: Vec<OutputValue>) -> Self {
-        Self { id, values }
-    }
-
-    /// Build one projected row from runtime values at the public output boundary.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn from_runtime_values(id: Id<E>, values: Vec<Value>) -> Self {
-        Self::new(id, values.into_iter().map(OutputValue::from).collect())
-    }
-
-    /// Borrow the source row identifier.
-    #[must_use]
-    pub const fn id(&self) -> Id<E> {
-        self.id
-    }
-
-    /// Borrow projected scalar values in declaration order.
-    #[must_use]
-    pub const fn values(&self) -> &[OutputValue] {
-        self.values.as_slice()
-    }
-
-    /// Consume and return source row identity plus projected values.
-    #[must_use]
-    pub fn into_id_and_values(self) -> (Id<E>, Vec<OutputValue>) {
-        (self.id, self.values)
-    }
-}
-
-impl<E: EntityKind> private::Sealed for ProjectedRow<E> {}
-
-impl<E: EntityKind> ResponseRow for ProjectedRow<E> {}
 
 ///
 /// ResponseError

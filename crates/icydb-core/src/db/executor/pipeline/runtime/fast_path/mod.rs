@@ -8,7 +8,7 @@ mod strategy;
 use crate::{
     db::{
         executor::{
-            AccessStreamExecutionPolicy, ExecutionOptimization, ExecutionPlan,
+            AccessStreamExecutionPolicy, ExecutionOptimization, ExecutionRoutePlan,
             pipeline::{contracts::ResolvedExecutionKeyStream, runtime::ExecutionAttemptKernel},
         },
         index::{
@@ -77,7 +77,7 @@ impl<'a> ResolvedIndexPredicateProgram<'a> {
 
 struct FastPathResolutionContext<'a, 'b> {
     kernel: &'a ExecutionAttemptKernel<'a>,
-    route_plan: &'b ExecutionPlan,
+    route_plan: &'b ExecutionRoutePlan,
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     index_predicate_applied: bool,
     index_predicate_rejected_counter: &'a Cell<u64>,
@@ -88,7 +88,7 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
     // fallback key-stream decision.
     const fn new(
         kernel: &'a ExecutionAttemptKernel<'a>,
-        route_plan: &'b ExecutionPlan,
+        route_plan: &'b ExecutionRoutePlan,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
         index_predicate_applied: bool,
         index_predicate_rejected_counter: &'a Cell<u64>,
@@ -227,7 +227,7 @@ impl ExecutionAttemptKernel<'_> {
     /// This is the single shared load key-stream resolver boundary.
     pub(in crate::db::executor) fn resolve_execution_key_stream_without_distinct(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         // Phase 0: reuse precompiled runtime index predicates when the
@@ -263,7 +263,7 @@ impl ExecutionAttemptKernel<'_> {
     // metadata so trace taxonomy keeps top-N assisted fast paths explicit.
     const fn decorate_fast_path_optimization_for_route(
         optimization: ExecutionOptimization,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> ExecutionOptimization {
         if route_plan.top_n_seek_spec().is_none() {
             return optimization;

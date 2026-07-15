@@ -464,25 +464,7 @@ pub enum IntentError {
 
     GroupedRequiresDirectExecute,
 
-    RawLimitBeforePageTerminal,
-
     CursorBeforePageTerminal,
-
-    RawLimitBeforeExistsTerminal,
-
-    RawLimitBeforeCountExactTerminal,
-
-    RawLimitBeforeSumExactTerminal,
-
-    RawLimitBeforeMinExactTerminal,
-
-    RawLimitBeforeMaxExactTerminal,
-
-    RawLimitBeforeAvgExactTerminal,
-
-    RawLimitBeforeCollectCompleteTerminal,
-
-    RawLimitBeforeAdminBatchTerminal,
 
     AdminBatchRequiresTrustedRead,
 
@@ -546,54 +528,9 @@ impl IntentError {
         Self::GroupedRequiresDirectExecute
     }
 
-    /// Construct one raw-limit-before-page-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_page_terminal() -> Self {
-        Self::RawLimitBeforePageTerminal
-    }
-
     /// Construct one cursor-before-page-terminal intent error.
     pub(in crate::db::query) const fn cursor_before_page_terminal() -> Self {
         Self::CursorBeforePageTerminal
-    }
-
-    /// Construct one raw-limit-before-exists-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_exists_terminal() -> Self {
-        Self::RawLimitBeforeExistsTerminal
-    }
-
-    /// Construct one raw-limit-before-count-exact-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_count_exact_terminal() -> Self {
-        Self::RawLimitBeforeCountExactTerminal
-    }
-
-    /// Construct one raw-limit-before-sum-exact-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_sum_exact_terminal() -> Self {
-        Self::RawLimitBeforeSumExactTerminal
-    }
-
-    /// Construct one raw-limit-before-min-exact-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_min_exact_terminal() -> Self {
-        Self::RawLimitBeforeMinExactTerminal
-    }
-
-    /// Construct one raw-limit-before-max-exact-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_max_exact_terminal() -> Self {
-        Self::RawLimitBeforeMaxExactTerminal
-    }
-
-    /// Construct one raw-limit-before-avg-exact-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_avg_exact_terminal() -> Self {
-        Self::RawLimitBeforeAvgExactTerminal
-    }
-
-    /// Construct one raw-limit-before-collect-complete-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_collect_complete_terminal() -> Self {
-        Self::RawLimitBeforeCollectCompleteTerminal
-    }
-
-    /// Construct one raw-limit-before-admin-batch-terminal intent error.
-    pub(in crate::db::query) const fn raw_limit_before_admin_batch_terminal() -> Self {
-        Self::RawLimitBeforeAdminBatchTerminal
     }
 
     /// Construct one admin-batch-requires-trusted-read intent error.

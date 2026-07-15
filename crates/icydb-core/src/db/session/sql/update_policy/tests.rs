@@ -28,35 +28,10 @@ fn assert_no_plan(report: &SqlUpdatePolicyReport) {
 }
 
 #[test]
-fn update_policy_session_write_current_admits_broad_current_shape() {
-    let report = classify(
-        "UPDATE Character SET active = false WHERE age = 21",
-        SqlUpdateExposurePolicy::SessionWriteCurrent,
-    );
-
-    assert!(report.is_admitted());
-    let classification = report
-        .classification
-        .as_ref()
-        .expect("admitted UPDATE should include classification");
-    assert_eq!(classification.target_entity, "Character");
-    assert_eq!(classification.assigned_fields, ["active"]);
-    assert_eq!(
-        classification.write_shape.where_proof,
-        SqlWriteWhereProof::Other
-    );
-    assert!(matches!(
-        expect_plan(&report),
-        SqlValidatedUpdatePlan::SessionCurrent(_),
-    ));
-    assert_eq!(expect_plan(&report).statement_entity(), "Character");
-}
-
-#[test]
 fn update_policy_rejects_non_update_statement() {
     let report = classify(
         "SELECT id FROM Character",
-        SqlUpdateExposurePolicy::SessionWriteCurrent,
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
     );
 
     assert_eq!(report.classification, None);
@@ -65,10 +40,10 @@ fn update_policy_rejects_non_update_statement() {
 }
 
 #[test]
-fn update_policy_session_write_current_rejects_missing_where() {
+fn update_policy_public_primary_key_rejects_missing_where() {
     let report = classify(
         "UPDATE Character SET active = false",
-        SqlUpdateExposurePolicy::SessionWriteCurrent,
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
     );
 
     assert_eq!(
@@ -83,34 +58,6 @@ fn update_policy_session_write_current_rejects_missing_where() {
     assert_eq!(
         report.rejection,
         Some(SqlUpdatePolicyRejection::MissingWhere),
-    );
-    assert_no_plan(&report);
-}
-
-#[test]
-fn update_policy_generated_query_rejects_update() {
-    let report = classify(
-        "UPDATE Character SET active = false WHERE age = 21",
-        SqlUpdateExposurePolicy::GeneratedQuery,
-    );
-
-    assert_eq!(
-        report.rejection,
-        Some(SqlUpdatePolicyRejection::GeneratedQueryRejectsUpdate),
-    );
-    assert_no_plan(&report);
-}
-
-#[test]
-fn update_policy_generated_ddl_rejects_update() {
-    let report = classify(
-        "UPDATE Character SET active = false WHERE age = 21",
-        SqlUpdateExposurePolicy::GeneratedDdl,
-    );
-
-    assert_eq!(
-        report.rejection,
-        Some(SqlUpdatePolicyRejection::GeneratedDdlRejectsUpdate),
     );
     assert_no_plan(&report);
 }
@@ -132,10 +79,10 @@ fn update_policy_public_primary_key_only_accepts_primary_key_equality() {
             .where_proof,
         SqlWriteWhereProof::PrimaryKeyEquality,
     );
-    let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = expect_plan(&report) else {
-        panic!("primary-key policy should produce only the primary-key plan variant");
-    };
-    assert_eq!(plan.primary_key_fields(), ["id"]);
+    assert!(matches!(
+        expect_plan(&report),
+        SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(_),
+    ));
 }
 
 #[test]
@@ -231,10 +178,10 @@ fn update_policy_public_primary_key_only_accepts_complete_composite_primary_key(
             .where_proof,
         SqlWriteWhereProof::PrimaryKeyEquality,
     );
-    let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = expect_plan(&report) else {
-        panic!("composite primary-key proof should produce a primary-key plan");
-    };
-    assert_eq!(plan.primary_key_fields(), ["tenant_id", "id"]);
+    assert!(matches!(
+        expect_plan(&report),
+        SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(_),
+    ));
 }
 
 #[test]
@@ -391,11 +338,10 @@ fn update_policy_public_bounded_accepts_explicit_primary_key_order_and_limit() {
             .write_shape
             .has_explicit_canonical_primary_key_order()
     );
-    let SqlValidatedUpdatePlan::PublicBoundedDeterministic(plan) = expect_plan(&report) else {
-        panic!("bounded policy should produce only the bounded plan variant");
-    };
-    assert_eq!(plan.limit(), 10);
-    assert_eq!(plan.ordered_primary_key_fields(), ["id"]);
+    assert!(matches!(
+        expect_plan(&report),
+        SqlValidatedUpdatePlan::PublicBoundedDeterministic(_),
+    ));
 }
 
 #[test]
@@ -473,20 +419,6 @@ fn update_policy_public_bounded_rejects_offset() {
         Some(SqlUpdatePolicyRejection::OffsetUnsupported),
     );
     assert_no_plan(&report);
-}
-
-#[test]
-fn update_policy_admin_bulk_produces_only_admin_plan_variant() {
-    let report = classify(
-        "UPDATE Character SET active = false WHERE age = 21",
-        SqlUpdateExposurePolicy::AdminBulk,
-    );
-
-    assert!(report.is_admitted());
-    assert!(matches!(
-        expect_plan(&report),
-        SqlValidatedUpdatePlan::AdminBulk(_),
-    ));
 }
 
 #[test]

@@ -24,7 +24,7 @@ use super::{
 
 /// Execute one SQL DDL field drop by rewriting rows to the accepted dense
 /// layout before publishing the compacted catalog snapshot.
-pub(in crate::db) fn execute_sql_ddl_field_drop(
+pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -215,7 +215,7 @@ fn validate_sql_ddl_field_drop_metadata_change(
 }
 
 /// Execute one metadata-only SQL DDL field-default publication.
-pub(in crate::db) fn execute_sql_ddl_field_default_change(
+pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -231,7 +231,7 @@ pub(in crate::db) fn execute_sql_ddl_field_default_change(
         accepted_before_identity,
         derivation,
     );
-    execute_sql_ddl_checked_field_metadata_publication(
+    execute_admin_sql_ddl_checked_field_metadata_publication(
         envelope,
         derivation.admission().field_default_target(),
         validate_sql_ddl_field_default_metadata_change,
@@ -258,7 +258,7 @@ fn validate_sql_ddl_field_default_metadata_change(
 }
 
 /// Execute one SQL DDL field-nullability publication.
-pub(in crate::db) fn execute_sql_ddl_field_nullability_change(
+pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -384,7 +384,7 @@ fn validate_sql_ddl_set_not_null_rows(
 }
 
 /// Execute one metadata-only SQL DDL field-rename publication.
-pub(in crate::db) fn execute_sql_ddl_field_rename(
+pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -400,7 +400,7 @@ pub(in crate::db) fn execute_sql_ddl_field_rename(
         accepted_before_identity,
         derivation,
     );
-    execute_sql_ddl_checked_field_metadata_publication(
+    execute_admin_sql_ddl_checked_field_metadata_publication(
         envelope,
         derivation.admission().field_rename_target(),
         validate_sql_ddl_field_rename_metadata_change,
@@ -544,7 +544,7 @@ fn row_layout_allocation_matches(left: &SchemaRowLayout, right: &SchemaRowLayout
     left.field_to_slot() == right.field_to_slot()
 }
 
-fn execute_sql_ddl_checked_field_metadata_publication<T>(
+fn execute_admin_sql_ddl_checked_field_metadata_publication<T>(
     envelope: SqlDdlPublicationEnvelope<'_>,
     target: Option<&T>,
     validate: impl FnOnce(

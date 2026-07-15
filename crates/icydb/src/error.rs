@@ -16,6 +16,8 @@ use icydb_core::{
 };
 use serde::Deserialize;
 
+use crate::db::DatabaseBootstrapError;
+
 //
 // Error
 //
@@ -147,6 +149,15 @@ impl From<QueryError> for Error {
 impl From<ResponseError> for Error {
     fn from(err: ResponseError) -> Self {
         Self::from_response_error(err)
+    }
+}
+
+impl From<DatabaseBootstrapError> for Error {
+    fn from(_err: DatabaseBootstrapError) -> Self {
+        Self::from_kind(
+            ErrorKind::Runtime(RuntimeErrorKind::Internal),
+            ErrorOrigin::Runtime,
+        )
     }
 }
 

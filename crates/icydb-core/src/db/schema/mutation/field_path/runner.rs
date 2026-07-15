@@ -9,7 +9,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
-    UnsupportedExecutionPlan,
+    UnsupportedMutationPlan,
     TargetMismatch,
     StageRowsFailed,
     StagedStoreRejected,
@@ -17,56 +17,6 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
     RuntimeInvalidationIdentity,
     SnapshotPublicationRejected,
     PublishedStoreRejected,
-}
-
-impl SchemaFieldPathIndexRunnerError {
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn phase(self) -> SchemaMutationRunnerPhase {
-        match self {
-            Self::UnsupportedExecutionPlan | Self::TargetMismatch => {
-                SchemaMutationRunnerPhase::Preflight
-            }
-            Self::StageRowsFailed | Self::StagedStoreRejected => {
-                SchemaMutationRunnerPhase::StageStores
-            }
-            Self::IsolatedStoreValidationFailed => SchemaMutationRunnerPhase::ValidatePhysicalState,
-            Self::RuntimeInvalidationIdentity => SchemaMutationRunnerPhase::InvalidateRuntimeState,
-            Self::SnapshotPublicationRejected => SchemaMutationRunnerPhase::PublishSnapshot,
-            Self::PublishedStoreRejected => SchemaMutationRunnerPhase::PublishPhysicalStore,
-        }
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    const fn validation_status(self) -> SchemaMutationValidationStatus {
-        match self {
-            Self::RuntimeInvalidationIdentity
-            | Self::SnapshotPublicationRejected
-            | Self::PublishedStoreRejected => SchemaMutationValidationStatus::Passed,
-            Self::IsolatedStoreValidationFailed => SchemaMutationValidationStatus::Failed,
-            Self::UnsupportedExecutionPlan
-            | Self::TargetMismatch
-            | Self::StageRowsFailed
-            | Self::StagedStoreRejected => SchemaMutationValidationStatus::NotStarted,
-        }
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    const fn publish_status(self) -> SchemaMutationPublishStatus {
-        match self {
-            Self::SnapshotPublicationRejected | Self::PublishedStoreRejected => {
-                SchemaMutationPublishStatus::Failed
-            }
-            Self::UnsupportedExecutionPlan
-            | Self::TargetMismatch
-            | Self::StageRowsFailed
-            | Self::StagedStoreRejected
-            | Self::IsolatedStoreValidationFailed
-            | Self::RuntimeInvalidationIdentity => SchemaMutationPublishStatus::NotStarted,
-        }
-    }
 }
 
 ///
@@ -111,39 +61,10 @@ impl SchemaFieldPathIndexRunnerFailure {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
-        self.error.phase()
-    }
-
-    #[must_use]
-    #[cfg(test)]
     pub(in crate::db::schema) fn rollback_report(
         &self,
     ) -> Option<&SchemaFieldPathIndexStagedStoreRollbackReport> {
         self.rollback_report.as_deref()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::schema) fn developer_report(
-        &self,
-        entity_path: &'static str,
-        target: &SchemaFieldPathIndexRebuildTarget,
-        rows_scanned: usize,
-    ) -> SchemaMutationDeveloperReport {
-        let index_keys_written = self
-            .rollback_report()
-            .map_or(0, |report| report.runner_report().index_keys_written());
-
-        SchemaMutationDeveloperReport::field_path_index_addition(
-            self.phase(),
-            entity_path,
-            target,
-            rows_scanned,
-            index_keys_written,
-            self.error.validation_status(),
-            self.error.publish_status(),
-        )
     }
 }
 
@@ -217,7 +138,9 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         self.published_store_report.runner_report()
     }
 
@@ -230,25 +153,14 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
-    pub(in crate::db::schema) fn developer_report(
+    pub(in crate::db::schema) const fn mutation_metrics(
         &self,
         entity_path: &'static str,
-        target: &SchemaFieldPathIndexRebuildTarget,
-    ) -> SchemaMutationDeveloperReport {
-        let publish_status = if self.runner_report().physical_work_allows_publication() {
-            SchemaMutationPublishStatus::Published
-        } else {
-            SchemaMutationPublishStatus::Failed
-        };
-
-        SchemaMutationDeveloperReport::field_path_index_addition(
-            SchemaMutationRunnerPhase::PublishPhysicalStore,
+    ) -> SchemaFieldPathIndexMutationMetrics {
+        SchemaFieldPathIndexMutationMetrics::new(
             entity_path,
-            target,
             self.runner_report().rows_scanned(),
             self.runner_report().index_keys_written(),
-            SchemaMutationValidationStatus::Passed,
-            publish_status,
         )
     }
 }
@@ -277,7 +189,7 @@ impl SchemaFieldPathIndexRunner {
         invalidation_sink: &mut impl SchemaMutationRuntimeInvalidationSink,
         publication_sink: &mut impl SchemaMutationAcceptedSnapshotPublicationSink,
     ) -> Result<SchemaFieldPathIndexRunnerReport, SchemaFieldPathIndexRunnerFailure> {
-        Self::validate_execution_plan(input.execution_plan(), &target)
+        Self::validate_mutation_plan(input.mutation_plan(), &target)
             .map_err(SchemaFieldPathIndexRunnerFailure::without_rollback)?;
         let target_index_id = IndexId::new(entity_tag, target.ordinal());
 
@@ -294,12 +206,11 @@ impl SchemaFieldPathIndexRunner {
             )
         })?;
         let staged_store =
-            SchemaFieldPathIndexStagedStore::from_rebuild(&staged, input.execution_plan())
-                .map_err(|_| {
-                    SchemaFieldPathIndexRunnerFailure::without_rollback(
-                        SchemaFieldPathIndexRunnerError::StagedStoreRejected,
-                    )
-                })?;
+            SchemaFieldPathIndexStagedStore::from_rebuild(&staged).map_err(|_| {
+                SchemaFieldPathIndexRunnerFailure::without_rollback(
+                    SchemaFieldPathIndexRunnerError::StagedStoreRejected,
+                )
+            })?;
         let store = staged_store.store().to_string();
         let (write_report, validation) = {
             let mut writer = SchemaFieldPathIndexIsolatedIndexStoreWriter::new(&store, index_store);
@@ -374,24 +285,18 @@ impl SchemaFieldPathIndexRunner {
         })
     }
 
-    fn validate_execution_plan(
-        execution_plan: &SchemaMutationExecutionPlan,
+    fn validate_mutation_plan(
+        mutation_plan: &MutationPlan,
         target: &SchemaFieldPathIndexRebuildTarget,
     ) -> Result<(), SchemaFieldPathIndexRunnerError> {
-        match execution_plan.steps() {
-            [
-                SchemaMutationExecutionStep::BuildFieldPathIndex {
-                    target: planned_target,
-                },
-                SchemaMutationExecutionStep::ValidatePhysicalWork,
-                SchemaMutationExecutionStep::InvalidateRuntimeState,
-            ] if planned_target == target => Ok(()),
-            [
-                SchemaMutationExecutionStep::BuildFieldPathIndex { .. },
-                SchemaMutationExecutionStep::ValidatePhysicalWork,
-                SchemaMutationExecutionStep::InvalidateRuntimeState,
-            ] => Err(SchemaFieldPathIndexRunnerError::TargetMismatch),
-            _ => Err(SchemaFieldPathIndexRunnerError::UnsupportedExecutionPlan),
+        match mutation_plan {
+            MutationPlan::FieldPathIndexRebuild {
+                target: planned_target,
+            } if planned_target == target => Ok(()),
+            MutationPlan::FieldPathIndexRebuild { .. } => {
+                Err(SchemaFieldPathIndexRunnerError::TargetMismatch)
+            }
+            _ => Err(SchemaFieldPathIndexRunnerError::UnsupportedMutationPlan),
         }
     }
 }

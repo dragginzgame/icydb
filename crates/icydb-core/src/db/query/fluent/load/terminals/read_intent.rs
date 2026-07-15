@@ -74,8 +74,7 @@ where
     /// Execute and return all matching rows if the complete result fits in
     /// the default public-read small-set cap.
     ///
-    /// This semantic terminal rejects a prior row-window cap. It owns an
-    /// internal lookahead limit so it can distinguish a complete small set
+    /// This semantic terminal owns an internal lookahead limit so it can distinguish a complete small set
     /// from a silently truncated row window.
     pub fn collect_complete(&self) -> Result<Vec<E>, QueryError>
     where

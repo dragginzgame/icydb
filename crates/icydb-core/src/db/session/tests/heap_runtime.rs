@@ -483,7 +483,7 @@ fn mixed_heap_source_reinit_recovery_purges_durable_reverse_index_state() {
     );
     let delete_sql = format!("DELETE FROM SessionSqlSelfRelationEntity WHERE id = {target_id}");
     let delete = session
-        .execute_sql_update::<SessionSqlSelfRelationEntity>(delete_sql.as_str())
+        .execute_trusted_sql_mutation::<SessionSqlSelfRelationEntity>(delete_sql.as_str())
         .expect("durable target should be deletable after volatile relation state is purged");
     let SqlStatementResult::Count { row_count } = delete else {
         panic!("DELETE without RETURNING should emit a count payload");

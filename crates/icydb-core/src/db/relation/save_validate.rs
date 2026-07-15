@@ -60,7 +60,7 @@ impl AcceptedSaveStrongRelationInfo {
         &self,
         db: &'db Db<C>,
         source_path: &str,
-    ) -> Result<Option<&'db EntityRuntimeHooks<C>>, InternalError>
+    ) -> Result<&'db EntityRuntimeHooks<C>, InternalError>
     where
         C: crate::traits::CanisterKind,
     {
@@ -156,14 +156,12 @@ where
     let target_hook = relation.validate_target_identity(db, E::PATH)?;
     let target_store = target_store_for_relation::<E>(db, relation)?;
     validate_strong_relation_storage_capabilities::<E>(db, relation, target_store)?;
-    if let Some(target_hook) = target_hook {
-        validate_target_accepted_primary_key::<E::Canister>(
-            E::PATH,
-            relation,
-            target_store,
-            target_hook,
-        )?;
-    }
+    validate_target_accepted_primary_key::<E::Canister>(
+        E::PATH,
+        relation,
+        target_store,
+        target_hook,
+    )?;
 
     validate_save_relation_targets_for_entity::<E>(relation, target_store, entity)
 }

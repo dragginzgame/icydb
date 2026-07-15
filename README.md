@@ -143,7 +143,7 @@ Use the runtime prelude from canister code:
 use icydb::prelude::*;
 
 pub fn top_users_page() -> Result<icydb::db::PagedResponse<User>, icydb::Error> {
-    db!()
+    db!()?
         .load::<User>()
         .filter_eq("active", true)
         .order_desc("score")
@@ -152,12 +152,12 @@ pub fn top_users_page() -> Result<icydb::db::PagedResponse<User>, icydb::Error> 
 }
 
 pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
-    let patch = db!().structural_patch::<User, _, _>([(
+    let patch = db!()?.structural_patch::<User, _, _>([(
         "name",
         InputValue::Text(name),
     )])?;
 
-    db!().mutate_structural::<User>(id, patch, icydb::db::MutationMode::Update)
+    db!()?.mutate_structural::<User>(id, patch, icydb::db::MutationMode::Update)
 }
 ```
 
@@ -173,7 +173,7 @@ Use atomic batch helpers when a same-entity batch must be all-or-nothing:
 
 ```rust
 pub fn import_users(users: Vec<User>) -> Result<Vec<User>, icydb::Error> {
-    db!().insert_many_atomic(users)
+    db!()?.insert_many_atomic(users)
 }
 ```
 
@@ -187,15 +187,15 @@ through session/library reduced single-entity SQL:
 ```rust
 use icydb::prelude::*;
 
-let rows = db!().execute_trusted_sql_query::<User>(
+let rows = db!()?.execute_trusted_sql_query::<User>(
     "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
 )?;
 
-let updated = db!().execute_sql_update::<User>(
+let updated = db!()?.execute_trusted_sql_mutation::<User>(
     "UPDATE User SET name = 'Ada' WHERE id = '01J...' RETURNING id, name",
 )?;
 
-let ddl = db!().execute_sql_ddl::<User>(
+let ddl = db!()?.execute_admin_sql_ddl::<User>(
     "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
 )?;
 ```
@@ -233,9 +233,11 @@ calls for one canister execute one at a time; two concurrent client requests
 observe serialized canister state rather than a shared database transaction.
 
 Generated canister SQL endpoints are deliberately narrower than the
-session/library SQL APIs. `__icydb_query` is read-only, `__icydb_ddl` is for
-schema DDL, and `__icydb_update` is emitted only when `icydb.toml` selects an
-explicit primary-key or bounded update policy. `__icydb_query` admits
+session/library SQL APIs. The exported methods are `icydb_query`, `icydb_ddl`,
+and, when `icydb.toml` selects an explicit primary-key or bounded update
+policy, `icydb_update`. Generated Rust wrappers use the hidden
+`__icydb_query`, `__icydb_ddl`, and `__icydb_update` names only to avoid
+collisions with non-exported application hooks. `icydb_query` admits
 operational introspection (`EXPLAIN`, `DESCRIBE`, and `SHOW`) by build target:
 local builds default on, IC builds default off. The default generated canister
 surface does not expose SQL `UPDATE`.

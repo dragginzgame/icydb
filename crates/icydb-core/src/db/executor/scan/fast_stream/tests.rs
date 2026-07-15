@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db,
+        Db, EntityRuntimeHooks,
         access::{AccessPath, AccessPlan},
         data::DataStore,
         direction::Direction,
@@ -103,8 +103,12 @@ thread_local! {
     };
 }
 
-static FAST_STREAM_INVARIANT_DB: Db<FastStreamInvariantCanister> =
-    Db::new(&FAST_STREAM_INVARIANT_REGISTRY);
+static FAST_STREAM_INVARIANT_RUNTIME_HOOKS: &[EntityRuntimeHooks<FastStreamInvariantCanister>] =
+    &[EntityRuntimeHooks::for_entity::<FastStreamInvariantEntity>()];
+static FAST_STREAM_INVARIANT_DB: Db<FastStreamInvariantCanister> = Db::new_with_hooks(
+    &FAST_STREAM_INVARIANT_REGISTRY,
+    FAST_STREAM_INVARIANT_RUNTIME_HOOKS,
+);
 
 #[test]
 fn fast_stream_allows_missing_exact_key_count_hint() {

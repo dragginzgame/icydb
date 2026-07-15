@@ -31,7 +31,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationPlan {
     publication_identity: SchemaMutationPublicationIdentity,
     #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexRuntimeInvalidationPlan {
@@ -129,7 +129,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationReport {
     invalidated_epochs: usize,
     #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexRuntimeInvalidationReport {
@@ -164,7 +164,9 @@ impl SchemaFieldPathIndexRuntimeInvalidationReport {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 
@@ -223,7 +225,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationPlan {
     entry_count: usize,
     accepted_after: PersistedSchemaSnapshot,
     publication_identity: SchemaMutationPublicationIdentity,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexSnapshotPublicationPlan {
@@ -325,7 +327,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationReport {
     publication_identity: SchemaMutationPublicationIdentity,
     #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexSnapshotPublicationReport {
@@ -360,7 +362,9 @@ impl SchemaFieldPathIndexSnapshotPublicationReport {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 
@@ -532,7 +536,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStoreReport {
     index_state: IndexState,
     #[cfg(test)]
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexPublishedStoreReport {
@@ -561,7 +565,9 @@ impl SchemaFieldPathIndexPublishedStoreReport {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 
@@ -607,7 +613,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStorePublicationReadi
     store: String,
     entry_count: usize,
     blockers: Vec<SchemaFieldPathIndexStagedStorePublicationBlocker>,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 #[cfg(test)]
@@ -676,7 +682,7 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
         store: &str,
         entry_count: usize,
         store_visibility: SchemaMutationStoreVisibility,
-        runner_report: &SchemaMutationRunnerReport,
+        runner_report: &SchemaFieldPathIndexMutationProgress,
     ) -> Self {
         let mut blockers = Vec::new();
 
@@ -726,7 +732,9 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 

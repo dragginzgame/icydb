@@ -8,10 +8,12 @@ mod compatibility;
 
 use crate::db::schema::{
     MutationPlan, MutationPublicationPreflight, PersistedFieldSnapshot,
-    PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaMutationExecutionPlan,
-    SchemaMutationRequest, SchemaMutationRunnerContract, SchemaMutationSupportedExecutionPath,
-    SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
+    PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildTarget,
+    SchemaMutationRequest, schema_mutation_request_for_snapshots,
 };
+
+#[cfg(any(test, feature = "sql"))]
+use crate::db::schema::SchemaExpressionIndexRebuildTarget;
 
 #[cfg(test)]
 use crate::db::schema::{FieldId, SchemaFieldSlot};
@@ -82,9 +84,7 @@ pub(in crate::db::schema) enum SchemaTransitionPlanKind {
 ///
 /// SchemaTransitionPlan is the schema-owned artifact that authorizes startup
 /// reconciliation to accept a generated proposal against a stored schema
-/// snapshot. Later live-layout work will hang runtime remapping/default
-/// instructions from this plan rather than asking executor code to recompute
-/// schema meaning from raw snapshots.
+/// snapshot and carries the canonical mutation plan for that transition.
 ///
 
 #[derive(Debug, Eq, PartialEq)]
@@ -102,52 +102,40 @@ impl SchemaTransitionPlan {
     ) -> Self {
         Self {
             kind,
-            mutation_plan: request.lower_to_plan(),
+            mutation_plan: request.into(),
         }
     }
 
-    // Return the stable accepted-plan bucket for reconciliation and future
-    // metrics. This avoids exposing raw transition internals to callers.
+    // Return the accepted-plan bucket used by reconciliation diagnostics.
     pub(in crate::db::schema) const fn kind(&self) -> SchemaTransitionPlanKind {
         self.kind
     }
 
-    // Return the schema-owned publication decision after runner preflight. Only
-    // `PublishableNow` may be stored; physical-work-ready plans still
-    // require a later execution/validation phase before publication.
-    pub(in crate::db::schema) fn publication_preflight(
+    // Return the schema-owned publication decision. Physical work must complete
+    // through the matching concrete runner before its snapshot can be stored.
+    pub(in crate::db::schema) const fn publication_preflight(
         &self,
-        runner: &SchemaMutationRunnerContract,
     ) -> MutationPublicationPreflight {
-        self.mutation_plan.publication_preflight(runner)
+        self.mutation_plan.publication_preflight()
     }
 
-    // Admit the only developer-supported physical mutation path for this
-    // transition without exposing raw mutation-plan internals to reconciliation.
-    pub(in crate::db::schema) fn supported_developer_physical_path(
+    pub(in crate::db::schema) const fn field_path_index_target(
         &self,
-    ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
-        self.mutation_plan.supported_developer_physical_path()
+    ) -> Option<&SchemaFieldPathIndexRebuildTarget> {
+        self.mutation_plan.field_path_index_target()
     }
 
-    // Return the schema-owned physical execution plan for accepted runner
-    // wiring. Reconciliation consumes this instead of reconstructing mutation
-    // semantics from accepted snapshots or generated metadata.
-    pub(in crate::db::schema) fn execution_plan(&self) -> SchemaMutationExecutionPlan {
-        self.mutation_plan.execution_plan()
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db::schema) const fn expression_index_target(
+        &self,
+    ) -> Option<&SchemaExpressionIndexRebuildTarget> {
+        self.mutation_plan.expression_index_target()
     }
 
     // Borrow the catalog-native mutation plan behind this reconciliation
     // transition.
-    #[cfg(test)]
     pub(in crate::db::schema) const fn mutation_plan(&self) -> &MutationPlan {
         &self.mutation_plan
-    }
-
-    // Return how many generated fields were accepted by this transition.
-    #[cfg(test)]
-    pub(in crate::db::schema) fn added_field_count(&self) -> usize {
-        self.mutation_plan.added_field_count()
     }
 }
 
@@ -235,8 +223,7 @@ impl SchemaTransitionRejectionDetail {
 ///
 /// SchemaTransitionRejection carries the schema-owned diagnostic for one
 /// rejected transition decision. It keeps policy selection separate from final
-/// user-facing error formatting, so future migration decisions can add richer
-/// rejection metadata without changing the reconciliation call shape.
+/// user-facing error formatting and preserves typed rejection metadata.
 ///
 
 #[derive(Debug, Eq, PartialEq)]
@@ -311,7 +298,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
     }
 
     match schema_mutation_request_for_snapshots(actual, expected) {
-        SchemaMutationRequest::ExactMatch => {
+        Some(SchemaMutationRequest::ExactMatch) => {
             return SchemaTransitionDecision::Accepted(
                 SchemaTransitionPlan::from_mutation_request(
                     SchemaTransitionPlanKind::ExactMatch,
@@ -319,7 +306,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
                 ),
             );
         }
-        SchemaMutationRequest::AppendOnlyFields(added_fields)
+        Some(SchemaMutationRequest::AppendOnlyFields(added_fields))
             if added_fields
                 .iter()
                 .all(field_has_supported_missing_absence_policy) =>
@@ -331,7 +318,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
                 ),
             );
         }
-        SchemaMutationRequest::AddFieldPathIndex { target } => {
+        Some(SchemaMutationRequest::AddFieldPathIndex { target }) => {
             return SchemaTransitionDecision::Accepted(
                 SchemaTransitionPlan::from_mutation_request(
                     SchemaTransitionPlanKind::AddFieldPathIndex,
@@ -339,7 +326,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
                 ),
             );
         }
-        SchemaMutationRequest::AddExpressionIndex { target } => {
+        Some(SchemaMutationRequest::AddExpressionIndex { target }) => {
             return SchemaTransitionDecision::Accepted(
                 SchemaTransitionPlan::from_mutation_request(
                     SchemaTransitionPlanKind::AddExpressionIndex,
@@ -347,11 +334,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
                 ),
             );
         }
-        SchemaMutationRequest::AppendOnlyFields(_) | SchemaMutationRequest::Incompatible => {}
-        #[cfg(any(test, feature = "sql"))]
-        SchemaMutationRequest::DropNonRequiredSecondaryIndex { .. } => {}
-        #[cfg(test)]
-        SchemaMutationRequest::AlterNullability { .. } => {}
+        Some(SchemaMutationRequest::AppendOnlyFields(_)) | None => {}
     }
 
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
@@ -487,7 +470,7 @@ fn unsupported_generated_additive_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> Option<SchemaTransitionRejectionDetail> {
-    let SchemaMutationRequest::AppendOnlyFields(added_fields) =
+    let Some(SchemaMutationRequest::AppendOnlyFields(added_fields)) =
         schema_mutation_request_for_snapshots(actual, expected)
     else {
         return None;

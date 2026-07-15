@@ -57,7 +57,7 @@ pub(in crate::db) use materialize::{
     PreparedProjectionContract, prepare_projection_contract_from_plan,
 };
 pub(in crate::db::executor) use materialize::{
-    PreparedSlotProjectionValidation, ProjectionValidationRow, validate_prepared_projection_row,
+    ProjectionValidationRow, validate_prepared_projection_row,
 };
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db::executor::projection) use materialize::{

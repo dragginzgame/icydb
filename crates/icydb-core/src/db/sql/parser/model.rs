@@ -38,7 +38,7 @@ pub(crate) enum SqlStatement {
 /// SqlDdlStatement
 ///
 /// Parser-owned DDL intent. DDL stays unresolved at this boundary and must bind
-/// against accepted catalog snapshots before any future mutation planning.
+/// against accepted catalog snapshots before schema mutation planning.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

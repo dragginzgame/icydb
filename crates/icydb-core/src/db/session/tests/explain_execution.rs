@@ -227,7 +227,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .limit(0)
+        .partial_window(0)
         .explain_execution()
         .expect("limit-zero explain_execution should succeed");
     if let Some(top_n_node) =
@@ -900,7 +900,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
-        .limit(1);
+        .partial_window(1);
 
     let schema_info = session
         .accepted_schema_info_for_entity::<IndexedSessionSqlEntity>()

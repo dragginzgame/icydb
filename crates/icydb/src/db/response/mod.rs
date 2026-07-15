@@ -7,7 +7,6 @@
 mod paged;
 mod query;
 mod rows;
-mod write;
 
 use crate::{error::Error, traits::EntityKind, types::Id};
 
@@ -16,11 +15,10 @@ use icydb_core::db::{
 };
 
 // re-exports
-pub use icydb_core::db::{ExecutionTrace, GroupedRow, ProjectedRow};
+pub use icydb_core::db::{ExecutionTrace, GroupedRow};
 pub use paged::{PagedGroupedResponse, PagedResponse};
 pub use query::QueryResponse;
 pub use rows::{RowProjectionOutput, render_output_value_text};
-pub use write::*;
 
 ///
 /// Response
@@ -38,7 +36,7 @@ pub struct Response<E: EntityKind> {
 impl<E: EntityKind> Response<E> {
     /// Construct a facade response from a core response.
     #[must_use]
-    pub const fn from_core(inner: CoreEntityResponse<E>) -> Self {
+    pub(crate) const fn from_core(inner: CoreEntityResponse<E>) -> Self {
         Self { inner }
     }
 

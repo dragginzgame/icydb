@@ -20,7 +20,6 @@ FORBIDDEN_MATCHES=(
   $'crates/icydb-core/src/db/commit/memory.rs\tREGISTRY_DATA_STORE_LABEL\tcommit allocator must not depend on data store anchor labels'
   $'crates/icydb-core/src/db/commit/memory.rs\tREGISTRY_INDEX_STORE_LABEL\tcommit allocator must not depend on index store anchor labels'
   $'crates/icydb-core/src/db/commit/memory.rs\tsnapshot_ids_by_range\\(\\)\tcommit allocator must not scan range snapshots for anchor discovery'
-  $'crates/icydb-core/src/db/commit/memory.rs\tunable to locate reserved memory range for commit markers\tlegacy anchor-discovery error must not remain'
 )
 
 for check in "${REQUIRED_MATCHES[@]}"; do

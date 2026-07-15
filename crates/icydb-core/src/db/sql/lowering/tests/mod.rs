@@ -6078,7 +6078,7 @@ fn compile_sql_global_aggregate_command_for_model_only_accepts_post_aggregate_pr
     );
     assert!(
         command.output_remap().is_empty(),
-        "wrapped global aggregate output expressions should stop depending on the legacy top-level terminal remap",
+        "wrapped global aggregate output expressions should use expression-owned terminal projection",
     );
 }
 

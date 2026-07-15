@@ -17,8 +17,8 @@ const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
     reason = "fixture load hook is invoked by generated canister endpoint glue"
 )]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
-    db().insert_many_atomic(sql_users())?;
-    db().insert_many_atomic(sql_numeric_type_rows())?;
+    db()?.insert_many_atomic(sql_users())?;
+    db()?.insert_many_atomic(sql_numeric_type_rows())?;
 
     Ok(())
 }
@@ -61,7 +61,7 @@ fn sql_users() -> Vec<SqlTestUser> {
 /// response-budget tests without embedding a megabyte literal in the wasm.
 #[update]
 fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
-    let alpha = db()
+    let alpha = db()?
         .load::<SqlTestNumericTypes>()
         .trusted_read_unchecked()
         .filter_eq("label", "alpha")
@@ -71,12 +71,12 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
             ErrorOrigin::Response,
         ))?;
     let group_name = "x".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
-    let patch = db().structural_patch::<SqlTestNumericTypes, _, _>([(
+    let patch = db()?.structural_patch::<SqlTestNumericTypes, _, _>([(
         "group_name",
         InputValue::from(group_name),
     )])?;
 
-    db().mutate_structural::<SqlTestNumericTypes>(alpha.id, patch, MutationMode::Update)?;
+    db()?.mutate_structural::<SqlTestNumericTypes>(alpha.id, patch, MutationMode::Update)?;
 
     Ok(())
 }

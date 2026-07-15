@@ -186,13 +186,10 @@ Grouped results MUST be invariant under:
 
 Violation of this invariant is a correctness defect.
 
-## 10. Compatibility Guarantees
+## 10. Scalar Boundary
 
-Grouped behavior introduced in `0.33` is additive.
-
-Existing scalar APIs and scalar execution semantics remain unchanged.
-
-No existing scalar method will:
+Grouped and scalar execution have distinct result shapes. A scalar method does
+not:
 
 - change return type
 - implicitly execute grouped logic
@@ -212,6 +209,4 @@ No existing scalar method will:
 - explicit response surface
 - deterministic continuation behavior
 
-This contract remains current; its baseline semantics originated in `0.33`.
-
-Future changes to grouped semantics MUST update this document.
+Changes to grouped semantics must update this contract.

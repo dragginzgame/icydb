@@ -627,7 +627,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     #[must_use]
-    pub(in crate::db::query) fn with_load_limit(&self, limit: u32) -> Self {
+    pub(in crate::db) fn with_load_limit(&self, limit: u32) -> Self {
         Self::from_inner(self.inner.clone().limit(limit))
     }
 

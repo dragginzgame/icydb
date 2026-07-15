@@ -215,18 +215,6 @@ impl PreparedProjectionContract {
 }
 
 ///
-/// PreparedSlotProjectionValidation
-///
-/// PreparedSlotProjectionValidation is the executor-owned slot-row projection
-/// validation bundle reused by page kernels and retained-slot row shaping.
-/// It freezes the canonical projection semantic spec plus the compiled
-/// validation/evaluation shape so execute no longer recomputes that plan at
-/// each slot-row validation boundary.
-///
-
-pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProjectionContract;
-
-///
 /// ProjectionValidationRow
 ///
 /// ProjectionValidationRow is the deliberately narrow row-read contract for
@@ -294,7 +282,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
 /// Validate projection expressions against one row-domain that can expose
 /// borrowed slot values by field slot.
 pub(in crate::db::executor) fn validate_prepared_projection_row(
-    prepared_validation: &PreparedSlotProjectionValidation,
+    prepared_validation: &PreparedProjectionContract,
     row: &impl ProjectionValidationRow,
 ) -> Result<(), InternalError> {
     if prepared_validation.projection_is_model_identity() {

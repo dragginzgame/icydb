@@ -8,9 +8,7 @@ use crate::{
         executor::{
             ExecutionKernel, ExecutionTrace, ScalarContinuationContext,
             pipeline::{
-                contracts::{
-                    ExecutionOutcomeMetrics, MaterializedExecutionPayload, StructuralCursorPage,
-                },
+                contracts::{ExecutionOutcomeMetrics, StructuralCursorPage},
                 entrypoints::scalar::{
                     execution::{
                         execute_prepared_scalar_kernel, finish_scalar_kernel_observability,
@@ -36,14 +34,14 @@ use crate::{
 // 3) optional execution trace
 // 4) elapsed execution time for finalization
 pub(super) type ScalarPathExecution = (
-    MaterializedExecutionPayload,
+    StructuralCursorPage,
     ExecutionOutcomeMetrics,
     Option<ExecutionTrace>,
     u64,
 );
 
 fn apply_index_set_page_fetch_hint(
-    route_plan: &mut crate::db::executor::ExecutionPlan,
+    route_plan: &mut crate::db::executor::ExecutionRoutePlan,
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     residual_filter_present: bool,
@@ -89,7 +87,7 @@ fn apply_index_set_page_fetch_hint(
 }
 
 fn cursor_fetch_hint_safe(
-    route_plan: &crate::db::executor::ExecutionPlan,
+    route_plan: &crate::db::executor::ExecutionRoutePlan,
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
 ) -> bool {

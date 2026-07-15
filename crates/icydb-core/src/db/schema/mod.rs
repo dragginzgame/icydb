@@ -97,21 +97,12 @@ pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use mutation::SchemaDdlSchemaVersionAdmissionError;
-#[cfg(test)]
-pub(in crate::db::schema) use mutation::SchemaMutation;
-#[cfg(test)]
-pub(in crate::db::schema) use mutation::SchemaRebuildAction;
-#[cfg(test)]
-pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
-    MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
+    MutationPlan, MutationPublicationPreflight, SchemaFieldPathIndexMutationMetrics,
     SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerFailure,
     SchemaFieldPathIndexRunnerReport, SchemaMutationAcceptedSnapshotPublicationSink,
-    SchemaMutationDeveloperReport, SchemaMutationExecutionPlan, SchemaMutationRequest,
-    SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaMutationRunnerInput,
-    SchemaMutationRuntimeEpoch, SchemaMutationRuntimeInvalidationSink,
-    SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
-    schema_mutation_request_for_snapshots,
+    SchemaMutationRequest, SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
+    SchemaMutationRuntimeInvalidationSink, schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
@@ -155,7 +146,7 @@ pub(in crate::db) use mutation::{
 #[cfg(feature = "sql")]
 pub(in crate::db::schema) use mutation::{
     SchemaExpressionIndexRebuildRow, SchemaExpressionIndexStagedEntry,
-    SchemaExpressionIndexStagedRebuild, SchemaMutationExecutionStep,
+    SchemaExpressionIndexStagedRebuild,
 };
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
@@ -173,10 +164,11 @@ pub(in crate::db) use reconcile::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use reconcile::{
-    execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
-    execute_sql_ddl_field_default_change, execute_sql_ddl_field_drop,
-    execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
-    execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
+    execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
+    execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
+    execute_admin_sql_ddl_field_nullability_change,
+    execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
+    execute_admin_sql_ddl_secondary_index_drop,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;

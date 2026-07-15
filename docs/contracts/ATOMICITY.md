@@ -6,7 +6,7 @@ IcyDB mutations executed within a **single Internet Computer update call**.
 The operator-facing durability summary lives in
 `docs/contracts/DURABILITY.md`.
 
-It is a **normative constraint on future changes**, not an implementation plan.
+It is the normative runtime contract, not an implementation plan.
 
 **Scope:**
 This model applies to all IcyDB mutation executors in the current architecture.
@@ -253,33 +253,15 @@ Violating any invariant is a **bug**, not an acceptable failure mode.
 
 ---
 
-## Design Note (Non-Binding)
-
-If IcyDB later introduces:
-
-* async mutation entrypoints
-* multi-message commits
-* durable recovery protocols
-
-Then a new atomicity model must define:
-
-* recovery semantics
-* read behavior during in-flight commits
-* ordering and visibility guarantees
-
 System recovery is expected to run synchronously at startup (before the first
 read or mutation) and is not a substitute for atomic apply-phase correctness.
 Guarded read and write entrypoints also perform a cheap marker check and
 journal publication/fold recovery if needed.
 
-Until then, this document is authoritative.
-
----
-
-## Why This Replaces the Old Model
+## Current Contract Rationale
 
 * Removes implicit reliance on IC traps
 * Matches the current executor + commit-marker architecture
 * Makes invariants explicit and enforceable
 * Prevents silent regression via async or refactors
-* Sets a clean, explicit contract for the current release line
+* Defines one explicit contract for the current release line

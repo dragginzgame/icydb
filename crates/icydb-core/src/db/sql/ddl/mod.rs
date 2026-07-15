@@ -52,9 +52,10 @@ use crate::db::schema::{
 ///
 /// PreparedSqlDdlCommand
 ///
-/// Fully prepared SQL DDL command. This is intentionally not executable yet:
-/// it packages the accepted-catalog binding, accepted-after derivation, and
-/// schema mutation admission proof for the future execution boundary.
+/// Fully prepared SQL DDL command consumed by the administrative execution
+/// boundary. It packages the accepted-catalog binding, accepted-after
+/// derivation, and schema mutation admission proof without making SQL the
+/// mutation authority.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PreparedSqlDdlCommand {
@@ -452,9 +453,9 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
                 admit_sql_ddl_expression_index_candidate(create.candidate_index())
             }
         }
-        BoundSqlDdlStatement::DropIndex(drop) => {
-            admit_sql_ddl_secondary_index_drop_candidate(drop.dropped_index())
-        }
+        BoundSqlDdlStatement::DropIndex(drop) => Ok(admit_sql_ddl_secondary_index_drop_candidate(
+            drop.dropped_index(),
+        )),
         BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
     }
     .map_err(SqlDdlLoweringError::MutationAdmission)

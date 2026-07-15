@@ -51,8 +51,11 @@ pub struct EntitySummary {
     schema_reconcile_rejected_schema_version: u64,
     schema_reconcile_store_write_error: u64,
     schema_transition_checks: u64,
+    schema_transition_add_expression_index: u64,
+    schema_transition_add_field_path_index: u64,
     schema_transition_append_only_nullable_fields: u64,
     schema_transition_exact_match: u64,
+    schema_transition_metadata_only_index_rename: u64,
     schema_transition_rejected_entity_identity: u64,
     schema_transition_rejected_field_contract: u64,
     schema_transition_rejected_field_slot: u64,
@@ -344,6 +347,16 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn schema_transition_add_expression_index(&self) -> u64 {
+        self.schema_transition_add_expression_index
+    }
+
+    #[must_use]
+    pub const fn schema_transition_add_field_path_index(&self) -> u64 {
+        self.schema_transition_add_field_path_index
+    }
+
+    #[must_use]
     pub const fn schema_transition_append_only_nullable_fields(&self) -> u64 {
         self.schema_transition_append_only_nullable_fields
     }
@@ -351,6 +364,11 @@ impl EntitySummary {
     #[must_use]
     pub const fn schema_transition_exact_match(&self) -> u64 {
         self.schema_transition_exact_match
+    }
+
+    #[must_use]
+    pub const fn schema_transition_metadata_only_index_rename(&self) -> u64 {
+        self.schema_transition_metadata_only_index_rename
     }
 
     #[must_use]
@@ -882,8 +900,11 @@ impl EntitySummary {
             .saturating_add(self.schema_reconcile_rejected_schema_version)
             .saturating_add(self.schema_reconcile_store_write_error)
             .saturating_add(self.schema_transition_checks)
+            .saturating_add(self.schema_transition_add_expression_index)
+            .saturating_add(self.schema_transition_add_field_path_index)
             .saturating_add(self.schema_transition_append_only_nullable_fields)
             .saturating_add(self.schema_transition_exact_match)
+            .saturating_add(self.schema_transition_metadata_only_index_rename)
             .saturating_add(self.schema_transition_rejected_entity_identity)
             .saturating_add(self.schema_transition_rejected_field_contract)
             .saturating_add(self.schema_transition_rejected_field_slot)
@@ -1027,9 +1048,13 @@ pub(in crate::metrics) fn entity_summary_from_counters(
         schema_reconcile_rejected_schema_version: ops.schema_reconcile_rejected_schema_version,
         schema_reconcile_store_write_error: ops.schema_reconcile_store_write_error,
         schema_transition_checks: ops.schema_transition_checks,
+        schema_transition_add_expression_index: ops.schema_transition_add_expression_index,
+        schema_transition_add_field_path_index: ops.schema_transition_add_field_path_index,
         schema_transition_append_only_nullable_fields: ops
             .schema_transition_append_only_nullable_fields,
         schema_transition_exact_match: ops.schema_transition_exact_match,
+        schema_transition_metadata_only_index_rename: ops
+            .schema_transition_metadata_only_index_rename,
         schema_transition_rejected_entity_identity: ops.schema_transition_rejected_entity_identity,
         schema_transition_rejected_field_contract: ops.schema_transition_rejected_field_contract,
         schema_transition_rejected_field_slot: ops.schema_transition_rejected_field_slot,

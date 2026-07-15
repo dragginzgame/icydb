@@ -162,7 +162,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlayValidatio
     store: String,
     entry_count: usize,
     store_visibility: SchemaMutationStoreVisibility,
-    runner_report: SchemaMutationRunnerReport,
+    runner_report: SchemaFieldPathIndexMutationProgress,
 }
 
 impl SchemaFieldPathIndexStagedStoreOverlayValidation {
@@ -182,7 +182,9 @@ impl SchemaFieldPathIndexStagedStoreOverlayValidation {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+    pub(in crate::db::schema) const fn runner_report(
+        &self,
+    ) -> &SchemaFieldPathIndexMutationProgress {
         &self.runner_report
     }
 

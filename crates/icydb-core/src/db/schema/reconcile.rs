@@ -14,11 +14,9 @@ use crate::{
         Db, EntityRuntimeHooks,
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, MutationPublicationBlocker,
-            MutationPublicationPreflight, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaStore,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
-            decide_schema_transition,
+            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot, MutationPublicationPreflight,
+            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             enum_catalog::{
                 AcceptedEnumCatalog, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
                 CandidateSchemaRevision, build_initial_accepted_enum_catalog,
@@ -46,10 +44,11 @@ use startup_field_path::{SchemaPublicationGate, execute_supported_field_path_ind
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use sql_ddl::{
-    execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
-    execute_sql_ddl_field_default_change, execute_sql_ddl_field_drop,
-    execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
-    execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
+    execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
+    execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
+    execute_admin_sql_ddl_field_nullability_change,
+    execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
+    execute_admin_sql_ddl_secondary_index_drop,
 };
 
 /// Reconcile registered runtime schemas with the schema metadata store.
@@ -679,94 +678,16 @@ fn validate_accepted_runtime_descriptor(
     Ok(())
 }
 
-// Keep runtime visibility fail-closed until rebuild orchestration can make
-// index/full-rewrite mutation plans physically true before publication.
+// Keep runtime visibility fail-closed until the matching physical mutation
+// path has completed and published its accepted snapshot.
 fn validate_publishable_transition_plan(
-    entity_path: &'static str,
+    _entity_path: &'static str,
     plan: &SchemaTransitionPlan,
 ) -> Result<(), InternalError> {
-    let runner = SchemaMutationRunnerContract::new(&[]);
-
-    match plan.publication_preflight(&runner) {
+    match plan.publication_preflight() {
         MutationPublicationPreflight::PublishableNow => Ok(()),
-        MutationPublicationPreflight::PhysicalWorkReady {
-            step_count,
-            required,
-        } => Err(supported_physical_work_unavailable_error(
-            entity_path,
-            plan,
-            step_count,
-            required.as_slice(),
-        )),
-        MutationPublicationPreflight::MissingRunnerCapabilities { missing } => Err(
-            missing_physical_runner_error(entity_path, plan, missing.as_slice()),
-        ),
-        MutationPublicationPreflight::Rejected { requirement } => {
-            let _ = &requirement;
-
+        MutationPublicationPreflight::RequiresPhysicalWork => {
             Err(InternalError::store_unsupported())
-        }
-        MutationPublicationPreflight::Blocked(MutationPublicationBlocker::NotMetadataSafe(
-            compatibility,
-        )) => {
-            let _ = &compatibility;
-
-            Err(InternalError::store_unsupported())
-        }
-        MutationPublicationPreflight::Blocked(MutationPublicationBlocker::RebuildRequired(
-            rebuild,
-        )) => {
-            let _ = &rebuild;
-
-            Err(InternalError::store_unsupported())
-        }
-    }
-}
-
-// Keep supported physical schema mutation diagnostics distinct from generic
-// unsupported mutation shapes. Reconciliation still fails closed until the
-// startup runner owns row/index/schema publication together.
-fn supported_physical_work_unavailable_error(
-    entity_path: &'static str,
-    plan: &SchemaTransitionPlan,
-    step_count: usize,
-    required: &[SchemaMutationRunnerCapability],
-) -> InternalError {
-    let _ = (entity_path, step_count, required);
-
-    #[cfg(not(test))]
-    {
-        let _ = plan;
-
-        InternalError::store_unsupported()
-    }
-    #[cfg(test)]
-    {
-        match plan.supported_developer_physical_path() {
-            Ok(_path) => InternalError::store_unsupported(),
-            Err(_rejection) => InternalError::store_unsupported(),
-        }
-    }
-}
-
-fn missing_physical_runner_error(
-    entity_path: &'static str,
-    plan: &SchemaTransitionPlan,
-    missing: &[SchemaMutationRunnerCapability],
-) -> InternalError {
-    let _ = (entity_path, missing);
-
-    #[cfg(not(test))]
-    {
-        let _ = plan;
-
-        InternalError::store_unsupported()
-    }
-    #[cfg(test)]
-    {
-        match plan.supported_developer_physical_path() {
-            Ok(_path) => InternalError::store_unsupported(),
-            Err(_rejection) => InternalError::store_unsupported(),
         }
     }
 }
@@ -834,18 +755,20 @@ const fn schema_reconcile_rejection_outcome(
     }
 }
 
-// Map accepted transition plans into public transition metrics. The only
-// accepted plan today is exact-match, but the match keeps future plan kinds
-// visible at the policy boundary instead of hiding them in reconciliation.
+// Map the schema-owned transition decision directly into its public metrics
+// bucket so diagnostics do not collapse current mutation routes into an
+// apparent exact match.
 const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> SchemaTransitionOutcome {
     match kind {
+        SchemaTransitionPlanKind::AddExpressionIndex => SchemaTransitionOutcome::AddExpressionIndex,
+        SchemaTransitionPlanKind::AddFieldPathIndex => SchemaTransitionOutcome::AddFieldPathIndex,
         SchemaTransitionPlanKind::AppendOnlyNullableFields => {
             SchemaTransitionOutcome::AppendOnlyNullableFields
         }
-        SchemaTransitionPlanKind::AddExpressionIndex
-        | SchemaTransitionPlanKind::AddFieldPathIndex
-        | SchemaTransitionPlanKind::ExactMatch
-        | SchemaTransitionPlanKind::MetadataOnlyIndexRename => SchemaTransitionOutcome::ExactMatch,
+        SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
+        SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
+            SchemaTransitionOutcome::MetadataOnlyIndexRename
+        }
     }
 }
 
@@ -871,30 +794,28 @@ const fn schema_transition_rejection_outcome(
     }
 }
 
-// Fail closed when generated code no longer matches an accepted persisted
-// schema. Later schema-evolution work will replace this exact-match boundary
-// with compatibility checks and explicit migrations.
+// Decide the current schema transition against accepted persisted authority.
+// Identity admission runs before non-trivial compatible plans are returned;
+// every rejected shape fails closed with a typed internal cause.
 fn validate_existing_schema_snapshot(
     entity_path: &'static str,
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> Result<SchemaTransitionPlan, InternalError> {
-    let transition_decision = decide_schema_transition(actual, expected);
+    let transition_decision = match decide_schema_transition(actual, expected) {
+        SchemaTransitionDecision::Accepted(plan)
+            if matches!(
+                plan.kind(),
+                SchemaTransitionPlanKind::ExactMatch
+                    | SchemaTransitionPlanKind::MetadataOnlyIndexRename
+            ) =>
+        {
+            record_schema_transition(entity_path, schema_transition_plan_outcome(plan.kind()));
 
-    if let SchemaTransitionDecision::Accepted(plan) = &transition_decision
-        && matches!(
-            plan.kind(),
-            SchemaTransitionPlanKind::ExactMatch
-                | SchemaTransitionPlanKind::MetadataOnlyIndexRename
-        )
-    {
-        record_schema_transition(entity_path, schema_transition_plan_outcome(plan.kind()));
-
-        return match transition_decision {
-            SchemaTransitionDecision::Accepted(plan) => Ok(plan),
-            SchemaTransitionDecision::Rejected(_) => unreachable!("accepted transition matched"),
-        };
-    }
+            return Ok(plan);
+        }
+        decision => decision,
+    };
 
     if let SchemaTransitionDecision::Rejected(rejection) = &transition_decision
         && rejection.kind() == SchemaTransitionRejectionKind::EntityIdentity

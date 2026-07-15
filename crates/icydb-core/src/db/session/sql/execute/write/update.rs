@@ -114,7 +114,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql_write_key_from_component_literals::<E>(descriptor, row)
     }
 
-    pub(in crate::db::session::sql::execute) fn execute_sql_update_statement<E>(
+    pub(in crate::db::session::sql::execute) fn execute_trusted_sql_mutation_statement<E>(
         &self,
         statement: &SqlUpdateStatement,
         catalog: Option<&AcceptedSchemaCatalogContext>,
@@ -122,10 +122,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        self.execute_sql_update_statement_with_execution_bounds::<E>(statement, catalog, None)
+        self.execute_trusted_sql_mutation_statement_with_execution_bounds::<E>(
+            statement, catalog, None,
+        )
     }
 
-    fn execute_sql_update_statement_with_execution_bounds<E>(
+    fn execute_trusted_sql_mutation_statement_with_execution_bounds<E>(
         &self,
         statement: &SqlUpdateStatement,
         catalog: Option<&AcceptedSchemaCatalogContext>,
@@ -217,14 +219,14 @@ impl<C: CanisterKind> DbSession<C> {
     /// session-current or bounded/admin plans through this at-most-one-row
     /// execution path by accident.
     #[doc(hidden)]
-    pub fn execute_validated_sql_public_primary_key_update<E>(
+    pub(in crate::db) fn execute_validated_sql_public_primary_key_update<E>(
         &self,
         plan: &SqlPublicPrimaryKeyUpdatePlan,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
-        self.execute_sql_update_statement_with_execution_bounds::<E>(
+        self.execute_trusted_sql_mutation_statement_with_execution_bounds::<E>(
             plan.statement(),
             None,
             Some(plan.execution_bounds()),
@@ -233,14 +235,14 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute a policy-validated bounded deterministic SQL `UPDATE` plan.
     #[doc(hidden)]
-    pub fn execute_validated_sql_public_bounded_update<E>(
+    pub(in crate::db) fn execute_validated_sql_public_bounded_update<E>(
         &self,
         plan: &SqlPublicBoundedUpdatePlan,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
-        self.execute_sql_update_statement_with_execution_bounds::<E>(
+        self.execute_trusted_sql_mutation_statement_with_execution_bounds::<E>(
             plan.statement(),
             None,
             Some(plan.execution_bounds()),

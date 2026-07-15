@@ -64,7 +64,7 @@ thread_local! {
     };
 }
 
-static FORMAT_DB: Db<DatabaseFormatTestCanister> = Db::new(&FORMAT_REGISTRY);
+static FORMAT_DB: Db<DatabaseFormatTestCanister> = Db::new_with_hooks(&FORMAT_REGISTRY, &[]);
 
 fn empty_store_roles() -> StoreRoleMemories<VectorMemory> {
     StoreRoleMemories {

@@ -1,12 +1,14 @@
 //! SQL `UPDATE` policy model, proofs, bounds, and public DTOs.
 //! Does not own: SQL parsing or policy classification execution.
 
+#[cfg(test)]
+use crate::db::session::sql::write_policy::SqlWriteReturningBounds;
 use crate::db::{
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteBoundedPlanProof, SqlWriteBoundedPolicyRejection, SqlWriteExecutionBounds,
-        SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds, SqlWritePrimaryKeyPlanProof,
-        SqlWriteReturningBounds, SqlWriteShapePolicyRejection, SqlWriteStatementShape,
+        SqlWriteBoundedPolicyRejection, SqlWriteExecutionBounds, SqlWriteExposureClass,
+        SqlWritePlanCore, SqlWritePolicyBounds, SqlWriteShapePolicyRejection,
+        SqlWriteStatementShape,
     },
     sql::parser::SqlUpdateStatement,
 };
@@ -24,30 +26,18 @@ pub(in crate::db) const DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES: u32 =
 /// SQL `UPDATE` exposure policy selected by a caller before execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub enum SqlUpdateExposurePolicy {
-    /// Current broad session/library write-lane policy.
-    SessionWriteCurrent,
-    /// Generated read/query endpoint policy. `UPDATE` is never admitted.
-    GeneratedQuery,
-    /// Generated schema DDL endpoint policy. `UPDATE` is never admitted.
-    GeneratedDdl,
+pub(in crate::db) enum SqlUpdateExposurePolicy {
     /// Public-safe policy requiring complete primary-key equality in `WHERE`.
     PublicPrimaryKeyOnly,
     /// Public-safe bounded non-primary-key policy requiring explicit primary-key ordering.
     PublicBoundedDeterministic,
-    /// Future admin/bulk policy; still rejects unsafe field assignment in this gate.
-    AdminBulk,
 }
 
 impl SqlUpdateExposurePolicy {
     pub(super) const fn exposure_class(self) -> SqlWriteExposureClass {
         match self {
-            Self::SessionWriteCurrent => SqlWriteExposureClass::SessionWriteCurrent,
-            Self::GeneratedQuery => SqlWriteExposureClass::GeneratedQuery,
-            Self::GeneratedDdl => SqlWriteExposureClass::GeneratedDdl,
             Self::PublicPrimaryKeyOnly => SqlWriteExposureClass::PublicPrimaryKeyOnly,
             Self::PublicBoundedDeterministic => SqlWriteExposureClass::PublicBoundedDeterministic,
-            Self::AdminBulk => SqlWriteExposureClass::AdminBulk,
         }
     }
 }
@@ -55,7 +45,7 @@ impl SqlUpdateExposurePolicy {
 /// Schema-derived field context needed to classify one `UPDATE`.
 #[derive(Clone, Copy, Debug)]
 #[doc(hidden)]
-pub struct SqlUpdatePolicyContext<'a> {
+pub(in crate::db) struct SqlUpdatePolicyContext<'a> {
     /// Primary-key fields in canonical order.
     pub primary_key_fields: &'a [&'a str],
     /// Generated-owned fields that SQL `UPDATE` must not assign.
@@ -72,8 +62,9 @@ pub struct SqlUpdatePolicyContext<'a> {
 
 impl<'a> SqlUpdatePolicyContext<'a> {
     /// Build a context with no generated/managed fields and the default public bound.
+    #[cfg(test)]
     #[must_use]
-    pub const fn new(primary_key_fields: &'a [&'a str]) -> Self {
+    pub(in crate::db) const fn new(primary_key_fields: &'a [&'a str]) -> Self {
         Self {
             primary_key_fields,
             generated_fields: &[],
@@ -113,7 +104,7 @@ impl<'a> SqlUpdatePolicyContext<'a> {
 /// Assignment ownership classification for one parsed `UPDATE`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub struct SqlUpdateAssignmentPolicy {
+pub(in crate::db) struct SqlUpdateAssignmentPolicy {
     /// Whether the statement assigns any primary-key field.
     pub mutates_primary_key: bool,
     /// Whether the statement assigns any generated-owned field.
@@ -131,7 +122,7 @@ impl SqlUpdateAssignmentPolicy {
 /// Parsed `UPDATE` classification before a caller-selected exposure policy is applied.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub struct SqlUpdateStatementClassification {
+pub(in crate::db) struct SqlUpdateStatementClassification {
     /// Target entity identifier.
     pub target_entity: String,
     /// Fields assigned by the `SET` list in parser order.
@@ -142,8 +133,7 @@ pub struct SqlUpdateStatementClassification {
     pub write_shape: SqlWriteStatementShape,
 }
 
-pub(super) type SqlUpdatePlanCore =
-    SqlWritePlanCore<SqlUpdateStatement, SqlUpdateStatementClassification>;
+pub(super) type SqlUpdatePlanCore = SqlWritePlanCore<SqlUpdateStatement>;
 
 /// Validated non-executing SQL `UPDATE` plan.
 ///
@@ -152,71 +142,37 @@ pub(super) type SqlUpdatePlanCore =
 /// "already checked" report.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub enum SqlValidatedUpdatePlan {
-    /// Current broad session/library write-lane plan.
-    SessionCurrent(SqlSessionCurrentUpdatePlan),
+pub(in crate::db) enum SqlValidatedUpdatePlan {
     /// Public-safe one-row primary-key plan.
     PublicPrimaryKeyOnly(SqlPublicPrimaryKeyUpdatePlan),
     /// Public-safe bounded deterministic plan.
     PublicBoundedDeterministic(SqlPublicBoundedUpdatePlan),
-    /// Future admin/bulk plan.
-    AdminBulk(SqlAdminBulkUpdatePlan),
 }
 
 impl SqlValidatedUpdatePlan {
-    /// Return the classification carried by this validated plan.
-    #[must_use]
-    pub const fn classification(&self) -> &SqlUpdateStatementClassification {
-        match self {
-            Self::SessionCurrent(plan) => plan.core.classification(),
-            Self::PublicPrimaryKeyOnly(plan) => plan.core.classification(),
-            Self::PublicBoundedDeterministic(plan) => plan.core.classification(),
-            Self::AdminBulk(plan) => plan.core.classification(),
-        }
-    }
-
     /// Return the execution bounds carried by this validated plan.
+    #[cfg(test)]
     #[must_use]
-    pub const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
+    pub(in crate::db) const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
         match self {
-            Self::SessionCurrent(plan) => plan.core.execution_bounds(),
             Self::PublicPrimaryKeyOnly(plan) => plan.core.execution_bounds(),
             Self::PublicBoundedDeterministic(plan) => plan.core.execution_bounds(),
-            Self::AdminBulk(plan) => plan.core.execution_bounds(),
         }
     }
 
     /// Return the `RETURNING` bounds carried by this validated plan.
+    #[cfg(test)]
     #[must_use]
-    pub const fn returning_bounds(&self) -> SqlWriteReturningBounds {
+    pub(in crate::db) const fn returning_bounds(&self) -> SqlWriteReturningBounds {
         self.execution_bounds().returning
     }
-
-    /// Return the entity targeted by the policy-validated parsed update statement.
-    #[must_use]
-    pub const fn statement_entity(&self) -> &str {
-        match self {
-            Self::SessionCurrent(plan) => plan.core.statement().entity.as_str(),
-            Self::PublicPrimaryKeyOnly(plan) => plan.core.statement().entity.as_str(),
-            Self::PublicBoundedDeterministic(plan) => plan.core.statement().entity.as_str(),
-            Self::AdminBulk(plan) => plan.core.statement().entity.as_str(),
-        }
-    }
-}
-
-/// Validated plan for the current broad session/library update lane.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub struct SqlSessionCurrentUpdatePlan {
-    pub(super) core: SqlUpdatePlanCore,
 }
 
 /// Validated plan for public primary-key-only update.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub struct SqlPublicPrimaryKeyUpdatePlan {
+pub(in crate::db) struct SqlPublicPrimaryKeyUpdatePlan {
     pub(super) core: SqlUpdatePlanCore,
-    pub(super) primary_key_proof: SqlWritePrimaryKeyPlanProof,
 }
 
 impl SqlPublicPrimaryKeyUpdatePlan {
@@ -226,23 +182,16 @@ impl SqlPublicPrimaryKeyUpdatePlan {
 
     /// Return the execution bounds carried by this primary-key plan.
     #[must_use]
-    pub const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
+    pub(in crate::db) const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
         self.core.execution_bounds()
-    }
-
-    /// Return the primary-key fields proven by policy, in canonical order.
-    #[must_use]
-    pub const fn primary_key_fields(&self) -> &[String] {
-        self.primary_key_proof.primary_key_fields()
     }
 }
 
 /// Validated plan for public bounded deterministic update.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub struct SqlPublicBoundedUpdatePlan {
+pub(in crate::db) struct SqlPublicBoundedUpdatePlan {
     pub(super) core: SqlUpdatePlanCore,
-    pub(super) bounded_proof: SqlWriteBoundedPlanProof,
 }
 
 impl SqlPublicBoundedUpdatePlan {
@@ -252,7 +201,7 @@ impl SqlPublicBoundedUpdatePlan {
 
     /// Return the execution bounds carried by this bounded deterministic plan.
     #[must_use]
-    pub const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
+    pub(in crate::db) const fn execution_bounds(&self) -> SqlWriteExecutionBounds {
         self.core.execution_bounds()
     }
 
@@ -263,37 +212,14 @@ impl SqlPublicBoundedUpdatePlan {
     ) {
         self.core.set_execution_bounds_for_tests(execution_bounds);
     }
-
-    /// Return the explicit limit admitted by the bounded deterministic policy.
-    #[must_use]
-    pub const fn limit(&self) -> u32 {
-        self.bounded_proof.limit()
-    }
-
-    /// Return the ordered primary-key fields proven by policy.
-    #[must_use]
-    pub const fn ordered_primary_key_fields(&self) -> &[String] {
-        self.bounded_proof.ordered_primary_key_fields()
-    }
-}
-
-/// Validated plan for future admin/bulk update.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub struct SqlAdminBulkUpdatePlan {
-    pub(super) core: SqlUpdatePlanCore,
 }
 
 /// Stable policy rejection for one classified SQL `UPDATE`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub enum SqlUpdatePolicyRejection {
+pub(in crate::db) enum SqlUpdatePolicyRejection {
     /// The parsed statement is not `UPDATE`.
     NotUpdate,
-    /// Generated query surfaces reject all `UPDATE`.
-    GeneratedQueryRejectsUpdate,
-    /// Generated DDL surfaces reject all `UPDATE`.
-    GeneratedDdlRejectsUpdate,
     /// This policy requires a `WHERE` clause.
     MissingWhere,
     /// This policy rejects primary-key assignment.
@@ -306,7 +232,7 @@ pub enum SqlUpdatePolicyRejection {
     PrimaryKeyProofFailed,
     /// This policy requires explicit canonical primary-key ordering.
     MissingCanonicalPrimaryKeyOrder,
-    /// This policy rejects descending ordering in v1.
+    /// This policy rejects descending ordering.
     DescendingOrder,
     /// This policy requires a positive `LIMIT`.
     MissingLimit,
@@ -345,7 +271,7 @@ impl SqlUpdatePolicyRejection {
 /// Result of classifying one SQL statement under an `UPDATE` exposure policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
-pub struct SqlUpdatePolicyReport {
+pub(in crate::db) struct SqlUpdatePolicyReport {
     /// Parsed `UPDATE` classification when the statement is an `UPDATE`.
     pub classification: Option<SqlUpdateStatementClassification>,
     /// Typed validated plan when the selected policy admits the statement.
@@ -356,8 +282,9 @@ pub struct SqlUpdatePolicyReport {
 
 impl SqlUpdatePolicyReport {
     /// Return whether the selected policy admits the statement.
+    #[cfg(test)]
     #[must_use]
-    pub const fn is_admitted(&self) -> bool {
+    pub(in crate::db) const fn is_admitted(&self) -> bool {
         self.rejection.is_none()
     }
 

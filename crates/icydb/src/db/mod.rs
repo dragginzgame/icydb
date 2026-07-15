@@ -4,6 +4,7 @@
 //! Does not own: core runtime ownership.
 //! Boundary: keeps public facade shape stable for downstream code.
 
+mod bootstrap;
 pub mod query;
 pub mod response;
 mod session;
@@ -11,10 +12,8 @@ mod session;
 pub mod sql;
 
 // Public facade-owned response/session surfaces.
-pub use response::{
-    ExecutionTrace, GroupedRow, MutationResult, PagedResponse, ProjectedRow, Response,
-    RowProjectionOutput,
-};
+pub use bootstrap::DatabaseBootstrapError;
+pub use response::{ExecutionTrace, GroupedRow, PagedResponse, Response, RowProjectionOutput};
 pub use session::{
     DbSession, FluentLoadQuery, MutationMode, PartialWindowLoadQuery, SessionDeleteQuery,
     StructuralPatch,
@@ -41,8 +40,7 @@ pub use icydb_core::db::{
 #[doc(hidden)]
 pub use icydb_core::db::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, CompositePrimaryKeyValue,
-    CompositePrimaryKeyValueError, EntityAuthority, Predicate, PrimaryKeyComponent,
-    PrimaryKeyValue,
+    CompositePrimaryKeyValueError, Predicate, PrimaryKeyComponent, PrimaryKeyValue,
 };
 #[doc(hidden)]
 pub use session::generated::execute_generated_storage_report;
@@ -60,21 +58,6 @@ pub use icydb_core::db::{
 pub use icydb_core::db::{
     RowCheckMetrics, StructuralReadMetrics, with_row_check_metrics, with_structural_read_metrics,
 };
-#[cfg(feature = "sql")]
-#[doc(hidden)]
-pub use icydb_core::db::{
-    SqlAdminBulkDeletePlan, SqlAdminBulkUpdatePlan, SqlDeleteExposurePolicy,
-    SqlDeletePolicyContext, SqlDeletePolicyRejection, SqlDeletePolicyReport,
-    SqlDeleteStatementClassification, SqlPublicBoundedDeletePlan, SqlPublicBoundedUpdatePlan,
-    SqlPublicPrimaryKeyDeletePlan, SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentDeletePlan,
-    SqlSessionCurrentUpdatePlan, SqlStatementShellSurface, SqlStatementSurface,
-    SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
-    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateStatementClassification,
-    SqlValidatedDeletePlan, SqlValidatedUpdatePlan, SqlWriteExecutionBounds, SqlWriteOrderProof,
-    SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteStatementShape, SqlWriteWhereProof,
-    classify_sql_delete_policy, classify_sql_update_policy, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
-};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use icydb_core::db::{
@@ -85,4 +68,10 @@ pub use icydb_core::db::{
 #[doc(hidden)]
 pub use icydb_core::db::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
+};
+#[cfg(feature = "sql")]
+#[doc(hidden)]
+pub use icydb_core::db::{
+    SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
+    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
 };

@@ -73,9 +73,8 @@ impl SchemaFieldSlot {
 /// SchemaRowLayout
 ///
 /// Schema-owned mapping from durable field IDs to physical row slots.
-/// The executor has its own decode layout today; this type represents the
-/// persisted schema layout authority that future reconciliation will feed into
-/// runtime decode planning.
+/// This is the persisted slot authority projected into the accepted runtime
+/// decode and write contract.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

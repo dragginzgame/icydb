@@ -12,7 +12,7 @@ use crate::{
         Db,
         cursor::ValidatedCursor,
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation, PreparedLoadPlan,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, PreparedLoadPlan,
             PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, RetainedSlotLayout,
             ScalarContinuationContext,
             pipeline::contracts::{
@@ -28,8 +28,6 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-
-pub(super) type ScalarProjectionRuntimeMode = ProjectionMaterializationMode;
 
 ///
 /// PreparedScalarRouteRuntime
@@ -48,13 +46,13 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     pub(super) store: StoreHandle,
     pub(super) authority: EntityAuthority,
     pub(super) plan_core: PreparedScalarPlanCore,
-    pub(super) route_plan: ExecutionPlan,
+    pub(super) route_plan: ExecutionRoutePlan,
     pub(super) prep: ExecutionPreparation,
     pub(super) projection: PreparedExecutionProjection,
     pub(super) continuation: ScalarContinuationContext,
     pub(super) unpaged_rows_mode: bool,
     pub(super) cursor_emission: CursorEmissionMode,
-    pub(super) projection_runtime_mode: ScalarProjectionRuntimeMode,
+    pub(super) projection_runtime_mode: ProjectionMaterializationMode,
     pub(super) suppress_route_scan_hints: bool,
     pub(super) debug: bool,
 }
@@ -94,17 +92,19 @@ pub(super) struct ScalarRuntimePreparePhaseAttribution {
 
 pub(super) struct InitialScalarPlanRuntimeOptions {
     pub(super) unpaged_rows_mode: bool,
-    pub(super) projection_runtime_mode: ScalarProjectionRuntimeMode,
+    pub(super) projection_runtime_mode: ProjectionMaterializationMode,
     pub(super) suppress_route_scan_hints: bool,
 }
 
 impl InitialScalarPlanRuntimeOptions {
-    pub(super) const fn unpaged_rows(projection_runtime_mode: ScalarProjectionRuntimeMode) -> Self {
+    pub(super) const fn unpaged_rows(
+        projection_runtime_mode: ProjectionMaterializationMode,
+    ) -> Self {
         Self::unpaged_rows_with_route_scan_hints(projection_runtime_mode, false)
     }
 
     pub(super) const fn unpaged_rows_with_route_scan_hints(
-        projection_runtime_mode: ScalarProjectionRuntimeMode,
+        projection_runtime_mode: ProjectionMaterializationMode,
         suppress_route_scan_hints: bool,
     ) -> Self {
         Self {
@@ -117,7 +117,7 @@ impl InitialScalarPlanRuntimeOptions {
     pub(super) const fn materialized_rows() -> Self {
         Self {
             unpaged_rows_mode: false,
-            projection_runtime_mode: ScalarProjectionRuntimeMode::None,
+            projection_runtime_mode: ProjectionMaterializationMode::None,
             suppress_route_scan_hints: true,
         }
     }
@@ -265,7 +265,7 @@ where
     C: CanisterKind,
 {
     let prepared = plan.into_scalar_runtime_handoff(
-        ScalarProjectionRuntimeMode::SharedValidation,
+        ProjectionMaterializationMode::SharedValidation,
         CursorEmissionMode::Emit,
     )?;
 
@@ -280,7 +280,7 @@ where
         ScalarPreparedRuntimeOptions::resumed_emit(
             continuation,
             unpaged_rows_mode,
-            ScalarProjectionRuntimeMode::SharedValidation,
+            ProjectionMaterializationMode::SharedValidation,
         ),
     )
 }
@@ -325,13 +325,13 @@ where
 fn initial_retained_slot_projection_runtime_mode(
     prepared: &PreparedScalarRuntimeHandoff,
     suppress_route_scan_hints: bool,
-) -> ScalarProjectionRuntimeMode {
+) -> ProjectionMaterializationMode {
     if matches!(
         prepared.plan_core.plan().projection_is_model_identity(),
         Ok(true)
     ) && !suppress_route_scan_hints
     {
-        ScalarProjectionRuntimeMode::None
+        ProjectionMaterializationMode::None
     } else if prepared
         .prepared_projection_contract
         .as_ref()
@@ -341,16 +341,16 @@ fn initial_retained_slot_projection_runtime_mode(
         // Plain direct fields and scalar expressions can be evaluated from the
         // retained-slot contract, which avoids carrying full data rows through
         // ordered cursorless SQL pages.
-        ScalarProjectionRuntimeMode::None
+        ProjectionMaterializationMode::None
     } else {
-        ScalarProjectionRuntimeMode::RetainSlotRows
+        ProjectionMaterializationMode::RetainSlotRows
     }
 }
 
 #[cfg(feature = "sql")]
 fn initial_retained_slot_layout(
     prepared: &PreparedScalarRuntimeHandoff,
-    projection_runtime_mode: ScalarProjectionRuntimeMode,
+    projection_runtime_mode: ProjectionMaterializationMode,
     suppress_route_scan_hints: bool,
 ) -> Result<Option<RetainedSlotLayout>, InternalError> {
     if prepared.plan_core.plan().projection_is_model_identity()? && !suppress_route_scan_hints {
@@ -416,7 +416,7 @@ where
 // the route-plan extraction contract.
 pub(super) fn prepare_initial_scalar_route_plan_from_handoff(
     prepared: &PreparedScalarRuntimeHandoff,
-) -> Result<ExecutionPlan, InternalError> {
+) -> Result<ExecutionRoutePlan, InternalError> {
     prepared
         .plan_core
         .get_or_init_initial_scalar_route_plan(prepared.authority.clone())
@@ -467,9 +467,9 @@ pub(super) struct ScalarPreparedRuntimeOptions {
     pub(super) continuation: ScalarContinuationContext,
     pub(super) unpaged_rows_mode: bool,
     pub(super) cursor_emission: CursorEmissionMode,
-    pub(super) projection_runtime_mode: ScalarProjectionRuntimeMode,
+    pub(super) projection_runtime_mode: ProjectionMaterializationMode,
     pub(super) route_plan_family: ScalarRoutePlanFamily,
-    pub(super) prebuilt_route_plan: Option<ExecutionPlan>,
+    pub(super) prebuilt_route_plan: Option<ExecutionRoutePlan>,
     pub(super) suppress_route_scan_hints: bool,
     pub(super) plan_validation: ScalarPlanValidationMode,
 }
@@ -478,8 +478,8 @@ impl ScalarPreparedRuntimeOptions {
     pub(super) const fn initial_suppressed(
         continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
-        projection_runtime_mode: ScalarProjectionRuntimeMode,
-        prebuilt_route_plan: Option<ExecutionPlan>,
+        projection_runtime_mode: ProjectionMaterializationMode,
+        prebuilt_route_plan: Option<ExecutionRoutePlan>,
         suppress_route_scan_hints: bool,
     ) -> Self {
         Self {
@@ -497,7 +497,7 @@ impl ScalarPreparedRuntimeOptions {
     pub(super) const fn resumed_emit(
         continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
-        projection_runtime_mode: ScalarProjectionRuntimeMode,
+        projection_runtime_mode: ProjectionMaterializationMode,
     ) -> Self {
         Self {
             continuation,
@@ -524,11 +524,11 @@ fn build_prepared_scalar_route_runtime(
     prepared_projection_validation: Option<Rc<PreparedProjectionContract>>,
     prepared_retained_slot_layout: Option<RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
-    route_plan: ExecutionPlan,
+    route_plan: ExecutionRoutePlan,
     continuation: ScalarContinuationContext,
     unpaged_rows_mode: bool,
     cursor_emission: CursorEmissionMode,
-    projection_runtime_mode: ScalarProjectionRuntimeMode,
+    projection_runtime_mode: ProjectionMaterializationMode,
     suppress_route_scan_hints: bool,
     debug: bool,
 ) -> Result<PreparedScalarRouteRuntime, InternalError> {
@@ -637,7 +637,7 @@ where
 pub(super) fn build_initial_scalar_route_plan(
     logical_plan: &AccessPlannedQuery,
     authority: EntityAuthority,
-) -> Result<ExecutionPlan, InternalError> {
+) -> Result<ExecutionRoutePlan, InternalError> {
     build_execution_route_plan(
         logical_plan,
         RoutePlanRequest::Load {

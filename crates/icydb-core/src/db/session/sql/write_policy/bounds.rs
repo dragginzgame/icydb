@@ -31,7 +31,6 @@ const fn sql_write_staged_row_bound(
     match kind {
         SqlWriteStagedRowBoundKind::One => Some(1),
         SqlWriteStagedRowBoundKind::Limit => limit,
-        SqlWriteStagedRowBoundKind::Unbounded => None,
     }
 }
 
@@ -118,10 +117,6 @@ mod tests {
         );
         assert_eq!(
             sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Limit, None),
-            None,
-        );
-        assert_eq!(
-            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Unbounded, Some(10)),
             None,
         );
     }

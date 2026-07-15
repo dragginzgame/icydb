@@ -12,8 +12,8 @@ use crate::{
         schema::{
             PersistedSchemaSnapshot, SchemaExpressionIndexRebuildRow,
             SchemaExpressionIndexRebuildTarget, SchemaExpressionIndexStagedEntry,
-            SchemaExpressionIndexStagedRebuild, SchemaMutationExecutionStep,
-            SchemaMutationRunnerInput, SchemaTransitionPlanKind, transition::SchemaTransitionPlan,
+            SchemaExpressionIndexStagedRebuild, SchemaMutationRunnerInput,
+            SchemaTransitionPlanKind, transition::SchemaTransitionPlan,
         },
     },
     error::InternalError,
@@ -40,10 +40,13 @@ pub(super) fn execute_supported_expression_index_addition(
     if plan.kind() != SchemaTransitionPlanKind::AddExpressionIndex {
         return Err(InternalError::store_unsupported());
     }
-    validate_expression_execution_plan(plan, target, entity_path)?;
-    let input =
-        SchemaMutationRunnerInput::new(accepted_before, accepted_after, plan.execution_plan())
-            .map_err(|_error| InternalError::store_unsupported())?;
+    validate_expression_mutation_plan(plan, target, entity_path)?;
+    let input = SchemaMutationRunnerInput::new(
+        accepted_before,
+        accepted_after,
+        plan.mutation_plan().clone(),
+    )
+    .map_err(|_error| InternalError::store_unsupported())?;
     let row_contract = catalog_backed_row_contract_for_rebuild(
         store,
         publication_gate,
@@ -86,23 +89,12 @@ pub(super) fn execute_supported_expression_index_addition(
     Ok((rows_scanned, index_keys_written))
 }
 
-fn validate_expression_execution_plan(
+fn validate_expression_mutation_plan(
     plan: &SchemaTransitionPlan,
     target: &SchemaExpressionIndexRebuildTarget,
     _entity_path: &'static str,
 ) -> Result<(), InternalError> {
-    let execution_plan = plan.execution_plan();
-    let [
-        SchemaMutationExecutionStep::BuildExpressionIndex {
-            target: planned_target,
-        },
-        SchemaMutationExecutionStep::ValidatePhysicalWork,
-        SchemaMutationExecutionStep::InvalidateRuntimeState,
-    ] = execution_plan.steps()
-    else {
-        return Err(InternalError::store_unsupported());
-    };
-    if planned_target != target {
+    if plan.expression_index_target() != Some(target) {
         return Err(InternalError::store_unsupported());
     }
 

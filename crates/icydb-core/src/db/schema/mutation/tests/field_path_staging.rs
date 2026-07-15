@@ -220,23 +220,12 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
         duplicate.validate(),
         Err(super::SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries),
     );
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower to a rebuild target")
-        .lower_to_plan();
     let rejection = duplicate
-        .validated_runner_report(&plan.execution_plan())
+        .validated_runner_report()
         .expect_err("invalid staged state should reject runner reporting");
     assert_eq!(
-        rejection.phase(),
-        super::SchemaMutationRunnerPhase::ValidatePhysicalState,
-    );
-    assert_eq!(
-        rejection.kind(),
-        super::SchemaMutationRunnerRejectionKind::ValidationFailed,
-    );
-    assert_eq!(
-        rejection.requirement(),
-        Some(RebuildRequirement::IndexRebuild),
+        rejection,
+        super::SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries,
     );
 
     let mut mismatched_count = staged.clone();
@@ -314,9 +303,6 @@ fn field_path_unique_rebuild_validation_accepts_distinct_components() {
 
 #[test]
 fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication() {
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");
     let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
@@ -345,18 +331,9 @@ fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication(
     .expect("field-path rebuild rows should stage into raw index entries");
 
     let report = staged
-        .validated_runner_report(&plan.execution_plan())
+        .validated_runner_report()
         .expect("valid staged rebuild output should produce runner diagnostics");
 
-    assert_eq!(report.step_count(), 3);
-    assert_eq!(
-        report.required_capabilities(),
-        &[
-            super::SchemaMutationRunnerCapability::BuildFieldPathIndex,
-            super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
-            super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
-        ],
-    );
     assert_eq!(
         report.completed_phases(),
         &[
@@ -380,9 +357,6 @@ fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication(
 
 #[test]
 fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");
     let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
@@ -406,9 +380,8 @@ fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
     )
     .expect("field-path rebuild rows should stage into raw index entries");
 
-    let buffer =
-        super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
-            .expect("valid staged rebuild should write into an in-memory staged store buffer");
+    let buffer = super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
+        .expect("valid staged rebuild should write into an in-memory staged store buffer");
 
     assert_eq!(buffer.store(), "test::mutation::by_name");
     assert_eq!(buffer.entries(), staged.entries());

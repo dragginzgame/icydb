@@ -8,8 +8,6 @@ mod grouped;
 mod materialize;
 mod scalar;
 
-#[cfg(feature = "sql")]
-use crate::db::response::ProjectedRow;
 use crate::{
     db::query::{
         builder::aggregate::{count, sum},

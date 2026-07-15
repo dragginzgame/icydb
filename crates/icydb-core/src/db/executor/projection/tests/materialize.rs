@@ -16,10 +16,9 @@ fn projection_hash_alias_identity_matches_evaluated_projection_output() {
         alias: Some(Alias::new("rank_out")),
     }]);
 
-    let base_rows: Vec<ProjectedRow<ProjectionEvalEntity>> =
-        project_rows_from_projection(&base_projection, std::slice::from_ref(&row))
-            .expect("base projection should evaluate");
-    let aliased_rows: Vec<ProjectedRow<ProjectionEvalEntity>> =
+    let base_rows = project_rows_from_projection(&base_projection, std::slice::from_ref(&row))
+        .expect("base projection should evaluate");
+    let aliased_rows =
         project_rows_from_projection(&aliased_projection, std::slice::from_ref(&row))
             .expect("aliased projection should evaluate");
 
@@ -29,13 +28,11 @@ fn projection_hash_alias_identity_matches_evaluated_projection_output() {
         "alias-insensitive projection hash must align with evaluator output identity",
     );
     assert_eq!(
-        base_rows[0].values(),
-        aliased_rows[0].values(),
+        base_rows[0].1, aliased_rows[0].1,
         "alias wrappers must not affect evaluated projection values",
     );
     assert_eq!(
-        base_rows[0].id(),
-        aliased_rows[0].id(),
+        base_rows[0].0, aliased_rows[0].0,
         "projection identity checks must preserve source row identity",
     );
 }
@@ -63,7 +60,7 @@ fn projection_field_order_preserved_for_multi_field_selection() {
         .expect("multi-field projection should evaluate");
 
     assert_eq!(
-        projected[0].values(),
+        projected[0].1.as_slice(),
         &[
             output(Value::Text("label-51".to_string())),
             output(Value::Int64(7)),
@@ -72,7 +69,7 @@ fn projection_field_order_preserved_for_multi_field_selection() {
         "projection values must preserve declaration order for the first row",
     );
     assert_eq!(
-        projected[1].values(),
+        projected[1].1.as_slice(),
         &[
             output(Value::Text("label-52".to_string())),
             output(Value::Int64(9)),
@@ -161,7 +158,7 @@ fn scalar_arithmetic_projection_returns_computed_values() {
     let projected = project_rows_from_projection(&projection, rows.as_slice())
         .expect("arithmetic scalar projection should evaluate");
     let only_value = projected[0]
-        .values()
+        .1
         .first()
         .expect("projection should emit one value");
     assert_eq!(
@@ -189,7 +186,7 @@ fn ordering_is_preserved_when_projecting_computed_fields() {
     let projected = project_rows_from_projection(&projection, rows.as_slice())
         .expect("computed projection should evaluate deterministically");
 
-    let projected_ids: Vec<_> = projected.iter().map(ProjectedRow::id).collect();
+    let projected_ids: Vec<_> = projected.iter().map(|row| row.0).collect();
     let expected_ids: Vec<_> = rows.iter().map(|(id, _)| *id).collect();
     assert_eq!(
         projected_ids, expected_ids,
@@ -202,7 +199,7 @@ fn ordering_is_preserved_when_projecting_computed_fields() {
     ];
     for (actual, expected) in projected
         .iter()
-        .map(|row| row.values()[0].clone())
+        .map(|row| row.1[0].clone())
         .zip(expected_values)
     {
         assert_eq!(
@@ -266,12 +263,10 @@ fn expression_projection_column_identity_is_deterministic() {
         },
     ]);
 
-    let base_rows: Vec<ProjectedRow<ProjectionEvalEntity>> =
-        project_rows_from_projection(&base_projection, rows.as_slice())
-            .expect("base expression projection should evaluate");
-    let alias_rows: Vec<ProjectedRow<ProjectionEvalEntity>> =
-        project_rows_from_projection(&alias_variant_projection, rows.as_slice())
-            .expect("alias-variant expression projection should evaluate");
+    let base_rows = project_rows_from_projection(&base_projection, rows.as_slice())
+        .expect("base expression projection should evaluate");
+    let alias_rows = project_rows_from_projection(&alias_variant_projection, rows.as_slice())
+        .expect("alias-variant expression projection should evaluate");
 
     assert_eq!(
         base_projection.structural_hash_for_test(),
@@ -279,18 +274,17 @@ fn expression_projection_column_identity_is_deterministic() {
         "expression projection identity must remain deterministic across alias-only renames",
     );
     assert_eq!(
-        base_rows[0].values(),
-        alias_rows[0].values(),
+        base_rows[0].1, alias_rows[0].1,
         "expression projection output values must remain deterministic across alias-only renames",
     );
-    assert_eq!(base_rows[0].values().len(), 2);
+    assert_eq!(base_rows[0].1.len(), 2);
     assert_eq!(
-        base_rows[0].values()[0],
+        base_rows[0].1[0],
         output(Value::Decimal(crate::types::Decimal::from(8_u64))),
         "first expression projection output should preserve deterministic declared order",
     );
     assert_eq!(
-        base_rows[0].values()[1],
+        base_rows[0].1[1],
         output(Value::Decimal(crate::types::Decimal::from(14_u64))),
         "second expression projection output should preserve deterministic declared order",
     );
@@ -316,12 +310,11 @@ fn projection_materialization_exposes_projected_rows_payload() {
         "projection payload should preserve row cardinality"
     );
     assert_eq!(
-        projected_rows[0].id(),
-        row.0,
+        projected_rows[0].0, row.0,
         "projection payload should preserve row identity"
     );
     assert_eq!(
-        projected_rows[0].values(),
+        projected_rows[0].1.as_slice(),
         &[output(Value::Int64(19))],
         "projection payload should preserve projection value ordering",
     );

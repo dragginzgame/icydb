@@ -163,7 +163,16 @@ thread_local! {
     };
 }
 
-pub(in crate::db::executor::tests) static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
+static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
+    EntityRuntimeHooks::for_entity::<SimpleEntity>(),
+    EntityRuntimeHooks::for_entity::<SingletonUnitEntity>(),
+    EntityRuntimeHooks::for_entity::<IndexedMetricsEntity>(),
+    EntityRuntimeHooks::for_entity::<PushdownParityEntity>(),
+    EntityRuntimeHooks::for_entity::<UniqueIndexRangeEntity>(),
+    EntityRuntimeHooks::for_entity::<PhaseEntity>(),
+];
+pub(in crate::db::executor::tests) static DB: Db<TestCanister> =
+    Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
 
 ///
 /// SimpleEntity

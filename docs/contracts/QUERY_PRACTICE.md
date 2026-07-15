@@ -302,22 +302,22 @@ Validation is mandatory and occurs before evaluation:
 * `CoercionSpec` is allowed for the field type and operator.
 * List/map predicates use correctly typed literals.
 * Ordering operators are only used on orderable domains.
-* Pagination (`limit` / `offset`) requires explicit `order_by(...)`.
+* Bounded row windows and pagination require explicit ordering.
 
 Validation failures produce **Unsupported** errors.
 Evaluation must never panic.
 
 ### Pagination Rule (Determinism)
 
-`limit` and `offset` without `order_by(...)` are rejected by design.
-Use `order_by(...)` fields that produce a total order for stable pagination.
+Bounded row windows without `order_term(...)` are rejected by design.
+Use order terms that produce a total order for stable pagination.
 For caller-facing read APIs, prefer the semantic read-intent terminals in
 [`docs/guides/read-intent.md`](../guides/read-intent.md): `page(limit)` /
 `next_page(limit, cursor)` for public pages, `collect_complete()` for complete
-small sets, and exact aggregate helpers for exact answers. `limit(...)` remains the low-level
-`icydb-core::db::Query` partial row-window primitive for engine, SQL, tests,
-and hidden direct-query tooling; public facade load queries use
-`partial_window(...)` for deliberately partial row windows.
+small sets, and exact aggregate helpers for exact answers. Public facade load
+queries use `partial_window(...)` only for deliberately partial row windows.
+SQL `LIMIT` / `OFFSET` remains an internal lowered query fact rather than a
+fluent builder surface.
 
 Rationale:
 * Unordered pagination is non-deterministic.
@@ -326,16 +326,21 @@ Rationale:
 Rejected:
 
 ```rust
-let query = Query::<User>::new(ReadConsistency::MissingOk).limit(10);
+let rows = db()?
+    .load::<User>()
+    .partial_window(10)
+    .execute_rows();
 ```
 
 Accepted:
 
 ```rust
-let query = Query::<User>::new(ReadConsistency::MissingOk)
-    .order_by("created_at")
-    .order_by("id")
-    .limit(10);
+let rows = db()?
+    .load::<User>()
+    .order_term(asc("created_at"))
+    .order_term(asc("id"))
+    .partial_window(10)
+    .execute_rows()?;
 ```
 
 ### Semantic Contract (Non-Negotiable)

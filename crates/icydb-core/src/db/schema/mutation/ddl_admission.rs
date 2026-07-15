@@ -18,10 +18,8 @@ use crate::error::SchemaDdlAdmissionError;
 ///
 /// SchemaDdlMutationAdmission
 ///
-/// Schema-owned proof that one DDL candidate lowers through the existing
-/// mutation request, mutation plan, execution plan, and supported runner
-/// admission path. It intentionally exposes only the admitted target needed by
-/// future DDL execution instead of leaking planning internals into SQL.
+/// Schema-owned proof that one DDL candidate passed the current catalog-native
+/// admission path. It exposes only the concrete target consumed by execution.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,12 +44,19 @@ pub(in crate::db) enum SchemaDdlIndexDropCandidateError {
 impl SchemaDdlMutationAdmission {
     /// Borrow the admitted field-path index rebuild target.
     #[must_use]
-    pub(in crate::db) fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
-        let SchemaDdlMutationTarget::FieldPathAddition(target) = &self.target else {
-            panic!("ddl admission invariant");
-        };
-
-        target
+    pub(in crate::db) const fn field_path_target(
+        &self,
+    ) -> Option<&SchemaFieldPathIndexRebuildTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldPathAddition(target) => Some(target),
+            SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
     }
 
     /// Borrow the admitted expression index rebuild target.

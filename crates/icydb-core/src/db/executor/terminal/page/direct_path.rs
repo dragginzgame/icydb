@@ -2,8 +2,7 @@ use crate::{
     db::{
         executor::{
             ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
-            apply_structural_order_window_to_data_rows,
-            pipeline::contracts::{MaterializedExecutionPayload, StructuralCursorPage},
+            apply_structural_order_window_to_data_rows, pipeline::contracts::StructuralCursorPage,
             route::LoadOrderRouteMode,
         },
         predicate::MissingRowPolicy,
@@ -44,7 +43,7 @@ pub(super) fn execute_direct_data_row_path(
     continuation: &ScalarContinuationContext,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     direct_data_row_path: DirectDataRowPath<'_>,
-) -> Result<(MaterializedExecutionPayload, usize, usize), InternalError> {
+) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
     continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
     // Phase 1: record the chosen direct-lane family once before scan.

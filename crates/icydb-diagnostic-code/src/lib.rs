@@ -486,10 +486,6 @@ pub enum RuntimeBoundaryCode {
     SqlDdlEntityNotConfigured,
     QueryResponseRowsRequired,
     QueryResponseGroupedRowsRequired,
-    MutationResultEntityRequired,
-    MutationResultEntitiesRequired,
-    MutationResultIdRequired,
-    MutationResultIdsRequired,
     RowProjectionFieldNotConfigured,
     SqlIntrospectionDisabled,
 }
@@ -924,7 +920,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 194);
+        assert_eq!(last, 190);
     }
 
     #[test]
@@ -1012,7 +1008,7 @@ mod tests {
             detail.diagnostic_code(),
             DiagnosticCode::QueryUnsupportedSqlFeature
         );
-        assert_eq!(format!("{detail:?}"), "69");
+        assert_eq!(format!("{detail:?}"), "65");
     }
 
     #[test]

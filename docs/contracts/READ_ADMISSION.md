@@ -142,14 +142,14 @@ Example default behavior:
 
 ```rust
 // Rejected before row execution when `age` is not route-proven by an index.
-let err = db()
+let err = db()?
     .load::<User>()
     .order_term(icydb::asc("age"))
     .partial_window(1)
     .execute_rows();
 
 // Admitted as a public cursor page when the selected route is index-backed.
-let users_page = db()
+let users_page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
@@ -158,27 +158,27 @@ let users_page = db()
 
 // Also admitted: exact selected primary-key access proves at most one row, so
 // a redundant LIMIT is not required.
-let user = db()
+let user = db()?
     .load::<User>()
     .by_id(icydb::Id::<User>::from_key(user_id))
     .try_one()?;
 
-let exists = db()
+let exists = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").eq("sam"))
     .exists()?;
 
-let exact_count = db()
+let exact_count = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
     .count_exact()?;
 
-let exact_sum = db()
+let exact_sum = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
     .sum_exact("age")?;
 
-let small_users = db()
+let small_users = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
@@ -190,7 +190,7 @@ If the rejected query is intentional maintenance work, keep it off arbitrary
 caller paths and use an explicit trusted API after caller authorization:
 
 ```rust
-let users = db()
+let users = db()?
     .load::<User>()
     .order_term(icydb::asc("age"))
     .partial_window(1)
@@ -224,7 +224,7 @@ for `PublicRead` admission:
 Example grouped public read:
 
 ```rust
-let groups = db()
+let groups = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .group_by("status")?
@@ -276,7 +276,7 @@ bounded public-read lane.
 `QueryReadAdmissionCode::PublicQueryRequiresLimit`
 
 ```rust
-let err = db()
+let err = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .execute_rows();
@@ -288,19 +288,19 @@ primary-key reads, strict primary-key filters and the explicit key APIs both
 produce selected exact-key proofs when the accepted schema can prove the shape:
 
 ```rust
-let users_page = db()
+let users_page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
     .order_term(icydb::asc("id"))
     .page(10)?;
 
-let user = db()
+let user = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("id").eq(user_id))
     .try_one()?;
 
-let same_user = db()
+let same_user = db()?
     .load::<User>()
     .by_id(icydb::Id::<User>::from_key(user_id))
     .try_one()?;
@@ -312,7 +312,7 @@ let same_user = db()
 `QueryReadAdmissionCode::PublicQueryRequiresIndex`
 
 ```rust
-let err = db()
+let err = db()?
     .load::<User>()
     .order_term(icydb::asc("age"))
     .partial_window(1)
@@ -323,7 +323,7 @@ let err = db()
 route-proven bounded access path.
 
 ```rust
-let users_page = db()
+let users_page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
@@ -336,7 +336,7 @@ If the broad scan is maintenance work, keep it controller/admin-only:
 ```rust
 require_controller()?;
 
-let users = db()
+let users = db()?
     .load::<User>()
     .order_term(icydb::asc("age"))
     .partial_window(1)
@@ -349,7 +349,7 @@ let users = db()
 `QueryReadAdmissionCode::SortRequiresMaterialization`
 
 ```rust
-let err = db()
+let err = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("active").eq(true))
     .filter(icydb::FieldRef::new("tier").eq("gold"))
@@ -363,7 +363,7 @@ Fix it by ordering with the selected index route, adding a suitable composite
 index, or keeping the report trusted/admin-only:
 
 ```rust
-let users_page = db()
+let users_page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("tier").eq("gold"))
     .order_term(icydb::asc("tier"))
@@ -378,7 +378,7 @@ let users_page = db()
 `QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy`
 
 ```rust
-let err = db()
+let err = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
@@ -397,7 +397,7 @@ lists, or large variable-width key payloads can reject with
 small.
 
 ```rust
-let users_page = db()
+let users_page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
@@ -410,7 +410,7 @@ let users_page = db()
 `QueryReadAdmissionCode::GroupedQueryRequiresLimits`
 
 ```rust
-let err = db()
+let err = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .group_by("status")?
@@ -421,7 +421,7 @@ let err = db()
 Add query-owned grouped limits:
 
 ```rust
-let groups = db()
+let groups = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .group_by("status")?
@@ -439,7 +439,7 @@ budget.
 `QueryReadAdmissionCode::GroupedQueryExceedsBudget`
 
 ```rust
-let err = db()
+let err = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .group_by("status")?
@@ -452,7 +452,7 @@ Lower the grouped limits, reduce grouped `DISTINCT` state, or move the report
 behind a trusted/admin endpoint:
 
 ```rust
-let groups = db()
+let groups = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .group_by("status")?
@@ -467,7 +467,7 @@ let groups = db()
 `QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute`
 
 ```rust
-let explain = db()
+let explain = db()?
     .load::<User>()
     .order_term(icydb::asc("age"))
     .partial_window(1)
@@ -479,7 +479,7 @@ API. After adding a suitable index or changing the query shape, execute through
 the ordinary public lane:
 
 ```rust
-let users_page = db()
+let users_page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))
@@ -493,7 +493,7 @@ EXPLAIN is the fastest way to see why a public read shape would fail, but it
 does not authorize execution and does not bypass guarded recovery.
 
 ```rust
-let explain = db()
+let explain = db()?
     .load::<User>()
     .order_term(icydb::asc("age"))
     .partial_window(1)
@@ -505,7 +505,7 @@ full-scan or materialized-sort rejection. The production fix is to change the
 query to an indexed, bounded shape:
 
 ```rust
-let users_page = db()
+let users_page = db()?
     .load::<User>()
     .filter(icydb::FieldRef::new("username").text_starts_with("sam"))
     .order_term(icydb::asc("username"))

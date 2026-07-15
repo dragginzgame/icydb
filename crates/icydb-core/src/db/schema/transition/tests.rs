@@ -4,11 +4,11 @@ use super::{
 };
 use crate::{
     db::schema::{
-        AcceptedFieldKind, FieldId, MutationCompatibility, PersistedFieldOrigin,
+        AcceptedFieldKind, FieldId, MutationPublicationPreflight, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-        RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
-        SchemaRowLayout, SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
+        SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
         decide_schema_transition, transition::SchemaTransitionRejectionKind,
     },
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -420,12 +420,8 @@ fn schema_transition_policy_accepts_metadata_only_generated_index_rename() {
         SchemaTransitionPlanKind::MetadataOnlyIndexRename
     );
     assert_eq!(
-        plan.mutation_plan().compatibility(),
-        MutationCompatibility::MetadataOnlySafe,
-    );
-    assert_eq!(
-        plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuild,
+        plan.publication_preflight(),
+        MutationPublicationPreflight::PublishableNow,
     );
 }
 
@@ -463,8 +459,8 @@ fn schema_transition_policy_accepts_generated_index_rename_with_extra_ddl_indexe
         SchemaTransitionPlanKind::MetadataOnlyIndexRename
     );
     assert_eq!(
-        plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuild,
+        plan.publication_preflight(),
+        MutationPublicationPreflight::PublishableNow,
     );
 }
 
@@ -505,12 +501,8 @@ fn schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_
 
     assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
     assert_eq!(
-        plan.mutation_plan().compatibility(),
-        MutationCompatibility::MetadataOnlySafe,
-    );
-    assert_eq!(
-        plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuild,
+        plan.publication_preflight(),
+        MutationPublicationPreflight::PublishableNow,
     );
 }
 
@@ -526,12 +518,8 @@ fn schema_transition_policy_accepts_supported_ddl_fields_absent_from_generated_m
 
     assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
     assert_eq!(
-        plan.mutation_plan().compatibility(),
-        MutationCompatibility::MetadataOnlySafe,
-    );
-    assert_eq!(
-        plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuild,
+        plan.publication_preflight(),
+        MutationPublicationPreflight::PublishableNow,
     );
 }
 
@@ -575,14 +563,9 @@ fn schema_transition_policy_accepts_append_only_nullable_fields() {
         plan.kind(),
         SchemaTransitionPlanKind::AppendOnlyNullableFields
     );
-    assert_eq!(plan.added_field_count(), 1);
     assert_eq!(
-        plan.mutation_plan().compatibility(),
-        MutationCompatibility::MetadataOnlySafe
-    );
-    assert_eq!(
-        plan.mutation_plan().rebuild_requirement(),
-        RebuildRequirement::NoRebuild
+        plan.publication_preflight(),
+        MutationPublicationPreflight::PublishableNow
     );
 }
 
@@ -648,7 +631,6 @@ fn schema_transition_policy_accepts_append_only_defaulted_fields() {
         plan.kind(),
         SchemaTransitionPlanKind::AppendOnlyNullableFields
     );
-    assert_eq!(plan.added_field_count(), 1);
 }
 
 #[test]
@@ -1006,12 +988,12 @@ fn schema_transition_policy_names_unsupported_generated_removed_fields() {
         rejection.detail().contains(
             "unsupported generated field removal: stored field[2] id=3 slot=2 name='removed_score' kind=Nat64; startup reconciliation does not perform physical DDL work"
         ),
-        "removed field drift should be named as an unsupported future transition shape",
+        "removed field drift should be named as an unsupported transition shape",
     );
     assert_eq!(
         rejection.kind(),
         SchemaTransitionRejectionKind::FieldContract,
-        "unsupported removals are future field-contract transitions, not generic row-layout mismatches",
+        "unsupported removals are field-contract transitions, not generic row-layout mismatches",
     );
     assert_eq!(
         rejection.admission(),
@@ -1061,12 +1043,12 @@ fn schema_transition_policy_names_unsupported_generated_additive_fields() {
         rejection.detail().contains(
             "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Nat64 nullable=false default=None; field must be nullable without a default or carry a valid explicit persisted default payload"
         ),
-        "additive field drift should be named as an unsupported future transition shape",
+        "additive field drift should be named as an unsupported transition shape",
     );
     assert_eq!(
         rejection.kind(),
         SchemaTransitionRejectionKind::FieldContract,
-        "unsupported additive fields are a future field-contract transition, not a generic row-layout mismatch",
+        "unsupported additive fields are field-contract transitions, not a generic row-layout mismatch",
     );
     assert_eq!(
         rejection.admission(),

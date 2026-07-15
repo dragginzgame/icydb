@@ -99,8 +99,8 @@ struct ReverseRelationMutationTarget {
 /// ReverseRelationSourceTransition
 ///
 /// Shared old/new source-row views used during reverse-index preparation.
-/// This lets commit preflight reuse already-decoded structural slot readers
-/// while preserving the existing raw-row fallback for other call sites.
+/// Commit preflight supplies already-decoded structural slot readers; an
+/// absent old or new side represents an insert or delete respectively.
 ///
 
 struct ReverseRelationSourceTransition<'row, 'slots> {

@@ -8,8 +8,8 @@
 ///
 /// Durable identity for one logical schema field.
 /// This ID is distinct from generated Rust field order and from executor slot
-/// indexes so future schema reconciliation can preserve identity across safe
-/// reorders and renames.
+/// indexes so schema reconciliation can preserve identity across safe reorders
+/// and renames.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -31,8 +31,8 @@ impl FieldId {
     /// Assign the initial schema ID for a generated field slot.
     ///
     /// The first generated snapshot has no prior durable identity source, so it
-    /// derives IDs deterministically from generated slot order. Later schema
-    /// reconciliation must preserve stored IDs instead of recalculating them.
+    /// derives IDs deterministically from generated slot order. Reconciliation
+    /// preserves stored IDs instead of recalculating them.
     #[must_use]
     pub(in crate::db) fn from_initial_slot(slot: usize) -> Self {
         let next = u32::try_from(slot)

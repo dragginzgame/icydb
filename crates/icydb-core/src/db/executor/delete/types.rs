@@ -14,7 +14,7 @@ use crate::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation, PreparedExecutionPlan,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, PreparedExecutionPlan,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -85,7 +85,7 @@ impl DeleteExecutionAuthority {
 pub(in crate::db::executor::delete) struct PreparedDeleteExecutionState {
     pub(in crate::db::executor::delete) authority: DeleteExecutionAuthority,
     pub(in crate::db::executor::delete) logical_plan: Arc<AccessPlannedQuery>,
-    pub(in crate::db::executor::delete) route_plan: ExecutionPlan,
+    pub(in crate::db::executor::delete) route_plan: ExecutionRoutePlan,
     pub(in crate::db::executor::delete) execution_preparation: ExecutionPreparation,
     pub(in crate::db::executor::delete) index_prefix_specs:
         Arc<[crate::db::access::LoweredIndexPrefixSpec]>,

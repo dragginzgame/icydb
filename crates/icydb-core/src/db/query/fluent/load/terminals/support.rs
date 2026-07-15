@@ -190,8 +190,6 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_exists_intent_owns_limit()?;
-
         self.execute_terminal(ExistsRowsTerminal::new())
     }
 
@@ -201,8 +199,6 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_exists_intent_owns_limit()?;
-
         self.explain_terminal(&ExistsRowsTerminal::new())
             .map(|plan| plan.with_read_intent(ReadIntentKind::ExistenceCheck))
     }
@@ -214,8 +210,6 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_exists_intent_owns_limit()?;
-
         with_fluent_terminal_read_intent(
             self.with_admitted_non_paged(|session, query| {
                 session.execute_fluent_exists_rows_terminal_with_attribution(
@@ -225,20 +219,6 @@ where
             }),
             ReadIntentKind::ExistenceCheck,
         )
-    }
-
-    pub(super) fn explain_checked_exact_aggregate_terminal<S>(
-        &self,
-        err: IntentError,
-        strategy: &S,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue,
-        S: TerminalStrategyDriver<E, ExplainOutput = ExplainAggregateTerminalPlan>,
-    {
-        self.ensure_exact_aggregate_intent_owns_limit(err)?;
-
-        self.explain_exact_aggregate_terminal(strategy)
     }
 
     pub(super) fn explain_exact_aggregate_terminal<S>(
@@ -255,29 +235,25 @@ where
 
     pub(super) fn execute_exact_aggregate_terminal<S>(
         &self,
-        err: IntentError,
         strategy: S,
     ) -> Result<S::Output, QueryError>
     where
         E: EntityValue,
         S: TerminalStrategyDriver<E>,
     {
-        self.ensure_exact_aggregate_intent_owns_limit(err)?;
-
         self.execute_terminal(strategy)
     }
 
     pub(super) fn execute_exact_aggregate_by_slot_terminal<S>(
         &self,
         field: impl AsRef<str>,
-        err: IntentError,
         make_strategy: impl FnOnce(FieldSlot) -> S,
     ) -> Result<S::Output, QueryError>
     where
         E: EntityValue,
         S: TerminalStrategyDriver<E>,
     {
-        let target_slot = self.resolve_exact_aggregate_slot(field, err)?;
+        let target_slot = self.resolve_non_paged_slot(field)?;
 
         self.execute_terminal(make_strategy(target_slot))
     }
@@ -285,30 +261,16 @@ where
     pub(super) fn explain_exact_aggregate_by_slot_terminal<S>(
         &self,
         field: impl AsRef<str>,
-        err: IntentError,
         make_strategy: impl FnOnce(FieldSlot) -> S,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
         S: TerminalStrategyDriver<E, ExplainOutput = ExplainAggregateTerminalPlan>,
     {
-        let target_slot = self.resolve_exact_aggregate_slot(field, err)?;
+        let target_slot = self.resolve_non_paged_slot(field)?;
         let strategy = make_strategy(target_slot);
 
         self.explain_exact_aggregate_terminal(&strategy)
-    }
-
-    pub(super) fn resolve_exact_aggregate_slot(
-        &self,
-        field: impl AsRef<str>,
-        err: IntentError,
-    ) -> Result<FieldSlot, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.ensure_exact_aggregate_intent_owns_limit(err)?;
-
-        self.resolve_non_paged_slot(field)
     }
 
     // Run one complete-small-set operation through the terminal-owned
@@ -322,7 +284,6 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_collect_complete_intent_owns_limit()?;
         self.ensure_non_paged_mode_ready()?;
 
         let query = self.query().with_load_limit(COMPLETE_SMALL_EXECUTION_LIMIT);
@@ -351,23 +312,6 @@ where
                 )
             }),
             read_intent,
-        )
-    }
-
-    pub(super) fn ensure_exists_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_semantic_terminal_owns_limit(IntentError::raw_limit_before_exists_terminal())
-    }
-
-    pub(super) fn ensure_exact_aggregate_intent_owns_limit(
-        &self,
-        err: IntentError,
-    ) -> Result<(), QueryError> {
-        self.ensure_semantic_terminal_owns_limit(err)
-    }
-
-    pub(super) fn ensure_collect_complete_intent_owns_limit(&self) -> Result<(), QueryError> {
-        self.ensure_semantic_terminal_owns_limit(
-            IntentError::raw_limit_before_collect_complete_terminal(),
         )
     }
 }

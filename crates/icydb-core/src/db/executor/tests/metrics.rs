@@ -596,7 +596,7 @@ fn grouped_load_emits_rows_aggregated_metrics() {
             .group_by("group")
             .expect("grouped query should build")
             .aggregate(crate::db::count())
-            .limit(1)
+            .partial_window(1)
             .execute()
             .and_then(crate::db::LoadQueryResult::into_grouped)
             .expect("grouped execution should succeed");

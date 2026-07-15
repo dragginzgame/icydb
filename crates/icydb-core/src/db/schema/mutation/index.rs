@@ -1,5 +1,3 @@
-#[cfg(test)]
-use super::write_hash_bool;
 use super::{AcceptedSchemaMutationError, SchemaMutationRequest};
 #[cfg(feature = "sql")]
 use super::{
@@ -7,8 +5,6 @@ use super::{
     SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaDdlMutationTarget,
     schema_mutation_request_for_snapshots,
 };
-#[cfg(test)]
-use crate::db::codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32};
 use crate::db::schema::{
     AcceptedFieldKind, FieldId, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
@@ -21,8 +17,8 @@ use crate::db::schema::{AcceptedSchemaSnapshot, PersistedSchemaSnapshot};
 /// SchemaFieldPathIndexRebuildTarget
 ///
 /// Accepted schema-owned rebuild target for a field-path index. It carries the
-/// persisted index store identity and key-slot contract that a later physical
-/// rebuild runner must consume before the index can become runtime-visible.
+/// persisted index store identity and key-slot contract consumed by the
+/// physical runner before the index becomes runtime-visible.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -126,8 +122,8 @@ impl SchemaFieldPathIndexRebuildKey {
 ///
 /// Accepted schema-owned rebuild target for a deterministic expression index.
 /// It preserves accepted key order across field-path and expression components
-/// so a later physical rebuild runner does not need generated `IndexModel`
-/// metadata to derive key shape.
+/// so the physical runner does not need generated `IndexModel` metadata to
+/// derive key shape.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -244,54 +240,29 @@ impl SchemaExpressionIndexRebuildExpression {
 ///
 /// SchemaSecondaryIndexDropCleanupTarget
 ///
-/// Accepted schema-owned cleanup target for dropping a secondary index. It
-/// carries the persisted store identity that must be cleaned before a later
-/// mutation can publish a snapshot without the index.
+/// Accepted schema-owned ordinal boundary for dropping a secondary index.
+/// Cleanup removes the target namespace and shifts later index ordinals before
+/// publishing the accepted-after snapshot.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct SchemaSecondaryIndexDropCleanupTarget {
     ordinal: u16,
-    name: String,
-    store: String,
-    unique: bool,
-    predicate_sql: Option<String>,
 }
 
 #[cfg(any(test, feature = "sql"))]
 impl SchemaSecondaryIndexDropCleanupTarget {
+    const fn from_accepted_index(index: &PersistedIndexSnapshot) -> Self {
+        Self {
+            ordinal: index.ordinal(),
+        }
+    }
+
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn unique(&self) -> bool {
-        self.unique
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
-        match &self.predicate_sql {
-            Some(predicate_sql) => Some(predicate_sql.as_str()),
-            None => None,
-        }
     }
 }
 
@@ -374,22 +345,6 @@ impl SchemaMutationRequest<'_> {
             },
         })
     }
-
-    /// Lower one accepted secondary index snapshot into a cleanup request.
-    #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db::schema) fn from_accepted_secondary_index_drop(
-        index: &PersistedIndexSnapshot,
-    ) -> Self {
-        Self::DropNonRequiredSecondaryIndex {
-            target: SchemaSecondaryIndexDropCleanupTarget {
-                ordinal: index.ordinal(),
-                name: index.name().to_string(),
-                store: index.store().to_string(),
-                unique: index.unique(),
-                predicate_sql: index.predicate_sql().map(str::to_string),
-            },
-        }
-    }
 }
 
 /// Admit one SQL DDL field-path index candidate through the schema-owned
@@ -400,13 +355,12 @@ pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
 ) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
     let request = SchemaMutationRequest::from_accepted_field_path_index(index)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedIndex)?;
-    let plan = request.lower_to_plan();
-    let supported = plan
-        .supported_developer_physical_path()
-        .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
+        return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
+    };
 
     Ok(SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::FieldPathAddition(supported.target().clone()),
+        target: SchemaDdlMutationTarget::FieldPathAddition(target),
     })
 }
 
@@ -430,17 +384,14 @@ pub(in crate::db) fn admit_sql_ddl_expression_index_candidate(
 /// Admit one SQL DDL secondary-index drop candidate through the schema-owned
 /// mutation request boundary.
 #[cfg(feature = "sql")]
-pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
+pub(in crate::db) const fn admit_sql_ddl_secondary_index_drop_candidate(
     index: &PersistedIndexSnapshot,
-) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
-    let request = SchemaMutationRequest::from_accepted_secondary_index_drop(index);
-    let SchemaMutationRequest::DropNonRequiredSecondaryIndex { target } = request else {
-        return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
-    };
-
-    Ok(SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::SecondaryDrop(target),
-    })
+) -> SchemaDdlMutationAdmission {
+    SchemaDdlMutationAdmission {
+        target: SchemaDdlMutationTarget::SecondaryDrop(
+            SchemaSecondaryIndexDropCleanupTarget::from_accepted_index(index),
+        ),
+    }
 }
 
 /// Resolve one accepted SQL DDL index-drop candidate and reject generated
@@ -530,16 +481,16 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
     let request = schema_mutation_request_for_snapshots(
         accepted_before.persisted_snapshot(),
         accepted_after.persisted_snapshot(),
-    );
-    let plan = request.lower_to_plan();
-    let supported = plan
-        .supported_developer_physical_path()
-        .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    )
+    .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
+        return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
+    };
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,
         admission: SchemaDdlMutationAdmission {
-            target: SchemaDdlMutationTarget::FieldPathAddition(supported.target().clone()),
+            target: SchemaDdlMutationTarget::FieldPathAddition(target),
         },
     })
 }
@@ -609,118 +560,12 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-    let admission = admit_sql_ddl_secondary_index_drop_candidate(index)?;
+    let admission = admit_sql_ddl_secondary_index_drop_candidate(index);
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,
         admission,
     })
-}
-
-impl SchemaFieldPathIndexRebuildTarget {
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, hasher: &mut sha2::Sha256) {
-        write_hash_u32(hasher, u32::from(self.ordinal));
-        write_hash_str_u32(hasher, &self.name);
-        write_hash_str_u32(hasher, &self.store);
-        write_hash_bool(hasher, self.unique);
-        match &self.predicate_sql {
-            Some(predicate_sql) => {
-                write_hash_tag_u8(hasher, 1);
-                write_hash_str_u32(hasher, predicate_sql);
-            }
-            None => write_hash_tag_u8(hasher, 0),
-        }
-        write_hash_u32(
-            hasher,
-            u32::try_from(self.key_paths.len()).unwrap_or(u32::MAX),
-        );
-        for key_path in &self.key_paths {
-            key_path.hash_into(hasher);
-        }
-    }
-}
-
-impl SchemaFieldPathIndexRebuildKey {
-    #[cfg(test)]
-    fn hash_into(&self, hasher: &mut sha2::Sha256) {
-        write_hash_u32(hasher, self.field_id.get());
-        write_hash_u32(hasher, u32::from(self.slot.get()));
-        write_hash_u32(hasher, u32::try_from(self.path.len()).unwrap_or(u32::MAX));
-        for segment in &self.path {
-            write_hash_str_u32(hasher, segment);
-        }
-        write_hash_str_u32(hasher, &format!("{:?}", self.kind));
-        write_hash_bool(hasher, self.nullable);
-    }
-}
-
-impl SchemaExpressionIndexRebuildTarget {
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, hasher: &mut sha2::Sha256) {
-        write_hash_u32(hasher, u32::from(self.ordinal));
-        write_hash_str_u32(hasher, &self.name);
-        write_hash_str_u32(hasher, &self.store);
-        write_hash_bool(hasher, self.unique);
-        match &self.predicate_sql {
-            Some(predicate_sql) => {
-                write_hash_tag_u8(hasher, 1);
-                write_hash_str_u32(hasher, predicate_sql);
-            }
-            None => write_hash_tag_u8(hasher, 0),
-        }
-        write_hash_u32(
-            hasher,
-            u32::try_from(self.key_items.len()).unwrap_or(u32::MAX),
-        );
-        for key_item in &self.key_items {
-            key_item.hash_into(hasher);
-        }
-    }
-}
-
-impl SchemaExpressionIndexRebuildKey {
-    #[cfg(test)]
-    fn hash_into(&self, hasher: &mut sha2::Sha256) {
-        match self {
-            Self::FieldPath(path) => {
-                write_hash_tag_u8(hasher, 1);
-                path.hash_into(hasher);
-            }
-            Self::Expression(expression) => {
-                write_hash_tag_u8(hasher, 2);
-                expression.hash_into(hasher);
-            }
-        }
-    }
-}
-
-impl SchemaExpressionIndexRebuildExpression {
-    #[cfg(test)]
-    fn hash_into(&self, hasher: &mut sha2::Sha256) {
-        write_hash_u32(hasher, self.op as u32);
-        self.source.hash_into(hasher);
-        write_hash_str_u32(hasher, &format!("{:?}", self.input_kind));
-        write_hash_str_u32(hasher, &format!("{:?}", self.output_kind));
-        write_hash_str_u32(hasher, &self.canonical_text);
-    }
-}
-
-#[cfg(test)]
-impl SchemaSecondaryIndexDropCleanupTarget {
-    pub(super) fn hash_into(&self, hasher: &mut sha2::Sha256) {
-        write_hash_u32(hasher, u32::from(self.ordinal));
-        write_hash_str_u32(hasher, &self.name);
-        write_hash_str_u32(hasher, &self.store);
-        write_hash_bool(hasher, self.unique);
-        match &self.predicate_sql {
-            Some(predicate_sql) => {
-                write_hash_tag_u8(hasher, 1);
-                write_hash_str_u32(hasher, predicate_sql);
-            }
-            None => write_hash_tag_u8(hasher, 0),
-        }
-    }
 }
 
 pub(super) fn field_path_rebuild_key(

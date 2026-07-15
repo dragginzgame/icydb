@@ -26,10 +26,6 @@ use std::convert::Infallible;
 pub(in crate::db) fn rebuild_secondary_indexes_from_rows(
     db: &Db<impl CanisterKind>,
 ) -> Result<(), InternalError> {
-    if !db.has_runtime_hooks() {
-        return Ok(());
-    }
-
     // Phase 1: capture deterministic store ordering and rollback snapshots.
     let stores = sorted_store_handles(db);
     let snapshots = stores

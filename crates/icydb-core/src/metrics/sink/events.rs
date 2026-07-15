@@ -150,8 +150,11 @@ pub enum SchemaReconcileOutcome {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[remain::sorted]
 pub enum SchemaTransitionOutcome {
+    AddExpressionIndex,
+    AddFieldPathIndex,
     AppendOnlyNullableFields,
     ExactMatch,
+    MetadataOnlyIndexRename,
     RejectedEntityIdentity,
     RejectedFieldContract,
     RejectedFieldSlot,

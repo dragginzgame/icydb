@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)
 
+- `0.203.2` completes the second hard-cut excavation with typed bootstrap and
+  one canonical schema-mutation authority. Potentially breaking: removed APIs
+  and renamed authority or diagnostic surfaces have no compatibility aliases.
+
 - `0.203.1` completes the pre-1.0 format and identity hard cut and repairs dense
   field-drop rewrites. Potentially breaking: existing stores and cursors are
   unsupported and must be recreated or restarted.

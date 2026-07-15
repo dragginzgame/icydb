@@ -12,8 +12,8 @@ icydb::start!();
     reason = "fixture load hook is invoked by generated canister endpoint glue"
 )]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
-    db().insert_many_atomic(fixtures::characters())?;
-    db().insert_many_atomic(fixtures::grid())?;
+    db()?.insert_many_atomic(fixtures::characters())?;
+    db()?.insert_many_atomic(fixtures::grid())?;
 
     Ok(())
 }

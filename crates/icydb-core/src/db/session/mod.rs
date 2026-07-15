@@ -50,26 +50,24 @@ pub(in crate::db) use response::finalize_scalar_paged_execution;
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 #[cfg(feature = "sql")]
 pub(in crate::db) use response::sql_grouped_cursor_from_bytes;
-#[cfg(feature = "sql")]
-pub use sql::{
-    SqlAdminBulkDeletePlan, SqlAdminBulkUpdatePlan, SqlDdlExecutionStatus, SqlDdlMutationKind,
-    SqlDdlPreparationReport, SqlDeleteExposurePolicy, SqlDeletePolicyContext,
-    SqlDeletePolicyRejection, SqlDeletePolicyReport, SqlDeleteStatementClassification,
-    SqlPublicBoundedDeletePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan,
-    SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentDeletePlan, SqlSessionCurrentUpdatePlan,
-    SqlStatementDispatch, SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface,
-    SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdatePolicyContext,
-    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateStatementClassification,
-    SqlValidatedDeletePlan, SqlValidatedUpdatePlan, SqlWriteExecutionBounds, SqlWriteOrderProof,
-    SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteStatementShape, SqlWriteWhereProof,
-    classify_sql_delete_policy, classify_sql_update_policy, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
-};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
     SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
     SqlQueryExecutionAttribution,
+};
+#[cfg(feature = "sql")]
+pub use sql::{
+    SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport, SqlStatementDispatch,
+    SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
+    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
+};
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db) use sql::{
+    SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyDeletePlan, SqlPublicPrimaryKeyUpdatePlan,
+    SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedDeletePlan,
+    SqlValidatedUpdatePlan, classify_sql_delete_policy, classify_sql_update_policy,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
@@ -126,7 +124,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        FluentLoadQuery::new(self, Query::new(consistency))
+        FluentLoadQuery::new(self, consistency)
     }
 
     // Shared fluent delete wrapper construction keeps the delete-mode handoff

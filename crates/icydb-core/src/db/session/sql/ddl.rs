@@ -11,10 +11,11 @@ use crate::{
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
-            execute_sql_ddl_field_default_change, execute_sql_ddl_field_drop,
-            execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
-            execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
+            execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
+            execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
+            execute_admin_sql_ddl_field_nullability_change,
+            execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
+            execute_admin_sql_ddl_secondary_index_drop,
         },
         session::{
             AcceptedSchemaCatalogContext,
@@ -70,11 +71,12 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((catalog, prepared))
     }
 
-    /// Execute one SQL DDL statement.
+    /// Execute one administrative SQL DDL statement.
     ///
     /// Supported DDL routes through schema-owned physical work and
-    /// accepted-snapshot publication.
-    pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
+    /// accepted-snapshot publication. The caller must own administrative
+    /// authorization before accepting caller-controlled SQL.
+    pub fn execute_admin_sql_ddl<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C>,
     {
@@ -126,7 +128,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let metrics = match prepared.bound().statement() {
             BoundSqlDdlStatement::AddColumn(_) => {
-                execute_sql_ddl_field_addition(
+                execute_admin_sql_ddl_field_addition(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
@@ -139,7 +141,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (0, 0)
             }
             BoundSqlDdlStatement::AlterColumnDefault(_) => {
-                execute_sql_ddl_field_default_change(
+                execute_admin_sql_ddl_field_default_change(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
@@ -152,7 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (0, 0)
             }
             BoundSqlDdlStatement::AlterColumnNullability(_) => {
-                let rows_scanned = execute_sql_ddl_field_nullability_change(
+                let rows_scanned = execute_admin_sql_ddl_field_nullability_change(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
@@ -165,7 +167,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (rows_scanned, 0)
             }
             BoundSqlDdlStatement::DropColumn(_) => {
-                let rows_scanned = execute_sql_ddl_field_drop(
+                let rows_scanned = execute_admin_sql_ddl_field_drop(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
@@ -178,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (rows_scanned, 0)
             }
             BoundSqlDdlStatement::RenameColumn(_) => {
-                execute_sql_ddl_field_rename(
+                execute_admin_sql_ddl_field_rename(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
@@ -193,7 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
             BoundSqlDdlStatement::CreateIndex(create)
                 if create.candidate_index().key().is_field_path_only() =>
             {
-                execute_sql_ddl_field_path_index_addition(
+                execute_admin_sql_ddl_field_path_index_addition(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
@@ -203,17 +205,19 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?
             }
-            BoundSqlDdlStatement::CreateIndex(_) => execute_sql_ddl_expression_index_addition(
-                store,
-                E::ENTITY_TAG,
-                E::PATH,
-                accepted_before,
-                accepted_before_identity,
-                derivation,
-            )
-            .map_err(QueryError::from_sql_ddl_execution_error)?,
+            BoundSqlDdlStatement::CreateIndex(_) => {
+                execute_admin_sql_ddl_expression_index_addition(
+                    store,
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    accepted_before,
+                    accepted_before_identity,
+                    derivation,
+                )
+                .map_err(QueryError::from_sql_ddl_execution_error)?
+            }
             BoundSqlDdlStatement::DropIndex(_) => {
-                execute_sql_ddl_secondary_index_drop(
+                execute_admin_sql_ddl_secondary_index_drop(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,

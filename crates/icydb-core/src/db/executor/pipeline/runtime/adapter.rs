@@ -18,9 +18,9 @@ use crate::{
             OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{
                 CursorEmissionMode, FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest,
-                KernelPageMaterializationRequest, MaterializedExecutionPayload,
-                RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
-                ScalarMaterializationCapabilities,
+                KernelPageMaterializationRequest, RowCollectorMaterializationRequest,
+                RuntimePageMaterializationRequest, ScalarMaterializationCapabilities,
+                StructuralCursorPage,
             },
             scan::execute_fast_stream_route,
             stream::access::TraversalRuntime,
@@ -38,7 +38,7 @@ use crate::{
     value::Value,
 };
 
-type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, usize);
+type MaterializedExecutionPayloadResult = (StructuralCursorPage, usize, usize);
 
 ///
 /// ExecutionMaterializationContract
@@ -60,7 +60,7 @@ pub(in crate::db::executor) struct ExecutionMaterializationContract<'a> {
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
     pub(in crate::db::executor) prepared_projection_validation:
-        Option<&'a crate::db::executor::projection::PreparedSlotProjectionValidation>,
+        Option<&'a crate::db::executor::projection::PreparedProjectionContract>,
 }
 
 impl<'a> ExecutionMaterializationContract<'a> {

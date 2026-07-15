@@ -8,8 +8,8 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
     let second = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Grace".to_string()))],
     };
-    let (before, after, execution_plan) = field_path_index_runner_context();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+    let (before, after, mutation_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, mutation_plan)
         .expect("same-entity accepted snapshots should build runner input");
     let mut index_store = initialized_index_store(234);
     let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
@@ -28,7 +28,7 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
         &mut invalidation_sink,
         &mut publication_sink,
     )
-    .expect("accepted field-path execution plan should complete the runner handoff");
+    .expect("accepted field-path mutation plan should complete the runner handoff");
 
     assert_eq!(report.store(), "test::mutation::by_name");
     assert_eq!(report.write_report().store(), report.store());
@@ -84,7 +84,7 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
     assert!(report.runner_report().physical_work_allows_publication());
     assert!(report.publication_readiness().allows_publication());
 
-    assert_field_path_success_developer_report(&report);
+    assert_field_path_success_metrics(&report);
 }
 
 #[test]
@@ -95,8 +95,8 @@ fn field_path_runner_orchestrates_handoff_with_unrelated_index_entries() {
     let second = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Grace".to_string()))],
     };
-    let (before, after, execution_plan) = field_path_index_runner_context();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+    let (before, after, mutation_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, mutation_plan)
         .expect("same-entity accepted snapshots should build runner input");
     let mut index_store = initialized_index_store(233);
     let other_index_id = IndexId::new(EntityTag::new(7), 99);
@@ -149,8 +149,8 @@ fn field_path_runner_rejects_target_mismatch_before_physical_work() {
     else {
         panic!("field-path request should carry a rebuild target");
     };
-    let (before, after, execution_plan) = field_path_index_runner_context();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+    let (before, after, mutation_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, mutation_plan)
         .expect("same-entity accepted snapshots should build runner input");
     let mut index_store = initialized_index_store(236);
     let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
@@ -180,16 +180,15 @@ fn field_path_runner_rejects_target_mismatch_before_physical_work() {
 }
 
 #[test]
-fn field_path_runner_rejects_non_field_path_execution_plan_before_physical_work() {
+fn field_path_runner_rejects_non_field_path_mutation_plan_before_physical_work() {
     let before = base_snapshot();
     let after = snapshot_with_indexes(&before, vec![expression_name_index()]);
-    let expression_plan =
+    let expression_plan: MutationPlan =
         SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
             .expect("accepted expression index should lower")
-            .lower_to_plan();
-    let input =
-        super::SchemaMutationRunnerInput::new(&before, &after, expression_plan.execution_plan())
-            .expect("same-entity accepted snapshots should build runner input");
+            .into();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, expression_plan)
+        .expect("same-entity accepted snapshots should build runner input");
     let mut index_store = initialized_index_store(235);
     let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
     let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
@@ -208,7 +207,7 @@ fn field_path_runner_rejects_non_field_path_execution_plan_before_physical_work(
 
     assert_eq!(
         failure.error(),
-        super::SchemaFieldPathIndexRunnerError::UnsupportedExecutionPlan,
+        super::SchemaFieldPathIndexRunnerError::UnsupportedMutationPlan,
     );
     assert_eq!(failure.rollback_report(), None);
     assert_eq!(index_store.len(), 0);
@@ -225,8 +224,8 @@ fn field_path_runner_rolls_back_staged_writes_after_isolated_validation_failure(
     let second = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Grace".to_string()))],
     };
-    let (before, after, execution_plan) = field_path_index_runner_context();
-    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+    let (before, after, mutation_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, mutation_plan)
         .expect("same-entity accepted snapshots should build runner input");
     let mut index_store = initialized_index_store(229);
     let extra_entry = extra_staged_name_index_entry();
@@ -256,10 +255,6 @@ fn field_path_runner_rolls_back_staged_writes_after_isolated_validation_failure(
         failure.error(),
         super::SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed,
     );
-    assert_eq!(
-        failure.phase(),
-        super::SchemaMutationRunnerPhase::ValidatePhysicalState,
-    );
     assert_eq!(rollback_report.store(), "test::mutation::by_name");
     assert_eq!(rollback_report.actions_applied(), 2);
     assert_eq!(rollback_report.restored_entries(), 0);
@@ -276,51 +271,11 @@ fn field_path_runner_rolls_back_staged_writes_after_isolated_validation_failure(
     );
     assert!(invalidation_sink.invalidations.is_empty());
     assert!(publication_sink.publications.is_empty());
-
-    let developer_report = failure.developer_report(
-        "test::MutationEntity",
-        &accepted_name_field_path_target(),
-        2,
-    );
-    assert_eq!(
-        developer_report.phase(),
-        super::SchemaMutationRunnerPhase::ValidatePhysicalState,
-    );
-    assert_eq!(developer_report.rows_scanned(), 2);
-    assert_eq!(developer_report.index_keys_written(), 2);
-    assert_eq!(
-        developer_report.validation_status(),
-        super::SchemaMutationValidationStatus::Failed,
-    );
-    assert_eq!(
-        developer_report.publish_status(),
-        super::SchemaMutationPublishStatus::NotStarted,
-    );
 }
 
-fn assert_field_path_success_developer_report(report: &super::SchemaFieldPathIndexRunnerReport) {
-    let developer_report =
-        report.developer_report("test::MutationEntity", &accepted_name_field_path_target());
-    assert_eq!(
-        developer_report.phase(),
-        super::SchemaMutationRunnerPhase::PublishPhysicalStore,
-    );
-    assert_eq!(
-        developer_report.mutation_kind(),
-        super::SchemaMutationDeveloperKind::AddFieldPathIndex,
-    );
-    assert_eq!(developer_report.entity_path(), "test::MutationEntity");
-    assert_eq!(developer_report.target_index(), "by_name");
-    assert_eq!(developer_report.target_store(), "test::mutation::by_name");
-    assert_eq!(developer_report.target_fields(), vec!["name".to_string()]);
-    assert_eq!(developer_report.rows_scanned(), 2);
-    assert_eq!(developer_report.index_keys_written(), 2);
-    assert_eq!(
-        developer_report.validation_status(),
-        super::SchemaMutationValidationStatus::Passed,
-    );
-    assert_eq!(
-        developer_report.publish_status(),
-        super::SchemaMutationPublishStatus::Published,
-    );
+fn assert_field_path_success_metrics(report: &super::SchemaFieldPathIndexRunnerReport) {
+    let metrics = report.mutation_metrics("test::MutationEntity");
+    assert_eq!(metrics.entity_path(), "test::MutationEntity");
+    assert_eq!(metrics.rows_scanned(), 2);
+    assert_eq!(metrics.index_keys_written(), 2);
 }

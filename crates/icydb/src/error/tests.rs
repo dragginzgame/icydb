@@ -6,6 +6,7 @@
 
 use super::*;
 use candid::types::{CandidType, Label, Type, TypeInner};
+use ic_memory::RuntimeBootstrapError;
 use icydb_core::db::{IntentError, PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
 
@@ -356,18 +357,26 @@ fn origin_mapping_includes_new_core_domains() {
 
 #[test]
 fn error_struct_candid_shape_is_stable() {
-    let fields = expect_record_fields(Error::ty());
+    let mut fields = expect_record_fields(Error::ty());
+    fields.sort();
 
-    for field in ["code", "class", "origin"] {
-        assert!(
-            fields.iter().any(|candidate| candidate == field),
-            "Error must keep `{field}` as Candid field key",
-        );
-    }
-    for removed in ["detail", "kind", "message"] {
-        assert!(
-            fields.iter().all(|candidate| candidate != removed),
-            "Error compact wire shape must not keep legacy `{removed}` field",
-        );
-    }
+    assert_eq!(fields, ["class", "code", "origin"]);
+}
+
+#[test]
+fn database_bootstrap_preserves_typed_cause_until_public_projection() {
+    let bootstrap = crate::db::DatabaseBootstrapError::from(
+        RuntimeBootstrapError::<std::convert::Infallible>::RuntimeLockPoisoned,
+    );
+    assert!(matches!(
+        bootstrap.cause(),
+        RuntimeBootstrapError::RuntimeLockPoisoned
+    ));
+
+    let facade = Error::from(bootstrap);
+    assert_eq!(
+        facade.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal
+    );
+    assert_eq!(facade.origin(), ErrorOrigin::Runtime);
 }

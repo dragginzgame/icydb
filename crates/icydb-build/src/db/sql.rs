@@ -363,7 +363,7 @@ fn sql_surface_endpoint_exports(
 
 fn sql_surface_reset_statement(entity_ty: &syn::Path) -> TokenStream {
     quote! {
-        db().delete::<#entity_ty>().execute()?;
+        db()?.delete::<#entity_ty>().execute()?;
     }
 }
 
@@ -373,7 +373,7 @@ fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     quote! {
             Some(entity) if #entity_matches =>
             {
-                db().execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
+                db()?.execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
             }
     }
 }
@@ -384,7 +384,7 @@ fn sql_surface_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     quote! {
             Some(entity) if #entity_matches =>
             {
-                db().execute_sql_ddl::<#entity_ty>(sql)
+                db()?.execute_admin_sql_ddl::<#entity_ty>(sql)
             }
     }
 }
@@ -406,7 +406,7 @@ fn sql_surface_update_dispatch_arm(
     quote! {
             Some(entity) if #entity_matches =>
             {
-                db().#executor::<#entity_ty>(sql)
+                db()?.#executor::<#entity_ty>(sql)
             }
     }
 }
@@ -434,7 +434,7 @@ fn empty_sql_surface_query_dispatch() -> TokenStream {
 
 fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
     quote! {
-        db().execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
+        db()?.execute_trusted_sql_query_with_perf_attribution::<#entity_ty>(sql)
     }
 }
 
@@ -485,18 +485,11 @@ mod tests {
         assert!(surface.contains("fn__icydb_ddl("));
         assert!(surface.contains("fn__icydb_fixtures_reset("));
         assert!(surface.contains("fn__icydb_fixtures_load("));
-        assert!(
-            !surface.contains("name=\"icydb_update\""),
-            "generated SQL glue must not grow a row-mutation endpoint without an explicit policy gate",
-        );
-        assert!(
-            !surface.contains("name=\"icydb_public_query\""),
-            "generated SQL glue must not expose non-controller public read endpoints",
-        );
+        assert_eq!(surface.matches("::icydb::__reexports::ic_cdk::").count(), 4);
     }
 
     #[test]
-    fn generated_sql_surface_never_calls_broad_session_update_executor() {
+    fn generated_readonly_sql_surface_uses_trusted_query_and_admin_ddl() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
 
@@ -504,20 +497,11 @@ mod tests {
 
         let surface = compact_tokens(quote!(#surface_tokens));
         assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
-        assert!(surface.contains("execute_sql_ddl"));
-        assert!(
-            !surface.contains("execute_sql_update"),
-            "generated SQL glue must not route to broad session SQL UPDATE",
-        );
-        assert!(
-            !surface.contains("execute_sql_public_primary_key_update")
-                && !surface.contains("execute_sql_public_bounded_update"),
-            "generated SQL glue must select an explicit generated endpoint policy before consuming public UPDATE helpers",
-        );
+        assert!(surface.contains("execute_admin_sql_ddl"));
     }
 
     #[test]
-    fn generated_readonly_sql_surface_has_no_implicit_page_or_count_endpoint() {
+    fn generated_readonly_sql_surface_has_one_controller_query_endpoint() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
 
@@ -532,13 +516,13 @@ mod tests {
 
         assert!(endpoint.contains("name=\"icydb_query\""));
         assert!(endpoint.contains("fn__icydb_query("));
-        assert!(!endpoint.contains("name=\"icydb_list\""));
-        assert!(!endpoint.contains("name=\"icydb_page\""));
-        assert!(!endpoint.contains("name=\"icydb_count\""));
+        assert_eq!(
+            endpoint
+                .matches("::icydb::__reexports::ic_cdk::query")
+                .count(),
+            1
+        );
         assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
-        assert!(!surface.contains("execute_sql_count"));
-        assert!(!surface.contains("execute_fluent_count"));
-        assert!(!surface.contains("execute_count"));
     }
 
     #[test]
@@ -564,30 +548,6 @@ mod tests {
             .expect("generated query endpoint should call its trusted dispatch");
         assert!(controller_guard < trusted_dispatch);
         assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
-        assert!(
-            !endpoint.contains("QueryAdmissionPolicy"),
-            "generated icydb_query must not hide an implicit read-admission policy",
-        );
-    }
-
-    #[test]
-    fn generated_sql_query_endpoint_does_not_emit_public_read_lane() {
-        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
-        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
-
-        surface_tokens.push_entity(&entity_ty);
-
-        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
-            all_sql_surface_flags(),
-            None,
-            true,
-        ));
-        let surface = compact_tokens(quote!(#surface_tokens));
-
-        assert!(!endpoint.contains("icydb_public_query"));
-        assert!(!surface.contains("__icydb_public_query_dispatch"));
-        assert!(!surface.contains("QueryAdmissionPolicy::public_read"));
-        assert!(!surface.contains("GroupedAdmissionPolicy::bounded"));
     }
 
     #[test]
@@ -658,7 +618,7 @@ mod tests {
         assert!(surface.contains("icydb_sql_surface_update_dispatch"));
         assert!(surface.contains("execute_sql_public_primary_key_update"));
         assert!(
-            !surface.contains("execute_sql_update"),
+            !surface.contains("execute_trusted_sql_mutation"),
             "generated SQL update glue must not call broad session SQL UPDATE",
         );
         assert!(
@@ -681,7 +641,7 @@ mod tests {
         assert!(surface.contains("icydb_sql_surface_update_dispatch"));
         assert!(surface.contains("execute_sql_public_bounded_update"));
         assert!(
-            !surface.contains("execute_sql_update"),
+            !surface.contains("execute_trusted_sql_mutation"),
             "generated SQL update glue must not call broad session SQL UPDATE",
         );
         assert!(

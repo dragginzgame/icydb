@@ -92,7 +92,7 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
             execute_trusted_sql_query(environment, canister, endpoint, &escaped_sql)
         }
         route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
-            execute_sql_update_call(environment, canister, endpoint, &escaped_sql)
+            execute_trusted_sql_mutation_call(environment, canister, endpoint, &escaped_sql)
         }
     }
 }
@@ -124,7 +124,7 @@ fn execute_trusted_sql_query(
     }
 }
 
-fn execute_sql_update_call(
+fn execute_trusted_sql_mutation_call(
     environment: &str,
     canister: &str,
     endpoint: ConfiguredEndpoint,

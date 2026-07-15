@@ -334,7 +334,7 @@ fn sql_blob_literals_fail_closed_through_public_update_entrypoint() {
     ] {
         assert!(
             session
-                .execute_sql_update::<SessionSqlBlobEntity>(sql)
+                .execute_trusted_sql_mutation::<SessionSqlBlobEntity>(sql)
                 .is_err(),
             "{context} should fail before mutation",
         );
@@ -346,7 +346,7 @@ fn sql_blob_literals_fail_closed_through_public_update_entrypoint() {
          VALUES ('oversized', 1, X'{oversized_hex}', X'00')"
     );
     session
-        .execute_sql_update::<SessionSqlBlobEntity>(oversized_sql.as_str())
+        .execute_trusted_sql_mutation::<SessionSqlBlobEntity>(oversized_sql.as_str())
         .expect_err("oversized blob literal should fail before mutation");
 
     assert!(

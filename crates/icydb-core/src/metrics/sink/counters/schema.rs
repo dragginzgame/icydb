@@ -110,6 +110,14 @@ pub(in crate::metrics::sink) const fn record_global_schema_transition_outcome(
 
     #[remain::sorted]
     match outcome {
+        SchemaTransitionOutcome::AddExpressionIndex => {
+            ops.schema_transition_add_expression_index =
+                ops.schema_transition_add_expression_index.saturating_add(1);
+        }
+        SchemaTransitionOutcome::AddFieldPathIndex => {
+            ops.schema_transition_add_field_path_index =
+                ops.schema_transition_add_field_path_index.saturating_add(1);
+        }
         SchemaTransitionOutcome::AppendOnlyNullableFields => {
             ops.schema_transition_append_only_nullable_fields = ops
                 .schema_transition_append_only_nullable_fields
@@ -117,6 +125,11 @@ pub(in crate::metrics::sink) const fn record_global_schema_transition_outcome(
         }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
+        }
+        SchemaTransitionOutcome::MetadataOnlyIndexRename => {
+            ops.schema_transition_metadata_only_index_rename = ops
+                .schema_transition_metadata_only_index_rename
+                .saturating_add(1);
         }
         SchemaTransitionOutcome::RejectedEntityIdentity => {
             ops.schema_transition_rejected_entity_identity = ops
@@ -159,6 +172,14 @@ pub(in crate::metrics::sink) const fn record_entity_schema_transition_outcome(
 
     #[remain::sorted]
     match outcome {
+        SchemaTransitionOutcome::AddExpressionIndex => {
+            ops.schema_transition_add_expression_index =
+                ops.schema_transition_add_expression_index.saturating_add(1);
+        }
+        SchemaTransitionOutcome::AddFieldPathIndex => {
+            ops.schema_transition_add_field_path_index =
+                ops.schema_transition_add_field_path_index.saturating_add(1);
+        }
         SchemaTransitionOutcome::AppendOnlyNullableFields => {
             ops.schema_transition_append_only_nullable_fields = ops
                 .schema_transition_append_only_nullable_fields
@@ -166,6 +187,11 @@ pub(in crate::metrics::sink) const fn record_entity_schema_transition_outcome(
         }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
+        }
+        SchemaTransitionOutcome::MetadataOnlyIndexRename => {
+            ops.schema_transition_metadata_only_index_rename = ops
+                .schema_transition_metadata_only_index_rename
+                .saturating_add(1);
         }
         SchemaTransitionOutcome::RejectedEntityIdentity => {
             ops.schema_transition_rejected_entity_identity = ops

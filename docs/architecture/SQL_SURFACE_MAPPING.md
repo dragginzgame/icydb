@@ -76,8 +76,8 @@ Legend:
 | surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | DDL | `EXPLAIN` | `DESCRIBE` / `SHOW` |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `execute_trusted_sql_query::<E>` | yes | yes | yes | yes | no | no | no | no | yes | yes |
-| `execute_sql_update::<E>` | no | no | no | no | yes | yes | yes | no | no | no |
-| `execute_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
+| `execute_trusted_sql_mutation::<E>` | no | no | no | no | yes | yes | yes | no | no | no |
+| `execute_admin_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
 
 Generated canister SQL endpoints are narrower than the session/library write
@@ -93,7 +93,7 @@ No generated SQL write endpoint is part of the default generated surface.
 `icydb_update` is emitted only when `icydb.toml` selects an explicit update
 policy: `update = true` or `update = "primary_key"` for public primary-key-only
 `UPDATE`, or `update = "bounded"` for public bounded deterministic `UPDATE`.
-Generated update dispatch must not inherit broad `execute_sql_update::<E>`
+Generated update dispatch must not inherit broad `execute_trusted_sql_mutation::<E>`
 behavior by default.
 
 Generated `icydb_query` admits operational SQL introspection only when the
@@ -128,8 +128,8 @@ query/runtime model with multiple frontends.
 The strongest public SQL execution split is now:
 
 - `execute_trusted_sql_query::<E>(...)` for read, explain, and introspection SQL
-- `execute_sql_update::<E>(...)` for row-mutation SQL
-- `execute_sql_ddl::<E>(...)` for accepted-catalog DDL SQL
+- `execute_trusted_sql_mutation::<E>(...)` for row-mutation SQL
+- `execute_admin_sql_ddl::<E>(...)` for accepted-catalog DDL SQL
 
 All three stay single-entity and SQL-shaped, but none widens into the other
 statement families.
@@ -247,12 +247,12 @@ Representative evidence:
 The SQL mutation mirror is now explicit rather than hidden behind a query-shaped
 entrypoint:
 
-- `execute_sql_update::<E>(...)`
+- `execute_trusted_sql_mutation::<E>(...)`
 
 That means typed write helpers remain an ergonomic owner, not a missing SQL
 mutation capability.
 
-`execute_sql_update::<E>(...)` currently owns the session/library SQL write
+`execute_trusted_sql_mutation::<E>(...)` currently owns the session/library SQL write
 lane for `INSERT`, `UPDATE`, `DELETE`, and the narrow write `RETURNING`
 contract. Its broad `UPDATE` behavior is not the generated canister SQL
 contract: generated `icydb_query` and `icydb_ddl` reject row mutation SQL,
@@ -263,7 +263,7 @@ surface policy before executing `UPDATE`.
 
 SQL DDL has its own public entrypoint:
 
-- `execute_sql_ddl::<E>(...)`
+- `execute_admin_sql_ddl::<E>(...)`
 
 DDL owns accepted-catalog schema mutation for admitted `CREATE INDEX`,
 `DROP INDEX`, and `ALTER TABLE` shapes. It is not represented as a fluent row
@@ -322,11 +322,14 @@ semantics.
 
 The public rule is:
 
-- row-producing operations use the shared row/projection payload family
-- non-returning writes use `MutationResult`
+- typed single-row writes return the entity;
+- typed atomic batches return `Vec<E>`;
+- bounded deletes return the affected-row count;
+- typed `RETURNING` operations use `RowProjectionOutput`; and
+- SQL commands use `SqlQueryResult` at the SQL boundary.
 
-That rule is owned by typed/fluent public APIs rather than by a separate SQL
-result envelope.
+There is no generic mutation-result facade between those domain-specific
+outputs.
 
 ## Current Freeze Bar
 
@@ -339,7 +342,7 @@ the following remain true:
   canonical typed or fluent mutation form
 - the live public SQL surface stays frozen to:
   - `execute_trusted_sql_query::<E>(...)`
-  - `execute_sql_update::<E>(...)`
-  - `execute_sql_ddl::<E>(...)`
+  - `execute_trusted_sql_mutation::<E>(...)`
+  - `execute_admin_sql_ddl::<E>(...)`
 - every admitted family has direct tests on the live surface rather than only
   transitive proof through older internal helpers

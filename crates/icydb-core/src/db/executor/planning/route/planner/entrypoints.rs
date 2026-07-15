@@ -14,7 +14,7 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan,
             planning::{
                 continuation::ScalarContinuationContext, preparation::slot_map_for_model_plan,
             },
@@ -58,7 +58,7 @@ pub(in crate::db::executor) enum RoutePlanRequest<'a> {
 pub(in crate::db::executor) fn build_execution_route_plan(
     plan: &AccessPlannedQuery,
     request: RoutePlanRequest<'_>,
-) -> Result<ExecutionPlan, InternalError> {
+) -> Result<ExecutionRoutePlan, InternalError> {
     match request {
         RoutePlanRequest::Load {
             continuation,
@@ -97,7 +97,7 @@ fn build_load_execution_route_plan(
     probe_fetch_hint: Option<usize>,
     authority: Option<EntityAuthority>,
     load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
-) -> Result<ExecutionPlan, InternalError> {
+) -> Result<ExecutionRoutePlan, InternalError> {
     if authority.is_some() && pk_order_stream_fast_path_shape_supported(plan) {
         let primary_key_names = plan.primary_key_names()?;
         continuation.validate_pk_fast_path_boundary(&primary_key_names)?;
@@ -130,7 +130,7 @@ fn build_load_execution_route_plan(
 /// Build canonical execution routing for mutation execution from structural model authority.
 fn build_mutation_execution_route_plan(
     plan: &AccessPlannedQuery,
-) -> Result<ExecutionPlan, InternalError> {
+) -> Result<ExecutionRoutePlan, InternalError> {
     let intent_stage = derive_mutation_route_intent_stage(plan)?;
 
     // Mutation now uses the same staged assembly surface as the other route
@@ -183,7 +183,7 @@ fn build_aggregate_execution_route_plan(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     execution_preparation: &ExecutionPreparation,
-) -> ExecutionPlan {
+) -> ExecutionRoutePlan {
     let planner_route_profile = plan.planner_route_profile();
     let intent_stage = derive_aggregate_route_intent_stage(aggregate, execution_preparation);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
@@ -200,7 +200,7 @@ fn build_aggregate_execution_route_plan(
 fn build_grouped_execution_route_plan(
     plan: &AccessPlannedQuery,
     grouped_plan_strategy: GroupedPlanStrategy,
-) -> ExecutionPlan {
+) -> ExecutionRoutePlan {
     let execution_preparation =
         ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
     let planner_route_profile = plan.planner_route_profile();

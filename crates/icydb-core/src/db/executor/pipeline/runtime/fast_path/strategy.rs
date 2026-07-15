@@ -7,7 +7,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionPlan,
+            ExecutionRoutePlan,
             pipeline::contracts::{ExecutionInputs, FastPathKeyResult},
             route::{
                 FastPathOrder, ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
@@ -31,7 +31,7 @@ pub(super) enum FastPathResolutionStrategy {
 }
 
 impl FastPathResolutionStrategy {
-    pub(super) const fn for_route(route_plan: &ExecutionPlan) -> Self {
+    pub(super) const fn for_route(route_plan: &ExecutionRoutePlan) -> Self {
         if route_plan.is_streaming() {
             Self::StreamingFastPathFirst
         } else {
@@ -42,7 +42,7 @@ impl FastPathResolutionStrategy {
     pub(super) fn resolve_fast_path_decision(
         self,
         inputs: &ExecutionInputs<'_>,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         match self {
@@ -69,7 +69,7 @@ pub(super) enum FastPathRouteHandler {
 }
 
 impl FastPathRouteHandler {
-    pub(super) fn resolve(route_plan: &ExecutionPlan, verified_route: FastPathOrder) -> Self {
+    pub(super) fn resolve(route_plan: &ExecutionRoutePlan, verified_route: FastPathOrder) -> Self {
         match verified_route {
             FastPathOrder::PrimaryKey => Self::PrimaryKey,
             FastPathOrder::SecondaryPrefix => Self::SecondaryPrefix,
@@ -86,7 +86,7 @@ impl FastPathRouteHandler {
     pub(super) fn execute(
         self,
         inputs: &ExecutionInputs<'_>,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         match self {
@@ -121,7 +121,7 @@ impl FastPathRouteHandler {
 /// Evaluate fast-path routes in canonical precedence and return one decision.
 pub(super) fn evaluate_fast_path(
     inputs: &ExecutionInputs<'_>,
-    route_plan: &ExecutionPlan,
+    route_plan: &ExecutionRoutePlan,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     let secondary_fast_path_spec_supported = inputs.stream_bindings().index_prefix_specs.len() <= 1
@@ -159,7 +159,7 @@ pub(super) fn evaluate_fast_path(
 // Execute one verified fast-path route and return keys if the route produces them.
 fn try_execute_verified_load_fast_path(
     inputs: &ExecutionInputs<'_>,
-    route_plan: &ExecutionPlan,
+    route_plan: &ExecutionRoutePlan,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     verified_route: FastPathOrder,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {

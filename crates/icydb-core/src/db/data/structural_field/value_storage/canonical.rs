@@ -1,8 +1,7 @@
 //! Canonical accepted-value encoding for `FieldStorageDecode::Value` payloads.
 //!
 //! Non-enum values retain the existing Structural Binary v1 representation.
-//! Enums use the current store-local type/variant ID envelope and categorically
-//! reject the retired path/label tuple representation.
+//! Enums use the store-local type/variant ID envelope.
 
 use crate::{
     db::{

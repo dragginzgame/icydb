@@ -50,7 +50,7 @@ use std::sync::Arc;
 ///
 
 #[derive(Clone, Debug)]
-pub struct EntityAuthority {
+pub(in crate::db) struct EntityAuthority {
     model: &'static EntityModel,
     row_layout: Option<RowLayout>,
     entity_tag: EntityTag,
@@ -59,9 +59,33 @@ pub struct EntityAuthority {
 }
 
 impl EntityAuthority {
-    /// Build authority from explicit runtime metadata.
+    /// Build complete runtime authority from accepted schema contracts.
     #[must_use]
-    pub const fn new(
+    pub(in crate::db) fn from_accepted_row_decode_contract(
+        model: &'static EntityModel,
+        entity_tag: EntityTag,
+        store_path: &'static str,
+        row_proof: AcceptedGeneratedRowCompatibilityProof,
+        accepted_decode_contract: AcceptedRowDecodeContract,
+        accepted_schema_info: SchemaInfo,
+    ) -> Self {
+        let row_layout = RowLayout::from_generated_compatible_accepted_decode_contract(
+            model.path(),
+            row_proof,
+            accepted_decode_contract,
+        );
+
+        Self {
+            model,
+            row_layout: Some(row_layout),
+            entity_tag,
+            store_path,
+            accepted_schema_info: Some(Arc::new(accepted_schema_info)),
+        }
+    }
+
+    #[cfg(test)]
+    const fn raw_for_test(
         model: &'static EntityModel,
         entity_tag: EntityTag,
         store_path: &'static str,
@@ -79,7 +103,7 @@ impl EntityAuthority {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) const fn for_generated_type_for_test<E: EntityKind>() -> Self {
-        Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
+        Self::raw_for_test(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
     /// Build production-shaped accepted authority for executor tests.
@@ -104,36 +128,14 @@ impl EntityAuthority {
             false,
         );
 
-        Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH).with_accepted_row_decode_contract(
+        Self::from_accepted_row_decode_contract(
+            E::MODEL,
+            E::ENTITY_TAG,
+            E::Store::PATH,
             row_proof,
             row_contract,
             schema_info,
         )
-    }
-
-    /// Return authority with row decode frozen from accepted schema field contracts.
-    ///
-    /// The generated-compatible proof remains an explicit input so callers
-    /// cannot attach accepted decode contracts to layouts that the current
-    /// generated write/materialization bridge cannot still handle.
-    #[must_use]
-    pub(in crate::db) fn with_accepted_row_decode_contract(
-        self,
-        row_proof: AcceptedGeneratedRowCompatibilityProof,
-        accepted_decode_contract: AcceptedRowDecodeContract,
-        accepted_schema_info: SchemaInfo,
-    ) -> Self {
-        let row_layout = RowLayout::from_generated_compatible_accepted_decode_contract(
-            self.model.path(),
-            row_proof,
-            accepted_decode_contract,
-        );
-
-        Self {
-            row_layout: Some(row_layout),
-            accepted_schema_info: Some(Arc::new(accepted_schema_info)),
-            ..self
-        }
     }
 
     /// Return authority with generated row decode attached for test-only
@@ -162,7 +164,7 @@ impl EntityAuthority {
 
     /// Borrow the entity model authority.
     #[must_use]
-    pub const fn model(&self) -> &'static EntityModel {
+    pub(in crate::db) const fn model(&self) -> &'static EntityModel {
         self.model
     }
 
@@ -227,19 +229,19 @@ impl EntityAuthority {
 
     /// Borrow structural entity-tag authority.
     #[must_use]
-    pub const fn entity_tag(&self) -> EntityTag {
+    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
         self.entity_tag
     }
 
     /// Borrow structural entity-path authority.
     #[must_use]
-    pub const fn entity_path(&self) -> &'static str {
+    pub(in crate::db) const fn entity_path(&self) -> &'static str {
         self.model.path()
     }
 
     /// Borrow structural store-path authority.
     #[must_use]
-    pub const fn store_path(&self) -> &'static str {
+    pub(in crate::db) const fn store_path(&self) -> &'static str {
         self.store_path
     }
 
@@ -517,7 +519,7 @@ mod tests {
     #[test]
     fn authority_finalization_preserves_schema_finalized_static_contract() {
         metrics_reset_all();
-        let authority = EntityAuthority::new(
+        let authority = EntityAuthority::raw_for_test(
             &MODEL,
             EntityTag::new(0x1460_0013),
             AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
@@ -546,7 +548,7 @@ mod tests {
     #[test]
     fn authority_finalization_uses_authority_schema_when_shape_is_missing() {
         metrics_reset_all();
-        let authority = EntityAuthority::new(
+        let authority = EntityAuthority::raw_for_test(
             &MODEL,
             EntityTag::new(0x1460_0014),
             AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,

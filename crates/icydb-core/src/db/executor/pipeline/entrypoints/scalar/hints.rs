@@ -3,7 +3,7 @@
 //! Does not own: route selection or scalar kernel execution itself.
 //! Boundary: mutates scan hints after route planning and before scalar execution.
 
-use crate::db::executor::{ExecutionPlan, ScalarContinuationContext};
+use crate::db::executor::{ExecutionRoutePlan, ScalarContinuationContext};
 
 ///
 /// UnpagedLoadHintStrategy
@@ -23,7 +23,7 @@ impl UnpagedLoadHintStrategy {
         resolved_continuation: &ScalarContinuationContext,
         unpaged_rows_mode: bool,
         top_n_seek_requires_lookahead: bool,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Self {
         if !unpaged_rows_mode || resolved_continuation.cursor_boundary().is_some() {
             return Self::None;
@@ -65,7 +65,7 @@ impl UnpagedLoadHintStrategy {
         Self::None
     }
 
-    const fn apply(self, route_plan: &mut ExecutionPlan) {
+    const fn apply(self, route_plan: &mut ExecutionRoutePlan) {
         match self {
             Self::None => {}
             Self::TopNSeekWindow { fetch } => {
@@ -86,7 +86,7 @@ pub(super) const fn apply_unpaged_top_n_seek_hints(
     resolved_continuation: &ScalarContinuationContext,
     unpaged_rows_mode: bool,
     top_n_seek_requires_lookahead: bool,
-    route_plan: &mut ExecutionPlan,
+    route_plan: &mut ExecutionRoutePlan,
 ) {
     let strategy = UnpagedLoadHintStrategy::resolve(
         resolved_continuation,

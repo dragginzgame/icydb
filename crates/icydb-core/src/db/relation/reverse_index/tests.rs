@@ -160,7 +160,7 @@ fn accepted_relation_info_carries_ordered_local_component_metadata() {
 }
 
 #[test]
-fn accepted_strong_relations_use_persisted_relation_edges_when_present() {
+fn accepted_strong_relations_require_registered_target_authority() {
     let relation_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
@@ -223,15 +223,9 @@ fn accepted_strong_relations_use_persisted_relation_edges_when_present() {
         descriptor.row_decode_contract(catalog),
     );
 
-    let db: Db<RelationTestCanister> = Db::new(&TEST_REGISTRY);
-    let relations =
-        super::accepted_strong_relations_for_row_contract(&db, "Source", &row_contract, None)
-            .expect("accepted relation edges should project into runtime relation info");
-
-    assert_eq!(relations.len(), 1);
-    assert_eq!(relations[0].field_index(), 4);
-    assert_eq!(relations[0].field_name(), "target_id");
-    assert_eq!(relations[0].target().path(), "Target");
+    let db: Db<RelationTestCanister> = Db::new_with_hooks(&TEST_REGISTRY, &[]);
+    super::accepted_strong_relations_for_row_contract(&db, "Source", &row_contract, None)
+        .expect_err("accepted relation targets must have registered runtime authority");
 }
 
 #[test]

@@ -16,10 +16,10 @@ use crate::{
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogIdentity, PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildRow,
-            SchemaFieldPathIndexRebuildTarget, SchemaFieldPathIndexRunner,
-            SchemaFieldPathIndexRunnerFailure, SchemaFieldPathIndexRunnerReport,
-            SchemaMutationAcceptedSnapshotPublicationSink, SchemaMutationDeveloperReport,
+            AcceptedCatalogIdentity, PersistedSchemaSnapshot, SchemaFieldPathIndexMutationMetrics,
+            SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRebuildTarget,
+            SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerFailure,
+            SchemaFieldPathIndexRunnerReport, SchemaMutationAcceptedSnapshotPublicationSink,
             SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
             SchemaMutationRuntimeInvalidationSink, transition::SchemaTransitionPlan,
         },
@@ -39,15 +39,11 @@ pub(super) fn execute_supported_field_path_index_addition(
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
     plan: &SchemaTransitionPlan,
-) -> Result<SchemaMutationDeveloperReport, InternalError> {
+) -> Result<SchemaFieldPathIndexMutationMetrics, InternalError> {
     let entity_tag = publication_gate.entity_tag();
-    let supported = plan
-        .supported_developer_physical_path()
-        .map_err(|rejection| {
-            let _ = &rejection;
-
-            InternalError::store_unsupported()
-        })?;
+    let target = plan
+        .field_path_index_target()
+        .ok_or_else(InternalError::store_unsupported)?;
     let input = field_path_runner_input(entity_path, accepted_before, accepted_after, plan)?;
     let row_contract = catalog_backed_row_contract_for_rebuild(
         store,
@@ -55,8 +51,7 @@ pub(super) fn execute_supported_field_path_index_addition(
         entity_path,
         accepted_before,
     )?;
-    let predicate_program =
-        field_path_rebuild_predicate_program(supported.target(), &row_contract)?;
+    let predicate_program = field_path_rebuild_predicate_program(target, &row_contract)?;
     let raw_rows = field_path_rebuild_raw_rows_for_entity(store, entity_tag, entity_path)?;
     let rebuild_gate = StartupFieldPathRebuildGate::from_raw_rows(
         entity_tag,
@@ -66,7 +61,7 @@ pub(super) fn execute_supported_field_path_index_addition(
     )?;
     let rows =
         decode_field_path_rebuild_rows(raw_rows.as_slice(), entity_tag, entity_path, row_contract)?;
-    rebuild_gate.validate_before_physical_work(store, supported.target(), rows.len())?;
+    rebuild_gate.validate_before_physical_work(store, target, rows.len())?;
 
     let mut invalidation_sink = StartupSchemaMutationInvalidationSink;
     let mut publication_sink = StartupSchemaMutationPublicationSink;
@@ -74,12 +69,8 @@ pub(super) fn execute_supported_field_path_index_addition(
         if index_store.state() != IndexState::Ready {
             return Err(InternalError::store_unsupported());
         }
-        let preflight = field_path_startup_index_store_preflight(
-            index_store,
-            entity_tag,
-            supported.target(),
-            entity_path,
-        )?;
+        let preflight =
+            field_path_startup_index_store_preflight(index_store, entity_tag, target, entity_path)?;
         if preflight.target_index_entries() != 0 {
             return Err(InternalError::store_unsupported());
         }
@@ -91,27 +82,25 @@ pub(super) fn execute_supported_field_path_index_addition(
         SchemaFieldPathIndexRunner::run(
             &input,
             entity_tag,
-            supported.target().clone(),
+            target.clone(),
             predicate_program.as_ref(),
             rebuild_rows,
             index_store,
             &mut invalidation_sink,
             &mut publication_sink,
         )
-        .map_err(|failure| {
-            field_path_runner_failure_error(entity_path, supported.target(), rows.len(), failure)
-        })
+        .map_err(field_path_runner_failure_error)
     })?;
 
     let publication = StartupFieldPathPublicationDecision::from_runner_report(
         store,
         &rebuild_gate,
-        supported.target(),
+        target,
         &report,
     )?;
     publication.publish_accepted_snapshot(store, publication_gate, accepted_after)?;
 
-    Ok(publication.diagnostic)
+    Ok(publication.metrics)
 }
 
 pub(super) fn catalog_backed_row_contract_for_rebuild(
@@ -144,8 +133,12 @@ fn field_path_runner_input<'a>(
     accepted_after: &'a PersistedSchemaSnapshot,
     plan: &SchemaTransitionPlan,
 ) -> Result<SchemaMutationRunnerInput<'a>, InternalError> {
-    SchemaMutationRunnerInput::new(accepted_before, accepted_after, plan.execution_plan())
-        .map_err(|_error| InternalError::store_unsupported())
+    SchemaMutationRunnerInput::new(
+        accepted_before,
+        accepted_after,
+        plan.mutation_plan().clone(),
+    )
+    .map_err(|_error| InternalError::store_unsupported())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -338,7 +331,7 @@ impl StartupFieldPathRebuildGate {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct StartupFieldPathPublicationDecision {
-    diagnostic: SchemaMutationDeveloperReport,
+    metrics: SchemaFieldPathIndexMutationMetrics,
     target: SchemaFieldPathIndexRebuildTarget,
     target_index_id: IndexId,
     target_entries: u64,
@@ -351,7 +344,7 @@ impl StartupFieldPathPublicationDecision {
         target: &SchemaFieldPathIndexRebuildTarget,
         report: &SchemaFieldPathIndexRunnerReport,
     ) -> Result<Self, InternalError> {
-        let diagnostic = report.developer_report(rebuild_gate.entity_path, target);
+        let metrics = report.mutation_metrics(rebuild_gate.entity_path);
         if !report.runner_report().physical_work_allows_publication() {
             return Err(InternalError::store_unsupported());
         }
@@ -365,7 +358,7 @@ impl StartupFieldPathPublicationDecision {
         )?;
 
         Ok(Self {
-            diagnostic,
+            metrics,
             target: target.clone(),
             target_index_id: IndexId::new(rebuild_gate.entity_tag, target.ordinal()),
             target_entries,
@@ -398,7 +391,7 @@ impl StartupFieldPathPublicationDecision {
                 index_store,
                 entity_tag,
                 &self.target,
-                self.diagnostic.entity_path(),
+                self.metrics.entity_path(),
             )
         })?;
         if preflight.target_index_entries() != self.target_entries {
@@ -561,14 +554,7 @@ pub(super) fn decode_field_path_rebuild_rows<'a>(
         .collect()
 }
 
-fn field_path_runner_failure_error(
-    entity_path: &'static str,
-    target: &SchemaFieldPathIndexRebuildTarget,
-    rows_scanned: usize,
-    failure: SchemaFieldPathIndexRunnerFailure,
-) -> InternalError {
-    let _ = (entity_path, target, rows_scanned, failure);
-
+fn field_path_runner_failure_error(_failure: SchemaFieldPathIndexRunnerFailure) -> InternalError {
     InternalError::store_unsupported()
 }
 

@@ -7,7 +7,7 @@
 use crate::db::{
     direction::Direction,
     executor::{
-        ExecutionPlan, ExecutionTrace, GroupedContinuationContext, route::GroupedExecutionMode,
+        ExecutionRoutePlan, ExecutionTrace, GroupedContinuationContext, route::GroupedExecutionMode,
     },
     query::plan::{
         AccessPlannedQuery, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
@@ -60,7 +60,7 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
 ///
 
 pub(in crate::db::executor) struct GroupedRoutePayload {
-    pub(in crate::db::executor) grouped_route_plan: ExecutionPlan,
+    pub(in crate::db::executor) grouped_route_plan: ExecutionRoutePlan,
 }
 
 ///

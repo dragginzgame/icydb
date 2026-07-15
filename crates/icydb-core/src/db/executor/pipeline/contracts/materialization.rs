@@ -7,7 +7,7 @@ use crate::db::{
     direction::Direction,
     executor::{
         EntityAuthority, OrderedKeyStreamBox, ScalarContinuationContext,
-        pipeline::contracts::CursorEmissionMode, projection::PreparedSlotProjectionValidation,
+        pipeline::contracts::CursorEmissionMode, projection::PreparedProjectionContract,
         route::LoadOrderRouteMode, terminal::RetainedSlotLayout,
     },
     predicate::MissingRowPolicy,
@@ -31,7 +31,7 @@ pub(in crate::db::executor) struct ScalarMaterializationCapabilities<'a> {
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
     pub(in crate::db::executor) prepared_projection_validation:
-        Option<&'a PreparedSlotProjectionValidation>,
+        Option<&'a PreparedProjectionContract>,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
 }
 

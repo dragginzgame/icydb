@@ -23,8 +23,9 @@ use crate::{
             PersistedSchemaSnapshot, SchemaExpressionIndexRebuildRow,
             SchemaExpressionIndexStagedRebuild, SchemaFieldDefault, SchemaFieldPathIndexRebuildRow,
             SchemaFieldPathIndexRunner, SchemaFieldSlot, SchemaMutationRequest,
-            SchemaMutationRunnerInput, SchemaRowLayout, SchemaStore, SchemaVersion,
-            compiled_schema_proposal_for_model, enum_catalog::build_initial_accepted_enum_catalog,
+            SchemaMutationRunnerInput, SchemaRowLayout, SchemaStore, SchemaTransitionPlanKind,
+            SchemaVersion, compiled_schema_proposal_for_model,
+            enum_catalog::build_initial_accepted_enum_catalog,
         },
     },
     entity::{EntityDeclaration, EntityKind},
@@ -531,6 +532,30 @@ fn reconcile_runtime_schemas_accepts_existing_matching_snapshot() {
 }
 
 #[test]
+fn transition_metrics_preserve_current_plan_identity() {
+    assert_eq!(
+        super::schema_transition_plan_outcome(SchemaTransitionPlanKind::AddExpressionIndex),
+        crate::metrics::SchemaTransitionOutcome::AddExpressionIndex,
+    );
+    assert_eq!(
+        super::schema_transition_plan_outcome(SchemaTransitionPlanKind::AddFieldPathIndex),
+        crate::metrics::SchemaTransitionOutcome::AddFieldPathIndex,
+    );
+    assert_eq!(
+        super::schema_transition_plan_outcome(SchemaTransitionPlanKind::AppendOnlyNullableFields),
+        crate::metrics::SchemaTransitionOutcome::AppendOnlyNullableFields,
+    );
+    assert_eq!(
+        super::schema_transition_plan_outcome(SchemaTransitionPlanKind::ExactMatch),
+        crate::metrics::SchemaTransitionOutcome::ExactMatch,
+    );
+    assert_eq!(
+        super::schema_transition_plan_outcome(SchemaTransitionPlanKind::MetadataOnlyIndexRename),
+        crate::metrics::SchemaTransitionOutcome::MetadataOnlyIndexRename,
+    );
+}
+
+#[test]
 fn accepted_schema_post_root_change_publishes_through_marker_bound_journal() {
     reset_schema_store();
     RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
@@ -881,6 +906,7 @@ fn reconcile_runtime_schemas_executes_supported_field_path_index_addition() {
         .expect("schema reconciliation should record metrics");
     assert_eq!(counters.ops().schema_reconcile_checks(), 1);
     assert_eq!(counters.ops().schema_reconcile_exact_match(), 1);
+    assert_eq!(counters.ops().schema_transition_add_field_path_index(), 1);
     assert_eq!(counters.ops().accepted_schema_fields(), 2);
 }
 
@@ -995,10 +1021,9 @@ fn field_path_startup_index_store_preflight_classifies_target_and_other_entries(
         &expected,
     )
     .expect("single field-path index addition should produce a transition plan");
-    let supported = plan
-        .supported_developer_physical_path()
-        .expect("single field-path index addition should be the supported path");
-    let target = supported.target();
+    let target = plan
+        .field_path_index_target()
+        .expect("single field-path index addition should carry its target");
 
     RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
         let target_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal());
@@ -1126,9 +1151,9 @@ fn field_path_startup_rebuild_gate_accepts_unchanged_rows_and_schema() {
         &expected,
     )
     .expect("single field-path index addition should produce a transition plan");
-    let supported = plan
-        .supported_developer_physical_path()
-        .expect("single field-path index addition should be the supported path");
+    let target = plan
+        .field_path_index_target()
+        .expect("single field-path index addition should carry its target");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
         .expect("reconcile store should be registered");
@@ -1146,7 +1171,7 @@ fn field_path_startup_rebuild_gate_accepts_unchanged_rows_and_schema() {
     )
     .expect("startup rebuild gate should capture scanned rows");
 
-    gate.validate_before_physical_work(store, supported.target(), raw_rows.len())
+    gate.validate_before_physical_work(store, target, raw_rows.len())
         .expect("unchanged rows and schema should keep startup rebuild gate valid");
 }
 
@@ -1170,9 +1195,9 @@ fn field_path_startup_rebuild_gate_rejects_row_changes_before_physical_work() {
         &expected,
     )
     .expect("single field-path index addition should produce a transition plan");
-    let supported = plan
-        .supported_developer_physical_path()
-        .expect("single field-path index addition should be the supported path");
+    let target = plan
+        .field_path_index_target()
+        .expect("single field-path index addition should carry its target");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
         .expect("reconcile store should be registered");
@@ -1191,7 +1216,7 @@ fn field_path_startup_rebuild_gate_rejects_row_changes_before_physical_work() {
     .expect("startup rebuild gate should capture scanned rows");
     insert_indexed_schema_row(15_402, "Grace");
 
-    gate.validate_before_physical_work(store, supported.target(), raw_rows.len())
+    gate.validate_before_physical_work(store, target, raw_rows.len())
         .expect_err("row changes after scan should fail closed before physical work");
 }
 
@@ -1215,9 +1240,9 @@ fn field_path_startup_rebuild_gate_rejects_schema_changes_before_physical_work()
         &expected,
     )
     .expect("single field-path index addition should produce a transition plan");
-    let supported = plan
-        .supported_developer_physical_path()
-        .expect("single field-path index addition should be the supported path");
+    let target = plan
+        .field_path_index_target()
+        .expect("single field-path index addition should carry its target");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
         .expect("reconcile store should be registered");
@@ -1240,7 +1265,7 @@ fn field_path_startup_rebuild_gate_rejects_schema_changes_before_physical_work()
             .expect("moved schema snapshot should encode");
     });
 
-    gate.validate_before_physical_work(store, supported.target(), raw_rows.len())
+    gate.validate_before_physical_work(store, target, raw_rows.len())
         .expect_err("schema changes after planning should fail closed before physical work");
 }
 
@@ -1249,9 +1274,9 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
     reset_reconcile_stores();
 
     let (stored_without_index, expected, plan) = indexed_schema_field_path_publication_context();
-    let supported = plan
-        .supported_developer_physical_path()
-        .expect("single field-path index addition should be the supported path");
+    let target = plan
+        .field_path_index_target()
+        .expect("single field-path index addition should carry its target");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
         .expect("reconcile store should be registered");
@@ -1279,9 +1304,12 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
         row_contract,
     )
     .expect("accepted rows should decode");
-    let input =
-        SchemaMutationRunnerInput::new(&stored_without_index, &expected, plan.execution_plan())
-            .expect("runner input should bind accepted snapshots");
+    let input = SchemaMutationRunnerInput::new(
+        &stored_without_index,
+        &expected,
+        plan.mutation_plan().clone(),
+    )
+    .expect("runner input should bind accepted snapshots");
     let mut invalidation_sink = startup_field_path::StartupSchemaMutationInvalidationSink;
     let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
     let report = RECONCILE_INDEX_STORE
@@ -1292,7 +1320,7 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
             SchemaFieldPathIndexRunner::run(
                 &input,
                 IndexedSchemaEntity::ENTITY_TAG,
-                supported.target().clone(),
+                target.clone(),
                 None,
                 rebuild_rows,
                 index_store,
@@ -1305,7 +1333,7 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
     let decision = startup_field_path::StartupFieldPathPublicationDecision::from_runner_report(
         store,
         &rebuild_gate,
-        supported.target(),
+        target,
         &report,
     )
     .expect("publishable runner report and valid gate should allow schema publication");
@@ -1334,9 +1362,9 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
     reset_reconcile_stores();
 
     let (stored_without_index, expected, plan) = indexed_schema_field_path_publication_context();
-    let supported = plan
-        .supported_developer_physical_path()
-        .expect("single field-path index addition should be the supported path");
+    let target = plan
+        .field_path_index_target()
+        .expect("single field-path index addition should carry its target");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
         .expect("reconcile store should be registered");
@@ -1364,9 +1392,12 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
         row_contract,
     )
     .expect("accepted rows should decode");
-    let input =
-        SchemaMutationRunnerInput::new(&stored_without_index, &expected, plan.execution_plan())
-            .expect("runner input should bind accepted snapshots");
+    let input = SchemaMutationRunnerInput::new(
+        &stored_without_index,
+        &expected,
+        plan.mutation_plan().clone(),
+    )
+    .expect("runner input should bind accepted snapshots");
     let mut invalidation_sink = startup_field_path::StartupSchemaMutationInvalidationSink;
     let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
     let report = RECONCILE_INDEX_STORE
@@ -1377,7 +1408,7 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
             SchemaFieldPathIndexRunner::run(
                 &input,
                 IndexedSchemaEntity::ENTITY_TAG,
-                supported.target().clone(),
+                target.clone(),
                 None,
                 rebuild_rows,
                 index_store,
@@ -1391,7 +1422,7 @@ fn field_path_startup_publication_decision_rejects_gate_drift_without_schema_pub
     startup_field_path::StartupFieldPathPublicationDecision::from_runner_report(
         store,
         &rebuild_gate,
-        supported.target(),
+        target,
         &report,
     )
     .expect_err("row drift after runner should reject schema publication");
@@ -1410,9 +1441,9 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
     reset_reconcile_stores();
 
     let (stored_without_index, expected, plan) = indexed_schema_field_path_publication_context();
-    let supported = plan
-        .supported_developer_physical_path()
-        .expect("single field-path index addition should be the supported path");
+    let target = plan
+        .field_path_index_target()
+        .expect("single field-path index addition should carry its target");
     let store = RECONCILE_DB
         .store_handle(SchemaReconcileTestStore::PATH)
         .expect("reconcile store should be registered");
@@ -1440,9 +1471,12 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
         row_contract,
     )
     .expect("accepted rows should decode");
-    let input =
-        SchemaMutationRunnerInput::new(&stored_without_index, &expected, plan.execution_plan())
-            .expect("runner input should bind accepted snapshots");
+    let input = SchemaMutationRunnerInput::new(
+        &stored_without_index,
+        &expected,
+        plan.mutation_plan().clone(),
+    )
+    .expect("runner input should bind accepted snapshots");
     let mut invalidation_sink = startup_field_path::StartupSchemaMutationInvalidationSink;
     let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
     let report = RECONCILE_INDEX_STORE
@@ -1453,7 +1487,7 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
             SchemaFieldPathIndexRunner::run(
                 &input,
                 IndexedSchemaEntity::ENTITY_TAG,
-                supported.target().clone(),
+                target.clone(),
                 None,
                 rebuild_rows,
                 index_store,
@@ -1466,15 +1500,12 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
     let decision = startup_field_path::StartupFieldPathPublicationDecision::from_runner_report(
         store,
         &rebuild_gate,
-        supported.target(),
+        target,
         &report,
     )
     .expect("publishable runner report and valid gate should allow a decision");
     RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
-        let target_id = IndexId::new(
-            IndexedSchemaEntity::ENTITY_TAG,
-            supported.target().ordinal(),
-        );
+        let target_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal());
         let extra_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User)
             .to_raw()
             .expect("test index key should encode");

@@ -374,7 +374,7 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
         .filter(FieldRef::new("age").gte(20_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
+        .partial_window(2)
         .execute()
         .expect("scalar convergence fluent query should execute")
         .into_rows()
@@ -874,7 +874,7 @@ fn delete_targets_match_chunked_scalar_key_stream() {
         .trusted_read_unchecked()
         .filter(FieldRef::new("age").lt(130_u64))
         .order_term(crate::db::asc("id"))
-        .limit(100)
+        .partial_window(100)
         .execute()
         .expect("chunked delete scalar baseline should execute")
         .into_rows()
@@ -948,10 +948,10 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
         .group_by("age")
         .expect("grouped convergence fluent group_by should resolve")
         .aggregate(crate::db::count())
-        .order_term(crate::db::asc("age"))
-        .limit(1);
+        .order_term(crate::db::asc("age"));
+    let fluent_query = fluent_query.query().with_load_limit(1);
     let fluent_first = session
-        .execute_grouped(fluent_query.query(), None)
+        .execute_grouped(&fluent_query, None)
         .expect("grouped convergence first fluent page should execute");
     assert_eq!(
         sql_first.rows(),
@@ -980,7 +980,7 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
         execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, Some(cursor.as_str()))
             .expect("grouped convergence second SQL page should execute");
     let fluent_second = session
-        .execute_grouped(fluent_query.query(), Some(cursor.as_str()))
+        .execute_grouped(&fluent_query, Some(cursor.as_str()))
         .expect("grouped convergence second fluent page should execute");
     assert_eq!(
         sql_second.rows(),
@@ -1019,8 +1019,9 @@ fn fluent_rows_only_execution_rejects_grouped_plan_without_blocking_grouped_surf
         .group_by("age")
         .expect("rows-only grouped fixture should resolve group_by")
         .aggregate(crate::db::count())
-        .order_term(crate::db::asc("age"))
-        .limit(1);
+        .order_term(crate::db::asc("age"));
+    let grouped_intent = grouped_query.query().with_load_limit(1);
+    let grouped_query = grouped_query.partial_window(1);
 
     assert!(
         grouped_query.execute_rows().is_err(),
@@ -1028,7 +1029,7 @@ fn fluent_rows_only_execution_rejects_grouped_plan_without_blocking_grouped_surf
     );
 
     let grouped = session
-        .execute_grouped(grouped_query.query(), None)
+        .execute_grouped(&grouped_intent, None)
         .expect("explicit grouped execution should still admit the same grouped query");
     assert_eq!(
         grouped.rows().len(),
@@ -1178,7 +1179,7 @@ fn delete_target_keys_match_scalar_execution_keys_for_same_predicate() {
         .filter(FieldRef::new("age").lt(30_u64))
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
-        .limit(2)
+        .partial_window(2)
         .execute()
         .expect("delete convergence scalar baseline should execute")
         .into_rows()

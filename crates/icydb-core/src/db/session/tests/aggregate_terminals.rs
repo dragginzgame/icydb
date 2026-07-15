@@ -21,7 +21,6 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(4)
     };
 
     // Phase 1: establish the execute() window as the shared parity baseline.
@@ -122,7 +121,6 @@ fn session_aggregate_values_by_unknown_field_fails_before_scan_budget_consumptio
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(3)
     };
 
     let (result, scanned_rows) =
@@ -169,7 +167,6 @@ fn session_aggregate_take_matches_execute_prefix() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(4)
     };
 
     let expected = load_window()
@@ -225,7 +222,6 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
             .trusted_read_unchecked()
             .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
-            .limit(5)
     };
     let ordering_expected = ordering_window()
         .execute()
@@ -335,7 +331,6 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
                 .trusted_read_unchecked()
                 .filter(session_aggregate_group_filter(7))
                 .order_term(crate::db::desc("id"))
-                .limit(5)
         };
         let ranked_rows = match terminal {
             SessionAggregateRankTerminal::Top => load_window()

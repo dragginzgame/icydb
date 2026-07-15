@@ -37,8 +37,8 @@ Typed and fluent APIs are the canonical public surfaces.
 The remaining public SQL surfaces are:
 
 - `execute_trusted_sql_query::<E>(...)`
-- `execute_sql_update::<E>(...)`
-- `execute_sql_ddl::<E>(...)`
+- `execute_trusted_sql_mutation::<E>(...)`
+- `execute_admin_sql_ddl::<E>(...)`
 
 Both stay hard-bound to one concrete entity type and return SQL-shaped output.
 
@@ -295,8 +295,8 @@ Mutation ownership still primarily lives on typed and fluent APIs:
 Public SQL ownership is split deliberately:
 
 - `execute_trusted_sql_query::<E>(...)` owns read, explain, and introspection SQL
-- `execute_sql_update::<E>(...)` owns state-changing SQL
-- `execute_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
+- `execute_trusted_sql_mutation::<E>(...)` owns state-changing SQL
+- `execute_admin_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
 
 ### SQL `UPDATE` Availability By Surface
 
@@ -306,9 +306,9 @@ separate opt-in write endpoint with an explicit public-safe policy.
 
 Current boundary:
 
-- `execute_sql_update::<E>(...)` admits supported single-entity `UPDATE`
+- `execute_trusted_sql_mutation::<E>(...)` admits supported single-entity `UPDATE`
   statements.
-- `execute_sql_update::<E>(...)` admits current narrow
+- `execute_trusted_sql_mutation::<E>(...)` admits current narrow
   `UPDATE ... RETURNING` forms.
 - generated `icydb_query` rejects row mutation SQL, including `UPDATE`.
 - generated `icydb_ddl` rejects row mutation SQL, including `UPDATE`.
@@ -319,13 +319,13 @@ Current boundary:
 - `update = "bounded"` selects the public bounded deterministic policy, which
   requires explicit primary-key ordering and a limit.
 
-Current `execute_sql_update::<E>(...)` support includes primary-key and
+Current `execute_trusted_sql_mutation::<E>(...)` support includes primary-key and
 non-primary-key predicates, explicit `ORDER BY`, `LIMIT`, and `OFFSET` where
 the reduced SQL write lane admits them. That broader session/library behavior
 does not define the policy for generated public SQL write endpoints. Generated
 `icydb_update` dispatch must choose one configured `UPDATE` policy before
 executing row mutation SQL, and must not call the broad session/library
-`execute_sql_update::<E>(...)` lane directly.
+`execute_trusted_sql_mutation::<E>(...)` lane directly.
 
 ## Blob Literals and Blob Values
 

@@ -56,7 +56,7 @@ pub(in crate::db) use aggregate::{
 pub(in crate::db) use aggregate::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
 };
-pub use authority::EntityAuthority;
+pub(in crate::db) use authority::EntityAuthority;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;
 pub(in crate::db::executor) use covering::{
@@ -118,6 +118,7 @@ pub(in crate::db::executor) use planning::continuation::{
     ScalarContinuationContext,
 };
 pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
+pub(in crate::db::executor) use planning::route::ExecutionRoutePlan;
 pub use planning::route::RouteExecutionMode;
 pub(in crate::db::executor) use prepared_execution_plan::BytesByProjectionMode;
 pub use prepared_execution_plan::ExecutionFamily;
@@ -203,16 +204,6 @@ pub(in crate::db::executor) use util::{
     saturating_u32_len,
 };
 pub(in crate::db::executor) use window::page_window_state;
-
-///
-/// ExecutionPlan
-///
-/// Canonical route-to-kernel execution contract for read execution.
-/// This is route-owned policy output (mode, hints, fast-path ordering),
-/// while `PreparedExecutionPlan` remains the validated query/lowered-spec container.
-///
-
-pub(in crate::db::executor) type ExecutionPlan = planning::route::ExecutionRoutePlan;
 
 /// Return whether initial scalar load execution would need post-access ORDER BY materialization.
 pub(in crate::db) fn initial_read_plan_requires_materialized_sort(

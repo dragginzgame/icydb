@@ -33,7 +33,7 @@ pub(in crate::db) struct GroupedAdmissionPolicy {
 }
 
 impl GroupedAdmissionPolicy {
-    /// Build a policy that rejects grouped reads unless a later slice enables them.
+    /// Build a policy that rejects grouped reads.
     #[must_use]
     pub(in crate::db) const fn disabled() -> Self {
         Self {

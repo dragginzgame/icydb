@@ -53,8 +53,8 @@ impl ShellPerfAttribution {
             .saturating_add(self.decode)
     }
 
-    // Preserve one visible fallback bucket for payloads whose
-    // total exceeds the current top-level query perf contract.
+    // Preserve one visible residual bucket when total exceeds the attributed
+    // top-level query perf components.
     const fn residual_total(&self) -> u64 {
         self.total.saturating_sub(self.attributed_total())
     }

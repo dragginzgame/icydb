@@ -8,7 +8,7 @@ use crate::db::executor::pipeline::contracts::KernelRowsExecutionAttempt;
 use crate::{
     db::{
         executor::{
-            ExecutionPlan, ScalarContinuationContext,
+            ExecutionRoutePlan, ScalarContinuationContext,
             pipeline::{
                 contracts::{ExecutionInputs, MaterializedExecutionAttempt},
                 runtime::ExecutionAttemptKernel,
@@ -32,7 +32,7 @@ impl ExecutionKernel {
     /// Materialize one load execution attempt with optional residual retry.
     pub(in crate::db::executor) fn materialize_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         continuation: &ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
@@ -51,7 +51,7 @@ impl ExecutionKernel {
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn materialize_kernel_rows_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         continuation: &ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
@@ -93,7 +93,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
     // while the retry policy still prefers the limited route.
     fn materialize(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         // Phase 1: materialize the planned route once and decide whether the
         // residual underfill is already satisfied.
@@ -131,7 +131,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
     // attempt or by appending the terminal unbounded fallback attempt.
     fn finish(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         accumulated_attempt: MaterializedExecutionAttempt,
         retry_decision: ResidualRetryDecision,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
@@ -173,7 +173,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
     // or fall back to an unbounded retry.
     fn retry_decision(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         attempt: &MaterializedExecutionAttempt,
     ) -> ResidualRetryDecision {
         let plan = self.route_attempt_materializer.inputs.plan();
@@ -226,7 +226,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
     // Resolve the current bounded retry fetch across both index-range limit
     // pushdown and ordered top-N routes so residual underfill can widen either
     // bounded access family without inventing a second retry contract.
-    const fn bounded_retry_fetch(route_plan: &ExecutionPlan) -> Option<usize> {
+    const fn bounded_retry_fetch(route_plan: &ExecutionRoutePlan) -> Option<usize> {
         if let Some(limit_spec) = route_plan.index_range_limit_spec {
             return Some(limit_spec.fetch);
         }
@@ -246,7 +246,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
 
     // Apply one widened residual-retry fetch to the bounded index-range route
     // contract and the coupled scan-budget hints that consume the same window.
-    const fn apply_retry_fetch(route_plan: &mut ExecutionPlan, fetch: usize) {
+    const fn apply_retry_fetch(route_plan: &mut ExecutionRoutePlan, fetch: usize) {
         if route_plan.index_range_limit_spec.is_some() {
             route_plan.index_range_limit_spec = Some(IndexRangeLimitSpec { fetch });
         }
@@ -288,7 +288,7 @@ impl<'a, 'b, 'c> KernelRowsResidualRetrySession<'a, 'b, 'c> {
     // the same decision contract used by structural page materialization.
     fn materialize(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         let probe_attempt = self
             .route_attempt_materializer
@@ -321,7 +321,7 @@ impl<'a, 'b, 'c> KernelRowsResidualRetrySession<'a, 'b, 'c> {
     // the residual retry policy requires the same terminal attempt as page loads.
     fn finish(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         accumulated_attempt: KernelRowsExecutionAttempt,
         retry_decision: ResidualRetryDecision,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
@@ -363,7 +363,7 @@ impl<'a, 'b, 'c> KernelRowsResidualRetrySession<'a, 'b, 'c> {
     // Reuse the page retry decision by projecting the shared attempt metrics.
     fn retry_decision(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
         attempt: &KernelRowsExecutionAttempt,
     ) -> ResidualRetryDecision {
         ResidualRetrySession {
@@ -421,7 +421,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     // Materialize one structural attempt for a specific route-plan candidate.
     fn materialize_route_attempt(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         ExecutionAttemptKernel::new(self.inputs).materialize_route_attempt(
             route_plan,
@@ -434,7 +434,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     #[cfg(feature = "sql")]
     fn materialize_route_attempt_kernel_rows(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         ExecutionAttemptKernel::new(self.inputs).materialize_route_attempt_kernel_rows(
             route_plan,
@@ -446,7 +446,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     // Decide whether residual retry is impossible before the probe attempt.
     // Post-attempt underfill checks intentionally remain in the retry session,
     // so uncertain cases keep the full retry/fallback controller.
-    fn residual_retry_impossible(&self, route_plan: &ExecutionPlan) -> bool {
+    fn residual_retry_impossible(&self, route_plan: &ExecutionRoutePlan) -> bool {
         let Some(fetch) = ResidualRetrySession::bounded_retry_fetch(route_plan) else {
             return true;
         };
@@ -469,7 +469,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     // bounded pushdown spec and coupled scan-budget hints first.
     fn materialize_unbounded_retry_fallback(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         self.materialize_route_attempt(&Self::unbounded_retry_route_plan(route_plan))
     }
@@ -478,14 +478,14 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     #[cfg(feature = "sql")]
     fn materialize_unbounded_retry_fallback_kernel_rows(
         &self,
-        route_plan: &ExecutionPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         self.materialize_route_attempt_kernel_rows(&Self::unbounded_retry_route_plan(route_plan))
     }
 
     // Build the terminal residual-retry fallback plan by clearing the bounded
     // pushdown spec and coupled scan-budget hints before re-materialization.
-    fn unbounded_retry_route_plan(route_plan: &ExecutionPlan) -> ExecutionPlan {
+    fn unbounded_retry_route_plan(route_plan: &ExecutionRoutePlan) -> ExecutionRoutePlan {
         let mut fallback_route_plan = route_plan.clone();
         fallback_route_plan.index_range_limit_spec = None;
         fallback_route_plan.top_n_seek_spec = None;

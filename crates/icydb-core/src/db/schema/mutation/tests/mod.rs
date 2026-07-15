@@ -9,14 +9,12 @@ use crate::{
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaMutationError, FieldId, MutationCompatibility,
-            MutationPlan, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedSchemaSnapshot, RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot,
-            SchemaMutation, SchemaMutationDelta, SchemaMutationRequest, SchemaRebuildAction,
+            AcceptedFieldKind, AcceptedSchemaMutationError, FieldId, MutationPlan,
+            PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaMutationDelta, SchemaMutationRequest,
             SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
-            mutation::{MutationPublicationBlocker, MutationPublicationStatus},
             schema_mutation_request_for_snapshots,
         },
     },
@@ -290,9 +288,6 @@ fn unique_lower_name_expression_target() -> super::SchemaExpressionIndexRebuildT
 }
 
 fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
     let first = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Ada".to_string()))],
     };
@@ -311,7 +306,7 @@ fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
     )
     .expect("field-path rebuild rows should stage into raw index entries");
 
-    super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
+    super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged)
         .expect("valid staged rebuild should write into an in-memory staged store buffer")
 }
 
@@ -358,15 +353,16 @@ fn validated_isolated_name_index_store(
 fn field_path_index_runner_context() -> (
     PersistedSchemaSnapshot,
     PersistedSchemaSnapshot,
-    super::SchemaMutationExecutionPlan,
+    MutationPlan,
 ) {
     let before = base_snapshot();
     let after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
-    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-        .expect("non-unique field-path index should lower")
-        .lower_to_plan();
+    let plan: MutationPlan =
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+            .expect("non-unique field-path index should lower")
+            .into();
 
-    (before, after, plan.execution_plan())
+    (before, after, plan)
 }
 
 fn base_snapshot() -> PersistedSchemaSnapshot {

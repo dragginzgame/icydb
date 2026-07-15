@@ -401,7 +401,7 @@ fn generate_snapshot(builder: &ActorBuilder) -> TokenStream {
         quote! {
         #[::icydb::__reexports::ic_cdk::query(name = "icydb_snapshot")]
         pub fn __icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
-            ::icydb::__macro::execute_generated_storage_report(&db())
+            ::icydb::__macro::execute_generated_storage_report(&db()?)
         }
         }
     } else {

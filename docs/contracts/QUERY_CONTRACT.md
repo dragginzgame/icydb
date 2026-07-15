@@ -220,8 +220,7 @@ IcyDB pagination guarantees:
 - Cursor validation against canonical query shape.
 - Live-state iteration semantics.
 
-These guarantees were introduced in 0.8 and remain part of the current
-contract unless superseded by a newer versioned query contract.
+These guarantees are part of the current query contract.
 
 ## Missing-Row Semantics (Explicit)
 
@@ -232,8 +231,8 @@ from storage during execution.
 Consistency is currently defined solely in terms of missing-row policy.
 
 Required policy:
-- MissingOk: missing rows are ignored (no error) and do not affect results.
-- Strict: missing rows are treated as corruption and surface an error.
+- `MissingRowPolicy::Ignore`: missing rows are ignored and do not affect results.
+- `MissingRowPolicy::Error`: missing rows are treated as corruption and surface an error.
 
 If a query intent does not specify this policy, it is invalid.
 

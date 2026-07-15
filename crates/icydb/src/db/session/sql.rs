@@ -191,28 +191,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((result, attribution))
     }
 
-    /// Execute one reduced SQL mutation statement against one concrete entity type.
-    pub fn execute_sql_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    /// Execute one trusted SQL mutation against one concrete entity type.
+    ///
+    /// This bypasses generated endpoint exposure policy. The caller must own
+    /// authorization and mutation admission.
+    pub fn execute_trusted_sql_mutation<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
         Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner.execute_sql_update::<E>(sql)?,
-        ))
-    }
-
-    /// Execute one policy-validated public primary-key SQL `UPDATE` plan.
-    #[doc(hidden)]
-    pub fn execute_validated_sql_public_primary_key_update<E>(
-        &self,
-        plan: &crate::db::SqlPublicPrimaryKeyUpdatePlan,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner
-                .execute_validated_sql_public_primary_key_update::<E>(plan)?,
+            self.inner.execute_trusted_sql_mutation::<E>(sql)?,
         ))
     }
 
@@ -230,21 +218,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one policy-validated bounded deterministic SQL `UPDATE` plan.
-    #[doc(hidden)]
-    pub fn execute_validated_sql_public_bounded_update<E>(
-        &self,
-        plan: &crate::db::SqlPublicBoundedUpdatePlan,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner
-                .execute_validated_sql_public_bounded_update::<E>(plan)?,
-        ))
-    }
-
     /// Execute one bounded deterministic public SQL `UPDATE`.
     #[doc(hidden)]
     pub fn execute_sql_public_bounded_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
@@ -253,21 +226,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         Ok(Self::sql_query_result_from_statement::<E>(
             self.inner.execute_sql_public_bounded_update::<E>(sql)?,
-        ))
-    }
-
-    /// Execute one policy-validated public primary-key SQL `DELETE` plan.
-    #[doc(hidden)]
-    pub fn execute_validated_sql_public_primary_key_delete<E>(
-        &self,
-        plan: &crate::db::SqlPublicPrimaryKeyDeletePlan,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner
-                .execute_validated_sql_public_primary_key_delete::<E>(plan)?,
         ))
     }
 
@@ -285,21 +243,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one policy-validated bounded deterministic SQL `DELETE` plan.
-    #[doc(hidden)]
-    pub fn execute_validated_sql_public_bounded_delete<E>(
-        &self,
-        plan: &crate::db::SqlPublicBoundedDeletePlan,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: crate::traits::EntityFor<C>,
-    {
-        Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner
-                .execute_validated_sql_public_bounded_delete::<E>(plan)?,
-        ))
-    }
-
     /// Execute one bounded deterministic public SQL `DELETE`.
     #[doc(hidden)]
     pub fn execute_sql_public_bounded_delete<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
@@ -311,13 +254,16 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one supported SQL DDL statement against one concrete entity type.
-    pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    /// Execute one administrative SQL DDL statement against one concrete entity type.
+    ///
+    /// The caller must enforce controller or equivalent administrative
+    /// authorization before accepting caller-controlled SQL.
+    pub fn execute_admin_sql_ddl<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
         Ok(Self::sql_query_result_from_statement::<E>(
-            self.inner.execute_sql_ddl::<E>(sql)?,
+            self.inner.execute_admin_sql_ddl::<E>(sql)?,
         ))
     }
 }

@@ -41,7 +41,7 @@ impl<'a> SchemaFieldPathIndexRebuildRow<'a> {
 /// SchemaFieldPathIndexStagedEntry
 ///
 /// One raw index-store entry produced during staged field-path rebuild work.
-/// It remains in memory until later runner phases validate and publish it.
+/// It remains staged until the runner validates and publishes it.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -192,35 +192,11 @@ impl SchemaFieldPathIndexStagedRebuild {
 
     pub(in crate::db::schema) fn validated_runner_report(
         &self,
-        execution_plan: &SchemaMutationExecutionPlan,
-    ) -> Result<SchemaMutationRunnerReport, SchemaMutationRunnerRejection> {
-        let step_count = match execution_plan.execution_gate() {
-            SchemaMutationExecutionGate::AwaitingPhysicalWork {
-                requirement: RebuildRequirement::IndexRebuild,
-                step_count,
-            } => step_count,
-            SchemaMutationExecutionGate::AwaitingPhysicalWork { requirement, .. }
-            | SchemaMutationExecutionGate::Rejected { requirement } => {
-                return Err(SchemaMutationRunnerRejection::unsupported_requirement(
-                    requirement,
-                ));
-            }
-            SchemaMutationExecutionGate::ReadyToPublish => {
-                return Err(SchemaMutationRunnerRejection::unsupported_requirement(
-                    RebuildRequirement::NoRebuild,
-                ));
-            }
-        };
+    ) -> Result<SchemaFieldPathIndexMutationProgress, SchemaFieldPathIndexStagedValidationError>
+    {
+        let validation = self.validate()?;
 
-        let validation = self.validate().map_err(|_| {
-            SchemaMutationRunnerRejection::validation_failed(RebuildRequirement::IndexRebuild)
-        })?;
-
-        Ok(SchemaMutationRunnerReport::field_path_index_staged(
-            step_count,
-            execution_plan.runner_capabilities(),
-            validation,
-        ))
+        Ok(SchemaFieldPathIndexMutationProgress::field_path_index_staged(validation))
     }
 }
 
@@ -238,8 +214,8 @@ fn has_duplicate_unique_components(
 ///
 /// SchemaFieldPathIndexStagedValidationError
 ///
-/// Fail-closed validation result for staged field-path rebuild output. Later
-/// runner phases must validate staged output before any store publication.
+/// Fail-closed validation result for staged field-path rebuild output. The
+/// runner must validate staged output before any store publication.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
