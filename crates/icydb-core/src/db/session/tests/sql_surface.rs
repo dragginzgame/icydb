@@ -130,7 +130,9 @@ fn ddl_expected_sql(sql: &str, expected_schema_version: u32) -> String {
     }
 }
 
-fn publication_rejecting_identity(identity: AcceptedCatalogIdentity) -> AcceptedCatalogIdentity {
+const fn publication_rejecting_identity(
+    identity: AcceptedCatalogIdentity,
+) -> AcceptedCatalogIdentity {
     let rejected_revision = identity
         .accepted_schema_revision()
         .checked_next()

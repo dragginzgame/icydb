@@ -212,7 +212,7 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
         duplicate.validate(),
         Err(super::SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries),
     );
-    let mut mismatched_count = staged.clone();
+    let mut mismatched_count = staged;
     mismatched_count.skipped_rows = 1;
     assert_eq!(
         mismatched_count.validate(),
