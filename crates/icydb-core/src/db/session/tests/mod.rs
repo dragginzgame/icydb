@@ -123,6 +123,7 @@ use crate::{
     types::{Blob, Date, Duration, EntityTag, Float64, Id, Principal, Timestamp, Ulid},
     value::{OutputValue, RuntimeValueDecode, RuntimeValueEncode, Value},
 };
+use ic_stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
 use icydb_derive::{FieldProjection, PersistedRow};
 use icydb_diagnostic_code::{
     DiagnosticCode, DiagnosticDetail, SqlFeatureCode, SqlLoweringCode, SqlWriteBoundaryCode,
@@ -273,8 +274,14 @@ thread_local! {
         RefCell::new(DataStore::init_journaled(test_memory(180)));
     static JOURNALED_SESSION_SQL_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init_journaled(test_memory(181)));
+    // Retain the schema allocation across store-wrapper reinitialization so
+    // restart tests preserve the canonical accepted root.
+    static JOURNALED_SESSION_SQL_SCHEMA_MEMORY: VirtualMemory<DefaultMemoryImpl> =
+        test_memory(182);
     static JOURNALED_SESSION_SQL_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init_journaled(test_memory(182)));
+        RefCell::new(SchemaStore::init_journaled(
+            JOURNALED_SESSION_SQL_SCHEMA_MEMORY.with(Clone::clone),
+        ));
     static JOURNALED_SESSION_SQL_JOURNAL_STORE: RefCell<JournalTailStore> =
         RefCell::new(JournalTailStore::init(test_memory(183)));
     static JOURNALED_SESSION_SQL_STORE_REGISTRY: StoreRegistry = {
@@ -2881,8 +2888,10 @@ fn reinitialize_journaled_session_sql_store() {
         .with_borrow_mut(|store| *store = DataStore::init_journaled(test_memory(180)));
     JOURNALED_SESSION_SQL_INDEX_STORE
         .with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(181)));
-    JOURNALED_SESSION_SQL_SCHEMA_STORE
-        .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
+    JOURNALED_SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        *store =
+            SchemaStore::init_journaled(JOURNALED_SESSION_SQL_SCHEMA_MEMORY.with(Clone::clone));
+    });
     let marker = crate::db::commit::CommitMarker::new(Vec::new())
         .expect("empty recovery marker should build");
     crate::db::commit::begin_commit(marker)

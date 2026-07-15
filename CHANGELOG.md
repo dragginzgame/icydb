@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   with their actual feature ownership.
 - Removes a stale recovery test that treated volatile rows as durable and
   expected canonical journal folds to re-run live mutation admission.
+- Aligns restart and reconciliation fixtures with accepted-schema authority,
+  preserving canonical schema roots and preventing generated metadata from
+  rolling back a newer matching accepted snapshot.
 
 ## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
 

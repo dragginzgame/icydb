@@ -263,8 +263,10 @@ fn journaled_session_recovery_repairs_missing_marker_bound_journal_tail_batch() 
         .with_borrow_mut(|store| *store = DataStore::init_journaled(test_memory(180)));
     JOURNALED_SESSION_SQL_INDEX_STORE
         .with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(181)));
-    JOURNALED_SESSION_SQL_SCHEMA_STORE
-        .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
+    JOURNALED_SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        *store =
+            SchemaStore::init_journaled(JOURNALED_SESSION_SQL_SCHEMA_MEMORY.with(Clone::clone));
+    });
     JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
 
     let marker = crate::db::commit::CommitMarker::from_parts(batch.commit_marker_id(), vec![batch])
@@ -321,8 +323,10 @@ fn journaled_session_recovery_reuses_matching_marker_bound_journal_tail_batch() 
         .with_borrow_mut(|store| *store = DataStore::init_journaled(test_memory(180)));
     JOURNALED_SESSION_SQL_INDEX_STORE
         .with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(181)));
-    JOURNALED_SESSION_SQL_SCHEMA_STORE
-        .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
+    JOURNALED_SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        *store =
+            SchemaStore::init_journaled(JOURNALED_SESSION_SQL_SCHEMA_MEMORY.with(Clone::clone));
+    });
 
     let marker = crate::db::commit::CommitMarker::from_parts(batch.commit_marker_id(), vec![batch])
         .expect("marker-bound journal recovery fixture should build");

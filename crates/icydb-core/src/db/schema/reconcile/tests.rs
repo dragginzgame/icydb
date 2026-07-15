@@ -1884,7 +1884,7 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
 }
 
 #[test]
-fn reconcile_runtime_schemas_rejects_newer_schema_snapshot() {
+fn reconcile_runtime_schemas_preserves_newer_matching_accepted_snapshot() {
     reset_schema_store();
 
     let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
@@ -1905,16 +1905,29 @@ fn reconcile_runtime_schemas_rejects_newer_schema_snapshot() {
         store
             .insert_persisted_snapshot(SchemaReconcileEntity::ENTITY_TAG, &newer)
             .expect("newer schema snapshot should encode");
+        super::publish_test_accepted_schema_snapshot(
+            store,
+            SchemaReconcileEntity::ENTITY_TAG,
+            SchemaReconcileEntity::MODEL.path(),
+            SchemaReconcileTestStore::PATH,
+            SchemaReconcileEntity::MODEL,
+            newer.clone(),
+        )
+        .expect("newer accepted schema snapshot should publish");
     });
 
-    let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
-        .expect_err("schema reconciliation must not ignore newer persisted versions");
+    super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+        .expect("matching generated metadata must not roll back newer accepted authority");
 
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_runtime_unsupported_diagnostic(
-        &err,
-        "newer accepted snapshot should reject through admission gate",
-    );
+    RECONCILE_SCHEMA_STORE.with_borrow(|store| {
+        assert_eq!(
+            store
+                .current_accepted_persisted_snapshot(SchemaReconcileEntity::ENTITY_TAG)
+                .expect("accepted schema snapshot should decode"),
+            Some(newer),
+            "reconciliation must preserve the newer accepted schema and layout version",
+        );
+    });
 }
 
 #[test]
