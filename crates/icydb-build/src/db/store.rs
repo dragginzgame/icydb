@@ -383,7 +383,6 @@ fn store_wiring_tokens(
         }
 
         #[doc(hidden)]
-        #[must_use]
         pub fn core_db() -> ::std::result::Result<
             ::icydb::__macro::CoreDbSession<#canister_path>,
             ::icydb::db::DatabaseBootstrapError,
@@ -396,7 +395,6 @@ fn store_wiring_tokens(
             ))
         }
 
-        #[must_use]
         pub fn db() -> ::std::result::Result<
             ::icydb::db::DbSession<#canister_path>,
             ::icydb::db::DatabaseBootstrapError,
@@ -510,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn store_registry_wiring_does_not_emit_lint_suppressions() {
+    fn store_registry_wiring_is_lint_clean() {
         let canister_path: syn::Path = syn::parse_quote!(demo::schema::DemoCanister);
         let mut store_inits = quote!();
         store_inits.extend(
@@ -548,6 +546,7 @@ mod tests {
         assert!(rendered.contains("map_err(::icydb::db::DatabaseBootstrapError::from)"));
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("pubfndb()->::std::result::Result<"));
+        assert!(!rendered.contains("must_use"));
         assert!(
             rendered
                 .matches("::icydb::db::DatabaseBootstrapError")

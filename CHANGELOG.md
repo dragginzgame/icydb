@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Generated database accessors no longer duplicate `Result`'s must-use
+  annotation, restoring Rust 1.97 Clippy-clean canister builds.
+
 ## [0.203.x] ⚠️ - 2026-07-14 - Legacy Architecture Hard Cut
 
 Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)
