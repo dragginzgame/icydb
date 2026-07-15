@@ -44,12 +44,10 @@ fi
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 
-echo "Running pre-push checks (clippy all-targets)..."
+echo "Running pre-push checks (full test gate)..."
 
-# Keep architecture invariants in sync with local and CI checks.
-make check-invariants
-
-# Match CI: lint everything (tests/benches/examples) with warnings denied.
-cargo clippy --workspace --all-targets -- -D warnings
+# The user-owned push boundary runs the same complete local validation gate
+# used for release readiness, including invariants, Clippy, and tests.
+make -C "$ROOT" test
 
 echo "Pre-push checks passed."

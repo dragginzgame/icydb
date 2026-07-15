@@ -21,8 +21,8 @@ use crate::{
         },
         key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue},
         relation::{
-            AcceptedRelationCardinality, AcceptedRelationEdgeTargetContract,
-            AcceptedRelationTargetAuthority, AcceptedRelationTupleEdgeLocalComponent,
+            AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
+            AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
             accepted_relation_target_metadata_from_kind, accepted_relation_tuple_edge_descriptor,
             accepted_strong_scalar_relation_target_descriptor,
@@ -123,16 +123,14 @@ impl AcceptedStrongRelationInfo {
         relation_name: impl Into<String>,
         relation_ordinal: usize,
         local_components: AcceptedStrongRelationLocalComponents,
-        target_contract: AcceptedRelationEdgeTargetContract,
+        target_contract: AcceptedRelationTargetContract,
         cardinality: AcceptedRelationCardinality,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             relation_name: relation_name.into(),
             relation_ordinal,
             local_components,
-            target: AcceptedStrongRelationTargetIdentity::from_relation_edge_target_contract(
-                target_contract,
-            )?,
+            target: AcceptedStrongRelationTargetIdentity::from_target_contract(target_contract)?,
             cardinality,
         })
     }
@@ -306,8 +304,8 @@ impl AcceptedStrongRelationTargetIdentity {
         })
     }
 
-    fn from_relation_edge_target_contract(
-        contract: AcceptedRelationEdgeTargetContract,
+    fn from_target_contract(
+        contract: AcceptedRelationTargetContract,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             primary_key: AcceptedStrongRelationTargetPrimaryKey::try_from_component_kinds(
@@ -340,20 +338,6 @@ impl AcceptedStrongRelationTargetIdentity {
     #[must_use]
     const fn primary_key(&self) -> &AcceptedStrongRelationTargetPrimaryKey {
         &self.primary_key
-    }
-
-    fn validate_against_db<C>(
-        &self,
-        db: &Db<C>,
-        source_path: &str,
-        field_name: &str,
-    ) -> Result<(), InternalError>
-    where
-        C: CanisterKind,
-    {
-        self.authority
-            .validate_against_db(db, source_path, field_name)
-            .map(|_| ())
     }
 }
 
@@ -448,7 +432,7 @@ where
         }
         let field = source_row_contract.required_accepted_field_decode_contract(slot)?;
         let Some(relation) =
-            accepted_strong_relation_from_field(source_path, slot, field, target_path_filter)?
+            accepted_strong_relation_from_field(db, source_path, slot, field, target_path_filter)?
         else {
             continue;
         };
@@ -504,6 +488,7 @@ where
 
     if let [field] = local_fields.as_slice()
         && let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+            db,
             source_path,
             edge.name(),
             field.field_name(),
@@ -553,12 +538,16 @@ where
     )?))
 }
 
-fn accepted_strong_relation_from_field(
+fn accepted_strong_relation_from_field<C>(
+    db: &Db<C>,
     source_path: &str,
     field_index: usize,
     field: AcceptedFieldDecodeContract<'_>,
     target_path_filter: Option<&str>,
-) -> Result<Option<AcceptedStrongRelationInfo>, InternalError> {
+) -> Result<Option<AcceptedStrongRelationInfo>, InternalError>
+where
+    C: CanisterKind,
+{
     let Some(target) = accepted_relation_target_metadata_from_kind(field.kind()) else {
         return Ok(None);
     };
@@ -570,6 +559,7 @@ fn accepted_strong_relation_from_field(
     }
 
     let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+        db,
         source_path,
         field.field_name(),
         field.field_name(),
@@ -743,9 +733,8 @@ pub(super) fn relation_target_store<C>(
 where
     C: CanisterKind,
 {
-    relation
-        .target()
-        .validate_against_db(db, source.path, relation.field_name())?;
+    // Accepted relation discovery validates runtime target identity before any
+    // relation info can reach this store-resolution boundary.
     let target = relation.target();
 
     db.with_store_registry(|reg| reg.try_get_store(target.store_path()))

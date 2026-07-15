@@ -40,23 +40,12 @@ pub(in crate::db) fn classify_sql_update_statement_policy(
     };
 
     let classification = classify_update_statement(statement, context);
-    let rejection = update_policy_rejection(policy, &classification, context);
-    let plan = if rejection.is_none() {
-        Some(validated_update_plan(
-            statement,
-            policy,
-            &classification,
-            context,
-        ))
-    } else {
-        None
-    };
-
-    SqlUpdatePolicyReport {
-        classification: Some(classification),
-        plan,
-        rejection,
+    if let Some(rejection) = update_policy_rejection(policy, &classification, context) {
+        return SqlUpdatePolicyReport::classified_rejection(classification, rejection);
     }
+
+    let plan = validated_update_plan(statement, policy, &classification, context);
+    SqlUpdatePolicyReport::admitted(classification, plan)
 }
 
 fn classify_update_statement(

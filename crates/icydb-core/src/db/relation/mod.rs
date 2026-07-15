@@ -96,12 +96,12 @@ struct AcceptedRelationTargetMetadata<'a> {
 }
 
 #[derive(Clone, Debug)]
-struct AcceptedRelationEdgeTargetContract {
+struct AcceptedRelationTargetContract {
     target: AcceptedRelationTargetAuthority,
     primary_key_kinds: Vec<AcceptedFieldKind>,
 }
 
-impl AcceptedRelationEdgeTargetContract {
+impl AcceptedRelationTargetContract {
     #[must_use]
     const fn primary_key_kinds(&self) -> &[AcceptedFieldKind] {
         self.primary_key_kinds.as_slice()
@@ -125,16 +125,11 @@ impl<'a> AcceptedRelationTupleEdgeLocalComponent<'a> {
 }
 
 struct AcceptedRelationTupleEdgeDescriptor {
-    target_contract: AcceptedRelationEdgeTargetContract,
+    target_contract: AcceptedRelationTargetContract,
 }
 
 impl AcceptedRelationTupleEdgeDescriptor {
-    #[must_use]
-    const fn primary_key_kinds(&self) -> &[AcceptedFieldKind] {
-        self.target_contract.primary_key_kinds()
-    }
-
-    fn into_target_contract(self) -> AcceptedRelationEdgeTargetContract {
+    fn into_target_contract(self) -> AcceptedRelationTargetContract {
         self.target_contract
     }
 }
@@ -150,7 +145,7 @@ where
     C: CanisterKind,
 {
     let target_contract =
-        accepted_relation_edge_target_contract(db, source_path, relation_name, target_path)?;
+        accepted_relation_target_contract(db, source_path, relation_name, target_path)?;
     let target_kinds = target_contract.primary_key_kinds();
     if local_components.len() != target_kinds.len() {
         return Err(InternalError::strong_relation_target_identity_mismatch(
@@ -185,31 +180,31 @@ where
 }
 
 struct AcceptedRelationScalarTargetDescriptor {
-    target_contract: AcceptedRelationEdgeTargetContract,
+    target_contract: AcceptedRelationTargetContract,
     cardinality: AcceptedRelationCardinality,
 }
 
 impl AcceptedRelationScalarTargetDescriptor {
-    const fn primary_key_kinds(&self) -> &[AcceptedFieldKind] {
-        self.target_contract.primary_key_kinds()
-    }
-
     const fn cardinality(&self) -> AcceptedRelationCardinality {
         self.cardinality
     }
 
-    fn into_target_contract(self) -> AcceptedRelationEdgeTargetContract {
+    fn into_target_contract(self) -> AcceptedRelationTargetContract {
         self.target_contract
     }
 }
 
-fn accepted_strong_scalar_relation_target_descriptor(
+fn accepted_strong_scalar_relation_target_descriptor<C>(
+    db: &Db<C>,
     source_path: &str,
-    _diagnostic_relation_name: &str,
+    diagnostic_relation_name: &str,
     authority_relation_name: &str,
     kind: &AcceptedFieldKind,
     expected_edge_target_path: Option<&str>,
-) -> Result<Option<AcceptedRelationScalarTargetDescriptor>, InternalError> {
+) -> Result<Option<AcceptedRelationScalarTargetDescriptor>, InternalError>
+where
+    C: CanisterKind,
+{
     let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
         return Ok(None);
     };
@@ -222,33 +217,58 @@ fn accepted_strong_scalar_relation_target_descriptor(
         return Err(InternalError::store_invariant());
     }
     validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
+    let declared_target = AcceptedRelationTargetAuthority::try_new(
+        source_path,
+        authority_relation_name,
+        target.target_path,
+        target.target_entity_name,
+        target.target_entity_tag,
+        target.target_store_path,
+    )?;
+    let target_hook =
+        declared_target.validate_against_db(db, source_path, diagnostic_relation_name)?;
+    let target_contract = accepted_relation_target_contract_for_hook(
+        db,
+        source_path,
+        diagnostic_relation_name,
+        target_hook,
+    )?;
+    validate_accepted_relation_primary_key_kinds(
+        source_path,
+        diagnostic_relation_name,
+        target.target_path,
+        std::slice::from_ref(target.scalar_target_key_kind),
+        target_contract.primary_key_kinds(),
+    )?;
 
     Ok(Some(AcceptedRelationScalarTargetDescriptor {
-        target_contract: AcceptedRelationEdgeTargetContract {
-            target: AcceptedRelationTargetAuthority::try_new(
-                source_path,
-                authority_relation_name,
-                target.target_path,
-                target.target_entity_name,
-                target.target_entity_tag,
-                target.target_store_path,
-            )?,
-            primary_key_kinds: vec![target.scalar_target_key_kind.clone()],
-        },
+        target_contract,
         cardinality: target.cardinality,
     }))
 }
 
-fn accepted_relation_edge_target_contract<C>(
+fn accepted_relation_target_contract<C>(
     db: &Db<C>,
     source_path: &str,
     relation_name: &str,
     target_path: &str,
-) -> Result<AcceptedRelationEdgeTargetContract, InternalError>
+) -> Result<AcceptedRelationTargetContract, InternalError>
 where
     C: CanisterKind,
 {
     let target_hook = db.runtime_hook_for_entity_path(target_path)?;
+    accepted_relation_target_contract_for_hook(db, source_path, relation_name, target_hook)
+}
+
+fn accepted_relation_target_contract_for_hook<C>(
+    db: &Db<C>,
+    source_path: &str,
+    relation_name: &str,
+    target_hook: &EntityRuntimeHooks<C>,
+) -> Result<AcceptedRelationTargetContract, InternalError>
+where
+    C: CanisterKind,
+{
     let target_store = db.store_handle(target_hook.store_path)?;
     let accepted = target_store.with_schema_mut(|schema_store| {
         ensure_accepted_schema_snapshot(
@@ -273,10 +293,47 @@ where
         target_hook.store_path,
     )?;
 
-    Ok(AcceptedRelationEdgeTargetContract {
+    Ok(AcceptedRelationTargetContract {
         target,
         primary_key_kinds,
     })
+}
+
+fn validate_accepted_relation_primary_key_kinds(
+    source_path: &str,
+    relation_name: &str,
+    target_path: &str,
+    relation_key_kinds: &[AcceptedFieldKind],
+    accepted_key_kinds: &[AcceptedFieldKind],
+) -> Result<(), InternalError> {
+    if accepted_key_kinds.len() != relation_key_kinds.len() {
+        return Err(InternalError::strong_relation_target_identity_mismatch(
+            source_path,
+            relation_name,
+            target_path,
+            format!(
+                "target accepted primary-key component count {} does not match relation component count {}",
+                accepted_key_kinds.len(),
+                relation_key_kinds.len(),
+            ),
+        ));
+    }
+
+    for (accepted_key_kind, relation_key_kind) in accepted_key_kinds.iter().zip(relation_key_kinds)
+    {
+        if accepted_key_kind != relation_key_kind {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                relation_name,
+                target_path,
+                format!(
+                    "target accepted primary-key kind {accepted_key_kind:?} does not match relation key kind {relation_key_kind:?}"
+                ),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn accepted_relation_target_metadata_from_kind(
@@ -566,9 +623,12 @@ pub(super) fn for_each_relation_target_value(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_relation_primary_key_component_kind;
+    use super::{
+        validate_accepted_relation_primary_key_kinds, validate_relation_primary_key_component_kind,
+    };
     use crate::{
         db::schema::{AcceptedFieldKind, AcceptedRelationStrength},
+        error::ErrorClass,
         types::EntityTag,
     };
 
@@ -621,5 +681,53 @@ mod tests {
             validate_relation_primary_key_component_kind(&kind)
                 .expect_err("big integer relation primary-key components must reject");
         }
+    }
+
+    #[test]
+    fn accepted_relation_target_authority_rejects_primary_key_arity_drift() {
+        let err = validate_accepted_relation_primary_key_kinds(
+            "Source",
+            "target_id",
+            "Target",
+            &[AcceptedFieldKind::Nat64],
+            &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
+        )
+        .expect_err("relation target authority must reject primary-key arity drift");
+
+        assert_eq!(err.class, ErrorClass::Internal);
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+        );
+    }
+
+    #[test]
+    fn accepted_relation_target_authority_rejects_primary_key_kind_drift() {
+        let err = validate_accepted_relation_primary_key_kinds(
+            "Source",
+            "target_id",
+            "Target",
+            &[AcceptedFieldKind::Nat64],
+            &[AcceptedFieldKind::Nat128],
+        )
+        .expect_err("relation target authority must reject primary-key kind drift");
+
+        assert_eq!(err.class, ErrorClass::Internal);
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+        );
+    }
+
+    #[test]
+    fn accepted_relation_target_authority_accepts_matching_ordered_primary_key_kinds() {
+        validate_accepted_relation_primary_key_kinds(
+            "Source",
+            "author",
+            "Target",
+            &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
+            &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
+        )
+        .expect("matching ordered relation target authority should validate");
     }
 }

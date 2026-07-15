@@ -12,7 +12,7 @@ concurrency:
 env:
   ACTIONLINT_VERSION: "1.7.8"
   CARGO_TERM_COLOR: always
-  RUST_CURRENT: "1.96.0"
+  RUST_CURRENT: "1.97.0"
   RUST_MSRV: "1.88.0"
 
 jobs:

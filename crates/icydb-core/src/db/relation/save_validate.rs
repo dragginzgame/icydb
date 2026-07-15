@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
+        Db,
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
         relation::{
@@ -16,7 +16,7 @@ use crate::{
         },
         schema::{
             AcceptedFieldKind, AcceptedRowDecodeContract, OwnedAcceptedFieldDecodeContract,
-            OwnedAcceptedRelationEdgeContract, ensure_accepted_schema_snapshot,
+            OwnedAcceptedRelationEdgeContract,
         },
     },
     entity::{EntityKind, EntityValue},
@@ -33,7 +33,6 @@ struct AcceptedSaveStrongRelationInfo {
     relation_name: String,
     local_components: Vec<AcceptedSaveStrongRelationLocalComponent>,
     target: AcceptedRelationTargetAuthority,
-    target_primary_key_kinds: Vec<AcceptedFieldKind>,
 }
 
 struct AcceptedSaveStrongRelationLocalComponent {
@@ -46,26 +45,12 @@ impl AcceptedSaveStrongRelationInfo {
         relation_name: impl Into<String>,
         local_components: Vec<AcceptedSaveStrongRelationLocalComponent>,
         target: AcceptedRelationTargetAuthority,
-        target_primary_key_kinds: Vec<AcceptedFieldKind>,
     ) -> Self {
         Self {
             relation_name: relation_name.into(),
             local_components,
             target,
-            target_primary_key_kinds,
         }
-    }
-
-    fn validate_target_identity<'db, C>(
-        &self,
-        db: &'db Db<C>,
-        source_path: &str,
-    ) -> Result<&'db EntityRuntimeHooks<C>, InternalError>
-    where
-        C: crate::traits::CanisterKind,
-    {
-        self.target
-            .validate_against_db(db, source_path, self.relation_name.as_str())
     }
 
     fn scalar_relation_component(&self) -> Option<&AcceptedSaveStrongRelationLocalComponent> {
@@ -109,6 +94,7 @@ where
             continue;
         };
         let Some(relation) = accepted_save_strong_relation_from_field(
+            db,
             E::PATH,
             slot,
             field.field_name(),
@@ -153,15 +139,8 @@ fn validate_save_strong_relation_for_entity<E>(
 where
     E: EntityKind + EntityValue,
 {
-    let target_hook = relation.validate_target_identity(db, E::PATH)?;
     let target_store = target_store_for_relation::<E>(db, relation)?;
     validate_strong_relation_storage_capabilities::<E>(db, relation, target_store)?;
-    validate_target_accepted_primary_key::<E::Canister>(
-        E::PATH,
-        relation,
-        target_store,
-        target_hook,
-    )?;
 
     validate_save_relation_targets_for_entity::<E>(relation, target_store, entity)
 }
@@ -185,7 +164,7 @@ where
         .collect::<Result<Vec<_>, _>>()?;
 
     if let Some(relation) =
-        accepted_save_scalar_strong_relation_from_edge::<E>(edge, local_fields.as_slice())?
+        accepted_save_scalar_strong_relation_from_edge::<E>(db, edge, local_fields.as_slice())?
     {
         return Ok(Some(relation));
     }
@@ -194,6 +173,7 @@ where
 }
 
 fn accepted_save_scalar_strong_relation_from_edge<E>(
+    db: &Db<E::Canister>,
     edge: &OwnedAcceptedRelationEdgeContract,
     local_fields: &[&OwnedAcceptedFieldDecodeContract],
 ) -> Result<Option<AcceptedSaveStrongRelationInfo>, InternalError>
@@ -202,6 +182,7 @@ where
 {
     if let [field] = local_fields
         && let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+            db,
             E::PATH,
             edge.name(),
             field.field_name(),
@@ -209,8 +190,6 @@ where
             Some(edge.target_path()),
         )?
     {
-        let target_primary_key_kinds = descriptor.primary_key_kinds().to_vec();
-
         return Ok(Some(AcceptedSaveStrongRelationInfo::new(
             field.field_name(),
             vec![AcceptedSaveStrongRelationLocalComponent::from_field(
@@ -218,7 +197,6 @@ where
                 field,
             )],
             descriptor.into_target_contract().into_target(),
-            target_primary_key_kinds,
         )));
     }
 
@@ -244,8 +222,6 @@ where
         edge.target_path(),
         local_component_facts.as_slice(),
     )?;
-    let target_primary_key_kinds = tuple_descriptor.primary_key_kinds().to_vec();
-
     let mut local_components = Vec::with_capacity(local_fields.len());
     for (offset, field) in local_fields.iter().enumerate() {
         local_components.push(AcceptedSaveStrongRelationLocalComponent::from_field(
@@ -258,17 +234,21 @@ where
         edge.name(),
         local_components,
         tuple_descriptor.into_target_contract().into_target(),
-        target_primary_key_kinds,
     )))
 }
 
-fn accepted_save_strong_relation_from_field(
+fn accepted_save_strong_relation_from_field<C>(
+    db: &Db<C>,
     source_path: &str,
     field_index: usize,
     field_name: &str,
     kind: &AcceptedFieldKind,
-) -> Result<Option<AcceptedSaveStrongRelationInfo>, InternalError> {
+) -> Result<Option<AcceptedSaveStrongRelationInfo>, InternalError>
+where
+    C: crate::traits::CanisterKind,
+{
     let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+        db,
         source_path,
         field_name,
         field_name,
@@ -278,7 +258,6 @@ fn accepted_save_strong_relation_from_field(
     else {
         return Ok(None);
     };
-    let target_primary_key_kinds = descriptor.primary_key_kinds().to_vec();
 
     Ok(Some(AcceptedSaveStrongRelationInfo::new(
         field_name,
@@ -287,7 +266,6 @@ fn accepted_save_strong_relation_from_field(
             kind.clone(),
         )],
         descriptor.into_target_contract().into_target(),
-        target_primary_key_kinds,
     )))
 }
 
@@ -457,131 +435,5 @@ where
             CompositePrimaryKeyValue::try_from_components(components.as_slice())
                 .map_err(InternalError::relation_source_row_unsupported_key_kind)?,
         ))),
-    }
-}
-
-fn validate_target_accepted_primary_key<C>(
-    source_path: &'static str,
-    relation: &AcceptedSaveStrongRelationInfo,
-    target_store: StoreHandle,
-    target_hook: &EntityRuntimeHooks<C>,
-) -> Result<(), InternalError>
-where
-    C: crate::traits::CanisterKind,
-{
-    let accepted = target_store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
-            schema_store,
-            relation.target.entity_tag(),
-            target_hook.entity_path,
-            target_hook.store_path,
-            target_hook.model,
-        )
-    })?;
-    let primary_key_kinds = accepted.primary_key_field_kinds();
-    validate_target_accepted_primary_key_kinds(
-        source_path,
-        relation.relation_name.as_str(),
-        relation.target.path(),
-        relation.target_primary_key_kinds.as_slice(),
-        &primary_key_kinds,
-    )
-}
-
-fn validate_target_accepted_primary_key_kinds(
-    source_path: &str,
-    field_name: &str,
-    target_path: &str,
-    relation_key_kinds: &[AcceptedFieldKind],
-    primary_key_kinds: &[&AcceptedFieldKind],
-) -> Result<(), InternalError> {
-    if primary_key_kinds.len() != relation_key_kinds.len() {
-        return Err(InternalError::strong_relation_target_identity_mismatch(
-            source_path,
-            field_name,
-            target_path,
-            format!(
-                "target accepted primary-key component count {} does not match relation component count {}",
-                primary_key_kinds.len(),
-                relation_key_kinds.len(),
-            ),
-        ));
-    }
-
-    for (accepted_key_kind, relation_key_kind) in primary_key_kinds.iter().zip(relation_key_kinds) {
-        if *accepted_key_kind != relation_key_kind {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                target_path,
-                format!(
-                    "target accepted primary-key kind {accepted_key_kind:?} does not match relation key kind {relation_key_kind:?}"
-                ),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::validate_target_accepted_primary_key_kinds;
-    use crate::{db::schema::AcceptedFieldKind, error::ErrorClass};
-
-    #[test]
-    fn save_relation_target_pk_guard_rejects_composite_target_authority() {
-        let kinds = [&AcceptedFieldKind::Nat64, &AcceptedFieldKind::Ulid];
-
-        let err = validate_target_accepted_primary_key_kinds(
-            "Source",
-            "target_id",
-            "Target",
-            &[AcceptedFieldKind::Nat64],
-            &kinds,
-        )
-        .expect_err("save relation guard must reject composite target PK authority");
-
-        assert_eq!(err.class, ErrorClass::Internal);
-        assert_eq!(
-            err.diagnostic_code(),
-            icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
-            "target PK arity rejection diagnostic drifted: {err:?}"
-        );
-    }
-
-    #[test]
-    fn save_relation_target_pk_guard_rejects_kind_drift() {
-        let kinds = [&AcceptedFieldKind::Nat128];
-
-        let err = validate_target_accepted_primary_key_kinds(
-            "Source",
-            "target_id",
-            "Target",
-            &[AcceptedFieldKind::Nat64],
-            &kinds,
-        )
-        .expect_err("save relation guard must reject relation/target key-kind drift");
-
-        assert_eq!(err.class, ErrorClass::Internal);
-        assert_eq!(
-            err.diagnostic_code(),
-            icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
-            "relation/target key-kind drift diagnostic drifted: {err:?}"
-        );
-    }
-
-    #[test]
-    fn save_relation_target_pk_guard_accepts_ordered_composite_key_kinds() {
-        let kinds = [&AcceptedFieldKind::Nat64, &AcceptedFieldKind::Ulid];
-
-        validate_target_accepted_primary_key_kinds(
-            "Source",
-            "author",
-            "Target",
-            &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
-            &kinds,
-        )
-        .expect("matching ordered composite relation key kinds should validate");
     }
 }

@@ -14,6 +14,10 @@ fn classify(sql: &str, policy: SqlDeleteExposurePolicy) -> SqlDeletePolicyReport
 }
 
 fn expect_plan(report: &SqlDeletePolicyReport) -> &SqlValidatedDeletePlan {
+    assert!(
+        report.rejection.is_none(),
+        "admitted policy must not also carry a rejection",
+    );
     report
         .plan
         .as_ref()
@@ -21,6 +25,10 @@ fn expect_plan(report: &SqlDeletePolicyReport) -> &SqlValidatedDeletePlan {
 }
 
 fn assert_no_plan(report: &SqlDeletePolicyReport) {
+    assert!(
+        report.rejection.is_some(),
+        "policy without a plan must carry a typed rejection",
+    );
     assert!(
         report.plan.is_none(),
         "rejected policy should not expose a partially usable plan",
@@ -188,6 +196,20 @@ fn delete_policy_public_bounded_rejects_implicit_primary_key_fallback() {
     assert_eq!(
         report.rejection,
         Some(SqlDeletePolicyRejection::MissingCanonicalPrimaryKeyOrder),
+    );
+    assert_no_plan(&report);
+}
+
+#[test]
+fn delete_policy_public_bounded_rejects_missing_limit() {
+    let report = classify(
+        "DELETE FROM Character WHERE age = 21 ORDER BY id",
+        SqlDeleteExposurePolicy::PublicBoundedDeterministic,
+    );
+
+    assert_eq!(
+        report.rejection,
+        Some(SqlDeletePolicyRejection::MissingLimit),
     );
     assert_no_plan(&report);
 }

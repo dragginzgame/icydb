@@ -244,6 +244,28 @@ impl SqlDeletePolicyReport {
         self.rejection.is_none()
     }
 
+    pub(super) const fn admitted(
+        classification: SqlDeleteStatementClassification,
+        plan: SqlValidatedDeletePlan,
+    ) -> Self {
+        Self {
+            classification: Some(classification),
+            plan: Some(plan),
+            rejection: None,
+        }
+    }
+
+    pub(super) const fn classified_rejection(
+        classification: SqlDeleteStatementClassification,
+        rejection: SqlDeletePolicyRejection,
+    ) -> Self {
+        Self {
+            classification: Some(classification),
+            plan: None,
+            rejection: Some(rejection),
+        }
+    }
+
     pub(super) const fn rejected(rejection: SqlDeletePolicyRejection) -> Self {
         Self {
             classification: None,

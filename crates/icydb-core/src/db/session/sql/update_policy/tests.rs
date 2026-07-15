@@ -14,6 +14,10 @@ fn classify(sql: &str, policy: SqlUpdateExposurePolicy) -> SqlUpdatePolicyReport
 }
 
 fn expect_plan(report: &SqlUpdatePolicyReport) -> &SqlValidatedUpdatePlan {
+    assert!(
+        report.rejection.is_none(),
+        "admitted policy must not also carry a rejection",
+    );
     report
         .plan
         .as_ref()
@@ -21,6 +25,10 @@ fn expect_plan(report: &SqlUpdatePolicyReport) -> &SqlValidatedUpdatePlan {
 }
 
 fn assert_no_plan(report: &SqlUpdatePolicyReport) {
+    assert!(
+        report.rejection.is_some(),
+        "policy without a plan must carry a typed rejection",
+    );
     assert!(
         report.plan.is_none(),
         "rejected policy should not expose a partially usable plan",
@@ -359,6 +367,20 @@ fn update_policy_public_bounded_rejects_implicit_primary_key_fallback() {
 }
 
 #[test]
+fn update_policy_public_bounded_rejects_missing_limit() {
+    let report = classify(
+        "UPDATE Character SET active = false WHERE age = 21 ORDER BY id",
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+    );
+
+    assert_eq!(
+        report.rejection,
+        Some(SqlUpdatePolicyRejection::MissingLimit),
+    );
+    assert_no_plan(&report);
+}
+
+#[test]
 fn update_policy_public_bounded_rejects_non_primary_key_ordering() {
     let report = classify(
         "UPDATE Character SET active = false WHERE age = 21 ORDER BY age LIMIT 10",
@@ -491,7 +513,7 @@ fn update_policy_allows_schema_owned_returning_fields_on_public_surfaces() {
             report.is_admitted(),
             "public returning follows accepted row projection visibility",
         );
-        assert!(report.plan.is_some());
+        let _ = expect_plan(&report);
     }
 }
 

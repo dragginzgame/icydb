@@ -39,23 +39,12 @@ pub(in crate::db) fn classify_sql_delete_statement_policy(
     };
 
     let classification = classify_delete_statement(statement, context);
-    let rejection = delete_policy_rejection(policy, &classification, context);
-    let plan = if rejection.is_none() {
-        Some(validated_delete_plan(
-            statement,
-            policy,
-            &classification,
-            context,
-        ))
-    } else {
-        None
-    };
-
-    SqlDeletePolicyReport {
-        classification: Some(classification),
-        plan,
-        rejection,
+    if let Some(rejection) = delete_policy_rejection(policy, &classification, context) {
+        return SqlDeletePolicyReport::classified_rejection(classification, rejection);
     }
+
+    let plan = validated_delete_plan(statement, policy, &classification, context);
+    SqlDeletePolicyReport::admitted(classification, plan)
 }
 
 fn classify_delete_statement(

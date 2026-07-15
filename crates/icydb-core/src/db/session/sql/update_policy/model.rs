@@ -288,6 +288,28 @@ impl SqlUpdatePolicyReport {
         self.rejection.is_none()
     }
 
+    pub(super) const fn admitted(
+        classification: SqlUpdateStatementClassification,
+        plan: SqlValidatedUpdatePlan,
+    ) -> Self {
+        Self {
+            classification: Some(classification),
+            plan: Some(plan),
+            rejection: None,
+        }
+    }
+
+    pub(super) const fn classified_rejection(
+        classification: SqlUpdateStatementClassification,
+        rejection: SqlUpdatePolicyRejection,
+    ) -> Self {
+        Self {
+            classification: Some(classification),
+            plan: None,
+            rejection: Some(rejection),
+        }
+    }
+
     pub(super) const fn rejected(rejection: SqlUpdatePolicyRejection) -> Self {
         Self {
             classification: None,

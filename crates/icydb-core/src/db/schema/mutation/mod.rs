@@ -101,7 +101,7 @@ pub(in crate::db) use index_candidate::{
 };
 
 mod index;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use index::SchemaSecondaryIndexDropCleanupTarget;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use index::{

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Generated database accessors no longer duplicate `Result`'s must-use
   annotation, restoring Rust 1.97 Clippy-clean canister builds.
+- Strong-relation discovery now rejects scalar targets without registered
+  runtime authority.
 
 ## [0.203.x] ⚠️ - 2026-07-14 - Legacy Architecture Hard Cut
 

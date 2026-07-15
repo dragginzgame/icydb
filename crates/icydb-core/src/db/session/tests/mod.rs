@@ -382,6 +382,7 @@ static INDEXED_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCaniste
     EntityRuntimeHooks::for_entity::<IndexedSessionSqlEntity>(),
     EntityRuntimeHooks::for_entity::<CompositeIndexedSessionSqlEntity>(),
     EntityRuntimeHooks::for_entity::<BranchIndexedSessionSqlEntity>(),
+    #[cfg(feature = "diagnostics")]
     EntityRuntimeHooks::for_entity::<ExplicitPkSuffixIndexedSessionSqlEntity>(),
     EntityRuntimeHooks::for_entity::<FilteredIndexedSessionSqlEntity>(),
     EntityRuntimeHooks::for_entity::<ExpressionIndexedSessionSqlEntity>(),
