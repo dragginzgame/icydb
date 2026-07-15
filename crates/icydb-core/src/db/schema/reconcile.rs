@@ -40,7 +40,49 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-use startup_field_path::{SchemaPublicationGate, execute_supported_field_path_index_addition};
+use startup_field_path::{
+    DeferredStartupFieldPathIndexPublication, SchemaMutationCatalogScope,
+    execute_supported_field_path_index_addition,
+};
+
+struct ReconciledRuntimeSchema {
+    accepted: AcceptedSchemaSnapshot,
+    pending_publication: Option<PendingStartupFieldPathIndexPublication>,
+}
+
+struct PendingStartupFieldPathIndexPublication {
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    accepted_before: PersistedSchemaSnapshot,
+    deferred: DeferredStartupFieldPathIndexPublication,
+}
+
+impl PendingStartupFieldPathIndexPublication {
+    fn validate_before_accepted_publication(&self) -> Result<(), InternalError> {
+        self.deferred
+            .validate_before_accepted_publication(self.store, self.entity_tag)
+    }
+
+    fn rollback_if_publication_rejected(self) {
+        if schema_publication_error_allows_physical_rollback(
+            self.store,
+            self.entity_tag,
+            &self.accepted_before,
+        ) {
+            self.deferred.rollback(self.store);
+        }
+    }
+}
+
+fn rollback_rejected_startup_publications(
+    pending: BTreeMap<&'static str, Vec<PendingStartupFieldPathIndexPublication>>,
+) {
+    for publications in pending.into_values() {
+        for publication in publications {
+            publication.rollback_if_publication_rejected();
+        }
+    }
+}
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use sql_ddl::{
@@ -63,19 +105,43 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     let catalogs_by_store = build_generated_enum_catalog_candidates(db, entity_runtime_hooks)?;
     let mut accepted_snapshots_by_store =
         BTreeMap::<&'static str, BTreeMap<EntityTag, PersistedSchemaSnapshot>>::new();
+    let mut pending_publications =
+        BTreeMap::<&'static str, Vec<PendingStartupFieldPathIndexPublication>>::new();
 
     for hooks in entity_runtime_hooks {
         let enum_catalog = catalogs_by_store
             .get(hooks.store_path)
             .ok_or_else(InternalError::store_invariant)?;
-        let accepted = reconcile_runtime_schema(db, hooks, enum_catalog)?;
+        let reconciled = match reconcile_runtime_schema(db, hooks, enum_catalog) {
+            Ok(reconciled) => reconciled,
+            Err(error) => {
+                rollback_rejected_startup_publications(pending_publications);
+                return Err(error);
+            }
+        };
         if accepted_snapshots_by_store
             .entry(hooks.store_path)
             .or_default()
-            .insert(hooks.entity_tag, accepted.persisted_snapshot().clone())
+            .insert(
+                hooks.entity_tag,
+                reconciled.accepted.persisted_snapshot().clone(),
+            )
             .is_some()
         {
+            if let Some(pending) = reconciled.pending_publication {
+                pending_publications
+                    .entry(hooks.store_path)
+                    .or_default()
+                    .push(pending);
+            }
+            rollback_rejected_startup_publications(pending_publications);
             return Err(InternalError::store_invariant());
+        }
+        if let Some(pending) = reconciled.pending_publication {
+            pending_publications
+                .entry(hooks.store_path)
+                .or_default()
+                .push(pending);
         }
     }
 
@@ -83,18 +149,58 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
         let entity_snapshots = accepted_snapshots_by_store
             .remove(store_path)
             .ok_or_else(InternalError::store_invariant)?;
-        publish_generated_accepted_schema_bundle(
+        let store_pending = pending_publications.remove(store_path).unwrap_or_default();
+        if let Err(error) = store_pending.iter().try_for_each(
+            PendingStartupFieldPathIndexPublication::validate_before_accepted_publication,
+        ) {
+            pending_publications.insert(store_path, store_pending);
+            rollback_rejected_startup_publications(pending_publications);
+            return Err(error);
+        }
+        if let Err(error) = publish_generated_accepted_schema_bundle(
             db.store_handle(store_path)?,
             store_path,
             enum_catalog,
             entity_snapshots,
-        )?;
+        ) {
+            pending_publications.insert(store_path, store_pending);
+            rollback_rejected_startup_publications(pending_publications);
+            return Err(error);
+        }
     }
     if !accepted_snapshots_by_store.is_empty() {
+        rollback_rejected_startup_publications(pending_publications);
         return Err(InternalError::store_invariant());
     }
 
     Ok(())
+}
+
+// Return whether a failed accepted-schema publication is proven to have
+// rejected before any durable commit authority or accepted-after root exists.
+// Physical rollback is unsafe while a marker remains: recovery owns that
+// candidate and may still publish it. Inspection failures are likewise
+// commit-in-doubt and conservatively retain accepted-after physical work.
+fn schema_publication_error_allows_physical_rollback(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    accepted_before: &PersistedSchemaSnapshot,
+) -> bool {
+    if store.storage_capabilities().recovery()
+        == crate::db::registry::StoreRecoveryCapability::StableBasePlusJournalReplay
+    {
+        match crate::db::commit::commit_marker_present() {
+            Ok(false) => {}
+            Ok(true) | Err(_) => return false,
+        }
+    }
+
+    matches!(
+        store.with_schema(|schema_store| {
+            schema_store.current_accepted_persisted_snapshot(entity_tag)
+        }),
+        Ok(Some(current)) if current == *accepted_before
+    )
 }
 
 // Construct every store-local enum catalog candidate before any entity
@@ -262,6 +368,21 @@ fn publish_accepted_entity_snapshot_revision(
     expected_identity: crate::db::schema::AcceptedCatalogIdentity,
     accepted_after: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
+    publish_accepted_entity_snapshot_revision_with_row_puts(
+        store,
+        expected_identity,
+        accepted_after,
+        Vec::new(),
+    )
+}
+
+#[cfg(feature = "sql")]
+fn publish_accepted_entity_snapshot_revision_with_row_puts(
+    store: StoreHandle,
+    expected_identity: crate::db::schema::AcceptedCatalogIdentity,
+    accepted_after: &PersistedSchemaSnapshot,
+    row_puts: Vec<crate::db::journal::JournalRecord>,
+) -> Result<(), InternalError> {
     let current_selection = store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
@@ -305,11 +426,12 @@ fn publish_accepted_entity_snapshot_revision(
         entity_snapshots,
     )?;
     let candidate = CandidateSchemaRevision::new(bundle)?;
-    crate::db::commit::publish_accepted_schema_candidate(
+    crate::db::commit::publish_accepted_schema_candidate_with_row_puts(
         expected_identity.store_path(),
         store,
         expected_revision,
         &candidate,
+        row_puts,
     )
 }
 
@@ -350,7 +472,7 @@ fn reconcile_runtime_schema<C: CanisterKind>(
     db: &Db<C>,
     hooks: &EntityRuntimeHooks<C>,
     enum_catalog: &AcceptedEnumCatalog,
-) -> Result<AcceptedSchemaSnapshot, InternalError> {
+) -> Result<ReconciledRuntimeSchema, InternalError> {
     let store = db.store_handle(hooks.store_path)?;
 
     ensure_accepted_schema_snapshot_for_runtime_store(
@@ -563,7 +685,7 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
     store_path: &'static str,
     model: &EntityModel,
     enum_catalog: &AcceptedEnumCatalog,
-) -> Result<AcceptedSchemaSnapshot, InternalError> {
+) -> Result<ReconciledRuntimeSchema, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
     let expected = proposal.initial_persisted_schema_snapshot_with_enum_catalog(enum_catalog)?;
 
@@ -591,17 +713,17 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
             }
         };
 
-        let accepted_snapshot = match plan.kind() {
+        let (accepted_snapshot, pending_publication) = match plan.kind() {
             SchemaTransitionPlanKind::AddExpressionIndex | SchemaTransitionPlanKind::ExactMatch => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
-                actual
+                (actual, None)
             }
             SchemaTransitionPlanKind::AppendOnlyNullableFields => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 store.with_schema_mut(|schema_store| {
                     schema_store.insert_persisted_snapshot(entity_tag, &expected)
                 })?;
-                expected
+                (expected, None)
             }
             SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
@@ -610,22 +732,33 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 store.with_schema_mut(|schema_store| {
                     schema_store.insert_persisted_snapshot(entity_tag, &merged)
                 })?;
-                merged
+                (merged, None)
             }
             SchemaTransitionPlanKind::AddFieldPathIndex => {
-                execute_supported_field_path_index_addition(
+                let outcome = execute_supported_field_path_index_addition(
                     store,
-                    SchemaPublicationGate::startup(entity_tag, store_path),
+                    SchemaMutationCatalogScope::startup(entity_tag, store_path),
                     entity_path,
                     &actual,
                     &expected,
                     &plan,
                 )?;
-                expected
+                let deferred = outcome
+                    .into_deferred_startup_publication()
+                    .ok_or_else(InternalError::store_invariant)?;
+                (
+                    expected,
+                    Some(PendingStartupFieldPathIndexPublication {
+                        store,
+                        entity_tag,
+                        accepted_before: actual,
+                        deferred,
+                    }),
+                )
             }
         };
 
-        return accept_reconciled_schema_snapshot(
+        let accepted = accept_reconciled_schema_snapshot(
             entity_path,
             accepted_snapshot,
             SchemaReconcileOutcome::ExactMatch,
@@ -634,14 +767,18 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
                 });
             },
-        );
+        )?;
+        return Ok(ReconciledRuntimeSchema {
+            accepted,
+            pending_publication,
+        });
     }
 
     store.with_schema_mut(|schema_store| {
         schema_store.insert_persisted_snapshot(entity_tag, &expected)
     })?;
 
-    accept_reconciled_schema_snapshot(
+    let accepted = accept_reconciled_schema_snapshot(
         entity_path,
         expected,
         SchemaReconcileOutcome::FirstCreate,
@@ -650,7 +787,11 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 record_schema_store_footprint(schema_store, entity_tag, entity_path);
             });
         },
-    )
+    )?;
+    Ok(ReconciledRuntimeSchema {
+        accepted,
+        pending_publication: None,
+    })
 }
 
 fn accept_reconciled_schema_snapshot(

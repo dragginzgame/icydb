@@ -19,7 +19,29 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
 ) -> Result<(), InternalError> {
+    publish_accepted_schema_candidate_with_row_puts(
+        store_path,
+        store,
+        expected_revision,
+        candidate,
+        Vec::new(),
+    )
+}
+
+pub(in crate::db) fn publish_accepted_schema_candidate_with_row_puts(
+    store_path: &'static str,
+    store: StoreHandle,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    row_puts: Vec<JournalRecord>,
+) -> Result<(), InternalError> {
     if candidate.store_path() != store_path {
+        return Err(InternalError::store_invariant());
+    }
+    if row_puts
+        .iter()
+        .any(|record| !matches!(record, JournalRecord::RowPut { .. }))
+    {
         return Err(InternalError::store_invariant());
     }
 
@@ -28,7 +50,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
             schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
         }),
         StoreRecoveryCapability::StableBasePlusJournalReplay => {
-            publish_journaled_candidate(store_path, store, expected_revision, candidate)
+            publish_journaled_candidate(store_path, store, expected_revision, candidate, row_puts)
         }
     }
 }
@@ -38,6 +60,7 @@ fn publish_journaled_candidate(
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
+    row_puts: Vec<JournalRecord>,
 ) -> Result<(), InternalError> {
     let journal_store = store
         .journal_tail_store()
@@ -45,13 +68,16 @@ fn publish_journaled_candidate(
     let marker_id = generate_commit_id()?;
     let sequence =
         journal_store.with_borrow(crate::db::journal::JournalTailStore::next_append_sequence)?;
-    let record = JournalRecord::accepted_schema_publish(
+    let schema_record = JournalRecord::accepted_schema_publish(
         store_path,
         expected_revision,
         candidate.encoded_bundle().to_vec(),
         candidate.encoded_root().to_vec(),
     )?;
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
+    let mut records = Vec::with_capacity(row_puts.len().saturating_add(1));
+    records.push(schema_record);
+    records.extend(row_puts);
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 

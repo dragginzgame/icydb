@@ -26,7 +26,7 @@ pub(in crate::db::schema) use admission::{
 };
 use compatibility::{
     accepted_snapshot_extends_generated_indexes,
-    accepted_snapshot_extends_generated_with_ddl_fields,
+    accepted_snapshot_extends_generated_with_ddl_fields, accepted_snapshot_matches_generated_shape,
     field_has_supported_missing_absence_policy, generated_index_names_only_changed,
 };
 
@@ -291,6 +291,13 @@ pub(in crate::db::schema) fn decide_schema_transition(
     }
 
     if accepted_snapshot_extends_generated_with_ddl_fields(actual, expected) {
+        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
+            SchemaTransitionPlanKind::ExactMatch,
+            SchemaMutationRequest::ExactMatch,
+        ));
+    }
+
+    if accepted_snapshot_matches_generated_shape(actual, expected) {
         return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
             SchemaTransitionPlanKind::ExactMatch,
             SchemaMutationRequest::ExactMatch,

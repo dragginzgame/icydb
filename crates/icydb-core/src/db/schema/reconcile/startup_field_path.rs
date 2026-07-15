@@ -30,23 +30,62 @@ use sha2::{Digest, Sha256};
 
 #[cfg(feature = "sql")]
 use super::publish_accepted_entity_snapshot_revision;
+use super::schema_publication_error_allows_physical_rollback;
+
+pub(super) struct DeferredStartupFieldPathIndexPublication {
+    publication: StartupFieldPathPublicationDecision,
+    report: SchemaFieldPathIndexRunnerReport,
+}
+
+impl DeferredStartupFieldPathIndexPublication {
+    pub(super) fn validate_before_accepted_publication(
+        &self,
+        store: StoreHandle,
+        entity_tag: EntityTag,
+    ) -> Result<(), InternalError> {
+        self.publication
+            .validate_before_schema_publication(store, entity_tag)
+    }
+
+    pub(super) fn rollback(self, store: StoreHandle) {
+        store.with_index_mut(|index_store| self.report.rollback_physical_work(index_store));
+    }
+}
+
+pub(super) struct SchemaFieldPathIndexAdditionOutcome {
+    metrics: SchemaFieldPathIndexMutationMetrics,
+    deferred_startup_publication: Option<DeferredStartupFieldPathIndexPublication>,
+}
+
+impl SchemaFieldPathIndexAdditionOutcome {
+    #[cfg(feature = "sql")]
+    pub(super) const fn metrics(&self) -> &SchemaFieldPathIndexMutationMetrics {
+        &self.metrics
+    }
+
+    pub(super) fn into_deferred_startup_publication(
+        self,
+    ) -> Option<DeferredStartupFieldPathIndexPublication> {
+        self.deferred_startup_publication
+    }
+}
 
 pub(super) fn execute_supported_field_path_index_addition(
     store: StoreHandle,
-    publication_gate: SchemaPublicationGate,
+    catalog_scope: SchemaMutationCatalogScope,
     entity_path: &'static str,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
     plan: &SchemaTransitionPlan,
-) -> Result<SchemaFieldPathIndexMutationMetrics, InternalError> {
-    let entity_tag = publication_gate.entity_tag();
+) -> Result<SchemaFieldPathIndexAdditionOutcome, InternalError> {
+    let entity_tag = catalog_scope.entity_tag();
     let target = plan
         .field_path_index_target()
         .ok_or_else(InternalError::store_unsupported)?;
     let input = field_path_runner_input(entity_path, accepted_before, accepted_after, plan)?;
     let row_contract = catalog_backed_row_contract_for_rebuild(
         store,
-        publication_gate,
+        catalog_scope,
         entity_path,
         accepted_before,
     )?;
@@ -99,28 +138,42 @@ pub(super) fn execute_supported_field_path_index_addition(
             return Err(error);
         }
     };
-    if let Err(error) =
-        publication.publish_accepted_snapshot(store, publication_gate, accepted_after)
-    {
-        store.with_index_mut(|index_store| report.rollback_physical_work(index_store));
+    let metrics = publication.metrics.clone();
+    if catalog_scope.is_startup() {
+        return Ok(SchemaFieldPathIndexAdditionOutcome {
+            metrics,
+            deferred_startup_publication: Some(DeferredStartupFieldPathIndexPublication {
+                publication,
+                report,
+            }),
+        });
+    }
+
+    if let Err(error) = catalog_scope.publish_sql_ddl_accepted_snapshot(store, accepted_after) {
+        if catalog_scope.publication_error_allows_physical_rollback(store, accepted_before) {
+            store.with_index_mut(|index_store| report.rollback_physical_work(index_store));
+        }
         return Err(error);
     }
 
-    Ok(publication.metrics)
+    Ok(SchemaFieldPathIndexAdditionOutcome {
+        metrics,
+        deferred_startup_publication: None,
+    })
 }
 
 pub(super) fn catalog_backed_row_contract_for_rebuild(
     store: StoreHandle,
-    publication_gate: SchemaPublicationGate,
+    catalog_scope: SchemaMutationCatalogScope,
     entity_path: &'static str,
     accepted_before: &PersistedSchemaSnapshot,
 ) -> Result<StructuralRowContract, InternalError> {
     let selection = store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
-                publication_gate.entity_tag(),
+                catalog_scope.entity_tag(),
                 entity_path,
-                publication_gate.store_path(),
+                catalog_scope.store_path(),
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
@@ -148,13 +201,13 @@ fn field_path_runner_input<'a>(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct SchemaPublicationGate {
+pub(super) struct SchemaMutationCatalogScope {
     entity_tag: EntityTag,
     store_path: &'static str,
     accepted_before_identity: Option<AcceptedCatalogIdentity>,
 }
 
-impl SchemaPublicationGate {
+impl SchemaMutationCatalogScope {
     pub(super) const fn startup(entity_tag: EntityTag, store_path: &'static str) -> Self {
         Self {
             entity_tag,
@@ -183,23 +236,33 @@ impl SchemaPublicationGate {
         self.store_path
     }
 
-    pub(super) fn publish_accepted_snapshot(
+    const fn is_startup(self) -> bool {
+        self.accepted_before_identity.is_none()
+    }
+
+    pub(super) fn publish_sql_ddl_accepted_snapshot(
         self,
         store: StoreHandle,
         accepted_after: &PersistedSchemaSnapshot,
     ) -> Result<(), InternalError> {
-        if let Some(expected) = self.accepted_before_identity {
-            debug_assert_eq!(self.entity_tag, expected.entity_tag());
-            #[cfg(feature = "sql")]
-            return publish_accepted_entity_snapshot_revision(store, expected, accepted_after);
-
-            #[cfg(not(feature = "sql"))]
+        let Some(expected) = self.accepted_before_identity else {
             return Err(InternalError::store_invariant());
-        }
+        };
+        debug_assert_eq!(self.entity_tag, expected.entity_tag());
 
-        store.with_schema_mut(|schema_store| {
-            schema_store.insert_persisted_snapshot(self.entity_tag, accepted_after)
-        })
+        #[cfg(feature = "sql")]
+        return publish_accepted_entity_snapshot_revision(store, expected, accepted_after);
+
+        #[cfg(not(feature = "sql"))]
+        Err(InternalError::store_invariant())
+    }
+
+    pub(super) fn publication_error_allows_physical_rollback(
+        self,
+        store: StoreHandle,
+        accepted_before: &PersistedSchemaSnapshot,
+    ) -> bool {
+        schema_publication_error_allows_physical_rollback(store, self.entity_tag, accepted_before)
     }
 }
 
@@ -338,6 +401,7 @@ impl StartupFieldPathRebuildGate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct StartupFieldPathPublicationDecision {
     metrics: SchemaFieldPathIndexMutationMetrics,
+    rebuild_gate: StartupFieldPathRebuildGate,
     target: SchemaFieldPathIndexRebuildTarget,
     target_index_id: IndexId,
     target_entries: u64,
@@ -354,29 +418,29 @@ impl StartupFieldPathPublicationDecision {
         let target_entries = u64::try_from(report.staged_validation().entry_count())
             .map_err(|_| InternalError::store_unsupported())?;
 
-        rebuild_gate.validate_before_schema_publication(
-            store,
-            target,
-            report.staged_validation().source_rows(),
-        )?;
-
-        Ok(Self {
+        let decision = Self {
             metrics,
+            rebuild_gate: rebuild_gate.clone(),
             target: target.clone(),
             target_index_id: IndexId::new(rebuild_gate.entity_tag, target.ordinal()),
             target_entries,
-        })
+        };
+        decision.validate_before_schema_publication(store, rebuild_gate.entity_tag)?;
+
+        Ok(decision)
     }
 
-    pub(super) fn publish_accepted_snapshot(
+    pub(super) fn validate_before_schema_publication(
         &self,
         store: StoreHandle,
-        publication_gate: SchemaPublicationGate,
-        accepted_after: &PersistedSchemaSnapshot,
+        entity_tag: EntityTag,
     ) -> Result<(), InternalError> {
-        let entity_tag = publication_gate.entity_tag();
+        self.rebuild_gate.validate_before_schema_publication(
+            store,
+            &self.target,
+            self.metrics.rows_scanned(),
+        )?;
         self.validate_physical_store_before_schema_publication(store, entity_tag)?;
-        publication_gate.publish_accepted_snapshot(store, accepted_after)?;
 
         Ok(())
     }

@@ -21,8 +21,10 @@ use std::collections::HashSet;
 
 use super::{
     publish_accepted_entity_snapshot_revision,
+    publish_accepted_entity_snapshot_revision_with_row_puts,
+    schema_publication_error_allows_physical_rollback,
     startup_expression::execute_supported_expression_index_addition,
-    startup_field_path::{SchemaPublicationGate, execute_supported_field_path_index_addition},
+    startup_field_path::{SchemaMutationCatalogScope, execute_supported_field_path_index_addition},
     validate_publishable_transition_plan,
 };
 
@@ -68,7 +70,10 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
         &plan,
     )?;
 
-    Ok((report.rows_scanned(), report.index_keys_written()))
+    Ok((
+        report.metrics().rows_scanned(),
+        report.metrics().index_keys_written(),
+    ))
 }
 
 /// Execute one supported SQL DDL expression index addition through the schema
@@ -193,8 +198,8 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         self.entity_path
     }
 
-    pub(super) const fn publication_gate(&self) -> SchemaPublicationGate {
-        SchemaPublicationGate::sql_ddl(self.entity_tag, self.accepted_before_identity)
+    pub(super) const fn publication_gate(&self) -> SchemaMutationCatalogScope {
+        SchemaMutationCatalogScope::sql_ddl(self.entity_tag, self.accepted_before_identity)
     }
 
     pub(super) fn require_transition_plan(
@@ -213,13 +218,30 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         )
     }
 
-    pub(super) fn publish(self) -> Result<(), InternalError> {
+    pub(super) fn publish(&self) -> Result<(), InternalError> {
         publish_sql_ddl_accepted_snapshot(
             self.store,
             self.entity_tag,
             self.accepted_before_identity,
             self.after,
         )
+    }
+
+    pub(super) fn publish_with_row_puts(
+        &self,
+        row_puts: Vec<crate::db::journal::JournalRecord>,
+    ) -> Result<(), InternalError> {
+        debug_assert_eq!(self.entity_tag, self.accepted_before_identity.entity_tag());
+        publish_accepted_entity_snapshot_revision_with_row_puts(
+            self.store,
+            self.accepted_before_identity,
+            self.after,
+            row_puts,
+        )
+    }
+
+    pub(super) fn publication_error_allows_physical_rollback(&self) -> bool {
+        schema_publication_error_allows_physical_rollback(self.store, self.entity_tag, self.before)
     }
 }
 
@@ -337,9 +359,11 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     )
     .and_then(|()| envelope.publish());
     if let Err(error) = publication_result {
-        store.with_index_mut(|index_store| {
-            rollback_sql_ddl_secondary_index_drop(index_store, &affected);
-        });
+        if envelope.publication_error_allows_physical_rollback() {
+            store.with_index_mut(|index_store| {
+                rollback_sql_ddl_secondary_index_drop(index_store, &affected);
+            });
+        }
         return Err(error);
     }
 

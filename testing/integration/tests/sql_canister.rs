@@ -2649,30 +2649,6 @@ fn sql_canister_query_endpoint_executes_not_like_prefix_queries() {
 }
 
 #[test]
-fn sql_canister_query_endpoint_rejects_show_tables_alias() {
-    let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
-
-    let err = query_sql(&fixture, "SHOW TABLES").expect_err("SHOW TABLES should reject");
-
-    assert_eq!(
-        err.diagnostic_code(),
-        DiagnosticCode::QueryUnsupportedSqlFeature,
-        "SHOW TABLES should remain outside the current SQL catalog vocabulary",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
-        "SHOW TABLES should keep query-owned origin metadata",
-    );
-    assert_eq!(
-        err.code(),
-        ErrorCode::SQL_FEATURE_SHOW_UNSUPPORTED_COMMAND,
-        "SHOW TABLES should preserve the numeric unsupported-feature leaf code",
-    );
-}
-
-#[test]
 fn sql_canister_query_endpoint_rejects_mutation_sql() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

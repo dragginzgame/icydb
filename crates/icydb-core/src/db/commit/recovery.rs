@@ -31,7 +31,10 @@ use crate::{
                 mark_commit_marker_verified_absent, with_commit_store,
             },
         },
-        data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
+        data::{
+            AcceptedStructuralRowAuthority, DataStore, DecodedDataStoreKey, RawDataStoreKey,
+            RawRow, StructuralSlotReader,
+        },
         database_format::ensure_database_format_admitted,
         diagnostics::integrity_report_after_recovery,
         index::IndexStore,
@@ -41,7 +44,8 @@ use crate::{
         },
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
-            SchemaStore, accepted_commit_schema_fingerprint, decode_persisted_schema_snapshot,
+            AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, SchemaStore,
+            accepted_commit_schema_fingerprint, decode_persisted_schema_snapshot,
             ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
         },
     },
@@ -353,7 +357,13 @@ fn replay_journal_batch<C: CanisterKind>(
     if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
         return Err(InternalError::store_corruption());
     }
-    validate_journal_batch_records(db, expected_store_path, expected_handle, batch)?;
+    let _candidate = validate_journal_batch_records(
+        db,
+        expected_store_path,
+        expected_handle,
+        batch,
+        JournalRecordApplyMode::Replay,
+    )?;
 
     for record in batch.records() {
         replay_journal_record(db, expected_store_path, expected_handle, record)?;
@@ -372,7 +382,13 @@ fn fold_journal_batch<C: CanisterKind>(
     if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
         return Err(InternalError::store_corruption());
     }
-    validate_journal_batch_records(db, expected_store_path, expected_handle, batch)?;
+    let _candidate = validate_journal_batch_records(
+        db,
+        expected_store_path,
+        expected_handle,
+        batch,
+        JournalRecordApplyMode::Fold,
+    )?;
 
     for record in batch.records() {
         fold_journal_record(db, expected_store_path, expected_handle, record)?;
@@ -420,19 +436,10 @@ fn apply_journal_record<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     match record {
         JournalRecord::RowPut {
-            entity_path,
             primary_key,
             row_bytes,
-            schema_fingerprint,
+            ..
         } => {
-            validate_journal_row_record(
-                db,
-                expected_store_path,
-                expected_handle,
-                entity_path,
-                primary_key,
-                schema_fingerprint,
-            )?;
             let row =
                 RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
             expected_handle.with_data_mut(|store| match mode {
@@ -444,19 +451,7 @@ fn apply_journal_record<C: CanisterKind>(
                     .map(|_| ()),
             })
         }
-        JournalRecord::RowDelete {
-            entity_path,
-            primary_key,
-            schema_fingerprint,
-        } => {
-            validate_journal_row_record(
-                db,
-                expected_store_path,
-                expected_handle,
-                entity_path,
-                primary_key,
-                schema_fingerprint,
-            )?;
+        JournalRecord::RowDelete { primary_key, .. } => {
             expected_handle.with_data_mut(|store| match mode {
                 JournalRecordApplyMode::Replay => store
                     .apply_recovered_journal_delete(primary_key)
@@ -518,54 +513,35 @@ fn validate_journal_batch_records<C: CanisterKind>(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
     batch: &JournalBatch,
-) -> Result<(), InternalError> {
+    mode: JournalRecordApplyMode,
+) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    let candidate = journal_batch_schema_candidate(db, expected_store_path, batch)?;
+
     for record in batch.records() {
         match record {
-            JournalRecord::RowPut {
-                entity_path,
-                primary_key,
-                row_bytes,
-                schema_fingerprint,
-            } => {
-                validate_journal_row_record(
+            JournalRecord::RowPut { .. } => {
+                validate_journal_batch_row_put(
                     db,
                     expected_store_path,
                     expected_handle,
-                    entity_path,
-                    primary_key,
-                    schema_fingerprint,
-                )?;
-                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
-                validate_journal_row_put_preflight_if_needed(
-                    db,
-                    expected_handle,
-                    entity_path,
-                    primary_key,
-                    row_bytes,
-                    *schema_fingerprint,
+                    candidate.as_ref(),
+                    record,
+                    mode,
                 )?;
             }
             JournalRecord::RowDelete {
                 entity_path,
                 primary_key,
                 schema_fingerprint,
-            } => {
-                validate_journal_row_record(
-                    db,
-                    expected_store_path,
-                    expected_handle,
-                    entity_path,
-                    primary_key,
-                    schema_fingerprint,
-                )?;
-                validate_journal_row_delete_preflight_if_needed(
-                    db,
-                    expected_handle,
-                    entity_path,
-                    primary_key,
-                    *schema_fingerprint,
-                )?;
-            }
+            } => validate_journal_batch_row_delete(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                *schema_fingerprint,
+                mode,
+            )?,
             JournalRecord::SchemaPut {
                 store_path,
                 schema_snapshot_bytes,
@@ -579,35 +555,252 @@ fn validate_journal_batch_records<C: CanisterKind>(
                     return Err(InternalError::store_corruption());
                 }
             }
+            JournalRecord::AcceptedSchemaPublish { .. } => {
+                // The first pass decoded and verified the candidate before any
+                // candidate-bound row rewrite was admitted.
+            }
+        }
+    }
+
+    Ok(candidate)
+}
+
+fn validate_journal_batch_row_put<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    candidate: Option<&CandidateSchemaRevision>,
+    record: &JournalRecord,
+    mode: JournalRecordApplyMode,
+) -> Result<(), InternalError> {
+    let JournalRecord::RowPut {
+        entity_path,
+        primary_key,
+        row_bytes,
+        schema_fingerprint,
+    } = record
+    else {
+        return Err(InternalError::store_invariant());
+    };
+    if let Some(candidate) = candidate {
+        return validate_candidate_journal_row_put(
+            db,
+            expected_store_path,
+            candidate,
+            entity_path,
+            primary_key,
+            row_bytes,
+            *schema_fingerprint,
+        );
+    }
+
+    match mode {
+        JournalRecordApplyMode::Replay => {
+            validate_journal_row_record(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            )?;
+            RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            validate_journal_row_put_preflight_if_needed(
+                db,
+                expected_handle,
+                entity_path,
+                primary_key,
+                row_bytes,
+                *schema_fingerprint,
+            )
+        }
+        JournalRecordApplyMode::Fold => validate_canonical_journal_row_put(
+            db,
+            expected_store_path,
+            expected_handle,
+            entity_path,
+            primary_key,
+            row_bytes,
+            *schema_fingerprint,
+        ),
+    }
+}
+
+fn validate_journal_batch_row_delete<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    schema_fingerprint: [u8; 16],
+    mode: JournalRecordApplyMode,
+) -> Result<(), InternalError> {
+    match mode {
+        JournalRecordApplyMode::Replay => {
+            validate_journal_row_record(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                &schema_fingerprint,
+            )?;
+            validate_journal_row_delete_preflight_if_needed(
+                db,
+                expected_handle,
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            )
+        }
+        JournalRecordApplyMode::Fold => canonical_journal_row_selection(
+            db,
+            expected_store_path,
+            expected_handle,
+            entity_path,
+            primary_key,
+            schema_fingerprint,
+        )
+        .map(drop),
+    }
+}
+
+fn journal_batch_schema_candidate<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    batch: &JournalBatch,
+) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    let mut candidate = None;
+    for (position, record) in batch.records().iter().enumerate() {
+        match record {
             JournalRecord::AcceptedSchemaPublish {
                 store_path,
                 expected_revision,
                 schema_bundle_bytes,
                 schema_root_bytes,
             } => {
-                if store_path != expected_store_path {
+                if position != 0 || candidate.is_some() || store_path != expected_store_path {
                     return Err(InternalError::store_corruption());
                 }
-                let candidate = crate::db::schema::CandidateSchemaRevision::from_encoded(
+                let decoded = CandidateSchemaRevision::from_encoded(
                     schema_bundle_bytes.clone(),
                     schema_root_bytes.clone(),
                 )?;
-                if candidate.store_path() != expected_store_path
-                    || expected_revision.checked_next() != Some(candidate.revision())
+                if decoded.store_path() != expected_store_path
+                    || expected_revision.checked_next() != Some(decoded.revision())
                 {
                     return Err(InternalError::store_corruption());
                 }
-                for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
+                for (entity_tag, snapshot) in decoded.bundle().entity_snapshots() {
                     let hooks = db.runtime_hook_for_entity_path(snapshot.entity_path())?;
                     if hooks.store_path != expected_store_path || hooks.entity_tag != *entity_tag {
                         return Err(InternalError::store_corruption());
                     }
                 }
+                candidate = Some(decoded);
             }
+            JournalRecord::RowDelete { .. } | JournalRecord::SchemaPut { .. }
+                if candidate.is_some() =>
+            {
+                return Err(InternalError::store_corruption());
+            }
+            JournalRecord::RowPut { .. }
+            | JournalRecord::RowDelete { .. }
+            | JournalRecord::SchemaPut { .. } => {}
         }
     }
 
-    Ok(())
+    Ok(candidate)
+}
+
+fn validate_candidate_journal_row_put<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    candidate: &CandidateSchemaRevision,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    row_bytes: &[u8],
+    schema_fingerprint: [u8; 16],
+) -> Result<(), InternalError> {
+    let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
+        .map_err(|_| InternalError::store_corruption())?;
+    let hooks = recovery_runtime_hook_for_entity_path(db, entity_path)?;
+    if hooks.store_path != expected_store_path || decoded_key.entity_tag() != hooks.entity_tag {
+        return Err(InternalError::store_corruption());
+    }
+    let selection = crate::db::schema::AcceptedCatalogSnapshotSelection::from_candidate(
+        candidate,
+        hooks.entity_tag,
+        hooks.entity_path,
+        hooks.store_path,
+    )?
+    .ok_or_else(InternalError::store_corruption)?;
+    if selection.identity().accepted_schema_fingerprint() != schema_fingerprint {
+        return Err(InternalError::store_corruption());
+    }
+    let row = RawRow::from_untrusted_bytes(row_bytes.to_vec()).map_err(InternalError::from)?;
+    let contract =
+        AcceptedStructuralRowAuthority::from_catalog_selection(hooks.entity_path, &selection)?
+            .into_row_contract();
+    let reader = StructuralSlotReader::from_raw_row_with_validated_contract(&row, contract)?;
+    reader.validate_primary_key(&decoded_key)
+}
+
+fn validate_canonical_journal_row_put<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    row_bytes: &[u8],
+    schema_fingerprint: [u8; 16],
+) -> Result<(), InternalError> {
+    let (decoded_key, selection) = canonical_journal_row_selection(
+        db,
+        expected_store_path,
+        expected_handle,
+        entity_path,
+        primary_key,
+        schema_fingerprint,
+    )?;
+    let row = RawRow::from_untrusted_bytes(row_bytes.to_vec()).map_err(InternalError::from)?;
+    let contract = AcceptedStructuralRowAuthority::from_catalog_selection(
+        selection.identity().entity_path(),
+        &selection,
+    )?
+    .into_row_contract();
+    let reader = StructuralSlotReader::from_raw_row_with_validated_contract(&row, contract)?;
+    reader.validate_primary_key(&decoded_key)
+}
+
+fn canonical_journal_row_selection<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    schema_fingerprint: [u8; 16],
+) -> Result<(DecodedDataStoreKey, AcceptedCatalogSnapshotSelection), InternalError> {
+    let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
+        .map_err(|_| InternalError::store_corruption())?;
+    let hooks = recovery_runtime_hook_for_entity_path(db, entity_path)?;
+    if hooks.store_path != expected_store_path || decoded_key.entity_tag() != hooks.entity_tag {
+        return Err(InternalError::store_corruption());
+    }
+    let selection = expected_handle
+        .with_schema(|schema_store| {
+            schema_store.current_canonical_accepted_catalog_selection(
+                hooks.entity_tag,
+                hooks.entity_path,
+                hooks.store_path,
+            )
+        })?
+        .ok_or_else(InternalError::store_corruption)?;
+    if selection.identity().accepted_schema_fingerprint() != schema_fingerprint {
+        return Err(InternalError::store_corruption());
+    }
+
+    Ok((decoded_key, selection))
 }
 
 fn validate_journal_row_record<C: CanisterKind>(

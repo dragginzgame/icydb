@@ -2,11 +2,19 @@
 
 ## Status
 
-Closed.
+Historical 0.166 closeout artifact; superseded as current coverage authority by
+the stable feature metadata in `docs/contracts/SQL_SUBSET.md` and the checked
+manifest in
+`testing/integration/tests/sql_correctness_support/coverage_manifest.rs`.
 
-This matrix starts from `docs/contracts/SQL_SUBSET.md`, which remains the
-normative SQL contract. Rows remain intentionally conservative: a claim is
-marked proven only when it is matched to direct public-entrypoint tests.
+The rows below preserve what 0.166 claimed at closeout. They intentionally are
+not maintained as current truth and include entrypoint names, spellings, and
+row-layout assumptions removed by later hard cuts.
+
+At 0.166 closeout this matrix was derived from `docs/contracts/SQL_SUBSET.md`,
+which remains the normative SQL contract. Its classifications are historical;
+the current manifest, rather than these rows, maps active contract cells to
+deterministic providers.
 
 The 0.166 closeout matrix has no supported rows classified as partially proven,
 unproven, contradicted, or accidentally accepted. Explicitly unsupported rows

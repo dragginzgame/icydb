@@ -3,6 +3,10 @@ use crate::{
     db::{
         FieldRef, MutationMode, asc,
         codec::{decode_row_payload_bytes, serialize_row_payload},
+        commit::{
+            CommitFailpoint, CommitFailpointMode, arm_commit_failpoint_for_tests,
+            commit_marker_present, ensure_recovered,
+        },
         data::{DecodedDataStoreKey, RawRow, encode_value_with_model_proposal_for_test},
         executor::EntityAuthority,
         index::{IndexEntryValue, IndexKey, IndexState, IndexStoreVisit, RawIndexStoreKey},
@@ -6524,6 +6528,74 @@ fn execute_admin_sql_ddl_drop_column_rolls_back_rows_when_publication_rejects() 
             .expect("accepted-before schema should remain published");
         assert_eq!(&latest, accepted_before.persisted_snapshot());
     });
+}
+
+#[test]
+fn execute_admin_sql_ddl_drop_column_keeps_rows_when_publication_is_commit_authorized() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+            1,
+        ))
+        .expect("setup nullable ADD COLUMN should publish before interrupted DROP COLUMN");
+    let id = Ulid::from_u128(15_819);
+    session
+        .insert(SessionSqlEntity {
+            id,
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed insert should persist the accepted-before row shape");
+    let raw_key = DecodedDataStoreKey::try_new::<SessionSqlEntity>(id)
+        .expect("test entity key should build")
+        .to_raw()
+        .expect("test entity key should encode");
+    let row_before = SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
+        data_store
+            .get(&raw_key)
+            .expect("test entity row should exist before interrupted DROP COLUMN")
+    });
+
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::BeforeMarkerClear,
+        CommitFailpointMode::ReturnError,
+    );
+    session
+        .execute_admin_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
+            2,
+        ))
+        .expect_err("marker-clear interruption should surface the commit error");
+
+    assert!(commit_marker_present().expect("commit marker should decode"));
+    let row_after_error = SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
+        data_store
+            .get(&raw_key)
+            .expect("rewritten row should remain while publication is commit-authorized")
+    });
+    assert_ne!(row_after_error, row_before);
+
+    ensure_recovered(&SESSION_SQL_DB).expect("marker-authorized DDL should recover");
+    assert!(!commit_marker_present().expect("commit marker should decode"));
+    SESSION_SQL_DATA_STORE.with_borrow(|data_store| {
+        assert_eq!(data_store.get(&raw_key), Some(row_after_error));
+    });
+    let accepted = SESSION_SQL_SCHEMA_STORE
+        .with_borrow(|schema_store| {
+            schema_store.current_accepted_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+        })
+        .expect("accepted schema should remain readable after recovery")
+        .expect("accepted-after schema should remain published");
+    assert!(
+        accepted
+            .fields()
+            .iter()
+            .all(|field| field.name() != "nickname")
+    );
 }
 
 #[test]

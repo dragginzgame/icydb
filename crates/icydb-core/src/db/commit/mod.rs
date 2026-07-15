@@ -31,7 +31,6 @@ mod store;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
 use crate::error::InternalError;
 #[cfg(test)]
 use crate::testing::test_commit_memory_id;
@@ -75,12 +74,13 @@ pub(in crate::db) use recovery::ensure_recovered;
 #[cfg(test)]
 pub(in crate::db::commit) use recovery::mark_schema_reconciliation_dirty_for_tests;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
-pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
+pub(in crate::db) use schema_publication::{
+    publish_accepted_schema_candidate, publish_accepted_schema_candidate_with_row_puts,
+};
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
 
 /// Return true if a commit marker is currently persisted.
-#[cfg(test)]
 pub(in crate::db) fn commit_marker_present() -> Result<bool, InternalError> {
     store::commit_marker_present()
 }

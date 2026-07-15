@@ -352,7 +352,6 @@ thread_local! {
     static COMMIT_STORES: RefCell<Vec<CommitStoreEntry>> = const { RefCell::new(Vec::new()) };
 }
 
-#[cfg(test)]
 pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(store.load()?.is_some()))
 }

@@ -172,6 +172,27 @@ pub(super) fn accepted_snapshot_extends_generated_with_ddl_fields(
             .all(is_supported_extra_accepted_index)
 }
 
+// Accepted schema can return to the generated shape after a sequence of SQL
+// DDL mutations while retaining its newer schema/layout version. Generated
+// metadata is a compatibility proposal here; it must not roll accepted
+// authority back merely because the surviving shape is identical again.
+pub(super) fn accepted_snapshot_matches_generated_shape(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    actual != expected
+        && actual.version() >= expected.version()
+        && actual.entity_path() == expected.entity_path()
+        && actual.entity_name() == expected.entity_name()
+        && actual.primary_key_field_ids() == expected.primary_key_field_ids()
+        && actual.row_layout().field_to_slot() == expected.row_layout().field_to_slot()
+        && actual.row_layout().allocated_slot_count()
+            == expected.row_layout().allocated_slot_count()
+        && actual.fields() == expected.fields()
+        && actual.indexes() == expected.indexes()
+        && actual.relations() == expected.relations()
+}
+
 fn active_row_layout_matches(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,

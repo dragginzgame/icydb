@@ -5,12 +5,13 @@ use crate::{
             StructuralSlotReader, canonical_row_from_dense_slot_payloads,
             canonical_row_from_stored_raw_row,
         },
+        journal::JournalRecord,
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
             PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDefaultTarget,
             SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
-            SchemaRowLayout,
+            SchemaRowLayout, accepted_commit_schema_fingerprint,
         },
     },
     error::InternalError,
@@ -19,7 +20,9 @@ use crate::{
 };
 
 use super::{
-    super::startup_field_path::{SchemaPublicationGate, catalog_backed_row_contract_for_rebuild},
+    super::startup_field_path::{
+        SchemaMutationCatalogScope, catalog_backed_row_contract_for_rebuild,
+    },
     SqlDdlPublicationEnvelope, validate_sql_ddl_drop_schema_gate,
 };
 
@@ -67,7 +70,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     )?;
     let contract = catalog_backed_row_contract_for_rebuild(
         store,
-        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
+        SchemaMutationCatalogScope::sql_ddl(entity_tag, accepted_before_identity),
         entity_path,
         accepted_before.persisted_snapshot(),
     )?;
@@ -116,6 +119,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
         Ok::<_, InternalError>(rewritten)
     })?;
     let rows_scanned = rewritten.len();
+    let row_puts = sql_ddl_field_drop_row_puts(entity_path, derivation, &rewritten)?;
     let rewrite_result = store.with_data_mut(|data_store| {
         for rewrite in &rewritten {
             if data_store.insert(rewrite.key.clone(), rewrite.after.clone())
@@ -130,12 +134,34 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
         rollback_sql_ddl_field_drop_rows(store, &rewritten);
         return Err(error);
     }
-    if let Err(error) = envelope.publish() {
-        rollback_sql_ddl_field_drop_rows(store, &rewritten);
+    if let Err(error) = envelope.publish_with_row_puts(row_puts) {
+        if envelope.publication_error_allows_physical_rollback() {
+            rollback_sql_ddl_field_drop_rows(store, &rewritten);
+        }
         return Err(error);
     }
 
     Ok(rows_scanned)
+}
+
+fn sql_ddl_field_drop_row_puts(
+    entity_path: &'static str,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+    rewritten: &[SqlDdlFieldDropRowRewrite],
+) -> Result<Vec<JournalRecord>, InternalError> {
+    let accepted_after_fingerprint =
+        accepted_commit_schema_fingerprint(derivation.accepted_after())?;
+    rewritten
+        .iter()
+        .map(|rewrite| {
+            JournalRecord::row_put(
+                entity_path,
+                rewrite.key.clone(),
+                rewrite.after.as_raw_row().as_bytes().to_vec(),
+                accepted_after_fingerprint,
+            )
+        })
+        .collect()
 }
 
 fn rollback_sql_ddl_field_drop_rows(store: StoreHandle, rewritten: &[SqlDdlFieldDropRowRewrite]) {
@@ -389,7 +415,7 @@ fn validate_sql_ddl_set_not_null_rows(
         .ok_or_else(InternalError::store_unsupported)?;
     let contract = catalog_backed_row_contract_for_rebuild(
         store,
-        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
+        SchemaMutationCatalogScope::sql_ddl(entity_tag, accepted_before_identity),
         entity_path,
         accepted_before.persisted_snapshot(),
     )?;

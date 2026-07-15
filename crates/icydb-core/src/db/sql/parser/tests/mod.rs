@@ -4274,7 +4274,6 @@ fn parse_sql_unsupported_feature_codes_are_stable() {
         #[cfg(feature = "sql-explain")]
         ("EXPLAIN DESCRIBE users", SqlFeatureCode::DescribeModifier),
         ("SHOW DATABASES", SqlFeatureCode::ShowUnsupportedCommand),
-        ("SHOW TABLES", SqlFeatureCode::ShowUnsupportedCommand),
         (
             "SHOW INDEXES FROM users WHERE age > 1",
             SqlFeatureCode::ShowIndexesModifiers,

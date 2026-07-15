@@ -22,21 +22,21 @@ use crate::{
 use sha2::{Digest, Sha256};
 
 use super::startup_field_path::{
-    SchemaPublicationGate, StartupDecodedFieldPathRebuildRow, StartupFieldPathRebuildRow,
+    SchemaMutationCatalogScope, StartupDecodedFieldPathRebuildRow, StartupFieldPathRebuildRow,
     catalog_backed_row_contract_for_rebuild, decode_field_path_rebuild_rows,
     field_path_rebuild_raw_rows_for_entity,
 };
 
 pub(super) fn execute_supported_expression_index_addition(
     store: StoreHandle,
-    publication_gate: SchemaPublicationGate,
+    catalog_scope: SchemaMutationCatalogScope,
     entity_path: &'static str,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
     plan: &SchemaTransitionPlan,
     target: &SchemaExpressionIndexRebuildTarget,
 ) -> Result<(usize, usize), InternalError> {
-    let entity_tag = publication_gate.entity_tag();
+    let entity_tag = catalog_scope.entity_tag();
     if plan.kind() != SchemaTransitionPlanKind::AddExpressionIndex {
         return Err(InternalError::store_unsupported());
     }
@@ -49,7 +49,7 @@ pub(super) fn execute_supported_expression_index_addition(
     .map_err(|_error| InternalError::store_unsupported())?;
     let row_contract = catalog_backed_row_contract_for_rebuild(
         store,
-        publication_gate,
+        catalog_scope,
         entity_path,
         accepted_before,
     )?;
@@ -85,10 +85,12 @@ pub(super) fn execute_supported_expression_index_addition(
             target,
             physical_mutation.index_keys_written(),
         )?;
-        publication_gate.publish_accepted_snapshot(store, accepted_after)
+        catalog_scope.publish_sql_ddl_accepted_snapshot(store, accepted_after)
     })();
     if let Err(error) = publication_result {
-        store.with_index_mut(|index_store| physical_mutation.rollback(index_store));
+        if catalog_scope.publication_error_allows_physical_rollback(store, accepted_before) {
+            store.with_index_mut(|index_store| physical_mutation.rollback(index_store));
+        }
         return Err(error);
     }
 

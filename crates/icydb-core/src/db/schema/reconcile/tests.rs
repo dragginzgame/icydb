@@ -1,14 +1,12 @@
-use super::{
-    startup_expression,
-    startup_field_path::{self, SchemaPublicationGate},
-};
+use super::{startup_expression, startup_field_path};
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
         commit::{
-            CommitMarker, begin_commit, clear_commit_marker_for_tests,
-            clear_recovery_runtime_state_for_tests, commit_marker_present, ensure_recovered,
-            generate_commit_id, init_commit_store_for_tests,
+            CommitFailpoint, CommitFailpointMode, CommitMarker, arm_commit_failpoint_for_tests,
+            begin_commit, clear_commit_marker_for_tests, clear_recovery_runtime_state_for_tests,
+            commit_marker_present, ensure_recovered, generate_commit_id,
+            init_commit_store_for_tests,
         },
         data::{CanonicalRow, DataStore, DecodedDataStoreKey, StructuralRowContract},
         index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore},
@@ -911,6 +909,53 @@ fn reconcile_runtime_schemas_executes_supported_field_path_index_addition() {
 }
 
 #[test]
+fn reconcile_runtime_schemas_rolls_back_field_path_index_when_root_publication_rejects() {
+    reset_reconcile_stores();
+    RECONCILE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    init_commit_store_for_tests().expect("commit store should initialize");
+    clear_commit_marker_for_tests().expect("commit marker should clear");
+    metrics_reset_all();
+
+    let stored_without_index = stage_and_publish_indexed_schema_snapshot_without_indexes();
+    insert_indexed_schema_row(15_401, "Ada");
+    arm_commit_failpoint_for_tests(
+        CommitFailpoint::BeforeMarkerWrite,
+        CommitFailpointMode::ReturnError,
+    );
+
+    let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+        .expect_err("accepted-root publication failure should reject reconciliation");
+
+    assert!(!commit_marker_present().expect("commit marker should decode"));
+    let staged = RECONCILE_SCHEMA_STORE
+        .with_borrow(|store| {
+            store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
+        .expect("staged schema snapshot should decode")
+        .expect("accepted-before staged snapshot should remain");
+    let accepted = RECONCILE_SCHEMA_STORE
+        .with_borrow(|store| {
+            store.current_accepted_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+        })
+        .expect("accepted schema snapshot should decode")
+        .expect("accepted-before root should remain");
+    assert_eq!(staged, stored_without_index);
+    assert_eq!(accepted, stored_without_index);
+    RECONCILE_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(store.len(), 0);
+        assert_eq!(store.state(), IndexState::Ready);
+    });
+
+    super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+        .expect("retry should rebuild and publish the field-path index");
+    RECONCILE_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.state(), IndexState::Ready);
+    });
+}
+
+#[test]
 fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_target_index() {
     reset_reconcile_stores();
     metrics_reset_all();
@@ -1270,7 +1315,7 @@ fn field_path_startup_rebuild_gate_rejects_schema_changes_before_physical_work()
 }
 
 #[test]
-fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
+fn field_path_startup_publication_decision_validates_without_staging_schema() {
     reset_reconcile_stores();
 
     let (stored_without_index, expected, plan) = indexed_schema_field_path_publication_context();
@@ -1334,23 +1379,19 @@ fn field_path_startup_publication_decision_publishes_after_runner_and_gate() {
     )
     .expect("publishable runner report and valid gate should allow schema publication");
     decision
-        .publish_accepted_snapshot(
-            store,
-            SchemaPublicationGate::startup(
-                IndexedSchemaEntity::ENTITY_TAG,
-                SchemaReconcileTestStore::PATH,
-            ),
-            &expected,
-        )
-        .expect("publication decision should write accepted schema");
+        .validate_before_schema_publication(store, IndexedSchemaEntity::ENTITY_TAG)
+        .expect("publication decision should validate physical work");
 
     let latest = RECONCILE_SCHEMA_STORE
         .with_borrow(|store| {
             store.latest_staged_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
         })
         .expect("latest schema snapshot should decode")
-        .expect("indexed schema snapshot should be published");
-    assert_eq!(latest.indexes().len(), 1);
+        .expect("index-free staged schema snapshot should remain");
+    assert_eq!(latest.indexes().len(), 0);
+    RECONCILE_INDEX_STORE.with_borrow_mut(|index_store| {
+        report.rollback_physical_work(index_store);
+    });
 }
 
 #[test]
@@ -1507,14 +1548,7 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
     });
 
     decision
-        .publish_accepted_snapshot(
-            store,
-            SchemaPublicationGate::startup(
-                IndexedSchemaEntity::ENTITY_TAG,
-                SchemaReconcileTestStore::PATH,
-            ),
-            &expected,
-        )
+        .validate_before_schema_publication(store, IndexedSchemaEntity::ENTITY_TAG)
         .expect_err("physical store drift after runner should reject schema publication");
     RECONCILE_INDEX_STORE.with_borrow_mut(|index_store| {
         report.rollback_physical_work(index_store);

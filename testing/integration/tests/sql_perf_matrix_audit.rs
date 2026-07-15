@@ -1,3 +1,10 @@
+//! Module: sql_perf_matrix_audit
+//! Responsibility: correctness-gated SQL performance matrix and differential evidence.
+//! Does not own: production SQL semantics or shared scenario and verdict contracts.
+//! Boundary: renders declared scenarios, executes audit surfaces, and emits typed evidence reports.
+
+mod sql_harness;
+
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -25,6 +32,15 @@ use icydb_testing_integration::{
     reset_icydb_fixtures,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::sql_harness::{
+    CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, DiagnosticFact,
+    EligibleProvider, EvidenceStrength, ExpectedAcceptance, MutationKind, NormalizedCell,
+    NormalizedResult, NullabilityClass, ObservedOutcome, PredicateFamily, QueryShape,
+    RouteExpectation, RouteFact, RouteFamily, RouteObservation, RouteOutcome, RouteReason,
+    RowOrder, ScenarioMetadata, ScenarioSource, StatementFamily, ValueTypeFamily, WindowSpec,
+    correctness_verdict, select_stratified,
+};
 
 const DEFAULT_MATRIX_LIMIT: usize = 300;
 const DEFAULT_RANDOM_CASE_COUNT: usize = 300;
@@ -134,21 +150,6 @@ impl MatrixSurface {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MatrixSource {
-    Deterministic,
-    Random,
-}
-
-impl MatrixSource {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Deterministic => "deterministic",
-            Self::Random => "random",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MatrixMode {
     Deterministic,
     Random,
@@ -177,20 +178,112 @@ impl MatrixMode {
     }
 }
 
+///
+/// ProjectionFragment
+///
+/// SQL projection payload paired with typed value and reference-provider metadata.
+/// Owned by the performance matrix renderer and used only to construct declared scenarios.
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SqlFragment {
+struct ProjectionFragment {
     key: &'static str,
     sql: &'static str,
+    value_type: ValueTypeFamily,
+    sqlite_eligible: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct MatrixScenario {
-    key: String,
-    source: MatrixSource,
-    surface: MatrixSurface,
-    family: String,
-    sql: String,
+///
+/// PredicateFragment
+///
+/// SQL predicate payload paired with typed semantic and route metadata.
+/// Owned by the performance matrix renderer and never used as classification authority.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PredicateFragment {
+    key: &'static str,
+    sql: &'static str,
+    family: PredicateFamily,
+    route: PredicateRoute,
 }
+
+///
+/// OrderFragment
+///
+/// SQL ordering payload paired with its typed route identity.
+/// Owned by the performance matrix renderer and used only to construct declared scenarios.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OrderFragment {
+    key: &'static str,
+    sql: &'static str,
+    route: OrderRoute,
+}
+
+///
+/// RenderedPredicate
+///
+/// Fully rendered predicate SQL carrying forward its typed semantic and route facts.
+/// Owned by the performance matrix renderer and consumed during scenario construction.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RenderedPredicate {
+    sql: String,
+    family: PredicateFamily,
+    route: PredicateRoute,
+}
+
+///
+/// PredicateRoute
+///
+/// Typed predicate route identity used to derive scenario route expectations.
+/// Owned by the performance matrix renderer and declared independently of SQL text.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PredicateRoute {
+    Active,
+    Age,
+    All,
+    Bucket,
+    FieldComparison,
+    HandleActive,
+    Label,
+    LowerHandleActive,
+    LowerName,
+    Name,
+    PrimaryKey,
+    Score,
+    TierActive,
+}
+
+///
+/// OrderRoute
+///
+/// Typed ordering route identity used to derive scenario route expectations.
+/// Owned by the performance matrix renderer and declared independently of SQL text.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OrderRoute {
+    Age,
+    Bucket,
+    BucketLabel,
+    Handle,
+    Label,
+    LowerHandle,
+    LowerName,
+    Name,
+    Primary,
+    TierHandle,
+    UnsupportedExpression,
+}
+
+/// Performance-matrix scenario using the shared correctness scenario contract.
+type MatrixScenario = CorrectnessScenario<MatrixSurface>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SqliteMutationScenario {
@@ -228,11 +321,8 @@ struct MatrixSample {
     surface: String,
     family: String,
     sql: String,
-    #[serde(default)]
     route_family: String,
-    #[serde(default)]
     route_outcome: String,
-    #[serde(default)]
     route_reason: Option<String>,
     #[serde(default)]
     order_by_idx_hint: Option<String>,
@@ -319,17 +409,16 @@ struct MatrixFailure {
     surface: String,
     family: String,
     sql: String,
-    #[serde(default = "failed_route_family")]
     route_family: String,
-    #[serde(default = "failed_route_outcome")]
     route_outcome: String,
-    #[serde(default = "failed_route_reason")]
     route_reason: String,
     code: u16,
     diagnostic_code: u16,
     diagnostic_label: String,
     class: String,
     origin: String,
+    correctness_failure_owner: String,
+    correctness_mismatch_category: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -357,7 +446,7 @@ struct SqliteAuditComparisonReport {
     compared_scenario_count: usize,
     common_success_count: usize,
     icydb_failure_count: usize,
-    signature_mismatch_count: usize,
+    correctness_failure_count: usize,
     sample_count: usize,
     scenario_key_filter: Option<String>,
     selected_surface_counts: BTreeMap<String, usize>,
@@ -380,7 +469,7 @@ struct SqliteDifferentialReport {
     compatible_scenario_count: usize,
     common_success_count: usize,
     icydb_failure_count: usize,
-    signature_mismatch_count: usize,
+    correctness_failure_count: usize,
     selected_surface_counts: BTreeMap<String, usize>,
     selected_family_counts: BTreeMap<String, usize>,
     successful_route_family_counts: BTreeMap<String, usize>,
@@ -461,7 +550,9 @@ struct SqliteAuditComparisonScenario {
     limit_stop_after: MatrixLimitStopAfter,
     icydb_signature: String,
     sqlite_signature: String,
-    signatures_match: bool,
+    correctness_passed: bool,
+    correctness_failure_owner: Option<String>,
+    correctness_mismatch_category: Option<String>,
     sqlite_explain_query_plan: Vec<String>,
     sqlite_plan_summary: SqlitePlanSummary,
     sqlite_plan_alignment: String,
@@ -485,6 +576,8 @@ struct SqliteAuditComparisonFailure {
     icydb_diagnostic_label: String,
     icydb_class: String,
     icydb_origin: String,
+    correctness_failure_owner: String,
+    correctness_mismatch_category: String,
     sqlite_signature: String,
     sqlite_explain_query_plan: Vec<String>,
     sqlite_plan_summary: SqlitePlanSummary,
@@ -677,31 +770,89 @@ const TOKEN_BRANCH_STAGES_WIDE: &str =
 const TOKEN_BRANCH_STAGES_OVER_CAP: &str = "'Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07'";
 const TOKEN_BRANCH_STAGES_OVER_CAP_EXCLUSIONS: &str = "'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07'";
 
-fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
-    let mut scenarios = vec![
+const fn token_primary_page_metadata(
+    limit: usize,
+    value_type: ValueTypeFamily,
+    predicate: PredicateFamily,
+    route: RouteExpectation,
+    sqlite_eligible: bool,
+) -> ScenarioMetadata {
+    read_metadata(
+        &["select.scalar_rows"],
+        QueryShape::Scalar,
+        value_type,
+        predicate,
+        WindowSpec::ordered(limit, 0, "id ASC"),
+        route,
+        sqlite_eligible,
+    )
+}
+
+const fn token_count_metadata(predicate: PredicateFamily) -> ScenarioMetadata {
+    read_metadata(
+        &["select.global_aggregate"],
+        QueryShape::GlobalAggregate,
+        ValueTypeFamily::Numeric,
+        predicate,
+        WindowSpec::NONE,
+        not_paginated_route(),
+        true,
+    )
+}
+
+fn token_branch_page_hotspots() -> Vec<MatrixScenario> {
+    vec![
         scenario(
             "token.collection_stage_id.branch_set.page_only.limit50",
             MatrixSurface::Token,
             "route.branch_set.page_only",
             token_branch_page_sql("id", TOKEN_BRANCH_STAGES, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_stage_id.branch_set.covering_page_only.limit50",
             MatrixSurface::Token,
             "route.branch_set.covering_page_only",
             token_branch_page_sql("id, collection_id, stage", TOKEN_BRANCH_STAGES, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_stage_id.branch_set.noncovered_page_only.limit50",
             MatrixSurface::Token,
             "route.branch_set.noncovered_page_only",
             token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_stage_id.branch_set.full_entity.limit50",
             MatrixSurface::Token,
             "route.branch_set.full_entity",
             token_branch_page_sql("*", TOKEN_BRANCH_STAGES, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                false,
+            ),
         ),
         scenario(
             "token.collection_stage_id.branch_set.index_residual_covering.limit3",
@@ -713,53 +864,107 @@ fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
                 "stage != 'Review'",
                 3,
             ),
+            token_primary_page_metadata(
+                3,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
             MatrixSurface::Token,
             "route.prefixed_range.page_only",
             token_prefixed_stage_range_page_sql("id", 50),
+            read_metadata(
+                &["select.scalar_rows"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Range,
+                WindowSpec::ordered(50, 0, "stage ASC, id ASC"),
+                secondary_index_route(),
+                true,
+            ),
         ),
+    ]
+}
+
+fn token_branch_count_and_wide_hotspots() -> Vec<MatrixScenario> {
+    vec![
         scenario(
             "token.collection_stage_id.branch_set.count",
             MatrixSurface::Token,
             "route.branch_set.count",
             token_branch_count_sql(TOKEN_BRANCH_STAGES),
+            token_count_metadata(PredicateFamily::Compound),
         ),
         scenario(
             "token.collection_stage_id.branch_set.duplicate_count",
             MatrixSurface::Token,
             "route.branch_set.duplicate_count",
             token_branch_count_sql(TOKEN_BRANCH_STAGES_WITH_DUPLICATE),
+            token_count_metadata(PredicateFamily::Compound),
         ),
         scenario(
             "token.collection_stage_id.branch_set.wide_page_only.limit50",
             MatrixSurface::Token,
             "route.branch_set.wide_page_only",
             token_branch_page_sql("id", TOKEN_BRANCH_STAGES_WIDE, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
             MatrixSurface::Token,
             "route.branch_set.wide_noncovered_page_only",
             token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_WIDE, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                true,
+            ),
         ),
-    ];
-    scenarios.extend(token_branch_over_cap_hotspot_matrix());
-    scenarios.extend([
+    ]
+}
+
+fn token_sparse_lookup_hotspots() -> Vec<MatrixScenario> {
+    vec![
         scenario(
             "token.collection_id.sparse_in.page_only.limit50",
             MatrixSurface::Token,
             "route.sparse_in.page_only",
             token_sparse_collection_in_page_sql(250, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::SparseMembership,
+                equality_prefix_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_id.sparse_in.count",
             MatrixSurface::Token,
             "route.sparse_in.count",
             token_sparse_collection_in_count_sql(250),
+            token_count_metadata(PredicateFamily::SparseMembership),
         ),
-    ]);
+    ]
+}
+
+fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
+    let mut scenarios = token_branch_page_hotspots();
+    scenarios.extend(token_branch_count_and_wide_hotspots());
+    scenarios.extend(token_branch_over_cap_hotspot_matrix());
+    scenarios.extend(token_sparse_lookup_hotspots());
     scenarios
 }
 
@@ -770,6 +975,13 @@ fn token_branch_over_cap_hotspot_matrix() -> Vec<MatrixScenario> {
             MatrixSurface::Token,
             "route.branch_over_cap.page_only",
             token_branch_page_sql("id", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Compound,
+                materialized_sort_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_stage_id.overcap_pruned.page_only.limit50",
@@ -781,12 +993,26 @@ fn token_branch_over_cap_hotspot_matrix() -> Vec<MatrixScenario> {
                 &format!("stage NOT IN ({TOKEN_BRANCH_STAGES_OVER_CAP_EXCLUSIONS})"),
                 50,
             ),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Compound,
+                secondary_index_route(),
+                true,
+            ),
         ),
         scenario(
             "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
             MatrixSurface::Token,
             "route.branch_over_cap.noncovered_page_only",
             token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
+            token_primary_page_metadata(
+                50,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                materialized_sort_route(),
+                true,
+            ),
         ),
     ]
 }
@@ -843,9 +1069,9 @@ fn token_sparse_collection_in_count_sql(missing_count: usize) -> String {
 
 fn select_matrix(
     surface: MatrixSurface,
-    projections: &[SqlFragment],
-    predicates: &[SqlFragment],
-    orders: &[SqlFragment],
+    projections: &[ProjectionFragment],
+    predicates: &[PredicateFragment],
+    orders: &[OrderFragment],
     limits: &[u32],
 ) -> Vec<MatrixScenario> {
     let mut scenarios = Vec::new();
@@ -874,10 +1100,17 @@ fn select_matrix(
 
                     scenarios.push(MatrixScenario {
                         key,
-                        source: MatrixSource::Deterministic,
+                        source: ScenarioSource::Deterministic,
                         surface,
                         family,
                         sql,
+                        metadata: scalar_select_metadata(
+                            surface,
+                            projection,
+                            predicate,
+                            order,
+                            usize::try_from(*limit).unwrap_or(usize::MAX),
+                        ),
                     });
                 }
             }
@@ -885,6 +1118,281 @@ fn select_matrix(
     }
 
     scenarios
+}
+
+const fn projection(
+    key: &'static str,
+    sql: &'static str,
+    value_type: ValueTypeFamily,
+    sqlite_eligible: bool,
+) -> ProjectionFragment {
+    ProjectionFragment {
+        key,
+        sql,
+        value_type,
+        sqlite_eligible,
+    }
+}
+
+const fn predicate(
+    key: &'static str,
+    sql: &'static str,
+    family: PredicateFamily,
+    route: PredicateRoute,
+) -> PredicateFragment {
+    PredicateFragment {
+        key,
+        sql,
+        family,
+        route,
+    }
+}
+
+const fn order(key: &'static str, sql: &'static str, route: OrderRoute) -> OrderFragment {
+    OrderFragment { key, sql, route }
+}
+
+const fn read_metadata(
+    contract_features: &'static [&'static str],
+    shape: QueryShape,
+    value_type: ValueTypeFamily,
+    predicate: PredicateFamily,
+    window: WindowSpec,
+    route: RouteExpectation,
+    sqlite_eligible: bool,
+) -> ScenarioMetadata {
+    ScenarioMetadata {
+        contract_features,
+        provider_id: if sqlite_eligible {
+            "perf.matrix.sqlite"
+        } else {
+            "perf.matrix.contract"
+        },
+        provider: if sqlite_eligible {
+            EligibleProvider::SqliteReference
+        } else {
+            EligibleProvider::IcyDbContractOnly
+        },
+        evidence_strength: if sqlite_eligible {
+            EvidenceStrength::ReferenceOracle
+        } else {
+            EvidenceStrength::ContractAssertion
+        },
+        statement: StatementFamily::Select,
+        shape,
+        value_type,
+        nullability: NullabilityClass::NonNullable,
+        predicate,
+        window,
+        mutation: MutationKind::None,
+        row_order: RowOrder::Ordered,
+        route,
+        required_route: None,
+        expected: ExpectedAcceptance::Accepted,
+    }
+}
+
+const fn metadata_statement(
+    contract_features: &'static [&'static str],
+    statement: StatementFamily,
+) -> ScenarioMetadata {
+    ScenarioMetadata {
+        contract_features,
+        provider_id: "perf.matrix.contract",
+        provider: EligibleProvider::IcyDbContractOnly,
+        evidence_strength: EvidenceStrength::ContractAssertion,
+        statement,
+        shape: QueryShape::Metadata,
+        value_type: ValueTypeFamily::Catalog,
+        nullability: NullabilityClass::NotApplicable,
+        predicate: PredicateFamily::None,
+        window: WindowSpec::NONE,
+        mutation: MutationKind::None,
+        row_order: RowOrder::Ordered,
+        route: not_paginated_route(),
+        required_route: None,
+        expected: ExpectedAcceptance::Accepted,
+    }
+}
+
+const fn not_paginated_route() -> RouteExpectation {
+    RouteExpectation::Fixed(RouteFact::new(
+        RouteFamily::NotOrderedOrNotPaginated,
+        RouteOutcome::UnchangedOrNotApplicable,
+        RouteReason::NotAPaginatedSelect,
+    ))
+}
+
+const fn grouped_materialized_route() -> RouteExpectation {
+    RouteExpectation::Fixed(RouteFact::new(
+        RouteFamily::MaterializedOrder,
+        RouteOutcome::Materialized,
+        RouteReason::GroupedAggregateMaterialized,
+    ))
+}
+
+const fn residual_ordered_route() -> RouteExpectation {
+    RouteExpectation::Fixed(RouteFact::new(
+        RouteFamily::ResidualFilterOrderedScan,
+        RouteOutcome::ResidualUnbounded,
+        RouteReason::ResidualFilterRequiresCandidateScan,
+    ))
+}
+
+const fn secondary_index_route() -> RouteExpectation {
+    RouteExpectation::IndexOrder {
+        family: RouteFamily::SecondaryOrder,
+        candidate_reason: RouteReason::SecondaryOrderCandidate,
+        pushed_reason: RouteReason::SecondaryOrderLimitStopProven,
+    }
+}
+
+const fn equality_prefix_route() -> RouteExpectation {
+    RouteExpectation::IndexOrder {
+        family: RouteFamily::EqualityPrefixOrderedSuffix,
+        candidate_reason: RouteReason::EqualityPrefixOrderedSuffixCandidate,
+        pushed_reason: RouteReason::EqualityPrefixOrderedSuffixLimitStopProven,
+    }
+}
+
+const fn materialized_sort_route() -> RouteExpectation {
+    RouteExpectation::Fixed(RouteFact::new(
+        RouteFamily::MaterializedOrder,
+        RouteOutcome::Materialized,
+        RouteReason::RequiresMaterializedSort,
+    ))
+}
+
+fn scalar_select_metadata(
+    surface: MatrixSurface,
+    projection: &ProjectionFragment,
+    predicate: &PredicateFragment,
+    order: &OrderFragment,
+    limit: usize,
+) -> ScenarioMetadata {
+    let sqlite_eligible = projection.sqlite_eligible
+        && !matches!(
+            surface,
+            MatrixSurface::HeapUser | MatrixSurface::JournaledUser
+        );
+    scalar_select_metadata_from_facts(
+        surface,
+        projection.value_type,
+        sqlite_eligible,
+        predicate.family,
+        predicate.route,
+        order,
+        limit,
+    )
+}
+
+fn scalar_select_metadata_from_facts(
+    surface: MatrixSurface,
+    value_type: ValueTypeFamily,
+    sqlite_eligible: bool,
+    predicate_family: PredicateFamily,
+    predicate_route: PredicateRoute,
+    order: &OrderFragment,
+    limit: usize,
+) -> ScenarioMetadata {
+    read_metadata(
+        &["select.scalar_rows"],
+        QueryShape::Scalar,
+        value_type,
+        predicate_family,
+        WindowSpec::ordered(limit, 0, order.sql),
+        select_route_expectation(surface, predicate_route, order.route),
+        sqlite_eligible,
+    )
+}
+
+fn select_route_expectation(
+    surface: MatrixSurface,
+    predicate: PredicateRoute,
+    order: OrderRoute,
+) -> RouteExpectation {
+    if order == OrderRoute::Primary {
+        return RouteExpectation::PrimaryOrder {
+            candidate_reason: if matches!(
+                surface,
+                MatrixSurface::HeapUser | MatrixSurface::JournaledUser
+            ) {
+                RouteReason::StorageMirrorPrimaryOrderCandidate
+            } else {
+                RouteReason::PrimaryOrderCandidate
+            },
+            residual_filter: !matches!(predicate, PredicateRoute::All | PredicateRoute::PrimaryKey),
+        };
+    }
+    if matches!(
+        surface,
+        MatrixSurface::HeapUser | MatrixSurface::JournaledUser
+    ) {
+        return RouteExpectation::Fixed(RouteFact::new(
+            RouteFamily::MaterializedOrder,
+            RouteOutcome::Materialized,
+            RouteReason::StorageMirrorHasPrimaryIndexOnly,
+        ));
+    }
+    if order == OrderRoute::UnsupportedExpression {
+        return RouteExpectation::Fixed(RouteFact::new(
+            RouteFamily::UnsupportedAccessKind,
+            RouteOutcome::Unsupported,
+            RouteReason::OrderExpressionNotClassified,
+        ));
+    }
+    if surface == MatrixSurface::Blob && order == OrderRoute::Bucket {
+        return RouteExpectation::Fixed(RouteFact::new(
+            RouteFamily::SecondaryOrder,
+            RouteOutcome::MissingTieBreaker,
+            RouteReason::IndexOrderSuffixGap,
+        ));
+    }
+    if !predicate_order_is_compatible(predicate, order) {
+        return RouteExpectation::Fixed(RouteFact::new(
+            RouteFamily::IncompatibleFilterFirstOrder,
+            RouteOutcome::Materialized,
+            RouteReason::FilterOrderMismatch,
+        ));
+    }
+    if matches!(
+        predicate,
+        PredicateRoute::Active
+            | PredicateRoute::FieldComparison
+            | PredicateRoute::HandleActive
+            | PredicateRoute::LowerHandleActive
+            | PredicateRoute::TierActive
+    ) {
+        return RouteExpectation::Fixed(RouteFact::new(
+            RouteFamily::ResidualFilterOrderedScan,
+            RouteOutcome::ResidualUnbounded,
+            RouteReason::ResidualFilterRequiresCandidateScan,
+        ));
+    }
+
+    RouteExpectation::IndexOrder {
+        family: RouteFamily::SecondaryOrder,
+        candidate_reason: RouteReason::SecondaryOrderCandidate,
+        pushed_reason: RouteReason::SecondaryOrderLimitStopProven,
+    }
+}
+
+fn predicate_order_is_compatible(predicate: PredicateRoute, order: OrderRoute) -> bool {
+    match predicate {
+        PredicateRoute::All => true,
+        PredicateRoute::PrimaryKey
+        | PredicateRoute::FieldComparison
+        | PredicateRoute::Score
+        | PredicateRoute::TierActive => false,
+        PredicateRoute::Age => order == OrderRoute::Age,
+        PredicateRoute::Name => order == OrderRoute::Name,
+        PredicateRoute::LowerName => order == OrderRoute::LowerName,
+        PredicateRoute::HandleActive => order == OrderRoute::Handle,
+        PredicateRoute::LowerHandleActive => order == OrderRoute::LowerHandle,
+        PredicateRoute::Bucket => matches!(order, OrderRoute::Bucket | OrderRoute::BucketLabel),
+        PredicateRoute::Label => order == OrderRoute::Label,
+        PredicateRoute::Active => order == OrderRoute::TierHandle,
+    }
 }
 
 fn select_sql(table: &str, projection: &str, predicate: &str, order: &str, limit: u32) -> String {
@@ -902,240 +1410,236 @@ fn select_sql(table: &str, projection: &str, predicate: &str, order: &str, limit
     format!("SELECT {projection} FROM {table}{where_clause}{order_clause} LIMIT {limit}")
 }
 
-fn user_projections() -> Vec<SqlFragment> {
+fn user_projections() -> Vec<ProjectionFragment> {
     vec![
-        SqlFragment {
-            key: "pk",
-            sql: "id",
-        },
-        SqlFragment {
-            key: "narrow",
-            sql: "id, name",
-        },
-        SqlFragment {
-            key: "wide",
-            sql: "id, name, age, age_nat, rank, active",
-        },
-        SqlFragment {
-            key: "numeric_expr",
-            sql: "id, age + rank AS total",
-        },
-        SqlFragment {
-            key: "text_expr",
-            sql: "id, LOWER(name) AS lower_name",
-        },
+        projection("pk", "id", ValueTypeFamily::Numeric, true),
+        projection("narrow", "id, name", ValueTypeFamily::Mixed, true),
+        projection(
+            "wide",
+            "id, name, age, age_nat, rank, active",
+            ValueTypeFamily::Mixed,
+            false,
+        ),
+        projection(
+            "numeric_expr",
+            "id, age + rank AS total",
+            ValueTypeFamily::Numeric,
+            true,
+        ),
+        projection(
+            "text_expr",
+            "id, LOWER(name) AS lower_name",
+            ValueTypeFamily::Text,
+            true,
+        ),
     ]
 }
 
-fn user_predicates() -> Vec<SqlFragment> {
+fn user_predicates() -> Vec<PredicateFragment> {
     vec![
-        SqlFragment {
-            key: "all",
-            sql: "",
-        },
-        SqlFragment {
-            key: "pk_range",
-            sql: "id >= 2",
-        },
-        SqlFragment {
-            key: "age_range",
-            sql: "age >= 24 AND age < 40",
-        },
-        SqlFragment {
-            key: "name_prefix",
-            sql: "name LIKE 'A%'",
-        },
-        SqlFragment {
-            key: "lower_name_prefix",
-            sql: "LOWER(name) LIKE 'a%'",
-        },
-        SqlFragment {
-            key: "active_true",
-            sql: "active = true",
-        },
-        SqlFragment {
-            key: "age_in",
-            sql: "age IN (24, 31, 43)",
-        },
-        SqlFragment {
-            key: "field_compare",
-            sql: "age > rank",
-        },
+        predicate("all", "", PredicateFamily::None, PredicateRoute::All),
+        predicate(
+            "pk_range",
+            "id >= 2",
+            PredicateFamily::PrimaryKey,
+            PredicateRoute::PrimaryKey,
+        ),
+        predicate(
+            "age_range",
+            "age >= 24 AND age < 40",
+            PredicateFamily::Range,
+            PredicateRoute::Age,
+        ),
+        predicate(
+            "name_prefix",
+            "name LIKE 'A%'",
+            PredicateFamily::Prefix,
+            PredicateRoute::Name,
+        ),
+        predicate(
+            "lower_name_prefix",
+            "LOWER(name) LIKE 'a%'",
+            PredicateFamily::CasefoldPrefix,
+            PredicateRoute::LowerName,
+        ),
+        predicate(
+            "active_true",
+            "active = true",
+            PredicateFamily::Boolean,
+            PredicateRoute::Active,
+        ),
+        predicate(
+            "age_in",
+            "age IN (24, 31, 43)",
+            PredicateFamily::Membership,
+            PredicateRoute::Age,
+        ),
+        predicate(
+            "field_compare",
+            "age > rank",
+            PredicateFamily::FieldComparison,
+            PredicateRoute::FieldComparison,
+        ),
     ]
 }
 
-fn user_orders() -> Vec<SqlFragment> {
+fn user_orders() -> Vec<OrderFragment> {
     vec![
-        SqlFragment {
-            key: "pk_asc",
-            sql: "id ASC",
-        },
-        SqlFragment {
-            key: "pk_desc",
-            sql: "id DESC",
-        },
-        SqlFragment {
-            key: "age_asc",
-            sql: "age ASC, id ASC",
-        },
-        SqlFragment {
-            key: "age_desc",
-            sql: "age DESC, id DESC",
-        },
-        SqlFragment {
-            key: "name_asc",
-            sql: "name ASC, id ASC",
-        },
-        SqlFragment {
-            key: "lower_name_asc",
-            sql: "LOWER(name) ASC, id ASC",
-        },
-        SqlFragment {
-            key: "numeric_expr_asc",
-            sql: "age + rank ASC, id ASC",
-        },
+        order("pk_asc", "id ASC", OrderRoute::Primary),
+        order("pk_desc", "id DESC", OrderRoute::Primary),
+        order("age_asc", "age ASC, id ASC", OrderRoute::Age),
+        order("age_desc", "age DESC, id DESC", OrderRoute::Age),
+        order("name_asc", "name ASC, id ASC", OrderRoute::Name),
+        order(
+            "lower_name_asc",
+            "LOWER(name) ASC, id ASC",
+            OrderRoute::LowerName,
+        ),
+        order(
+            "numeric_expr_asc",
+            "age + rank ASC, id ASC",
+            OrderRoute::UnsupportedExpression,
+        ),
     ]
 }
 
-fn account_projections() -> Vec<SqlFragment> {
+fn account_projections() -> Vec<ProjectionFragment> {
     vec![
-        SqlFragment {
-            key: "pk",
-            sql: "id",
-        },
-        SqlFragment {
-            key: "narrow",
-            sql: "id, handle",
-        },
-        SqlFragment {
-            key: "wide",
-            sql: "id, handle, tier, active, score",
-        },
-        SqlFragment {
-            key: "text_expr",
-            sql: "id, LOWER(handle) AS lower_handle",
-        },
+        projection("pk", "id", ValueTypeFamily::Numeric, true),
+        projection("narrow", "id, handle", ValueTypeFamily::Mixed, true),
+        projection(
+            "wide",
+            "id, handle, tier, active, score",
+            ValueTypeFamily::Mixed,
+            false,
+        ),
+        projection(
+            "text_expr",
+            "id, LOWER(handle) AS lower_handle",
+            ValueTypeFamily::Text,
+            true,
+        ),
     ]
 }
 
-fn account_predicates() -> Vec<SqlFragment> {
+fn account_predicates() -> Vec<PredicateFragment> {
     vec![
-        SqlFragment {
-            key: "all",
-            sql: "",
-        },
-        SqlFragment {
-            key: "active_true",
-            sql: "active = true",
-        },
-        SqlFragment {
-            key: "tier_gold_active",
-            sql: "tier = 'gold' AND active = true",
-        },
-        SqlFragment {
-            key: "handle_prefix_active",
-            sql: "handle LIKE 'a%' AND active = true",
-        },
-        SqlFragment {
-            key: "lower_handle_prefix_active",
-            sql: "LOWER(handle) LIKE 'a%' AND active = true",
-        },
-        SqlFragment {
-            key: "score_range",
-            sql: "score >= 20",
-        },
+        predicate("all", "", PredicateFamily::None, PredicateRoute::All),
+        predicate(
+            "active_true",
+            "active = true",
+            PredicateFamily::Boolean,
+            PredicateRoute::Active,
+        ),
+        predicate(
+            "tier_gold_active",
+            "tier = 'gold' AND active = true",
+            PredicateFamily::Compound,
+            PredicateRoute::TierActive,
+        ),
+        predicate(
+            "handle_prefix_active",
+            "handle LIKE 'a%' AND active = true",
+            PredicateFamily::Compound,
+            PredicateRoute::HandleActive,
+        ),
+        predicate(
+            "lower_handle_prefix_active",
+            "LOWER(handle) LIKE 'a%' AND active = true",
+            PredicateFamily::Compound,
+            PredicateRoute::LowerHandleActive,
+        ),
+        predicate(
+            "score_range",
+            "score >= 20",
+            PredicateFamily::Range,
+            PredicateRoute::Score,
+        ),
     ]
 }
 
-fn account_orders() -> Vec<SqlFragment> {
+fn account_orders() -> Vec<OrderFragment> {
     vec![
-        SqlFragment {
-            key: "pk_asc",
-            sql: "id ASC",
-        },
-        SqlFragment {
-            key: "handle_asc",
-            sql: "handle ASC, id ASC",
-        },
-        SqlFragment {
-            key: "handle_desc",
-            sql: "handle DESC, id DESC",
-        },
-        SqlFragment {
-            key: "lower_handle_asc",
-            sql: "LOWER(handle) ASC, id ASC",
-        },
-        SqlFragment {
-            key: "tier_handle_asc",
-            sql: "tier ASC, handle ASC, id ASC",
-        },
+        order("pk_asc", "id ASC", OrderRoute::Primary),
+        order("handle_asc", "handle ASC, id ASC", OrderRoute::Handle),
+        order("handle_desc", "handle DESC, id DESC", OrderRoute::Handle),
+        order(
+            "lower_handle_asc",
+            "LOWER(handle) ASC, id ASC",
+            OrderRoute::LowerHandle,
+        ),
+        order(
+            "tier_handle_asc",
+            "tier ASC, handle ASC, id ASC",
+            OrderRoute::TierHandle,
+        ),
     ]
 }
 
-fn blob_projections() -> Vec<SqlFragment> {
+fn blob_projections() -> Vec<ProjectionFragment> {
     vec![
-        SqlFragment {
-            key: "pk",
-            sql: "id",
-        },
-        SqlFragment {
-            key: "metadata",
-            sql: "id, label, bucket",
-        },
-        SqlFragment {
-            key: "lengths",
-            sql: "id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk)",
-        },
-        SqlFragment {
-            key: "thumbnail",
-            sql: "id, label, thumbnail",
-        },
-        SqlFragment {
-            key: "payload",
-            sql: "id, label, thumbnail, chunk",
-        },
+        projection("pk", "id", ValueTypeFamily::Numeric, true),
+        projection(
+            "metadata",
+            "id, label, bucket",
+            ValueTypeFamily::Mixed,
+            true,
+        ),
+        projection(
+            "lengths",
+            "id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk)",
+            ValueTypeFamily::Mixed,
+            false,
+        ),
+        projection(
+            "thumbnail",
+            "id, label, thumbnail",
+            ValueTypeFamily::Blob,
+            false,
+        ),
+        projection(
+            "payload",
+            "id, label, thumbnail, chunk",
+            ValueTypeFamily::Blob,
+            false,
+        ),
     ]
 }
 
-fn blob_predicates() -> Vec<SqlFragment> {
+fn blob_predicates() -> Vec<PredicateFragment> {
     vec![
-        SqlFragment {
-            key: "all",
-            sql: "",
-        },
-        SqlFragment {
-            key: "bucket_eq",
-            sql: "bucket = 10",
-        },
-        SqlFragment {
-            key: "bucket_range",
-            sql: "bucket >= 10 AND bucket < 40",
-        },
-        SqlFragment {
-            key: "label_prefix",
-            sql: "label LIKE 'blob-%'",
-        },
+        predicate("all", "", PredicateFamily::None, PredicateRoute::All),
+        predicate(
+            "bucket_eq",
+            "bucket = 10",
+            PredicateFamily::Range,
+            PredicateRoute::Bucket,
+        ),
+        predicate(
+            "bucket_range",
+            "bucket >= 10 AND bucket < 40",
+            PredicateFamily::Range,
+            PredicateRoute::Bucket,
+        ),
+        predicate(
+            "label_prefix",
+            "label LIKE 'blob-%'",
+            PredicateFamily::Prefix,
+            PredicateRoute::Label,
+        ),
     ]
 }
 
-fn blob_orders() -> Vec<SqlFragment> {
+fn blob_orders() -> Vec<OrderFragment> {
     vec![
-        SqlFragment {
-            key: "pk_asc",
-            sql: "id ASC",
-        },
-        SqlFragment {
-            key: "bucket_asc",
-            sql: "bucket ASC, id ASC",
-        },
-        SqlFragment {
-            key: "bucket_label_asc",
-            sql: "bucket ASC, label ASC, id ASC",
-        },
-        SqlFragment {
-            key: "label_asc",
-            sql: "label ASC, id ASC",
-        },
+        order("pk_asc", "id ASC", OrderRoute::Primary),
+        order("bucket_asc", "bucket ASC, id ASC", OrderRoute::Bucket),
+        order(
+            "bucket_label_asc",
+            "bucket ASC, label ASC, id ASC",
+            OrderRoute::BucketLabel,
+        ),
+        order("label_asc", "label ASC, id ASC", OrderRoute::Label),
     ]
 }
 
@@ -1153,158 +1657,262 @@ fn storage_backend_mirror_matrix() -> Vec<MatrixScenario> {
     scenarios
 }
 
-fn storage_mirror_projections() -> Vec<SqlFragment> {
+fn storage_mirror_projections() -> Vec<ProjectionFragment> {
     vec![
-        SqlFragment {
-            key: "pk",
-            sql: "id",
-        },
-        SqlFragment {
-            key: "narrow",
-            sql: "id, name",
-        },
-        SqlFragment {
-            key: "wide",
-            sql: "id, name, age",
-        },
+        projection("pk", "id", ValueTypeFamily::Numeric, false),
+        projection("narrow", "id, name", ValueTypeFamily::Mixed, false),
+        projection("wide", "id, name, age", ValueTypeFamily::Mixed, false),
     ]
 }
 
-fn storage_mirror_predicates() -> Vec<SqlFragment> {
+fn storage_mirror_predicates() -> Vec<PredicateFragment> {
     vec![
-        SqlFragment {
-            key: "all",
-            sql: "",
-        },
-        SqlFragment {
-            key: "pk_range",
-            sql: "id >= 2",
-        },
-        SqlFragment {
-            key: "age_range",
-            sql: "age >= 24 AND age < 40",
-        },
-        SqlFragment {
-            key: "name_range",
-            sql: "name >= 'a'",
-        },
+        predicate("all", "", PredicateFamily::None, PredicateRoute::All),
+        predicate(
+            "pk_range",
+            "id >= 2",
+            PredicateFamily::PrimaryKey,
+            PredicateRoute::PrimaryKey,
+        ),
+        predicate(
+            "age_range",
+            "age >= 24 AND age < 40",
+            PredicateFamily::Range,
+            PredicateRoute::Age,
+        ),
+        predicate(
+            "name_range",
+            "name >= 'a'",
+            PredicateFamily::Range,
+            PredicateRoute::Name,
+        ),
     ]
 }
 
-fn storage_mirror_orders() -> Vec<SqlFragment> {
+fn storage_mirror_orders() -> Vec<OrderFragment> {
     vec![
-        SqlFragment {
-            key: "pk_asc",
-            sql: "id ASC",
-        },
-        SqlFragment {
-            key: "pk_desc",
-            sql: "id DESC",
-        },
-        SqlFragment {
-            key: "age_asc",
-            sql: "age ASC, id ASC",
-        },
-        SqlFragment {
-            key: "name_asc",
-            sql: "name ASC, id ASC",
-        },
+        order("pk_asc", "id ASC", OrderRoute::Primary),
+        order("pk_desc", "id DESC", OrderRoute::Primary),
+        order("age_asc", "age ASC, id ASC", OrderRoute::Age),
+        order("name_asc", "name ASC, id ASC", OrderRoute::Name),
     ]
 }
 
-fn aggregate_and_metadata_matrix() -> Vec<MatrixScenario> {
+fn user_global_aggregate_scenarios() -> Vec<MatrixScenario> {
     vec![
         scenario(
             "user.aggregate.count_all",
             MatrixSurface::User,
             "aggregate.count",
             "SELECT COUNT(*) FROM PerfAuditUser",
+            read_metadata(
+                &["select.global_aggregate"],
+                QueryShape::GlobalAggregate,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::None,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
         ),
         scenario(
             "user.aggregate.count_active",
             MatrixSurface::User,
             "aggregate.count",
             "SELECT COUNT(*) FROM PerfAuditUser WHERE active = true",
+            read_metadata(
+                &["select.global_aggregate"],
+                QueryShape::GlobalAggregate,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Boolean,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
         ),
         scenario(
             "user.aggregate.count_age_in",
             MatrixSurface::User,
             "aggregate.count_in",
             "SELECT COUNT(*) FROM PerfAuditUser WHERE age IN (24, 31, 43)",
+            read_metadata(
+                &["select.global_aggregate"],
+                QueryShape::GlobalAggregate,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Membership,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
         ),
+    ]
+}
+
+fn user_grouped_aggregate_scenarios() -> Vec<MatrixScenario> {
+    vec![
         scenario(
             "user.aggregate.group_age_count",
             MatrixSurface::User,
             "aggregate.grouped",
             "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+            read_metadata(
+                &["select.grouped_aggregate"],
+                QueryShape::Grouped,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::None,
+                WindowSpec::ordered(10, 0, "age ASC"),
+                grouped_materialized_route(),
+                true,
+            ),
         ),
         scenario(
             "user.aggregate.group_active_avg_age",
             MatrixSurface::User,
             "aggregate.grouped",
             "SELECT active, AVG(age) FROM PerfAuditUser GROUP BY active ORDER BY active ASC LIMIT 10",
+            read_metadata(
+                &["select.grouped_aggregate"],
+                QueryShape::Grouped,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::None,
+                WindowSpec::ordered(10, 0, "active ASC"),
+                grouped_materialized_route(),
+                false,
+            ),
         ),
         scenario(
             "user.aggregate.group_age_having_alias",
             MatrixSurface::User,
             "aggregate.grouped_having",
             "SELECT age, SUM(CASE WHEN age > 30 THEN 1 ELSE 0 END) AS high_count FROM PerfAuditUser GROUP BY age HAVING high_count > 0 ORDER BY high_count DESC, age ASC LIMIT 5",
+            read_metadata(
+                &["select.grouped_aggregate", "having.grouped_aggregate"],
+                QueryShape::Grouped,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Compound,
+                WindowSpec::ordered(5, 0, "high_count DESC, age ASC"),
+                grouped_materialized_route(),
+                true,
+            ),
         ),
+    ]
+}
+
+fn account_aggregate_scenarios() -> Vec<MatrixScenario> {
+    vec![
         scenario(
             "account.aggregate.group_tier_count",
             MatrixSurface::Account,
             "aggregate.grouped",
             "SELECT tier, COUNT(*) FROM PerfAuditAccount WHERE active = true GROUP BY tier ORDER BY tier ASC LIMIT 10",
+            read_metadata(
+                &["select.grouped_aggregate"],
+                QueryShape::Grouped,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Boolean,
+                WindowSpec::ordered(10, 0, "tier ASC"),
+                grouped_materialized_route(),
+                true,
+            ),
         ),
         scenario(
             "account.aggregate.count_active_tier_in",
             MatrixSurface::Account,
             "aggregate.count_in",
             "SELECT COUNT(*) FROM PerfAuditAccount WHERE active = true AND tier IN ('gold', 'silver')",
+            read_metadata(
+                &["select.global_aggregate"],
+                QueryShape::GlobalAggregate,
+                ValueTypeFamily::Numeric,
+                PredicateFamily::Compound,
+                WindowSpec::NONE,
+                not_paginated_route(),
+                true,
+            ),
         ),
         scenario(
             "account.sqlite_diff.tier_in_handle_order.limit3",
             MatrixSurface::Account,
             "sqlite_diff.order_limit",
             "SELECT id, handle FROM PerfAuditAccount WHERE tier IN ('gold', 'silver') AND active = true ORDER BY handle ASC, id ASC LIMIT 3",
+            read_metadata(
+                &["select.scalar_rows"],
+                QueryShape::Scalar,
+                ValueTypeFamily::Mixed,
+                PredicateFamily::Compound,
+                WindowSpec::ordered(3, 0, "handle ASC, id ASC"),
+                residual_ordered_route(),
+                true,
+            ),
         ),
-        scenario(
-            "blob.aggregate.count_bucket",
-            MatrixSurface::Blob,
-            "aggregate.count",
-            "SELECT COUNT(*) FROM PerfAuditBlob WHERE bucket = 10",
+    ]
+}
+
+fn blob_aggregate_scenarios() -> Vec<MatrixScenario> {
+    vec![scenario(
+        "blob.aggregate.count_bucket",
+        MatrixSurface::Blob,
+        "aggregate.count",
+        "SELECT COUNT(*) FROM PerfAuditBlob WHERE bucket = 10",
+        read_metadata(
+            &["select.global_aggregate"],
+            QueryShape::GlobalAggregate,
+            ValueTypeFamily::Numeric,
+            PredicateFamily::Range,
+            WindowSpec::NONE,
+            not_paginated_route(),
+            true,
         ),
+    )]
+}
+
+fn metadata_scenarios() -> Vec<MatrixScenario> {
+    vec![
         scenario(
             "user.metadata.explain_pk_limit",
             MatrixSurface::User,
             "metadata.explain",
             "EXPLAIN SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+            metadata_statement(&["explain.query_delete"], StatementFamily::Explain),
         ),
         scenario(
             "user.metadata.describe",
             MatrixSurface::User,
             "metadata.describe",
             "DESCRIBE PerfAuditUser",
+            metadata_statement(&["introspection.describe"], StatementFamily::Describe),
         ),
         scenario(
             "user.metadata.show_columns",
             MatrixSurface::User,
             "metadata.show_columns",
             "SHOW COLUMNS PerfAuditUser",
+            metadata_statement(&["introspection.show_columns"], StatementFamily::Show),
         ),
         scenario(
             "user.metadata.show_indexes",
             MatrixSurface::User,
             "metadata.show_indexes",
             "SHOW INDEXES FROM PerfAuditUser",
+            metadata_statement(&["introspection.show_indexes"], StatementFamily::Show),
         ),
         scenario(
             "user.metadata.show_entities",
             MatrixSurface::User,
             "metadata.show_entities",
             "SHOW ENTITIES",
+            metadata_statement(&["introspection.show_entities"], StatementFamily::Show),
         ),
     ]
+}
+
+fn aggregate_and_metadata_matrix() -> Vec<MatrixScenario> {
+    let mut scenarios = user_global_aggregate_scenarios();
+    scenarios.extend(user_grouped_aggregate_scenarios());
+    scenarios.extend(account_aggregate_scenarios());
+    scenarios.extend(blob_aggregate_scenarios());
+    scenarios.extend(metadata_scenarios());
+    scenarios
 }
 
 fn scenario(
@@ -1312,13 +1920,15 @@ fn scenario(
     surface: MatrixSurface,
     family: impl Into<String>,
     sql: impl Into<String>,
+    metadata: ScenarioMetadata,
 ) -> MatrixScenario {
     MatrixScenario {
         key: key.into(),
-        source: MatrixSource::Deterministic,
+        source: ScenarioSource::Deterministic,
         surface,
         family: family.into(),
         sql: sql.into(),
+        metadata,
     }
 }
 
@@ -1344,6 +1954,7 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
             random_select_scenario(
                 rng,
                 key,
+                generated_scenario_source(seed, index),
                 surface,
                 &account_projections(),
                 predicate,
@@ -1355,6 +1966,7 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
             random_select_scenario(
                 rng,
                 key,
+                generated_scenario_source(seed, index),
                 surface,
                 &blob_projections(),
                 predicate,
@@ -1366,18 +1978,20 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
             random_select_scenario(
                 rng,
                 key,
+                generated_scenario_source(seed, index),
                 surface,
                 &storage_mirror_projections(),
                 predicate,
                 &storage_mirror_orders(),
             )
         }
-        MatrixSurface::Token => random_token_route_hotspot_scenario(rng, key),
+        MatrixSurface::Token => random_token_route_hotspot_scenario(rng, key, seed, index),
         MatrixSurface::User => {
             let predicate = random_user_predicate(rng);
             random_select_scenario(
                 rng,
                 key,
+                generated_scenario_source(seed, index),
                 surface,
                 &user_projections(),
                 predicate,
@@ -1387,11 +2001,16 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
     }
 }
 
-fn random_token_route_hotspot_scenario(rng: &mut Lcg, key: String) -> MatrixScenario {
+fn random_token_route_hotspot_scenario(
+    rng: &mut Lcg,
+    key: String,
+    seed: u64,
+    index: usize,
+) -> MatrixScenario {
     let token_scenarios = token_branch_route_hotspot_matrix();
     let mut scenario = rng.choose(&token_scenarios).clone();
     scenario.key = key;
-    scenario.source = MatrixSource::Random;
+    scenario.source = generated_scenario_source(seed, index);
     scenario.family = format!("random.{}", scenario.family);
     scenario
 }
@@ -1399,10 +2018,11 @@ fn random_token_route_hotspot_scenario(rng: &mut Lcg, key: String) -> MatrixScen
 fn random_select_scenario(
     rng: &mut Lcg,
     key: String,
+    source: ScenarioSource,
     surface: MatrixSurface,
-    projections: &[SqlFragment],
-    predicate: String,
-    orders: &[SqlFragment],
+    projections: &[ProjectionFragment],
+    predicate: RenderedPredicate,
+    orders: &[OrderFragment],
 ) -> MatrixScenario {
     let projection = rng.choose(projections);
     let order = rng.choose(orders);
@@ -1410,22 +2030,39 @@ fn random_select_scenario(
     let sql = select_sql(
         surface.table(),
         projection.sql,
-        predicate.as_str(),
+        predicate.sql.as_str(),
         order.sql,
         limit,
     );
 
     MatrixScenario {
         key,
-        source: MatrixSource::Random,
+        source,
         surface,
         family: format!("random.{}.{}", projection.key, order.key),
         sql,
+        metadata: scalar_select_metadata_from_facts(
+            surface,
+            projection.value_type,
+            projection.sqlite_eligible,
+            predicate.family,
+            predicate.route,
+            order,
+            usize::try_from(limit).unwrap_or(usize::MAX),
+        ),
     }
 }
 
-fn random_storage_mirror_predicate(rng: &mut Lcg) -> String {
-    match rng.index(4) {
+fn generated_scenario_source(seed: u64, index: usize) -> ScenarioSource {
+    ScenarioSource::Generated {
+        root_seed: seed,
+        case_index: u64::try_from(index).unwrap_or(u64::MAX),
+    }
+}
+
+fn random_storage_mirror_predicate(rng: &mut Lcg) -> RenderedPredicate {
+    let choice = rng.index(4);
+    let sql = match choice {
         0 => String::new(),
         1 => format!("id >= {}", rng.choose(&[1, 2, 3, 4])),
         2 => {
@@ -1434,11 +2071,19 @@ fn random_storage_mirror_predicate(rng: &mut Lcg) -> String {
             format!("age >= {low} AND age < {high}")
         }
         _ => "name >= 'a'".to_string(),
-    }
+    };
+    let (family, route) = match choice {
+        0 => (PredicateFamily::None, PredicateRoute::All),
+        1 => (PredicateFamily::PrimaryKey, PredicateRoute::PrimaryKey),
+        2 => (PredicateFamily::Range, PredicateRoute::Age),
+        _ => (PredicateFamily::Range, PredicateRoute::Name),
+    };
+    RenderedPredicate { sql, family, route }
 }
 
-fn random_user_predicate(rng: &mut Lcg) -> String {
-    match rng.index(16) {
+fn random_user_predicate(rng: &mut Lcg) -> RenderedPredicate {
+    let choice = rng.index(16);
+    let sql = match choice {
         0 => String::new(),
         1 => format!("id >= {}", rng.choose(&[1, 2, 3, 4])),
         2 => {
@@ -1490,11 +2135,31 @@ fn random_user_predicate(rng: &mut Lcg) -> String {
             rng.choose(&[27, 31, 35]),
             rng.choose(&[40, 43, 50])
         ),
-    }
+    };
+    let (family, route) = match choice {
+        0 => (PredicateFamily::None, PredicateRoute::All),
+        1 => (PredicateFamily::PrimaryKey, PredicateRoute::PrimaryKey),
+        2 | 14 => (PredicateFamily::Range, PredicateRoute::Age),
+        3 => (PredicateFamily::Prefix, PredicateRoute::Name),
+        4 => (PredicateFamily::CasefoldPrefix, PredicateRoute::LowerName),
+        5 => (PredicateFamily::Boolean, PredicateRoute::Active),
+        6 | 15 => (PredicateFamily::Membership, PredicateRoute::Age),
+        7 | 13 => (
+            PredicateFamily::FieldComparison,
+            PredicateRoute::FieldComparison,
+        ),
+        8 | 12 => (PredicateFamily::Compound, PredicateRoute::Active),
+        9 => (PredicateFamily::Compound, PredicateRoute::Name),
+        10 => (PredicateFamily::Compound, PredicateRoute::Age),
+        11 => (PredicateFamily::Range, PredicateRoute::LowerName),
+        _ => unreachable!("random user predicate choice is bounded"),
+    };
+    RenderedPredicate { sql, family, route }
 }
 
-fn random_account_predicate(rng: &mut Lcg) -> String {
-    match rng.index(13) {
+fn random_account_predicate(rng: &mut Lcg) -> RenderedPredicate {
+    let choice = rng.index(13);
+    let sql = match choice {
         0 => String::new(),
         1 => "active = true".to_string(),
         2 => format!(
@@ -1540,11 +2205,25 @@ fn random_account_predicate(rng: &mut Lcg) -> String {
             rng.choose(&["free", "gold", "bronze"]),
             rng.choose(&[60, 70, 80])
         ),
-    }
+    };
+    let (family, route) = match choice {
+        0 => (PredicateFamily::None, PredicateRoute::All),
+        1 => (PredicateFamily::Boolean, PredicateRoute::Active),
+        2 | 7 => (PredicateFamily::Compound, PredicateRoute::TierActive),
+        3 | 8 => (PredicateFamily::Compound, PredicateRoute::HandleActive),
+        4 => (PredicateFamily::Compound, PredicateRoute::LowerHandleActive),
+        5 | 11 => (PredicateFamily::Range, PredicateRoute::Score),
+        6 | 10 => (PredicateFamily::Compound, PredicateRoute::Active),
+        9 => (PredicateFamily::Range, PredicateRoute::LowerHandleActive),
+        12 => (PredicateFamily::Compound, PredicateRoute::Score),
+        _ => unreachable!("random account predicate choice is bounded"),
+    };
+    RenderedPredicate { sql, family, route }
 }
 
-fn random_blob_predicate(rng: &mut Lcg) -> String {
-    match rng.index(9) {
+fn random_blob_predicate(rng: &mut Lcg) -> RenderedPredicate {
+    let choice = rng.index(9);
+    let sql = match choice {
         0 => String::new(),
         1 => format!("bucket = {}", rng.choose(&[10, 20, 30, 40])),
         2 => {
@@ -1570,7 +2249,17 @@ fn random_blob_predicate(rng: &mut Lcg) -> String {
             rng.choose(&[10, 20]),
             rng.choose(&[30, 40])
         ),
-    }
+    };
+    let (family, route) = match choice {
+        0 => (PredicateFamily::None, PredicateRoute::All),
+        1 | 2 | 7 | 8 => (PredicateFamily::Range, PredicateRoute::Bucket),
+        3 => (PredicateFamily::Prefix, PredicateRoute::Label),
+        4 => (PredicateFamily::Membership, PredicateRoute::Bucket),
+        5 => (PredicateFamily::Range, PredicateRoute::Label),
+        6 => (PredicateFamily::Compound, PredicateRoute::Bucket),
+        _ => unreachable!("random blob predicate choice is bounded"),
+    };
+    RenderedPredicate { sql, family, route }
 }
 
 fn sqlite_mutation_differential_scenarios(
@@ -2753,7 +3442,7 @@ fn sqlite_audit_comparison_scenarios() -> Vec<MatrixScenario> {
     let Some(requested_keys) = sqlite_audit_comparison_keys() else {
         return scenarios
             .into_iter()
-            .filter(sqlite_audit_scenario_is_compatible)
+            .filter(scenario_has_sqlite_reference)
             .collect();
     };
 
@@ -2771,7 +3460,7 @@ fn sqlite_required_audit_comparison_scenarios() -> Vec<MatrixScenario> {
 fn sqlite_differential_scenarios(seed: u64, case_count: usize) -> Vec<MatrixScenario> {
     random_matrix(seed, case_count)
         .into_iter()
-        .filter(sqlite_audit_scenario_is_compatible)
+        .filter(scenario_has_sqlite_reference)
         .collect()
 }
 
@@ -2825,36 +3514,8 @@ fn sqlite_audit_comparison_keys() -> Option<Vec<String>> {
     })
 }
 
-fn sqlite_audit_scenario_is_compatible(scenario: &MatrixScenario) -> bool {
-    if !scenario.sql.starts_with("SELECT") {
-        return false;
-    }
-
-    match scenario.surface {
-        MatrixSurface::HeapUser | MatrixSurface::JournaledUser => false,
-        MatrixSurface::Token => {
-            !scenario.key.contains(".full_entity.")
-                && !scenario.family.contains(".full_entity")
-                && !scenario.sql.starts_with("SELECT * FROM PerfAuditToken")
-        }
-        MatrixSurface::Blob => {
-            scenario.key.contains(".select.pk.")
-                || scenario.key.contains(".select.metadata.")
-                || scenario.key == "blob.aggregate.count_bucket"
-        }
-        MatrixSurface::Account => {
-            !scenario.key.contains(".select.wide.")
-                && !scenario.family.contains(".wide.")
-                && !scenario.key.contains(".metadata.")
-                && !scenario.sql.contains("OCTET_LENGTH(")
-        }
-        MatrixSurface::User => {
-            !scenario.key.contains(".select.wide.")
-                && !scenario.family.contains(".wide.")
-                && scenario.key != "user.aggregate.group_active_avg_age"
-                && !scenario.key.contains(".metadata.")
-        }
-    }
+fn scenario_has_sqlite_reference(scenario: &MatrixScenario) -> bool {
+    scenario.metadata.provider == EligibleProvider::SqliteReference
 }
 
 fn sqlite_timing_sample_count() -> usize {
@@ -3431,6 +4092,14 @@ fn sqlite_audit_comparison_for_scenario(
             scenario.key
         )
     });
+    let correctness = sqlite_signature_correctness_verdict(
+        scenario,
+        icydb_signature.as_str(),
+        sqlite_signature.as_str(),
+        route_fact_for_scenario(scenario, &sample),
+    );
+    let (correctness_passed, correctness_failure_owner, correctness_mismatch_category) =
+        correctness_report_projection(&correctness);
     let sqlite_plan_alignment = sqlite_plan_alignment(&sample, &sqlite_plan_summary);
     let sqlite_timing = sqlite_time_query(
         sqlite_path,
@@ -3455,9 +4124,11 @@ fn sqlite_audit_comparison_for_scenario(
         route_outcome: sample.route_outcome,
         route_reason: sample.route_reason,
         limit_stop_after: sample.limit_stop_after,
-        icydb_signature: icydb_signature.clone(),
-        sqlite_signature: sqlite_signature.clone(),
-        signatures_match: icydb_signature == sqlite_signature,
+        icydb_signature,
+        sqlite_signature,
+        correctness_passed,
+        correctness_failure_owner,
+        correctness_mismatch_category,
         sqlite_explain_query_plan,
         sqlite_plan_summary,
         sqlite_plan_alignment,
@@ -3507,9 +4178,9 @@ fn sqlite_audit_comparison_report_for_scenarios(
             Err(failure) => failures.push(*failure),
         }
     }
-    let signature_mismatch_count = comparisons
+    let correctness_failure_count = comparisons
         .iter()
-        .filter(|scenario| !scenario.signatures_match)
+        .filter(|scenario| !scenario.correctness_passed)
         .count();
     let selected_surface_counts = matrix_scenario_surface_counts(scenarios);
     let selected_family_counts = matrix_scenario_family_counts(scenarios);
@@ -3525,7 +4196,7 @@ fn sqlite_audit_comparison_report_for_scenarios(
         compared_scenario_count: scenarios.len(),
         common_success_count: comparisons.len(),
         icydb_failure_count: failures.len(),
-        signature_mismatch_count,
+        correctness_failure_count,
         sample_count: run.timing_sample_count,
         scenario_key_filter: run.scenario_key_filter,
         selected_surface_counts,
@@ -3578,41 +4249,8 @@ fn sqlite_mutation_comparison_for_scenario(
     let icydb_mutation_signature =
         mutation_signature_for_comparison(&icydb_mutation_signature, scenario);
 
-    let sqlite_post_signature =
-        match sqlite_query_signature(sqlite_path, db_path, scenario.post_read_sql.as_str()) {
-            Ok(signature) => signature,
-            Err(err) => {
-                return Err(sqlite_mutation_string_failure(
-                    scenario,
-                    "sqlite_post_read_failure",
-                    err,
-                ));
-            }
-        };
-    let post_read_scenario = MatrixScenario {
-        key: format!("{}.post_state", scenario.key),
-        source: MatrixSource::Random,
-        surface: scenario.surface,
-        family: "mutation.post_state".to_string(),
-        sql: scenario.post_read_sql.clone(),
-    };
-    let icydb_post_result = match query_surface_with_perf(fixture, &post_read_scenario) {
-        Ok(result) => result,
-        Err(err) => {
-            return Err(sqlite_mutation_icydb_failure(
-                scenario,
-                "icydb_post_read_failure",
-                err,
-            ));
-        }
-    };
-    let icydb_post_signature = sqlite_comparable_signature(&icydb_post_result.result)
-        .unwrap_or_else(|| {
-            panic!(
-                "mutation post-read scenario `{}` did not produce a SQLite-comparable IcyDB result",
-                scenario.key
-            )
-        });
+    let (icydb_post_signature, sqlite_post_signature) =
+        sqlite_mutation_post_signatures(fixture, sqlite_path, db_path, scenario)?;
 
     Ok(SqliteMutationComparisonScenario {
         key: scenario.key.clone(),
@@ -3640,6 +4278,60 @@ fn sqlite_mutation_comparison_for_scenario(
         icydb_post_signature,
         sqlite_post_signature,
     })
+}
+
+fn sqlite_mutation_post_signatures(
+    fixture: &StandaloneCanisterFixture,
+    sqlite_path: &Path,
+    db_path: &Path,
+    scenario: &SqliteMutationScenario,
+) -> Result<(String, String), Box<SqliteMutationComparisonFailure>> {
+    let sqlite_post_signature =
+        match sqlite_query_signature(sqlite_path, db_path, scenario.post_read_sql.as_str()) {
+            Ok(signature) => signature,
+            Err(err) => {
+                return Err(sqlite_mutation_string_failure(
+                    scenario,
+                    "sqlite_post_read_failure",
+                    err,
+                ));
+            }
+        };
+    let post_read_scenario = MatrixScenario {
+        key: format!("{}.post_state", scenario.key),
+        source: ScenarioSource::Deterministic,
+        surface: scenario.surface,
+        family: "mutation.post_state".to_string(),
+        sql: scenario.post_read_sql.clone(),
+        metadata: read_metadata(
+            &["select.scalar_rows"],
+            QueryShape::Scalar,
+            ValueTypeFamily::Mixed,
+            PredicateFamily::None,
+            WindowSpec::ordered_unbounded("id ASC"),
+            not_paginated_route(),
+            true,
+        ),
+    };
+    let icydb_post_result = match query_surface_with_perf(fixture, &post_read_scenario) {
+        Ok(result) => result,
+        Err(err) => {
+            return Err(sqlite_mutation_icydb_failure(
+                scenario,
+                "icydb_post_read_failure",
+                err,
+            ));
+        }
+    };
+    let icydb_post_signature = sqlite_comparable_signature(&icydb_post_result.result)
+        .unwrap_or_else(|| {
+            panic!(
+                "mutation post-read scenario `{}` did not produce a SQLite-comparable IcyDB result",
+                scenario.key
+            )
+        });
+
+    Ok((icydb_post_signature, sqlite_post_signature))
 }
 
 fn expected_match_status(icydb: &str, sqlite: &str, expected: &str) -> String {
@@ -3677,17 +4369,23 @@ fn sqlite_audit_comparison_failure(
     sqlite_plan_summary: SqlitePlanSummary,
 ) -> Box<SqliteAuditComparisonFailure> {
     let diagnostic_code = err.diagnostic_code();
+    let error_code = err.code().raw();
+    let diagnostic_error_code = diagnostic_code.error_code().raw();
+    let (correctness_failure_owner, correctness_mismatch_category) =
+        rejected_scenario_correctness_projection(scenario, error_code, diagnostic_error_code);
     Box::new(SqliteAuditComparisonFailure {
         key: scenario.key.clone(),
         surface: scenario.surface.label().to_string(),
         family: scenario.family.clone(),
         sql: scenario.sql.clone(),
         status: "icydb_failure".to_string(),
-        icydb_code: err.code().raw(),
-        icydb_diagnostic_code: diagnostic_code.error_code().raw(),
+        icydb_code: error_code,
+        icydb_diagnostic_code: diagnostic_error_code,
         icydb_diagnostic_label: diagnostic_label(diagnostic_code).to_string(),
         icydb_class: error_class_label(err.class()).to_string(),
         icydb_origin: format!("{:?}", err.origin()),
+        correctness_failure_owner,
+        correctness_mismatch_category,
         sqlite_signature,
         sqlite_explain_query_plan,
         sqlite_plan_summary,
@@ -3767,6 +4465,101 @@ fn rendered_rows_signature(rows: &[Vec<String>]) -> String {
         .map(|row| row.join("\t"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn sqlite_signature_correctness_verdict(
+    scenario: &MatrixScenario,
+    icydb_signature: &str,
+    sqlite_signature: &str,
+    observed_route: RouteFact,
+) -> CorrectnessVerdict {
+    correctness_verdict(
+        scenario,
+        &CorrectnessObservation {
+            subject: ObservedOutcome::Accepted(normalized_rendered_signature(
+                icydb_signature,
+                "null",
+                scenario.metadata.row_order,
+            )),
+            provider: Some(ObservedOutcome::Accepted(normalized_rendered_signature(
+                sqlite_signature,
+                "NULL",
+                scenario.metadata.row_order,
+            ))),
+            route: Some(observed_route),
+        },
+    )
+}
+
+fn normalized_rendered_signature(
+    signature: &str,
+    null_marker: &str,
+    row_order: RowOrder,
+) -> NormalizedResult {
+    let rows = if signature.is_empty() {
+        Vec::new()
+    } else {
+        signature
+            .lines()
+            .map(|row| {
+                row.split('\t')
+                    .map(|cell| {
+                        if cell == null_marker {
+                            NormalizedCell::Null
+                        } else {
+                            NormalizedCell::Text(cell.to_string())
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    NormalizedResult {
+        columns: Vec::new(),
+        rows,
+        row_order,
+    }
+}
+
+fn correctness_report_projection(
+    verdict: &CorrectnessVerdict,
+) -> (bool, Option<String>, Option<String>) {
+    match verdict {
+        CorrectnessVerdict::Passed => (true, None, None),
+        CorrectnessVerdict::Failed(failure) => (
+            false,
+            Some(failure.signature.owner.code().to_string()),
+            Some(failure.signature.category.code().to_string()),
+        ),
+    }
+}
+
+fn rejected_scenario_correctness_projection(
+    scenario: &MatrixScenario,
+    error_code: u16,
+    diagnostic_code: u16,
+) -> (String, String) {
+    let verdict = correctness_verdict(
+        scenario,
+        &CorrectnessObservation {
+            subject: ObservedOutcome::Rejected(DiagnosticFact {
+                error_code,
+                diagnostic_code,
+            }),
+            provider: None,
+            route: None,
+        },
+    );
+    let CorrectnessVerdict::Failed(failure) = verdict else {
+        panic!(
+            "admitted scenario `{}` rejection must fail correctness",
+            scenario.key
+        )
+    };
+    (
+        failure.signature.owner.code().to_string(),
+        failure.signature.category.code().to_string(),
+    )
 }
 
 fn matrix_scenario_surface_counts(scenarios: &[MatrixScenario]) -> BTreeMap<String, usize> {
@@ -4034,11 +4827,11 @@ fn print_sqlite_audit_comparison_report(report: &SqliteAuditComparisonReport) {
 
     let output_stem = sqlite_audit_comparison_output_stem();
     println!(
-        "SQLite audit comparison: compared={}, common_success={}, icydb_failures={}, signature_mismatches={}, artifacts={}{{.json,.md}}",
+        "SQLite audit comparison: compared={}, common_success={}, icydb_failures={}, correctness_failures={}, artifacts={}{{.json,.md}}",
         report.compared_scenario_count,
         report.common_success_count,
         report.icydb_failure_count,
-        report.signature_mismatch_count,
+        report.correctness_failure_count,
         output_stem.display(),
     );
 }
@@ -4051,13 +4844,13 @@ fn print_sqlite_differential_report(report: &SqliteDifferentialReport) {
 
     let output_stem = sqlite_differential_output_stem();
     println!(
-        "SQLite random differential: seed={}, generated={}, compatible={}, common_success={}, icydb_failures={}, signature_mismatches={}, artifacts={}{{.json,.md}}",
+        "SQLite random differential: seed={}, generated={}, compatible={}, common_success={}, icydb_failures={}, correctness_failures={}, artifacts={}{{.json,.md}}",
         report.random_seed,
         report.generated_case_count,
         report.compatible_scenario_count,
         report.common_success_count,
         report.icydb_failure_count,
-        report.signature_mismatch_count,
+        report.correctness_failure_count,
         output_stem.display(),
     );
 }
@@ -4109,8 +4902,8 @@ fn sqlite_audit_comparison_markdown(report: &SqliteAuditComparisonReport) -> Str
         .expect("write to string should succeed");
     writeln!(
         out,
-        "- Signature mismatches: {}",
-        report.signature_mismatch_count
+        "- Correctness failures: {}",
+        report.correctness_failure_count
     )
     .expect("write to string should succeed");
     writeln!(out, "- SQLite timing samples: {}", report.sample_count)
@@ -4183,8 +4976,8 @@ fn sqlite_differential_markdown(report: &SqliteDifferentialReport) -> String {
         .expect("write to string should succeed");
     writeln!(
         out,
-        "- Signature mismatches: {}",
-        report.signature_mismatch_count
+        "- Correctness failures: {}",
+        report.correctness_failure_count
     )
     .expect("write to string should succeed");
     writeln!(out).expect("write to string should succeed");
@@ -4333,23 +5126,28 @@ fn append_sqlite_success_table(output: &mut String, scenarios: &[SqliteAuditComp
     writeln!(output, "## Scenarios").expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Route | Outcome | Match | SQLite Plan | Alignment | IcyDB Total | IcyDB Execute | Gets | Ranges | Entries | SQLite Median ns |"
+        "| Scenario | Surface | Route | Outcome | Correctness | Owner | Mismatch | SQLite Plan | Alignment | IcyDB Total | IcyDB Execute | Gets | Ranges | Entries | SQLite Median ns |"
     )
     .expect("write to string should succeed");
     writeln!(
         output,
-        "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
     )
     .expect("write to string should succeed");
     for scenario in scenarios {
         writeln!(
             output,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             scenario.key,
             scenario.surface,
             scenario.route_family,
             scenario.route_outcome,
-            scenario.signatures_match,
+            scenario.correctness_passed,
+            scenario.correctness_failure_owner.as_deref().unwrap_or("-"),
+            scenario
+                .correctness_mismatch_category
+                .as_deref()
+                .unwrap_or("-"),
             sqlite_plan_summary_cell(&scenario.sqlite_plan_summary),
             scenario.sqlite_plan_alignment,
             scenario.icydb_total_local_instructions,
@@ -4410,17 +5208,22 @@ fn append_sqlite_failure_table(output: &mut String, failures: &[SqliteAuditCompa
     writeln!(output, "## IcyDB Failures").expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Diagnostic | Class | Origin | SQLite Plan | SQL |"
+        "| Scenario | Surface | Owner | Mismatch | Diagnostic | Class | Origin | SQLite Plan | SQL |"
     )
     .expect("write to string should succeed");
-    writeln!(output, "| --- | --- | --- | --- | --- | --- | --- |")
-        .expect("write to string should succeed");
+    writeln!(
+        output,
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    )
+    .expect("write to string should succeed");
     for failure in failures {
         writeln!(
             output,
-            "| {} | {} | {} ({}) | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} ({}) | {} | {} | {} | `{}` |",
             failure.key,
             failure.surface,
+            failure.correctness_failure_owner,
+            failure.correctness_mismatch_category,
             failure.icydb_diagnostic_label,
             failure.icydb_diagnostic_code,
             failure.icydb_class,
@@ -4663,237 +5466,37 @@ fn matrix_sample_from_perf(scenario: &MatrixScenario, perf: &SqlQueryPerfResult)
     fill_matrix_projection_path_sample(&mut sample, attribution);
     fill_matrix_store_output_cache_sample(&mut sample, attribution);
 
-    let route = route_classification_for_sample(&sample);
-    sample.route_family = route.family.to_string();
-    sample.route_outcome = route.outcome.to_string();
-    sample.route_reason = route.reason.map(str::to_string);
-    sample.order_by_idx_hint = sql_order_by_idx_hint(&sample.sql);
-    sample.limit_stop_after = limit_stop_after_for_sample(&sample);
+    let route = route_fact_for_scenario(scenario, &sample);
+    sample.route_family = route.family.code().to_string();
+    sample.route_outcome = route.outcome.code().to_string();
+    sample.route_reason = Some(route.reason.code().to_string());
+    sample.order_by_idx_hint = scenario.metadata.window.order_hint.map(str::to_string);
+    sample.limit_stop_after = limit_stop_after_for_scenario(scenario, &sample, route);
     sample.result_signature = Some(result_signature(&perf.result));
     sample.cursor_signature = cursor_signature(&perf.result);
 
     sample
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct RouteClassification {
-    family: &'static str,
-    outcome: &'static str,
-    reason: Option<&'static str>,
-}
-
-impl RouteClassification {
-    const fn new(
-        family: &'static str,
-        outcome: &'static str,
-        reason: Option<&'static str>,
-    ) -> Self {
-        Self {
-            family,
-            outcome,
-            reason,
-        }
-    }
-}
-
-fn route_classification_for_sample(sample: &MatrixSample) -> RouteClassification {
-    if !sample.sql.starts_with("SELECT") || !sample.sql.contains(" LIMIT ") {
-        return RouteClassification::new(
-            "not_ordered_or_not_paginated",
-            "unchanged_or_not_applicable",
-            Some("not_a_paginated_select"),
-        );
-    }
-    if !sample.sql.contains(" ORDER BY ") {
-        return RouteClassification::new(
-            "not_ordered_or_not_paginated",
-            "unchanged_or_not_applicable",
-            Some("no_order_by"),
-        );
-    }
-    if sample.surface == MatrixSurface::HeapUser.label()
-        || sample.surface == MatrixSurface::JournaledUser.label()
-    {
-        return classify_storage_mirror_route(sample);
-    }
-    if sample.sql.contains("ORDER BY id ASC") || sample.sql.contains("ORDER BY id DESC") {
-        return classify_primary_order_route(sample, "primary_order_candidate");
-    }
-    if sample.sql.contains("collection_id =")
-        && (sample.sql.contains("ORDER BY stage ASC, id ASC")
-            || sample.sql.contains("ORDER BY stage DESC, id DESC"))
-    {
-        return classify_index_order_route(
-            sample,
-            "equality_prefix_ordered_suffix",
-            "equality_prefix_ordered_suffix_candidate",
-            "equality_prefix_ordered_suffix_limit_stop_proven",
-        );
-    }
-    if sample.sql.contains(" GROUP BY ") {
-        return RouteClassification::new(
-            "materialized_order",
-            "materialized",
-            Some("grouped_aggregate_materialized"),
-        );
-    }
-    if sample.sql.contains("ORDER BY age ")
-        || sample.sql.contains("ORDER BY name ")
-        || sample.sql.contains("ORDER BY handle ")
-        || sample.sql.contains("ORDER BY bucket ")
-        || sample.sql.contains("ORDER BY label ")
-        || sample.sql.contains("ORDER BY tier ")
-        || sample.sql.contains("ORDER BY LOWER(")
-    {
-        return classify_secondary_order_route(sample);
-    }
-
-    RouteClassification::new(
-        "unsupported_access_kind",
-        "unsupported",
-        Some("order_expression_not_classified"),
+fn route_fact_for_scenario(scenario: &MatrixScenario, sample: &MatrixSample) -> RouteFact {
+    scenario.metadata.route.classify(
+        scenario.metadata.window,
+        RouteObservation {
+            materialized_order: sample.direct_data_row_order_window_local_instructions != 0
+                || sample.kernel_row_order_window_local_instructions != 0,
+            data_store_get_calls: sample.data_store_get_calls,
+            index_store_entry_reads: sample.index_store_entry_reads,
+        },
     )
 }
 
-fn classify_storage_mirror_route(sample: &MatrixSample) -> RouteClassification {
-    if sample.sql.contains("ORDER BY id ASC") || sample.sql.contains("ORDER BY id DESC") {
-        return classify_primary_order_route(sample, "storage_mirror_primary_order_candidate");
-    }
-
-    RouteClassification::new(
-        "materialized_order",
-        "materialized",
-        Some("storage_mirror_has_primary_index_only"),
-    )
-}
-
-fn classify_primary_order_route(
+fn limit_stop_after_for_scenario(
+    scenario: &MatrixScenario,
     sample: &MatrixSample,
-    candidate_reason: &'static str,
-) -> RouteClassification {
-    if primary_order_has_materialized_window(sample) {
-        return RouteClassification::new(
-            "materialized_order",
-            "materialized",
-            Some("requires_materialized_sort"),
-        );
-    }
-    if primary_order_requires_candidate_scan(sample) {
-        return RouteClassification::new(
-            "residual_filter_ordered_scan",
-            "residual_unbounded",
-            Some("residual_filter_requires_candidate_scan"),
-        );
-    }
-    if primary_order_limit_stop_is_proven(sample) {
-        return RouteClassification::new(
-            "primary_order",
-            "pushed",
-            Some("primary_order_limit_stop_proven"),
-        );
-    }
-
-    RouteClassification::new(
-        "primary_order",
-        "eligible_but_not_pushed",
-        Some(candidate_reason),
-    )
-}
-
-const fn primary_order_has_materialized_window(sample: &MatrixSample) -> bool {
-    order_window_was_materialized(sample)
-}
-
-fn primary_order_requires_candidate_scan(sample: &MatrixSample) -> bool {
-    let Some((predicate_key, _order_key)) = select_predicate_and_order_keys(&sample.family) else {
-        return false;
-    };
-    !(predicate_key == "all" || predicate_key.starts_with("pk"))
-}
-
-fn primary_order_limit_stop_is_proven(sample: &MatrixSample) -> bool {
-    let Some(bound) = ordered_limit_read_bound(sample) else {
-        return false;
-    };
-    if primary_order_requires_candidate_scan(sample) || order_window_was_materialized(sample) {
-        return false;
-    }
-
-    sample.data_store_get_calls <= bound
-}
-
-fn ordered_limit_read_bound(sample: &MatrixSample) -> Option<u64> {
-    let limit = sql_clause_usize_value(&sample.sql, " LIMIT ")?;
-    let offset = sql_clause_usize_value(&sample.sql, " OFFSET ").unwrap_or(0);
-    let bound = limit.saturating_add(offset).saturating_add(1);
-    Some(u64::try_from(bound).unwrap_or(u64::MAX))
-}
-
-fn sql_clause_usize_value(sql: &str, marker: &str) -> Option<usize> {
-    let tail = sql.split_once(marker)?.1.trim_start();
-    let end = tail
-        .find(|character: char| !character.is_ascii_digit())
-        .unwrap_or(tail.len());
-    if end == 0 {
-        return None;
-    }
-    tail[..end].parse().ok()
-}
-
-fn sql_order_by_idx_hint(sql: &str) -> Option<String> {
-    let clause = sql_order_by_clause(sql)?;
-    let terms = split_sql_top_level_commas(clause)
-        .into_iter()
-        .map(normalize_sql_order_term)
-        .filter(|term| !term.is_empty())
-        .collect::<Vec<_>>();
-    if terms.is_empty() {
-        return None;
-    }
-
-    Some(terms.join(", "))
-}
-
-fn sql_order_by_clause(sql: &str) -> Option<&str> {
-    let tail = sql.split_once(" ORDER BY ")?.1.trim_start();
-    let end = [" LIMIT ", " OFFSET "]
-        .into_iter()
-        .filter_map(|marker| tail.find(marker))
-        .min()
-        .unwrap_or(tail.len());
-    let clause = tail[..end].trim();
-    (!clause.is_empty()).then_some(clause)
-}
-
-fn split_sql_top_level_commas(input: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0usize;
-    let mut in_string = false;
-
-    for (index, character) in input.char_indices() {
-        match character {
-            '\'' => in_string = !in_string,
-            '(' if !in_string => depth = depth.saturating_add(1),
-            ')' if !in_string => depth = depth.saturating_sub(1),
-            ',' if !in_string && depth == 0 => {
-                parts.push(input[start..index].trim());
-                start = index + character.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    parts.push(input[start..].trim());
-    parts
-}
-
-fn normalize_sql_order_term(term: &str) -> String {
-    term.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn limit_stop_after_for_sample(sample: &MatrixSample) -> MatrixLimitStopAfter {
-    let returned_limit = sql_clause_usize_value(&sample.sql, " LIMIT ");
-    let possible = sample.route_outcome == "pushed";
+    route: RouteFact,
+) -> MatrixLimitStopAfter {
+    let returned_limit = scenario.metadata.window.limit;
+    let possible = route.outcome == RouteOutcome::Pushed;
     MatrixLimitStopAfter {
         possible,
         returned_limit,
@@ -4901,163 +5504,16 @@ fn limit_stop_after_for_sample(sample: &MatrixSample) -> MatrixLimitStopAfter {
         stopped_after_matches: possible
             .then(|| u64::try_from(sample.outcome.row_count).unwrap_or(u64::MAX)),
         stopped_after_index_entries: possible.then_some(sample.index_store_entry_reads),
-        disabled_reason: (!possible).then(|| limit_stop_after_disabled_reason(sample)),
+        disabled_reason: (!possible).then(|| {
+            if scenario.metadata.window.limit.is_none() {
+                "no_limit".to_string()
+            } else if scenario.metadata.window.order_hint.is_none() {
+                "no_order_by".to_string()
+            } else {
+                route.reason.code().to_string()
+            }
+        }),
     }
-}
-
-fn limit_stop_after_disabled_reason(sample: &MatrixSample) -> String {
-    if !sample.sql.contains(" LIMIT ") {
-        return "no_limit".to_string();
-    }
-    if !sample.sql.contains(" ORDER BY ") {
-        return "no_order_by".to_string();
-    }
-
-    sample
-        .route_reason
-        .clone()
-        .unwrap_or_else(|| "not_pushed".to_string())
-}
-
-fn classify_secondary_order_route(sample: &MatrixSample) -> RouteClassification {
-    let Some((predicate_key, order_key)) = select_predicate_and_order_keys(&sample.family) else {
-        return RouteClassification::new(
-            "secondary_order",
-            "eligible_but_not_pushed",
-            Some("secondary_order_candidate"),
-        );
-    };
-    if secondary_order_has_index_suffix_gap(sample, order_key) {
-        return RouteClassification::new(
-            "secondary_order",
-            "missing_tie_breaker",
-            Some("index_order_suffix_gap"),
-        );
-    }
-    if order_key.starts_with("numeric_expr") {
-        return RouteClassification::new(
-            "unsupported_access_kind",
-            "unsupported",
-            Some("order_expression_not_classified"),
-        );
-    }
-    if predicate_order_is_obviously_incompatible(predicate_key, order_key) {
-        return RouteClassification::new(
-            "incompatible_filter_first_order",
-            "materialized",
-            Some("filter_order_mismatch"),
-        );
-    }
-    if predicate_key == "field_compare" {
-        return RouteClassification::new(
-            "residual_filter_ordered_scan",
-            "residual_unbounded",
-            Some("residual_filter_requires_candidate_scan"),
-        );
-    }
-    if secondary_order_requires_candidate_scan(predicate_key) {
-        return RouteClassification::new(
-            "residual_filter_ordered_scan",
-            "residual_unbounded",
-            Some("residual_filter_requires_candidate_scan"),
-        );
-    }
-
-    classify_index_order_route(
-        sample,
-        "secondary_order",
-        "secondary_order_candidate",
-        "secondary_order_limit_stop_proven",
-    )
-}
-
-fn classify_index_order_route(
-    sample: &MatrixSample,
-    family: &'static str,
-    candidate_reason: &'static str,
-    pushed_reason: &'static str,
-) -> RouteClassification {
-    if order_window_was_materialized(sample) {
-        return RouteClassification::new(
-            "materialized_order",
-            "materialized",
-            Some("requires_materialized_sort"),
-        );
-    }
-    if index_order_limit_stop_is_proven(sample) {
-        return RouteClassification::new(family, "pushed", Some(pushed_reason));
-    }
-
-    RouteClassification::new(family, "eligible_but_not_pushed", Some(candidate_reason))
-}
-
-fn secondary_order_requires_candidate_scan(predicate_key: &str) -> bool {
-    predicate_key == "field_compare"
-        || predicate_key.ends_with("_active")
-        || predicate_key.contains("_active_")
-}
-
-fn secondary_order_has_index_suffix_gap(sample: &MatrixSample, order_key: &str) -> bool {
-    // PerfAuditBlob's ordered metadata index is `(bucket, label, id)`. The
-    // matrix also emits `ORDER BY bucket, id` cases to expose the next-order
-    // frontier, but those cannot use the declared index order because `label`
-    // is the intervening suffix key.
-    sample.surface == MatrixSurface::Blob.label() && order_key == "bucket_asc"
-}
-
-fn index_order_limit_stop_is_proven(sample: &MatrixSample) -> bool {
-    let Some(bound) = ordered_limit_read_bound(sample) else {
-        return false;
-    };
-    if order_window_was_materialized(sample) {
-        return false;
-    }
-
-    sample.data_store_get_calls <= bound && sample.index_store_entry_reads <= bound
-}
-
-const fn order_window_was_materialized(sample: &MatrixSample) -> bool {
-    sample.direct_data_row_order_window_local_instructions != 0
-        || sample.kernel_row_order_window_local_instructions != 0
-}
-
-fn select_predicate_and_order_keys(family: &str) -> Option<(&str, &str)> {
-    let mut parts = family.split('.');
-    if parts.next()? != "select" {
-        return None;
-    }
-    let _projection_key = parts.next()?;
-    let predicate_key = parts.next()?;
-    let order_key = parts.next()?;
-    Some((predicate_key, order_key))
-}
-
-fn predicate_order_is_obviously_incompatible(predicate_key: &str, order_key: &str) -> bool {
-    if predicate_key == "all" || order_key.starts_with("pk_") {
-        return false;
-    }
-    if predicate_key.starts_with("age") && order_key.starts_with("age") {
-        return false;
-    }
-    if predicate_key.starts_with("name") && order_key.starts_with("name") {
-        return false;
-    }
-    if predicate_key.starts_with("lower_name") && order_key.starts_with("lower_name") {
-        return false;
-    }
-    if predicate_key.starts_with("handle") && order_key.starts_with("handle") {
-        return false;
-    }
-    if predicate_key.starts_with("lower_handle") && order_key.starts_with("lower_handle") {
-        return false;
-    }
-    if predicate_key.starts_with("bucket") && order_key.starts_with("bucket") {
-        return false;
-    }
-    if predicate_key.starts_with("label") && order_key.starts_with("label") {
-        return false;
-    }
-    predicate_key != "active_true" || !order_key.starts_with("tier")
 }
 
 fn result_signature(result: &SqlQueryResult) -> String {
@@ -5244,6 +5700,10 @@ const fn fill_matrix_store_output_cache_sample(
 
 fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFailure {
     let diagnostic_code = err.diagnostic_code();
+    let error_code = err.code().raw();
+    let diagnostic_error_code = diagnostic_code.error_code().raw();
+    let (correctness_failure_owner, correctness_mismatch_category) =
+        rejected_scenario_correctness_projection(scenario, error_code, diagnostic_error_code);
     MatrixFailure {
         key: scenario.key.clone(),
         source: scenario.source.label().to_string(),
@@ -5253,11 +5713,13 @@ fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFai
         route_family: failed_route_family(),
         route_outcome: failed_route_outcome(),
         route_reason: failed_route_reason(),
-        code: err.code().raw(),
-        diagnostic_code: diagnostic_code.error_code().raw(),
+        code: error_code,
+        diagnostic_code: diagnostic_error_code,
         diagnostic_label: diagnostic_label(diagnostic_code).to_string(),
         class: error_class_label(err.class()).to_string(),
         origin: format!("{:?}", err.origin()),
+        correctness_failure_owner,
+        correctness_mismatch_category,
     }
 }
 
@@ -5720,40 +6182,20 @@ fn entry_route(entry: ReportEntry<'_>) -> Option<(String, String, Option<String>
             Some((route.0, route.1, route.2))
         }
         ReportEntry::Failure(failure) => Some((
-            non_empty_or_default(&failure.route_family, failed_route_family),
-            non_empty_or_default(&failure.route_outcome, failed_route_outcome),
-            Some(non_empty_or_default(
-                &failure.route_reason,
-                failed_route_reason,
-            )),
+            failure.route_family.clone(),
+            failure.route_outcome.clone(),
+            Some(failure.route_reason.clone()),
         )),
         ReportEntry::Missing => None,
     }
 }
 
 fn route_for_sample(sample: &MatrixSample) -> (String, String, Option<String>) {
-    if !sample.route_family.is_empty() && !sample.route_outcome.is_empty() {
-        return (
-            sample.route_family.clone(),
-            sample.route_outcome.clone(),
-            sample.route_reason.clone(),
-        );
-    }
-
-    let route = route_classification_for_sample(sample);
     (
-        route.family.to_string(),
-        route.outcome.to_string(),
-        route.reason.map(str::to_string),
+        sample.route_family.clone(),
+        sample.route_outcome.clone(),
+        sample.route_reason.clone(),
     )
-}
-
-fn non_empty_or_default(value: &str, default: fn() -> String) -> String {
-    if value.is_empty() {
-        default()
-    } else {
-        value.to_string()
-    }
 }
 
 const fn entry_status(entry: ReportEntry<'_>) -> &'static str {
@@ -6382,9 +6824,9 @@ fn append_route_classification_summary(output: &mut String, report: &MatrixRepor
     }
     for failure in &report.failures {
         let key = (
-            non_empty_or_default(&failure.route_family, failed_route_family),
-            non_empty_or_default(&failure.route_outcome, failed_route_outcome),
-            non_empty_or_default(&failure.route_reason, failed_route_reason),
+            failure.route_family.clone(),
+            failure.route_outcome.clone(),
+            failure.route_reason.clone(),
         );
         summaries.entry(key).or_default().scenario_count += 1;
     }
@@ -7139,16 +7581,19 @@ fn append_failure_table(output: &mut String, failures: &[MatrixFailure]) {
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Code | Diagnostic | Class | Origin | SQL |"
+        "| Scenario | Surface | Owner | Mismatch | Code | Diagnostic | Class | Origin | SQL |"
     )
     .expect("write to string should succeed");
-    writeln!(output, "|---|---|---:|---|---|---|---|").expect("write to string should succeed");
+    writeln!(output, "|---|---|---|---|---:|---|---|---|---|")
+        .expect("write to string should succeed");
     for failure in failures.iter().take(top_n()) {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} ({}) | {} | {} | `{}` |",
+            "| `{}` | {} | {} | {} | {} | {} ({}) | {} | {} | `{}` |",
             failure.key,
             failure.surface,
+            failure.correctness_failure_owner,
+            failure.correctness_mismatch_category,
             failure.code,
             failure.diagnostic_label,
             failure.diagnostic_code,
@@ -7168,6 +7613,19 @@ fn sql_perf_matrix_failures_use_stable_diagnostic_labels() {
         MatrixSurface::User,
         "failure.query_plan",
         "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression",
+        read_metadata(
+            &["select.scalar_rows"],
+            QueryShape::Scalar,
+            ValueTypeFamily::Numeric,
+            PredicateFamily::None,
+            WindowSpec::ordered_unbounded("unsupported_expression"),
+            RouteExpectation::Fixed(RouteFact::new(
+                RouteFamily::UnsupportedAccessKind,
+                RouteOutcome::Unsupported,
+                RouteReason::OrderExpressionNotClassified,
+            )),
+            false,
+        ),
     );
     let failure = matrix_failure_from_error(
         &scenario,
@@ -7179,6 +7637,8 @@ fn sql_perf_matrix_failures_use_stable_diagnostic_labels() {
     assert_eq!(failure.diagnostic_label, "QueryPlan");
     assert_eq!(failure.class, "Query");
     assert_eq!(failure.origin, "Query");
+    assert_eq!(failure.correctness_failure_owner, "product_failure");
+    assert_eq!(failure.correctness_mismatch_category, "acceptance");
 }
 
 fn print_matrix_summary(report: &MatrixReport) {
@@ -7221,10 +7681,9 @@ fn sql_perf_generated_matrix_has_stable_shape() {
         "deterministic matrix should be broad enough to hunt hotspots; got {}",
         deterministic.len(),
     );
-    assert_eq!(
-        deterministic.first().map(|scenario| scenario.key.as_str()),
-        Some("user.select.pk.all.pk_asc.limit1"),
-    );
+    let selected = select_stratified(&deterministic, DEFAULT_MATRIX_LIMIT)
+        .expect("default deterministic budget should cover every declared stratum");
+    assert_eq!(selected.len(), DEFAULT_MATRIX_LIMIT);
 
     let mut keys = HashSet::new();
     for scenario in &deterministic {
@@ -7249,8 +7708,7 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
     let deterministic = deterministic_matrix();
     let scenarios_by_key = deterministic
         .iter()
-        .enumerate()
-        .map(|(position, scenario)| (scenario.key.as_str(), (position, scenario)))
+        .map(|scenario| (scenario.key.as_str(), scenario))
         .collect::<BTreeMap<_, _>>();
     let expected_keys = [
         "token.collection_stage_id.branch_set.page_only.limit50",
@@ -7269,13 +7727,10 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
     ];
 
     for key in expected_keys {
-        let (position, scenario) = scenarios_by_key
+        let scenario = scenarios_by_key
             .get(key)
+            .copied()
             .unwrap_or_else(|| panic!("deterministic matrix should include route hotspot {key}"));
-        assert!(
-            *position < DEFAULT_MATRIX_LIMIT,
-            "route hotspot {key} should run inside the default matrix window; position={position}"
-        );
         assert_eq!(scenario.surface, MatrixSurface::Token);
         assert!(
             scenario.family.starts_with("route."),
@@ -7306,7 +7761,7 @@ fn sql_perf_sqlite_comparison_default_subset_is_broad_and_compatible() {
         .collect::<BTreeMap<_, _>>();
     let selected = deterministic
         .iter()
-        .filter(|scenario| sqlite_audit_scenario_is_compatible(scenario))
+        .filter(|scenario| scenario_has_sqlite_reference(scenario))
         .collect::<Vec<_>>();
     let selected_keys = selected
         .iter()
@@ -7399,14 +7854,14 @@ fn sql_perf_sqlite_differential_random_subset_is_seeded_and_compatible() {
         "random SELECT differential should include NOT IN predicates"
     );
     for scenario in &selected {
-        assert_eq!(scenario.source, MatrixSource::Random);
+        assert!(matches!(scenario.source, ScenarioSource::Generated { .. }));
         assert!(
             scenario.key.starts_with("random.1cdb01960000000f."),
             "random differential scenario should include the seed in its key: {}",
             scenario.key,
         );
         assert!(
-            sqlite_audit_scenario_is_compatible(scenario),
+            scenario_has_sqlite_reference(scenario),
             "random differential should select only SQLite-compatible scenarios: {}",
             scenario.key,
         );
@@ -7453,7 +7908,7 @@ fn sql_perf_sqlite_differential_markdown_records_seed_and_strict_counts() {
         compatible_scenario_count: 1,
         common_success_count: 1,
         icydb_failure_count: 0,
-        signature_mismatch_count: 0,
+        correctness_failure_count: 0,
         selected_surface_counts: count_map(&[("user", 1)]),
         selected_family_counts: count_map(&[("random.pk.pk_asc", 1)]),
         successful_route_family_counts: count_map(&[("primary_order", 1)]),
@@ -7471,7 +7926,9 @@ fn sql_perf_sqlite_differential_markdown_records_seed_and_strict_counts() {
             limit_stop_after: MatrixLimitStopAfter::default(),
             icydb_signature: "1".to_string(),
             sqlite_signature: "1".to_string(),
-            signatures_match: true,
+            correctness_passed: true,
+            correctness_failure_owner: None,
+            correctness_mismatch_category: None,
             sqlite_explain_query_plan: vec!["SCAN PerfAuditUser".to_string()],
             sqlite_plan_summary: sqlite_plan_summary(&["SCAN PerfAuditUser".to_string()]),
             sqlite_plan_alignment: "aligned_ordered_access".to_string(),
@@ -7496,7 +7953,7 @@ fn sql_perf_sqlite_differential_markdown_records_seed_and_strict_counts() {
     assert!(markdown.contains("- Random seed: 2079257396718338063"));
     assert!(markdown.contains("- Compatible scenarios: 1 of 1 generated"));
     assert!(markdown.contains("- IcyDB failures: 0"));
-    assert!(markdown.contains("- Signature mismatches: 0"));
+    assert!(markdown.contains("- Correctness failures: 0"));
     assert!(markdown.contains("## Selected Surface Coverage"));
     assert!(markdown.contains("| user | 1 |"));
     assert!(markdown.contains("## Successful Route Pair Coverage"));
@@ -7877,13 +8334,11 @@ fn sql_perf_sqlite_plan_summary_classifies_index_and_temp_sort() {
     );
 }
 
-fn assert_branch_route_hotspot_sql_shapes(
-    scenarios_by_key: &BTreeMap<&str, (usize, &MatrixScenario)>,
-) {
+fn assert_branch_route_hotspot_sql_shapes(scenarios_by_key: &BTreeMap<&str, &MatrixScenario>) {
     let branch = scenarios_by_key
         .get("token.collection_stage_id.branch_set.page_only.limit50")
         .expect("branch-set route hotspot should exist")
-        .1;
+        .to_owned();
     assert!(
         branch.sql.contains("stage IN ('Draft', 'Review')"),
         "branch-set route hotspot should use the small exact stage set"
@@ -7896,7 +8351,7 @@ fn assert_branch_route_hotspot_sql_shapes(
     let prefixed_range = scenarios_by_key
         .get("token.collection_stage_id.prefixed_stage_range.page_only.limit50")
         .expect("prefixed range route hotspot should exist")
-        .1;
+        .to_owned();
     assert!(
         prefixed_range
             .sql
@@ -7913,7 +8368,7 @@ fn assert_branch_route_hotspot_sql_shapes(
     let wide_branch = scenarios_by_key
         .get("token.collection_stage_id.branch_set.wide_page_only.limit50")
         .expect("wide branch-set route hotspot should exist")
-        .1;
+        .to_owned();
     assert!(
         wide_branch.sql.contains(
             "stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden')"
@@ -7924,7 +8379,7 @@ fn assert_branch_route_hotspot_sql_shapes(
     let over_cap = scenarios_by_key
         .get("token.collection_stage_id.overcap_fallback.page_only.limit50")
         .expect("over-cap route hotspot should exist")
-        .1;
+        .to_owned();
     assert!(
         over_cap.sql.contains(
             "stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')"
@@ -7935,7 +8390,7 @@ fn assert_branch_route_hotspot_sql_shapes(
     let over_cap_pruned = scenarios_by_key
         .get("token.collection_stage_id.overcap_pruned.page_only.limit50")
         .expect("post-exclusion over-cap route hotspot should exist")
-        .1;
+        .to_owned();
     assert!(
         over_cap_pruned.sql.contains(
             "stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')"
@@ -7950,17 +8405,11 @@ fn assert_branch_route_hotspot_sql_shapes(
     );
 }
 
-fn assert_sparse_collection_in_route_hotspots(
-    scenarios_by_key: &BTreeMap<&str, (usize, &MatrixScenario)>,
-) {
-    let (sparse_position, sparse_in) = scenarios_by_key
+fn assert_sparse_collection_in_route_hotspots(scenarios_by_key: &BTreeMap<&str, &MatrixScenario>) {
+    let sparse_in = scenarios_by_key
         .get("token.collection_id.sparse_in.page_only.limit50")
         .expect("sparse collection IN route hotspot should exist")
         .to_owned();
-    assert!(
-        sparse_position < DEFAULT_MATRIX_LIMIT,
-        "sparse collection IN hotspot should run inside the default matrix window; position={sparse_position}"
-    );
     assert!(
         sparse_in.sql.contains("collection_id IN"),
         "sparse collection IN hotspot should exercise the index multi-lookup route"
@@ -7974,14 +8423,10 @@ fn assert_sparse_collection_in_route_hotspots(
         "sparse collection IN hotspot should preserve the primary-key page order"
     );
 
-    let (sparse_count_position, sparse_count) = scenarios_by_key
+    let sparse_count = scenarios_by_key
         .get("token.collection_id.sparse_in.count")
         .expect("sparse collection IN count hotspot should exist")
         .to_owned();
-    assert!(
-        sparse_count_position < DEFAULT_MATRIX_LIMIT,
-        "sparse collection IN count hotspot should run inside the default matrix window; position={sparse_count_position}"
-    );
     assert!(
         sparse_count.sql.contains("SELECT COUNT(*)"),
         "sparse collection IN count hotspot should exercise count terminal routing"
@@ -8017,39 +8462,42 @@ fn sql_perf_matrix_exact_key_filter_selects_known_scenarios() {
 }
 
 #[test]
-fn sql_perf_matrix_classifies_bounded_primary_order_limit_as_pushed() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
-        "select.pk.all.pk_asc",
-    );
-    sample.data_store_get_calls = 1;
+fn sql_perf_matrix_route_and_window_facts_are_constructor_owned() {
+    let scenarios = deterministic_matrix()
+        .into_iter()
+        .map(|scenario| (scenario.key.clone(), scenario))
+        .collect::<BTreeMap<_, _>>();
 
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "primary_order",
-            "pushed",
-            Some("primary_order_limit_stop_proven"),
-        ),
-    );
+    assert_primary_route_facts(&scenarios);
+    assert_secondary_route_facts(&scenarios);
+    assert_token_route_facts(&scenarios);
 }
 
-#[test]
-fn sql_perf_matrix_limit_stop_after_reports_pushed_bound() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
-        "select.pk.all.pk_asc",
-    );
+fn assert_primary_route_facts(scenarios: &BTreeMap<String, MatrixScenario>) {
+    let primary = scenarios
+        .get("user.select.pk.all.pk_asc.limit1")
+        .expect("primary-order matrix case should exist");
+    let mut sample = MatrixSample {
+        outcome: MatrixOutcome {
+            row_count: 1,
+            ..MatrixOutcome::default()
+        },
+        ..MatrixSample::default()
+    };
     sample.data_store_get_calls = 1;
-    let route = route_classification_for_sample(&sample);
-    sample.route_family = route.family.to_string();
-    sample.route_outcome = route.outcome.to_string();
-    sample.route_reason = route.reason.map(str::to_string);
+    let route = route_fact_for_scenario(primary, &sample);
+    assert_eq!(
+        route,
+        RouteFact::new(
+            RouteFamily::PrimaryOrder,
+            RouteOutcome::Pushed,
+            RouteReason::PrimaryOrderLimitStopProven,
+        )
+    );
+    assert_eq!(primary.metadata.window.order_hint, Some("id ASC"));
 
     assert_eq!(
-        limit_stop_after_for_sample(&sample),
+        limit_stop_after_for_scenario(primary, &sample, route),
         MatrixLimitStopAfter {
             possible: true,
             returned_limit: Some(1),
@@ -8059,321 +8507,98 @@ fn sql_perf_matrix_limit_stop_after_reports_pushed_bound() {
             disabled_reason: None,
         },
     );
+    let residual = scenarios
+        .get("user.select.pk.active_true.pk_desc.limit3")
+        .expect("residual primary-order matrix case should exist");
+    assert_eq!(
+        route_fact_for_scenario(residual, &MatrixSample::default()),
+        RouteFact::new(
+            RouteFamily::ResidualFilterOrderedScan,
+            RouteOutcome::ResidualUnbounded,
+            RouteReason::ResidualFilterRequiresCandidateScan,
+        )
+    );
+
+    let mut changed_sql = primary.clone();
+    changed_sql.sql = "rendered SQL is not route authority".to_string();
+    assert_eq!(route_fact_for_scenario(&changed_sql, &sample), route);
 }
 
-#[test]
-fn sql_perf_matrix_classifies_offset_primary_order_limit_as_pushed_when_bounded() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditUser ORDER BY id DESC LIMIT 3 OFFSET 2",
-        "select.pk.all.pk_desc",
-    );
-    sample.data_store_get_calls = 6;
-
-    let route = route_classification_for_sample(&sample);
-
+fn assert_secondary_route_facts(scenarios: &BTreeMap<String, MatrixScenario>) {
+    let suffix_gap = scenarios
+        .get("blob.select.metadata.bucket_range.bucket_asc.limit3")
+        .expect("blob suffix-gap matrix case should exist");
+    let suffix_route = route_fact_for_scenario(suffix_gap, &MatrixSample::default());
     assert_eq!(
-        route,
-        RouteClassification::new(
-            "primary_order",
-            "pushed",
-            Some("primary_order_limit_stop_proven"),
-        ),
+        suffix_route,
+        RouteFact::new(
+            RouteFamily::SecondaryOrder,
+            RouteOutcome::MissingTieBreaker,
+            RouteReason::IndexOrderSuffixGap,
+        )
     );
-}
-
-#[test]
-fn sql_perf_matrix_keeps_primary_order_candidate_unpushed_without_bounded_evidence() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
-        "select.pk.all.pk_asc",
-    );
-    sample.data_store_get_calls = 512;
-
-    let route = route_classification_for_sample(&sample);
-
     assert_eq!(
-        route,
-        RouteClassification::new(
-            "primary_order",
-            "eligible_but_not_pushed",
-            Some("primary_order_candidate"),
-        ),
-    );
-
-    sample.data_store_get_calls = 1;
-    sample.direct_data_row_order_window_local_instructions = 10;
-    let materialized_route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        materialized_route,
-        RouteClassification::new(
-            "materialized_order",
-            "materialized",
-            Some("requires_materialized_sort"),
-        ),
+        limit_stop_after_for_scenario(suffix_gap, &MatrixSample::default(), suffix_route)
+            .disabled_reason
+            .as_deref(),
+        Some("index_order_suffix_gap")
     );
 }
 
-#[test]
-fn sql_perf_matrix_classifies_primary_order_residual_candidate_scan() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditUser WHERE active = true ORDER BY id DESC LIMIT 3",
-        "select.pk.active_true.pk_desc",
-    );
-    sample.data_store_get_calls = 5;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "residual_filter_ordered_scan",
-            "residual_unbounded",
-            Some("residual_filter_requires_candidate_scan"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_classifies_bounded_secondary_order_limit_as_pushed() {
-    let mut sample = route_classification_sample(
-        "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
-        "select.pk.all.age_asc",
-    );
-    sample.data_store_get_calls = 3;
-    sample.index_store_entry_reads = 4;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "secondary_order",
-            "pushed",
-            Some("secondary_order_limit_stop_proven"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_keeps_secondary_order_candidate_unpushed_without_index_bound() {
-    let mut sample = route_classification_sample(
-        "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
-        "select.pk.all.age_asc",
-    );
-    sample.data_store_get_calls = 3;
-    sample.index_store_entry_reads = 512;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "secondary_order",
-            "eligible_but_not_pushed",
-            Some("secondary_order_candidate"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_classifies_materialized_secondary_order_window() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditAccount ORDER BY handle ASC, id ASC LIMIT 1",
-        "select.pk.all.handle_asc",
-    );
-    sample.surface = MatrixSurface::Account.label().to_string();
-    sample.data_store_get_calls = 6;
-    sample.kernel_row_order_window_local_instructions = 1_893;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "materialized_order",
-            "materialized",
-            Some("requires_materialized_sort"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_classifies_secondary_order_residual_candidate_scan() {
-    let mut sample = route_classification_sample(
-        "SELECT id, handle FROM PerfAuditAccount WHERE LOWER(handle) LIKE 'a%' AND active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
-        "select.narrow.lower_handle_prefix_active.lower_handle_asc",
-    );
-    sample.surface = MatrixSurface::Account.label().to_string();
-    sample.data_store_get_calls = 9;
-    sample.index_store_range_scan_calls = 3;
-    sample.index_store_entry_reads = 9;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "residual_filter_ordered_scan",
-            "residual_unbounded",
-            Some("residual_filter_requires_candidate_scan"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_classifies_unindexed_order_expression_as_unsupported() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditUser ORDER BY age + rank ASC, id ASC LIMIT 1",
-        "select.pk.all.numeric_expr_asc",
-    );
-    sample.data_store_get_calls = 6;
-    sample.kernel_row_order_window_local_instructions = 2_048;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "unsupported_access_kind",
-            "unsupported",
-            Some("order_expression_not_classified"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_classifies_grouped_aggregate_as_materialized() {
-    let mut sample = route_classification_sample(
-        "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
-        "aggregate.grouped",
-    );
-    sample.outcome.result_kind = "grouped".to_string();
-    sample.outcome.row_count = 6;
-    sample.grouped_fold_local_instructions = 8_192;
-    sample.data_store_get_calls = 6;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "materialized_order",
-            "materialized",
-            Some("grouped_aggregate_materialized"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_classifies_blob_bucket_id_order_as_missing_index_suffix() {
-    let mut sample = route_classification_sample(
-        "SELECT id, label FROM PerfAuditBlob WHERE bucket >= 10 AND bucket < 40 ORDER BY bucket ASC, id ASC LIMIT 3",
-        "select.narrow.bucket_range.bucket_asc",
-    );
-    sample.surface = MatrixSurface::Blob.label().to_string();
-    sample.data_store_get_calls = 3;
-    sample.index_store_entry_reads = 4;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "secondary_order",
-            "missing_tie_breaker",
-            Some("index_order_suffix_gap"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_limit_stop_after_reports_index_suffix_gap_reason() {
-    let mut sample = route_classification_sample(
-        "SELECT id, label FROM PerfAuditBlob WHERE bucket >= 10 AND bucket < 40 ORDER BY bucket ASC, id ASC LIMIT 3",
-        "select.narrow.bucket_range.bucket_asc",
-    );
-    sample.surface = MatrixSurface::Blob.label().to_string();
-    let route = route_classification_for_sample(&sample);
-    sample.route_family = route.family.to_string();
-    sample.route_outcome = route.outcome.to_string();
-    sample.route_reason = route.reason.map(str::to_string);
-
-    assert_eq!(
-        limit_stop_after_for_sample(&sample),
-        MatrixLimitStopAfter {
-            possible: false,
-            returned_limit: Some(3),
-            lookahead: 1,
-            stopped_after_matches: None,
-            stopped_after_index_entries: None,
-            disabled_reason: Some("index_order_suffix_gap".to_string()),
+fn assert_token_route_facts(scenarios: &BTreeMap<String, MatrixScenario>) {
+    let secondary_range = scenarios
+        .get("token.collection_stage_id.prefixed_stage_range.page_only.limit50")
+        .expect("secondary index-range matrix case should exist");
+    let secondary_route = route_fact_for_scenario(
+        secondary_range,
+        &MatrixSample {
+            index_store_entry_reads: 50,
+            ..MatrixSample::default()
         },
     );
-}
-
-#[test]
-fn sql_perf_matrix_keeps_blob_bucket_label_id_order_pushable() {
-    let mut sample = route_classification_sample(
-        "SELECT id, label FROM PerfAuditBlob WHERE bucket >= 10 AND bucket < 40 ORDER BY bucket ASC, label ASC, id ASC LIMIT 3",
-        "select.narrow.bucket_range.bucket_label_asc",
-    );
-    sample.surface = MatrixSurface::Blob.label().to_string();
-    sample.data_store_get_calls = 3;
-    sample.index_store_entry_reads = 4;
-
-    let route = route_classification_for_sample(&sample);
-
     assert_eq!(
-        route,
-        RouteClassification::new(
-            "secondary_order",
-            "pushed",
-            Some("secondary_order_limit_stop_proven"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_classifies_bounded_equality_prefix_suffix_order_as_pushed() {
-    let mut sample = route_classification_sample(
-        "SELECT id FROM PerfAuditToken WHERE collection_id = '01KV5N439P0000000000000000' ORDER BY stage ASC, id ASC LIMIT 50",
-        "route.prefixed_range.page_only",
-    );
-    sample.surface = MatrixSurface::Token.label().to_string();
-    sample.data_store_get_calls = 0;
-    sample.index_store_range_scan_calls = 1;
-    sample.index_store_entry_reads = 50;
-
-    let route = route_classification_for_sample(&sample);
-
-    assert_eq!(
-        route,
-        RouteClassification::new(
-            "equality_prefix_ordered_suffix",
-            "pushed",
-            Some("equality_prefix_ordered_suffix_limit_stop_proven"),
-        ),
-    );
-}
-
-#[test]
-fn sql_perf_matrix_extracts_order_by_hint_from_matrix_sql() {
-    assert_eq!(
-        sql_order_by_idx_hint("SELECT id FROM PerfAuditToken ORDER BY stage ASC, id ASC LIMIT 50",)
-            .as_deref(),
-        Some("stage ASC, id ASC"),
-    );
-    assert_eq!(
-        sql_order_by_idx_hint(
-            "SELECT name FROM PerfAuditUser ORDER BY ROUND(age / 3, 2) DESC, name ASC LIMIT 2",
+        secondary_route,
+        RouteFact::new(
+            RouteFamily::SecondaryOrder,
+            RouteOutcome::Pushed,
+            RouteReason::SecondaryOrderLimitStopProven,
         )
-        .as_deref(),
-        Some("ROUND(age / 3, 2) DESC, name ASC"),
     );
     assert_eq!(
-        sql_order_by_idx_hint("SELECT id FROM PerfAuditUser LIMIT 1"),
-        None,
+        secondary_range.metadata.window.order_hint,
+        Some("stage ASC, id ASC")
+    );
+
+    let equality_prefix = scenarios
+        .get("token.collection_id.sparse_in.page_only.limit50")
+        .expect("sparse child-expansion matrix case should exist");
+    let equality_route = route_fact_for_scenario(
+        equality_prefix,
+        &MatrixSample {
+            index_store_entry_reads: 50,
+            ..MatrixSample::default()
+        },
+    );
+    assert_eq!(
+        equality_route,
+        RouteFact::new(
+            RouteFamily::EqualityPrefixOrderedSuffix,
+            RouteOutcome::Pushed,
+            RouteReason::EqualityPrefixOrderedSuffixLimitStopProven,
+        )
+    );
+    assert_eq!(equality_prefix.metadata.window.order_hint, Some("id ASC"));
+
+    let materialized = scenarios
+        .get("token.collection_stage_id.overcap_fallback.page_only.limit50")
+        .expect("over-cap materialized matrix case should exist");
+    assert_eq!(
+        route_fact_for_scenario(materialized, &MatrixSample::default()),
+        RouteFact::new(
+            RouteFamily::MaterializedOrder,
+            RouteOutcome::Materialized,
+            RouteReason::RequiresMaterializedSort,
+        )
     );
 }
 
@@ -8385,6 +8610,7 @@ fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
         100,
         "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
     );
+    before_sample.order_by_idx_hint = Some("id ASC".to_string());
     before_sample.result_signature = Some("projection|PerfAuditUser|id|1|1".to_string());
     let mut after_sample = before_sample.clone();
     after_sample.total_local_instructions = 900;
@@ -8392,7 +8618,14 @@ fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
     after_sample.data_store_get_calls = 0;
     after_sample.route_outcome = "pushed".to_string();
     after_sample.route_reason = Some("primary_order_limit_stop_proven".to_string());
-    after_sample.limit_stop_after = limit_stop_after_for_sample(&after_sample);
+    after_sample.limit_stop_after = MatrixLimitStopAfter {
+        possible: true,
+        returned_limit: Some(1),
+        lookahead: 1,
+        stopped_after_matches: Some(1),
+        stopped_after_index_entries: Some(0),
+        disabled_reason: None,
+    };
     after_sample
         .result_signature
         .clone_from(&before_sample.result_signature);
@@ -8413,7 +8646,7 @@ fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
 
     let before_failure = MatrixFailure {
         key: "user.failure.resolved".to_string(),
-        source: MatrixSource::Deterministic.label().to_string(),
+        source: ScenarioSource::Deterministic.label().to_string(),
         surface: MatrixSurface::User.label().to_string(),
         family: "failure.query_plan".to_string(),
         sql: "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression".to_string(),
@@ -8425,6 +8658,8 @@ fn matrix_delta_report_test_fixture() -> (MatrixReport, MatrixReport) {
         diagnostic_label: "QueryPlan".to_string(),
         class: "Query".to_string(),
         origin: "Query".to_string(),
+        correctness_failure_owner: "product_failure".to_string(),
+        correctness_mismatch_category: "acceptance".to_string(),
     };
     let after_failure = MatrixFailure {
         key: "user.failure.new".to_string(),
@@ -8621,7 +8856,7 @@ fn sql_perf_matrix_markdown_reports_route_classification_summary() {
 
     let failure = MatrixFailure {
         key: "user.failure".to_string(),
-        source: MatrixSource::Deterministic.label().to_string(),
+        source: ScenarioSource::Deterministic.label().to_string(),
         surface: MatrixSurface::User.label().to_string(),
         family: "failure.query_plan".to_string(),
         sql: "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression".to_string(),
@@ -8633,6 +8868,8 @@ fn sql_perf_matrix_markdown_reports_route_classification_summary() {
         diagnostic_label: "QueryPlan".to_string(),
         class: "Query".to_string(),
         origin: "Query".to_string(),
+        correctness_failure_owner: "product_failure".to_string(),
+        correctness_mismatch_category: "acceptance".to_string(),
     };
     let report = MatrixReport {
         matrix_mode: MatrixMode::Deterministic.label().to_string(),
@@ -8683,7 +8920,7 @@ fn sql_perf_random_matrix_has_seeded_stable_shape() {
 
     let mut keys = HashSet::new();
     for scenario in &random {
-        assert_eq!(scenario.source, MatrixSource::Random);
+        assert!(matches!(scenario.source, ScenarioSource::Generated { .. }));
         assert!(
             keys.insert(scenario.key.as_str()),
             "duplicate random scenario key '{}'",
@@ -9048,19 +9285,16 @@ fn report_matrix_sample(
 ) -> MatrixSample {
     MatrixSample {
         key: key.to_string(),
-        source: MatrixSource::Deterministic.label().to_string(),
+        source: ScenarioSource::Deterministic.label().to_string(),
         surface: surface.to_string(),
         family: "select.pk.all.pk_asc".to_string(),
         sql: sql.to_string(),
         route_family: "primary_order".to_string(),
         route_outcome: "eligible_but_not_pushed".to_string(),
         route_reason: Some("test_sample".to_string()),
-        order_by_idx_hint: sql_order_by_idx_hint(sql),
+        order_by_idx_hint: None,
         limit_stop_after: MatrixLimitStopAfter {
             possible: false,
-            returned_limit: sql_clause_usize_value(sql, " LIMIT "),
-            lookahead: sql_clause_usize_value(sql, " LIMIT ")
-                .map_or(0, |limit| usize::from(limit > 0)),
             disabled_reason: Some("test_sample".to_string()),
             ..MatrixLimitStopAfter::default()
         },
@@ -9138,21 +9372,6 @@ fn report_matrix_sample(
             entity: "PerfAuditHeapUser".to_string(),
             row_count: 1,
         },
-    }
-}
-
-fn route_classification_sample(sql: &str, family: &str) -> MatrixSample {
-    MatrixSample {
-        source: MatrixSource::Deterministic.label().to_string(),
-        surface: MatrixSurface::User.label().to_string(),
-        family: family.to_string(),
-        sql: sql.to_string(),
-        outcome: MatrixOutcome {
-            result_kind: "projection".to_string(),
-            entity: "PerfAuditUser".to_string(),
-            row_count: 1,
-        },
-        ..MatrixSample::default()
     }
 }
 
@@ -9405,9 +9624,9 @@ fn sql_perf_random_matrix_differential_compares_sqlite_reference_fixture() {
             Err(failure) => failures.push(*failure),
         }
     }
-    let signature_mismatch_count = comparisons
+    let correctness_failure_count = comparisons
         .iter()
-        .filter(|scenario| !scenario.signatures_match)
+        .filter(|scenario| !scenario.correctness_passed)
         .count();
     let selected_surface_counts = matrix_scenario_surface_counts(&scenarios);
     let selected_family_counts = matrix_scenario_family_counts(&scenarios);
@@ -9424,7 +9643,7 @@ fn sql_perf_random_matrix_differential_compares_sqlite_reference_fixture() {
         compatible_scenario_count: scenarios.len(),
         common_success_count: comparisons.len(),
         icydb_failure_count: failures.len(),
-        signature_mismatch_count,
+        correctness_failure_count,
         selected_surface_counts,
         selected_family_counts,
         successful_route_family_counts,
@@ -9450,12 +9669,12 @@ fn sql_perf_random_matrix_differential_compares_sqlite_reference_fixture() {
     let mismatches = report
         .scenarios
         .iter()
-        .filter(|scenario| !scenario.signatures_match)
+        .filter(|scenario| !scenario.correctness_passed)
         .map(|scenario| scenario.key.as_str())
         .collect::<Vec<_>>();
     assert!(
         mismatches.is_empty(),
-        "SQLite random differential signatures should match IcyDB for overlapping audit scenarios: {mismatches:?}",
+        "SQLite random differential correctness verdict should pass for overlapping audit scenarios: {mismatches:?}",
     );
     assert_sqlite_differential_report_covers_required_shapes(&report);
 }
@@ -9702,12 +9921,12 @@ fn assert_sqlite_audit_comparison_report_matches(
     let mismatches = report
         .scenarios
         .iter()
-        .filter(|scenario| !scenario.signatures_match)
+        .filter(|scenario| !scenario.correctness_passed)
         .map(|scenario| scenario.key.as_str())
         .collect::<Vec<_>>();
     assert!(
         mismatches.is_empty(),
-        "{label} signatures should match IcyDB for overlapping audit scenarios: {mismatches:?}",
+        "{label} correctness verdict should pass for overlapping audit scenarios: {mismatches:?}",
     );
 }
 
@@ -9791,7 +10010,8 @@ fn sql_perf_generated_matrix_reports_hotspots() {
     let scenario_key_filter = matrix_scenario_key_filter();
     let scenarios = filter_matrix_scenarios(scenarios, scenario_key_filter.as_deref());
     let matrix_limit = matrix_limit(scenarios.len());
-    let selected = scenarios.into_iter().take(matrix_limit).collect::<Vec<_>>();
+    let selected = select_stratified(&scenarios, matrix_limit)
+        .unwrap_or_else(|error| panic!("stratified SQL matrix selection failed: {error:?}"));
     eprintln!(
         "sql_perf_matrix: selected {} of {generated_scenario_count} generated scenarios",
         selected.len(),

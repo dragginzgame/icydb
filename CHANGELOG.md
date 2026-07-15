@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
+
+Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
+
+- `0.204.0` establishes one machine-checked SQL coverage authority and a typed,
+  fail-closed correctness harness with deterministic stratified selection,
+  without changing production SQL behavior.
+
 ## [0.203.x] ⚠️ - 2026-07-14 - Legacy Architecture Hard Cut
 
 Detailed notes: [docs/changelog/0.203.md](docs/changelog/0.203.md)

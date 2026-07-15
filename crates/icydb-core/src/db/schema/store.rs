@@ -404,6 +404,47 @@ impl AcceptedCatalogSnapshotSelection {
         Ok(Self::new(identity, enum_catalog, raw_snapshot.into_bytes()))
     }
 
+    /// Select one entity snapshot and catalog directly from a verified schema
+    /// candidate while recovery is still applying its accepted root.
+    pub(in crate::db) fn from_candidate(
+        candidate: &CandidateSchemaRevision,
+        entity_tag: EntityTag,
+        entity_path: &'static str,
+        store_path: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        if candidate.store_path() != store_path {
+            return Err(InternalError::store_corruption());
+        }
+        let Some(snapshot) = candidate.bundle().entity_snapshots().get(&entity_tag) else {
+            return Ok(None);
+        };
+        if snapshot.entity_path() != entity_path {
+            return Err(InternalError::store_corruption());
+        }
+
+        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
+        let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
+        let identity = AcceptedCatalogIdentity::new(
+            entity_tag,
+            entity_path,
+            store_path,
+            candidate.revision(),
+            snapshot.version(),
+            fingerprint,
+        );
+
+        Ok(Some(Self::new(
+            identity,
+            AcceptedEnumCatalogHandle::new(
+                candidate.bundle().enum_catalog().clone(),
+                AcceptedStoreCatalogScope::new(),
+                candidate.revision(),
+                candidate.root().fingerprint(),
+            ),
+            raw_snapshot.into_bytes(),
+        )))
+    }
+
     pub(in crate::db) fn decode_verified(&self) -> Result<AcceptedSchemaSnapshot, InternalError> {
         let snapshot = decode_persisted_schema_snapshot(&self.raw_snapshot)?;
         let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
@@ -1104,6 +1145,65 @@ impl SchemaStore {
                     .ok_or_else(InternalError::store_corruption)?
                     .root()
                     .fingerprint(),
+            ),
+            raw_snapshot.into_bytes(),
+        )))
+    }
+
+    /// Return one accepted catalog selection from the canonical journal base.
+    /// Recovery uses this while folding historical row batches whose schema
+    /// revision can precede the current live accepted root.
+    pub(in crate::db) fn current_canonical_accepted_catalog_selection(
+        &self,
+        entity: EntityTag,
+        entity_path: &'static str,
+        store_path: &'static str,
+    ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError> {
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        let Some(selection) =
+            select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
+        else {
+            return Ok(None);
+        };
+        let bundle_key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
+        let raw_bundle = self
+            .get_canonical_raw_value(&bundle_key)?
+            .ok_or_else(InternalError::store_corruption)?;
+        let bundle = decode_verified_accepted_schema_revision_bundle(
+            selection.root(),
+            raw_bundle.as_bytes(),
+        )?;
+        if bundle.store_path() != store_path {
+            return Err(InternalError::store_corruption());
+        }
+        let Some(snapshot) = bundle.entity_snapshots().get(&entity) else {
+            return Ok(None);
+        };
+        if snapshot.entity_path() != entity_path {
+            return Err(InternalError::store_corruption());
+        }
+
+        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
+        let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
+        let identity = AcceptedCatalogIdentity::new(
+            entity,
+            entity_path,
+            store_path,
+            bundle.revision(),
+            snapshot.version(),
+            fingerprint,
+        );
+
+        Ok(Some(AcceptedCatalogSnapshotSelection::new(
+            identity,
+            AcceptedEnumCatalogHandle::new(
+                bundle.enum_catalog().clone(),
+                self.accepted_catalog_scope
+                    .get_or_init(AcceptedStoreCatalogScope::new)
+                    .clone(),
+                bundle.revision(),
+                selection.root().fingerprint(),
             ),
             raw_snapshot.into_bytes(),
         )))
