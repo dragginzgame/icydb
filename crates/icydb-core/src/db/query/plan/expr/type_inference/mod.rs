@@ -7,8 +7,6 @@
 mod aggregate;
 mod binary;
 mod case;
-#[cfg(test)]
-mod coarse;
 mod function;
 mod source;
 mod unify;
@@ -25,12 +23,6 @@ use crate::db::{
     schema::SchemaInfo,
 };
 
-#[cfg(test)]
-pub(in crate::db::query::plan::expr) use coarse::{
-    dynamic_function_arg_coarse_family, function_arg_coarse_family, function_result_coarse_family,
-    infer_case_result_exprs_coarse_family, infer_dynamic_function_result_exprs_coarse_family,
-    infer_expr_coarse_family,
-};
 pub(in crate::db::query::plan::expr) use function::function_is_compare_operand_coarse_family;
 
 ///
@@ -55,17 +47,15 @@ pub(in crate::db) enum ExprType {
 }
 
 ///
-/// ExprCoarseTypeFamily
+/// FunctionArgumentFamily
 ///
-/// Coarse planner-owned expression family projection used by boundaries that
-/// intentionally validate against `Bool` / `Numeric` / `Text` contracts
-/// without becoming a second independent type lattice.
+/// Closed scalar-function argument family used by planner type validation.
+/// This projects only the numeric/text distinctions required by fixed
+/// signatures and does not form a second expression type lattice.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query::plan::expr) enum ExprCoarseTypeFamily {
-    #[cfg(test)]
-    Bool,
+enum FunctionArgumentFamily {
     Numeric,
     Text,
 }
@@ -162,27 +152,6 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
         Expr::Binary { op, left, right } => {
             binary::infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema)
         }
-    }
-}
-
-/// Project one inferred planner expression type into one coarse boundary-local
-/// family without reinterpreting the underlying typing semantics.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db::query::plan::expr) const fn coarse_family_for_expr_type(
-    expr_type: &ExprType,
-) -> Option<ExprCoarseTypeFamily> {
-    match expr_type {
-        ExprType::Bool => Some(ExprCoarseTypeFamily::Bool),
-        ExprType::Numeric(_) => Some(ExprCoarseTypeFamily::Numeric),
-        ExprType::Text => Some(ExprCoarseTypeFamily::Text),
-        #[cfg(test)]
-        ExprType::Null => None,
-        ExprType::Blob
-        | ExprType::Collection
-        | ExprType::Structured
-        | ExprType::Opaque
-        | ExprType::Unknown => None,
     }
 }
 

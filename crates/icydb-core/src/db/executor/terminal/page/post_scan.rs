@@ -40,7 +40,7 @@ pub(super) enum StructuralPostScanPageWindowStrategy {
 pub(super) struct StructuralPostScanTailStrategy<'a> {
     page_window_strategy: StructuralPostScanPageWindowStrategy,
     projection_validation: Option<&'a PreparedProjectionContract>,
-    final_payload_strategy: FinalPayloadStrategy,
+    retain_slot_rows: bool,
 }
 
 impl<'a> StructuralPostScanTailStrategy<'a> {
@@ -49,12 +49,12 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
     pub(super) const fn new(
         page_window_strategy: StructuralPostScanPageWindowStrategy,
         projection_validation: Option<&'a PreparedProjectionContract>,
-        final_payload_strategy: FinalPayloadStrategy,
+        retain_slot_rows: bool,
     ) -> Self {
         Self {
             page_window_strategy,
             projection_validation,
-            final_payload_strategy,
+            retain_slot_rows,
         }
     }
 
@@ -80,7 +80,7 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
             self.page_window_strategy,
             StructuralPostScanPageWindowStrategy::CursorlessRetainedWindow
         ) && !page_window_already_applied
-            && self.final_payload_strategy.retains_slot_rows()
+            && self.retain_slot_rows
             && !cursorless_short_path_page_window_is_redundant(plan, rows.len())
         {
             apply_cursorless_short_path_page_window(plan, rows);
@@ -98,45 +98,8 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
     ) -> Result<StructuralCursorPage, InternalError> {
         finalize_structural_cursor_payload(
             rows,
-            self.final_payload_strategy.finalize_mode(next_cursor),
+            select_structural_cursor_payload_strategy(self.retain_slot_rows, next_cursor),
         )
-    }
-}
-
-///
-/// FinalPayloadStrategy
-///
-/// FinalPayloadStrategy freezes the outward scalar payload family selected for
-/// one materialization plan.
-/// The terminal tail then only adds the already-derived next cursor instead of
-/// reinterpreting retain-slot policy at the last step.
-///
-
-#[derive(Clone, Copy)]
-pub(super) struct FinalPayloadStrategy {
-    retain_slot_rows: bool,
-}
-
-impl FinalPayloadStrategy {
-    // Resolve the scalar final payload family from the outer slot-retention
-    // policy once at plan construction time.
-    pub(super) const fn from_retain_slot_rows(retain_slot_rows: bool) -> Self {
-        Self { retain_slot_rows }
-    }
-
-    // Return whether this final payload strategy keeps retained slot rows
-    // instead of final data rows.
-    const fn retains_slot_rows(self) -> bool {
-        self.retain_slot_rows
-    }
-
-    // Attach the already-built cursor boundary to the frozen final payload
-    // family for this scalar materialization plan.
-    const fn finalize_mode(
-        self,
-        next_cursor: Option<PageCursor>,
-    ) -> StructuralCursorPayloadStrategy {
-        select_structural_cursor_payload_strategy(self.retain_slot_rows, next_cursor)
     }
 }
 
@@ -148,8 +111,6 @@ pub(in crate::db::executor) enum StructuralCursorPayloadStrategy {
     DataRows { next_cursor: Option<PageCursor> },
     SlotRows { next_cursor: Option<PageCursor> },
 }
-
-impl StructuralCursorPayloadStrategy {}
 
 // Select one final structural payload family before converting kernel rows
 // into their outward cursor page boundary.

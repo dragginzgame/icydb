@@ -11,12 +11,14 @@ mod verdict;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use icydb_testing_sql_generator::{
+    EligibleProvider, EvidenceStrength, MutationKind, NullabilityClass, PredicateFamily,
+    QueryShape, RouteFamily, StatementFamily, ValueTypeFamily, WindowBehavior,
+};
 pub(crate) use model::EvidenceClass;
 pub(crate) use model::{
-    CorrectnessScenario, EligibleProvider, EvidenceStrength, ExpectedAcceptance, MutationKind,
-    NullabilityClass, PredicateFamily, QueryShape, RouteExpectation, RouteFact, RouteFamily,
-    RouteObservation, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
-    ValueTypeFamily, WindowBehavior, WindowSpec,
+    CorrectnessScenario, ExpectedAcceptance, RouteExpectation, RouteFact, RouteObservation,
+    RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, WindowSpec,
 };
 pub(crate) use normalization::{
     NormalizationMismatchKind, NormalizedCell, NormalizedResult, compare_normalized_results,

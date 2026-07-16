@@ -8,7 +8,7 @@ mod schema_check;
 use candid::Encode;
 use icydb::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationEnforcement, EntitySchemaDescription,
+    EntityRelationDescription, EntitySchemaDescription,
 };
 
 use crate::observability::test_support::{
@@ -175,7 +175,6 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
             "icydb_testing_demo_rpg_fixtures::schema::account::Account".to_string(),
             "Account".to_string(),
             "accounts".to_string(),
-            EntityRelationEnforcement::Enforced,
             EntityRelationCardinality::Single,
         )],
     )];
@@ -208,8 +207,8 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
     assert!(text.contains("  Character   idx_character__name   name     no       generated\n"));
     assert!(text.contains("  Character   character_level_idx   level    no       ddl\n"));
     assert!(text.contains("relations\n"));
-    assert!(text.contains("  entity      field        target    enforcement   cardinality\n"));
-    assert!(text.contains("  Character   account_id   Account   Enforced      Single\n"));
+    assert!(text.contains("  entity      field        target    cardinality\n"));
+    assert!(text.contains("  Character   account_id   Account   Single\n"));
 }
 
 #[test]

@@ -14,5 +14,5 @@ pub(in crate::db) use bridge::{
 pub(in crate::db) use compile::derive_normalized_bool_expr_predicate_subset;
 #[cfg(test)]
 pub(in crate::db) use compile::{
-    compile_canonical_bool_expr_to_compiled_predicate, compile_normalized_bool_expr_to_predicate,
+    compile_canonical_bool_expr_to_predicate, compile_normalized_bool_expr_to_predicate,
 };

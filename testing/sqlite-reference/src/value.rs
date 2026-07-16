@@ -5,6 +5,9 @@
 
 use crate::{SqliteAdapterError, SqliteAdapterErrorKind};
 
+/// Domain separator for canonical typed differential-result fingerprints.
+const SQLITE_REFERENCE_RESULT_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sqlite-reference-result/v1";
+
 ///
 /// SqliteReferenceColumnKind
 ///
@@ -133,4 +136,84 @@ impl SqliteReferenceResult {
     pub const fn row_order(&self) -> SqliteReferenceRowOrder {
         self.row_order
     }
+
+    /// Compute the canonical typed result fingerprint embedded in failure replay.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed result error if an in-memory collection length cannot be
+    /// represented by the fixed 64-bit canonical encoding.
+    pub fn fingerprint(&self) -> Result<String, SqliteAdapterError> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(SQLITE_REFERENCE_RESULT_FINGERPRINT_DOMAIN);
+        hasher.update(&[match self.row_order {
+            SqliteReferenceRowOrder::Ordered => 0,
+            SqliteReferenceRowOrder::Unordered => 1,
+        }]);
+        update_length(&mut hasher, self.columns.len())?;
+        for column in &self.columns {
+            update_bytes(&mut hasher, column.as_bytes())?;
+        }
+        update_length(&mut hasher, self.rows.len())?;
+        for row in &self.rows {
+            update_length(&mut hasher, row.len())?;
+            for value in row {
+                update_value(&mut hasher, value)?;
+            }
+        }
+
+        Ok(format!("blake3.{}", hasher.finalize().to_hex()))
+    }
+}
+
+fn update_value(
+    hasher: &mut blake3::Hasher,
+    value: &SqliteReferenceValue,
+) -> Result<(), SqliteAdapterError> {
+    match value {
+        SqliteReferenceValue::Blob(value) => {
+            hasher.update(&[0]);
+            update_bytes(hasher, value)
+        }
+        SqliteReferenceValue::Boolean(value) => {
+            hasher.update(&[1, u8::from(*value)]);
+            Ok(())
+        }
+        SqliteReferenceValue::Decimal { mantissa, scale } => {
+            hasher.update(&[2]);
+            hasher.update(&mantissa.to_be_bytes());
+            hasher.update(&scale.to_be_bytes());
+            Ok(())
+        }
+        SqliteReferenceValue::Integer(value) => {
+            hasher.update(&[3]);
+            hasher.update(&value.to_be_bytes());
+            Ok(())
+        }
+        SqliteReferenceValue::Null => {
+            hasher.update(&[4]);
+            Ok(())
+        }
+        SqliteReferenceValue::Text(value) => {
+            hasher.update(&[5]);
+            update_bytes(hasher, value.as_bytes())
+        }
+    }
+}
+
+fn update_bytes(hasher: &mut blake3::Hasher, bytes: &[u8]) -> Result<(), SqliteAdapterError> {
+    update_length(hasher, bytes.len())?;
+    hasher.update(bytes);
+    Ok(())
+}
+
+fn update_length(hasher: &mut blake3::Hasher, length: usize) -> Result<(), SqliteAdapterError> {
+    let length = u64::try_from(length).map_err(|_| {
+        SqliteAdapterError::new(
+            SqliteAdapterErrorKind::Result,
+            "typed reference result length exceeds its canonical 64-bit encoding",
+        )
+    })?;
+    hasher.update(&length.to_be_bytes());
+    Ok(())
 }

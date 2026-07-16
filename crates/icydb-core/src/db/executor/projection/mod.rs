@@ -31,18 +31,15 @@ pub(in crate::db::executor) use eval::eval_compiled_expr_with_value_ref_reader;
 pub(in crate::db::executor) use eval::{
     eval_compiled_expr_with_value_reader, eval_effective_runtime_filter_program_with_slot_reader,
     eval_effective_runtime_filter_program_with_value_cow_reader,
-    eval_effective_runtime_filter_program_with_value_ref_reader,
 };
 #[cfg(feature = "sql")]
-pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_result};
+pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_rows};
 pub(in crate::db::executor) use grouped::*;
 pub(in crate::db::executor) use grouped::{
     GroupedRowView, compile_grouped_projection_expr, evaluate_grouped_having_expr,
 };
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) use materialize::MaterializedProjectionRows;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use materialize::PreparedProjectionPlan;
+pub(in crate::db) use materialize::MaterializedProjectionRows;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor::projection) use materialize::ProjectionDistinctWindow;
 #[cfg(feature = "sql")]

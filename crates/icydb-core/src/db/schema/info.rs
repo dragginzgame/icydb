@@ -10,13 +10,12 @@ use crate::db::schema::{
 };
 use crate::{
     db::schema::{
-        AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind,
-        AcceptedRelationEnforcement, AcceptedSchemaSnapshot, AcceptedValueAdmissionContract,
-        FieldId, FieldType, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldSlot, enum_catalog::AcceptedValueContract, field_type_from_model_kind,
-        field_type_from_persisted_kind,
+        AcceptedEnumCatalog, AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaSnapshot,
+        AcceptedValueAdmissionContract, FieldId, FieldType, PersistedFieldSnapshot,
+        PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+        PersistedSchemaSnapshot, SchemaFieldSlot, enum_catalog::AcceptedValueContract,
+        field_type_from_model_kind, field_type_from_persisted_kind,
     },
     model::{
         entity::EntityModel,
@@ -126,13 +125,11 @@ fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
     usize::from(slot.get())
 }
 
-fn persisted_kind_has_strong_relation(kind: &AcceptedFieldKind) -> bool {
+fn persisted_kind_has_relation(kind: &AcceptedFieldKind) -> bool {
     match kind {
-        AcceptedFieldKind::Relation { enforcement, .. } => {
-            *enforcement == AcceptedRelationEnforcement::Enforced
-        }
+        AcceptedFieldKind::Relation { .. } => true,
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
-            persisted_kind_has_strong_relation(inner)
+            persisted_kind_has_relation(inner)
         }
         _ => false,
     }
@@ -504,7 +501,7 @@ pub(crate) struct SchemaInfo {
     entity_path: Option<String>,
     entity_name: Option<String>,
     primary_key_names: Vec<String>,
-    has_any_strong_relations: bool,
+    has_any_relations: bool,
 }
 
 impl SchemaInfo {
@@ -551,7 +548,7 @@ impl SchemaInfo {
             entity_path: None,
             entity_name: None,
             primary_key_names: Vec::new(),
-            has_any_strong_relations: false,
+            has_any_relations: false,
         }
     }
 
@@ -566,7 +563,7 @@ impl SchemaInfo {
             .iter()
             .map(|field| field.name().to_string())
             .collect();
-        schema.has_any_strong_relations = model.has_any_strong_relations();
+        schema.has_any_relations = model.has_any_relations();
 
         for (field_name, field) in &mut schema.fields {
             field.indexed = generated_field_is_indexed(model, field_name.as_str());
@@ -668,14 +665,14 @@ impl SchemaInfo {
         self.primary_key_names.as_slice()
     }
 
-    /// Return whether this entity has any strong relation checks.
+    /// Return whether this entity has any relation checks.
     ///
     /// Accepted schema views source this from persisted relation field
     /// contracts. Generated schema views source it from generated model
     /// metadata only for proposal/model-only callers.
     #[must_use]
-    pub(in crate::db) const fn has_any_strong_relations(&self) -> bool {
-        self.has_any_strong_relations
+    pub(in crate::db) const fn has_any_relations(&self) -> bool {
+        self.has_any_relations
     }
 
     /// Return whether one top-level field participates in any index.
@@ -993,11 +990,11 @@ impl SchemaInfo {
             entity_path: Some(schema.entity_path().to_string()),
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_names,
-            has_any_strong_relations: !snapshot.relations().is_empty()
+            has_any_relations: !snapshot.relations().is_empty()
                 || snapshot
                     .fields()
                     .iter()
-                    .any(|field| persisted_kind_has_strong_relation(field.kind())),
+                    .any(|field| persisted_kind_has_relation(field.kind())),
         }
     }
 

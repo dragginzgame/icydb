@@ -5,9 +5,7 @@
 
 use crate::{
     db::{
-        access::{
-            AccessPath, AccessPlan, IndexBranchSetOrderedSuffix, SemanticIndexAccessContract,
-        },
+        access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
         query::explain::ExplainAccessPath,
     },
     model::index::IndexKeyItemsRef,
@@ -47,7 +45,6 @@ pub(in crate::db) trait AccessPlanProjection<K> {
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
-        ordered_suffix: IndexBranchSetOrderedSuffix,
     ) -> Self::Output;
     fn index_range(
         &mut self,
@@ -126,7 +123,6 @@ impl<K> AccessPath<K> {
                     fields.as_slice(),
                     spec.fixed_values(),
                     spec.branch_values(),
-                    spec.ordered_suffix(),
                 )
             }
             Self::IndexRange { spec } => {
@@ -191,23 +187,12 @@ where
             fixed_values,
             branch_values,
             branch_field,
-            ordered_suffix,
         } => {
             debug_assert_eq!(
                 branch_field.as_deref(),
                 fields.get(fixed_values.len()).map(String::as_str)
             );
-            debug_assert_eq!(
-                ordered_suffix,
-                IndexBranchSetOrderedSuffix::PrimaryKeyAsc.label()
-            );
-            projection.index_branch_set(
-                name,
-                fields,
-                fixed_values,
-                branch_values,
-                IndexBranchSetOrderedSuffix::PrimaryKeyAsc,
-            )
+            projection.index_branch_set(name, fields, fixed_values, branch_values)
         }
         ExplainAccessPath::IndexRange {
             name,
@@ -296,7 +281,6 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
         _index_fields: &[String],
         _fixed_values: &[Value],
         _branch_values: &[Value],
-        _ordered_suffix: IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         let mut label = String::new();
         let _ = write!(&mut label, "IndexBranchSet({index_name})");
@@ -403,7 +387,6 @@ impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
         _index_fields: &[String],
         _fixed_values: &[Value],
         _branch_values: &[Value],
-        _ordered_suffix: IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         "index_branch_set"
     }

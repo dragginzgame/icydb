@@ -163,7 +163,7 @@ impl StoreSchemaMetadataCapability {
     }
 }
 
-/// Strong relation source capability for a store.
+/// Relation source capability for a store.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreRelationSourceCapability {
     /// Source rows can own durable relation integrity.
@@ -173,7 +173,7 @@ pub enum StoreRelationSourceCapability {
     LiveSource,
 }
 
-/// Strong relation target capability for a store.
+/// Relation target capability for a store.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreRelationTargetCapability {
     /// Target rows can be referenced by durable source rows.
@@ -181,14 +181,6 @@ pub enum StoreRelationTargetCapability {
     DurableTarget,
     /// Target rows are volatile and cannot satisfy durable source integrity.
     VolatileTarget,
-}
-
-/// Whether the store can participate in live validation.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
-pub enum StoreLiveValidationCapability {
-    /// Live validation is supported.
-    #[default]
-    Supported,
 }
 
 /// Runtime storage capability descriptor carried by one registered store.
@@ -204,7 +196,6 @@ pub struct StoreRuntimeStorageCapabilities {
     schema_metadata: StoreSchemaMetadataCapability,
     relation_source: StoreRelationSourceCapability,
     relation_target: StoreRelationTargetCapability,
-    live_validation: StoreLiveValidationCapability,
 }
 
 impl StoreRuntimeStorageCapabilities {
@@ -220,7 +211,6 @@ impl StoreRuntimeStorageCapabilities {
             schema_metadata: StoreSchemaMetadataCapability::LiveRebuiltMetadata,
             relation_source: StoreRelationSourceCapability::LiveSource,
             relation_target: StoreRelationTargetCapability::VolatileTarget,
-            live_validation: StoreLiveValidationCapability::Supported,
         }
     }
 
@@ -236,7 +226,6 @@ impl StoreRuntimeStorageCapabilities {
             schema_metadata: StoreSchemaMetadataCapability::CanonicalStableHistoryPlusJournalTail,
             relation_source: StoreRelationSourceCapability::DurableSource,
             relation_target: StoreRelationTargetCapability::DurableTarget,
-            live_validation: StoreLiveValidationCapability::Supported,
         }
     }
 
@@ -286,12 +275,6 @@ impl StoreRuntimeStorageCapabilities {
     #[must_use]
     pub const fn relation_target(self) -> StoreRelationTargetCapability {
         self.relation_target
-    }
-
-    /// Live validation capability.
-    #[must_use]
-    pub const fn live_validation(self) -> StoreLiveValidationCapability {
-        self.live_validation
     }
 }
 

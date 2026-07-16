@@ -7,6 +7,7 @@ use crate::{
     MatrixScenario, StatementFamily, expected_phase_reconciliations, limit_stop_after_for_scenario,
     route_fact_for_scenario,
     sql_perf_environment::PerfEnvironmentIdentity,
+    sql_perf_measurement::{PerformanceMeasurementCoverage, current_measurement_coverage},
     sql_perf_p2::{P2CandidateSelection, P2SelectionError, validate_p2_candidate_selection},
     sql_perf_p2_confirmation::{
         P2ConfirmationError, P2ScenarioConfirmation, P2WarmEvidence, P2WarmNotApplicableReason,
@@ -78,6 +79,9 @@ pub(crate) struct P2ShardReport {
     /// Versioned phase-ownership contract used by every retained sample.
     phase_ownership: PhaseOwnershipTable,
 
+    /// Canonical measured and explicitly unmeasured resource dimensions.
+    measurement_coverage: PerformanceMeasurementCoverage,
+
     /// Complete environment captured by this independent P2 shard run.
     environment: PerfEnvironmentIdentity,
 
@@ -112,6 +116,9 @@ pub(crate) struct MergedP2ShardReports {
 
     /// Versioned phase-ownership contract used by every retained sample.
     phase_ownership: PhaseOwnershipTable,
+
+    /// Canonical measured and explicitly unmeasured resource dimensions.
+    measurement_coverage: PerformanceMeasurementCoverage,
 
     /// Exact environment inherited from candidate selection and every shard.
     pub(crate) environment: PerfEnvironmentIdentity,
@@ -154,6 +161,7 @@ pub(crate) fn build_p2_shard_report(
         p2_scenario_set_hash: selection.p2_scenario_set_hash.clone(),
         canister_wasm_profile: required_wasm_profile.to_string(),
         phase_ownership: current_phase_ownership(),
+        measurement_coverage: current_measurement_coverage(),
         environment,
         receipt,
         confirmations,
@@ -207,6 +215,9 @@ pub(crate) fn validate_p2_shard_report(
     }
     if report.phase_ownership != current_phase_ownership() {
         return Err(P2ShardReportValidationError::PhaseOwnershipDrift);
+    }
+    if report.measurement_coverage != current_measurement_coverage() {
+        return Err(P2ShardReportValidationError::MeasurementCoverageDrift);
     }
     if report.environment != selection.environment {
         return Err(P2ShardReportValidationError::EnvironmentDrift);
@@ -343,6 +354,7 @@ pub(crate) fn merge_p2_shard_reports(
         p2_scenario_set_hash: selection.p2_scenario_set_hash.clone(),
         canister_wasm_profile: required_wasm_profile.to_string(),
         phase_ownership: current_phase_ownership(),
+        measurement_coverage: current_measurement_coverage(),
         environment: selection.environment.clone(),
         receipts,
         confirmations,
@@ -388,6 +400,9 @@ pub(crate) fn validate_merged_p2_report(
     if report.phase_ownership != current_phase_ownership() {
         return Err(P2ShardMergeError::PhaseOwnershipDrift);
     }
+    if report.measurement_coverage != current_measurement_coverage() {
+        return Err(P2ShardMergeError::MeasurementCoverageDrift);
+    }
     if report.receipts.len() != usize::from(profile.shard_count()) {
         return Err(P2ShardMergeError::ReceiptCount {
             expected: profile.shard_count(),
@@ -407,6 +422,7 @@ pub(crate) fn validate_merged_p2_report(
             p2_scenario_set_hash: report.p2_scenario_set_hash.clone(),
             canister_wasm_profile: report.canister_wasm_profile.clone(),
             phase_ownership: report.phase_ownership.clone(),
+            measurement_coverage: report.measurement_coverage,
             environment: report.environment.clone(),
             receipt: report.receipts[usize::from(shard_index)].clone(),
             confirmations,
@@ -778,6 +794,9 @@ pub(crate) enum P2ShardReportValidationError {
     /// The report's phase-ownership table differs from the current schema.
     PhaseOwnershipDrift,
 
+    /// The report's measured/unmeasured resource table differs from current authority.
+    MeasurementCoverageDrift,
+
     /// One sample's serialized phase reconciliation differs from raw counters.
     PhaseReconciliationDrift(String),
 
@@ -854,6 +873,9 @@ impl Display for P2ShardReportValidationError {
             Self::PhaseOwnershipDrift => {
                 formatter.write_str("P2 shard phase-ownership table drifted")
             }
+            Self::MeasurementCoverageDrift => {
+                formatter.write_str("P2 shard measurement coverage drifted")
+            }
             Self::PhaseReconciliationDrift(scenario_id) => write!(
                 formatter,
                 "P2 shard phase reconciliation drifted for scenario {scenario_id:?}",
@@ -903,6 +925,7 @@ impl Error for P2ShardReportValidationError {
             | Self::P1ScenarioSetHash
             | Self::P2ScenarioSetHash
             | Self::PhaseOwnershipDrift
+            | Self::MeasurementCoverageDrift
             | Self::PhaseReconciliationDrift(_)
             | Self::ProfileVersion { .. }
             | Self::ReceiptDrift(_)
@@ -946,6 +969,9 @@ pub(crate) enum P2ShardMergeError {
 
     /// The merged report's phase-ownership table differs from current authority.
     PhaseOwnershipDrift,
+
+    /// The merged report's measured/unmeasured resource table differs from current authority.
+    MeasurementCoverageDrift,
 
     /// The merged report names a performance profile version other than current.
     ProfileVersion {
@@ -998,6 +1024,9 @@ impl Display for P2ShardMergeError {
             Self::PhaseOwnershipDrift => {
                 formatter.write_str("merged P2 phase-ownership table drifted")
             }
+            Self::MeasurementCoverageDrift => {
+                formatter.write_str("merged P2 measurement coverage drifted")
+            }
             Self::ProfileVersion { expected, actual } => write!(
                 formatter,
                 "merged P2 profile version drifted: expected {expected}, observed {actual}",
@@ -1030,6 +1059,7 @@ impl Error for P2ShardMergeError {
             | Self::DuplicateReport(_)
             | Self::MissingReport(_)
             | Self::PhaseOwnershipDrift
+            | Self::MeasurementCoverageDrift
             | Self::ProfileVersion { .. }
             | Self::ReceiptCount { .. }
             | Self::ReportCountMismatch { .. }
@@ -1438,6 +1468,18 @@ pub(crate) mod tests {
         .expect("written merged P2 report should read");
         fs::remove_file(&merged_path).expect("temporary merged P2 report should be removed");
         assert_eq!(decoded, merged);
+        let mut coverage_drifted = merged.clone();
+        coverage_drifted.measurement_coverage.peak_heap_bytes =
+            crate::sql_perf_measurement::PerformanceMeasurementStatus::Measured;
+        assert!(matches!(
+            validate_merged_p2_report(
+                SQL_PERFORMANCE_PROFILE,
+                "wasm-release",
+                &scenarios,
+                &coverage_drifted,
+            ),
+            Err(P2ShardMergeError::MeasurementCoverageDrift)
+        ));
         let mut unknown_field =
             serde_json::to_value(&reports[0]).expect("current P2 shard should serialize");
         unknown_field

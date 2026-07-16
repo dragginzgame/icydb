@@ -48,7 +48,7 @@ impl LoadCursorResolver {
                 PreparedLoadCursor::Grouped(plan.revalidate_grouped_cursor(cursor)?)
             }
             (true, LoadCursorInput::Grouped(_)) | (false, LoadCursorInput::Scalar(_)) => {
-                return Err(execution_mode.cursor_input_invariant_error());
+                return Err(InternalError::query_executor_invariant());
             }
         };
 

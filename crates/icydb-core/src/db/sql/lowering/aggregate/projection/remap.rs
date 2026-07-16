@@ -1,11 +1,6 @@
 use crate::db::{
-    query::builder::AggregateExpr,
-    sql::lowering::{
-        SqlLoweringError,
-        aggregate::{
-            semantics::AggregateTerminalSemanticKey, terminal::LoweredSqlGlobalAggregateTerminal,
-        },
-    },
+    query::{builder::AggregateExpr, plan::AggregateSemanticKey},
+    sql::lowering::{SqlLoweringError, aggregate::terminal::LoweredSqlGlobalAggregateTerminal},
 };
 use std::collections::HashMap;
 use std::{
@@ -34,7 +29,7 @@ enum GlobalAggregateTerminalCollectionMode {
 ///
 pub(super) struct GlobalAggregateTerminalInterner {
     terminals: Vec<LoweredSqlGlobalAggregateTerminal>,
-    semantic_keys: Vec<AggregateTerminalSemanticKey>,
+    semantic_keys: Vec<AggregateSemanticKey>,
     indices_by_semantic_fingerprint: HashMap<u64, Vec<usize>>,
 }
 
@@ -63,8 +58,8 @@ impl GlobalAggregateTerminalInterner {
     ) -> Result<usize, SqlLoweringError> {
         self.assert_aligned();
 
-        let semantic_key = AggregateTerminalSemanticKey::from_aggregate_expr(aggregate_expr);
-        let fingerprint = aggregate_terminal_semantic_key_fingerprint(&semantic_key);
+        let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
+        let fingerprint = aggregate_semantic_key_fingerprint(&semantic_key);
         let indices = self
             .indices_by_semantic_fingerprint
             .entry(fingerprint)
@@ -142,7 +137,7 @@ impl GlobalAggregateTerminalInterner {
     }
 }
 
-fn aggregate_terminal_semantic_key_fingerprint(key: &AggregateTerminalSemanticKey) -> u64 {
+fn aggregate_semantic_key_fingerprint(key: &AggregateSemanticKey) -> u64 {
     let mut hasher = DefaultHasher::new();
     format!("{key:?}").hash(&mut hasher);
     hasher.finish()

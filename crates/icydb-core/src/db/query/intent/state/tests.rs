@@ -220,9 +220,7 @@ fn append_extractable_predicate_to_unextractable_expr_marks_partial_coverage() {
 
     assert_eq!(
         filter.predicate_coverage(),
-        FilterPredicateCoverage::Partial {
-            reason: PredicateCoverageGapReason::UnsupportedFilterSemantics,
-        },
+        FilterPredicateCoverage::Partial,
         "combined coverage should record that only part of the user-visible filter is predicate-backed",
     );
     assert!(

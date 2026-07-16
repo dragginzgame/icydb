@@ -10,12 +10,7 @@ use crate::{
         pipeline::{
             contracts::LoadExecutor,
             entrypoints::{PreparedLoadRouteRuntime, prepare_grouped_route_runtime_for_load_plan},
-            orchestrator::{
-                LoadSurfaceMode,
-                state::{
-                    LoadAccessInputs, LoadAccessState, LoadExecutionContext, LoadPayloadState,
-                },
-            },
+            orchestrator::LoadSurfaceMode,
         },
     },
     entity::{EntityKind, EntityValue},
@@ -26,38 +21,20 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Build one canonical execution context from mode + plan + cursor inputs.
-    pub(in crate::db::executor::pipeline::orchestrator) fn build_execution_context(
+    // Prepare one canonical route runtime from mode, plan, and cursor inputs.
+    pub(in crate::db::executor::pipeline::orchestrator) fn prepare_load_surface_runtime(
         &self,
         plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
         execution_mode: LoadSurfaceMode,
-    ) -> Result<LoadAccessState, InternalError> {
+    ) -> Result<PreparedLoadRouteRuntime, InternalError> {
         if !plan.mode().is_load() {
             return Err(InternalError::load_executor_load_plan_required());
         }
 
         let resolved_cursor =
             LoadCursorResolver::resolve_load_cursor_context(&plan, cursor, execution_mode)?;
-        let prepared_runtime = self.build_prepared_route_runtime(plan, resolved_cursor, false)?;
-
-        Ok(LoadAccessState {
-            context: LoadExecutionContext::new(execution_mode),
-            access_inputs: LoadAccessInputs { prepared_runtime },
-        })
-    }
-
-    // Apply grouping/projection contracts over staged payload artifacts.
-    pub(in crate::db::executor::pipeline::orchestrator) fn apply_grouping_projection(
-        state: LoadAccessState,
-    ) -> Result<LoadPayloadState, InternalError> {
-        let LoadAccessState {
-            context,
-            access_inputs,
-        } = state;
-        let LoadAccessInputs { prepared_runtime } = access_inputs;
-
-        prepared_runtime.execute(context)
+        self.build_prepared_route_runtime(plan, resolved_cursor, false)
     }
 
     // Build one canonical prepared route runtime from one typed execution context.

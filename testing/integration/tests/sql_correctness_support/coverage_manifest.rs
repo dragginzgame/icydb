@@ -11,6 +11,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use icydb_testing_sql_generator::TIER_C_SQL_COVERAGE_MANIFEST_REVISION;
 use icydb_testing_sqlite_reference::required_sqlite_reference_scenarios;
 
 ///
@@ -39,6 +40,16 @@ impl FeatureKind {
             _ => None,
         }
     }
+
+    /// Return the stable machine-readable feature-kind identity.
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Interaction => "interaction",
+            Self::Policy => "policy",
+            Self::Semantic => "semantic",
+            Self::Syntax => "syntax",
+        }
+    }
 }
 
 ///
@@ -63,6 +74,14 @@ impl FeatureStatus {
             _ => None,
         }
     }
+
+    /// Return the stable machine-readable feature-status identity.
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Rejected => "rejected",
+        }
+    }
 }
 
 ///
@@ -82,6 +101,20 @@ enum FeatureCategory {
     ValueType,
 }
 
+impl FeatureCategory {
+    /// Return the stable machine-readable feature-category identity.
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Clause => "clause",
+            Self::Expression => "expression",
+            Self::Interaction => "interaction",
+            Self::Policy => "policy",
+            Self::Statement => "statement",
+            Self::ValueType => "value_type",
+        }
+    }
+}
+
 ///
 /// PerformanceObligation
 ///
@@ -96,6 +129,19 @@ enum PerformanceObligation {
     None,
     RegressionSentinel,
     ScaleSentinel,
+}
+
+impl PerformanceObligation {
+    /// Return the stable machine-readable performance-obligation identity.
+    const fn code(self) -> &'static str {
+        match self {
+            Self::BroadScan => "broad_scan",
+            Self::FocusedHotspot => "focused_hotspot",
+            Self::None => "none",
+            Self::RegressionSentinel => "regression_sentinel",
+            Self::ScaleSentinel => "scale_sentinel",
+        }
+    }
 }
 
 ///
@@ -2547,10 +2593,112 @@ fn validate_reference_differential_eligibility(cell: &CoverageCell) -> Result<()
     Ok(())
 }
 
+/// Return the canonical semantic revision of the active SQL coverage manifest.
+pub(super) fn sql_coverage_manifest_revision() -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"icydb-sql-coverage-manifest/v1");
+
+    let mut cells = MANIFEST.iter().collect::<Vec<_>>();
+    cells.sort_by_key(|cell| cell.id);
+    hash_count(&mut hasher, cells.len());
+    for cell in cells {
+        hash_text(&mut hasher, cell.id);
+        hash_text(&mut hasher, cell.kind.code());
+        hash_text(&mut hasher, cell.status.code());
+        hash_text(&mut hasher, cell.contract_section);
+        hash_text(&mut hasher, cell.category.code());
+        hash_evidence_requirements(&mut hasher, cell.evidence);
+        hash_text_list(
+            &mut hasher,
+            cell.performance.iter().map(|obligation| obligation.code()),
+        );
+        hash_text_list(
+            &mut hasher,
+            cell.eligible_providers
+                .iter()
+                .map(|provider| provider.code()),
+        );
+        hash_text_list(&mut hasher, cell.deterministic_providers.iter().copied());
+        hash_text_list(&mut hasher, cell.generated_families.iter().copied());
+        match cell.reference_exclusion {
+            Some(reason) => {
+                hasher.update(&[1]);
+                hash_text(&mut hasher, reason);
+            }
+            None => {
+                hasher.update(&[0]);
+            }
+        }
+    }
+
+    let mut providers = PROVIDERS.iter().collect::<Vec<_>>();
+    providers.sort_by_key(|provider| provider.id);
+    hash_count(&mut hasher, providers.len());
+    for provider in providers {
+        hash_text(&mut hasher, provider.id);
+        hash_text(&mut hasher, provider.source_path);
+        hash_text(&mut hasher, provider.test_symbol);
+        hash_text(&mut hasher, provider.strength.code());
+        hash_text_list(
+            &mut hasher,
+            provider.evidence.iter().map(|evidence| evidence.code()),
+        );
+    }
+
+    hasher.finalize().to_hex().to_string()
+}
+
+fn hash_evidence_requirements(hasher: &mut blake3::Hasher, requirements: &[EvidenceRequirement]) {
+    let mut requirements = requirements
+        .iter()
+        .map(|requirement| {
+            (
+                requirement.class.code(),
+                requirement.minimum_strength.code(),
+            )
+        })
+        .collect::<Vec<_>>();
+    requirements.sort_unstable();
+    hash_count(hasher, requirements.len());
+    for (class, strength) in requirements {
+        hash_text(hasher, class);
+        hash_text(hasher, strength);
+    }
+}
+
+fn hash_text_list<'a>(hasher: &mut blake3::Hasher, values: impl IntoIterator<Item = &'a str>) {
+    let mut values = values.into_iter().collect::<Vec<_>>();
+    values.sort_unstable();
+    hash_count(hasher, values.len());
+    for value in values {
+        hash_text(hasher, value);
+    }
+}
+
+fn hash_text(hasher: &mut blake3::Hasher, value: &str) {
+    let length =
+        u32::try_from(value.len()).expect("static SQL manifest text should fit a u32 length");
+    hasher.update(&length.to_be_bytes());
+    hasher.update(value.as_bytes());
+}
+
+fn hash_count(hasher: &mut blake3::Hasher, count: usize) {
+    let count = u32::try_from(count).expect("static SQL manifest count should fit u32");
+    hasher.update(&count.to_be_bytes());
+}
+
 const INVALID_REFERENCE_REQUIREMENT: &[EvidenceRequirement] = &[EvidenceRequirement {
     class: EvidenceClass::ReferenceDifferential,
     minimum_strength: EvidenceStrength::MetamorphicInvariant,
 }];
+
+#[test]
+fn sql_coverage_manifest_revision_has_a_fixed_golden_vector() {
+    assert_eq!(
+        sql_coverage_manifest_revision(),
+        TIER_C_SQL_COVERAGE_MANIFEST_REVISION,
+    );
+}
 
 #[test]
 fn sql_contract_metadata_and_coverage_manifest_are_consistent() {

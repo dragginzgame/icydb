@@ -14,7 +14,7 @@ use crate::{
     value::Value,
 };
 
-/// Encode strong-relation target keys into the owner-local Structural Binary
+/// Encode relation target keys into the owner-local Structural Binary
 /// v1 primary-key-component lane.
 pub(in crate::db) fn encode_relation_target_primary_key_components_binary_bytes(
     keys: &[PrimaryKeyComponent],
@@ -95,7 +95,7 @@ pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
     Ok(Some(encoded))
 }
 
-// Encode one strong-relation field into the primary-key-component Structural Binary v1
+// Encode one relation field into the primary-key-component Structural Binary v1
 // lane without routing through runtime `Value`.
 fn encode_relation_target_primary_key_components_binary_into(
     out: &mut Vec<u8>,

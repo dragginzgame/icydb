@@ -16,33 +16,7 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    value::Value,
 };
-
-///
-/// StructuralAggregateResult
-///
-/// StructuralAggregateResult is the executor-owned transport wrapper for a
-/// fully reduced aggregate result. It intentionally exposes only a consumptive
-/// row handoff so adapter layers shape DTOs without owning aggregate execution.
-///
-
-#[derive(Debug, Eq, PartialEq)]
-pub(in crate::db) struct StructuralAggregateResult(Vec<Vec<Value>>);
-
-impl StructuralAggregateResult {
-    /// Construct one structural aggregate result from executor-owned rows.
-    #[must_use]
-    pub(super) const fn new(rows: Vec<Vec<Value>>) -> Self {
-        Self(rows)
-    }
-
-    /// Consume this structural wrapper into value rows for adapter shaping.
-    #[must_use]
-    pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
-        self.0
-    }
-}
 
 ///
 /// StructuralAggregateRequest

@@ -22,7 +22,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
         .expect("direct projected indexed field should derive one covering-read route contract");
 
-    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    let covering = contract;
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "rank");
     assert_eq!(
@@ -73,8 +73,6 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("execution route plan should retain the route-owned covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "rank");
     assert_eq!(
@@ -95,8 +93,6 @@ fn route_plan_initial_secondary_covering_is_planner_proven() {
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("initial secondary covering route should retain a covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-
     assert_eq!(
         covering.existing_row_mode,
         CoveringExistingRowMode::ProvenByPlanner,
@@ -112,8 +108,6 @@ fn route_plan_initial_composite_secondary_covering_is_planner_proven() {
     let covering = route_plan.load_terminal_fast_path().expect(
         "initial composite secondary covering route should retain a covering-read contract",
     );
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-
     assert_eq!(
         covering.existing_row_mode,
         CoveringExistingRowMode::ProvenByPlanner,
@@ -136,7 +130,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_full_scan_as_pl
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
         .expect("PK-only full scan should derive one planner-proven covering-read route contract");
 
-    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    let covering = contract;
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
@@ -169,7 +163,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_key_range_as_pl
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
         .expect("PK-only key range should derive one planner-proven covering-read route contract");
 
-    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    let covering = contract;
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
@@ -199,8 +193,6 @@ fn route_plan_execution_route_plan_retains_pk_only_planner_proven_covering_contr
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("execution route plan should retain the planner-proven covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
@@ -235,8 +227,6 @@ fn route_plan_execution_route_plan_retains_pk_only_key_range_covering_contract()
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("execution route plan should retain the planner-proven covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
@@ -266,7 +256,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_key_as_row_c
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
         .expect("PK-only by-key lookup should derive one row-check covering-read route contract");
 
-    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    let covering = contract;
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
@@ -299,7 +289,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_keys_as_row_
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
         .expect("PK-only by-keys lookup should derive one row-check covering-read route contract");
 
-    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    let covering = contract;
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(

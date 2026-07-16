@@ -3,8 +3,7 @@
 //! Does not own: production behavior.
 //! Boundary: test-only contracts.
 
-use super::{Item, RelationEnforcement};
-use crate::node::HasSchemaPart;
+use super::Item;
 use darling::{FromMeta, ast::NestedMeta};
 use icydb_schema::types::Primitive;
 use quote::quote;
@@ -131,61 +130,13 @@ fn from_list_accepts_unbounded_name_value_directive() {
 }
 
 #[test]
-fn from_list_defaults_relation_enforcement_to_enforced() {
+fn from_list_accepts_relation() {
     let args = NestedMeta::parse_meta_list(quote!(rel = "Target", prim = "Ulid"))
         .expect("relation item args should parse");
 
     let item = Item::from_list(&args).expect("relation item meta should lower");
 
-    assert_eq!(item.relation_enforcement(), RelationEnforcement::Enforced);
     assert!(item.validate().is_ok());
-    assert!(
-        item.schema_part()
-            .to_string()
-            .contains("RelationEnforcement :: Enforced")
-    );
-}
-
-#[test]
-fn from_list_accepts_explicit_enforced_relation() {
-    let args = NestedMeta::parse_meta_list(quote!(
-        rel = "Target",
-        prim = "Ulid",
-        enforcement = "enforced"
-    ))
-    .expect("relation item args should parse");
-    let item = Item::from_list(&args).expect("relation item meta should lower");
-
-    assert_eq!(item.relation_enforcement(), RelationEnforcement::Enforced);
-    assert!(item.validate().is_ok());
-}
-
-#[test]
-fn from_list_accepts_explicit_unchecked_relation() {
-    let args = NestedMeta::parse_meta_list(quote!(
-        rel = "Target",
-        prim = "Ulid",
-        enforcement = "unchecked"
-    ))
-    .expect("relation item args should parse");
-    let item = Item::from_list(&args).expect("relation item meta should lower");
-
-    assert_eq!(item.relation_enforcement(), RelationEnforcement::Unchecked);
-    assert!(item.validate().is_ok());
-    assert!(
-        item.schema_part()
-            .to_string()
-            .contains("RelationEnforcement :: Unchecked")
-    );
-}
-
-#[test]
-fn validate_rejects_relation_enforcement_without_relation() {
-    let args = NestedMeta::parse_meta_list(quote!(prim = "Ulid", enforcement = "unchecked"))
-        .expect("item args should parse");
-    let item = Item::from_list(&args).expect("item meta should lower");
-
-    assert!(item.validate().is_err());
 }
 
 #[test]

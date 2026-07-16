@@ -134,9 +134,7 @@ where
         let surface = self.execute_load_surface(
             plan,
             cursor,
-            crate::db::executor::pipeline::entrypoints::LoadSurfaceMode::scalar_paged(
-                crate::db::executor::pipeline::entrypoints::LoadTracingMode::Enabled,
-            ),
+            crate::db::executor::pipeline::entrypoints::LoadSurfaceMode::ScalarPage,
         )?;
 
         Self::expect_scalar_traced_surface(&row_layout, surface)

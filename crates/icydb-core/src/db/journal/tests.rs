@@ -1,6 +1,5 @@
 use super::{
     FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
-    JournalTailVisit,
     codec::{
         JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_JOURNAL_BATCH_BYTES, RawJournalBatch,
         decode_journal_batch, encode_journal_batch,
@@ -253,7 +252,7 @@ fn journal_tail_store_visits_batches_in_sequence_order_after_watermark() {
     store
         .visit_batches_after(JournalSequence::new(0), |batch| {
             visited.push(batch.journal_sequence().get());
-            Ok(JournalTailVisit::Continue)
+            Ok(())
         })
         .expect("journal tail should visit in order");
 
@@ -271,7 +270,7 @@ fn journal_tail_store_skips_batches_at_or_below_watermark() {
     store
         .visit_batches_after(JournalSequence::new(1), |batch| {
             visited.push(batch.journal_sequence().get());
-            Ok(JournalTailVisit::Continue)
+            Ok(())
         })
         .expect("journal tail should skip folded batch");
 
@@ -316,7 +315,7 @@ fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
                 .highest_folded_journal_sequence(),
             |batch| {
                 visited.push(batch.journal_sequence().get());
-                Ok(JournalTailVisit::Continue)
+                Ok(())
             },
         )
         .expect("folded tail should read as empty replay tail");
@@ -361,7 +360,7 @@ fn journal_tail_store_republishes_missing_chunks_after_prefix_append() {
         )
         .expect("prefix raw journal bytes should insert as an interrupted fixture");
     store
-        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
         .expect_err("prefix-only journal batch should fail before republish");
 
     store
@@ -372,7 +371,7 @@ fn journal_tail_store_republishes_missing_chunks_after_prefix_append() {
     store
         .visit_batches_after(JournalSequence::new(0), |batch| {
             visited.push(batch.journal_sequence().get());
-            Ok(JournalTailVisit::Continue)
+            Ok(())
         })
         .expect("repaired journal batch should visit cleanly");
     assert_eq!(visited, vec![1]);
@@ -404,7 +403,7 @@ fn journal_tail_store_rejects_sequence_gap_above_watermark() {
     store.append_batch(&batch(2)).expect("batch should append");
 
     let err = store
-        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
         .expect_err("sequence gap should fail closed");
 
     assert_eq!(err.class, ErrorClass::Corruption);
@@ -421,7 +420,7 @@ fn journal_tail_store_rejects_corrupt_raw_batch_bytes_during_visit() {
         .expect("corrupt raw journal bytes should insert as a raw persisted fixture");
 
     let err = store
-        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
         .expect_err("corrupt raw journal tail bytes should fail during ordered visit");
 
     assert_eq!(err.class, ErrorClass::Corruption);
@@ -438,7 +437,7 @@ fn journal_tail_store_rejects_truncated_raw_batch_bytes_during_visit() {
         .expect("truncated raw journal bytes should insert as a raw persisted fixture");
 
     let err = store
-        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
         .expect_err("truncated raw journal tail bytes should fail during ordered visit");
 
     assert_eq!(err.class, ErrorClass::Corruption);
@@ -464,7 +463,7 @@ fn journal_tail_store_rejects_duplicate_batch_id_at_different_sequence() {
         .expect("duplicate id at different sequence is detected during ordered read");
 
     let err = store
-        .visit_batches_after(JournalSequence::new(0), |_| Ok(JournalTailVisit::Continue))
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
         .expect_err("duplicate batch ids above watermark should fail closed");
 
     assert_eq!(err.class, ErrorClass::Corruption);

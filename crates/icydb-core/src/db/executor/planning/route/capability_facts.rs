@@ -18,12 +18,13 @@ use crate::db::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
         route::{
             AggregateRouteShape, LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason,
-            LoadTerminalFastPathContract, access_order_satisfied_by_route_mode,
-            bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported,
-            secondary_order_contract_active,
+            access_order_satisfied_by_route_mode, bounded_probe_hint_is_safe,
+            pk_order_stream_fast_path_shape_supported, secondary_order_contract_active,
         },
     },
-    query::plan::{AccessPlannedQuery, OrderDirection, PlannerRouteProfile},
+    query::plan::{
+        AccessPlannedQuery, CoveringReadExecutionPlan, OrderDirection, PlannerRouteProfile,
+    },
 };
 
 /// Return whether this access path can produce an ordered key-stream window directly.
@@ -303,7 +304,7 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
 // proves the broader ordered-load capability.
 pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
     plan: &AccessPlannedQuery,
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<&CoveringReadExecutionPlan>,
 ) -> bool {
     if !access_order_satisfied_by_route_mode(plan) {
         return false;

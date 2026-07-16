@@ -30,47 +30,6 @@ use std::{
 };
 
 ///
-/// DecodedDataStoreKeyEncodeError
-/// (serialize boundary)
-///
-
-#[derive(Debug)]
-enum DecodedDataStoreKeyEncodeError {
-    CompactKeyEncoding {
-        key: DecodedDataStoreKey,
-        source: crate::db::key_taxonomy::CompactPrimaryKeyEncodeError,
-    },
-}
-
-impl From<DecodedDataStoreKeyEncodeError> for InternalError {
-    fn from(err: DecodedDataStoreKeyEncodeError) -> Self {
-        match err {
-            DecodedDataStoreKeyEncodeError::CompactKeyEncoding { key, source } => {
-                let _ = (key, source);
-                Self::serialize_unsupported()
-            }
-        }
-    }
-}
-
-///
-/// PrimaryKeyValueDecodeError
-/// (decode / corruption boundary)
-///
-
-#[derive(Debug)]
-enum PrimaryKeyValueDecodeError {
-    InvalidCompactEncoding,
-}
-
-impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for PrimaryKeyValueDecodeError {
-    fn from(source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError) -> Self {
-        let _ = source;
-        Self::InvalidCompactEncoding
-    }
-}
-
-///
 /// DecodedDataStoreKeyDecodeError
 /// (decode / corruption boundary)
 ///
@@ -80,13 +39,6 @@ pub(in crate::db) enum DecodedDataStoreKeyDecodeError {
     Key,
 
     StoreKey,
-}
-
-impl From<PrimaryKeyValueDecodeError> for DecodedDataStoreKeyDecodeError {
-    fn from(err: PrimaryKeyValueDecodeError) -> Self {
-        let _ = err;
-        Self::Key
-    }
 }
 
 ///
@@ -247,12 +199,9 @@ impl DecodedDataStoreKey {
             return Ok(raw);
         }
 
-        let raw = self.to_raw_compact_key_error().map_err(|err| {
-            InternalError::from(DecodedDataStoreKeyEncodeError::CompactKeyEncoding {
-                key: self.clone(),
-                source: err,
-            })
-        })?;
+        let raw = self
+            .to_raw_compact_key_error()
+            .map_err(|_| InternalError::serialize_unsupported())?;
         let _ = self.raw.set(raw);
 
         self.raw
@@ -282,7 +231,7 @@ impl DecodedDataStoreKey {
         let key = decoded
             .primary_key()
             .decode()
-            .map_err(PrimaryKeyValueDecodeError::from)?;
+            .map_err(|_| DecodedDataStoreKeyDecodeError::Key)?;
 
         Ok(Self::new_with_raw_primary_key_value(
             entity,

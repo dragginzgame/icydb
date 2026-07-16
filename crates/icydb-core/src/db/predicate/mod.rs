@@ -29,9 +29,7 @@ use crate::{
 };
 
 pub use coercion::CoercionId;
-pub use model::{
-    CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
-};
+pub use model::{CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate};
 pub use row_policy::MissingRowPolicy;
 
 pub(in crate::db) use capability::{

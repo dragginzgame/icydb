@@ -156,7 +156,7 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     }
 
     // Phase 2: strip only clauses already implied by those fixed equality
-    // bounds so execution does not retain redundant post-access filtering.
+    // bounds so execution does not retain redundant runtime residual filtering.
     strip_query_clauses_satisfied_by_access_bounds(query_predicate, &implied_bounds)
 }
 

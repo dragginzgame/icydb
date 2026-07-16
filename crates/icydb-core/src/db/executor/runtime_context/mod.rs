@@ -122,8 +122,6 @@ pub struct RowCheckMetrics {
     pub row_presence_probe_count: u64,
     pub row_presence_probe_hits: u64,
     pub row_presence_probe_misses: u64,
-    pub row_presence_probe_borrowed_data_store_count: u64,
-    pub row_presence_probe_store_handle_count: u64,
     pub row_presence_key_to_raw_encodes: u64,
 }
 
@@ -144,20 +142,6 @@ fn update_row_check_metrics(update: impl FnOnce(&mut RowCheckMetrics)) {
 
         update(metrics);
     });
-}
-
-///
-/// RowPresenceProbeSource
-///
-/// Internal source tag for authoritative row-presence probes.
-/// This keeps metrics able to distinguish already-borrowed data-store probes
-/// from probes that still re-enter through one store handle boundary.
-///
-
-enum RowPresenceProbeSource {
-    BorrowedDataStore,
-    #[cfg(test)]
-    StoreHandle,
 }
 
 ///
@@ -204,7 +188,6 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
         // Phase 1: account for the candidate and encode one authoritative
         // row-store key directly from the entity tag plus primary key value.
         record_row_check_covering_candidate_seen();
-        record_row_presence_probe_source(RowPresenceProbeSource::BorrowedDataStore);
         record_row_presence_key_to_raw_encode();
         let key = DecodedDataStoreKey::new_primary_key_value(self.entity_tag, primary_key_value);
         let raw_key = key.to_raw()?;
@@ -278,26 +261,6 @@ pub(in crate::db::executor) fn record_row_check_row_emitted() {
 
 #[cfg(not(any(test, feature = "diagnostics")))]
 pub(in crate::db::executor) const fn record_row_check_row_emitted() {}
-
-#[cfg(any(test, feature = "diagnostics"))]
-fn record_row_presence_probe_source(source: RowPresenceProbeSource) {
-    update_row_check_metrics(|metrics| match source {
-        RowPresenceProbeSource::BorrowedDataStore => {
-            metrics.row_presence_probe_borrowed_data_store_count = metrics
-                .row_presence_probe_borrowed_data_store_count
-                .saturating_add(1);
-        }
-        #[cfg(test)]
-        RowPresenceProbeSource::StoreHandle => {
-            metrics.row_presence_probe_store_handle_count = metrics
-                .row_presence_probe_store_handle_count
-                .saturating_add(1);
-        }
-    });
-}
-
-#[cfg(not(any(test, feature = "diagnostics")))]
-const fn record_row_presence_probe_source(_source: RowPresenceProbeSource) {}
 
 #[cfg(any(test, feature = "diagnostics"))]
 fn record_row_presence_key_to_raw_encode() {
@@ -420,25 +383,6 @@ pub(in crate::db::executor) fn read_row_with_consistency_from_store(
     }
 }
 
-// Read only row presence under one consistency contract from structural store
-// authority. Tests keep this generic selector so they can verify the metrics
-// split between store-handle and borrowed-data-store probing.
-#[cfg(test)]
-pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
-    store: StoreHandle,
-    key: &DecodedDataStoreKey,
-    consistency: MissingRowPolicy,
-) -> Result<bool, InternalError> {
-    store.with_data(|data| {
-        read_row_presence_with_consistency(
-            data,
-            key,
-            consistency,
-            RowPresenceProbeSource::StoreHandle,
-        )
-    })
-}
-
 // Read only row presence under one consistency contract from one already
 // borrowed data-store boundary. Covering-read decode paths use this helper to
 // batch stale-row filtering under one store borrow instead of re-entering the
@@ -448,21 +392,15 @@ pub(in crate::db::executor) fn read_row_presence_with_consistency_from_data_stor
     key: &DecodedDataStoreKey,
     consistency: MissingRowPolicy,
 ) -> Result<bool, InternalError> {
-    read_row_presence_with_consistency(
-        data,
-        key,
-        consistency,
-        RowPresenceProbeSource::BorrowedDataStore,
-    )
+    read_row_presence_with_consistency(data, key, consistency)
 }
 
 fn read_row_presence_with_consistency(
     data: &DataStore,
     key: &DecodedDataStoreKey,
     consistency: MissingRowPolicy,
-    source: RowPresenceProbeSource,
 ) -> Result<bool, InternalError> {
-    let row_exists = probe_row_presence(data, key, source)?;
+    let row_exists = probe_row_presence(data, key)?;
 
     match consistency {
         MissingRowPolicy::Error => {
@@ -476,12 +414,7 @@ fn read_row_presence_with_consistency(
     }
 }
 
-fn probe_row_presence(
-    data: &DataStore,
-    key: &DecodedDataStoreKey,
-    source: RowPresenceProbeSource,
-) -> Result<bool, InternalError> {
-    record_row_presence_probe_source(source);
+fn probe_row_presence(data: &DataStore, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
     record_row_presence_key_to_raw_encode();
     let raw = key.to_raw()?;
     let row_exists = data.contains(&raw);

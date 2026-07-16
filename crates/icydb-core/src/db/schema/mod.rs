@@ -29,12 +29,11 @@ mod types;
 
 pub use describe::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationEnforcement, EntitySchemaCheckDescription,
-    EntitySchemaDescription,
+    EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
 };
 pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 
-pub(in crate::db) use accepted_field_kind::{AcceptedFieldKind, AcceptedRelationEnforcement};
+pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
 pub(in crate::db) use capabilities::sql_capabilities;
 #[cfg(feature = "sql")]

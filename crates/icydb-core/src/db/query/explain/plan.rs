@@ -443,7 +443,6 @@ pub enum ExplainAccessPath {
         fixed_values: Vec<Value>,
         branch_values: Vec<Value>,
         branch_field: Option<String>,
-        ordered_suffix: String,
     },
     IndexRange {
         name: String,

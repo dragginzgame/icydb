@@ -393,10 +393,7 @@ const fn classify_relation_scalar_class(kind: &AcceptedFieldKind) -> Option<Acce
 #[cfg(test)]
 mod tests {
     use super::{AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind};
-    use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
-        types::EntityTag,
-    };
+    use crate::{db::schema::AcceptedFieldKind, types::EntityTag};
 
     fn relation_to_key(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
         AcceptedFieldKind::Relation {
@@ -405,7 +402,6 @@ mod tests {
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            enforcement: AcceptedRelationEnforcement::Unchecked,
         }
     }
 

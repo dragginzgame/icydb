@@ -4,10 +4,7 @@
 //! Boundary: defines lightweight relation metadata contracts consumed by schema
 //! describe, relation validators, and reverse-index maintenance.
 
-use crate::{
-    model::entity::EntityModel,
-    model::field::{FieldKind, RelationEnforcement},
-};
+use crate::{model::entity::EntityModel, model::field::FieldKind};
 
 ///
 /// RelationFieldCardinality
@@ -30,7 +27,7 @@ pub(in crate::db) enum RelationFieldCardinality {
 ///
 /// Canonical relation metadata shape extracted from an entity model field.
 /// The metadata is intentionally semantic: it describes relation target
-/// identity, enforcement, and cardinality without performing save,
+/// identity and cardinality without performing save,
 /// delete, reverse-index, or storage execution behavior.
 ///
 
@@ -40,7 +37,6 @@ pub(in crate::db) struct RelationFieldMetadata {
     target_path: &'static str,
     target_entity_name: &'static str,
     target_store_path: &'static str,
-    enforcement: RelationEnforcement,
     cardinality: RelationFieldCardinality,
 }
 
@@ -53,7 +49,6 @@ impl RelationFieldMetadata {
             target_path: target.path,
             target_entity_name: target.entity_name,
             target_store_path: target.store_path,
-            enforcement: target.enforcement,
             cardinality: target.cardinality,
         }
     }
@@ -82,12 +77,6 @@ impl RelationFieldMetadata {
         self.target_store_path
     }
 
-    /// Return the declared relation enforcement.
-    #[must_use]
-    pub(in crate::db) const fn enforcement(self) -> RelationEnforcement {
-        self.enforcement
-    }
-
     /// Return the declared relation cardinality.
     #[must_use]
     pub(in crate::db) const fn cardinality(self) -> RelationFieldCardinality {
@@ -95,7 +84,7 @@ impl RelationFieldMetadata {
     }
 }
 
-/// StrongRelationTargetMetadata
+/// RelationTargetMetadata
 ///
 /// Raw target metadata for relation fields before canonical metadata
 /// construction. It exists only to keep the `FieldKind` pattern match small
@@ -108,50 +97,43 @@ struct RelationTargetMetadata {
     path: &'static str,
     entity_name: &'static str,
     store_path: &'static str,
-    enforcement: RelationEnforcement,
     cardinality: RelationFieldCardinality,
 }
 
-/// Resolve a model field-kind into strong relation target metadata (if applicable).
+/// Resolve a model field-kind into relation target metadata (if applicable).
 const fn relation_target_from_kind(kind: &FieldKind) -> Option<RelationTargetMetadata> {
     match kind {
         FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
-            enforcement,
             ..
         } => Some(RelationTargetMetadata {
             path: target_path,
             entity_name: target_entity_name,
             store_path: target_store_path,
-            enforcement: *enforcement,
             cardinality: RelationFieldCardinality::Single,
         }),
         FieldKind::List(FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
-            enforcement,
             ..
         }) => Some(RelationTargetMetadata {
             path: target_path,
             entity_name: target_entity_name,
             store_path: target_store_path,
-            enforcement: *enforcement,
             cardinality: RelationFieldCardinality::List,
         }),
         FieldKind::Set(FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
-            enforcement,
             ..
         }) => Some(RelationTargetMetadata {
             path: target_path,
             entity_name: target_entity_name,
             store_path: target_store_path,
-            enforcement: *enforcement,
             cardinality: RelationFieldCardinality::Set,
         }),
         _ => None,
@@ -181,10 +163,11 @@ pub(in crate::db) fn relation_field_metadata_for_model_iter(
 }
 
 impl EntityModel {
-    /// Return `true` when this model declares any strong relation field.
+    /// Return `true` when this model declares any relation field.
     #[must_use]
-    pub(in crate::db) fn has_any_strong_relations(&self) -> bool {
+    pub(in crate::db) fn has_any_relations(&self) -> bool {
         relation_field_metadata_for_model_iter(self)
-            .any(|metadata| metadata.enforcement() == RelationEnforcement::Enforced)
+            .next()
+            .is_some()
     }
 }

@@ -10,42 +10,37 @@ use crate::{
     },
     db::key_taxonomy::PrimaryKeyComponent,
     db::schema::AcceptedFieldKind,
-    model::field::{FieldKind, RelationEnforcement},
+    model::field::FieldKind,
     types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount, Ulid},
     value::Value,
 };
 
 static RELATION_ULID_KEY_KIND: FieldKind = FieldKind::Ulid;
-static STRONG_RELATION_KIND: FieldKind = FieldKind::Relation {
+static RELATION_KIND: FieldKind = FieldKind::Relation {
     target_path: "RelationTargetEntity",
     target_entity_name: "RelationTargetEntity",
     target_entity_tag: EntityTag::new(7),
     target_store_path: "RelationTargetStore",
     key_kind: &RELATION_ULID_KEY_KIND,
-    enforcement: RelationEnforcement::Enforced,
 };
-static STRONG_RELATION_LIST_KIND: FieldKind = FieldKind::List(&STRONG_RELATION_KIND);
+static RELATION_LIST_KIND: FieldKind = FieldKind::List(&RELATION_KIND);
 
 #[test]
 fn relation_target_primary_key_component_decode_handles_single_ulid_and_null() {
     let target = Ulid::from_u128(7);
-    let target_bytes = encode_primary_key_component_binary_value_bytes(
-        STRONG_RELATION_KIND,
-        &Value::Ulid(target),
-        "id",
-    )
-    .expect("storage-key relation bytes should encode")
-    .expect("relation kind should use storage-key binary lane");
+    let target_bytes =
+        encode_primary_key_component_binary_value_bytes(RELATION_KIND, &Value::Ulid(target), "id")
+            .expect("storage-key relation bytes should encode")
+            .expect("relation kind should use storage-key binary lane");
     let null_bytes =
-        encode_primary_key_component_binary_value_bytes(STRONG_RELATION_KIND, &Value::Null, "id")
+        encode_primary_key_component_binary_value_bytes(RELATION_KIND, &Value::Null, "id")
             .expect("null relation bytes should encode")
             .expect("relation kind should use storage-key binary lane");
 
-    let decoded =
-        decode_relation_target_primary_key_components_bytes(&target_bytes, STRONG_RELATION_KIND)
-            .expect("single relation should decode");
+    let decoded = decode_relation_target_primary_key_components_bytes(&target_bytes, RELATION_KIND)
+        .expect("single relation should decode");
     let decoded_null =
-        decode_relation_target_primary_key_components_bytes(&null_bytes, STRONG_RELATION_KIND)
+        decode_relation_target_primary_key_components_bytes(&null_bytes, RELATION_KIND)
             .expect("null relation should decode");
 
     assert_eq!(decoded, vec![PrimaryKeyComponent::Ulid(target)]);
@@ -60,16 +55,15 @@ fn relation_target_primary_key_component_decode_handles_list_and_skips_null_item
     let left = Ulid::from_u128(8);
     let right = Ulid::from_u128(9);
     let bytes = encode_primary_key_component_binary_value_bytes(
-        STRONG_RELATION_LIST_KIND,
+        RELATION_LIST_KIND,
         &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
         "ids",
     )
     .expect("relation list bytes should encode")
     .expect("relation list should use storage-key binary lane");
 
-    let decoded =
-        decode_relation_target_primary_key_components_bytes(&bytes, STRONG_RELATION_LIST_KIND)
-            .expect("relation list should decode");
+    let decoded = decode_relation_target_primary_key_components_bytes(&bytes, RELATION_LIST_KIND)
+        .expect("relation list should decode");
 
     assert_eq!(
         decoded,
@@ -138,11 +132,11 @@ fn accepted_structural_field_encode_matches_generated_relation_list_null_skip() 
     let left = Ulid::from_u128(10);
     let right = Ulid::from_u128(11);
     let value = Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]);
-    let accepted_kind = AcceptedFieldKind::from_model_kind(STRONG_RELATION_LIST_KIND);
+    let accepted_kind = AcceptedFieldKind::from_model_kind(RELATION_LIST_KIND);
 
     let accepted = encode_structural_field_by_accepted_kind_bytes(&accepted_kind, &value, "ids")
         .expect("accepted relation list bytes should encode");
-    let generated = encode_structural_field_by_kind_bytes(STRONG_RELATION_LIST_KIND, &value, "ids")
+    let generated = encode_structural_field_by_kind_bytes(RELATION_LIST_KIND, &value, "ids")
         .expect("generated-compatible relation list bytes should encode");
 
     assert_eq!(accepted, generated);

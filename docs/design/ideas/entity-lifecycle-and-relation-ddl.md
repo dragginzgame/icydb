@@ -2,16 +2,26 @@
 
 ## Status
 
-Tentative follow-up design. Not scoped to 0.178.x.
+Tentative follow-up after [0.209 accepted-catalog
+constraints](../0.209-accepted-catalog-constraints/0.209-design.md) and [0.210
+bounded integrity
+checking](../0.210-bounded-resumable-integrity-check/0.210-design.md). Not part
+of either implementation line.
 
 ## Purpose
 
 This note sketches a future catalog-level DDL model for entity birth/death,
 entity rename, and relation changes.
 
-0.178 handles accepted-schema-affecting transitions for existing accepted
-entities. Entity lifecycle and relation DDL need a wider catalog identity model
-because the accepted-before or accepted-after entity snapshot may be absent.
+Existing schema-mutation work handles accepted-schema-affecting transitions for
+one live entity. Entity lifecycle and relation DDL need a wider catalog identity
+model because the accepted-before or accepted-after entity snapshot may be
+absent, or because one relation transition coordinates source, target, and
+reverse-generation authority.
+
+0.209 supplies stable relation/constraint identity and the bounded activation
+state machine. This follow-up may reuse those owners; it must not invent a
+SQL-only relation representation or execution path.
 
 ## Problem
 
@@ -72,9 +82,32 @@ Entity rename:
 Relation DDL:
 
 - must validate both source and target accepted contracts;
-- must define cascade/restrict behavior;
-- must update relation indexes and delete/save preflight authority before
-  accepted publication.
+- accepts only local fields whose exact accepted kinds match the target's
+  accepted primary-key fields;
+- creates an enforced relation with immediate checking and
+  `ON DELETE RESTRICT`;
+- lowers to 0.209's candidate relation, write gate, target-existence scan,
+  staged reverse generation, stable-revision verification, and atomic
+  promotion; and
+- must update delete/save preflight authority atomically with accepted
+  publication.
+
+The reserved SQL shape is conceptually:
+
+~~~sql
+ALTER TABLE Order
+ADD CONSTRAINT order_user_fk
+FOREIGN KEY (user_id)
+REFERENCES User (id)
+ON DELETE RESTRICT
+NOT VALID
+~~~
+
+The syntax is illustrative and unsupported until this design is completed.
+`NOT VALID` would expose the same temporary `EnforcingNewWrites` activation as
+0.209, not a permanent partially enforced relation. A future plain form must
+either prove complete historical validity in one bounded call or change
+nothing.
 
 ## Fail-Closed Rules
 
@@ -84,12 +117,20 @@ Until explicitly supported:
 - primary-key mutation rejects;
 - entity create/drop/rename rejects before publication;
 - relation changes never fall back to generated model metadata;
-- relation validation consumes accepted row contracts only.
+- relation validation consumes accepted row contracts only;
+- `FOREIGN KEY` does not imply an unchecked, alternate-key, deferred, cascade,
+  `SET NULL`, or `SET DEFAULT` variant; and
+- storing an ordinary typed primary-key value without declaring a relation
+  remains the intentional non-relational representation.
 
 ## Open Questions
 
 - Is the catalog version global, store-local, or entity-set-local?
 - Can relation DDL be single-entity if only source metadata changes?
+- How does SQL-DDL ownership coexist with later generated reconciliation of the
+  same canonical relation identity?
+- What exact catalog publication lock covers source metadata, target identity,
+  the temporary delete barrier, and reverse-generation promotion?
 - Should entity tags be user-visible and stable across rename?
 - What is the durable tombstone model for dropped entities?
 - How does journal replay order catalog-level and entity-level transitions?

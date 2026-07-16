@@ -15,6 +15,8 @@ use crate::{
     value::Value,
 };
 
+const INDEX_BRANCH_SET_ORDERED_SUFFIX_LABEL: &str = "primary_key_asc";
+
 ///
 /// ExplainAccessProjection
 ///
@@ -83,7 +85,6 @@ where
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
-        ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         ExplainAccessPath::IndexBranchSet {
             name: index_name.to_string(),
@@ -91,7 +92,6 @@ where
             fixed_values: fixed_values.to_vec(),
             branch_values: branch_values.to_vec(),
             branch_field: index_fields.get(fixed_values.len()).cloned(),
-            ordered_suffix: ordered_suffix.label().to_string(),
         }
     }
 
@@ -226,7 +226,6 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
-        ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         let mut out = String::new();
         let mut object = JsonWriter::begin_object(&mut out);
@@ -238,7 +237,7 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
         if self.include_detail {
             object.field_u64("fixed_prefix_len", fixed_values.len() as u64);
             object.field_u64("branch_count", branch_values.len() as u64);
-            object.field_str("ordered_suffix", ordered_suffix.label());
+            object.field_str("ordered_suffix", INDEX_BRANCH_SET_ORDERED_SUFFIX_LABEL);
             match index_fields.get(fixed_values.len()) {
                 Some(branch_field) => object.field_str("branch_field", branch_field),
                 None => object.field_null("branch_field"),

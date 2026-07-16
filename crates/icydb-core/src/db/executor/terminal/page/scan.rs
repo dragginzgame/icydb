@@ -7,8 +7,8 @@ use crate::{
             measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
             route::LoadOrderRouteMode,
             terminal::page::{
-                KernelRow, KernelRowOrderWindow, KernelRowScanStrategy, ResidualFilterScanMode,
-                RetainedSlotLayout, ScalarRowRuntimeHandle,
+                KernelRow, KernelRowOrderWindow, KernelRowScanStrategy, RetainedSlotLayout,
+                ScalarRowRuntimeHandle,
             },
         },
         predicate::MissingRowPolicy,
@@ -159,6 +159,20 @@ fn execute_kernel_row_scan_inner(
 
             execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
                 scan_data_rows_only_into_kernel(key_stream, consistency, scan_bounds, row_runtime)
+            })
+        }
+        KernelRowScanStrategy::DataRowsFiltered { filter_program } => {
+            #[cfg(any(test, feature = "diagnostics"))]
+            record_kernel_data_row_path_hit();
+
+            execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
+                scan_data_rows_only_into_kernel_with_filter_program(
+                    key_stream,
+                    consistency,
+                    filter_program,
+                    scan_bounds,
+                    row_runtime,
+                )
             })
         }
         KernelRowScanStrategy::RetainedFullRows {
@@ -567,7 +581,7 @@ fn read_direct_data_row_scan_row(
 }
 
 // Scan one ordered key stream directly into canonical data rows while
-// applying the residual predicate during scan-time retained-slot decoding.
+// applying the residual predicate against each opened raw row.
 fn scan_data_rows_direct_with_filter_program(
     key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
@@ -575,15 +589,9 @@ fn scan_data_rows_direct_with_filter_program(
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     filter_program: &EffectiveRuntimeFilterProgram,
-    retained_slot_layout: &RetainedSlotLayout,
 ) -> Result<DirectDataRowScanResult, InternalError> {
     scan_data_rows_direct_with_reader(key_stream, row_keep_cap, row_skip_count, |key| {
-        row_runtime.read_data_row_with_filter_program(
-            consistency,
-            key,
-            filter_program,
-            retained_slot_layout,
-        )
+        row_runtime.read_data_row_with_filter_program(consistency, key, filter_program)
     })
 }
 
@@ -594,10 +602,8 @@ pub(super) fn scan_materialized_order_direct_data_rows(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     consistency: MissingRowPolicy,
-    residual_filter_scan_mode: ResidualFilterScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-    retained_slot_layout: Option<&RetainedSlotLayout>,
 ) -> Result<DirectDataRowScanResult, InternalError> {
     scan_direct_data_rows_with_residual_policy(
         key_stream,
@@ -605,27 +611,22 @@ pub(super) fn scan_materialized_order_direct_data_rows(
         None,
         0,
         consistency,
-        residual_filter_scan_mode,
         row_runtime,
         residual_filter_program,
-        retained_slot_layout,
     )
 }
 
-// Run one direct data-row scan through the shared residual-predicate timing
-// contract so plain, filtered, and materialized-order raw lanes all choose
-// the same row reader in one place.
-#[expect(clippy::too_many_arguments)]
+// Run one direct data-row scan through the shared residual-filter contract so
+// plain, filtered, and materialized-order raw lanes all choose the same row
+// reader in one place.
 pub(super) fn scan_direct_data_rows_with_residual_policy(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     consistency: MissingRowPolicy,
-    residual_filter_scan_mode: ResidualFilterScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-    retained_slot_layout: Option<&RetainedSlotLayout>,
 ) -> Result<DirectDataRowScanResult, InternalError> {
     if row_keep_cap == Some(0) {
         return Ok(DirectDataRowScanResult {
@@ -636,33 +637,22 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     }
 
     execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
-        match residual_filter_scan_mode {
-            ResidualFilterScanMode::Absent => scan_data_rows_direct(
+        match residual_filter_program {
+            None => scan_data_rows_direct(
                 key_stream,
                 consistency,
                 row_keep_cap,
                 row_skip_count,
                 row_runtime,
             ),
-            ResidualFilterScanMode::AppliedDuringScan => {
-                let filter_program =
-                    residual_filter_program.ok_or_else(InternalError::query_executor_invariant)?;
-                let retained_slot_layout =
-                    retained_slot_layout.ok_or_else(InternalError::query_executor_invariant)?;
-
-                scan_data_rows_direct_with_filter_program(
-                    key_stream,
-                    consistency,
-                    row_keep_cap,
-                    row_skip_count,
-                    row_runtime,
-                    filter_program,
-                    retained_slot_layout,
-                )
-            }
-            ResidualFilterScanMode::DeferredPostAccess => {
-                Err(InternalError::query_executor_invariant())
-            }
+            Some(filter_program) => scan_data_rows_direct_with_filter_program(
+                key_stream,
+                consistency,
+                row_keep_cap,
+                row_skip_count,
+                row_runtime,
+                filter_program,
+            ),
         }
     })
 }
@@ -675,6 +665,22 @@ fn scan_data_rows_only_into_kernel(
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     scan_kernel_rows_with(key_stream, bounds, |key| {
         row_runtime.read_data_row_only(consistency, key)
+    })
+}
+
+// Scan keys into data-row-only kernel rows while applying the canonical
+// residual filter directly against each opened raw row.
+fn scan_data_rows_only_into_kernel_with_filter_program(
+    key_stream: &mut OrderedKeyStreamBox,
+    consistency: MissingRowPolicy,
+    filter_program: &EffectiveRuntimeFilterProgram,
+    bounds: KernelRowScanBounds<'_>,
+    row_runtime: &ScalarRowRuntimeHandle<'_>,
+) -> Result<(Vec<KernelRow>, usize), InternalError> {
+    scan_kernel_rows_with(key_stream, bounds, |key| {
+        row_runtime
+            .read_data_row_with_filter_program(consistency, key, filter_program)
+            .map(|row| row.map(KernelRow::new_data_row_only))
     })
 }
 

@@ -55,7 +55,7 @@ pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: Fiel
     }
 }
 
-/// Decode one strong-relation field payload directly into target primary-key components.
+/// Decode one relation field payload directly into target primary-key components.
 ///
 /// This keeps delete validation and reverse-index maintenance on structural
 /// key forms without first rebuilding a runtime `Value` or `Value::List`.
@@ -69,7 +69,7 @@ pub(in crate::db) fn decode_relation_target_primary_key_components_bytes(
     )
 }
 
-/// Decode one accepted strong-relation field payload directly into target
+/// Decode one accepted relation field payload directly into target
 /// primary-key components.
 pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bytes(
     raw_bytes: &[u8],

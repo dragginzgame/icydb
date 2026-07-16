@@ -38,10 +38,7 @@ use crate::{
         database_format::ensure_database_format_admitted,
         diagnostics::integrity_report_after_recovery,
         index::IndexStore,
-        journal::{
-            FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
-            JournalTailVisit,
-        },
+        journal::{FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore},
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             AcceptedCatalogSnapshotSelection, CandidateSchemaRevision, SchemaStore,
@@ -267,7 +264,7 @@ fn rebuild_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(),
             let watermark = store.fold_watermark()?.highest_folded_journal_sequence();
             store.visit_batches_after(watermark, |batch| {
                 replay_journal_batch(db, store_path, handle, batch)?;
-                Ok(JournalTailVisit::Continue)
+                Ok(())
             })
         })?;
     }
@@ -289,7 +286,7 @@ fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError
                 hit_commit_failpoint(CommitFailpoint::BeforeJournalTailFoldBatch)?;
                 fold_journal_batch(db, store_path, handle, batch)?;
                 highest_folded = batch.journal_sequence();
-                Ok(JournalTailVisit::Continue)
+                Ok(())
             })
         })?;
 

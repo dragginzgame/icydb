@@ -18,37 +18,15 @@ use self::contracts::{
 use crate::{
     db::{
         Db,
-        executor::{EntityAuthority, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
+        executor::{
+            EntityAuthority, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            projection::MaterializedProjectionRows,
+        },
         index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::CanisterKind,
-    value::Value,
 };
-
-///
-/// CoveringProjectionRows
-///
-/// Opaque transport wrapper for executor-owned covering projection results.
-/// This exists to keep executor APIs structural while letting adapter layers
-/// consume the projected value matrix for their own response shaping.
-///
-
-#[derive(Debug)]
-pub(in crate::db::executor) struct CoveringProjectionRows(Vec<Vec<Value>>);
-
-impl CoveringProjectionRows {
-    /// Construct one covering projection row payload from executor-owned rows.
-    pub(super) const fn new(rows: Vec<Vec<Value>>) -> Self {
-        Self(rows)
-    }
-
-    /// Consume this structural wrapper into the row values used by adapters.
-    #[must_use]
-    pub(in crate::db::executor) fn into_value_rows(self) -> Vec<Vec<Value>> {
-        self.0
-    }
-}
 
 ///
 /// PreparedCoveringProjectionRuntime
@@ -136,7 +114,7 @@ pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for
     runtime: PreparedCoveringProjectionRuntime<'_>,
     covering: Option<Rc<CoveringReadExecutionPlan>>,
     hybrid: impl FnOnce() -> Option<Rc<CoveringHybridReadExecutionPlan>>,
-) -> Result<Option<CoveringProjectionRows>, InternalError>
+) -> Result<Option<MaterializedProjectionRows>, InternalError>
 where
     C: CanisterKind,
 {
@@ -151,7 +129,7 @@ where
             runtime.index_predicate_execution,
         )?
     {
-        return Ok(Some(CoveringProjectionRows::new(projected)));
+        return Ok(Some(MaterializedProjectionRows::from_value_rows(projected)));
     }
 
     let Some(hybrid) = hybrid() else {
@@ -161,7 +139,7 @@ where
     hybrid::try_execute_hybrid_covering_projection_rows_with_plan_for_canister(
         db, authority, runtime, &hybrid,
     )
-    .map(|projected| projected.map(CoveringProjectionRows::new))
+    .map(|projected| projected.map(MaterializedProjectionRows::from_value_rows))
 }
 
 ///

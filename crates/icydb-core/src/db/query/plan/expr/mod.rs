@@ -58,13 +58,12 @@
 //!   boundary.
 //! - `TypedExpr` marks expressions that have crossed the type-inference
 //!   boundary without allowing that stage to rewrite the expression tree.
-//! - `PredicateCompilation` marks runtime predicates produced by predicate
-//!   compilation from `CanonicalExpr`.
+//! - predicate compilation consumes `CanonicalExpr` and returns the canonical
+//!   runtime `Predicate` directly.
 //!
 //! Existing planner surfaces still expose `Expr` and `Predicate` where broader
-//! subsystem APIs require them, but each stage now creates an explicit artifact
-//! at its boundary so future tightening can migrate callers without inventing
-//! parallel stage contracts.
+//! subsystem APIs require them; stage types exist only where they enforce a
+//! current input or output invariant.
 
 mod aggregate_input;
 mod ast;
@@ -115,7 +114,7 @@ pub(in crate::db) use compiled_expr::{
 pub(in crate::db) use function_semantics::FunctionSurface;
 pub(in crate::db::query::plan::expr) use function_semantics::{
     AggregateInputConstantFoldShape, BooleanFunctionShape, FieldPredicateFunctionKind,
-    FunctionDeterminism, FunctionTypeInferenceShape, NullTestFunctionKind, ScalarEvalFunctionShape,
+    FunctionTypeInferenceShape, NullTestFunctionKind, ScalarEvalFunctionShape,
 };
 pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
 pub(in crate::db) use path::CompiledPath;
@@ -126,7 +125,7 @@ pub(in crate::db) use predicate::{
 };
 #[cfg(test)]
 pub(in crate::db) use predicate::{
-    compile_canonical_bool_expr_to_compiled_predicate, compile_normalized_bool_expr_to_predicate,
+    compile_canonical_bool_expr_to_predicate, compile_normalized_bool_expr_to_predicate,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use preview::eval_literal_only_expr_value;
@@ -155,7 +154,5 @@ pub(in crate::db) use scalar::{
 pub(in crate::db) use truth_value::{
     admit_true_only_boolean_value, collapse_true_only_boolean_admission,
 };
-pub(in crate::db::query::plan::expr) use type_inference::{
-    ExprCoarseTypeFamily, function_is_compare_operand_coarse_family,
-};
+pub(in crate::db::query::plan::expr) use type_inference::function_is_compare_operand_coarse_family;
 pub(in crate::db) use type_inference::{ExprType, infer_expr_type};

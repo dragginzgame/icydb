@@ -276,13 +276,8 @@ impl FinalizedQueryDiagnostics {
         lines.extend(self.route_diagnostics.iter().cloned());
         lines.extend(self.logical_diagnostics.iter().cloned());
         if let Some(reuse) = self.reuse {
-            let artifact = match reuse.artifact_class() {
-                crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan => {
-                    "shared_prepared_query_plan"
-                }
-            };
             let outcome = if reuse.is_hit() { "hit" } else { "miss" };
-            lines.push(format!("diag.s.semantic_reuse_artifact={artifact}"));
+            lines.push("diag.s.semantic_reuse_artifact=shared_prepared_query_plan".to_string());
             lines.push(format!("diag.s.semantic_reuse={outcome}"));
         }
 

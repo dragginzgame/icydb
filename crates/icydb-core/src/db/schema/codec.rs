@@ -5,8 +5,8 @@
 
 use crate::{
     db::schema::{
-        AcceptedFieldKind, AcceptedRelationEnforcement, FieldId, PersistedFieldOrigin,
-        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
+        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
         PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
@@ -250,7 +250,6 @@ enum AcceptedFieldKindWire {
         target_entity_tag: u64,
         target_store_path: String,
         key_kind: Box<Self>,
-        enforcement: PersistedRelationEnforcementWire,
     },
     List(Box<Self>),
     Set(Box<Self>),
@@ -261,13 +260,6 @@ enum AcceptedFieldKindWire {
     Structured {
         queryable: bool,
     },
-}
-
-// Candid wire enum for relation enforcement.
-#[derive(CandidType, Deserialize)]
-enum PersistedRelationEnforcementWire {
-    Enforced,
-    Unchecked,
 }
 
 // Candid wire enum for slot payload decode policy.
@@ -825,14 +817,12 @@ impl AcceptedFieldKindWire {
                 target_entity_tag,
                 target_store_path,
                 key_kind,
-                enforcement,
             } => Self::Relation {
                 target_path: target_path.clone(),
                 target_entity_name: target_entity_name.clone(),
                 target_entity_tag: target_entity_tag.value(),
                 target_store_path: target_store_path.clone(),
                 key_kind: Box::new(Self::from_kind(key_kind)),
-                enforcement: PersistedRelationEnforcementWire::from_enforcement(*enforcement),
             },
             AcceptedFieldKind::List(inner) => Self::List(Box::new(Self::from_kind(inner))),
             AcceptedFieldKind::Set(inner) => Self::Set(Box::new(Self::from_kind(inner))),
@@ -883,14 +873,12 @@ impl AcceptedFieldKindWire {
                 target_entity_tag,
                 target_store_path,
                 key_kind,
-                enforcement,
             } => AcceptedFieldKind::Relation {
                 target_path,
                 target_entity_name,
                 target_entity_tag: EntityTag::new(target_entity_tag),
                 target_store_path,
                 key_kind: Box::new(key_kind.into_kind()?),
-                enforcement: enforcement.into_enforcement(),
             },
             Self::List(inner) => AcceptedFieldKind::List(Box::new(inner.into_kind()?)),
             Self::Set(inner) => AcceptedFieldKind::Set(Box::new(inner.into_kind()?)),
@@ -900,22 +888,6 @@ impl AcceptedFieldKindWire {
             },
             Self::Structured { queryable } => AcceptedFieldKind::Structured { queryable },
         })
-    }
-}
-
-impl PersistedRelationEnforcementWire {
-    const fn from_enforcement(enforcement: AcceptedRelationEnforcement) -> Self {
-        match enforcement {
-            AcceptedRelationEnforcement::Enforced => Self::Enforced,
-            AcceptedRelationEnforcement::Unchecked => Self::Unchecked,
-        }
-    }
-
-    const fn into_enforcement(self) -> AcceptedRelationEnforcement {
-        match self {
-            Self::Enforced => AcceptedRelationEnforcement::Enforced,
-            Self::Unchecked => AcceptedRelationEnforcement::Unchecked,
-        }
     }
 }
 

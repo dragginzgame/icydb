@@ -51,7 +51,7 @@ use super::{
 };
 #[cfg(feature = "sql")]
 use super::{
-    PreparedProjectionContract, PreparedProjectionPlan, count_borrowed_data_row_views_for_test,
+    PreparedProjectionContract, count_borrowed_data_row_views_for_test,
     count_borrowed_identity_data_row_views_for_test, count_borrowed_slot_row_views_for_test,
     project, project_rows_from_projection,
 };

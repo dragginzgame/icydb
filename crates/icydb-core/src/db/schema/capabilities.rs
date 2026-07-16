@@ -253,10 +253,7 @@ const fn sql_capabilities_for_scalar_semantics(
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
-        types::EntityTag,
-    };
+    use crate::{db::schema::AcceptedFieldKind, types::EntityTag};
 
     use crate::db::schema::capabilities::sql_capabilities;
 
@@ -267,7 +264,6 @@ mod tests {
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            enforcement: AcceptedRelationEnforcement::Unchecked,
         }
     }
 

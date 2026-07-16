@@ -2,10 +2,9 @@
 
 ## Status
 
-IcyDB enforces referential integrity for schema-declared relations by default.
-Only relations explicitly configured as **unchecked** opt out.
+IcyDB enforces referential integrity for every schema-declared relation.
 
-References are stored as **typed primary-key values**. Enforced relations trigger
+References are stored as **typed primary-key values**. Declared relations trigger
 save-time target-existence checks and delete-time source-reference checks.
 The surrounding row strictness and ingress rules are defined in
 `docs/contracts/WRITE_ADMISSION.md`.
@@ -64,8 +63,9 @@ References are **identity values**, not relationships in the relational sense.
 `Id<T>` is a *boundary type* used for entity-kind correctness. It is **not** automatically validated for existence.
 `Id<T>` values may be deserialized from untrusted input; validation is explicit and contextual.
 
-Existence validation occurs wherever the schema declares a relation unless that
-relation explicitly sets `enforcement = "unchecked"`.
+Existence validation occurs wherever the schema declares a relation. A field
+that may contain a missing or stale identifier must be declared as an ordinary
+key-typed field rather than a relation.
 
 ---
 
@@ -85,39 +85,34 @@ RI applies **only** to top-level entity fields declared as relations.
 
 ---
 
-## 4. Relation enforcement
+## 4. Declared relations
 
-IcyDB distinguishes between **enforced** and **unchecked** relations.
-
-Enforcement controls **validation behavior**, not representation.
-
-Relations are enforced by default. The schema DSL uses one enum-valued
-`enforcement` setting and permits an explicit unchecked opt-out:
+The presence of `rel` is the complete enforcement declaration:
 
 ```text
 item(rel = "EntityA", prim = "Ulid")
-item(rel = "EntityA", prim = "Ulid", enforcement = "enforced")
-item(rel = "EntityA", prim = "Ulid", enforcement = "unchecked")
+item(prim = "Ulid") // ordinary identifier with no relation guarantee
 ```
 
-Unchecked behavior is **never inferred**.
+There is no weak, unchecked, or non-enforcing relation mode. Target metadata is
+retained only for fields that accept the full relation contract.
 
 ---
 
-### 4.1 Enforced relations (validated)
+### 4.1 Relation guarantees
 
-Enforced relations are validated on both save and delete paths.
+Relations are validated on both save and delete paths.
 
 Rules:
 
-* Enforced is the default schema intent
+* Declaring `rel` opts into the complete relation contract
 * Validation runs **before commit**
 * The referenced entity **must exist**
 * Any failure aborts the mutation
 * No partial state is written
 * No cascading inserts or deletes occur
 
-Supported enforced shapes in the current contract:
+Supported relation shapes in the current contract:
 
 * `Id<T>`
 * `Option<Id<T>>`
@@ -136,21 +131,6 @@ Collection validation is **aggregate**:
 
 ---
 
-### 4.2 Unchecked relations (not validated)
-
-Unchecked relations are **not validated for existence**.
-
-Rules:
-
-* The opt-out must be explicit schema intent
-* Values are type-checked and serialized normally
-* Missing targets do **not** cause errors
-* Unchecked relations do **not** affect atomicity
-
-Unchecked relations provide **no referential-integrity guarantees**.
-
----
-
 ## 5. Enforcement model
 
 ### 5.1 When enforcement runs
@@ -165,13 +145,12 @@ RI enforcement:
 
 ### 5.2 What is enforced
 
-Only relations whose enforcement is **enforced** receive RI guarantees.
+Every schema-declared relation receives RI guarantees.
 
 For collections, validation is element-wise and bounded.
 
 RI enforcement is skipped when:
 
-* the relation enforcement is `unchecked`
 * the value is explicitly absent (`None`)
 * the field is not a schema-declared relation
 * the reference is nested beyond the field boundary
@@ -197,7 +176,6 @@ Referential integrity is designed to preserve IcyDB’s atomicity model.
 
 * Relation validation completes under the write-admission contract
 * The apply phase follows `docs/contracts/ATOMICITY.md`
-* Unchecked relations do not weaken atomicity guarantees
 
 RI enforcement does **not** depend on traps, recovery timing, or read behavior.
 
@@ -205,7 +183,7 @@ RI enforcement does **not** depend on traps, recovery timing, or read behavior.
 
 ## 7. Error classification
 
-Enforced-relation failures surface as **write-time validation errors**.
+Relation failures surface as **write-time validation errors**.
 
 They are reported as:
 
@@ -243,7 +221,7 @@ Any extension must preserve:
 * bounded pre-commit validation
 * single-message atomicity
 * executor simplicity
-* an explicit opt-out for non-enforcing relations
+* the distinction between relations and ordinary identifier fields
 
 ---
 
@@ -252,14 +230,11 @@ Any extension must preserve:
 IcyDB’s referential integrity model is:
 
 * **schema-driven**
-* **enforced by default with an explicit unchecked opt-out**
-* **save-time and delete-time for enforced relations**
+* **always enforced for declared relations**
+* **save-time and delete-time**
 * **bounded**
 * **non-relational**
 
-Enforced relations provide correctness where it is safe and enforceable.
-
-Unchecked relations provide flexibility where dangling references are an
-intentional part of the domain model.
-
-This balance is intentional and foundational.
+Ordinary key-typed fields remain available when dangling identifiers are an
+intentional part of the domain model. The difference is explicit and
+foundational: a relation always carries referential-integrity guarantees.

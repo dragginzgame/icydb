@@ -1175,7 +1175,7 @@ fn aggregate_projection_covering_index_window_stops_after_ignore_limit() {
         "ignore-mode covering projection should stop after offset plus emitted limit rows",
     );
     assert_eq!(
-        metrics.row_presence_probe_borrowed_data_store_count, 3,
+        metrics.row_presence_probe_count, 3,
         "ignore-mode covering projection should not probe stale tail rows after the window",
     );
 }

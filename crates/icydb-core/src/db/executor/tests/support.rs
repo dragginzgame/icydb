@@ -22,16 +22,13 @@ pub(in crate::db::executor::tests) use crate::{
         predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
-        relation::validate_delete_strong_relations_for_source,
+        relation::validate_delete_relations_for_source,
         schema::SchemaStore,
     },
     entity::{EntityKind, EntityValue},
     error::InternalError,
     metrics::sink::{MetricsEvent, MetricsSink, with_shared_metrics_sink},
-    model::{
-        field::{FieldKind, RelationEnforcement},
-        index::IndexModel,
-    },
+    model::{field::FieldKind, index::IndexModel},
     testing::test_memory,
     traits::Path,
     types::{Ulid, Unit},
@@ -498,63 +495,42 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL,
         RelationTargetEntity::PATH,
         RelationTargetStore::PATH,
-        validate_delete_strong_relations_for_source::<RelationTargetEntity>,
+        validate_delete_relations_for_source::<RelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
         RelationSourceEntity::ENTITY_TAG,
         <RelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         RelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<RelationSourceEntity>,
+        validate_delete_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         CompositeRelationTargetEntity::ENTITY_TAG,
         <CompositeRelationTargetEntity as crate::entity::EntityDeclaration>::MODEL,
         CompositeRelationTargetEntity::PATH,
         RelationTargetStore::PATH,
-        validate_delete_strong_relations_for_source::<CompositeRelationTargetEntity>,
+        validate_delete_relations_for_source::<CompositeRelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
         CompositeRelationSourceEntity::ENTITY_TAG,
         <CompositeRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         CompositeRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<CompositeRelationSourceEntity>,
+        validate_delete_relations_for_source::<CompositeRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         OptionalCompositeRelationSourceEntity::ENTITY_TAG,
         <OptionalCompositeRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         OptionalCompositeRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<OptionalCompositeRelationSourceEntity>,
+        validate_delete_relations_for_source::<OptionalCompositeRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         CompositePkRelationSourceEntity::ENTITY_TAG,
         <CompositePkRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
         CompositePkRelationSourceEntity::PATH,
         RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<CompositePkRelationSourceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        UncheckedSingleRelationSourceEntity::ENTITY_TAG,
-        <UncheckedSingleRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        UncheckedSingleRelationSourceEntity::PATH,
-        RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<UncheckedSingleRelationSourceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        UncheckedOptionalRelationSourceEntity::ENTITY_TAG,
-        <UncheckedOptionalRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        UncheckedOptionalRelationSourceEntity::PATH,
-        RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<UncheckedOptionalRelationSourceEntity>,
-    ),
-    EntityRuntimeHooks::new(
-        UncheckedListRelationSourceEntity::ENTITY_TAG,
-        <UncheckedListRelationSourceEntity as crate::entity::EntityDeclaration>::MODEL,
-        UncheckedListRelationSourceEntity::PATH,
-        RelationSourceStore::PATH,
-        validate_delete_strong_relations_for_source::<UncheckedListRelationSourceEntity>,
+        validate_delete_relations_for_source::<CompositePkRelationSourceEntity>,
     ),
 ];
 
@@ -612,7 +588,6 @@ crate::test_entity! {
             target_entity_tag: RelationTargetEntity::ENTITY_TAG,
             target_store_path: RelationTargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -930,150 +905,6 @@ crate::test_entity! {
             tenant_id: entity.tenant,
             source_local_id: entity.source_local,
     }),
-}
-
-///
-/// UncheckedSingleRelationSourceEntity
-///
-
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct UncheckedSingleRelationSourceEntity {
-    pub(in crate::db::executor::tests) id: Ulid,
-    pub(in crate::db::executor::tests) target: Ulid,
-}
-
-crate::test_entity! {
-    ident = UncheckedSingleRelationSourceEntity,
-    entity_name = "UncheckedSingleRelationSourceEntity",
-    tag = crate::testing::UNCHECKED_SINGLE_RELATION_SOURCE_ENTITY_TAG,
-    store = RelationSourceStore,
-    canister = RelationTestCanister,
-    key_type = Ulid,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { target: Ulid => FieldKind::Relation {
-            target_path: RelationTargetEntity::PATH,
-            target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
-            target_entity_tag: RelationTargetEntity::ENTITY_TAG,
-            target_store_path: RelationTargetStore::PATH,
-            key_kind: &FieldKind::Ulid,
-            enforcement: RelationEnforcement::Unchecked,
-        } },
-    ],
-    indexes = [],
-    relations = [],
-    entity_value = id_field(id),
-}
-
-///
-/// UncheckedOptionalRelationSourceEntity
-///
-
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct UncheckedOptionalRelationSourceEntity {
-    pub(in crate::db::executor::tests) id: Ulid,
-    pub(in crate::db::executor::tests) target: Option<Ulid>,
-}
-
-crate::test_entity! {
-    ident = UncheckedOptionalRelationSourceEntity,
-    entity_name = "UncheckedOptionalRelationSourceEntity",
-    tag = crate::testing::UNCHECKED_OPTIONAL_RELATION_SOURCE_ENTITY_TAG,
-    store = RelationSourceStore,
-    canister = RelationTestCanister,
-    key_type = Ulid,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { target: Option<Ulid> => FieldKind::Relation {
-            target_path: RelationTargetEntity::PATH,
-            target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL.name(),
-            target_entity_tag: RelationTargetEntity::ENTITY_TAG,
-            target_store_path: RelationTargetStore::PATH,
-            key_kind: &FieldKind::Ulid,
-            enforcement: RelationEnforcement::Unchecked,
-        } },
-    ],
-    indexes = [],
-    relations = [],
-    entity_value = id_field(id),
-}
-
-///
-/// UncheckedListRelationSourceEntity
-///
-
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct UncheckedListRelationSourceEntity {
-    pub(in crate::db::executor::tests) id: Ulid,
-    pub(in crate::db::executor::tests) targets: Vec<Ulid>,
-}
-
-pub(in crate::db::executor::tests) static REL_UNCHECKED_LIST_TARGET_KIND: FieldKind =
-    FieldKind::Relation {
-        target_path: RelationTargetEntity::PATH,
-        target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL
-            .name(),
-        target_entity_tag: RelationTargetEntity::ENTITY_TAG,
-        target_store_path: RelationTargetStore::PATH,
-        key_kind: &FieldKind::Ulid,
-        enforcement: RelationEnforcement::Unchecked,
-    };
-
-crate::test_entity! {
-    ident = UncheckedListRelationSourceEntity,
-    entity_name = "UncheckedListRelationSourceEntity",
-    tag = crate::testing::UNCHECKED_LIST_RELATION_SOURCE_ENTITY_TAG,
-    store = RelationSourceStore,
-    canister = RelationTestCanister,
-    key_type = Ulid,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { targets: Vec<Ulid> => FieldKind::List(&REL_UNCHECKED_LIST_TARGET_KIND) },
-    ],
-    indexes = [],
-    relations = [],
-    entity_value = id_field(id),
-}
-
-///
-/// UncheckedSetRelationSourceEntity
-///
-
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-pub(in crate::db::executor::tests) struct UncheckedSetRelationSourceEntity {
-    pub(in crate::db::executor::tests) id: Ulid,
-    pub(in crate::db::executor::tests) targets: Vec<Ulid>,
-}
-
-pub(in crate::db::executor::tests) static REL_UNCHECKED_SET_TARGET_KIND: FieldKind =
-    FieldKind::Relation {
-        target_path: RelationTargetEntity::PATH,
-        target_entity_name: <RelationTargetEntity as crate::entity::EntityDeclaration>::MODEL
-            .name(),
-        target_entity_tag: RelationTargetEntity::ENTITY_TAG,
-        target_store_path: RelationTargetStore::PATH,
-        key_kind: &FieldKind::Ulid,
-        enforcement: RelationEnforcement::Unchecked,
-    };
-
-crate::test_entity! {
-    ident = UncheckedSetRelationSourceEntity,
-    entity_name = "UncheckedSetRelationSourceEntity",
-    tag = crate::testing::UNCHECKED_SET_RELATION_SOURCE_ENTITY_TAG,
-    store = RelationSourceStore,
-    canister = RelationTestCanister,
-    key_type = Ulid,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: Ulid => FieldKind::Ulid },
-        crate::test_field! { targets: Vec<Ulid> => FieldKind::Set(&REL_UNCHECKED_SET_TARGET_KIND) },
-    ],
-    indexes = [],
-    relations = [],
-    entity_value = id_field(id),
 }
 
 // Clear relation test stores and any pending commit marker between runs.

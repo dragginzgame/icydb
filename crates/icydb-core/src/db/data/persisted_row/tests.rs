@@ -45,7 +45,6 @@ use crate::{
         EntityModel,
         field::{
             EnumVariantModel, FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
-            RelationEnforcement,
         },
     },
     testing::SIMPLE_ENTITY_TAG,
@@ -589,7 +588,6 @@ static RELATION_PK_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
         target_entity_tag: crate::types::EntityTag::new(71),
         target_store_path: "tests::PersistedRowRelationPkTargetStore",
         key_kind: &RELATION_PK_KEY_KIND,
-        enforcement: RelationEnforcement::Unchecked,
     },
 )];
 static RELATION_PK_MODEL: EntityModel = EntityModel::generated(

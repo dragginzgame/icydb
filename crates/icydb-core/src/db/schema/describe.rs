@@ -9,14 +9,14 @@ use crate::{
             RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
         },
         schema::{
-            AcceptedFieldKind, AcceptedRelationEnforcement, AcceptedSchemaSnapshot,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, field_type_from_persisted_kind,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, SchemaFieldDefault,
+            SchemaFieldSlot, field_type_from_persisted_kind,
         },
     },
     model::{
         entity::EntityModel,
-        field::{FieldDatabaseDefault, FieldKind, FieldModel, RelationEnforcement},
+        field::{FieldDatabaseDefault, FieldKind, FieldModel},
     },
 };
 use candid::CandidType;
@@ -314,7 +314,6 @@ pub struct EntityRelationDescription {
     pub(crate) target_path: String,
     pub(crate) target_entity_name: String,
     pub(crate) target_store_path: String,
-    pub(crate) enforcement: EntityRelationEnforcement,
     pub(crate) cardinality: EntityRelationCardinality,
 }
 
@@ -326,7 +325,6 @@ impl EntityRelationDescription {
         target_path: String,
         target_entity_name: String,
         target_store_path: String,
-        enforcement: EntityRelationEnforcement,
         cardinality: EntityRelationCardinality,
     ) -> Self {
         Self {
@@ -334,7 +332,6 @@ impl EntityRelationDescription {
             target_path,
             target_entity_name,
             target_store_path,
-            enforcement,
             cardinality,
         }
     }
@@ -363,27 +360,11 @@ impl EntityRelationDescription {
         self.target_store_path.as_str()
     }
 
-    /// Return relation enforcement.
-    #[must_use]
-    pub const fn enforcement(&self) -> EntityRelationEnforcement {
-        self.enforcement
-    }
-
     /// Return relation cardinality.
     #[must_use]
     pub const fn cardinality(&self) -> EntityRelationCardinality {
         self.cardinality
     }
-}
-
-#[cfg_attr(
-    doc,
-    doc = "EntityRelationEnforcement\n\nDescribe relation enforcement."
-)]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub enum EntityRelationEnforcement {
-    Enforced,
-    Unchecked,
 }
 
 #[cfg_attr(
@@ -797,7 +778,6 @@ fn relation_description_from_persisted_field(
         relation.target_path.to_string(),
         relation.target_entity_name.to_string(),
         relation.target_store_path.to_string(),
-        relation.enforcement,
         relation.cardinality,
     ))
 }
@@ -806,7 +786,6 @@ struct PersistedRelationDescriptionMetadata<'a> {
     target_path: &'a str,
     target_entity_name: &'a str,
     target_store_path: &'a str,
-    enforcement: EntityRelationEnforcement,
     cardinality: EntityRelationCardinality,
 }
 
@@ -821,7 +800,6 @@ fn persisted_relation_description_metadata(
             target_path,
             target_entity_name,
             target_store_path,
-            enforcement,
             ..
         } = kind
         else {
@@ -832,7 +810,6 @@ fn persisted_relation_description_metadata(
             target_path: target_path.as_str(),
             target_entity_name: target_entity_name.as_str(),
             target_store_path: target_store_path.as_str(),
-            enforcement: entity_relation_enforcement_from_persisted(*enforcement),
             cardinality,
         })
     }
@@ -849,24 +826,10 @@ fn persisted_relation_description_metadata(
     }
 }
 
-const fn entity_relation_enforcement_from_persisted(
-    enforcement: AcceptedRelationEnforcement,
-) -> EntityRelationEnforcement {
-    match enforcement {
-        AcceptedRelationEnforcement::Enforced => EntityRelationEnforcement::Enforced,
-        AcceptedRelationEnforcement::Unchecked => EntityRelationEnforcement::Unchecked,
-    }
-}
-
 // Project relation-owned metadata into the stable describe DTO surface.
 fn relation_description_from_metadata(
     metadata: RelationFieldMetadata,
 ) -> EntityRelationDescription {
-    let enforcement = match metadata.enforcement() {
-        RelationEnforcement::Enforced => EntityRelationEnforcement::Enforced,
-        RelationEnforcement::Unchecked => EntityRelationEnforcement::Unchecked,
-    };
-
     let cardinality = match metadata.cardinality() {
         RelationFieldCardinality::Single => EntityRelationCardinality::Single,
         RelationFieldCardinality::List => EntityRelationCardinality::List,
@@ -878,7 +841,6 @@ fn relation_description_from_metadata(
         metadata.target_path().to_string(),
         metadata.target_entity_name().to_string(),
         metadata.target_store_path().to_string(),
-        enforcement,
         cardinality,
     )
 }
@@ -920,15 +882,12 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         FieldKind::Relation {
             target_entity_name,
             key_kind,
-            enforcement,
             ..
         } => {
             out.push_str("relation(target=");
             out.push_str(target_entity_name);
             out.push_str(", key=");
             write_field_kind_summary(out, key_kind);
-            out.push_str(", enforcement=");
-            out.push_str(summarize_relation_enforcement(*enforcement));
             out.push(')');
         }
         FieldKind::List(inner) => {
@@ -1134,15 +1093,12 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &AcceptedFieldKind
         AcceptedFieldKind::Relation {
             target_entity_name,
             key_kind,
-            enforcement,
             ..
         } => {
             out.push_str("relation(target=");
             out.push_str(target_entity_name);
             out.push_str(", key=");
             write_persisted_field_kind_summary(out, key_kind);
-            out.push_str(", enforcement=");
-            out.push_str(summarize_persisted_relation_enforcement(*enforcement));
             out.push(')');
         }
         AcceptedFieldKind::List(inner) => {
@@ -1228,30 +1184,6 @@ impl DescribeKindName for AcceptedFieldKind {
             | Self::Map { .. }
             | Self::Structured { .. } => return None,
         })
-    }
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Render one stable relation-enforcement label from persisted schema metadata."
-)]
-const fn summarize_persisted_relation_enforcement(
-    enforcement: AcceptedRelationEnforcement,
-) -> &'static str {
-    match enforcement {
-        AcceptedRelationEnforcement::Enforced => "enforced",
-        AcceptedRelationEnforcement::Unchecked => "unchecked",
-    }
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Render one stable relation-enforcement label for field-kind summaries."
-)]
-const fn summarize_relation_enforcement(enforcement: RelationEnforcement) -> &'static str {
-    match enforcement {
-        RelationEnforcement::Enforced => "enforced",
-        RelationEnforcement::Unchecked => "unchecked",
     }
 }
 

@@ -28,12 +28,12 @@ pub use session::{
 pub use icydb_core::db::{
     AdminBatchRequest, DataStoreSnapshot, EntityCatalogCounts, EntityCatalogDescription,
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationEnforcement, EntitySchemaCheckDescription,
-    EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
-    ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource, IndexStoreSnapshot, MemoryCatalogDescription, QueryTracePlan,
-    ReadIntentKind, Row, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
-    TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
+    EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
+    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
+    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
+    IndexStoreSnapshot, MemoryCatalogDescription, QueryTracePlan, ReadIntentKind, Row,
+    SchemaStoreSnapshot, StorageReport, StoreCatalogDescription, TraceExecutionFamily,
+    TraceReuseEvent,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

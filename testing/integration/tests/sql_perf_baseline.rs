@@ -8,6 +8,9 @@ use crate::{
     sql_perf_environment::{
         PerfEnvironmentIdentity, PerfEnvironmentMismatch, require_comparable_environment,
     },
+    sql_perf_measurement::{
+        PerformanceMeasurementCoverage, PhaseResidualMetric, current_measurement_coverage,
+    },
     sql_perf_p2::P2RawMetric,
     sql_perf_p2_confirmation::{P2SampleMode, P2SampleSet, P2WarmEvidence, same_semantic_result},
     sql_perf_p2_shard::{MergedP2ShardReports, P2ShardMergeError, validate_merged_p2_report},
@@ -40,6 +43,9 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum P2BaselineMetric {
     /// One instruction metric already owned by P2 raw ranking.
     Instruction(P2RawMetric),
+
+    /// One raw phase-reconciliation residual retained by current samples.
+    PhaseResidual(PhaseResidualMetric),
 
     /// Rows ingested by scalar aggregate reducers.
     ScalarAggregateRowsIngested,
@@ -103,6 +109,7 @@ impl P2BaselineMetric {
     fn value(self, sample: &MatrixSample) -> u64 {
         match self {
             Self::Instruction(metric) => metric.value(sample),
+            Self::PhaseResidual(metric) => metric.value(sample),
             Self::ScalarAggregateRowsIngested => sample.scalar_aggregate_rows_ingested,
             Self::HybridCoveringPathHits => sample.hybrid_covering_path_hits,
             Self::HybridCoveringIndexFieldAccesses => sample.hybrid_covering_index_field_accesses,
@@ -263,6 +270,9 @@ pub(crate) struct PerformanceBaselineComparison {
     /// Complete current environment and measured subject.
     pub(crate) current_environment: PerfEnvironmentIdentity,
 
+    /// Canonical measured and explicitly unmeasured resource dimensions.
+    pub(crate) measurement_coverage: PerformanceMeasurementCoverage,
+
     /// Exact candidate-set identity shared by both artifacts.
     pub(crate) p2_scenario_set_hash: String,
 
@@ -353,6 +363,7 @@ pub(crate) fn compare_performance_baseline(
     Ok(PerformanceBaselineComparison {
         baseline_environment: baseline.environment.clone(),
         current_environment: current.environment.clone(),
+        measurement_coverage: current_measurement_coverage(),
         p2_scenario_set_hash: baseline.p2_scenario_set_hash().to_string(),
         candidate_count: baseline.confirmations.len(),
         observation_only_metric_count: p2_observation_only_metric_count
@@ -462,6 +473,12 @@ fn append_sample_set_deltas(
         .copied()
         .map(P2BaselineMetric::Instruction)
         .chain(P2_NON_INSTRUCTION_METRICS.iter().copied())
+        .chain(
+            PhaseResidualMetric::all()
+                .iter()
+                .copied()
+                .map(P2BaselineMetric::PhaseResidual),
+        )
     {
         let baseline = median_metric(baseline, metric);
         let current = median_metric(current, metric);
@@ -749,6 +766,10 @@ mod tests {
         .expect("subject identity may differ in a comparable pair");
 
         assert_eq!(comparison.verdict, P2BaselineVerdict::Passed);
+        assert_eq!(
+            comparison.measurement_coverage,
+            current_measurement_coverage(),
+        );
         assert!(comparison.observation_only_metric_count > 0);
         assert!(comparison.deltas.iter().any(|delta| {
             delta.metric == P2BaselineMetric::Instruction(P2RawMetric::Total)
@@ -760,6 +781,10 @@ mod tests {
                 .iter()
                 .any(|delta| { matches!(delta.disposition, P2MetricDisposition::ObservationOnly) })
         );
+        assert!(comparison.deltas.iter().any(|delta| {
+            matches!(delta.metric, P2BaselineMetric::PhaseResidual(_))
+                && matches!(delta.disposition, P2MetricDisposition::ObservationOnly)
+        }));
     }
 
     #[test]

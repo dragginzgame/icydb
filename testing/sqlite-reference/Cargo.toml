@@ -7,6 +7,7 @@ publish = false
 description = "Pinned SQLite reference adapter for IcyDB SQL correctness tests"
 
 [dependencies]
+blake3 = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 rusqlite = { workspace = true }
 

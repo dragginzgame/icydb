@@ -1,5 +1,5 @@
 //! Module: relation::reverse_index
-//! Responsibility: maintain reverse-index relation targets for strong relation consistency.
+//! Responsibility: maintain reverse-index relation targets for relation consistency.
 //! Does not own: planner query semantics or execution routing policies.
 //! Boundary: applies relation reverse-index mutations during commit pathways.
 
@@ -25,11 +25,11 @@ use crate::{
             AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
             accepted_relation_target_metadata_from_kind, accepted_relation_tuple_edge_descriptor,
-            accepted_strong_scalar_relation_target_descriptor,
+            accepted_scalar_relation_target_descriptor,
             validate_relation_primary_key_component_kind,
         },
+        schema::AcceptedFieldKind,
         schema::{AcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract},
-        schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
     },
     entity::EntityKind,
     error::InternalError,
@@ -110,19 +110,19 @@ struct ReverseRelationSourceTransition<'row, 'slots> {
 }
 
 #[derive(Clone, Debug)]
-pub(in crate::db::relation) struct AcceptedStrongRelationInfo {
+pub(in crate::db::relation) struct AcceptedRelationInfo {
     relation_name: String,
     relation_ordinal: usize,
-    local_components: AcceptedStrongRelationLocalComponents,
-    target: AcceptedStrongRelationTargetIdentity,
+    local_components: AcceptedRelationLocalComponents,
+    target: AcceptedRelationTargetIdentity,
     cardinality: AcceptedRelationCardinality,
 }
 
-impl AcceptedStrongRelationInfo {
+impl AcceptedRelationInfo {
     fn new(
         relation_name: impl Into<String>,
         relation_ordinal: usize,
-        local_components: AcceptedStrongRelationLocalComponents,
+        local_components: AcceptedRelationLocalComponents,
         target_contract: AcceptedRelationTargetContract,
         cardinality: AcceptedRelationCardinality,
     ) -> Result<Self, InternalError> {
@@ -130,7 +130,7 @@ impl AcceptedStrongRelationInfo {
             relation_name: relation_name.into(),
             relation_ordinal,
             local_components,
-            target: AcceptedStrongRelationTargetIdentity::from_target_contract(target_contract)?,
+            target: AcceptedRelationTargetIdentity::from_target_contract(target_contract)?,
             cardinality,
         })
     }
@@ -148,16 +148,16 @@ impl AcceptedStrongRelationInfo {
     #[must_use]
     fn scalar_relation_field_kind(&self) -> Option<&AcceptedFieldKind> {
         self.scalar_local_component()
-            .map(AcceptedStrongRelationLocalComponent::field_kind)
+            .map(AcceptedRelationLocalComponent::field_kind)
     }
 
     #[must_use]
-    const fn local_components(&self) -> &AcceptedStrongRelationLocalComponents {
+    const fn local_components(&self) -> &AcceptedRelationLocalComponents {
         &self.local_components
     }
 
     #[must_use]
-    pub(in crate::db::relation) const fn target(&self) -> &AcceptedStrongRelationTargetIdentity {
+    pub(in crate::db::relation) const fn target(&self) -> &AcceptedRelationTargetIdentity {
         &self.target
     }
 
@@ -165,19 +165,19 @@ impl AcceptedStrongRelationInfo {
         self.cardinality
     }
 
-    fn scalar_local_component(&self) -> Option<&AcceptedStrongRelationLocalComponent> {
+    fn scalar_local_component(&self) -> Option<&AcceptedRelationLocalComponent> {
         self.local_components.scalar_component()
     }
 }
 
 #[derive(Clone, Debug)]
-struct AcceptedStrongRelationLocalComponents {
-    components: Vec<AcceptedStrongRelationLocalComponent>,
+struct AcceptedRelationLocalComponents {
+    components: Vec<AcceptedRelationLocalComponent>,
 }
 
-impl AcceptedStrongRelationLocalComponents {
+impl AcceptedRelationLocalComponents {
     fn scalar(field_index: usize, field: AcceptedFieldDecodeContract<'_>) -> Self {
-        Self::try_from_component_specs(&[AcceptedStrongRelationLocalComponentSpec {
+        Self::try_from_component_specs(&[AcceptedRelationLocalComponentSpec {
             index: field_index,
             field,
         }])
@@ -185,7 +185,7 @@ impl AcceptedStrongRelationLocalComponents {
     }
 
     fn try_from_component_specs(
-        components: &[AcceptedStrongRelationLocalComponentSpec<'_>],
+        components: &[AcceptedRelationLocalComponentSpec<'_>],
     ) -> Result<Self, InternalError> {
         if components.is_empty() {
             return Err(InternalError::relation_source_row_unsupported_key_kind(
@@ -196,7 +196,7 @@ impl AcceptedStrongRelationLocalComponents {
         Ok(Self {
             components: components
                 .iter()
-                .map(|component| AcceptedStrongRelationLocalComponent {
+                .map(|component| AcceptedRelationLocalComponent {
                     index: component.index,
                     name: component.field.field_name().to_string(),
                     kind: component.field.kind().clone(),
@@ -214,12 +214,12 @@ impl AcceptedStrongRelationLocalComponents {
     }
 
     #[must_use]
-    const fn components(&self) -> &[AcceptedStrongRelationLocalComponent] {
+    const fn components(&self) -> &[AcceptedRelationLocalComponent] {
         self.components.as_slice()
     }
 
     #[must_use]
-    fn scalar_component(&self) -> Option<&AcceptedStrongRelationLocalComponent> {
+    fn scalar_component(&self) -> Option<&AcceptedRelationLocalComponent> {
         let [component] = self.components.as_slice() else {
             return None;
         };
@@ -229,13 +229,13 @@ impl AcceptedStrongRelationLocalComponents {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct AcceptedStrongRelationLocalComponentSpec<'a> {
+struct AcceptedRelationLocalComponentSpec<'a> {
     index: usize,
     field: AcceptedFieldDecodeContract<'a>,
 }
 
 #[derive(Clone, Debug)]
-struct AcceptedStrongRelationLocalComponent {
+struct AcceptedRelationLocalComponent {
     index: usize,
     name: String,
     kind: AcceptedFieldKind,
@@ -244,7 +244,7 @@ struct AcceptedStrongRelationLocalComponent {
     leaf_codec: LeafCodec,
 }
 
-impl AcceptedStrongRelationLocalComponent {
+impl AcceptedRelationLocalComponent {
     #[must_use]
     const fn field_index(&self) -> usize {
         self.index
@@ -273,12 +273,12 @@ impl AcceptedStrongRelationLocalComponent {
 }
 
 #[derive(Clone, Debug)]
-pub(in crate::db::relation) struct AcceptedStrongRelationTargetIdentity {
+pub(in crate::db::relation) struct AcceptedRelationTargetIdentity {
     authority: AcceptedRelationTargetAuthority,
-    primary_key: AcceptedStrongRelationTargetPrimaryKey,
+    primary_key: AcceptedRelationTargetPrimaryKey,
 }
 
-impl AcceptedStrongRelationTargetIdentity {
+impl AcceptedRelationTargetIdentity {
     #[cfg(test)]
     fn try_new(
         source_path: &str,
@@ -298,9 +298,7 @@ impl AcceptedStrongRelationTargetIdentity {
                 target_entity_tag,
                 target_store_path,
             )?,
-            primary_key: AcceptedStrongRelationTargetPrimaryKey::try_from_component_kinds(
-                key_kinds,
-            )?,
+            primary_key: AcceptedRelationTargetPrimaryKey::try_from_component_kinds(key_kinds)?,
         })
     }
 
@@ -308,7 +306,7 @@ impl AcceptedStrongRelationTargetIdentity {
         contract: AcceptedRelationTargetContract,
     ) -> Result<Self, InternalError> {
         Ok(Self {
-            primary_key: AcceptedStrongRelationTargetPrimaryKey::try_from_component_kinds(
+            primary_key: AcceptedRelationTargetPrimaryKey::try_from_component_kinds(
                 contract.primary_key_kinds(),
             )?,
             authority: contract.into_target(),
@@ -336,17 +334,17 @@ impl AcceptedStrongRelationTargetIdentity {
     }
 
     #[must_use]
-    const fn primary_key(&self) -> &AcceptedStrongRelationTargetPrimaryKey {
+    const fn primary_key(&self) -> &AcceptedRelationTargetPrimaryKey {
         &self.primary_key
     }
 }
 
 #[derive(Clone, Debug)]
-struct AcceptedStrongRelationTargetPrimaryKey {
+struct AcceptedRelationTargetPrimaryKey {
     component_kinds: Vec<AcceptedFieldKind>,
 }
 
-impl AcceptedStrongRelationTargetPrimaryKey {
+impl AcceptedRelationTargetPrimaryKey {
     fn try_from_component_kinds(
         component_kinds: &[AcceptedFieldKind],
     ) -> Result<Self, InternalError> {
@@ -404,21 +402,17 @@ const fn relation_target_entity_mismatch_context_label(
     }
 }
 
-pub(in crate::db::relation) fn accepted_strong_relations_for_row_contract<C>(
+pub(in crate::db::relation) fn accepted_relations_for_row_contract<C>(
     db: &Db<C>,
     source_path: &str,
     source_row_contract: &StructuralRowContract,
     target_path_filter: Option<&str>,
-) -> Result<Vec<AcceptedStrongRelationInfo>, InternalError>
+) -> Result<Vec<AcceptedRelationInfo>, InternalError>
 where
     C: CanisterKind,
 {
-    let mut relations = accepted_strong_relations_from_edges(
-        db,
-        source_path,
-        source_row_contract,
-        target_path_filter,
-    )?;
+    let mut relations =
+        accepted_relations_from_edges(db, source_path, source_row_contract, target_path_filter)?;
     for slot in 0..source_row_contract.field_count() {
         if !source_row_contract.has_active_field_slot(slot) {
             continue;
@@ -432,7 +426,7 @@ where
         }
         let field = source_row_contract.required_accepted_field_decode_contract(slot)?;
         let Some(relation) =
-            accepted_strong_relation_from_field(db, source_path, slot, field, target_path_filter)?
+            accepted_relation_from_field(db, source_path, slot, field, target_path_filter)?
         else {
             continue;
         };
@@ -443,12 +437,12 @@ where
     Ok(relations)
 }
 
-fn accepted_strong_relations_from_edges<C>(
+fn accepted_relations_from_edges<C>(
     db: &Db<C>,
     source_path: &str,
     source_row_contract: &StructuralRowContract,
     target_path_filter: Option<&str>,
-) -> Result<Vec<AcceptedStrongRelationInfo>, InternalError>
+) -> Result<Vec<AcceptedRelationInfo>, InternalError>
 where
     C: CanisterKind,
 {
@@ -456,7 +450,7 @@ where
 
     for edge in source_row_contract.accepted_relation_edges() {
         let Some(relation) =
-            accepted_strong_relation_from_edge(db, source_path, source_row_contract, edge)?
+            accepted_relation_from_edge(db, source_path, source_row_contract, edge)?
         else {
             continue;
         };
@@ -471,12 +465,12 @@ where
     Ok(relations)
 }
 
-fn accepted_strong_relation_from_edge<C>(
+fn accepted_relation_from_edge<C>(
     db: &Db<C>,
     source_path: &str,
     source_row_contract: &StructuralRowContract,
     edge: &OwnedAcceptedRelationEdgeContract,
-) -> Result<Option<AcceptedStrongRelationInfo>, InternalError>
+) -> Result<Option<AcceptedRelationInfo>, InternalError>
 where
     C: CanisterKind,
 {
@@ -487,7 +481,7 @@ where
         .collect::<Result<Vec<_>, _>>()?;
 
     if let [field] = local_fields.as_slice()
-        && let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+        && let Some(descriptor) = accepted_scalar_relation_target_descriptor(
             db,
             source_path,
             edge.name(),
@@ -497,10 +491,10 @@ where
         )?
     {
         let cardinality = descriptor.cardinality();
-        return Ok(Some(AcceptedStrongRelationInfo::new(
+        return Ok(Some(AcceptedRelationInfo::new(
             field.field_name(),
             edge.local_field_slots()[0],
-            AcceptedStrongRelationLocalComponents::scalar(edge.local_field_slots()[0], *field),
+            AcceptedRelationLocalComponents::scalar(edge.local_field_slots()[0], *field),
             descriptor.into_target_contract(),
             cardinality,
         )?));
@@ -521,44 +515,39 @@ where
     let component_specs = local_fields
         .iter()
         .enumerate()
-        .map(|(offset, field)| AcceptedStrongRelationLocalComponentSpec {
+        .map(|(offset, field)| AcceptedRelationLocalComponentSpec {
             index: edge.local_field_slots()[offset],
             field: *field,
         })
         .collect::<Vec<_>>();
 
-    Ok(Some(AcceptedStrongRelationInfo::new(
+    Ok(Some(AcceptedRelationInfo::new(
         edge.name(),
         edge.local_field_slots()[0],
-        AcceptedStrongRelationLocalComponents::try_from_component_specs(
-            component_specs.as_slice(),
-        )?,
+        AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
         tuple_descriptor.into_target_contract(),
         AcceptedRelationCardinality::Single,
     )?))
 }
 
-fn accepted_strong_relation_from_field<C>(
+fn accepted_relation_from_field<C>(
     db: &Db<C>,
     source_path: &str,
     field_index: usize,
     field: AcceptedFieldDecodeContract<'_>,
     target_path_filter: Option<&str>,
-) -> Result<Option<AcceptedStrongRelationInfo>, InternalError>
+) -> Result<Option<AcceptedRelationInfo>, InternalError>
 where
     C: CanisterKind,
 {
     let Some(target) = accepted_relation_target_metadata_from_kind(field.kind()) else {
         return Ok(None);
     };
-    if target.enforcement != AcceptedRelationEnforcement::Enforced {
-        return Ok(None);
-    }
     if target_path_filter.is_some_and(|filter| filter != target.target_path) {
         return Ok(None);
     }
 
-    let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+    let Some(descriptor) = accepted_scalar_relation_target_descriptor(
         db,
         source_path,
         field.field_name(),
@@ -571,10 +560,10 @@ where
     };
     let cardinality = descriptor.cardinality();
 
-    Ok(Some(AcceptedStrongRelationInfo::new(
+    Ok(Some(AcceptedRelationInfo::new(
         field.field_name(),
         field_index,
-        AcceptedStrongRelationLocalComponents::scalar(field_index, field),
+        AcceptedRelationLocalComponents::scalar(field_index, field),
         descriptor.into_target_contract(),
         cardinality,
     )?))
@@ -583,7 +572,7 @@ where
 /// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
 fn reverse_index_id_for_relation(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<IndexId, InternalError> {
     let ordinal = u16::try_from(relation.field_index()).map_err(|err| {
         InternalError::reverse_index_ordinal_overflow(
@@ -600,7 +589,7 @@ fn reverse_index_id_for_relation(
 /// Build reverse-index prefix bounds for one complete target primary key.
 pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
 ) -> Result<Option<(RawIndexStoreKey, RawIndexStoreKey)>, InternalError> {
     let encoded_value =
@@ -621,7 +610,7 @@ pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
 /// Build the concrete reverse-index key for one target/source relation edge.
 fn reverse_index_key_for_target_and_source_primary_key_value(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
     source_key_value: &PrimaryKeyValue,
 ) -> Result<Option<RawIndexStoreKey>, InternalError> {
@@ -644,7 +633,7 @@ fn reverse_index_key_for_target_and_source_primary_key_value(
 // prevents first-component projection from entering reverse-index storage.
 fn encode_reverse_relation_target_identity_component(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
 ) -> Result<Vec<u8>, InternalError> {
     EncodedPrimaryKey::encode(*target_key_value)
@@ -665,7 +654,7 @@ fn encode_reverse_relation_target_identity_component(
 fn relation_target_raw_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source_info: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let keys = relation_target_keys_for_source_slots(row_fields, source_info, relation)?;
 
@@ -673,12 +662,12 @@ fn relation_target_raw_keys_for_source_slots(
 }
 
 /// Check whether one persisted source row still references one complete target
-/// primary key for the declared strong relation.
+/// primary key for the declared relation.
 pub(in crate::db::relation) fn source_row_references_relation_target_primary_key_value(
     raw_row: &RawRow,
     source_row_contract: StructuralRowContract,
     source_info: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     target_key: &PrimaryKeyValue,
 ) -> Result<bool, InternalError> {
     let row_fields =
@@ -692,7 +681,7 @@ pub(in crate::db::relation) fn source_row_references_relation_target_primary_key
 fn source_slots_reference_relation_target(
     row_fields: &StructuralSlotReader<'_>,
     source_info: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     target_key: &PrimaryKeyValue,
 ) -> Result<bool, InternalError> {
     let keys = relation_target_keys_for_source_slots(row_fields, source_info, relation)?;
@@ -709,7 +698,7 @@ fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataStoreKey>) {
 /// Decode a reverse-index entry into source-key membership for validation.
 pub(super) fn decode_reverse_entry(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     index_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
 ) -> Result<IndexRowIdentity, InternalError> {
@@ -728,7 +717,7 @@ pub(super) fn decode_reverse_entry(
 pub(super) fn relation_target_store<C>(
     db: &Db<C>,
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<&'static LocalKey<RefCell<IndexStore>>, InternalError>
 where
     C: CanisterKind,
@@ -753,7 +742,7 @@ where
 /// Decode one raw relation target key and enforce reverse-index target invariants.
 pub(in crate::db::relation) fn decode_relation_target_data_key(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     target_raw_key: &RawDataStoreKey,
     context: RelationTargetDecodeContext,
     mismatch_policy: RelationTargetMismatchPolicy,
@@ -791,7 +780,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
 // Convert decoded relation target keys into canonical sorted raw keys.
 fn relation_target_raw_keys_from_relation_target_keys(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     keys: RelationTargetKeys,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let mut keys = keys
@@ -810,7 +799,7 @@ fn relation_target_raw_keys_from_relation_target_keys(
 fn relation_target_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     if relation
         .scalar_relation_field_kind()
@@ -834,7 +823,7 @@ fn relation_target_keys_for_source_slots(
 fn relation_target_keys_from_component_slots(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     let mut components = Vec::with_capacity(relation.local_components().component_count());
     let mut null_count = 0usize;
@@ -898,12 +887,12 @@ fn relation_target_primary_key_value_from_components(
     }
 }
 
-// Decode the one strong-relation field payload needed by structural delete
+// Decode the one relation field payload needed by structural delete
 // validation directly into relation target keys from the encoded field bytes.
 fn relation_target_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     validate_relation_field_kind(relation)?;
 
@@ -927,12 +916,12 @@ fn relation_target_keys_from_field_bytes(
     Ok(RelationTargetKeys::from_scalar_components(keys))
 }
 
-// Decode one singular strong relation directly from the scalar slot codec when
+// Decode one singular relation directly from the scalar slot codec when
 // the relation key kind is already primary-key-compatible on the persisted row.
 fn relation_target_keys_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<Option<RelationTargetKeys>, InternalError> {
     let Some(field_kind) = relation.scalar_relation_field_kind() else {
         return Ok(None);
@@ -1019,7 +1008,7 @@ const fn primary_key_value_from_relation_scalar(
 // shape without materializing an intermediate runtime `Value`.
 fn raw_relation_target_key_from_primary_key_value(
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
     value: &PrimaryKeyValue,
 ) -> Result<RawDataStoreKey, InternalError> {
     DecodedDataStoreKey::new(relation.target().entity_tag(), value)
@@ -1034,11 +1023,9 @@ fn raw_relation_target_key_from_primary_key_value(
         })
 }
 
-// Enforce the narrow relation-field shapes that strong-relation structural
+// Enforce the narrow relation-field shapes that relation structural
 // decode is allowed to accept on this path.
-fn validate_relation_field_kind(
-    relation: &AcceptedStrongRelationInfo,
-) -> Result<(), InternalError> {
+fn validate_relation_field_kind(relation: &AcceptedRelationInfo) -> Result<(), InternalError> {
     match relation.cardinality() {
         AcceptedRelationCardinality::Single
         | AcceptedRelationCardinality::List
@@ -1051,7 +1038,7 @@ fn validate_relation_field_kind(
 // Scalar collection relation fields still use this single-component gate;
 // tuple relation edges use accepted relation-edge metadata instead.
 fn validate_scalar_relation_target_primary_key_kind(
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<(), InternalError> {
     if relation.local_components().component_count()
         != relation.target().primary_key().component_kinds().len()
@@ -1133,7 +1120,7 @@ where
     // recomputing it through typed entity ids.
     let mut ops = Vec::new();
 
-    let relations = accepted_strong_relations_for_row_contract(
+    let relations = accepted_relations_for_row_contract(
         db,
         source.path,
         &source_rows.source_row_contract,
@@ -1143,7 +1130,7 @@ where
         return Ok(ops);
     }
 
-    // Phase 2: evaluate each strong relation independently and derive index deltas
+    // Phase 2: evaluate each relation independently and derive index deltas
     // directly from persisted row payloads.
     for relation in relations {
         let old_targets = relation_target_keys_for_transition_side(
@@ -1241,7 +1228,7 @@ where
 fn relation_target_keys_for_transition_side(
     row_fields: Option<&StructuralSlotReader<'_>>,
     source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
+    relation: &AcceptedRelationInfo,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
     match row_fields {
         Some(row_fields) => relation_target_raw_keys_for_source_slots(row_fields, source, relation),

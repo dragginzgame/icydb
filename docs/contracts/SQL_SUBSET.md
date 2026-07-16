@@ -4,8 +4,7 @@ This document defines the current supported public IcyDB SQL boundary.
 Anything not stated here is outside the supported SQL surface and must fail
 closed.
 
-This contract is about the public SQL frontend that remains after the old
-public SQL router removal.
+This contract defines the current public SQL frontend.
 
 All state-changing SQL remains subject to
 `docs/contracts/WRITE_ADMISSION.md`. SQL exposure policy and trusted execution

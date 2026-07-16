@@ -1,7 +1,7 @@
 use crate::{
     db::KeyValueCodec,
     db::{
-        access::{AccessPlan, IndexBranchSetOrderedSuffix},
+        access::AccessPlan,
         query::{
             explain::ExplainAccessPath,
             fingerprint::hash_sections::{
@@ -124,10 +124,8 @@ where
         fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
-        ordered_suffix: IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_BRANCH_SET, name, fields);
-        write_str(self.hasher, ordered_suffix.label());
         write_values(self.hasher, fixed_values);
         write_values(self.hasher, branch_values);
     }

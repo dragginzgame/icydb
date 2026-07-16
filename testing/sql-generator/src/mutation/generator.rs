@@ -7,16 +7,23 @@ use crate::{
     GeneratedMutationIdentity, GeneratedMutationSequence, MutationAssignment, MutationBudgets,
     MutationInsertQueryKeySource, MutationOperation, MutationOrder, MutationPredicate, MutationRow,
     MutationSnapshot, MutationStatement, MutationWindow, SqlGeneratorError, SqlGeneratorErrorKind,
+    rng::derive_sql_sub_seed,
 };
 
-/// Current hard-cut deterministic mutation generator version.
-pub const MUTATION_GENERATOR_VERSION: u32 = 1;
+/// Closed structural sequence variants repeated with independently seeded values.
+const MUTATION_STRUCTURAL_VARIANT_COUNT: u32 = 4;
 
-/// Required native Tier A mutation roots.
-pub const TIER_A_MUTATION_ROOT_SEEDS: &[u64] = &[0x1cdb_0204_0000_0003, 0x1cdb_0204_0000_0004];
+/// Stable independently seeded family identity for the current mutation sequence.
+const MUTATION_SEQUENCE_FAMILY_ID: &str = "mutation.sequence";
+
+/// Current hard-cut deterministic mutation generator version.
+pub const MUTATION_GENERATOR_VERSION: u32 = 2;
 
 /// Required root-local mutation cases.
 pub const TIER_A_MUTATION_CASES_PER_ROOT: u64 = 4;
+
+/// Required scheduled root-local mutation cases.
+pub const TIER_C_MUTATION_CASES_PER_ROOT: u64 = 16;
 
 /// Generate one deterministic accepted-snapshot-aware mutation sequence.
 ///
@@ -30,20 +37,24 @@ pub fn generate_mutation_sequence(
     case_index: u64,
     budgets: MutationBudgets,
 ) -> Result<GeneratedMutationSequence, SqlGeneratorError> {
-    if case_index >= TIER_A_MUTATION_CASES_PER_ROOT {
+    if case_index >= TIER_C_MUTATION_CASES_PER_ROOT {
         return Err(SqlGeneratorError::new(
             SqlGeneratorErrorKind::InvalidCase,
             format!(
-                "mutation case index {case_index} exceeds the current {TIER_A_MUTATION_CASES_PER_ROOT}-case root profile"
+                "mutation case index {case_index} exceeds the current {TIER_C_MUTATION_CASES_PER_ROOT}-case root profile"
             ),
         ));
     }
-    let sub_seed = derive_sub_seed(root_seed, case_index);
-    let identity = GeneratedMutationIdentity::new(
-        format!(
-            "sql-mutation/v{MUTATION_GENERATOR_VERSION}/{root_seed:016x}/{case_index:016x}/{sub_seed:016x}"
-        ),
+    let sub_seed = derive_sql_sub_seed(
         MUTATION_GENERATOR_VERSION,
+        root_seed,
+        MUTATION_SEQUENCE_FAMILY_ID,
+        case_index,
+    )?;
+    let identity = GeneratedMutationIdentity::new(
+        mutation_identity_id(root_seed, case_index, sub_seed),
+        MUTATION_GENERATOR_VERSION,
+        MUTATION_SEQUENCE_FAMILY_ID.to_string(),
         root_seed,
         sub_seed,
         case_index,
@@ -71,19 +82,77 @@ pub fn generate_mutation_sequence(
     )
 }
 
+/// Re-derive every authored mutation identity fact under the current generator.
+///
+/// # Errors
+///
+/// Returns a typed case error for a stale version, family, case range, sub-seed,
+/// or stable ID. Replay and corpus decoding call this through sequence validation.
+pub(crate) fn validate_generated_mutation_identity(
+    identity: &GeneratedMutationIdentity,
+) -> Result<(), SqlGeneratorError> {
+    if identity.generator_version() != MUTATION_GENERATOR_VERSION {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            format!(
+                "mutation identity uses generator version {}, expected {MUTATION_GENERATOR_VERSION}",
+                identity.generator_version(),
+            ),
+        ));
+    }
+    if identity.case_index() >= TIER_C_MUTATION_CASES_PER_ROOT {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            "mutation identity case index is outside the current fixed profile",
+        ));
+    }
+    if identity.family_id() != MUTATION_SEQUENCE_FAMILY_ID {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            "mutation identity family does not match the current sequence family",
+        ));
+    }
+    let expected_sub_seed = derive_sql_sub_seed(
+        MUTATION_GENERATOR_VERSION,
+        identity.root_seed(),
+        identity.family_id(),
+        identity.case_index(),
+    )?;
+    if identity.sub_seed() != expected_sub_seed {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            "mutation identity sub-seed does not match its current BLAKE3 identity",
+        ));
+    }
+    let expected_id = mutation_identity_id(
+        identity.root_seed(),
+        identity.case_index(),
+        expected_sub_seed,
+    );
+    if identity.id() != expected_id {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            "mutation identity ID does not match its current canonical facts",
+        ));
+    }
+
+    Ok(())
+}
+
 fn sequence_statements(
     variant: u32,
     sub_seed: u64,
 ) -> Result<Vec<MutationStatement>, SqlGeneratorError> {
+    let structural_variant = variant % MUTATION_STRUCTURAL_VARIANT_COUNT;
     Ok(vec![
         single_insert_statement(sub_seed),
         multi_insert_statement(),
         exact_update_statement(sub_seed),
         compound_update_statement(variant, sub_seed),
         bounded_update_statement(variant, sub_seed)?,
-        no_op_or_insert_query_statement(variant, sub_seed),
-        delete_statement(variant, sub_seed)?,
-        rejected_insert_statement(variant, sub_seed),
+        no_op_or_insert_query_statement(structural_variant, sub_seed),
+        delete_statement(structural_variant, sub_seed)?,
+        rejected_insert_statement(structural_variant, sub_seed),
     ])
 }
 
@@ -277,15 +346,8 @@ const fn single_insert_key(sub_seed: u64) -> u64 {
     10 + sub_seed % 8
 }
 
-fn derive_sub_seed(root_seed: u64, case_index: u64) -> u64 {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"icydb/sql-mutation");
-    hasher.update(&MUTATION_GENERATOR_VERSION.to_le_bytes());
-    hasher.update(&root_seed.to_le_bytes());
-    hasher.update(&case_index.to_le_bytes());
-    let digest = hasher.finalize();
-    let bytes = digest.as_bytes();
-    u64::from_le_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ])
+fn mutation_identity_id(root_seed: u64, case_index: u64, sub_seed: u64) -> String {
+    format!(
+        "sql-mutation/v{MUTATION_GENERATOR_VERSION}/{MUTATION_SEQUENCE_FAMILY_ID}/{root_seed:016x}/{case_index:016x}/{sub_seed:016x}"
+    )
 }

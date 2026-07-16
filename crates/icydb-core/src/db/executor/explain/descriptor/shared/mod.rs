@@ -143,7 +143,6 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         _index_fields: &[String],
         _fixed_values: &[Value],
         _branch_values: &[Value],
-        _ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         empty_execution_node_descriptor(
             ExplainExecutionNodeType::IndexBranchSet,

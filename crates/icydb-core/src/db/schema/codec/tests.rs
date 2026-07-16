@@ -1,7 +1,7 @@
 use crate::{
     db::schema::{
-        AcceptedFieldKind, AcceptedRelationEnforcement, FieldId, PersistedFieldOrigin,
-        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        AcceptedFieldKind, FieldId, PersistedFieldOrigin, PersistedFieldSnapshot,
+        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
@@ -534,6 +534,13 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
 
 #[test]
 fn persisted_schema_snapshot_round_trips_relation_edges() {
+    let relation_kind = AcceptedFieldKind::Relation {
+        target_path: "entities::Owner".to_string(),
+        target_entity_name: "Owner".to_string(),
+        target_entity_tag: EntityTag::new(7),
+        target_store_path: "stores::Owner".to_string(),
+        key_kind: Box::new(AcceptedFieldKind::Ulid),
+    };
     let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         SchemaVersion::initial(),
         "entities::Related".to_string(),
@@ -563,7 +570,7 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
                 FieldId::new(2),
                 "owner_id".to_string(),
                 SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Ulid,
+                relation_kind.clone(),
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -590,61 +597,6 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
     assert_eq!(relation.name(), "owner");
     assert_eq!(relation.target_path(), "entities::Owner");
     assert_eq!(relation.local_field_ids(), &[FieldId::new(2)]);
-}
-
-#[test]
-fn persisted_schema_snapshot_round_trips_unchecked_relation_enforcement() {
-    let relation_kind = AcceptedFieldKind::Relation {
-        target_path: "entities::Owner".to_string(),
-        target_entity_name: "Owner".to_string(),
-        target_entity_tag: EntityTag::new(0xA11CE),
-        target_store_path: "stores::Owner".to_string(),
-        key_kind: Box::new(AcceptedFieldKind::Ulid),
-        enforcement: AcceptedRelationEnforcement::Unchecked,
-    };
-    let snapshot = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        "entities::Related".to_string(),
-        "Related".to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::new(
-            SchemaVersion::initial(),
-            vec![
-                (FieldId::new(1), SchemaFieldSlot::new(0)),
-                (FieldId::new(2), SchemaFieldSlot::new(1)),
-            ],
-        ),
-        vec![
-            PersistedFieldSnapshot::new(
-                FieldId::new(1),
-                "id".to_string(),
-                SchemaFieldSlot::new(0),
-                AcceptedFieldKind::Ulid,
-                Vec::new(),
-                false,
-                SchemaFieldDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Ulid),
-            ),
-            PersistedFieldSnapshot::new(
-                FieldId::new(2),
-                "owner_id".to_string(),
-                SchemaFieldSlot::new(1),
-                relation_kind.clone(),
-                Vec::new(),
-                false,
-                SchemaFieldDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Ulid),
-            ),
-        ],
-    );
-
-    let encoded = encode_persisted_schema_snapshot(&snapshot)
-        .expect("schema snapshot should encode unchecked relation enforcement");
-    let decoded = decode_persisted_schema_snapshot(&encoded)
-        .expect("schema snapshot should decode unchecked relation enforcement");
-
     assert_eq!(decoded.fields()[1].kind(), &relation_kind);
 }
 

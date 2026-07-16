@@ -76,7 +76,7 @@ pub(in crate::db) use structural_row::{
     AcceptedStructuralRowAuthority, StructuralRowContract, decode_structural_row_payload,
 };
 pub(in crate::db::data) use structural_row::{
-    SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,
+    SparseRequiredRowFieldBytes, StructuralRowFieldBytes,
 };
 
 #[cfg(test)]

@@ -1,43 +1,5 @@
-use crate::db::query::{
-    builder::AggregateExpr,
-    plan::{AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, expr::Expr},
-};
+use crate::db::query::plan::{AggregateKind, FieldSlot, expr::Expr};
 use crate::db::sql::lowering::SqlLoweringError;
-
-///
-/// AggregateTerminalSemanticKey
-///
-/// AggregateTerminalSemanticKey is the executable semantic key used while
-/// collecting unique global aggregate terminals. It combines canonical
-/// aggregate meaning with the optional filter so filtered and unfiltered
-/// aggregates do not alias during projection remapping.
-///
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering::aggregate) struct AggregateTerminalSemanticKey {
-    semantic_key: AggregateSemanticKey,
-}
-
-impl AggregateTerminalSemanticKey {
-    // Build a canonical executable semantic key from a raw aggregate expression
-    // without consuming it. This lets projection dedup compare aggregate meaning
-    // before deciding whether to retain the first-seen lowered terminal.
-    #[must_use]
-    pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
-        aggregate_expr: &AggregateExpr,
-    ) -> Self {
-        Self {
-            semantic_key: AggregateSemanticKey::from_aggregate_expr(aggregate_expr),
-        }
-    }
-
-    // Split the semantic key into the normalized aggregate meaning and its
-    // optional per-row filter expression for model-bound strategy preparation.
-    pub(in crate::db::sql::lowering::aggregate) fn into_identity_and_filter(
-        self,
-    ) -> (AggregateIdentity, Option<Expr>) {
-        self.semantic_key.into_identity_and_filter()
-    }
-}
 
 ///
 /// PreparedAggregateTarget

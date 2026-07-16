@@ -17,13 +17,11 @@ use crate::{
                 ProjectionDistinctWindow, project, project_distinct,
                 try_execute_prepared_covering_projection_rows_for_canister,
             },
-            saturating_u32_len,
         },
         index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::CanisterKind,
-    value::Value,
 };
 
 ///
@@ -60,44 +58,12 @@ impl StructuralProjectionRequest {
     }
 }
 
-///
-/// StructuralProjectionResult
-///
-/// StructuralProjectionResult is the executor-owned transport wrapper for one
-/// completed projection execution. It keeps the projected row matrix opaque
-/// until an adapter consumes it for response DTO shaping.
-///
-
-#[derive(Debug)]
-pub(in crate::db) struct StructuralProjectionResult {
-    rows: MaterializedProjectionRows,
-}
-
-impl StructuralProjectionResult {
-    /// Build one structural projection result from executor-materialized rows.
-    const fn new(rows: MaterializedProjectionRows) -> Self {
-        Self { rows }
-    }
-
-    /// Consume this structural result into row values for adapter DTO shaping.
-    #[must_use]
-    pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
-        self.rows.into_value_rows()
-    }
-
-    /// Return the number of structural projection rows produced by execution.
-    #[must_use]
-    pub(in crate::db) fn row_count(&self) -> u32 {
-        saturating_u32_len(self.rows.len())
-    }
-}
-
 /// Execute one prepared structural projection request through the executor-owned
 /// projection coordinator.
-pub(in crate::db) fn execute_structural_projection_result<C>(
+pub(in crate::db) fn execute_structural_projection_rows<C>(
     db: &Db<C>,
     request: StructuralProjectionRequest,
-) -> Result<StructuralProjectionResult, InternalError>
+) -> Result<MaterializedProjectionRows, InternalError>
 where
     C: CanisterKind,
 {
@@ -147,9 +113,7 @@ where
             covering,
             || prepared_plan.hybrid_covering_read_plan(),
         )? {
-            let rows = MaterializedProjectionRows::from_value_rows(projected.into_value_rows());
-
-            return Ok(StructuralProjectionResult::new(rows));
+            return Ok(projected);
         }
     }
 
@@ -200,5 +164,5 @@ where
         )?
     };
 
-    Ok(StructuralProjectionResult::new(rows))
+    Ok(rows)
 }

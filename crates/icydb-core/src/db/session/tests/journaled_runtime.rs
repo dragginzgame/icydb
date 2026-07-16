@@ -77,8 +77,10 @@ fn first_journaled_session_batch() -> JournalBatch {
         let mut captured = None;
         store
             .visit_batches_after(JournalSequence::new(0), |batch| {
-                captured = Some(batch.clone());
-                Ok(JournalTailVisit::Stop)
+                if captured.is_none() {
+                    captured = Some(batch.clone());
+                }
+                Ok(())
             })
             .expect("journal tail should be readable");
 
@@ -429,7 +431,7 @@ fn journaled_session_recovery_rejects_mismatched_marker_bound_journal_tail_batch
 }
 
 #[test]
-fn durable_source_strong_relation_to_journaled_target_uses_durable_capabilities() {
+fn durable_source_relation_to_journaled_target_uses_durable_capabilities() {
     reset_mixed_journaled_relation_stores();
     let session = mixed_journaled_relation_sql_session();
     session
@@ -449,7 +451,7 @@ fn durable_source_strong_relation_to_journaled_target_uses_durable_capabilities(
             })
         },
     );
-    result.expect("durable source strong relation to journaled target should validate as durable");
+    result.expect("durable source relation to journaled target should validate as durable");
     assert_eq!(
         classes,
         vec![MutationCommitClass::DurableOnly],

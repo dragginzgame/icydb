@@ -114,7 +114,6 @@ fn accepted_kind_decoder_matches_generated_relation_list_payloads() {
         target_entity_tag: crate::testing::PROBE_ENTITY_TAG,
         target_store_path: "tests::TargetStore",
         key_kind: &RELATION_KEY_KIND,
-        enforcement: crate::model::field::RelationEnforcement::Enforced,
     });
     let accepted_kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Relation {
         target_path: "tests::Target".to_string(),
@@ -122,7 +121,6 @@ fn accepted_kind_decoder_matches_generated_relation_list_payloads() {
         target_entity_tag: crate::testing::PROBE_ENTITY_TAG,
         target_store_path: "tests::TargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Ulid),
-        enforcement: crate::db::schema::AcceptedRelationEnforcement::Enforced,
     }));
     let value = Value::List(vec![
         Value::Ulid(crate::types::Ulid::from_u128(11)),

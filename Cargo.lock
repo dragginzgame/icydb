@@ -1467,6 +1467,7 @@ dependencies = [
  "candid",
  "ic-testkit",
  "icydb",
+ "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
  "serde",
  "serde_json",
@@ -1486,6 +1487,7 @@ dependencies = [
 name = "icydb-testing-sqlite-reference"
 version = "0.204.0"
 dependencies = [
+ "blake3",
  "icydb-testing-sql-generator",
  "rusqlite",
 ]

@@ -7,7 +7,7 @@ use crate::{
     db::{
         predicate::{
             CoercionId, CoercionSpec, CompareFieldsPredicate, CompareOp, ComparePredicate,
-            Predicate, UnsupportedQueryFeature, supports_coercion,
+            Predicate, supports_coercion,
         },
         schema::{
             FieldType, SchemaInfo, SchemaLiteralValidationReason, SchemaValidationOperator,
@@ -17,40 +17,11 @@ use crate::{
     value::Value,
 };
 
-/// Reject policy-level non-queryable features before planning.
-pub(in crate::db::query) fn reject_unsupported_query_features(
-    predicate: &Predicate,
-) -> Result<(), UnsupportedQueryFeature> {
-    match predicate {
-        Predicate::True
-        | Predicate::False
-        | Predicate::Compare(_)
-        | Predicate::CompareFields(_)
-        | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => Ok(()),
-        Predicate::And(children) | Predicate::Or(children) => {
-            for child in children {
-                reject_unsupported_query_features(child)?;
-            }
-
-            Ok(())
-        }
-        Predicate::Not(inner) => reject_unsupported_query_features(inner),
-    }
-}
-
 /// Validates a predicate against the provided schema information.
 pub(in crate::db) fn validate_predicate(
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> Result<(), ValidateError> {
-    reject_unsupported_query_features(predicate)?;
-
     match predicate {
         Predicate::True | Predicate::False => Ok(()),
         Predicate::And(children) | Predicate::Or(children) => {
@@ -352,10 +323,9 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
         })?;
 
     if matches!(field_type, FieldType::Map { .. }) {
-        return Err(UnsupportedQueryFeature::MapPredicate {
+        return Err(ValidateError::MapPredicateUnsupported {
             field: field.to_string(),
-        }
-        .into());
+        });
     }
 
     if !field_type.value_kind().is_queryable() {

@@ -3,12 +3,6 @@
 //! Does not own: row resolution, post-access filtering, or commit application.
 //! Boundary: shared contracts used by delete core and executor entrypoints.
 
-#[cfg(feature = "sql")]
-use crate::db::executor::projection::MaterializedProjectionRows;
-#[cfg(feature = "sql")]
-use crate::db::executor::saturating_u32_len;
-#[cfg(feature = "sql")]
-use crate::value::Value;
 use crate::{
     db::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
@@ -38,12 +32,6 @@ where
     pub(in crate::db::executor::delete) key: DecodedDataStoreKey,
     pub(in crate::db::executor::delete) raw: Option<RawRow>,
     pub(in crate::db::executor::delete) entity: E,
-}
-
-impl<E: EntityKind> DeleteRow<E> {
-    pub(in crate::db::executor) const fn entity_ref(&self) -> &E {
-        &self.entity
-    }
 }
 
 ///
@@ -132,80 +120,6 @@ pub(in crate::db::executor::delete) struct DeleteLeaf<T> {
     pub(in crate::db::executor::delete) output: T,
     pub(in crate::db::executor::delete) row_count: usize,
     pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
-}
-
-///
-/// DeleteProjection
-///
-/// Structural delete payload after row resolution, delete-only post-access
-/// filtering, and commit-window apply.
-/// Carries executor-materialized projection rows so adapter layers do not see
-/// structural kernel row internals.
-///
-
-#[cfg(feature = "sql")]
-pub(in crate::db) struct DeleteProjection {
-    rows: MaterializedProjectionRows,
-}
-
-/// Optional structural DELETE row bounds checked before commit.
-#[cfg(feature = "sql")]
-#[derive(Clone, Copy, Debug, Default)]
-pub(in crate::db) struct DeleteProjectionBounds {
-    max_rows: Option<u32>,
-}
-
-#[cfg(feature = "sql")]
-impl DeleteProjectionBounds {
-    /// Build an unbounded structural DELETE execution contract.
-    #[must_use]
-    pub(in crate::db) const fn unbounded() -> Self {
-        Self { max_rows: None }
-    }
-
-    /// Build a structural DELETE execution contract capped by rows.
-    #[must_use]
-    pub(in crate::db) const fn max_rows(max_rows: u32) -> Self {
-        Self {
-            max_rows: Some(max_rows),
-        }
-    }
-
-    pub(in crate::db::executor::delete) const fn row_limit(self) -> Option<u32> {
-        self.max_rows
-    }
-}
-
-#[cfg(feature = "sql")]
-impl DeleteProjection {
-    #[must_use]
-    pub(in crate::db::executor::delete) const fn empty() -> Self {
-        Self {
-            rows: MaterializedProjectionRows::empty(),
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::executor::delete) const fn new(rows: MaterializedProjectionRows) -> Self {
-        Self { rows }
-    }
-
-    #[must_use]
-    pub(in crate::db) fn row_count(&self) -> u32 {
-        saturating_u32_len(self.rows.len())
-    }
-
-    #[must_use]
-    pub(in crate::db) fn into_rows_and_count(self) -> (MaterializedProjectionRows, u32) {
-        let row_count = self.row_count();
-
-        (self.rows, row_count)
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn value_rows(&self) -> &[Vec<Value>] {
-        self.rows.value_rows()
-    }
 }
 
 ///

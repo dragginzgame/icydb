@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// Current hard-cut canonical mutation replay format.
-pub const MUTATION_REPLAY_FORMAT_VERSION: u32 = 1;
+pub const MUTATION_REPLAY_FORMAT_VERSION: u32 = 2;
+
+/// Domain separator for canonical mutation row-set fingerprints.
+const MUTATION_ROWS_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sql-mutation-rows/v1";
 
 ///
 /// MutationFeature
@@ -83,6 +86,9 @@ pub enum MutationMismatchCategory {
 
     /// Providers disagree about acceptance.
     Acceptance,
+
+    /// A provider exposed an internal setup or execution invariant failure.
+    InternalInvariant,
 
     /// Complete post-state differs.
     PostState,
@@ -272,6 +278,38 @@ impl MutationObservedOutcome {
         }
     }
 
+    /// Build accepted replay evidence directly from normalized typed rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed serialization error when canonical row fingerprinting fails.
+    pub fn try_accepted_with_rows(
+        affected_rows: u32,
+        returned_rows: &[crate::MutationRow],
+        state_after: &[crate::MutationRow],
+    ) -> Result<Self, SqlGeneratorError> {
+        Ok(Self::accepted(
+            affected_rows,
+            mutation_rows_fingerprint(b"returning", returned_rows)?,
+            mutation_rows_fingerprint(b"state", state_after)?,
+        ))
+    }
+
+    /// Build rejected replay evidence from one typed error class and normalized state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed serialization error when canonical state fingerprinting fails.
+    pub fn try_rejected_with_state(
+        error_class_id: impl Into<String>,
+        state_after: &[crate::MutationRow],
+    ) -> Result<Self, SqlGeneratorError> {
+        Ok(Self::rejected(
+            error_class_id,
+            mutation_rows_fingerprint(b"state", state_after)?,
+        ))
+    }
+
     /// Build one provider-infrastructure failure.
     #[must_use]
     pub fn infrastructure_failure(
@@ -281,6 +319,34 @@ impl MutationObservedOutcome {
         Self::InfrastructureFailure {
             failure_class_id: failure_class_id.into(),
             phase,
+        }
+    }
+
+    /// Project one typed model or adapter step outcome into compact replay evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed serialization error when canonical row fingerprinting fails.
+    pub fn try_from_step_outcome(
+        outcome: &crate::MutationStepOutcome,
+    ) -> Result<Self, SqlGeneratorError> {
+        match outcome {
+            crate::MutationStepOutcome::Accepted {
+                affected_rows,
+                returned_rows,
+                state_after,
+            } => Ok(Self::accepted(
+                *affected_rows,
+                mutation_rows_fingerprint(b"returning", returned_rows)?,
+                mutation_rows_fingerprint(b"state", state_after)?,
+            )),
+            crate::MutationStepOutcome::Rejected {
+                rejection,
+                state_after,
+            } => Ok(Self::rejected(
+                rejection.id(),
+                mutation_rows_fingerprint(b"state", state_after)?,
+            )),
         }
     }
 
@@ -308,6 +374,18 @@ impl MutationObservedOutcome {
 
         Ok(())
     }
+}
+
+fn mutation_rows_fingerprint(
+    role: &[u8],
+    rows: &[crate::MutationRow],
+) -> Result<String, SqlGeneratorError> {
+    let bytes = canonical_json_bytes(rows)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(MUTATION_ROWS_FINGERPRINT_DOMAIN);
+    hasher.update(role);
+    hasher.update(&bytes);
+    Ok(format!("blake3.{}", hasher.finalize().to_hex()))
 }
 
 ///
@@ -395,6 +473,18 @@ impl MutationReplayRecord {
     #[must_use]
     pub const fn signature(&self) -> &MutationMismatchSignature {
         &self.signature
+    }
+
+    /// Borrow the compact subject outcome recorded for the minimized failure.
+    #[must_use]
+    pub const fn subject_outcome(&self) -> &MutationObservedOutcome {
+        &self.subject_outcome
+    }
+
+    /// Borrow the compact comparison-provider outcome recorded for the minimized failure.
+    #[must_use]
+    pub const fn comparison_outcome(&self) -> &MutationObservedOutcome {
+        &self.comparison_outcome
     }
 
     /// Return whether deterministic minimization reached a fixed point.

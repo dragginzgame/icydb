@@ -7,6 +7,14 @@ use crate::{
     SqliteAdapterError, SqliteAdapterErrorKind, SqliteReferenceColumnKind, SqliteReferenceRowOrder,
 };
 
+use std::collections::BTreeSet;
+
+use icydb_testing_sql_generator::{
+    EligibleProvider, EvidenceStrength, MutationKind, NullabilityClass, PredicateFamily,
+    QueryShape, RouteFamily, StatementFamily, TierCCoverageLabels, TierCDistributionError,
+    TierCExpectedAcceptance, TierCScenarioDeclaration, ValueTypeFamily, WindowBehavior,
+};
+
 const REFERENCE_ENTITY_TOKEN: &str = "{entity}";
 pub(crate) const SQLITE_REFERENCE_ENTITY: &str = "IcyDbSqliteReferenceUser";
 
@@ -203,6 +211,82 @@ impl SqliteReferenceScenario {
     #[must_use]
     pub const fn nullable(self) -> bool {
         self.nullable
+    }
+
+    /// Project this profile-owned scenario into the shared scheduled coverage contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed distribution error if the checked-in profile facts do not
+    /// form one complete current Tier C declaration.
+    pub fn tier_c_declaration(self) -> Result<TierCScenarioDeclaration, TierCDistributionError> {
+        let shape = if self.families.contains(&SqliteReferenceFamily::Grouped) {
+            QueryShape::Grouped
+        } else if self.families.contains(&SqliteReferenceFamily::Aggregate) {
+            QueryShape::GlobalAggregate
+        } else {
+            QueryShape::Scalar
+        };
+        let value_types = self
+            .columns
+            .iter()
+            .map(|column| match column {
+                SqliteReferenceColumnKind::Blob => ValueTypeFamily::Blob,
+                SqliteReferenceColumnKind::Boolean => ValueTypeFamily::Boolean,
+                SqliteReferenceColumnKind::Decimal | SqliteReferenceColumnKind::Integer => {
+                    ValueTypeFamily::Numeric
+                }
+                SqliteReferenceColumnKind::Text => ValueTypeFamily::Text,
+            })
+            .collect::<BTreeSet<_>>();
+        let value_type = if value_types.len() == 1 {
+            value_types
+                .first()
+                .copied()
+                .unwrap_or(ValueTypeFamily::Mixed)
+        } else {
+            ValueTypeFamily::Mixed
+        };
+        let predicate = match self.predicate {
+            SqliteReferencePredicateFamily::Compound => PredicateFamily::Compound,
+            SqliteReferencePredicateFamily::FieldComparison => PredicateFamily::FieldComparison,
+            SqliteReferencePredicateFamily::Membership => PredicateFamily::Membership,
+            SqliteReferencePredicateFamily::None => PredicateFamily::None,
+            SqliteReferencePredicateFamily::Range => PredicateFamily::Range,
+        };
+        let window = match self.window {
+            SqliteReferenceWindow::Ordered => WindowBehavior::Ordered,
+            SqliteReferenceWindow::OrderedLimit { offset: 0, .. } => WindowBehavior::OrderedLimit,
+            SqliteReferenceWindow::OrderedLimit { .. } => WindowBehavior::OrderedLimitOffset,
+            SqliteReferenceWindow::Unordered => WindowBehavior::None,
+        };
+        let labels = TierCCoverageLabels::try_new(
+            BTreeSet::from([EvidenceStrength::ReferenceOracle]),
+            BTreeSet::from([MutationKind::None]),
+            BTreeSet::from([if self.nullable {
+                NullabilityClass::Nullable
+            } else {
+                NullabilityClass::NonNullable
+            }]),
+            BTreeSet::from([predicate]),
+            BTreeSet::from([EligibleProvider::SqliteReference]),
+            BTreeSet::from([RouteFamily::NotContractual]),
+            BTreeSet::from([shape]),
+            BTreeSet::from([StatementFamily::Select]),
+            BTreeSet::from([value_type]),
+            BTreeSet::from([window]),
+        )?;
+
+        TierCScenarioDeclaration::try_new(
+            self.id,
+            self.contract_features
+                .iter()
+                .map(|feature| (*feature).to_string())
+                .collect(),
+            BTreeSet::from(["sqlite.required_profile".to_string()]),
+            TierCExpectedAcceptance::Accepted,
+            labels,
+        )
     }
 
     /// Render the scenario for one validated IcyDB or SQLite entity identifier.

@@ -21,7 +21,7 @@ use crate::{
                     metrics::ProjectionMaterializationMetricsRecorder,
                     plan::{
                         PreparedDirectProjectionSlot, PreparedDirectProjectionSlots,
-                        PreparedProjectionContract, PreparedProjectionPlan,
+                        PreparedProjectionContract,
                     },
                     row_view::RowView,
                 },
@@ -80,7 +80,7 @@ pub(super) fn project_data_row(
             .map(RowView::Owned);
     }
 
-    let compiled_fields = prepared_projection.scalar_projection_exprs();
+    let compiled_fields = prepared_projection.compiled_exprs();
     #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     let projected_slot_mask = prepared_projection.projected_slot_mask();
     #[cfg(not(any(test, all(feature = "sql", feature = "diagnostics"))))]
@@ -112,7 +112,7 @@ pub(super) fn visit_data_row_views(
         return visit_direct_data_row_views(row_layout, slots, rows, metrics, visit);
     }
 
-    let compiled_fields = prepared_projection.scalar_projection_exprs();
+    let compiled_fields = prepared_projection.compiled_exprs();
     #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     let projected_slot_mask = prepared_projection.projected_slot_mask();
     #[cfg(not(any(test, all(feature = "sql", feature = "diagnostics"))))]
@@ -281,7 +281,7 @@ fn project_slot_row_dense_into(
 
     let mut read_slot = |slot: usize| row.slot_ref(slot);
     visit_prepared_projection_values_with_required_value_reader_cow(
-        prepared_projection.prepared(),
+        prepared_projection.compiled_exprs(),
         &mut read_slot,
         &mut |value| shaped.push(value),
     )?;
@@ -300,7 +300,7 @@ fn project_slot_row_direct_octet_lengths_into(
         return Ok(false);
     }
 
-    let compiled_fields = prepared_projection.scalar_projection_exprs();
+    let compiled_fields = prepared_projection.compiled_exprs();
     if octet_length_slots.len() != compiled_fields.len() {
         return Ok(false);
     }
@@ -641,13 +641,12 @@ where
             );
         compiled_fields.push(CompiledExpr::compile(&compiled));
     }
-    let prepared = PreparedProjectionPlan::Scalar(compiled_fields);
     let mut projected_rows = Vec::with_capacity(rows.len());
     for (id, entity) in rows {
         let mut values = Vec::with_capacity(projection.len());
         let mut read_slot = |slot| entity.get_value_by_index(slot);
         visit_prepared_projection_values_with_value_reader(
-            &prepared,
+            &compiled_fields,
             &mut read_slot,
             &mut |value| values.push(value),
         )?;
@@ -659,12 +658,11 @@ where
 
 #[cfg(test)]
 pub(super) fn visit_prepared_projection_values_with_value_reader(
-    prepared: &PreparedProjectionPlan,
+    compiled_exprs: &[CompiledExpr],
     read_slot: &mut dyn FnMut(usize) -> Option<Value>,
     on_value: &mut dyn FnMut(Value),
 ) -> Result<(), ProjectionEvalError> {
-    let PreparedProjectionPlan::Scalar(compiled_fields) = prepared;
-    for compiled in compiled_fields {
+    for compiled in compiled_exprs {
         on_value(eval_compiled_expr_with_value_reader(compiled, read_slot)?);
     }
 
@@ -674,12 +672,11 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
 // Walk one prepared projection plan through one reader that can borrow slot
 // values from retained structural rows until an expression needs ownership.
 fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
-    prepared: &'a PreparedProjectionPlan,
+    compiled_exprs: &'a [CompiledExpr],
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     on_value: &mut dyn FnMut(Value),
 ) -> Result<(), InternalError> {
-    let PreparedProjectionPlan::Scalar(compiled_fields) = prepared;
-    for compiled in compiled_fields {
+    for compiled in compiled_exprs {
         on_value(
             crate::db::executor::projection::eval::eval_compiled_expr_with_value_ref_reader(
                 compiled, read_slot,

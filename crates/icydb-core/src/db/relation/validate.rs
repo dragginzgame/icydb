@@ -1,5 +1,5 @@
 //! Module: relation::validate
-//! Responsibility: relation integrity validation for strong relation delete/mutation safety.
+//! Responsibility: relation integrity validation for relation delete/mutation safety.
 //! Does not own: relation metadata derivation or reverse-index mutation construction.
 //! Boundary: enforces relation target/source consistency before destructive operations.
 
@@ -16,8 +16,8 @@ use crate::{
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
             reverse_index::{
-                AcceptedStrongRelationInfo, ReverseRelationSourceInfo,
-                accepted_strong_relations_for_row_contract, decode_relation_target_data_key,
+                AcceptedRelationInfo, ReverseRelationSourceInfo,
+                accepted_relations_for_row_contract, decode_relation_target_data_key,
                 decode_reverse_entry, relation_target_store,
                 reverse_index_key_bounds_for_target_primary_key_value,
                 source_row_references_relation_target_primary_key_value,
@@ -35,13 +35,13 @@ use std::{collections::BTreeSet, ops::Bound};
 ///
 /// BlockedDeleteProof
 ///
-/// Structural proof payload returned by strong-relation delete validation.
+/// Structural proof payload returned by relation delete validation.
 /// This keeps the heavy blocked-delete scan nongeneric and leaves typed key
 /// reconstruction at the final operator-facing diagnostic boundary only.
 ///
 
 struct BlockedDeleteProof {
-    relation: AcceptedStrongRelationInfo,
+    relation: AcceptedRelationInfo,
     source_data_key: DecodedDataStoreKey,
     target_key: PrimaryKeyValue,
 }
@@ -62,7 +62,7 @@ impl BlockedDeleteProof {
 }
 
 /// Validate that source rows do not strongly reference target keys selected for delete.
-pub(in crate::db) fn validate_delete_strong_relations_for_source<S>(
+pub(in crate::db) fn validate_delete_relations_for_source<S>(
     db: &Db<S::Canister>,
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
@@ -79,18 +79,14 @@ where
     // Phase 1: resolve accepted source row contracts and relation facts once.
     let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
     let source_row_contract = accepted_source_row_contract::<S>(source_store)?;
-    let relations = accepted_strong_relations_for_row_contract(
-        db,
-        S::PATH,
-        &source_row_contract,
-        Some(target_path),
-    )?;
+    let relations =
+        accepted_relations_for_row_contract(db, S::PATH, &source_row_contract, Some(target_path))?;
     if relations.is_empty() {
         return Ok(());
     }
 
     // Phase 2: run the heavy blocked-delete proof loop without `S`.
-    let Some(blocked) = validate_delete_strong_relations_structural(
+    let Some(blocked) = validate_delete_relations_structural(
         db,
         source_info,
         S::PATH,
@@ -107,13 +103,13 @@ where
     Err(blocked.into_internal_error::<S>()?)
 }
 
-/// Prove whether one delete would violate a strong source relation without `S`.
-fn validate_delete_strong_relations_structural<C>(
+/// Prove whether one delete would violate a source relation without `S`.
+fn validate_delete_relations_structural<C>(
     db: &Db<C>,
     source_info: ReverseRelationSourceInfo,
     source_path: &'static str,
     source_row_contract: StructuralRowContract,
-    relations: Vec<AcceptedStrongRelationInfo>,
+    relations: Vec<AcceptedRelationInfo>,
     source_store: StoreHandle,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
 ) -> Result<Option<BlockedDeleteProof>, InternalError>

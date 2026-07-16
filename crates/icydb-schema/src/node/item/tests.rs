@@ -5,7 +5,6 @@ fn primitive_item(primitive: Primitive) -> Item {
     Item::new(
         ItemTarget::Primitive(primitive),
         None,
-        RelationEnforcement::Enforced,
         None,
         None,
         None,
@@ -19,7 +18,6 @@ fn relation_item(target_path: &'static str, primitive: Primitive) -> Item {
     Item::new(
         ItemTarget::Primitive(primitive),
         Some(target_path),
-        RelationEnforcement::Enforced,
         None,
         None,
         None,
@@ -48,7 +46,6 @@ fn item_with_metadata(
     Item::new(
         ItemTarget::Primitive(primitive),
         None,
-        RelationEnforcement::Enforced,
         scale,
         max_len,
         max_bytes,
@@ -77,40 +74,6 @@ fn insert_entity(
         Type::new(&[], &[]),
     )));
     path
-}
-
-#[test]
-fn relation_item_carries_explicit_enforcement() {
-    let item = Item::new(
-        ItemTarget::Primitive(Primitive::Ulid),
-        Some("schema_item_relation_enforcement::Target"),
-        RelationEnforcement::Unchecked,
-        None,
-        None,
-        None,
-        &[],
-        &[],
-        false,
-    );
-
-    assert_eq!(item.enforcement(), RelationEnforcement::Unchecked);
-}
-
-#[test]
-fn unchecked_enforcement_requires_a_relation() {
-    let item = Item::new(
-        ItemTarget::Primitive(Primitive::Ulid),
-        None,
-        RelationEnforcement::Unchecked,
-        None,
-        None,
-        None,
-        &[],
-        &[],
-        false,
-    );
-
-    assert!(item.validate().is_err());
 }
 
 #[test]

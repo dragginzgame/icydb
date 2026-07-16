@@ -5,7 +5,6 @@ use super::{
 use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
-        executor::DeleteProjectionBounds,
         query::intent::StructuralQuery,
         schema::SchemaInfo,
         session::{
@@ -59,16 +58,6 @@ const fn sql_delete_candidate_bounds(
     ))
 }
 
-const fn sql_delete_projection_bounds(
-    execution_bounds: Option<SqlWriteExecutionBounds>,
-    returning: bool,
-) -> DeleteProjectionBounds {
-    match sql_delete_candidate_bounds(execution_bounds, returning).max_rows() {
-        Some(max_rows) => DeleteProjectionBounds::max_rows(max_rows),
-        None => DeleteProjectionBounds::unbounded(),
-    }
-}
-
 impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
         &self,
@@ -102,11 +91,11 @@ impl<C: CanisterKind> DbSession<C> {
             None => {
                 let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
                 self.ensure_prepared_query_plan_is_current(&plan)?;
-                let bounds = sql_delete_projection_bounds(execution_bounds, false);
+                let max_rows = sql_delete_candidate_bounds(execution_bounds, false).max_rows();
                 let row_count = self
                     .with_metrics(|| {
                         self.delete_executor::<E>()
-                            .execute_count_with_bounds(plan, bounds)
+                            .execute_count_with_bounds(plan, max_rows)
                     })
                     .map_err(QueryError::execute)?;
                 record_sql_write_delete_metrics(E::PATH, row_count, false);
@@ -126,13 +115,14 @@ impl<C: CanisterKind> DbSession<C> {
                         let (plan, _) =
                             self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
                         self.ensure_prepared_query_plan_is_current(&plan)?;
-                        let bounds = sql_delete_projection_bounds(execution_bounds, true);
+                        let max_rows =
+                            sql_delete_candidate_bounds(execution_bounds, true).max_rows();
                         let deleted = self
                             .with_metrics(|| {
                                 self.delete_executor::<E>()
                                     .execute_structural_projection_with_bounds(
                                         plan,
-                                        bounds,
+                                        max_rows,
                                         |projection| {
                                             validate_sql_materialized_returning_bounds(
                                                 E::MODEL.name(),
@@ -147,8 +137,8 @@ impl<C: CanisterKind> DbSession<C> {
                                     )
                             })
                             .map_err(QueryError::execute)?;
-                        let (rows, row_count) = deleted.into_rows_and_count();
-                        let rows = rows.into_value_rows();
+                        let row_count = deleted.row_count();
+                        let rows = deleted.into_value_rows();
                         record_sql_write_delete_metrics(E::PATH, row_count, true);
 
                         sql_returning_statement_projection(

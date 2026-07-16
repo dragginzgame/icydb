@@ -6,12 +6,9 @@
 use std::ops::Bound;
 
 use crate::{
-    db::{
-        access::IndexBranchSetOrderedSuffix,
-        query::plan::{
-            AccessPlanProjection, AccessPlannedQuery, GroupPlan, PrimaryKeyInputResourceSummary,
-            QueryMode, ResidualFilterShape, ScalarPlan, project_access_plan,
-        },
+    db::query::plan::{
+        AccessPlanProjection, AccessPlannedQuery, GroupPlan, PrimaryKeyInputResourceSummary,
+        QueryMode, ResidualFilterShape, ScalarPlan, project_access_plan,
     },
     value::Value,
 };
@@ -169,7 +166,6 @@ impl AccessPlanProjection<Value> for AdmissionAccessProjection {
         _index_fields: &[String],
         _fixed_values: &[Value],
         _branch_values: &[Value],
-        _ordered_suffix: IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         AdmissionAccessSummary::secondary_index(
             QueryAdmissionAccessKind::IndexBranchSet,

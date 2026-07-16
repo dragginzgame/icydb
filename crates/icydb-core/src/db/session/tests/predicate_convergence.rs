@@ -3,6 +3,7 @@ use crate::db::{
     FieldRef,
     predicate::{CoercionId, CompareOp, ComparePredicate, PredicateProgram},
 };
+use std::borrow::Cow;
 
 // Project entity rows into stable names so SQL, fluent, direct-predicate, and
 // full-scan comparisons stay focused on predicate semantics rather than row DTO
@@ -377,12 +378,12 @@ fn predicate_and_projection_comparisons_match_for_shared_supported_cases() {
         let mut read_slot = |slot| {
             values
                 .iter()
-                .find_map(|(candidate, value)| (*candidate == slot).then_some(value))
+                .find_map(|(candidate, value)| (*candidate == slot).then_some(Cow::Borrowed(value)))
         };
 
         assert_eq!(projected, &expected);
         assert_eq!(
-            Value::Bool(program.eval_with_slot_value_ref_reader(&mut read_slot)),
+            Value::Bool(program.eval_with_slot_value_cow_reader(&mut read_slot)),
             *projected,
             "predicate and SQL projection comparison should match for shared supported cases",
         );
@@ -410,7 +411,7 @@ fn predicate_documents_unsupported_ne_projection_drift() {
     let mut read_slot = |slot| {
         values
             .iter()
-            .find_map(|(candidate, value)| (*candidate == slot).then_some(value))
+            .find_map(|(candidate, value)| (*candidate == slot).then_some(Cow::Borrowed(value)))
     };
 
     assert!(
@@ -418,7 +419,7 @@ fn predicate_documents_unsupported_ne_projection_drift() {
         "projection validation currently rejects nonnumeric cross-variant != before execution",
     );
     assert!(
-        !program.eval_with_slot_value_ref_reader(&mut read_slot),
+        !program.eval_with_slot_value_cow_reader(&mut read_slot),
         "direct predicate strict != currently treats unsupported cross-variant comparison as false",
     );
 }

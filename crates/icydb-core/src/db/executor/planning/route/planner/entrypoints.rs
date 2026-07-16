@@ -18,13 +18,13 @@ use crate::{
                 continuation::ScalarContinuationContext, preparation::slot_map_for_model_plan,
             },
             route::{
-                AggregateRouteShape, LoadTerminalFastPathContract, PushdownApplicability,
-                RouteContinuationPlan, ScanHintPlan, derive_execution_capability_facts_for_model,
-                derive_load_route_direction, derive_load_terminal_fast_path_contract_for_plan,
+                AggregateRouteShape, PushdownApplicability, RouteContinuationPlan, ScanHintPlan,
+                derive_execution_capability_facts_for_model, derive_load_route_direction,
+                derive_load_terminal_fast_path_contract_for_plan,
                 pk_order_stream_fast_path_shape_supported,
             },
         },
-        query::plan::{AccessPlannedQuery, GroupedPlanStrategy},
+        query::plan::{AccessPlannedQuery, CoveringReadExecutionPlan, GroupedPlanStrategy},
     },
     error::InternalError,
 };
@@ -41,7 +41,7 @@ pub(in crate::db::executor) enum RoutePlanRequest<'a> {
         continuation: &'a ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
         authority: Option<EntityAuthority>,
-        load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+        load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     },
     MutationDelete,
     Aggregate {
@@ -95,7 +95,7 @@ fn build_load_execution_route_plan(
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
     authority: Option<EntityAuthority>,
-    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 ) -> Result<ExecutionRoutePlan, InternalError> {
     if authority.is_some() && pk_order_stream_fast_path_shape_supported(plan) {
         let primary_key_names = plan.primary_key_names()?;

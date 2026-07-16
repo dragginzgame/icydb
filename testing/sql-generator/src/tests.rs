@@ -5,12 +5,16 @@
 
 use crate::{
     ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedSelectCase,
-    SELECT_GENERATOR_VERSION, SELECT_REPLAY_FORMAT_VERSION, SelectBudgets, SelectExecutionPhase,
-    SelectFeature, SelectField, SelectFieldKind, SelectGeneratorFamily, SelectIndex,
-    SelectMismatchCategory, SelectMismatchSignature, SelectObservedOutcome, SelectProvider,
-    SelectSnapshot, TIER_A_INVALID_CASES_PER_VIOLATION, TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS,
-    TIER_A_VALID_CASES_PER_FAMILY, generate_invalid_select_case, generate_valid_select_case,
-    rng::{SplitMix64, derive_select_sub_seed},
+    REGRESSION_CORPUS_FORMAT_VERSION, RegressionCorpusCase, RegressionCorpusEntry,
+    SELECT_GENERATOR_VERSION, SELECT_REPLAY_FORMAT_VERSION, SelectBudgets,
+    SelectComparisonProvider, SelectExecutionPhase, SelectFeature, SelectField, SelectFieldKind,
+    SelectGeneratorFamily, SelectIndex, SelectMismatchCategory, SelectMismatchSignature,
+    SelectObservedOutcome, SelectProvider, SelectReplayRecord, SelectSnapshot,
+    SqlGeneratorErrorKind, TIER_A_INVALID_CASES_PER_VIOLATION, TIER_A_ROOT_SEEDS,
+    TIER_A_SELECT_BUDGETS, TIER_A_VALID_CASES_PER_FAMILY, TIER_C_INVALID_CASES_PER_VIOLATION,
+    TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TIER_C_VALID_CASES_PER_FAMILY, TierCFailureArtifact,
+    TierCFailureArtifactError, generate_invalid_select_case, generate_valid_select_case,
+    rng::{SplitMix64, derive_sql_sub_seed},
     shrink_select_failure,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,7 +57,7 @@ fn splitmix64_bounded_and_weighted_choices_have_fixed_golden_vectors() {
 
 #[test]
 fn select_sub_seed_has_fixed_blake3_golden_vector() {
-    let actual = derive_select_sub_seed(
+    let actual = derive_sql_sub_seed(
         SELECT_GENERATOR_VERSION,
         TIER_A_ROOT_SEEDS[0],
         SelectGeneratorFamily::Expression.id(),
@@ -188,6 +192,70 @@ fn tier_a_invalid_generation_attaches_one_typed_rejection_before_rendering() {
 }
 
 #[test]
+fn tier_c_profile_is_exact_bounded_and_fully_generatable() {
+    assert_eq!(
+        TIER_C_ROOT_SEEDS,
+        &[
+            0x1cdb_0204_0000_0011,
+            0x1cdb_0204_0000_0012,
+            0x1cdb_0204_0000_0013,
+            0x1cdb_0204_0000_0014,
+            0x1cdb_0204_0000_0015,
+            0x1cdb_0204_0000_0016,
+            0x1cdb_0204_0000_0017,
+            0x1cdb_0204_0000_0018,
+        ]
+    );
+    assert_eq!(TIER_C_VALID_CASES_PER_FAMILY, 32);
+    assert_eq!(TIER_C_INVALID_CASES_PER_VIOLATION, 8);
+    assert_eq!(TIER_C_SELECT_BUDGETS.max_fixture_rows(), 64);
+    assert_eq!(TIER_C_SELECT_BUDGETS.max_expression_depth(), 4);
+    assert_eq!(TIER_C_SELECT_BUDGETS.max_shrink_candidates(), 4_096);
+    assert_eq!(TIER_C_SELECT_BUDGETS.max_evaluations(), 8_192);
+    assert_eq!(TIER_C_SELECT_BUDGETS.max_artifact_bytes(), 1_048_576);
+
+    let snapshot = select_snapshot();
+    let mut identities = BTreeSet::new();
+    for root_seed in TIER_C_ROOT_SEEDS {
+        for family in ALL_SELECT_GENERATOR_FAMILIES {
+            for case_index in 0..TIER_C_VALID_CASES_PER_FAMILY {
+                let generated = generate_valid_select_case(
+                    &snapshot,
+                    *root_seed,
+                    *family,
+                    case_index,
+                    TIER_C_SELECT_BUDGETS,
+                )
+                .expect("Tier C valid case should generate");
+                assert!(identities.insert(generated.identity().id().to_string()));
+            }
+        }
+        for violation in ALL_SELECT_VIOLATIONS {
+            for case_index in 0..TIER_C_INVALID_CASES_PER_VIOLATION {
+                let generated = generate_invalid_select_case(
+                    &snapshot,
+                    *root_seed,
+                    *violation,
+                    case_index,
+                    TIER_C_SELECT_BUDGETS,
+                )
+                .expect("Tier C invalid case should generate");
+                assert!(identities.insert(generated.identity().id().to_string()));
+            }
+        }
+    }
+
+    let expected_count = TIER_C_ROOT_SEEDS.len()
+        * (ALL_SELECT_GENERATOR_FAMILIES.len()
+            * usize::try_from(TIER_C_VALID_CASES_PER_FAMILY)
+                .expect("Tier C valid count should fit usize")
+            + ALL_SELECT_VIOLATIONS.len()
+                * usize::try_from(TIER_C_INVALID_CASES_PER_VIOLATION)
+                    .expect("Tier C invalid count should fit usize"));
+    assert_eq!(identities.len(), expected_count);
+}
+
+#[test]
 fn injected_failure_shrinks_and_round_trips_as_canonical_replay() {
     let snapshot = select_snapshot();
     let original = generated_case(&snapshot, SelectGeneratorFamily::Expression, 6);
@@ -214,6 +282,103 @@ fn injected_failure_shrinks_and_round_trips_as_canonical_replay() {
 
     assert_eq!(decoded, replay);
     assert_eq!(decoded.format_version(), SELECT_REPLAY_FORMAT_VERSION);
+
+    assert_select_failure_artifact_round_trip(&original, &replay);
+
+    let corpus = RegressionCorpusEntry::try_from_select_replay(
+        "select.expression-value-regression",
+        &replay,
+    )
+    .expect("complete minimized replay should form a current corpus entry");
+    let corpus_bytes = corpus
+        .to_canonical_json()
+        .expect("corpus entry should fit the replay artifact budget");
+    let decoded_corpus = RegressionCorpusEntry::from_canonical_json(&corpus_bytes)
+        .expect("canonical current corpus entry should decode");
+
+    assert_eq!(decoded_corpus, corpus);
+    assert_eq!(
+        decoded_corpus.format_version(),
+        REGRESSION_CORPUS_FORMAT_VERSION
+    );
+    assert_eq!(
+        decoded_corpus.regression_case().generated_id(),
+        replay.minimized_case().identity().id()
+    );
+    assert!(matches!(
+        decoded_corpus.regression_case(),
+        RegressionCorpusCase::Select(_)
+    ));
+
+    let mut unknown_field = serde_json::from_slice::<serde_json::Value>(&corpus_bytes)
+        .expect("canonical corpus should materialize as JSON");
+    unknown_field
+        .as_object_mut()
+        .expect("corpus root should be an object")
+        .insert(
+            "unexpected_field".to_string(),
+            serde_json::Value::Bool(true),
+        );
+    let unknown_field_bytes = crate::replay::canonical_json_bytes(&unknown_field)
+        .expect("tampered JSON should serialize canonically");
+    let unknown_field_error =
+        RegressionCorpusEntry::from_canonical_json(unknown_field_bytes.as_slice())
+            .expect_err("unknown corpus fields must fail closed");
+    assert_eq!(
+        unknown_field_error.kind(),
+        SqlGeneratorErrorKind::CanonicalCorpus
+    );
+
+    let invalid_id_error = RegressionCorpusEntry::try_from_select_replay("Invalid ID", &replay)
+        .expect_err("non-canonical regression IDs must reject");
+    assert_eq!(
+        invalid_id_error.kind(),
+        SqlGeneratorErrorKind::CanonicalCorpus
+    );
+}
+
+fn assert_select_failure_artifact_round_trip(
+    original: &GeneratedSelectCase,
+    replay: &SelectReplayRecord,
+) {
+    let artifact =
+        TierCFailureArtifact::try_from_select_replay(original.identity().id(), replay.clone())
+            .expect("complete SELECT replay should form a Tier C failure artifact");
+    let artifact_id = artifact
+        .artifact_id()
+        .expect("valid failure artifact should have a content identity");
+    let bytes = artifact
+        .to_canonical_json()
+        .expect("failure artifact should fit its byte budget");
+    let decoded = TierCFailureArtifact::from_canonical_json(bytes.as_slice())
+        .expect("canonical current failure artifact should decode");
+
+    assert!(artifact.minimization_complete());
+    assert!(artifact_id.starts_with("failure."));
+    assert_eq!(artifact.replay_scenario_id(), original.identity().id());
+    assert_eq!(decoded, artifact);
+    assert_eq!(
+        decoded
+            .artifact_id()
+            .expect("decoded artifact should retain its content identity"),
+        artifact_id,
+    );
+
+    let mut unknown_field = serde_json::from_slice::<serde_json::Value>(bytes.as_slice())
+        .expect("canonical failure artifact should materialize as JSON");
+    unknown_field
+        .as_object_mut()
+        .expect("failure artifact root should be an object")
+        .insert(
+            "unexpected_field".to_string(),
+            serde_json::Value::Bool(true),
+        );
+    let unknown_field_bytes = crate::replay::canonical_json_bytes(&unknown_field)
+        .expect("tampered failure JSON should serialize canonically");
+    assert!(matches!(
+        TierCFailureArtifact::from_canonical_json(unknown_field_bytes.as_slice()),
+        Err(TierCFailureArtifactError::Decode { .. })
+    ));
 }
 
 #[test]
@@ -236,6 +401,16 @@ fn shrink_budget_exhaustion_remains_an_incomplete_failure() {
     assert_eq!(report.shrink_candidates_attempted(), 1);
     assert_eq!(report.evaluations(), 1);
     assert!(report.minimized_case().fixture().len() < original.fixture().len());
+
+    let replay = report
+        .into_replay_record(
+            SelectObservedOutcome::accepted("subject-result", 2),
+            SelectObservedOutcome::accepted("reference-result", 2),
+        )
+        .expect("incomplete shrink report should remain replayable");
+    let error = RegressionCorpusEntry::try_from_select_replay("incomplete-select", &replay)
+        .expect_err("incomplete minimization must not enter the reviewed corpus");
+    assert_eq!(error.kind(), SqlGeneratorErrorKind::CanonicalCorpus);
 }
 
 fn select_snapshot() -> SelectSnapshot {
@@ -279,7 +454,7 @@ fn mismatch_signature(case: &GeneratedSelectCase) -> SelectMismatchSignature {
         case.features().clone(),
         SelectExecutionPhase::Comparison,
         "icydb",
-        SelectProvider::SqliteReference,
+        SelectComparisonProvider::SqliteReference,
         None,
         SelectMismatchCategory::Value,
         None,

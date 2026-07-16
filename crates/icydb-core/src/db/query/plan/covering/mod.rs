@@ -132,7 +132,7 @@ impl CoveringExistingRowMode {
 /// CoveringReadExecutionPlan
 ///
 /// Execution-grade planner-owned covering-read contract.
-/// This promotes the older projection-only covering plan into a route payload
+/// This promotes the projection-only covering plan into a route payload
 /// that also carries explicit existing-row semantics for execution/runtime.
 ///
 

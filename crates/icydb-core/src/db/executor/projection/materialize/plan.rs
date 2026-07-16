@@ -19,21 +19,6 @@ use crate::{
     value::Value,
 };
 
-///
-/// PreparedProjectionPlan
-///
-/// PreparedProjectionPlan is the executor-owned projection materialization plan
-/// shared by typed row projection, slot-row validation, and higher-level
-/// structural row shaping. Production paths consume only planner-compiled
-/// scalar programs so projection execution no longer carries a generic
-/// field-resolve fallback.
-///
-
-#[derive(Debug)]
-pub(in crate::db) enum PreparedProjectionPlan {
-    Scalar(Vec<CompiledExpr>),
-}
-
 #[derive(Debug)]
 #[cfg(feature = "sql")]
 pub(in crate::db) struct PreparedDirectProjectionSlots {
@@ -113,7 +98,7 @@ impl PreparedDirectProjectionSlot {
 pub(in crate::db) struct PreparedProjectionContract {
     #[cfg(feature = "sql")]
     projection: ProjectionSpec,
-    prepared: PreparedProjectionPlan,
+    compiled_exprs: Vec<CompiledExpr>,
     projection_is_model_identity: bool,
     #[cfg(feature = "sql")]
     retained_slot_direct_projection_slots: Option<PreparedDirectProjectionSlots>,
@@ -133,22 +118,14 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
-    pub(in crate::db) const fn prepared(&self) -> &PreparedProjectionPlan {
-        &self.prepared
-    }
-
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) const fn scalar_projection_exprs(&self) -> &[CompiledExpr] {
-        let PreparedProjectionPlan::Scalar(compiled_fields) = self.prepared();
-
-        compiled_fields.as_slice()
+    pub(in crate::db) const fn compiled_exprs(&self) -> &[CompiledExpr] {
+        self.compiled_exprs.as_slice()
     }
 
     #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn scalar_projection_contains_field_path(&self) -> bool {
-        self.scalar_projection_exprs()
+        self.compiled_exprs()
             .iter()
             .any(CompiledExpr::contains_field_path)
     }
@@ -194,7 +171,7 @@ impl PreparedProjectionContract {
     #[must_use]
     pub(in crate::db) fn from_test_inputs(
         projection: ProjectionSpec,
-        prepared: PreparedProjectionPlan,
+        compiled_exprs: Vec<CompiledExpr>,
         projection_is_model_identity: bool,
         retained_slot_direct_projection_slots: Option<Vec<usize>>,
         data_row_direct_projection_slots: Option<Vec<usize>>,
@@ -202,7 +179,7 @@ impl PreparedProjectionContract {
     ) -> Self {
         Self {
             projection,
-            prepared,
+            compiled_exprs,
             projection_is_model_identity,
             retained_slot_direct_projection_slots: retained_slot_direct_projection_slots
                 .map(PreparedDirectProjectionSlots::from_slots),
@@ -266,7 +243,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     Ok(PreparedProjectionContract {
         #[cfg(feature = "sql")]
         projection,
-        prepared: PreparedProjectionPlan::Scalar(compiled_projection),
+        compiled_exprs: compiled_projection,
         projection_is_model_identity: plan.projection_is_model_identity()?,
         #[cfg(feature = "sql")]
         retained_slot_direct_projection_slots,
@@ -289,8 +266,7 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
         return Ok(());
     }
 
-    let PreparedProjectionPlan::Scalar(compiled_fields) = prepared_validation.prepared();
-    for compiled in compiled_fields {
+    for compiled in prepared_validation.compiled_exprs() {
         let mut read_slot = |slot| row.projection_validation_slot_value(slot);
         eval_compiled_expr_with_value_ref_reader(compiled, &mut read_slot)
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;

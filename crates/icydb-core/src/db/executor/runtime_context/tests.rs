@@ -1,17 +1,13 @@
 use super::{
     FusedSecondaryCoveringAuthority, read_row_presence_with_consistency_from_data_store,
-    read_row_presence_with_consistency_from_store, with_row_check_metrics,
+    with_row_check_metrics,
 };
 
 use crate::{
     db::{
         data::{DataStore, DecodedDataStoreKey, RawRow},
-        index::IndexStore,
-        journal::JournalTailStore,
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         predicate::MissingRowPolicy,
-        registry::StoreHandle,
-        schema::SchemaStore,
     },
     testing::test_memory,
     types::EntityTag,
@@ -22,12 +18,6 @@ use std::cell::RefCell;
 thread_local! {
     static TEST_RUNTIME_CONTEXT_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init_journaled(test_memory(171)));
-    static TEST_RUNTIME_CONTEXT_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init_journaled(test_memory(172)));
-    static TEST_RUNTIME_CONTEXT_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init_journaled(test_memory(173)));
-    static TEST_RUNTIME_CONTEXT_JOURNAL_STORE: RefCell<JournalTailStore> =
-        RefCell::new(JournalTailStore::init(test_memory(174)));
 }
 
 fn test_key() -> DecodedDataStoreKey {
@@ -59,24 +49,8 @@ fn reset_test_store() {
     });
 }
 
-fn test_store_handle() -> StoreHandle {
-    StoreHandle::new_journaled(
-        &TEST_RUNTIME_CONTEXT_DATA_STORE,
-        &TEST_RUNTIME_CONTEXT_INDEX_STORE,
-        &TEST_RUNTIME_CONTEXT_SCHEMA_STORE,
-        &TEST_RUNTIME_CONTEXT_JOURNAL_STORE,
-        crate::db::StoreAllocationIdentities::new_journaled(
-            crate::db::StoreAllocationIdentity::new(171, "icydb.test.runtime_context.data.v1"),
-            crate::db::StoreAllocationIdentity::new(172, "icydb.test.runtime_context.index.v1"),
-            crate::db::StoreAllocationIdentity::new(173, "icydb.test.runtime_context.schema.v1"),
-            crate::db::StoreAllocationIdentity::new(174, "icydb.test.runtime_context.journal.v1"),
-        ),
-        crate::db::StoreRuntimeStorageCapabilities::journaled(),
-    )
-}
-
 #[test]
-fn row_check_metrics_distinguish_borrowed_data_store_probes() {
+fn row_check_metrics_track_authoritative_data_store_probes() {
     reset_test_store();
     let key = test_key();
 
@@ -91,34 +65,6 @@ fn row_check_metrics_distinguish_borrowed_data_store_probes() {
     assert_eq!(metrics.row_presence_probe_count, 1);
     assert_eq!(metrics.row_presence_probe_hits, 1);
     assert_eq!(metrics.row_presence_probe_misses, 0);
-    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 1);
-    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
-    assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
-}
-
-#[test]
-fn row_check_metrics_distinguish_store_handle_probes() {
-    reset_test_store();
-    let key = test_key();
-
-    let (row_exists, metrics) = with_row_check_metrics(|| {
-        read_row_presence_with_consistency_from_store(
-            test_store_handle(),
-            &key,
-            MissingRowPolicy::Error,
-        )
-        .expect("store-handle row-presence probe should succeed")
-    });
-
-    assert!(
-        row_exists,
-        "store-handle probe should find the inserted row"
-    );
-    assert_eq!(metrics.row_presence_probe_count, 1);
-    assert_eq!(metrics.row_presence_probe_hits, 1);
-    assert_eq!(metrics.row_presence_probe_misses, 0);
-    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 0);
-    assert_eq!(metrics.row_presence_probe_store_handle_count, 1);
     assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
 }
 
@@ -143,8 +89,6 @@ fn fused_secondary_covering_authority_tracks_candidate_and_probe_metrics() {
     assert_eq!(metrics.row_presence_probe_count, 1);
     assert_eq!(metrics.row_presence_probe_hits, 1);
     assert_eq!(metrics.row_presence_probe_misses, 0);
-    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 1);
-    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
     assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
 }
 
@@ -176,7 +120,5 @@ fn fused_secondary_covering_authority_accepts_composite_primary_key_values() {
     assert_eq!(metrics.row_presence_probe_count, 1);
     assert_eq!(metrics.row_presence_probe_hits, 1);
     assert_eq!(metrics.row_presence_probe_misses, 0);
-    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 1);
-    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
     assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
 }

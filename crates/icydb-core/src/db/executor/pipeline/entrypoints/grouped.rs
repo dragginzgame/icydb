@@ -22,7 +22,7 @@ use crate::{
             pipeline::contracts::{
                 ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage, LoadExecutor,
             },
-            pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
+            pipeline::entrypoints::LoadSurfaceMode,
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
             pipeline::orchestrator::LoadExecutionSurface,
             pipeline::runtime::{
@@ -475,11 +475,7 @@ where
         plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        let surface = self.execute_load_surface(
-            plan,
-            cursor,
-            LoadSurfaceMode::grouped_paged(LoadTracingMode::Enabled),
-        )?;
+        let surface = self.execute_load_surface(plan, cursor, LoadSurfaceMode::GroupedPage)?;
 
         Self::expect_grouped_traced_surface(surface)
     }

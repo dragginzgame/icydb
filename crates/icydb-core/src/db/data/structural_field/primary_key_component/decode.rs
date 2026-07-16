@@ -31,7 +31,7 @@ use crate::{
     value::Value,
 };
 
-/// Decode one strong-relation field payload from Structural Binary v1 directly
+/// Decode one relation field payload from Structural Binary v1 directly
 /// into target primary-key components.
 #[cfg(test)]
 pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
@@ -52,7 +52,7 @@ pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
     }
 }
 
-/// Decode one accepted strong-relation field payload from Structural Binary v1
+/// Decode one accepted relation field payload from Structural Binary v1
 /// directly into target primary-key components.
 pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_binary_bytes(
     raw_bytes: &[u8],

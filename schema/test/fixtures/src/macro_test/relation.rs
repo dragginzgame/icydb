@@ -15,9 +15,9 @@ use icydb::design::prelude::*;
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(ident = "a_id", value(item(rel = "EntityA", prim = "Ulid", enforcement = "enforced"))),
+        field(ident = "a_id", value(item(rel = "EntityA", prim = "Ulid"))),
         field(ident = "b_id", value(item(rel = "EntityB", prim = "Nat16"))),
-        field(ident = "c_id", value(item(rel = "EntityC", prim = "Principal", enforcement = "unchecked"))),
+        field(ident = "c_id", value(item(rel = "EntityC", prim = "Principal"))),
     )
 )]
 pub struct HasRelation;

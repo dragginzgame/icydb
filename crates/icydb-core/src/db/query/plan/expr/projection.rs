@@ -265,7 +265,7 @@ pub(in crate::db) enum GroupedOrderTermAdmissibility {
 ///
 /// Planner-local grouped Top-K admission result for one `ORDER BY` term.
 /// This keeps the `0.88` aggregate-order lane explicit without widening the
-/// older canonical grouped-key proof helper into a catch-all classifier.
+/// narrow canonical grouped-key proof helper into a catch-all classifier.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

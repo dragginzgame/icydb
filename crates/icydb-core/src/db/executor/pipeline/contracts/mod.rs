@@ -7,7 +7,6 @@ mod execution;
 mod fast_stream;
 pub(in crate::db::executor) mod grouped;
 mod materialization;
-mod post_access;
 mod scan;
 
 #[cfg(feature = "sql")]
@@ -42,7 +41,6 @@ pub(in crate::db::executor) use grouped::{
 pub(in crate::db::executor) use materialization::{
     KernelPageMaterializationRequest, ScalarMaterializationCapabilities,
 };
-pub(in crate::db::executor) use post_access::PostAccessContract;
 pub(in crate::db::executor) use scan::{AccessScanContinuationInput, AccessStreamBindings};
 
 ///

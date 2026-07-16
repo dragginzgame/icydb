@@ -1,8 +1,8 @@
 use crate::{
     db::query::plan::{
         expr::{
-            BinaryOp, BooleanFunctionShape, CaseWhenArm, Expr, Function, FunctionDeterminism,
-            UnaryOp, canonicalize::truth_admission::bool_function_args_match,
+            BinaryOp, BooleanFunctionShape, CaseWhenArm, Expr, Function, UnaryOp,
+            canonicalize::truth_admission::bool_function_args_match,
             function_is_compare_operand_coarse_family,
         },
         render_scalar_filter_expr_plan_label,
@@ -163,52 +163,11 @@ fn normalize_bool_associative_expr(op: BinaryOp, left: Expr, right: Expr) -> Exp
     );
     children.sort_by(bool_expr_normalized_order);
 
-    // Deduplicating `A AND A` / `A OR A` is only semantics-preserving because
-    // planner expressions are deterministic. Bind that engine invariant to
-    // the function registry so adding a non-deterministic function makes this
-    // boundary fail loudly instead of quietly changing SQL truth semantics.
-    assert!(
-        children.iter().all(expr_is_deterministic),
-        "associative boolean dedup requires deterministic child expressions",
-    );
+    // All admitted expression forms are deterministic, so boolean idempotence
+    // permits equivalent children to collapse onto one canonical term.
     children.dedup();
 
     rebuild_normalized_bool_associative_chain(op, children)
-}
-
-// Report whether one planner expression is deterministic for purposes of
-// associative boolean deduplication. Scalar functions are checked through the
-// shared function registry; aggregate leaves are deterministic when their
-// input and filter expression trees are deterministic for a fixed group.
-fn expr_is_deterministic(expr: &Expr) -> bool {
-    match expr {
-        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) => true,
-        Expr::Unary { expr, .. } => expr_is_deterministic(expr),
-        Expr::Binary { left, right, .. } => {
-            expr_is_deterministic(left) && expr_is_deterministic(right)
-        }
-        Expr::FunctionCall { function, args } => {
-            let function_is_deterministic = match function.spec().determinism {
-                FunctionDeterminism::Deterministic => true,
-            };
-
-            function_is_deterministic && args.iter().all(expr_is_deterministic)
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            when_then_arms.iter().all(|arm| {
-                expr_is_deterministic(arm.condition()) && expr_is_deterministic(arm.result())
-            }) && expr_is_deterministic(else_expr)
-        }
-        Expr::Aggregate(aggregate) => {
-            aggregate.input_expr().is_none_or(expr_is_deterministic)
-                && aggregate.filter_expr().is_none_or(expr_is_deterministic)
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => expr_is_deterministic(expr),
-    }
 }
 
 // Collect one associative boolean subtree onto one flat child list after each

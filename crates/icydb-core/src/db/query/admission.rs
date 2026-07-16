@@ -533,7 +533,7 @@ impl QueryAdmissionSummary {
         self.primary_key_input_payload_bytes
     }
 
-    /// Return post-access residual filter facts.
+    /// Return runtime residual-filter facts.
     #[must_use]
     pub(in crate::db) const fn residual_filter(&self) -> QueryAdmissionResidualFilter {
         self.residual_filter

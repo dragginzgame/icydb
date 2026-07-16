@@ -6,10 +6,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
-        predicate::{
-            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
-            UnsupportedQueryFeature,
-        },
+        predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             intent::QueryModel,
             plan::validate::{
@@ -1546,7 +1543,7 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
         PlanUserError::PredicateInvalid(inner)
             if matches!(
                 inner.as_ref(),
-                ValidateError::UnsupportedQueryFeature(UnsupportedQueryFeature::MapPredicate { field })
+                ValidateError::MapPredicateUnsupported { field }
                     if field == "metadata"
             )
     ));

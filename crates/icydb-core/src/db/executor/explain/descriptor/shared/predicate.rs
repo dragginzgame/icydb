@@ -31,7 +31,7 @@ use std::{fmt::Write, ops::Bound};
 pub(in crate::db::executor::explain::descriptor) enum PredicateStageObservability {
     None,
     IndexPrefilterStrictAllOrNone,
-    ResidualPostAccess,
+    ResidualRuntime,
 }
 
 impl PredicateStageObservability {
@@ -44,7 +44,7 @@ impl PredicateStageObservability {
             return Self::IndexPrefilterStrictAllOrNone;
         }
         if !residual_filter_shape.is_absent() {
-            return Self::ResidualPostAccess;
+            return Self::ResidualRuntime;
         }
 
         Self::None
@@ -55,7 +55,7 @@ impl PredicateStageObservability {
         match self {
             Self::None => "none",
             Self::IndexPrefilterStrictAllOrNone => "index_prefilter(strict_all_or_none)",
-            Self::ResidualPostAccess => "residual_post_access",
+            Self::ResidualRuntime => "residual_runtime",
         }
     }
 
@@ -216,7 +216,6 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
-        _ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         let mut parts = Vec::new();
         if let Some(prefix) = prefix_predicate_text(index_fields, fixed_values, fixed_values.len())
@@ -371,7 +370,7 @@ mod tests {
     fn predicate_stage_observability_reports_residual_and_absent_shapes() {
         assert_eq!(
             PredicateStageObservability::from_parts(false, ResidualFilterShape::Expression).label(),
-            "residual_post_access",
+            "residual_runtime",
         );
         assert_eq!(
             PredicateStageObservability::from_parts(false, ResidualFilterShape::Absent).label(),

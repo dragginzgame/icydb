@@ -516,7 +516,6 @@ fn target_branch_access_path() -> ExplainAccessPath {
             Value::Text("Review".to_string()),
         ],
         branch_field: Some("stage".to_string()),
-        ordered_suffix: "primary_key_asc".to_string(),
     }
 }
 

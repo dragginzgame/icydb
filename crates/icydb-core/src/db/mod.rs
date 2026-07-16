@@ -116,7 +116,6 @@ pub use key_taxonomy::{
 };
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
-    UnsupportedQueryFeature,
 };
 #[doc(hidden)]
 pub use predicate::{
@@ -153,14 +152,13 @@ pub use query::{
     },
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
     read_intent::{AdminBatchRequest, ReadIntentKind},
-    trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
+    trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseEvent},
 };
 pub use registry::{
     StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
-    StoreCommitParticipation, StoreDurability, StoreLiveValidationCapability,
-    StoreRecoveryCapability, StoreRegistry, StoreRelationSourceCapability,
-    StoreRelationTargetCapability, StoreRuntimeStorageCapabilities, StoreRuntimeStorageMode,
-    StoreSchemaMetadataCapability,
+    StoreCommitParticipation, StoreDurability, StoreRecoveryCapability, StoreRegistry,
+    StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
+    StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
 pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
@@ -169,9 +167,8 @@ pub use response::{
 };
 pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationEnforcement, EntitySchemaCheckDescription,
-    EntitySchemaDescription, SchemaLiteralValidationReason, SchemaStore, SchemaValidationOperator,
-    ValidateError,
+    EntityRelationDescription, EntitySchemaCheckDescription, EntitySchemaDescription,
+    SchemaLiteralValidationReason, SchemaStore, SchemaValidationOperator, ValidateError,
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
@@ -408,13 +405,13 @@ impl<C: CanisterKind> Db<C> {
         runtime_hooks::prepare_row_commit_with_hook(self, self.entity_runtime_hooks, op)
     }
 
-    // Validate strong relation constraints for delete-selected target keys.
-    pub(crate) fn validate_delete_strong_relations(
+    // Validate relation constraints for delete-selected target keys.
+    pub(crate) fn validate_delete_relations(
         &self,
         target_path: &str,
         deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     ) -> Result<(), InternalError> {
-        runtime_hooks::validate_delete_strong_relations_with_hooks(
+        runtime_hooks::validate_delete_relations_with_hooks(
             self,
             self.entity_runtime_hooks,
             target_path,

@@ -69,7 +69,7 @@ Owner:
 - `/home/adam/projects/icydb/crates/icydb-core/src/db/query/plan/covering/mod.rs`
 
 Responsibilities:
-- derive `LoadTerminalFastPathContract`
+- derive the planner-owned `CoveringReadExecutionPlan` directly
 - own covering-read execution-plan construction
 
 Current admitted load terminal family:
@@ -83,7 +83,7 @@ Owner:
 
 Responsibilities:
 - derive `CountTerminalFastPathContract`
-- derive `ExistsTerminalFastPathContract`
+- derive the optional EXISTS existing-row scan direction directly
 - execute the prepared terminal boundary through the shared executor path
 
 Current admitted count families:

@@ -208,8 +208,8 @@ pub(in crate::db) fn grouped_plan_strategy(
     }
 
     // Reserve the bounded Top-K lane before checking residual-filter streaming
-    // compatibility. Residual filters still block the older canonical
-    // ordered-group path, but post-aggregate Top-K runs through grouped fold
+    // compatibility. Residual filters still block the direct ordered-group
+    // path, but post-aggregate Top-K runs through grouped fold
     // and finalize rather than direct ordered streaming.
     if matches!(
         order_strategy_projection,

@@ -13,69 +13,27 @@ use crate::{
 };
 
 ///
-/// LoadTracingMode
+/// LoadSurfaceMode
 ///
-/// Trace emission contract for one load orchestration request.
-///
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) enum LoadTracingMode {
-    Enabled,
-}
-
-///
-/// LoadSurfaceKind
-///
-/// Canonical load surface kind selected before staged execution starts.
-/// This is the single surface-selection boundary for load orchestration.
+/// Canonical load surface selected before staged execution starts.
+/// This is the single scalar/grouped surface-selection boundary for load
+/// orchestration.
 ///
 #[derive(Clone, Copy)]
-pub(super) enum LoadSurfaceKind {
+pub(in crate::db::executor) enum LoadSurfaceMode {
     ScalarPage,
     GroupedPage,
 }
 
-///
-/// LoadSurfaceMode
-///
-/// Unified load entrypoint surface bundle used by `execute_load`.
-/// Encodes one canonical surface kind plus tracing contract.
-///
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) struct LoadSurfaceMode {
-    pub(super) kind: LoadSurfaceKind,
-    pub(super) tracing: LoadTracingMode,
-}
-
 impl LoadSurfaceMode {
-    // Build one scalar paged mode contract with configurable tracing.
-    pub(in crate::db::executor) const fn scalar_paged(tracing: LoadTracingMode) -> Self {
-        Self {
-            kind: LoadSurfaceKind::ScalarPage,
-            tracing,
-        }
-    }
-
-    // Build one grouped paged mode contract with configurable tracing.
-    pub(in crate::db::executor) const fn grouped_paged(tracing: LoadTracingMode) -> Self {
-        Self {
-            kind: LoadSurfaceKind::GroupedPage,
-            tracing,
-        }
-    }
-
     // True when this surface mode materializes one paged scalar surface.
     pub(in crate::db::executor) const fn is_scalar_page(self) -> bool {
-        matches!(self.kind, LoadSurfaceKind::ScalarPage)
+        matches!(self, Self::ScalarPage)
     }
 
     // True when this surface mode materializes one grouped paged surface.
     pub(in crate::db::executor) const fn is_grouped_page(self) -> bool {
-        matches!(self.kind, LoadSurfaceKind::GroupedPage)
-    }
-
-    // True when this surface mode should preserve execution trace output.
-    pub(in crate::db::executor::pipeline::orchestrator) const fn tracing_enabled(self) -> bool {
-        matches!(self.tracing, LoadTracingMode::Enabled)
+        matches!(self, Self::GroupedPage)
     }
 
     // Fail closed when entrypoint-selected surface mode and projected groupedness disagree.
@@ -85,20 +43,8 @@ impl LoadSurfaceMode {
     ) -> Result<(), InternalError> {
         match (self.is_grouped_page(), grouped_ordering) {
             (false, false) | (true, true) => Ok(()),
-            (false, true) | (true, false) => Err(self.logical_plan_invariant_error()),
+            (false, true) | (true, false) => Err(InternalError::query_executor_invariant()),
         }
-    }
-
-    // Construct the canonical entrypoint/logical-plan mismatch invariant.
-    pub(in crate::db::executor) fn logical_plan_invariant_error(self) -> InternalError {
-        let _ = self;
-        InternalError::query_executor_invariant()
-    }
-
-    // Construct the canonical entrypoint/cursor-input mismatch invariant.
-    pub(in crate::db::executor) fn cursor_input_invariant_error(self) -> InternalError {
-        let _ = self;
-        InternalError::query_executor_invariant()
     }
 }
 

@@ -118,7 +118,7 @@ pub enum SchemaMetadataCapability {
     CanonicalStableHistoryPlusJournalTail,
 }
 
-/// Strong relation source capability for a store.
+/// Relation source capability for a store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum RelationSourceCapability {
     /// Source rows can own durable relation integrity.
@@ -127,7 +127,7 @@ pub enum RelationSourceCapability {
     LiveSource,
 }
 
-/// Strong relation target capability for a store.
+/// Relation target capability for a store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum RelationTargetCapability {
     /// Target rows can be referenced by durable source rows.

@@ -16,7 +16,7 @@ use crate::{
 type SchemaEntityRow = [String; 6];
 type SchemaFieldRow = [String; 8];
 type SchemaIndexRow = [String; 5];
-type SchemaRelationRow = [String; 5];
+type SchemaRelationRow = [String; 4];
 
 pub(super) fn render_schema_report(report: &[EntitySchemaDescription]) -> String {
     let mut output = String::new();
@@ -115,7 +115,6 @@ fn schema_relation_row(
         entity_name.to_string(),
         relation.field().to_string(),
         relation.target_entity_name().to_string(),
-        format!("{:?}", relation.enforcement()),
         format!("{:?}", relation.cardinality()),
     ]
 }
@@ -192,10 +191,9 @@ fn append_schema_relation_table(output: &mut String, rows: &[SchemaRelationRow])
     append_schema_table(
         output,
         "relations",
-        &["entity", "field", "target", "enforcement", "cardinality"],
+        &["entity", "field", "target", "cardinality"],
         rows,
         &[
-            ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,

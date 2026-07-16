@@ -23,48 +23,17 @@ use crate::{
     value::Value,
 };
 
-///
-/// PredicateCompilation
-///
-/// Stage artifact for one runtime predicate produced by the predicate
-/// compilation boundary. It makes the compile boundary explicit while planner
-/// and executor boundaries continue to exchange the underlying `Predicate`.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct PredicateCompilation {
-    predicate: Predicate,
-}
-
-impl PredicateCompilation {
-    // Build one predicate compilation artifact after this module has completed
-    // all predicate-shape lowering.
-    const fn new(predicate: Predicate) -> Self {
-        Self { predicate }
-    }
-
-    /// Return the runtime predicate for existing execution and lowering
-    /// surfaces.
-    pub(in crate::db) fn into_predicate(self) -> Predicate {
-        self.predicate
-    }
-}
-
-/// Compile one canonical planner-owned boolean expression artifact into an
-/// explicit predicate stage artifact.
+/// Compile one canonical planner-owned boolean expression into its runtime
+/// predicate.
 #[must_use]
 #[cfg(test)]
-pub(in crate::db) fn compile_canonical_bool_expr_to_compiled_predicate(
-    expr: &CanonicalExpr,
-) -> PredicateCompilation {
-    try_compile_canonical_bool_expr_to_compiled_predicate(expr)
+pub(in crate::db) fn compile_canonical_bool_expr_to_predicate(expr: &CanonicalExpr) -> Predicate {
+    try_compile_canonical_bool_expr_to_predicate(expr)
         .expect("predicate compilation requires runtime-admissible canonical boolean expression")
 }
 
-fn try_compile_canonical_bool_expr_to_compiled_predicate(
-    expr: &CanonicalExpr,
-) -> Option<PredicateCompilation> {
-    compile_normalized_bool_expr_to_predicate_impl(expr.as_expr()).map(PredicateCompilation::new)
+fn try_compile_canonical_bool_expr_to_predicate(expr: &CanonicalExpr) -> Option<Predicate> {
+    compile_normalized_bool_expr_to_predicate_impl(expr.as_expr())
 }
 
 /// Compile one normalized planner-owned boolean expression into the canonical
@@ -76,7 +45,7 @@ pub(in crate::db) fn compile_normalized_bool_expr_to_predicate(expr: &Expr) -> P
     let canonical = CanonicalExpr::from_normalized_bool_expr(expr)
         .expect("predicate compilation requires normalized boolean expression canonical shape");
 
-    compile_canonical_bool_expr_to_compiled_predicate(&canonical).into_predicate()
+    compile_canonical_bool_expr_to_predicate(&canonical)
 }
 
 fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Option<Predicate> {
@@ -99,8 +68,7 @@ fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Option<Predica
 pub(in crate::db) fn derive_canonical_bool_expr_predicate_subset(
     expr: &CanonicalExpr,
 ) -> Option<Predicate> {
-    try_compile_canonical_bool_expr_to_compiled_predicate(expr)
-        .map(PredicateCompilation::into_predicate)
+    try_compile_canonical_bool_expr_to_predicate(expr)
 }
 
 /// Derive the strongest predicate subset supported by the runtime predicate

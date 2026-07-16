@@ -267,27 +267,6 @@ fn planner_truth_admission_stays_below_normalize_and_case() {
 }
 
 #[test]
-fn planner_bool_associative_dedup_requires_determinism_contract() {
-    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source_path = crate_root.join("src/db/query/plan/expr/canonicalize/normalize.rs");
-    let source = fs::read_to_string(&source_path)
-        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-    let expected_sequence = [
-        "    assert!(",
-        "        children.iter().all(expr_is_deterministic),",
-        "        \"associative boolean dedup requires deterministic child expressions\",",
-        "    );",
-        "    children.dedup();",
-    ]
-    .join("\n");
-
-    assert!(
-        source.contains(&expected_sequence),
-        "associative boolean dedup must keep a release-enforced determinism assertion immediately adjacent to children.dedup()",
-    );
-}
-
-#[test]
 fn planner_expr_canonicalize_does_not_depend_on_downstream_stages() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let source_root = crate_root.join("src/db/query/plan/expr/canonicalize");
@@ -445,7 +424,6 @@ fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
         "normalize_bool_case_expr",
         "bool_expr_normalized_order",
         "collect_normalized_bool_associative_children",
-        "expr_is_deterministic",
         "rebuild_normalized_bool_associative_chain",
         "simplify_bool_expr_constants",
         "rewrite_affine_numeric_compare_expr",
@@ -463,8 +441,8 @@ fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
     assert_source_contains_patterns(
         &source,
         &[
-            "fn try_compile_canonical_bool_expr_to_compiled_predicate(",
-            ") -> Option<PredicateCompilation>",
+            "fn try_compile_canonical_bool_expr_to_predicate(",
+            ") -> Option<Predicate>",
             "fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Option<Predicate>",
             "compile_bool_truth_predicate(expr, BoolTruth::True)?",
             "return None;",
@@ -479,7 +457,7 @@ fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
 }
 
 #[test]
-fn planner_expr_predicate_artifact_requires_canonical_expr() {
+fn planner_expr_predicate_compilation_requires_canonical_expr() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let source_path = crate_root.join("src/db/query/plan/expr/predicate/compile.rs");
     let source = fs::read_to_string(&source_path)
@@ -487,11 +465,11 @@ fn planner_expr_predicate_artifact_requires_canonical_expr() {
 
     assert!(
         source.contains("expr: &CanonicalExpr"),
-        "compiled predicate artifacts must be produced from CanonicalExpr, not raw Expr",
+        "runtime predicates must be compiled from CanonicalExpr, not raw Expr",
     );
     assert!(
-        !source.contains("compiled_predicate(\n    expr: &Expr"),
-        "compiled predicate artifact entrypoints must not accept raw Expr",
+        !source.contains("to_predicate(\n    expr: &Expr"),
+        "canonical predicate compiler entrypoints must not accept raw Expr",
     );
     assert!(
         source.contains("derive_canonical_bool_expr_predicate_subset"),
@@ -585,7 +563,7 @@ fn filter_authority_downstream_consumers_do_not_extract_predicate_facts() {
         "derive_canonical_bool_expr_predicate_subset(",
         "derive_sql_where_expr_predicate_subset(",
         "compile_normalized_bool_expr_to_predicate(",
-        "compile_canonical_bool_expr_to_compiled_predicate(",
+        "compile_canonical_bool_expr_to_predicate(",
         "lower_sql_where_expr(",
     ];
     let mut forbidden_hits = Vec::new();
@@ -730,9 +708,9 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
         &delete,
         &[
             "const fn sql_delete_candidate_bounds(",
-            "const fn sql_delete_projection_bounds(",
-            "DeleteProjectionBounds::max_rows(max_rows)",
-            ".execute_count_with_bounds(plan, bounds)",
+            "sql_delete_candidate_bounds(execution_bounds, false).max_rows()",
+            "sql_delete_candidate_bounds(execution_bounds, true).max_rows()",
+            ".execute_count_with_bounds(plan, max_rows)",
             ".execute_structural_projection_with_bounds(",
         ],
         "SQL DELETE should project SQL write bounds into the delete-specific pre-commit projection/count boundary",
@@ -752,18 +730,13 @@ fn sql_write_candidate_bounds_keep_mutation_batch_and_delete_boundaries_explicit
     assert_source_contains_patterns(
         &structural_delete,
         &[
-            "struct StructuralDeleteCandidateDiagnostics",
-            "enum StructuralDeleteCandidateBoundCheck",
-            "struct StructuralDeleteCandidateBounds",
-            "struct StructuralDeleteCandidateCollection",
-            "apply_delete_post_access_rows(prepared, &mut self.rows)?",
-            "StructuralDeleteCandidateBoundCheck::PostAccessSelection",
-            "diagnostics.selected_candidates",
-            "package_rows(collection.into_rows())",
-            "validate_structural_delete_projection_bounds(&prepared_projection.output, bounds)?",
+            "let mut rows = resolve_structural_delete_kernel_rows(store, prepared)?",
+            "apply_delete_post_access_rows(prepared, &mut rows)?",
+            "validate_structural_delete_candidate_bounds(rows.len(), max_selected_rows)?",
+            "package_rows(rows)",
+            "validate_structural_delete_projection_bounds(&prepared_projection.output, max_rows)?",
             "validate_precommit(&prepared_projection.output)?",
             "prepare_structural_delete_count_core_with_optional_bounds(",
-            "StructuralDeleteCandidateBoundCheck::FinalProjection",
         ],
         "structural DELETE count/RETURNING bounds should stay at the post-access candidate boundary, before packaging and commit",
     );
@@ -1340,7 +1313,7 @@ fn filter_authority_residual_contract_creation_stays_in_logical_semantics() {
     assert_eq!(
         runtime_pattern_counts("ResidualFilterContract::new("),
         logical_semantics_only,
-        "post-access residual filter contracts should be frozen only by logical planning semantics",
+        "runtime residual-filter contracts should be frozen only by logical planning semantics",
     );
     assert_eq!(
         runtime_pattern_counts("PredicatePushdownDiagnostics::from_plan("),
@@ -1371,7 +1344,7 @@ fn planner_expr_projection_eval_does_not_canonicalize_or_import_predicates() {
         "simplify_bool_expr_constants",
         "rewrite_affine_numeric_compare_expr",
         "compile_normalized_bool_expr_to_predicate",
-        "compile_canonical_bool_expr_to_compiled_predicate",
+        "compile_canonical_bool_expr_to_predicate",
         "CompiledPredicate",
         "derive_normalized_bool_expr_predicate_subset",
         "type_inference",

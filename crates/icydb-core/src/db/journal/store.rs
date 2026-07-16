@@ -24,27 +24,6 @@ const FOLD_WATERMARK_BYTES: usize = FOLD_WATERMARK_MAGIC.len() + 1 + 8 + 8;
 pub(in crate::db::journal) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
 const JOURNAL_TAIL_KEY_BYTES: u32 = 12;
 
-/// Control-flow result for journal-tail traversal visitors.
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum JournalTailVisit {
-    /// Continue traversal.
-    Continue,
-    /// Stop traversal after the current batch.
-    #[cfg(test)]
-    Stop,
-}
-
-impl JournalTailVisit {
-    const fn should_stop(self) -> bool {
-        match self {
-            Self::Continue => false,
-            #[cfg(test)]
-            Self::Stop => true,
-        }
-    }
-}
-
 /// Durable replay boundary for a journal tail.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -296,7 +275,7 @@ impl JournalTailStore {
     pub(in crate::db) fn visit_batches_after(
         &self,
         watermark: JournalSequence,
-        mut visitor: impl FnMut(&JournalBatch) -> Result<JournalTailVisit, InternalError>,
+        mut visitor: impl FnMut(&JournalBatch) -> Result<(), InternalError>,
     ) -> Result<(), InternalError> {
         let mut expected = watermark.next();
         let mut seen_batch_ids = BTreeSet::new();
@@ -329,9 +308,7 @@ impl JournalTailStore {
                 return Err(journal_tail_corruption());
             }
 
-            if visitor(&batch)?.should_stop() {
-                break;
-            }
+            visitor(&batch)?;
             expected = expected_sequence.next();
         }
 

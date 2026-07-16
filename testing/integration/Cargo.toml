@@ -1,5 +1,6 @@
 [package]
 name = "icydb-testing-integration"
+autotests = false
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -14,6 +15,7 @@ blake3 = { workspace = true }
 candid = { workspace = true }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, features = ["diagnostics", "sql", "sql-explain"] }
+icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -21,3 +23,27 @@ sha2 = { workspace = true }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "fluent_perf_audit"
+path = "tests/fluent_perf_audit.rs"
+
+[[test]]
+name = "pk_canonicalization_focused_artifact"
+path = "tests/pk_canonicalization_focused_artifact.rs"
+
+[[test]]
+name = "sql_canister"
+path = "tests/sql_canister.rs"
+
+[[test]]
+name = "sql_correctness"
+path = "tests/sql_correctness.rs"
+
+[[test]]
+name = "sql_perf_audit"
+path = "tests/sql_perf_audit.rs"
+
+[[test]]
+name = "sql_perf_matrix_audit"
+path = "tests/sql_perf_matrix_audit.rs"

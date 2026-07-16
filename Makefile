@@ -1,6 +1,8 @@
 .PHONY: help version tags patch minor major package publish release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-bump test-sql-canister-matrix test-sql-perf-p1-shard test-sql-perf-p1-merge \
+        test test-bump test-sql-canister-matrix test-sql-tier-c-shard test-sql-tier-c-merge \
+        test-sql-tier-c-replay \
+        test-sql-perf-p1-shard test-sql-perf-p1-merge \
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
         test-sql-perf-instrumentation test-sql-perf-baseline \
         build check clippy fmt fmt-check clean install install-dev update-dev \
@@ -37,6 +39,8 @@ SCALE_BASELINE_PATH ?=
 SCALE_CURRENT_PATH ?= $(SCALE_REPORT_PATH)
 SCALE_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_scale_shards
 SCALE_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_scale_report.json
+TIER_C_ARTIFACT_DIR ?= $(ROOT_DIR)/artifacts/correctness/sql_tier_c
+TIER_C_FAILURE_ARTIFACT ?=
 
 # Print repo-local cargo paths for standalone shell scripts that need Makefile-
 # owned defaults without duplicating the path definitions.
@@ -83,6 +87,12 @@ help:
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
 	@echo "  test-sql-canister-matrix"
 	@echo "                  Run the live generated SQL canister endpoint matrix"
+	@echo "  test-sql-tier-c-shard TIER_C_SHARD=0"
+	@echo "                  Run one exact native Tier C correctness shard (0 through 7)"
+	@echo "  test-sql-tier-c-merge"
+	@echo "                  Merge all eight Tier C receipts and publish typed coverage"
+	@echo "  test-sql-tier-c-replay TIER_C_FAILURE_ARTIFACT=..."
+	@echo "                  Reproduce one minimized Tier C failure exactly"
 	@echo "  test-sql-perf-p1-shard P1_SHARD=0"
 	@echo "                  Run one deterministic P1 performance shard (0 through 7)"
 	@echo "  test-sql-perf-p1-merge"
@@ -229,6 +239,30 @@ test-no-default-smoke:
 
 test-sql-canister-matrix:
 	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister --features icydb/sql-explain -- --nocapture
+
+test-sql-tier-c-shard:
+	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	ICYDB_SQL_TIER_C_SHARD_INDEX="$(TIER_C_SHARD)" \
+	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
+	$(CARGO_WORK_ENV) \
+	cargo test --locked -p icydb-core --features sql \
+		db::session::tests::tier_c_reference::tier_c_native_shard_emits_exact_receipt \
+		-- --ignored --exact --nocapture --test-threads=1
+
+test-sql-tier-c-merge:
+	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
+	$(CARGO_WORK_ENV) \
+	cargo test --locked -p icydb-core --features sql \
+		db::session::tests::tier_c_reference::tier_c_native_receipts_merge_exactly_and_require_clean_evidence \
+		-- --ignored --exact --nocapture --test-threads=1
+
+test-sql-tier-c-replay:
+	@test -n "$(TIER_C_FAILURE_ARTIFACT)" || { echo "TIER_C_FAILURE_ARTIFACT must name one failure.<blake3>.json artifact" >&2; exit 1; }
+	ICYDB_SQL_TIER_C_FAILURE_ARTIFACT="$(TIER_C_FAILURE_ARTIFACT)" \
+	$(CARGO_WORK_ENV) \
+	cargo test --locked -p icydb-core --features sql \
+		db::session::tests::tier_c_reference::tier_c_failure_artifact_replays_exact_minimized_failure \
+		-- --ignored --exact --nocapture --test-threads=1
 
 test-sql-perf-p1-shard:
 	@test -n "$(P1_SHARD)" || { echo "P1_SHARD must be an index from 0 through 7" >&2; exit 1; }

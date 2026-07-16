@@ -438,7 +438,7 @@ fn allowed_target_delete_emits_relation_lookup_without_block() {
 }
 
 #[test]
-fn save_missing_strong_relation_emits_no_reverse_index_delta() {
+fn save_missing_relation_emits_no_reverse_index_delta() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -448,18 +448,18 @@ fn save_missing_strong_relation_emits_no_reverse_index_delta() {
                 id: Ulid::generate(),
                 target: Ulid::generate(),
             })
-            .expect_err("source save should fail when strong target is missing");
+            .expect_err("source save should fail when relation target is missing");
     });
 
     assert_eq!(
         count_reverse_index_inserts(&events, RelationSourceEntity::PATH),
         0,
-        "failed strong-relation save must not emit reverse-index insert deltas",
+        "failed relation save must not emit reverse-index insert deltas",
     );
     assert_eq!(
         count_reverse_index_removes(&events, RelationSourceEntity::PATH),
         0,
-        "failed strong-relation save must not emit reverse-index remove deltas",
+        "failed relation save must not emit reverse-index remove deltas",
     );
 }
 

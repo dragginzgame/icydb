@@ -4,7 +4,7 @@
 //! Boundary: error surface for schema construction and predicate-schema validation.
 
 use crate::{
-    db::predicate::{CoercionId, CompareOp, UnsupportedQueryFeature},
+    db::predicate::{CoercionId, CompareOp},
     model::index::{IndexExpression, IndexModel},
 };
 use std::fmt;
@@ -92,8 +92,8 @@ pub enum ValidateError {
     #[error("duplicate field '{field}'")]
     DuplicateField { field: String },
 
-    #[error("unsupported query feature")]
-    UnsupportedQueryFeature(UnsupportedQueryFeature),
+    #[error("map predicates are unsupported for field '{field}'")]
+    MapPredicateUnsupported { field: String },
 
     #[error("primary key '{field}' not present in entity fields")]
     InvalidPrimaryKey { field: String },
@@ -163,12 +163,6 @@ pub enum ValidateError {
         field: String,
         reason: SchemaLiteralValidationReason,
     },
-}
-
-impl From<UnsupportedQueryFeature> for ValidateError {
-    fn from(err: UnsupportedQueryFeature) -> Self {
-        Self::UnsupportedQueryFeature(err)
-    }
 }
 
 impl ValidateError {

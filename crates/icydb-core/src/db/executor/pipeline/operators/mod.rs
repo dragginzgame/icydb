@@ -4,7 +4,6 @@
 //! Boundary: exports reusable operator contracts used by execution-kernel orchestration.
 
 mod distinct;
-mod post_access;
 mod reducer;
 mod terminal;
 

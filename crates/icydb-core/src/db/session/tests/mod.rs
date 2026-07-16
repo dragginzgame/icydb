@@ -50,6 +50,8 @@ mod sql_write;
 mod sqlite_reference;
 mod storage_backend_perf;
 mod temporal;
+#[cfg(feature = "sql")]
+mod tier_c_reference;
 mod verbose_route_choice;
 
 use super::*;
@@ -79,7 +81,7 @@ use crate::{
         direction::Direction,
         executor::ExecutorPlanError,
         index::{IndexKey, IndexStore, IndexStoreVisit, key_within_envelope},
-        journal::{JournalBatch, JournalSequence, JournalTailStore, JournalTailVisit},
+        journal::{JournalBatch, JournalSequence, JournalTailStore},
         key_taxonomy::PrimaryKeyComponent,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
@@ -117,7 +119,7 @@ use crate::{
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, PlanKind, with_shared_metrics_sink},
     model::{
-        field::{FieldKind, FieldModel, FieldStorageDecode, RelationEnforcement},
+        field::{FieldKind, FieldModel, FieldStorageDecode},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -420,7 +422,6 @@ static MIXED_HEAP_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCaniste
     EntityRuntimeHooks::for_entity::<SessionSqlSelfRelationEntity>(),
     EntityRuntimeHooks::for_entity::<HeapSessionSqlEntity>(),
     EntityRuntimeHooks::for_entity::<DurableSessionSqlSourceToHeapTargetEntity>(),
-    EntityRuntimeHooks::for_entity::<DurableSessionSqlUncheckedSourceToHeapTargetEntity>(),
     EntityRuntimeHooks::for_entity::<HeapSessionSqlSourceToDurableTargetEntity>(),
     EntityRuntimeHooks::for_entity::<HeapSessionSqlSourceToHeapTargetEntity>(),
 ];
@@ -1312,7 +1313,7 @@ struct SessionSqlSignedWriteEntity {
 /// SessionSqlSelfRelationEntity
 ///
 /// SQL write fixture used to document that statement-atomic structural batches
-/// still validate strong relation targets against committed stores only.
+/// still validate relation targets against committed stores only.
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2152,7 +2153,6 @@ static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
     target_store_path: SessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    enforcement: RelationEnforcement::Enforced,
 };
 
 crate::test_entity! {
@@ -2359,16 +2359,6 @@ static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: HeapSessionSqlEntity::ENTITY_TAG,
     target_store_path: HeapSessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    enforcement: RelationEnforcement::Enforced,
-};
-
-static SESSION_SQL_HEAP_TARGET_UNCHECKED_RELATION_KIND: FieldKind = FieldKind::Relation {
-    target_path: HeapSessionSqlEntity::PATH,
-    target_entity_name: "HeapSessionSqlEntity",
-    target_entity_tag: HeapSessionSqlEntity::ENTITY_TAG,
-    target_store_path: HeapSessionSqlStore::PATH,
-    key_kind: &FieldKind::Nat64,
-    enforcement: RelationEnforcement::Unchecked,
 };
 
 static SESSION_SQL_DURABLE_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -2377,7 +2367,6 @@ static SESSION_SQL_DURABLE_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation
     target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
     target_store_path: SessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    enforcement: RelationEnforcement::Enforced,
 };
 
 static SESSION_SQL_JOURNALED_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -2386,7 +2375,6 @@ static SESSION_SQL_JOURNALED_TARGET_RELATION_KIND: FieldKind = FieldKind::Relati
     target_entity_tag: JournaledSessionSqlEntity::ENTITY_TAG,
     target_store_path: JournaledSessionSqlStore::PATH,
     key_kind: &FieldKind::Nat64,
-    enforcement: RelationEnforcement::Enforced,
 };
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2429,29 +2417,6 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: u64 => FieldKind::Nat64 },
         crate::test_field! { target_id: u64 => SESSION_SQL_JOURNALED_TARGET_RELATION_KIND },
-    ],
-    indexes = [],
-    relations = [],
-    entity_value = id_field(id),
-}
-
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct DurableSessionSqlUncheckedSourceToHeapTargetEntity {
-    id: u64,
-    target_id: u64,
-}
-
-crate::test_entity! {
-    ident = DurableSessionSqlUncheckedSourceToHeapTargetEntity,
-    entity_name = "DurableSessionSqlUncheckedSourceToHeapTargetEntity",
-    tag = EntityTag::new(0x1074),
-    store = SessionSqlStore,
-    canister = SessionSqlCanister,
-    key_type = u64,
-    primary_key = [id],
-    fields = [
-        crate::test_field! { id: u64 => FieldKind::Nat64 },
-        crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_UNCHECKED_RELATION_KIND },
     ],
     indexes = [],
     relations = [],
@@ -3158,11 +3123,6 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
             Some(crate::db::TraceExecutionFamily::Ordered)
         ),
         "ordered load shapes should project ordered execution family in trace payload",
-    );
-    assert_eq!(
-        trace.reuse().artifact_class(),
-        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
-        "trace reuse surface should report the shipped shared prepared-plan artifact class",
     );
     assert!(
         !trace.reuse().is_hit(),

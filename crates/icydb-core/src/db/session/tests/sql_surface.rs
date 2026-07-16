@@ -9890,11 +9890,6 @@ fn trace_query_reuses_canonical_equivalent_scalar_filter_plan_identity() {
         canonical_trace.plan_hash(),
         "trace plan hashes must follow canonical scalar filter identity rather than SQL spelling",
     );
-    assert_eq!(
-        searched_trace.reuse().artifact_class(),
-        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
-        "trace should surface the shipped semantic-reuse artifact class",
-    );
     assert!(
         !searched_trace.reuse().is_hit(),
         "first canonical trace should miss shared prepared-plan reuse before the cache is warm",
@@ -10072,11 +10067,6 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
         left_trace.plan_hash(),
         right_trace.plan_hash(),
         "grouped fluent trace plan hash must follow canonical HAVING identity rather than append order",
-    );
-    assert_eq!(
-        left_trace.reuse().artifact_class(),
-        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
-        "grouped trace should surface the shipped semantic-reuse artifact class",
     );
     assert!(
         left_trace.reuse().is_hit(),
@@ -11267,11 +11257,6 @@ fn grouped_boolean_case_having_without_else_reuses_explicit_null_semantic_identi
         omitted_else_trace.explain(),
         explicit_null_trace.explain(),
         "grouped searched CASE HAVING without ELSE trace explain must stay identical to the explicit ELSE NULL grouped boolean family",
-    );
-    assert_eq!(
-        omitted_else_trace.reuse().artifact_class(),
-        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
-        "grouped omitted-ELSE trace should surface the shared prepared query-plan reuse artifact",
     );
     assert!(
         !omitted_else_trace.reuse().is_hit(),

@@ -59,7 +59,7 @@ pub(in crate::db::executor) use plan::{
 pub(in crate::db) use retained::RetainedSlotRow;
 pub(in crate::db::executor) use retained::{RetainedSlotLayout, RetainedSlotValueMode};
 pub(in crate::db::executor) use row_runtime::{
-    KernelRowPayloadMode, ResidualFilterScanMode, ScalarRowRuntimeHandle, ScalarRowRuntimeState,
+    KernelRowPayloadMode, ScalarRowRuntimeHandle, ScalarRowRuntimeState,
 };
 pub(in crate::db::executor) use scan::execute_kernel_row_scan;
 
@@ -243,7 +243,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
         plan,
         &mut rows,
         continuation.cursor_boundary(),
-        scalar_materialization_plan.post_access_strategy(),
+        scalar_materialization_plan.defer_retained_slot_distinct_window(),
     )?;
     scalar_materialization_plan.apply_post_scan_tail(plan, &mut rows)?;
     let post_access_rows = rows.len();

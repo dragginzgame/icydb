@@ -845,7 +845,7 @@ fn explain_sql_execution_verbose_searched_case_where_keeps_expression_residual_s
         left.as_str(),
         &[
             "residual_filter_expr=",
-            "diag.r.predicate_stage=residual_post_access",
+            "diag.r.predicate_stage=residual_runtime",
         ],
         "searched CASE",
     );
@@ -863,7 +863,7 @@ fn explain_sql_execution_verbose_searched_case_where_keeps_expression_residual_s
         right.as_str(),
         &[
             "residual_filter_predicate=Or([",
-            "diag.r.predicate_stage=residual_post_access",
+            "diag.r.predicate_stage=residual_runtime",
         ],
         "canonical boolean",
     );

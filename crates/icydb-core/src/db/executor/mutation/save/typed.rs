@@ -40,7 +40,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         let preflight = SavePreflightInputs {
             schema,
             schema_fingerprint: self.accepted_schema_fingerprint(),
-            validate_relations: schema.has_any_strong_relations(),
+            validate_relations: schema.has_any_relations(),
             write_context: Self::save_write_context(SaveMode::Insert, Timestamp::now()),
             authored_create_slots: Some(authored_create_slots.as_slice()),
         };
@@ -139,7 +139,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         let preflight = SavePreflightInputs {
             schema,
             schema_fingerprint: self.accepted_schema_fingerprint(),
-            validate_relations: schema.has_any_strong_relations(),
+            validate_relations: schema.has_any_relations(),
             write_context,
             authored_create_slots: None,
         };

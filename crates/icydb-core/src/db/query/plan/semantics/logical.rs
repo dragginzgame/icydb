@@ -395,7 +395,7 @@ impl AccessPlannedQuery {
     }
 
     /// Return whether the chosen access contract fully satisfies the current
-    /// scalar query predicate without any additional post-access filtering.
+    /// scalar query predicate without any additional runtime residual filtering.
     #[must_use]
     pub(in crate::db) fn predicate_fully_satisfied_by_access_contract(&self) -> bool {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {

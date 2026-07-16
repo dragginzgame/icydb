@@ -1,8 +1,7 @@
 use crate::{
     db::{
         data::{
-            RawRow, SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowDecodeError,
-            StructuralRowFieldBytes,
+            RawRow, SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowFieldBytes,
             persisted_row::{
                 codec::{ScalarSlotValueRef, decode_scalar_slot_value},
                 contract::{
@@ -51,8 +50,7 @@ impl<'row, 'contract> DirectStructuralRowFields<'row, 'contract> {
         contract: &'contract StructuralRowContract,
         expected_key: &PrimaryKeyValue,
     ) -> Result<Self, InternalError> {
-        let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
-            .map_err(StructuralRowDecodeError::into_internal_error)?;
+        let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)?;
         validate_primary_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
 
         Ok(Self {
@@ -116,8 +114,7 @@ impl<'row, 'contract> DirectSparseRequiredRowField<'row, 'contract> {
             raw_row,
             contract,
             required_slot,
-        )
-        .map_err(StructuralRowDecodeError::into_internal_error)?;
+        )?;
         validate_primary_key_component_from_slot_bytes_with_contract(
             contract,
             contract.primary_key_slot(),

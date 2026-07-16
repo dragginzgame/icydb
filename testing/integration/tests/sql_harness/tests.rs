@@ -122,6 +122,7 @@ fn route_taxonomies_cover_the_current_slice_contract() {
         RouteFamily::EqualityPrefixOrderedSuffix,
         RouteFamily::IncompatibleFilterFirstOrder,
         RouteFamily::MaterializedOrder,
+        RouteFamily::NotContractual,
         RouteFamily::NotOrderedOrNotPaginated,
         RouteFamily::PrimaryOrder,
         RouteFamily::ResidualFilterOrderedScan,

@@ -31,10 +31,11 @@ For local development setup, test prerequisites, and troubleshooting, see
   catalogs, schema reconciliation, SQL DDL, and observability.
 - Primary keys can be scalar or composite. Composite keys use ordered
   components and generated key structs.
-- Relations are enforced by default and validated at write time; non-enforcing
-  references require `enforcement = "unchecked"`. Scalar and composite target
-  identities use full accepted primary-key metadata; collection relations to
-  composite targets remain intentionally deferred.
+- Every declared relation is validated at write and delete time. Identifiers
+  that intentionally permit missing targets remain ordinary key-typed fields.
+  Scalar and composite relation identities use full accepted primary-key
+  metadata; collection relations to composite targets remain intentionally
+  deferred.
 - SQL is intentionally single-entity. It is useful for canister-local reads,
   writes, aggregates, introspection, and accepted-catalog DDL, not joins or
   general relational workloads.

@@ -27,6 +27,7 @@ use crate::{
     value::Value,
 };
 use std::{
+    borrow::Cow,
     cmp::Ordering,
     hint::black_box,
     sync::LazyLock,
@@ -120,8 +121,8 @@ fn assert_index_program_matches_runtime(predicate: Predicate, rows: Vec<Vec<Valu
 
     for (row_index, row) in rows.iter().enumerate() {
         let key = index_key_for_predicate_row(row, row_index as u64);
-        let mut read_slot = |slot| row.get(slot);
-        let runtime_result = runtime_program.eval_with_slot_value_ref_reader(&mut read_slot);
+        let mut read_slot = |slot| row.get(slot).map(Cow::Borrowed);
+        let runtime_result = runtime_program.eval_with_slot_value_cow_reader(&mut read_slot);
         let index_result = eval_index_program_on_decoded_key(&key, &index_program)
             .expect("index predicate should evaluate");
 
@@ -990,8 +991,8 @@ fn conservative_and_subset_never_rejects_runtime_matches() {
 
     for (row_index, row) in rows.iter().enumerate() {
         let key = index_key_for_predicate_row(row, row_index as u64);
-        let mut read_slot = |slot| row.get(slot);
-        let runtime_result = runtime_program.eval_with_slot_value_ref_reader(&mut read_slot);
+        let mut read_slot = |slot| row.get(slot).map(Cow::Borrowed);
+        let runtime_result = runtime_program.eval_with_slot_value_cow_reader(&mut read_slot);
         let index_result = eval_index_program_on_decoded_key(&key, &index_program)
             .expect("index predicate should evaluate");
 

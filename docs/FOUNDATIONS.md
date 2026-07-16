@@ -213,8 +213,8 @@ persisted kind and absence behavior for every field, and every supported row
 mutation ingress must satisfy that authority before commit.
 
 Trusted/admin exposure changes who may invoke a write; it does not bypass row
-admission. An explicitly `unchecked` relation opts out only from referential
-integrity, not field or row validation.
+admission. Declared relations participate in the complete referential-integrity
+contract.
 
 > **Normative definition:** see `docs/contracts/WRITE_ADMISSION.md`.
 
@@ -313,14 +313,12 @@ Referential integrity in IcyDB is a **write-time validation rule**, not a query 
 
 Key characteristics:
 - schema-driven
-- enforced by default for declared relations
-- explicitly unchecked only when dangling references are intentional
+- always enforced for declared relations
 - bounded
 - non-relational
 
 Only references explicitly declared in the schema participate in enforcement;
-declared relations are enforced unless configured with
-`enforcement = "unchecked"`.
+ordinary key-typed fields carry no target-existence or delete-safety guarantee.
 
 > **Normative definition:** see `docs/contracts/REF_INTEGRITY.md`.
 

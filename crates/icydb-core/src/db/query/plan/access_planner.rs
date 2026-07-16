@@ -13,7 +13,6 @@ use crate::{
             VisibleIndexes, canonicalize_order_spec_for_grouping, plan_access_selection_with_order,
             plan_access_selection_with_order_and_accepted_semantic_indexes,
         },
-        query::predicate::reject_unsupported_query_features,
         schema::{SchemaInfo, ValidateError},
     },
     model::entity::EntityModel,
@@ -95,7 +94,6 @@ pub(in crate::db::query) fn normalize_query_predicate(
 ) -> Result<Option<Predicate>, ValidateError> {
     predicate
         .map(|predicate| {
-            reject_unsupported_query_features(predicate).map_err(ValidateError::from)?;
             let predicate = normalize_enum_literals(schema_info, predicate)?;
 
             Ok::<Predicate, ValidateError>(normalize(&predicate))

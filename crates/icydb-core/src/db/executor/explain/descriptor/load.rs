@@ -10,8 +10,8 @@ use crate::{
             EntityAuthority, ExecutionPreparation,
             planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
             route::{
-                ExecutionRoutePlan, LoadTerminalFastPathContract, RoutePlanRequest, TopNSeekSpec,
-                build_execution_route_plan, explain_access_order_satisfied_for_model,
+                ExecutionRoutePlan, RoutePlanRequest, TopNSeekSpec, build_execution_route_plan,
+                explain_access_order_satisfied_for_model,
             },
         },
         predicate::IndexPredicateCapability,
@@ -25,7 +25,7 @@ use crate::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
                 AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessPlannedQuery,
                 CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
-                CoveringReadFieldSource, access_plan_label,
+                CoveringReadExecutionPlan, CoveringReadFieldSource, access_plan_label,
                 covering_read_execution_plan_from_fields_with_primary_key_names,
                 covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
                 grouped_executor_handoff,
@@ -165,7 +165,7 @@ fn freeze_grouped_load_execution_route_facts(
 fn freeze_scalar_load_execution_route_facts(
     plan: &AccessPlannedQuery,
     explain_preparation: LoadExplainPreparation,
-    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     hybrid_covering_read_plan: Option<CoveringHybridReadExecutionPlan>,
 ) -> Result<LoadExecutionRouteFacts, InternalError> {
     Ok(LoadExecutionRouteFacts {
@@ -339,7 +339,7 @@ fn load_modifier_execution_nodes(
     plan: &AccessPlannedQuery,
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<&CoveringReadExecutionPlan>,
     hybrid_covering_read_plan: Option<&CoveringHybridReadExecutionPlan>,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
     let mut nodes = Vec::new();
@@ -631,7 +631,6 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
             primary_key_names,
             explain_preparation.strict_predicate_compatible,
         )
-        .map(LoadTerminalFastPathContract::CoveringRead)
     } else {
         None
     };
@@ -658,7 +657,6 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {
         authority
             .covering_read_execution_plan(plan, explain_preparation.strict_predicate_compatible)
-            .map(LoadTerminalFastPathContract::CoveringRead)
     } else {
         None
     };
@@ -760,13 +758,12 @@ fn grouped_execution_projection(
 // Emit one explicit projection terminal node when the scalar load route stays
 // on the planner-owned covering-read contract.
 fn covering_projection_execution_node_descriptor(
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<&CoveringReadExecutionPlan>,
     hybrid_covering_read_plan: Option<&CoveringHybridReadExecutionPlan>,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let (covering_kind, fields, order_contract, existing_row_mode) =
-        if let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path
-        {
+        if let Some(covering) = load_terminal_fast_path {
             (
                 property_values::PURE_COVERING,
                 covering.fields.as_slice(),
@@ -822,7 +819,7 @@ fn covering_projection_execution_node_descriptor(
 }
 
 const fn covering_execution_kind_label(
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<&CoveringReadExecutionPlan>,
     hybrid_covering_read_plan: Option<&CoveringHybridReadExecutionPlan>,
 ) -> &'static str {
     if load_terminal_fast_path.is_some() {

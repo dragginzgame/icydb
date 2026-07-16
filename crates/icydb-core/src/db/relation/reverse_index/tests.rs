@@ -1,7 +1,6 @@
 use super::{
-    AcceptedStrongRelationInfo, AcceptedStrongRelationLocalComponentSpec,
-    AcceptedStrongRelationLocalComponents, AcceptedStrongRelationTargetIdentity,
-    RelationTargetKeys, ReverseRelationSourceInfo,
+    AcceptedRelationInfo, AcceptedRelationLocalComponentSpec, AcceptedRelationLocalComponents,
+    AcceptedRelationTargetIdentity, RelationTargetKeys, ReverseRelationSourceInfo,
     relation_scalar_slot_fast_path_key_kind_supported,
     reverse_index_key_bounds_for_target_primary_key_value,
     reverse_index_key_for_target_and_source_primary_key_value,
@@ -19,10 +18,10 @@ use crate::db::{
     registry::StoreRegistry,
     schema::{
         AcceptedEnumCatalogHandle, AcceptedFieldDecodeContract, AcceptedFieldKind,
-        AcceptedRelationEnforcement, AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision,
-        AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
-        SchemaVersion, enum_catalog::build_initial_accepted_enum_catalog,
+        AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId,
+        PersistedFieldSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        enum_catalog::build_initial_accepted_enum_catalog,
     },
 };
 use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
@@ -52,24 +51,23 @@ fn test_field_contract<'a>(
     AcceptedFieldDecodeContract::new(name, kind, false, FieldStorageDecode::ByKind, leaf_codec)
 }
 
-fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedStrongRelationInfo {
+fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelationInfo {
     let field_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(key_kind.clone()),
-        enforcement: AcceptedRelationEnforcement::Enforced,
     };
 
-    AcceptedStrongRelationInfo {
+    AcceptedRelationInfo {
         relation_name: "target_id".to_string(),
         relation_ordinal: field_index,
-        local_components: AcceptedStrongRelationLocalComponents::scalar(
+        local_components: AcceptedRelationLocalComponents::scalar(
             field_index,
             test_field_contract("target_id", &field_kind, LeafCodec::StructuralFallback),
         ),
-        target: AcceptedStrongRelationTargetIdentity::try_new(
+        target: AcceptedRelationTargetIdentity::try_new(
             "Source",
             "target_id",
             "Target",
@@ -96,7 +94,7 @@ fn accepted_relation_target_identity_carries_ordered_primary_key_metadata() {
 
 #[test]
 fn accepted_relation_target_identity_can_carry_ordered_composite_metadata() {
-    let target = AcceptedStrongRelationTargetIdentity::try_new(
+    let target = AcceptedRelationTargetIdentity::try_new(
         "Source",
         "target_id",
         "Target",
@@ -115,7 +113,7 @@ fn accepted_relation_target_identity_can_carry_ordered_composite_metadata() {
 
 #[test]
 fn accepted_relation_target_identity_rejects_empty_primary_key_metadata() {
-    AcceptedStrongRelationTargetIdentity::try_new(
+    AcceptedRelationTargetIdentity::try_new(
         "Source",
         "target_id",
         "Target",
@@ -160,14 +158,13 @@ fn accepted_relation_info_carries_ordered_local_component_metadata() {
 }
 
 #[test]
-fn accepted_strong_relations_require_registered_target_authority() {
+fn accepted_relations_require_registered_target_authority() {
     let relation_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Ulid),
-        enforcement: AcceptedRelationEnforcement::Enforced,
     };
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
@@ -224,7 +221,7 @@ fn accepted_strong_relations_require_registered_target_authority() {
     );
 
     let db: Db<RelationTestCanister> = Db::new_with_hooks(&TEST_REGISTRY, &[]);
-    super::accepted_strong_relations_for_row_contract(&db, "Source", &row_contract, None)
+    super::accepted_relations_for_row_contract(&db, "Source", &row_contract, None)
         .expect_err("accepted relation targets must have registered runtime authority");
 }
 
@@ -233,8 +230,8 @@ fn accepted_relation_local_components_can_carry_ordered_tuple_metadata() {
     let tenant_kind = AcceptedFieldKind::Nat64;
     let local_kind = AcceptedFieldKind::Ulid;
 
-    let components = AcceptedStrongRelationLocalComponents::try_from_component_specs(&[
-        AcceptedStrongRelationLocalComponentSpec {
+    let components = AcceptedRelationLocalComponents::try_from_component_specs(&[
+        AcceptedRelationLocalComponentSpec {
             index: 2,
             field: test_field_contract(
                 "tenant_id",
@@ -242,7 +239,7 @@ fn accepted_relation_local_components_can_carry_ordered_tuple_metadata() {
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
         },
-        AcceptedStrongRelationLocalComponentSpec {
+        AcceptedRelationLocalComponentSpec {
             index: 4,
             field: test_field_contract(
                 "local_id",
@@ -266,7 +263,7 @@ fn accepted_relation_local_components_can_carry_ordered_tuple_metadata() {
 
 #[test]
 fn accepted_relation_local_components_reject_empty_metadata() {
-    AcceptedStrongRelationLocalComponents::try_from_component_specs(&[])
+    AcceptedRelationLocalComponents::try_from_component_specs(&[])
         .expect_err("relation local component metadata must fail closed when empty");
 }
 
@@ -278,16 +275,15 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
         target_entity_tag: EntityTag::new(77),
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Nat64),
-        enforcement: AcceptedRelationEnforcement::Enforced,
     };
-    let relation = AcceptedStrongRelationInfo {
+    let relation = AcceptedRelationInfo {
         relation_name: "target_id".to_string(),
         relation_ordinal: 3,
-        local_components: AcceptedStrongRelationLocalComponents::scalar(
+        local_components: AcceptedRelationLocalComponents::scalar(
             3,
             test_field_contract("target_id", &field_kind, LeafCodec::StructuralFallback),
         ),
-        target: AcceptedStrongRelationTargetIdentity::try_new(
+        target: AcceptedRelationTargetIdentity::try_new(
             "Source",
             "target_id",
             "Target",

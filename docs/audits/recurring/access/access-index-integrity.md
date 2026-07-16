@@ -566,7 +566,7 @@ Minimum verification set:
 * `cargo test -p icydb-core load_cursor_live_state_delete_between_pages_can_shrink_remaining_results --features sql -- --nocapture`
 * `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_index_membership --features sql -- --nocapture`
 * `cargo test -p icydb-core accepted_snapshot_schema_info_exposes_persisted_expression_indexes --features sql -- --nocapture`
-* `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_strong_relation_authority --features sql -- --nocapture`
+* `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_relation_authority --features sql -- --nocapture`
 * `cargo test -p icydb-core schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_model --features sql -- --nocapture`
 * `cargo test -p icydb-core ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename --features sql -- --nocapture`
 * `cargo test -p icydb-core sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority --features sql -- --nocapture`

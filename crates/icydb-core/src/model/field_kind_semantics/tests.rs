@@ -33,7 +33,6 @@ fn classify_relation_uses_key_semantics_without_expr_numeric() {
         target_entity_tag: crate::types::EntityTag::new(1),
         target_store_path: "demo::store::TargetStore",
         key_kind: &NAT_KEY_KIND,
-        enforcement: crate::model::field::RelationEnforcement::Enforced,
     };
 
     let semantics = classify_field_kind(&RELATION_KIND);
@@ -125,7 +124,6 @@ fn grouped_field_kind_helpers_keep_decimal_relation_and_unit_edges_explicit() {
         target_entity_tag: crate::types::EntityTag::new(1),
         target_store_path: "demo::store::TargetStore",
         key_kind: &NAT_KEY_KIND,
-        enforcement: crate::model::field::RelationEnforcement::Enforced,
     };
 
     assert!(field_kind_has_identity_group_canonical_form(
@@ -151,7 +149,6 @@ fn runtime_value_acceptance_recurses_through_nested_field_kinds() {
         target_entity_tag: crate::types::EntityTag::new(1),
         target_store_path: "demo::store::TargetStore",
         key_kind: &NAT_KIND,
-        enforcement: crate::model::field::RelationEnforcement::Enforced,
     };
 
     assert!(
@@ -177,7 +174,6 @@ fn grouped_having_numeric_canonicalization_keeps_numeric_relation_recursion() {
         target_entity_tag: crate::types::EntityTag::new(1),
         target_store_path: "demo::store::TargetStore",
         key_kind: &NAT_KIND,
-        enforcement: crate::model::field::RelationEnforcement::Enforced,
     };
 
     assert_eq!(

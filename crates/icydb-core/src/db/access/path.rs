@@ -549,24 +549,6 @@ pub(crate) struct IndexBranchSetSpec {
     index: SemanticIndexAccessContract,
     fixed_values: Vec<Value>,
     branch_values: Vec<Value>,
-    ordered_suffix: IndexBranchSetOrderedSuffix,
-}
-
-/// Ordered suffix proven by the planner for a branch-set route.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum IndexBranchSetOrderedSuffix {
-    /// All branch streams share the primary-key suffix in ascending order.
-    PrimaryKeyAsc,
-}
-
-impl IndexBranchSetOrderedSuffix {
-    /// Return the stable label for this ordered suffix contract.
-    #[must_use]
-    pub(in crate::db) const fn label(self) -> &'static str {
-        match self {
-            Self::PrimaryKeyAsc => "primary_key_asc",
-        }
-    }
 }
 
 impl IndexBranchSetSpec {
@@ -582,7 +564,6 @@ impl IndexBranchSetSpec {
             index,
             fixed_values,
             branch_values,
-            ordered_suffix: IndexBranchSetOrderedSuffix::PrimaryKeyAsc,
         }
     }
 
@@ -608,12 +589,6 @@ impl IndexBranchSetSpec {
     #[must_use]
     pub(in crate::db) const fn branch_values(&self) -> &[Value] {
         self.branch_values.as_slice()
-    }
-
-    /// Return the ordered suffix proof carried by this branch route.
-    #[must_use]
-    pub(in crate::db) const fn ordered_suffix(&self) -> IndexBranchSetOrderedSuffix {
-        self.ordered_suffix
     }
 
     /// Return the branch slot in the selected index.

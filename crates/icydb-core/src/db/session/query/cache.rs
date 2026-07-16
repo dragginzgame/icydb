@@ -11,7 +11,7 @@ use crate::db::commit::CommitSchemaFingerprint;
 use crate::db::schema::SchemaVersion;
 use crate::{
     db::{
-        DbSession, Query, QueryError, TraceReuseArtifactClass, TraceReuseEvent,
+        DbSession, Query, QueryError, TraceReuseEvent,
         executor::{EntityAuthority, PreparedExecutionPlan, SharedPreparedExecutionPlan},
         predicate::predicate_fingerprint_normalized,
         query::{intent::StructuralQuery, plan::VisibleIndexes},
@@ -158,9 +158,9 @@ pub(in crate::db::session) const fn query_plan_cache_reuse_event(
     attribution: QueryPlanCacheAttribution,
 ) -> TraceReuseEvent {
     if attribution.hits > 0 {
-        TraceReuseEvent::hit(TraceReuseArtifactClass::SharedPreparedQueryPlan)
+        TraceReuseEvent::Hit
     } else {
-        TraceReuseEvent::miss(TraceReuseArtifactClass::SharedPreparedQueryPlan)
+        TraceReuseEvent::Miss
     }
 }
 

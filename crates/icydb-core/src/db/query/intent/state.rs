@@ -28,24 +28,10 @@ use crate::db::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query::intent) enum PredicateExtractionFailureReason {
-    UnsupportedFilterSemantics,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query::intent) enum PredicateCoverageGapReason {
-    UnsupportedFilterSemantics,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::query::intent) enum FilterPredicateCoverage {
     Full,
-    Partial {
-        reason: PredicateCoverageGapReason,
-    },
-    None {
-        reason: PredicateExtractionFailureReason,
-    },
+    Partial,
+    None,
 }
 
 impl FilterPredicateCoverage {
@@ -53,31 +39,25 @@ impl FilterPredicateCoverage {
         if predicate_subset.is_some() {
             Self::Full
         } else {
-            Self::None {
-                reason: PredicateExtractionFailureReason::UnsupportedFilterSemantics,
-            }
+            Self::None
         }
     }
 
     const fn combine_for_and(existing: Self, appended: Self, combined_subset_exists: bool) -> Self {
         if !combined_subset_exists {
-            return Self::None {
-                reason: PredicateExtractionFailureReason::UnsupportedFilterSemantics,
-            };
+            return Self::None;
         }
 
         match (existing, appended) {
             (Self::Full, Self::Full) => Self::Full,
-            _ => Self::Partial {
-                reason: PredicateCoverageGapReason::UnsupportedFilterSemantics,
-            },
+            _ => Self::Partial,
         }
     }
 
     pub(in crate::db::query::intent) const fn covers_user_visible_filter_semantics(self) -> bool {
         match self {
             Self::Full => true,
-            Self::Partial { .. } | Self::None { .. } => false,
+            Self::Partial | Self::None => false,
         }
     }
 }
@@ -345,38 +325,27 @@ impl<K> LoadIntentState<K> {
 }
 
 ///
-/// DeletePolicyState
-///
-/// Delete policy flags preserved for stable intent-policy errors.
-/// These flags keep delete-only grouping validation separate from load mode.
-///
-
-#[derive(Clone, Copy, Debug)]
-struct DeletePolicyState {
-    grouping_requested: bool,
-}
-
-///
 /// DeleteIntentState
 ///
 /// Typed state for delete-mode intent.
-/// Delete mode intentionally carries only scalar shape plus delete policy flags.
+/// Delete mode intentionally carries only scalar shape plus the grouping fact
+/// needed for delete-only validation.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct DeleteIntentState<K> {
     spec: DeleteSpec,
     scalar: ScalarIntent<K>,
-    policy: DeletePolicyState,
+    grouping_requested: bool,
 }
 
 impl<K> DeleteIntentState<K> {
     #[must_use]
-    const fn new(scalar: ScalarIntent<K>, policy: DeletePolicyState) -> Self {
+    const fn new(scalar: ScalarIntent<K>, grouping_requested: bool) -> Self {
         Self {
             spec: DeleteSpec::new(),
             scalar,
-            policy,
+            grouping_requested,
         }
     }
 }
@@ -414,7 +383,7 @@ impl<K> QueryIntent<K> {
     pub(in crate::db::query::intent) const fn is_grouped(&self) -> bool {
         match self {
             Self::Load(load) => matches!(load.shape, QueryShape::Grouped(_)),
-            Self::Delete(delete) => delete.policy.grouping_requested,
+            Self::Delete(delete) => delete.grouping_requested,
         }
     }
 
@@ -432,9 +401,8 @@ impl<K> QueryIntent<K> {
                     QueryShape::Scalar(scalar) => (scalar, false),
                     QueryShape::Grouped(grouped) => (grouped.scalar, true),
                 };
-                let policy = DeletePolicyState { grouping_requested };
 
-                Self::Delete(DeleteIntentState::new(scalar, policy))
+                Self::Delete(DeleteIntentState::new(scalar, grouping_requested))
             }
         }
     }
@@ -542,7 +510,7 @@ impl<K> QueryIntent<K> {
 
     pub(in crate::db::query::intent) const fn mark_delete_grouping_requested(&mut self) {
         if let Self::Delete(delete) = self {
-            delete.policy.grouping_requested = true;
+            delete.grouping_requested = true;
         }
     }
 

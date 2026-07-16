@@ -6,7 +6,7 @@ use super::{
 use crate::{
     db::{
         executor::{
-            PreparedProjectionPlan, StructuralCursorPage,
+            StructuralCursorPage,
             projection::{PreparedProjectionContract, project},
             projection_eval_data_row_for_materialize_tests,
             projection_eval_row_layout_for_materialize_tests,
@@ -23,7 +23,7 @@ fn direct_rank_projection_shape() -> PreparedProjectionContract {
             expr: Expr::Field(FieldId::new("rank")),
             alias: None,
         }]),
-        PreparedProjectionPlan::Scalar(Vec::new()),
+        Vec::new(),
         false,
         Some(vec![1]),
         Some(vec![1]),
@@ -43,7 +43,7 @@ fn repeated_direct_rank_projection_shape() -> PreparedProjectionContract {
                 alias: None,
             },
         ]),
-        PreparedProjectionPlan::Scalar(Vec::new()),
+        Vec::new(),
         false,
         None,
         Some(vec![1, 1]),
@@ -67,7 +67,7 @@ fn mixed_repeated_direct_projection_shape() -> PreparedProjectionContract {
                 alias: None,
             },
         ]),
-        PreparedProjectionPlan::Scalar(Vec::new()),
+        Vec::new(),
         false,
         Some(vec![1, 2, 1]),
         Some(vec![1, 2, 1]),

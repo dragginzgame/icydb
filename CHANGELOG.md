@@ -7,81 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### ➕ Added
-
-- Adds a normative write-admission contract for typed, structural, SQL, batch,
-  and schema writes, clarifying recovery as replay and forbidding trusted
-  accepted-schema validation bypasses.
-- Requires a lockfile-pinned bundled SQLite differential profile against both
-  native execution and the live canister SQL boundary.
-- Adds bounded, accepted-snapshot-aware SQL generation through scalar,
-  `DISTINCT`, aggregate, grouped, and `HAVING` families, with deterministic
-  replay and shrinking, required SQLite parity, typed invalid-case checks, and
-  typed cold/warm route evidence.
-- Adds accepted-snapshot-aware mutation sequences with an independent state
-  model, per-step native and bundled-SQLite evidence, atomic rejection checks,
-  deterministic replay, and bounded shrinking.
-- Adds a checked-in SQL performance profile that pins the complete 1,758-case
-  P1 scenario set, executes it through eight independently runnable deterministic
-  shards, and permits only an exact eight-receipt merge to publish the complete
-  report, then deterministically selects bounded P2 candidates for five isolated
-  cold and five cache-proven warm samples across another eight exact shards;
-  strict artifacts rederive their identities and receipts, preserve reconciled
-  attribution, represent non-`SELECT` warm mode as typed ineligibility, and reject
-  incomplete, tampered, eligibility-drifting, or unstable evidence. A pinned
-  45-case scale profile adds exact 16/256/2,048-row fixtures, zero/one/quarter/all
-  selectivity, 1/10/50-row windows, all maintained route families, strict
-  eight-shard receipts, normalized costs, adjacent slopes, and required P2 scale
-  representatives without inferring fixture facts from SQL text.
-- Adds strict performance-environment identity, confirmed-median and scale
-  baseline artifacts, attributed-versus-total-only calibration evidence, and a
-  nightly fixed-shard evidence workflow; uncalibrated metrics remain explicitly
-  observation-only and CI cannot bless baselines.
-
-### ⚠️ Breaking
-
-- Hard-cuts relation declarations to the enum-valued
-  `enforcement = "enforced" | "unchecked"` surface, defaults omitted
-  enforcement to `enforced`, and removes the former boolean-style relation
-  flags. Schemas that intentionally permit dangling references must specify
-  `enforcement = "unchecked"`, and accepted schema snapshots must be recreated
-  for the new codec.
-
-### 🩹 Fixed
-
-- Fixes default-feature core compilation after schema-publication hardening by
-  keeping startup mutation metrics and SQL-only publication exports aligned
-  with their actual feature ownership.
-- Removes a stale recovery test that treated volatile rows as durable and
-  expected canonical journal folds to re-run live mutation admission.
-- Aligns restart and reconciliation fixtures with accepted-schema authority,
-  preserving canonical schema roots and preventing generated metadata from
-  rolling back a newer matching accepted snapshot.
-- Canonicalizes stored and computed SQL nulls before ordering and continuation
-  boundary construction so ascending null order is consistent.
-- Preserves descending primary-key direction through mutation route planning and
-  DELETE continuation, and reports atomic duplicate INSERT failures as typed
-  conflicts.
-
-### 🗑️ Removed
-
-- Hard-cuts the optional system-CLI SELECT comparator and its duplicate
-  correctness verdict.
-- Hard-cuts the template-random SELECT performance mode, source taxonomy, and
-  parallel query renderer now that typed generation owns randomized evidence.
-- Hard-cuts the isolated random mutation comparator, system SQLite process
-  runner, compatibility environment controls, duplicate report model, and its
-  audit-canister-only write endpoints.
-- Hard-cuts P1 first-N, key-filter, ranking-count, and wasm-profile overrides so
-  required performance artifacts cannot silently represent a partial scan.
-- Removes the superseded 94-row SQL read catalog, blessed JSON baseline and
-  writer, ignored report path, duplicate five-repeat sampler, and overlapping
-  cache-contract test now that deterministic P1/P2 artifacts own scheduled SQL
-  read evidence.
-
 ## [0.204.x] 🧪 - 2026-07-15 - SQL Evidence Authority
 
 Detailed notes: [docs/changelog/0.204.md](docs/changelog/0.204.md)
+
+- `0.204.1` adds pinned differential, generative, scheduled correctness, and
+  performance evidence; fixes SQL ordering, filtering, and mutation defects;
+  and hard-cuts redundant query and relation contracts. Potentially breaking:
+  relations are always enforced, current schema snapshots must be recreated,
+  and removed public one-variant types have no aliases. The 0.204 design remains
+  open pending clean scheduled evidence and calibrated performance budgets.
 
 - `0.204.0` establishes one machine-checked SQL coverage authority and a typed,
   fail-closed correctness harness with deterministic stratified selection,

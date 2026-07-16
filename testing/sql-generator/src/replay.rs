@@ -3,9 +3,7 @@
 //! Does not own: mismatch discovery, product execution, or shrink candidate policy.
 //! Boundary: serializes the current generator format only and rejects stale/non-canonical input.
 
-use crate::{
-    GeneratedSelectCase, SelectFeature, SelectProvider, SqlGeneratorError, SqlGeneratorErrorKind,
-};
+use crate::{GeneratedSelectCase, SelectFeature, SqlGeneratorError, SqlGeneratorErrorKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -87,6 +85,27 @@ pub enum SelectMismatchCategory {
 }
 
 ///
+/// SelectComparisonProvider
+///
+/// Exact second provider represented by one SELECT mismatch replay. This is
+/// distinct from the generated case's required evidence provider because an
+/// internal cold-versus-warm invariant can fail before external comparison.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectComparisonProvider {
+    /// Warm IcyDB execution compared with the cold subject execution.
+    IcydbWarm,
+
+    /// Typed rejection contract attached before invalid SQL rendering.
+    RejectionInvariant,
+
+    /// Independently executed bundled SQLite result.
+    SqliteReference,
+}
+
+///
 /// SelectMismatchSignature
 ///
 /// Structured failure identity that a shrink candidate must preserve exactly.
@@ -99,7 +118,7 @@ pub struct SelectMismatchSignature {
     features: BTreeSet<SelectFeature>,
     phase: SelectExecutionPhase,
     subject_provider_id: String,
-    comparison_provider: SelectProvider,
+    comparison_provider: SelectComparisonProvider,
     error_class_id: Option<String>,
     category: SelectMismatchCategory,
     invariant_class_id: Option<String>,
@@ -116,7 +135,7 @@ impl SelectMismatchSignature {
         features: BTreeSet<SelectFeature>,
         phase: SelectExecutionPhase,
         subject_provider_id: impl Into<String>,
-        comparison_provider: SelectProvider,
+        comparison_provider: SelectComparisonProvider,
         error_class_id: Option<String>,
         category: SelectMismatchCategory,
         invariant_class_id: Option<String>,
@@ -155,7 +174,7 @@ impl SelectMismatchSignature {
 
     /// Return the comparison provider.
     #[must_use]
-    pub const fn comparison_provider(&self) -> SelectProvider {
+    pub const fn comparison_provider(&self) -> SelectComparisonProvider {
         self.comparison_provider
     }
 
@@ -371,6 +390,18 @@ impl SelectReplayRecord {
     #[must_use]
     pub const fn signature(&self) -> &SelectMismatchSignature {
         &self.signature
+    }
+
+    /// Borrow the compact subject outcome recorded for the minimized failure.
+    #[must_use]
+    pub const fn subject_outcome(&self) -> &SelectObservedOutcome {
+        &self.subject_outcome
+    }
+
+    /// Borrow the compact comparison-provider outcome recorded for the minimized failure.
+    #[must_use]
+    pub const fn comparison_outcome(&self) -> &SelectObservedOutcome {
+        &self.comparison_outcome
     }
 
     /// Return whether deterministic minimization reached a fixed point.

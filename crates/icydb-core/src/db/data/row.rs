@@ -99,17 +99,6 @@ impl From<RawRowError> for InternalError {
 }
 
 ///
-/// RowDecodeError
-/// Logical / format errors during decode.
-///
-
-#[cfg(test)]
-#[derive(Debug)]
-pub(in crate::db) enum RowDecodeError {
-    Deserialize,
-}
-
-///
 /// RawRow
 ///
 
@@ -164,19 +153,10 @@ impl RawRow {
     #[cfg(test)]
     pub(in crate::db) fn try_decode_with_model_proposal_for_test<E: PersistedRow>(
         &self,
-    ) -> Result<E, RowDecodeError> {
-        // Keep deserialize failures structured so callers can classify decode
-        // boundary errors without parsing free-form strings.
+    ) -> Result<E, InternalError> {
         let mut slots =
-            StructuralSlotReader::from_raw_row_with_model_proposal_for_test(self, E::MODEL)
-                .map_err(|source| {
-                    let _ = source;
-                    RowDecodeError::Deserialize
-                })?;
-        E::materialize_from_slots(&mut slots).map_err(|source| {
-            let _ = source;
-            RowDecodeError::Deserialize
-        })
+            StructuralSlotReader::from_raw_row_with_model_proposal_for_test(self, E::MODEL)?;
+        E::materialize_from_slots(&mut slots)
     }
 }
 

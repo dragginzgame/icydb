@@ -28,8 +28,7 @@ use crate::{
         query::intent::Query,
         registry::StoreRegistry,
         relation::{
-            validate_delete_strong_relations_for_source,
-            validate_save_strong_relations_with_accepted_contract,
+            validate_delete_relations_for_source, validate_save_relations_with_accepted_contract,
         },
         schema::{
             AcceptedRowDecodeContract, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
@@ -42,7 +41,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     metrics::{metrics_report, metrics_reset_all},
     model::{
-        field::{FieldDatabaseDefault, FieldKind, FieldStorageDecode, RelationEnforcement},
+        field::{FieldDatabaseDefault, FieldKind, FieldStorageDecode},
         index::IndexModel,
     },
     testing::test_memory,
@@ -232,7 +231,6 @@ crate::test_entity! {
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -266,7 +264,6 @@ crate::test_entity! {
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -300,7 +297,6 @@ crate::test_entity! {
             target_entity_tag: SourceEntity::ENTITY_TAG,
             target_store_path: TargetStore::PATH,
             key_kind: &FieldKind::Ulid,
-            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -334,7 +330,6 @@ crate::test_entity! {
             target_entity_tag: TargetEntity::ENTITY_TAG,
             target_store_path: SourceStore::PATH,
             key_kind: &FieldKind::Ulid,
-            enforcement: RelationEnforcement::Enforced,
         } },
     ],
     indexes = [],
@@ -358,7 +353,6 @@ static SOURCE_SET_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: TargetEntity::ENTITY_TAG,
     target_store_path: TargetStore::PATH,
     key_kind: &FieldKind::Ulid,
-    enforcement: RelationEnforcement::Enforced,
 };
 
 crate::test_entity! {
@@ -394,7 +388,6 @@ static SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
     target_entity_tag: SelfRelationEntity::ENTITY_TAG,
     target_store_path: SourceStore::PATH,
     key_kind: &FieldKind::Ulid,
-    enforcement: RelationEnforcement::Enforced,
 };
 
 crate::test_entity! {
@@ -1280,97 +1273,97 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         <TargetEntity as crate::entity::EntityDeclaration>::MODEL,
         TargetEntity::PATH,
         TargetStore::PATH,
-        validate_delete_strong_relations_for_source::<TargetEntity>,
+        validate_delete_relations_for_source::<TargetEntity>,
     ),
     EntityRuntimeHooks::new(
         SourceEntity::ENTITY_TAG,
         <SourceEntity as crate::entity::EntityDeclaration>::MODEL,
         SourceEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<SourceEntity>,
+        validate_delete_relations_for_source::<SourceEntity>,
     ),
     EntityRuntimeHooks::new(
         InvalidRelationMetadataEntity::ENTITY_TAG,
         <InvalidRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
         InvalidRelationMetadataEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<InvalidRelationMetadataEntity>,
+        validate_delete_relations_for_source::<InvalidRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
         WrongTagRelationMetadataEntity::ENTITY_TAG,
         <WrongTagRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
         WrongTagRelationMetadataEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<WrongTagRelationMetadataEntity>,
+        validate_delete_relations_for_source::<WrongTagRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
         WrongStoreRelationMetadataEntity::ENTITY_TAG,
         <WrongStoreRelationMetadataEntity as crate::entity::EntityDeclaration>::MODEL,
         WrongStoreRelationMetadataEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<WrongStoreRelationMetadataEntity>,
+        validate_delete_relations_for_source::<WrongStoreRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
         SourceSetEntity::ENTITY_TAG,
         <SourceSetEntity as crate::entity::EntityDeclaration>::MODEL,
         SourceSetEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<SourceSetEntity>,
+        validate_delete_relations_for_source::<SourceSetEntity>,
     ),
     EntityRuntimeHooks::new(
         SelfRelationEntity::ENTITY_TAG,
         <SelfRelationEntity as crate::entity::EntityDeclaration>::MODEL,
         SelfRelationEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<SelfRelationEntity>,
+        validate_delete_relations_for_source::<SelfRelationEntity>,
     ),
     EntityRuntimeHooks::new(
         UniqueEmailEntity::ENTITY_TAG,
         <UniqueEmailEntity as crate::entity::EntityDeclaration>::MODEL,
         UniqueEmailEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<UniqueEmailEntity>,
+        validate_delete_relations_for_source::<UniqueEmailEntity>,
     ),
     EntityRuntimeHooks::new(
         MismatchedPkEntity::ENTITY_TAG,
         <MismatchedPkEntity as crate::entity::EntityDeclaration>::MODEL,
         MismatchedPkEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<MismatchedPkEntity>,
+        validate_delete_relations_for_source::<MismatchedPkEntity>,
     ),
     EntityRuntimeHooks::new(
         DecimalScaleEntity::ENTITY_TAG,
         <DecimalScaleEntity as crate::entity::EntityDeclaration>::MODEL,
         DecimalScaleEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<DecimalScaleEntity>,
+        validate_delete_relations_for_source::<DecimalScaleEntity>,
     ),
     EntityRuntimeHooks::new(
         BoundedTextEntity::ENTITY_TAG,
         <BoundedTextEntity as crate::entity::EntityDeclaration>::MODEL,
         BoundedTextEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<BoundedTextEntity>,
+        validate_delete_relations_for_source::<BoundedTextEntity>,
     ),
     EntityRuntimeHooks::new(
         DatabaseDefaultWriteEntity::ENTITY_TAG,
         <DatabaseDefaultWriteEntity as crate::entity::EntityDeclaration>::MODEL,
         DatabaseDefaultWriteEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<DatabaseDefaultWriteEntity>,
+        validate_delete_relations_for_source::<DatabaseDefaultWriteEntity>,
     ),
     EntityRuntimeHooks::new(
         NullableAccountEventEntity::ENTITY_TAG,
         <NullableAccountEventEntity as crate::entity::EntityDeclaration>::MODEL,
         NullableAccountEventEntity::PATH,
         SourceStore::PATH,
-        validate_delete_strong_relations_for_source::<NullableAccountEventEntity>,
+        validate_delete_relations_for_source::<NullableAccountEventEntity>,
     ),
 ];
 
 static DB: Db<TestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
 
-fn validate_save_strong_relations_with_test_accepted_contract<E>(
+fn validate_save_relations_with_test_accepted_contract<E>(
     db: &Db<E::Canister>,
     entity: &E,
 ) -> Result<(), crate::error::InternalError>
@@ -1379,47 +1372,46 @@ where
 {
     let accepted_contract = AcceptedRowDecodeContract::from_model_proposal_for_test(E::MODEL);
 
-    validate_save_strong_relations_with_accepted_contract::<E>(db, entity, &accepted_contract)
+    validate_save_relations_with_accepted_contract::<E>(db, entity, &accepted_contract)
 }
 
 #[test]
-fn strong_relation_missing_fails_preflight() {
+fn relation_missing_fails_preflight() {
     let entity = SourceEntity {
         id: Ulid::generate(),
         target: Ulid::generate(), // non-existent target
     };
 
-    let err =
-        validate_save_strong_relations_with_test_accepted_contract::<SourceEntity>(&DB, &entity)
-            .expect_err("expected missing strong relation to fail");
+    let err = validate_save_relations_with_test_accepted_contract::<SourceEntity>(&DB, &entity)
+        .expect_err("expected missing relation to fail");
 
     assert_eq!(
         err.class,
         ErrorClass::Unsupported,
-        "missing strong relation should classify as unsupported",
+        "missing relation should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Executor,
-        "missing strong relation should originate from executor validation",
+        "missing relation should originate from executor validation",
     );
     assert_error_diagnostic(
         &err,
         icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-        "missing strong relation",
+        "missing relation",
     );
 }
 
 #[test]
-fn strong_relation_invalid_metadata_fails_internal() {
+fn relation_invalid_metadata_fails_internal() {
     let entity = InvalidRelationMetadataEntity {
         id: Ulid::generate(),
         target: Ulid::generate(),
     };
 
-    let err = validate_save_strong_relations_with_test_accepted_contract::<
-        InvalidRelationMetadataEntity,
-    >(&DB, &entity)
+    let err = validate_save_relations_with_test_accepted_contract::<InvalidRelationMetadataEntity>(
+        &DB, &entity,
+    )
     .expect_err("invalid relation metadata should fail deterministic preflight");
     assert_eq!(
         err.class,
@@ -1439,16 +1431,17 @@ fn strong_relation_invalid_metadata_fails_internal() {
 }
 
 #[test]
-fn strong_relation_wrong_target_tag_fails_internal() {
+fn relation_wrong_target_tag_fails_internal() {
     let entity = WrongTagRelationMetadataEntity {
         id: Ulid::generate(),
         target: Ulid::generate(),
     };
 
-    let err = validate_save_strong_relations_with_test_accepted_contract::<
-        WrongTagRelationMetadataEntity,
-    >(&DB, &entity)
-    .expect_err("wrong relation target tag should fail deterministic preflight");
+    let err =
+        validate_save_relations_with_test_accepted_contract::<WrongTagRelationMetadataEntity>(
+            &DB, &entity,
+        )
+        .expect_err("wrong relation target tag should fail deterministic preflight");
     assert_eq!(
         err.class,
         ErrorClass::Internal,
@@ -1467,16 +1460,17 @@ fn strong_relation_wrong_target_tag_fails_internal() {
 }
 
 #[test]
-fn strong_relation_wrong_target_store_path_fails_internal() {
+fn relation_wrong_target_store_path_fails_internal() {
     let entity = WrongStoreRelationMetadataEntity {
         id: Ulid::generate(),
         target: Ulid::generate(),
     };
 
-    let err = validate_save_strong_relations_with_test_accepted_contract::<
-        WrongStoreRelationMetadataEntity,
-    >(&DB, &entity)
-    .expect_err("wrong relation target store should fail deterministic preflight");
+    let err =
+        validate_save_relations_with_test_accepted_contract::<WrongStoreRelationMetadataEntity>(
+            &DB, &entity,
+        )
+        .expect_err("wrong relation target store should fail deterministic preflight");
     assert_eq!(
         err.class,
         ErrorClass::Internal,
@@ -1495,7 +1489,7 @@ fn strong_relation_wrong_target_store_path_fails_internal() {
 }
 
 #[test]
-fn strong_set_relation_missing_key_fails_save() {
+fn set_relation_missing_key_fails_save() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -1533,7 +1527,7 @@ fn strong_set_relation_missing_key_fails_save() {
 }
 
 #[test]
-fn strong_set_relation_all_present_save_succeeds() {
+fn set_relation_all_present_save_succeeds() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -1667,7 +1661,7 @@ fn save_accepts_map_with_structured_values() {
 }
 
 #[test]
-fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
+fn set_relation_mixed_valid_invalid_fails_atomically() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -1688,12 +1682,12 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
     assert_eq!(
         err.class,
         ErrorClass::Unsupported,
-        "missing strong relation in set should classify as unsupported",
+        "missing relation in set should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Executor,
-        "missing strong relation in set should originate from executor validation",
+        "missing relation in set should originate from executor validation",
     );
     assert_error_diagnostic(
         &err,
@@ -2243,7 +2237,7 @@ fn replace_many_non_atomic_mixed_existing_missing_commits_prefix_before_conflict
 }
 
 #[test]
-fn insert_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically() {
+fn insert_many_atomic_with_relations_mixed_valid_invalid_fails_atomically() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -2266,21 +2260,21 @@ fn insert_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically
                 targets: vec![valid_target, missing_target],
             },
         ])
-        .expect_err("atomic relation batch should fail when one item has missing strong relation");
+        .expect_err("atomic relation batch should fail when one item has missing relation");
     assert_eq!(
         err.class,
         ErrorClass::Unsupported,
-        "missing strong relation should classify as unsupported",
+        "missing relation should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Executor,
-        "missing strong relation should originate from executor validation",
+        "missing relation should originate from executor validation",
     );
     assert_error_diagnostic(
         &err,
         icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-        "atomic relation batch missing strong relation",
+        "atomic relation batch missing relation",
     );
 
     let source_rows = with_data_store(SourceStore::PATH, DataStore::len);
@@ -2291,7 +2285,7 @@ fn insert_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically
 }
 
 #[test]
-fn insert_many_atomic_strong_relation_does_not_see_earlier_batch_insert() {
+fn insert_many_atomic_relation_does_not_see_earlier_batch_insert() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -2309,25 +2303,25 @@ fn insert_many_atomic_strong_relation_does_not_see_earlier_batch_insert() {
                 parents: vec![parent],
             },
         ])
-        .expect_err("same-batch strong relation target should not be visible today");
+        .expect_err("same-batch relation target should not be visible today");
     assert_eq!(
         err.class,
         ErrorClass::Unsupported,
-        "missing strong relation should classify as unsupported: {err:?}",
+        "missing relation should classify as unsupported: {err:?}",
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Executor,
-        "missing strong relation should originate from save preflight",
+        "missing relation should originate from save preflight",
     );
     assert_error_diagnostic(
         &err,
         icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-        "same-batch strong relation target",
+        "same-batch relation target",
     );
     assert!(
         !commit_marker_present().expect("commit marker probe should succeed"),
-        "same-batch strong relation failure should occur before marker persistence",
+        "same-batch relation failure should occur before marker persistence",
     );
     assert!(
         load_self_relation_entity(parent).is_none(),
@@ -2340,7 +2334,7 @@ fn insert_many_atomic_strong_relation_does_not_see_earlier_batch_insert() {
 }
 
 #[test]
-fn update_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically() {
+fn update_many_atomic_with_relations_mixed_valid_invalid_fails_atomically() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -2386,12 +2380,12 @@ fn update_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically
     assert_eq!(
         err.class,
         ErrorClass::Unsupported,
-        "missing strong relation should classify as unsupported",
+        "missing relation should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Executor,
-        "missing strong relation should originate from executor validation",
+        "missing relation should originate from executor validation",
     );
 
     let first_row = load_source_set_entity(first_id).expect("first source row should remain");
@@ -2409,7 +2403,7 @@ fn update_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically
 }
 
 #[test]
-fn replace_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically() {
+fn replace_many_atomic_with_relations_mixed_valid_invalid_fails_atomically() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -2445,12 +2439,12 @@ fn replace_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomicall
     assert_eq!(
         err.class,
         ErrorClass::Unsupported,
-        "missing strong relation should classify as unsupported",
+        "missing relation should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Executor,
-        "missing strong relation should originate from executor validation",
+        "missing relation should originate from executor validation",
     );
 
     let existing_row =

@@ -2,8 +2,10 @@ use crate::db::{
     query::plan::{
         PlanError,
         expr::{
-            Expr, ExprCoarseTypeFamily, Function, FunctionTypeInferenceShape, NumericSubtype,
-            type_inference::{ExprType, infer_expr_type, unify::unify_coalesce_expr_types},
+            Expr, Function, FunctionTypeInferenceShape, NumericSubtype,
+            type_inference::{
+                ExprType, FunctionArgumentFamily, infer_expr_type, unify::unify_coalesce_expr_types,
+            },
         },
         validate::{ExprPlanError, ExprPlanTypeClass},
     },
@@ -11,7 +13,7 @@ use crate::db::{
 };
 
 impl FunctionTypeInferenceShape {
-    pub(super) fn arg_coarse_family(self, index: usize) -> Option<ExprCoarseTypeFamily> {
+    fn argument_family(self, index: usize) -> Option<FunctionArgumentFamily> {
         match self {
             Self::ByteLengthResult
             | Self::UnaryBoolPredicate
@@ -29,50 +31,23 @@ impl FunctionTypeInferenceShape {
                 ..
             } => {
                 if text_positions.contains(&index) {
-                    Some(ExprCoarseTypeFamily::Text)
+                    Some(FunctionArgumentFamily::Text)
                 } else if numeric_positions.contains(&index) {
-                    Some(ExprCoarseTypeFamily::Numeric)
+                    Some(FunctionArgumentFamily::Numeric)
                 } else {
                     None
                 }
             }
             Self::BoolResult { text_positions } => {
                 if text_positions.contains(&index) {
-                    Some(ExprCoarseTypeFamily::Text)
+                    Some(FunctionArgumentFamily::Text)
                 } else {
                     None
                 }
             }
             Self::NumericScaleResult => {
-                matches!(index, 0 | 1).then_some(ExprCoarseTypeFamily::Numeric)
+                matches!(index, 0 | 1).then_some(FunctionArgumentFamily::Numeric)
             }
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) const fn result_coarse_family(self) -> Option<ExprCoarseTypeFamily> {
-        match self {
-            Self::ByteLengthResult | Self::NumericResult { .. } | Self::NumericScaleResult => {
-                Some(ExprCoarseTypeFamily::Numeric)
-            }
-            Self::UnaryBoolPredicate
-            | Self::CollectionContains
-            | Self::Membership
-            | Self::BoolResult { .. } => Some(ExprCoarseTypeFamily::Bool),
-            Self::TextResult { .. } => Some(ExprCoarseTypeFamily::Text),
-            Self::DynamicCoalesce | Self::DynamicNullIf => None,
-        }
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(super) const fn dynamic_arg_coarse_family(
-        self,
-        result_family: ExprCoarseTypeFamily,
-    ) -> Option<ExprCoarseTypeFamily> {
-        match self {
-            Self::DynamicCoalesce | Self::DynamicNullIf => Some(result_family),
-            _ => None,
         }
     }
 
@@ -203,15 +178,13 @@ fn validate_byte_length_function_args(
     Ok(())
 }
 
-const fn expr_type_accepts_required_coarse_family(
+const fn expr_type_accepts_required_family(
     expr_type: &ExprType,
-    family: ExprCoarseTypeFamily,
+    family: FunctionArgumentFamily,
 ) -> bool {
     (match family {
-        #[cfg(test)]
-        ExprCoarseTypeFamily::Bool => matches!(expr_type, ExprType::Bool),
-        ExprCoarseTypeFamily::Numeric => matches!(expr_type, ExprType::Numeric(_)),
-        ExprCoarseTypeFamily::Text => matches!(expr_type, ExprType::Text),
+        FunctionArgumentFamily::Numeric => matches!(expr_type, ExprType::Numeric(_)),
+        FunctionArgumentFamily::Text => matches!(expr_type, ExprType::Text),
     }) || {
         #[cfg(test)]
         {
@@ -230,11 +203,11 @@ fn validate_function_arg_families(
     shape: FunctionTypeInferenceShape,
 ) -> Result<(), PlanError> {
     for (index, arg) in args.iter().enumerate() {
-        let Some(family) = shape.arg_coarse_family(index) else {
+        let Some(family) = shape.argument_family(index) else {
             continue;
         };
 
-        if !expr_type_accepts_required_coarse_family(arg, family) {
+        if !expr_type_accepts_required_family(arg, family) {
             return Err(invalid_function_argument(function, index, arg));
         }
     }

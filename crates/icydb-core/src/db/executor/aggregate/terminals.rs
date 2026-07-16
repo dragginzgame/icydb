@@ -29,9 +29,8 @@ use crate::{
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
             planning::route::{
-                CountTerminalFastPathContract, ExistsTerminalFastPathContract,
-                derive_count_terminal_fast_path_contract_for_model,
-                derive_exists_terminal_fast_path_contract_for_model,
+                CountTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,
+                derive_exists_terminal_fast_path_direction_for_model,
             },
         },
         index::predicate::IndexPredicateExecution,
@@ -388,17 +387,13 @@ where
                 }
             }
             ScalarTerminalBoundaryRequest::Exists => {
-                let strategy = derive_exists_terminal_fast_path_contract_for_model(
+                let strategy = derive_exists_terminal_fast_path_direction_for_model(
                     &prepared.logical_plan,
                     prepared.execution_preparation.strict_mode().is_some(),
                 )
                 .map_or(
                     PreparedScalarTerminalStrategy::KernelAggregate,
-                    |contract| match contract {
-                        ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
-                            PreparedScalarTerminalStrategy::ExistingRows { direction }
-                        }
-                    },
+                    |direction| PreparedScalarTerminalStrategy::ExistingRows { direction },
                 );
                 let strategy = if matches!(prepared.consistency(), MissingRowPolicy::Ignore) {
                     PreparedScalarTerminalStrategy::KernelAggregate

@@ -302,7 +302,7 @@ impl EffectiveRuntimeFilterProgram {
 ///
 /// ResidualFilterContract
 ///
-/// ResidualFilterContract freezes the planner-facing post-access filter
+/// ResidualFilterContract freezes the planner-facing runtime residual-filter
 /// contract. It keeps the visible residual expression, the residual predicate
 /// subset, and the compiled runtime filter program together so downstream
 /// layers consume one residual-filter shape instead of rejoining loose fields.
@@ -641,7 +641,7 @@ impl ResidualFilterShape {
         }
     }
 
-    /// Return whether no post-access residual filter survives.
+    /// Return whether no runtime residual filter survives access planning.
     #[must_use]
     pub(in crate::db) const fn is_absent(self) -> bool {
         matches!(self, Self::Absent)
@@ -649,7 +649,7 @@ impl ResidualFilterShape {
 }
 
 impl ResidualFilterContract {
-    /// Freeze one post-access residual filter contract.
+    /// Freeze one runtime residual-filter contract.
     #[must_use]
     pub(in crate::db) const fn new(
         residual_filter_expr: Option<Expr>,
@@ -686,7 +686,7 @@ impl ResidualFilterContract {
         self.effective_runtime_filter_program.as_ref()
     }
 
-    /// Return whether any post-access residual filtering survives.
+    /// Return whether any runtime residual filtering survives access planning.
     #[must_use]
     pub(in crate::db) const fn has_residual_filter(&self) -> bool {
         !self.shape().is_absent()

@@ -289,9 +289,8 @@ fn count_index_prefix_cardinality_from_sum(
 
     let available_rows = sum(candidate_window.stop_after())?;
     let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
-    let count_window = CountWindowResult::from_candidate_rows(page, available_rows);
 
-    Some(count_window.count())
+    Some(count_windowed_candidate_rows(page, available_rows))
 }
 
 #[cfg(feature = "sql")]
@@ -427,9 +426,9 @@ fn aggregate_count_from_pk_cardinality_with_store(
     };
 
     // Phase 3: apply canonical COUNT window semantics and emit scan metrics.
-    let count_window = CountWindowResult::from_candidate_rows(page, candidate_rows.available);
+    let count = count_windowed_candidate_rows(page, candidate_rows.available);
 
-    Ok((count_window.count(), candidate_rows.scanned))
+    Ok((count, candidate_rows.scanned))
 }
 
 fn count_full_entity_candidate_rows(
@@ -571,41 +570,27 @@ fn page_window_candidate_rows(page: &PageSpec, rows_after_offset: u32) -> u64 {
     u64::from(page.offset).saturating_add(u64::from(rows_after_offset))
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct CountWindowResult {
-    count: u32,
-}
+// Map one candidate cardinality and optional page contract to the canonical
+// COUNT result.
+fn count_windowed_candidate_rows(page: Option<&PageSpec>, available_rows: usize) -> u32 {
+    let Some(page) = page else {
+        return usize_to_u32_saturating(available_rows);
+    };
+    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
 
-impl CountWindowResult {
-    // Map one candidate cardinality and optional page contract to canonical
-    // COUNT result and scan accounting semantics.
-    fn from_candidate_rows(page: Option<&PageSpec>, available_rows: usize) -> Self {
-        let Some(page) = page else {
-            return Self::new(usize_to_u32_saturating(available_rows));
-        };
-        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+    match page.limit {
+        Some(0) => 0,
+        Some(limit) => {
+            let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+            let count = available_rows.saturating_sub(offset).min(limit);
 
-        match page.limit {
-            Some(0) => Self::new(0),
-            Some(limit) => {
-                let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-                let count = available_rows.saturating_sub(offset).min(limit);
-
-                Self::new(usize_to_u32_saturating(count))
-            }
-            None => {
-                let count = available_rows.saturating_sub(offset);
-                Self::new(usize_to_u32_saturating(count))
-            }
+            usize_to_u32_saturating(count)
         }
-    }
+        None => {
+            let count = available_rows.saturating_sub(offset);
 
-    const fn new(count: u32) -> Self {
-        Self { count }
-    }
-
-    const fn count(self) -> u32 {
-        self.count
+            usize_to_u32_saturating(count)
+        }
     }
 }
 

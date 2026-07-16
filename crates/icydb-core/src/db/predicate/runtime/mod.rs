@@ -113,17 +113,6 @@ impl PredicateProgram {
         }
     }
 
-    /// Evaluate one precompiled predicate program against one borrowed slot
-    /// reader so structural row paths do not clone already-decoded values on
-    /// every predicate access.
-    #[must_use]
-    pub(in crate::db) fn eval_with_slot_value_ref_reader<'a, F>(&self, read_slot: &mut F) -> bool
-    where
-        F: FnMut(usize) -> Option<&'a Value>,
-    {
-        eval_with_executable_slot_refs(&self.executable, read_slot)
-    }
-
     /// Evaluate one precompiled predicate program against one row reader that
     /// may return either borrowed or owned values per slot access.
     /// This keeps structural row paths on borrowed values while letting typed
@@ -303,27 +292,6 @@ fn mark_predicate_slot(slot: Option<usize>, required_slots: &mut [bool]) {
     }
 }
 
-// Read one field by pre-resolved slot through one borrowed runtime slot reader.
-fn field_from_slot_ref<'a, F>(field_slot: Option<usize>, read_slot: &mut F) -> Option<&'a Value>
-where
-    F: FnMut(usize) -> Option<&'a Value>,
-{
-    field_slot.and_then(read_slot)
-}
-
-// Evaluate one slot-based field predicate only when the field is present and
-// already available by reference.
-fn on_present_slot_ref<'a, F>(
-    field_slot: Option<usize>,
-    read_slot: &mut F,
-    f: impl FnOnce(&Value) -> bool,
-) -> bool
-where
-    F: FnMut(usize) -> Option<&'a Value>,
-{
-    field_from_slot_ref(field_slot, read_slot).is_some_and(f)
-}
-
 // Read one field by pre-resolved slot through one mixed borrowed/owned slot reader.
 fn field_from_slot_cow<'a, F>(
     field_slot: Option<usize>,
@@ -346,28 +314,6 @@ where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
 {
     field_from_slot_cow(field_slot, read_slot).is_some_and(|value| f(value.as_ref()))
-}
-
-// Load both compare operands once through the borrowed row-reader seam and
-// then route the resolved values into one shared compare callback.
-fn with_compare_operands_ref<'a, F, R>(
-    cmp: &ExecutableComparePredicate,
-    read_slot: &mut F,
-    eval: impl FnOnce(&Value, &Value) -> R,
-) -> Option<R>
-where
-    F: FnMut(usize) -> Option<&'a Value>,
-{
-    let left = match &cmp.left {
-        ExecutableCompareOperand::FieldSlot(slot) => field_from_slot_ref(*slot, read_slot)?,
-        ExecutableCompareOperand::Literal(value) => value,
-    };
-    let right = match &cmp.right {
-        ExecutableCompareOperand::FieldSlot(slot) => field_from_slot_ref(*slot, read_slot)?,
-        ExecutableCompareOperand::Literal(value) => value,
-    };
-
-    Some(eval(left, right))
 }
 
 // Load both compare operands once through the mixed borrowed/owned row-reader
@@ -419,68 +365,6 @@ fn with_compare_operands_structural<R>(
     };
 
     Ok(Some(eval(left.as_ref(), right.as_ref())))
-}
-
-// Evaluate one executable predicate against one borrowed runtime slot reader.
-fn eval_with_executable_slot_refs<'a, F>(predicate: &ExecutablePredicate, read_slot: &mut F) -> bool
-where
-    F: FnMut(usize) -> Option<&'a Value>,
-{
-    match predicate {
-        ExecutablePredicate::True => true,
-        ExecutablePredicate::False => false,
-        ExecutablePredicate::And(children) => {
-            for child in children {
-                if !eval_with_executable_slot_refs(child, read_slot) {
-                    return false;
-                }
-            }
-
-            true
-        }
-        ExecutablePredicate::Or(children) => {
-            for child in children {
-                if eval_with_executable_slot_refs(child, read_slot) {
-                    return true;
-                }
-            }
-
-            false
-        }
-        ExecutablePredicate::Not(inner) => !eval_with_executable_slot_refs(inner, read_slot),
-        ExecutablePredicate::Compare(cmp) => eval_compare_with_executable_slot_refs(cmp, read_slot),
-        ExecutablePredicate::IsNull { field_slot } => {
-            matches!(
-                field_from_slot_ref(*field_slot, read_slot),
-                Some(Value::Null)
-            )
-        }
-        ExecutablePredicate::IsNotNull { field_slot } => {
-            matches!(
-                field_from_slot_ref(*field_slot, read_slot),
-                Some(value) if !matches!(value, Value::Null)
-            )
-        }
-        ExecutablePredicate::IsMissing { field_slot } => {
-            field_from_slot_ref(*field_slot, read_slot).is_none()
-        }
-        ExecutablePredicate::IsEmpty { field_slot } => {
-            on_present_slot_ref(*field_slot, read_slot, is_empty_value)
-        }
-        ExecutablePredicate::IsNotEmpty { field_slot } => {
-            on_present_slot_ref(*field_slot, read_slot, |value| !is_empty_value(value))
-        }
-        ExecutablePredicate::TextContains { field_slot, value } => {
-            on_present_slot_ref(*field_slot, read_slot, |actual| {
-                actual.text_contains(value, TextMode::Cs).unwrap_or(false)
-            })
-        }
-        ExecutablePredicate::TextContainsCi { field_slot, value } => {
-            on_present_slot_ref(*field_slot, read_slot, |actual| {
-                actual.text_contains(value, TextMode::Ci).unwrap_or(false)
-            })
-        }
-    }
 }
 
 // Evaluate one executable predicate against one mixed borrowed/owned runtime
@@ -544,21 +428,6 @@ where
             })
         }
     }
-}
-
-// Evaluate one executable comparison predicate against one borrowed runtime
-// slot reader.
-fn eval_compare_with_executable_slot_refs<'a, F>(
-    cmp: &ExecutableComparePredicate,
-    read_slot: &mut F,
-) -> bool
-where
-    F: FnMut(usize) -> Option<&'a Value>,
-{
-    with_compare_operands_ref(cmp, read_slot, |left, right| {
-        eval_compare_values(left, cmp.op, right, &cmp.coercion)
-    })
-    .unwrap_or(false)
 }
 
 // Evaluate one executable comparison predicate against one mixed borrowed/owned

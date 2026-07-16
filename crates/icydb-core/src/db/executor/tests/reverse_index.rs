@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::reverse_index
-//! Covers strong-relation delete validation and reverse-index recovery.
+//! Covers relation delete validation and reverse-index recovery.
 //! Does not own: unrelated executor orchestration outside reverse-index state transitions.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -90,7 +90,7 @@ fn assert_relation_delete_blocked_diagnostic(err: &crate::error::InternalError, 
 }
 
 #[test]
-fn delete_blocks_when_target_has_strong_referrer() {
+fn delete_blocks_when_target_has_relation_referrer() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -119,16 +119,16 @@ fn delete_blocks_when_target_has_strong_referrer() {
         .expect("target delete plan should build");
     let err = target_delete
         .execute(delete_plan)
-        .expect_err("target delete should be blocked by strong relation");
+        .expect_err("target delete should be blocked by relation");
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
 
     assert_relation_delete_blocked_diagnostic(&err, "delete protected target");
@@ -214,7 +214,7 @@ fn save_composite_relation_target_rejects_missing_target_tuple() {
 }
 
 #[test]
-fn delete_blocks_composite_relation_target_with_strong_referrer() {
+fn delete_blocks_composite_relation_target_with_relation_referrer() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -246,7 +246,7 @@ fn delete_blocks_composite_relation_target_with_strong_referrer() {
         .expect("composite target delete plan should build");
     let err = DeleteExecutor::<CompositeRelationTargetEntity>::new(REL_DB)
         .execute(delete_plan)
-        .expect_err("target delete should be blocked by composite strong relation");
+        .expect_err("target delete should be blocked by composite relation");
 
     assert_eq!(
         err.class,
@@ -452,7 +452,7 @@ fn delete_does_not_collide_composite_targets_sharing_first_component() {
 }
 
 #[test]
-fn delete_target_succeeds_after_strong_referrer_is_removed() {
+fn delete_target_succeeds_after_relation_referrer_is_removed() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -498,248 +498,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
 }
 
 #[test]
-fn delete_allows_target_with_unchecked_single_referrer() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_relation_stores();
-
-    let target_id = Ulid::from_u128(9_111);
-    let source_id = Ulid::from_u128(9_112);
-
-    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
-        .insert(RelationTargetEntity { id: target_id })
-        .expect("target save should succeed");
-    SaveExecutor::<UncheckedSingleRelationSourceEntity>::new(REL_DB, false)
-        .insert(UncheckedSingleRelationSourceEntity {
-            id: source_id,
-            target: target_id,
-        })
-        .expect("unchecked source save should succeed");
-
-    let reverse_rows_before_delete = REL_DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(IndexStore::len))
-        })
-        .expect("target index store access should succeed");
-    assert_eq!(
-        reverse_rows_before_delete, 0,
-        "unchecked relation should not create reverse strong-relation index entries",
-    );
-
-    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
-        .delete()
-        .by_id(target_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("target delete plan should build");
-    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
-        .execute(target_delete_plan)
-        .expect("target delete should succeed for unchecked referrer");
-    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
-
-    let source_plan = Query::<UncheckedSingleRelationSourceEntity>::new(MissingRowPolicy::Ignore)
-        .by_id(source_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("source load plan should build");
-    let remaining_source = LoadExecutor::<UncheckedSingleRelationSourceEntity>::new(REL_DB, false)
-        .execute(source_plan)
-        .expect("source load should succeed");
-    assert_eq!(
-        remaining_source.len(),
-        1,
-        "unchecked source row should remain"
-    );
-    assert_eq!(
-        remaining_source.as_slice()[0].entity_ref().target,
-        target_id,
-        "unchecked source relation value should be preserved",
-    );
-}
-
-#[test]
-fn delete_allows_target_with_unchecked_optional_referrer() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_relation_stores();
-
-    let target_id = Ulid::from_u128(9_121);
-    let source_id = Ulid::from_u128(9_122);
-
-    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
-        .insert(RelationTargetEntity { id: target_id })
-        .expect("target save should succeed");
-    SaveExecutor::<UncheckedOptionalRelationSourceEntity>::new(REL_DB, false)
-        .insert(UncheckedOptionalRelationSourceEntity {
-            id: source_id,
-            target: Some(target_id),
-        })
-        .expect("unchecked optional source save should succeed");
-
-    let reverse_rows_before_delete = REL_DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(IndexStore::len))
-        })
-        .expect("target index store access should succeed");
-    assert_eq!(
-        reverse_rows_before_delete, 0,
-        "unchecked optional relation should not create reverse strong-relation index entries",
-    );
-
-    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
-        .delete()
-        .by_id(target_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("target delete plan should build");
-    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
-        .execute(target_delete_plan)
-        .expect("target delete should succeed for unchecked optional referrer");
-    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
-
-    let source_plan = Query::<UncheckedOptionalRelationSourceEntity>::new(MissingRowPolicy::Ignore)
-        .by_id(source_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("source load plan should build");
-    let remaining_source =
-        LoadExecutor::<UncheckedOptionalRelationSourceEntity>::new(REL_DB, false)
-            .execute(source_plan)
-            .expect("source load should succeed");
-    assert_eq!(
-        remaining_source.len(),
-        1,
-        "unchecked optional source row should remain"
-    );
-    assert_eq!(
-        remaining_source.as_slice()[0].entity_ref().target,
-        Some(target_id),
-        "unchecked optional source relation value should be preserved",
-    );
-}
-
-#[test]
-fn delete_allows_target_with_unchecked_list_referrer() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_relation_stores();
-
-    let target_id = Ulid::from_u128(9_131);
-    let source_id = Ulid::from_u128(9_132);
-
-    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
-        .insert(RelationTargetEntity { id: target_id })
-        .expect("target save should succeed");
-    SaveExecutor::<UncheckedListRelationSourceEntity>::new(REL_DB, false)
-        .insert(UncheckedListRelationSourceEntity {
-            id: source_id,
-            targets: vec![target_id],
-        })
-        .expect("unchecked list source save should succeed");
-
-    let reverse_rows_before_delete = REL_DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(IndexStore::len))
-        })
-        .expect("target index store access should succeed");
-    assert_eq!(
-        reverse_rows_before_delete, 0,
-        "unchecked list relation should not create reverse strong-relation index entries",
-    );
-
-    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
-        .delete()
-        .by_id(target_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("target delete plan should build");
-    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
-        .execute(target_delete_plan)
-        .expect("target delete should succeed for unchecked list referrer");
-    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
-
-    let source_plan = Query::<UncheckedListRelationSourceEntity>::new(MissingRowPolicy::Ignore)
-        .by_id(source_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("source load plan should build");
-    let remaining_source = LoadExecutor::<UncheckedListRelationSourceEntity>::new(REL_DB, false)
-        .execute(source_plan)
-        .expect("source load should succeed");
-    assert_eq!(
-        remaining_source.len(),
-        1,
-        "unchecked list source row should remain"
-    );
-    assert_eq!(
-        remaining_source.as_slice()[0].entity_ref().targets,
-        vec![target_id],
-        "unchecked list source relation values should be preserved",
-    );
-}
-
-#[test]
-fn delete_allows_target_with_unchecked_set_referrer() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_relation_stores();
-
-    let target_id = Ulid::from_u128(9_141);
-    let source_id = Ulid::from_u128(9_142);
-
-    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
-        .insert(RelationTargetEntity { id: target_id })
-        .expect("target save should succeed");
-    SaveExecutor::<UncheckedSetRelationSourceEntity>::new(REL_DB, false)
-        .insert(UncheckedSetRelationSourceEntity {
-            id: source_id,
-            targets: vec![target_id],
-        })
-        .expect("unchecked set source save should succeed");
-
-    let reverse_rows_before_delete = REL_DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(IndexStore::len))
-        })
-        .expect("target index store access should succeed");
-    assert_eq!(
-        reverse_rows_before_delete, 0,
-        "unchecked set relation should not create reverse strong-relation index entries",
-    );
-
-    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
-        .delete()
-        .by_id(target_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("target delete plan should build");
-    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
-        .execute(target_delete_plan)
-        .expect("target delete should succeed for unchecked set referrer");
-    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
-
-    let source_plan = Query::<UncheckedSetRelationSourceEntity>::new(MissingRowPolicy::Ignore)
-        .by_id(source_id)
-        .access_plan_for_test()
-        .map(crate::db::executor::PreparedExecutionPlan::from)
-        .expect("source load plan should build");
-    let remaining_source = LoadExecutor::<UncheckedSetRelationSourceEntity>::new(REL_DB, false)
-        .execute(source_plan)
-        .expect("source load should succeed");
-    assert_eq!(
-        remaining_source.len(),
-        1,
-        "unchecked set source row should remain"
-    );
-    assert_eq!(
-        remaining_source.as_slice()[0].entity_ref().targets,
-        vec![target_id],
-        "unchecked set source relation values should be preserved",
-    );
-}
-
-#[test]
-fn strong_relation_reverse_index_tracks_source_lifecycle() {
+fn relation_reverse_index_tracks_source_lifecycle() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -794,7 +553,7 @@ fn strong_relation_reverse_index_tracks_source_lifecycle() {
 }
 
 #[test]
-fn strong_relation_reverse_index_moves_on_fk_update() {
+fn relation_reverse_index_moves_on_fk_update() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
@@ -855,16 +614,16 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         .expect("target B delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(protected_target_delete_plan)
-        .expect_err("new target should remain protected by strong relation");
+        .expect_err("new target should remain protected by relation");
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(&err, "retargeted relation delete");
 }
@@ -941,12 +700,12 @@ fn recovery_replays_reverse_relation_index_mutations() {
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(&err, "replayed reverse index delete");
 }
@@ -1071,12 +830,12 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(&err, "startup rebuild surviving relation delete");
 }
@@ -1086,7 +845,7 @@ fn recovery_startup_rebuild_restores_missing_reverse_relation_entry() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
 
-    // Phase 1: seed one valid strong relation so forward+reverse state starts consistent.
+    // Phase 1: seed one valid relation so forward+reverse state starts consistent.
     let target_id = Ulid::from_u128(9_420);
     let source_id = Ulid::from_u128(9_421);
     SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
@@ -1149,12 +908,12 @@ fn recovery_startup_rebuild_restores_missing_reverse_relation_entry() {
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(&err, "startup rebuild restored relation delete");
 }
@@ -1272,12 +1031,12 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(&err, "mixed replay surviving source delete");
 
@@ -1382,12 +1141,12 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(&err, "retarget replay protected target");
 }
@@ -1517,12 +1276,12 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(&err, "rollback restored target A protection");
 
@@ -1661,12 +1420,12 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     assert_eq!(
         blocked_delete_err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         blocked_delete_err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(
         &blocked_delete_err,
@@ -1685,12 +1444,12 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     assert_eq!(
         blocked_delete_err.class,
         crate::error::ErrorClass::Unsupported,
-        "blocked strong-relation delete should classify as unsupported",
+        "blocked relation delete should classify as unsupported",
     );
     assert_eq!(
         blocked_delete_err.origin,
         crate::error::ErrorOrigin::Executor,
-        "blocked strong-relation delete should originate from executor validation",
+        "blocked relation delete should originate from executor validation",
     );
     assert_relation_delete_blocked_diagnostic(
         &blocked_delete_err,

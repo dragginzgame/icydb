@@ -14,16 +14,17 @@ use crate::{
             BinaryOp, CanonicalExpr, CaseWhenArm, Expr, ExprType, FieldId, Function, UnaryOp,
             canonicalize_grouped_having_bool_expr, canonicalize_runtime_predicate_via_bool_expr,
             canonicalize_scalar_where_bool_expr, collapse_true_only_boolean_admission,
-            compile_canonical_bool_expr_to_compiled_predicate,
-            compile_normalized_bool_expr_to_predicate, eval_builder_expr_for_value_preview,
-            infer_expr_type, is_normalized_bool_expr, normalize_bool_expr,
-            normalize_bool_expr_artifact, predicate_to_runtime_bool_expr_for_test,
+            compile_canonical_bool_expr_to_predicate, compile_normalized_bool_expr_to_predicate,
+            eval_builder_expr_for_value_preview, infer_expr_type, is_normalized_bool_expr,
+            normalize_bool_expr, normalize_bool_expr_artifact,
+            predicate_to_runtime_bool_expr_for_test,
         },
         schema::SchemaInfo,
     },
     entity::EntityDeclaration,
     value::{Value, ValueEnum},
 };
+use std::borrow::Cow;
 
 #[test]
 fn predicate_bridge_roundtrip_covers_every_live_predicate_variant() {
@@ -1511,7 +1512,7 @@ fn assert_compiled_predicate_matches_truth_value(
     field_name: &str,
     values: &[Value],
 ) {
-    let predicate = compile_canonical_bool_expr_to_compiled_predicate(canonical).into_predicate();
+    let predicate = compile_canonical_bool_expr_to_predicate(canonical);
     let program = PredicateProgram::compile_for_model_only(
         <PlanFilteredEntity as EntityDeclaration>::MODEL,
         &predicate,
@@ -1527,8 +1528,9 @@ fn assert_compiled_predicate_matches_truth_value(
             format!("canonical boolean expression produced non-boolean value: {found:?}")
         })
         .expect("canonical boolean expression should collapse through truth_value");
-        let actual = program
-            .eval_with_slot_value_ref_reader(&mut |slot| (slot == field_slot).then_some(value));
+        let actual = program.eval_with_slot_value_cow_reader(&mut |slot| {
+            (slot == field_slot).then_some(Cow::Borrowed(value))
+        });
 
         assert_eq!(
             actual,

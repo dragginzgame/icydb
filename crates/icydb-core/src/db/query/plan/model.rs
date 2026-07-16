@@ -417,8 +417,6 @@ pub(in crate::db) enum GlobalDistinctAggregateKind {
     Avg,
 }
 
-impl GlobalDistinctAggregateKind {}
-
 ///
 /// GroupedPlanAggregateFamily
 ///

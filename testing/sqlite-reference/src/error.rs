@@ -45,6 +45,24 @@ pub enum SqliteAdapterErrorKind {
     Transaction,
 }
 
+impl SqliteAdapterErrorKind {
+    /// Return the stable replay identity for this adapter failure class.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Connection => "sqlite.connection",
+            Self::Environment => "sqlite.environment",
+            Self::Fixture => "sqlite.fixture",
+            Self::GeneratedCase => "sqlite.generated_case",
+            Self::Identifier => "sqlite.identifier",
+            Self::Mutation => "sqlite.mutation",
+            Self::Query => "sqlite.query",
+            Self::Result => "sqlite.result",
+            Self::Transaction => "sqlite.transaction",
+        }
+    }
+}
+
 ///
 /// SqliteAdapterError
 ///

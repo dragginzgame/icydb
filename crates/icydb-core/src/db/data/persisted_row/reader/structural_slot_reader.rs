@@ -11,8 +11,8 @@ use crate::model::entity::EntityModel;
 use crate::{
     db::{
         data::{
-            DecodedDataStoreKey, RawRow, StructuralRowContract, StructuralRowDecodeError,
-            StructuralRowFieldBytes, ValueStorageView,
+            DecodedDataStoreKey, RawRow, StructuralRowContract, StructuralRowFieldBytes,
+            ValueStorageView,
             persisted_row::{
                 codec::{ScalarSlotValueRef, ScalarValueRef},
                 contract::{
@@ -105,8 +105,7 @@ impl<'a> StructuralSlotReader<'a> {
         contract: Cow<'a, StructuralRowContract>,
     ) -> Result<Self, InternalError> {
         let field_bytes =
-            StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.as_ref())
-                .map_err(StructuralRowDecodeError::into_internal_error)?;
+            StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.as_ref())?;
         let cached_values = build_initial_slot_cache(contract.as_ref());
         #[cfg(any(test, feature = "diagnostics"))]
         let metrics = metrics::StructuralReadProbe::begin(contract.field_count());

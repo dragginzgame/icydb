@@ -39,10 +39,10 @@ use crate::{
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct StructuralQueryCacheKey {
     mode: QueryModeCacheKey,
-    predicate: Option<PredicateCacheKey>,
+    predicate: Option<[u8; 32]>,
     filter_expr: Option<ProjectionExprCacheKey>,
     key_access: Option<AccessPathCacheKey>,
-    order: Option<OrderCacheKey>,
+    order: Option<Vec<OrderFieldCacheKey>>,
     distinct: bool,
     projection: ProjectionCacheKey,
     grouping: Option<GroupingCacheKey>,
@@ -53,18 +53,6 @@ pub(in crate::db) struct StructuralQueryCacheKey {
 enum QueryModeCacheKey {
     Load { limit: Option<u32>, offset: u32 },
     Delete { limit: Option<u32>, offset: u32 },
-}
-
-///
-/// PredicateCacheKey
-///
-/// Predicate identity stays anchored to the predicate subsystem's canonical
-/// structural hash so the shared cache does not grow its own predicate walker.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum PredicateCacheKey {
-    Canonical([u8; 32]),
 }
 
 // Value identity uses the existing canonical value hash while preserving one
@@ -112,7 +100,6 @@ enum AccessPathCacheKey {
     },
     IndexBranchSet {
         index: String,
-        ordered_suffix: &'static str,
         fixed_values: Vec<ValueCacheKey>,
         branch_values: Vec<ValueCacheKey>,
     },
@@ -151,22 +138,10 @@ enum RangeBoundCacheKey {
 }
 
 ///
-/// OrderCacheKey
-///
-/// Canonical ordering segment for the structural query cache key.
-/// The cache stores ordering separately so planner reuse only happens when the
-/// normalized sort contract matches field-for-field.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct OrderCacheKey {
-    fields: Vec<OrderFieldCacheKey>,
-}
-
-///
 /// OrderFieldCacheKey
 ///
-/// Canonical representation of one `ORDER BY` field inside `OrderCacheKey`.
+/// Canonical representation of one `ORDER BY` field in the structural query
+/// cache key.
 /// This wrapper keeps the field name and normalized direction explicit so cache
 /// hits do not accidentally cross different sort layouts.
 ///
@@ -341,7 +316,7 @@ impl StructuralQueryCacheKey {
     ) -> Self {
         Self::from_query_model_with_optional_predicate_key(
             model,
-            predicate.map(PredicateCacheKey::from_predicate),
+            predicate.map(predicate_fingerprint),
         )
     }
 
@@ -351,10 +326,7 @@ impl StructuralQueryCacheKey {
         model: &QueryModel<'_, K>,
         predicate_fingerprint: Option<[u8; 32]>,
     ) -> Self {
-        Self::from_query_model_with_optional_predicate_key(
-            model,
-            predicate_fingerprint.map(PredicateCacheKey::from_fingerprint),
-        )
+        Self::from_query_model_with_optional_predicate_key(model, predicate_fingerprint)
     }
 
     // Build the shared structural cache key from one optional predicate-key
@@ -362,7 +334,7 @@ impl StructuralQueryCacheKey {
     // do not walk the same normalized tree twice.
     fn from_query_model_with_optional_predicate_key<K: KeyValueCodec>(
         model: &QueryModel<'_, K>,
-        predicate: Option<PredicateCacheKey>,
+        predicate: Option<[u8; 32]>,
     ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();
         let filter_expr = scalar.filter.as_ref().and_then(|filter| {
@@ -389,7 +361,10 @@ impl StructuralQueryCacheKey {
             key_access: key_access
                 .as_ref()
                 .map(AccessPathCacheKey::from_access_plan),
-            order: scalar.order.as_ref().map(OrderCacheKey::from_order_spec),
+            order: scalar
+                .order
+                .as_ref()
+                .map(OrderFieldCacheKey::from_order_spec),
             distinct: scalar.distinct,
             projection: ProjectionCacheKey::from_projection_selection(&scalar.projection_selection),
             grouping: model
@@ -414,17 +389,6 @@ impl QueryModeCacheKey {
                 offset: spec.offset(),
             },
         }
-    }
-}
-
-impl PredicateCacheKey {
-    #[cfg(test)]
-    fn from_predicate(predicate: &Predicate) -> Self {
-        Self::Canonical(predicate_fingerprint(predicate))
-    }
-
-    const fn from_fingerprint(fingerprint: [u8; 32]) -> Self {
-        Self::Canonical(fingerprint)
     }
 }
 
@@ -492,7 +456,6 @@ impl AccessPathCacheKey {
                 || Self::invalid_access_path_projection(kind),
                 |spec| Self::IndexBranchSet {
                     index: spec.index_ref().name().to_string(),
-                    ordered_suffix: spec.ordered_suffix().label(),
                     fixed_values: Self::value_list_cache_key(spec.fixed_values()),
                     branch_values: Self::value_list_cache_key(spec.branch_values()),
                 },
@@ -539,18 +502,16 @@ impl RangeBoundCacheKey {
     }
 }
 
-impl OrderCacheKey {
-    fn from_order_spec(order: &OrderSpec) -> Self {
-        Self {
-            fields: order
-                .fields
-                .iter()
-                .map(|term| OrderFieldCacheKey {
-                    field: term.rendered_label(),
-                    direction: OrderDirectionCacheKey::from_order_direction(term.direction()),
-                })
-                .collect(),
-        }
+impl OrderFieldCacheKey {
+    fn from_order_spec(order: &OrderSpec) -> Vec<Self> {
+        order
+            .fields
+            .iter()
+            .map(|term| Self {
+                field: term.rendered_label(),
+                direction: OrderDirectionCacheKey::from_order_direction(term.direction()),
+            })
+            .collect()
     }
 }
 

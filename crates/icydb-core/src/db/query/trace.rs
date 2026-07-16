@@ -21,59 +21,25 @@ pub enum TraceExecutionFamily {
 }
 
 ///
-/// TraceReuseArtifactClass
-///
-/// Trace-surface label for the planner-owned artifact class reused for this
-/// query identity.
-/// The current runtime has one explicit reuse class: the shared prepared query plan.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TraceReuseArtifactClass {
-    SharedPreparedQueryPlan,
-}
-
-///
 /// TraceReuseEvent
 ///
 /// Trace-surface semantic reuse result for one query planning attempt.
-/// This keeps the reuse boundary explicit: one artifact
-/// class and one exact-match hit or miss outcome.
+/// Reuse always refers to the shared prepared query plan, so the event owns
+/// only the exact-match hit or miss outcome.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TraceReuseEvent {
-    artifact_class: TraceReuseArtifactClass,
-    hit: bool,
+pub enum TraceReuseEvent {
+    /// The shared prepared query plan matched the current semantic identity.
+    Hit,
+    /// No shared prepared query plan matched the current semantic identity.
+    Miss,
 }
 
 impl TraceReuseEvent {
-    /// Construct one reuse-hit event for the shipped artifact class.
-    #[must_use]
-    pub const fn hit(artifact_class: TraceReuseArtifactClass) -> Self {
-        Self {
-            artifact_class,
-            hit: true,
-        }
-    }
-
-    /// Construct one reuse-miss event for the shipped artifact class.
-    #[must_use]
-    pub const fn miss(artifact_class: TraceReuseArtifactClass) -> Self {
-        Self {
-            artifact_class,
-            hit: false,
-        }
-    }
-
-    /// Return the shipped artifact class this event describes.
-    #[must_use]
-    pub const fn artifact_class(self) -> TraceReuseArtifactClass {
-        self.artifact_class
-    }
-
     /// Return true when this event represents a semantic-reuse hit.
     #[must_use]
     pub const fn is_hit(self) -> bool {
-        self.hit
+        matches!(self, Self::Hit)
     }
 }
 

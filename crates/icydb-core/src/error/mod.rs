@@ -469,11 +469,6 @@ impl InternalError {
         Self::executor_invariant()
     }
 
-    /// Construct a query-origin scalar page invariant for ordering before filtering.
-    pub(crate) fn scalar_page_ordering_after_filtering_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
     /// Construct a query-origin scalar page invariant for missing order at the cursor boundary.
     pub(crate) fn scalar_page_cursor_boundary_order_required() -> Self {
         Self::query_executor_invariant()
@@ -486,11 +481,6 @@ impl InternalError {
 
     /// Construct a query-origin scalar page invariant for pagination-before-ordering drift.
     pub(crate) fn scalar_page_pagination_after_ordering_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin scalar page invariant for delete-limit-before-ordering drift.
-    pub(crate) fn scalar_page_delete_limit_after_ordering_required() -> Self {
         Self::query_executor_invariant()
     }
 
@@ -1106,7 +1096,7 @@ impl InternalError {
         Self::persisted_row_decode_corruption()
     }
 
-    /// Construct the canonical unsupported strong-relation key-kind corruption error.
+    /// Construct the canonical unsupported relation key-kind corruption error.
     pub(crate) fn relation_source_row_unsupported_key_kind(_field_kind: impl fmt::Debug) -> Self {
         Self::persisted_row_decode_corruption()
     }

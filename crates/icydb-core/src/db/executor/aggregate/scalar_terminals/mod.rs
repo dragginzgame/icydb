@@ -41,7 +41,7 @@ use std::borrow::Cow;
 use crate::db::executor::aggregate::terminal_attribution::{
     ScalarAggregateTerminalAttribution, measure_phase, record_scalar_aggregate_terminal_attribution,
 };
-pub(in crate::db) use request::{StructuralAggregateRequest, StructuralAggregateResult};
+pub(in crate::db) use request::StructuralAggregateRequest;
 pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregateTerminalKind};
 
 impl<E> LoadExecutor<E>
@@ -49,11 +49,11 @@ where
     E: EntityKind + EntityValue,
 {
     /// Execute one structural global aggregate request over a shared prepared scalar plan.
-    pub(in crate::db) fn execute_structural_aggregate_result(
+    pub(in crate::db) fn execute_structural_aggregate_rows(
         &self,
         shared_plan: &SharedPreparedExecutionPlan,
         request: StructuralAggregateRequest,
-    ) -> Result<StructuralAggregateResult, InternalError> {
+    ) -> Result<Vec<Vec<Value>>, InternalError> {
         let compiled = CompiledStructuralAggregateRequest::compile(&request)?;
         let terminal_count = request.terminals().len();
         let mut unique_values = vec![None; terminal_count];
@@ -130,7 +130,7 @@ where
             && !evaluate_grouped_having_expr(expr, &grouped_row)
                 .map_err(|_err| InternalError::query_executor_invariant())?
         {
-            return Ok(StructuralAggregateResult::new(Vec::new()));
+            return Ok(Vec::new());
         }
 
         let mut row = Vec::with_capacity(compiled.projection().len());
@@ -142,7 +142,7 @@ where
             );
         }
 
-        Ok(StructuralAggregateResult::new(vec![row]))
+        Ok(vec![row])
     }
 
     /// Execute scalar aggregate terminals over one prepared scalar access/window plan.

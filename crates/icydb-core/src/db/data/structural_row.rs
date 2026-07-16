@@ -359,7 +359,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
     fn from_row_bytes_with_contract(
         row_bytes: &'a [u8],
         contract: &StructuralRowContract,
-    ) -> Result<Self, StructuralRowDecodeError> {
+    ) -> Result<Self, InternalError> {
         let payload = decode_structural_row_payload_bytes(row_bytes)?;
         let (payload, spans) = decode_row_field_spans(payload, contract)?;
 
@@ -370,7 +370,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
     pub(in crate::db::data) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,
         contract: &StructuralRowContract,
-    ) -> Result<Self, StructuralRowDecodeError> {
+    ) -> Result<Self, InternalError> {
         Self::from_row_bytes_with_contract(raw_row.as_bytes(), contract)
     }
 
@@ -406,7 +406,7 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
         raw_row: &'a RawRow,
         contract: &StructuralRowContract,
         required_slot: usize,
-    ) -> Result<Self, StructuralRowDecodeError> {
+    ) -> Result<Self, InternalError> {
         let payload = decode_structural_row_payload_bytes(raw_row.as_bytes())?;
         let (payload, required_span, primary_key_span) =
             decode_sparse_required_row_field_spans(payload, contract, required_slot)?;
@@ -433,38 +433,6 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
     }
 }
 
-///
-/// StructuralRowDecodeError
-///
-/// StructuralRowDecodeError captures shape failures after persisted-row bytes
-/// have already decoded successfully through the shared structural path.
-///
-
-#[derive(Debug)]
-pub(in crate::db::data) enum StructuralRowDecodeError {
-    Deserialize(InternalError),
-}
-
-impl From<InternalError> for StructuralRowDecodeError {
-    fn from(err: InternalError) -> Self {
-        Self::Deserialize(err)
-    }
-}
-
-impl StructuralRowDecodeError {
-    // Collapse the local structural decode wrapper back into the internal taxonomy.
-    pub(in crate::db::data) const fn into_internal_error(self) -> InternalError {
-        match self {
-            Self::Deserialize(err) => err,
-        }
-    }
-
-    // Build one structural row corruption error at the manual decode boundary.
-    fn corruption() -> Self {
-        Self::Deserialize(InternalError::persisted_row_decode_corruption())
-    }
-}
-
 /// Decode one persisted row through the structural row-envelope validation path.
 ///
 /// The only supported persisted row shape is the slot-framed payload envelope,
@@ -473,21 +441,18 @@ pub(in crate::db) fn decode_structural_row_payload(
     raw_row: &RawRow,
 ) -> Result<Cow<'_, [u8]>, InternalError> {
     decode_structural_row_payload_bytes(raw_row.as_bytes())
-        .map_err(StructuralRowDecodeError::into_internal_error)
 }
 
 // Decode one persisted row envelope into the enclosed slot payload bytes.
-fn decode_structural_row_payload_bytes(
-    bytes: &[u8],
-) -> Result<Cow<'_, [u8]>, StructuralRowDecodeError> {
-    decode_row_payload_bytes(bytes).map_err(StructuralRowDecodeError::from)
+fn decode_structural_row_payload_bytes(bytes: &[u8]) -> Result<Cow<'_, [u8]>, InternalError> {
+    decode_row_payload_bytes(bytes)
 }
 
 // Decode the canonical slot-container header into slot-aligned payload spans.
 fn decode_row_field_spans<'payload>(
     payload: Cow<'payload, [u8]>,
     contract: &StructuralRowContract,
-) -> Result<RowFieldSpans<'payload>, StructuralRowDecodeError> {
+) -> Result<RowFieldSpans<'payload>, InternalError> {
     let bytes = payload.as_ref();
     let (data_start, physical_count, table, data_section) =
         decode_slot_table_sections(bytes, contract)?;
@@ -496,22 +461,22 @@ fn decode_row_field_spans<'payload>(
     for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
         let entry_start = slot
             .checked_mul(8)
-            .ok_or_else(StructuralRowDecodeError::corruption)?;
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         let entry = table
             .get(entry_start..entry_start + 8)
-            .ok_or_else(StructuralRowDecodeError::corruption)?;
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
-            .map_err(|_| StructuralRowDecodeError::corruption())?;
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
         let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
-            .map_err(|_| StructuralRowDecodeError::corruption())?;
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
         if len == 0 {
-            return Err(StructuralRowDecodeError::corruption());
+            return Err(InternalError::persisted_row_decode_corruption());
         }
         let end = start
             .checked_add(len)
-            .ok_or_else(StructuralRowDecodeError::corruption)?;
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         if end > data_section.len() {
-            return Err(StructuralRowDecodeError::corruption());
+            return Err(InternalError::persisted_row_decode_corruption());
         }
         *span = Some((start, end));
     }
@@ -525,7 +490,7 @@ fn decode_row_field_spans<'payload>(
 }
 
 type SparseRequiredRowFieldSpans<'a> =
-    Result<(Cow<'a, [u8]>, Option<(usize, usize)>, (usize, usize)), StructuralRowDecodeError>;
+    Result<(Cow<'a, [u8]>, Option<(usize, usize)>, (usize, usize)), InternalError>;
 
 // Decode the canonical slot-container header while retaining only one required
 // slot span plus the primary-key span for sparse direct slot reads.
@@ -544,22 +509,22 @@ fn decode_sparse_required_row_field_spans<'payload>(
     for slot in 0..physical_count {
         let entry_start = slot
             .checked_mul(8)
-            .ok_or_else(StructuralRowDecodeError::corruption)?;
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         let entry = table
             .get(entry_start..entry_start + 8)
-            .ok_or_else(StructuralRowDecodeError::corruption)?;
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
-            .map_err(|_| StructuralRowDecodeError::corruption())?;
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
         let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
-            .map_err(|_| StructuralRowDecodeError::corruption())?;
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
         if len == 0 {
-            return Err(StructuralRowDecodeError::corruption());
+            return Err(InternalError::persisted_row_decode_corruption());
         }
         let end = start
             .checked_add(len)
-            .ok_or_else(StructuralRowDecodeError::corruption)?;
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         if end > data_section.len() {
-            return Err(StructuralRowDecodeError::corruption());
+            return Err(InternalError::persisted_row_decode_corruption());
         }
         if slot == required_slot {
             required_span = Some((start, end));
@@ -570,11 +535,10 @@ fn decode_sparse_required_row_field_spans<'payload>(
     }
 
     if required_span.is_none() {
-        let _ = contract
-            .missing_slot_value(required_slot)
-            .map_err(StructuralRowDecodeError::from)?;
+        let _ = contract.missing_slot_value(required_slot)?;
     }
-    let primary_key_span = primary_key_span.ok_or_else(StructuralRowDecodeError::corruption)?;
+    let primary_key_span =
+        primary_key_span.ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let payload = match payload {
         Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[data_start..]),
         Cow::Owned(bytes) => Cow::Owned(bytes[data_start..].to_vec()),
@@ -589,29 +553,27 @@ fn decode_sparse_required_row_field_spans<'payload>(
 fn decode_slot_table_sections<'bytes>(
     bytes: &'bytes [u8],
     contract: &StructuralRowContract,
-) -> Result<RowSlotTableSections<'bytes>, StructuralRowDecodeError> {
+) -> Result<RowSlotTableSections<'bytes>, InternalError> {
     let field_count_bytes = bytes
         .get(..2)
-        .ok_or_else(StructuralRowDecodeError::corruption)?;
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let field_count = usize::from(u16::from_be_bytes([
         field_count_bytes[0],
         field_count_bytes[1],
     ]));
-    contract
-        .validate_physical_slot_count(field_count)
-        .map_err(StructuralRowDecodeError::from)?;
+    contract.validate_physical_slot_count(field_count)?;
     let table_len = field_count
         .checked_mul(8)
-        .ok_or_else(StructuralRowDecodeError::corruption)?;
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let data_start = 2usize
         .checked_add(table_len)
-        .ok_or_else(StructuralRowDecodeError::corruption)?;
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let table = bytes
         .get(2..data_start)
-        .ok_or_else(StructuralRowDecodeError::corruption)?;
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let data_section = bytes
         .get(data_start..)
-        .ok_or_else(StructuralRowDecodeError::corruption)?;
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
 
     Ok((data_start, field_count, table, data_section))
 }

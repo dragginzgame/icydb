@@ -14,7 +14,7 @@ use crate::{
         },
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
-        relation::validate_save_strong_relations_with_accepted_contract,
+        relation::validate_save_relations_with_accepted_contract,
         schema::{
             AcceptedFieldAbsencePolicy, AcceptedFieldKind, AcceptedFieldKindCategory,
             AcceptedRowDecodeContract, AcceptedScalarClass, SchemaInfo,
@@ -122,7 +122,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
     // Execute save preflight using already-resolved schema and relation metadata.
     //
     // Batch save lanes call this helper so they do not repay the schema-cache
-    // mutex lookup and strong-relation capability probe for every row.
+    // mutex lookup and relation capability probe for every row.
     pub(in crate::db::executor::mutation) fn preflight_entity_with_cached_schema(
         &self,
         entity: &mut E,
@@ -136,7 +136,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
         validate(entity)?;
         self.validate_entity_invariants(entity, schema)?;
         if validate_relations {
-            validate_save_strong_relations_with_accepted_contract::<E>(
+            validate_save_relations_with_accepted_contract::<E>(
                 &self.db,
                 entity,
                 self.accepted_row_decode_contract(),
@@ -899,7 +899,7 @@ mod tests {
         persisted_field_kind_is_queryable,
     };
     use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement, AcceptedRowDecodeContract},
+        db::schema::{AcceptedFieldKind, AcceptedRowDecodeContract},
         model::{
             EntityModel, IndexModel,
             field::{
@@ -959,7 +959,6 @@ mod tests {
             target_entity_tag: EntityTag::new(77),
             target_store_path: "target::Store".into(),
             key_kind: Box::new(key_kind),
-            enforcement: AcceptedRelationEnforcement::Unchecked,
         }
     }
 

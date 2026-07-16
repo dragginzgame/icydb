@@ -17,9 +17,9 @@ pub(crate) mod validate;
 // Canonical planner access surface.
 pub(in crate::db) use canonical::normalize_access_plan_value;
 pub(in crate::db) use path::{
-    AccessPath, IndexBranchSetOrderedSuffix, IndexBranchSetSpec, MAX_INDEX_BRANCH_SET_VALUES,
-    SemanticIndexAccessContract, SemanticIndexExpression, SemanticIndexKeyItemRef,
-    SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
+    AccessPath, IndexBranchSetSpec, MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract,
+    SemanticIndexExpression, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef,
+    SemanticIndexRangeSpec,
 };
 pub(in crate::db) use plan::AccessPlan;
 pub(crate) use validate::AccessPlanError;

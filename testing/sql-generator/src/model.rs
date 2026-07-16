@@ -10,6 +10,10 @@ use std::collections::BTreeSet;
 /// Required native budgets for the initial 0.204 SELECT generator lane.
 pub const TIER_A_SELECT_BUDGETS: SelectBudgets = SelectBudgets::new(16, 3, 4, 3, 256, 512, 262_144);
 
+/// Required scheduled and closeout budgets for the 0.204 SELECT generator lane.
+pub const TIER_C_SELECT_BUDGETS: SelectBudgets =
+    SelectBudgets::new(64, 4, 4, 3, 4_096, 8_192, 1_048_576);
+
 /// Every maintained SELECT generator family in stable identity order.
 pub const ALL_SELECT_GENERATOR_FAMILIES: &[SelectGeneratorFamily] = &[
     SelectGeneratorFamily::Distinct,

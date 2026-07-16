@@ -9,6 +9,10 @@ use std::{
     fmt::{self, Display},
 };
 
+use icydb_testing_sql_generator::{
+    SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, scheduled_sql_scenario_shard,
+};
+
 /// Current checked-in SQL performance profile version.
 pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
 
@@ -19,7 +23,7 @@ const EXPECTED_SCALE_SCENARIO_COUNT: usize = 45;
 const EXPECTED_SCALE_SCENARIO_SET_HASH: &str =
     "aa4e78925f21c0a93dbfba3e0484c6a82b8a8a49c3c4fc4d835f71826588f6c4";
 const EXPECTED_SCALE_SHARD_COUNTS: &[usize] = &[6, 6, 4, 7, 3, 4, 6, 9];
-const PERFORMANCE_SHARD_COUNT: u8 = 8;
+const PERFORMANCE_SHARD_COUNT: u8 = SQL_SCHEDULED_SHARD_COUNT;
 const SCALE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
 const RESULT_WINDOW_SIZES: &[u32] = &[1, 10, 50];
 const FOCUSED_HOTSPOT_SCENARIO_IDS: &[&str] = &[
@@ -416,26 +420,17 @@ pub(crate) fn scenario_set_hash<'a>(
 }
 
 fn scenario_shard(scenario_id: &str, shard_count: u8) -> Result<u8, PerformanceProfileError> {
-    if scenario_id.is_empty() {
-        return Err(PerformanceProfileError::EmptyScenarioId);
-    }
-    if shard_count == 0 {
+    if shard_count != SQL_SCHEDULED_SHARD_COUNT {
         return Err(PerformanceProfileError::InvalidContract(
-            "performance shard count must be non-zero",
+            "performance shard count must match the shared scheduled SQL contract",
         ));
     }
-    let length = u32::try_from(scenario_id.len())
-        .map_err(|_| PerformanceProfileError::ScenarioIdTooLong(scenario_id.to_string()))?;
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"icydb-sql-shard/v1");
-    hasher.update(&length.to_be_bytes());
-    hasher.update(scenario_id.as_bytes());
-    let mut prefix = [0_u8; 8];
-    prefix.copy_from_slice(&hasher.finalize().as_bytes()[..8]);
-    let shard = u64::from_le_bytes(prefix) % u64::from(shard_count);
-
-    u8::try_from(shard)
-        .map_err(|_| PerformanceProfileError::InvalidContract("computed shard does not fit in u8"))
+    scheduled_sql_scenario_shard(scenario_id).map_err(|error| match error {
+        ScenarioShardError::EmptyScenarioId => PerformanceProfileError::EmptyScenarioId,
+        ScenarioShardError::ScenarioIdTooLong { .. } => {
+            PerformanceProfileError::ScenarioIdTooLong(scenario_id.to_string())
+        }
+    })
 }
 
 #[cfg(test)]

@@ -1,13 +1,13 @@
 use crate::{
     db::predicate::{CompareOp, ComparePredicate, Predicate, normalize_enum_literals},
     db::schema::{
-        AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedRelationEnforcement,
-        AcceptedSchemaRevision, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
-        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
-        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout,
-        SchemaVersion, enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests,
+        AcceptedEnumCatalogHandle, AcceptedFieldKind, AcceptedSchemaRevision,
+        AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
+        enum_catalog::build_initial_accepted_enum_catalog_from_kinds_for_tests,
         literal_matches_type,
     },
     model::{
@@ -659,7 +659,7 @@ fn accepted_snapshot_schema_info_exposes_persisted_expression_indexes() {
 }
 
 #[test]
-fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
+fn accepted_snapshot_schema_info_uses_persisted_relation_authority() {
     let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
     let accepted_relation = accepted_schema_with_name_kind(AcceptedFieldKind::Relation {
         target_path: "schema::info::tests::Target".to_string(),
@@ -667,7 +667,6 @@ fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
         target_entity_tag: EntityTag::new(7),
         target_store_path: "schema::info::tests::target_store".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Ulid),
-        enforcement: AcceptedRelationEnforcement::Enforced,
     })
     .persisted_snapshot()
     .clone()
@@ -680,8 +679,8 @@ fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
     let accepted =
         SchemaInfo::from_snapshot_with_generated_model_for_test(&MODEL, &accepted_relation);
 
-    assert!(!generated.has_any_strong_relations());
-    assert!(accepted.has_any_strong_relations());
+    assert!(!generated.has_any_relations());
+    assert!(accepted.has_any_relations());
 }
 
 #[test]

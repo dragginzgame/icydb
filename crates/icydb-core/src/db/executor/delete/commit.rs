@@ -53,7 +53,7 @@ where
         .iter()
         .map(|(raw_key, _)| raw_key.clone())
         .collect::<BTreeSet<_>>();
-    db.validate_delete_strong_relations(authority.entity.entity_path(), &deleted_target_keys)?;
+    db.validate_delete_relations(authority.entity.entity_path(), &deleted_target_keys)?;
 
     // Phase 2: assemble mechanical delete commit row ops.
     let row_ops = rollback_rows

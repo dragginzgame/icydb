@@ -13,5 +13,5 @@ pub(in crate::db) use codec::{
     JournalBatch, JournalSequence, decode_journal_batch, encode_journal_batch,
     journal_batch_encoded_len,
 };
+pub(in crate::db) use store::FoldWatermark;
 pub use store::JournalTailStore;
-pub(in crate::db) use store::{FoldWatermark, JournalTailVisit};

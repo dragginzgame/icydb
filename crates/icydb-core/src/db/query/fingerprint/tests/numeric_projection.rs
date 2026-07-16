@@ -159,7 +159,7 @@ fn fingerprint_commutative_operand_order_remains_significant_without_ast_normali
     assert_ne!(
         fingerprint_with_projection(&plan, &rank_plus_score),
         fingerprint_with_projection(&plan, &score_plus_rank),
-        "fingerprint preserves AST operand order for commutative operators in v2",
+        "fingerprint preserves canonical AST operand order for commutative operators",
     );
 }
 

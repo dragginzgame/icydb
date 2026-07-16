@@ -600,6 +600,13 @@ observations; cache counters prove each mode, and every stable receipt is
 required. Missing, duplicate, tampered, semantically drifting, or unstable
 evidence fails the P2 merge.
 
+Every current measured P1, P2, scale, comparison, and calibration artifact
+carries the same validated `measurement_coverage` projection. Instruction
+attribution, store-operation counts, result cardinality, and projected blob
+payload bytes are measured. Peak heap, allocator traffic, and stable-memory byte
+volume are explicitly `not_measured`; zero must not stand in for unavailable
+evidence.
+
 Run `make test-sql-perf-instrumentation` to write the separate strict
 attributed-versus-total-only calibration artifact for the fixed user primary-key
 `LIMIT 1` sentinel. It records the complete environment, raw WASM identity, five
@@ -611,7 +618,14 @@ Run `make test-sql-perf-baseline` only with explicit `P2_BASELINE_PATH` and
 `SCALE_BASELINE_PATH` values naming reviewed artifacts. The command compares
 confirmed P2 medians and exact scale totals, normalized costs, and slopes. It
 rejects incomparable environments or semantic drift before producing a verdict and
-never updates either baseline.
+never updates either baseline. Confirmed comparisons retain raw unaccounted and
+over-attributed phase residual changes as observation-only metrics until reviewed
+residual budgets exist.
+
+The current scheduled P1 merge has no reviewed previous-baseline bridge from which
+to derive `baseline_threshold` candidate reasons. Those reasons remain typed input
+to selection, but clean prior/current bridge evidence and workflow wiring are still
+required before threshold-crossing selection can satisfy closeout.
 
 The `SQL Performance Evidence` workflow runs nightly and on manual dispatch. It
 requires all eight P1, scale, and P2 jobs, performs the two strict merges, captures

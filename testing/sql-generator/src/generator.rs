@@ -13,7 +13,7 @@ use crate::{
         SelectOrderTarget, SelectOrderTerm, SelectPredicate, SelectProjection, SelectProvider,
         SelectQuery, SelectSnapshot, SelectViolation,
     },
-    rng::{SELECT_GENERATOR_VERSION, SplitMix64, derive_select_sub_seed},
+    rng::{SELECT_GENERATOR_VERSION, SplitMix64, derive_sql_sub_seed},
 };
 use std::{collections::BTreeSet, fmt::Write as _};
 
@@ -27,6 +27,24 @@ pub const TIER_A_VALID_CASES_PER_FAMILY: u64 = 8;
 
 /// Required invalid cases generated per violation family and root.
 pub const TIER_A_INVALID_CASES_PER_VIOLATION: u64 = 4;
+
+/// Required scheduled root seeds from the 0.204 design.
+pub const TIER_C_ROOT_SEEDS: &[u64] = &[
+    0x1cdb_0204_0000_0011,
+    0x1cdb_0204_0000_0012,
+    0x1cdb_0204_0000_0013,
+    0x1cdb_0204_0000_0014,
+    0x1cdb_0204_0000_0015,
+    0x1cdb_0204_0000_0016,
+    0x1cdb_0204_0000_0017,
+    0x1cdb_0204_0000_0018,
+];
+
+/// Required scheduled valid cases generated per SELECT family and root.
+pub const TIER_C_VALID_CASES_PER_FAMILY: u64 = 32;
+
+/// Required scheduled invalid cases generated per violation family and root.
+pub const TIER_C_INVALID_CASES_PER_VIOLATION: u64 = 8;
 
 /// Generate one valid current-contract SELECT case.
 ///
@@ -42,7 +60,7 @@ pub fn generate_valid_select_case(
     budgets: SelectBudgets,
 ) -> Result<GeneratedSelectCase, SqlGeneratorError> {
     let sub_seed =
-        derive_select_sub_seed(SELECT_GENERATOR_VERSION, root_seed, family.id(), case_index)?;
+        derive_sql_sub_seed(SELECT_GENERATOR_VERSION, root_seed, family.id(), case_index)?;
     let mut rng = SplitMix64::new(sub_seed);
     let fixture = generate_fixture(
         snapshot,
@@ -94,7 +112,7 @@ pub fn generate_invalid_select_case(
     case_index: u64,
     budgets: SelectBudgets,
 ) -> Result<GeneratedSelectCase, SqlGeneratorError> {
-    let sub_seed = derive_select_sub_seed(
+    let sub_seed = derive_sql_sub_seed(
         SELECT_GENERATOR_VERSION,
         root_seed,
         violation.id(),
@@ -159,7 +177,7 @@ pub(crate) fn validate_generated_select_case(
             "generated case family identity disagrees with its typed family",
         ));
     }
-    let derived = derive_select_sub_seed(
+    let derived = derive_sql_sub_seed(
         SELECT_GENERATOR_VERSION,
         generated.identity().root_seed(),
         family_id,

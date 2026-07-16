@@ -14,9 +14,9 @@ use crate::{
 use icydb_testing_sql_generator::{
     ALL_SELECT_GENERATOR_FAMILIES, MutationField, MutationFieldKind, MutationFieldRole,
     MutationSnapshot, SelectField, SelectFieldKind, SelectIndex, SelectSnapshot,
-    TIER_A_MUTATION_BUDGETS, TIER_A_MUTATION_CASES_PER_ROOT, TIER_A_MUTATION_ROOT_SEEDS,
-    TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS, TIER_A_VALID_CASES_PER_FAMILY,
-    generate_mutation_sequence, generate_valid_select_case,
+    TIER_A_MUTATION_BUDGETS, TIER_A_MUTATION_CASES_PER_ROOT, TIER_A_ROOT_SEEDS,
+    TIER_A_SELECT_BUDGETS, TIER_A_VALID_CASES_PER_FAMILY, generate_mutation_sequence,
+    generate_valid_select_case,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -52,6 +52,9 @@ fn required_profile_has_stable_unique_identity_and_two_cases_per_family() {
     for scenario in scenarios {
         assert!(!scenario.contract_features().is_empty());
         assert!(!scenario.families().is_empty());
+        scenario
+            .tier_c_declaration()
+            .expect("required SQLite facts should form one typed Tier C declaration");
         for family in scenario.families() {
             *family_counts.entry(*family).or_insert(0usize) += 1;
         }
@@ -97,6 +100,50 @@ fn result_shape_and_identifier_validation_fail_closed() {
     assert_eq!(
         invalid_identifier.kind(),
         SqliteAdapterErrorKind::Identifier
+    );
+}
+
+#[test]
+fn typed_result_fingerprint_is_stable_and_contract_sensitive() {
+    let ordered = SqliteReferenceResult::try_new(
+        vec!["value".to_string()],
+        vec![
+            vec![SqliteReferenceValue::Integer(1)],
+            vec![SqliteReferenceValue::Integer(2)],
+        ],
+        SqliteReferenceRowOrder::Ordered,
+    )
+    .expect("ordered fingerprint fixture should validate");
+    let reversed = SqliteReferenceResult::try_new(
+        vec!["value".to_string()],
+        vec![
+            vec![SqliteReferenceValue::Integer(2)],
+            vec![SqliteReferenceValue::Integer(1)],
+        ],
+        SqliteReferenceRowOrder::Ordered,
+    )
+    .expect("reversed fingerprint fixture should validate");
+    let unordered = SqliteReferenceResult::try_new(
+        vec!["value".to_string()],
+        vec![
+            vec![SqliteReferenceValue::Integer(2)],
+            vec![SqliteReferenceValue::Integer(1)],
+        ],
+        SqliteReferenceRowOrder::Unordered,
+    )
+    .expect("unordered fingerprint fixture should validate");
+
+    assert_eq!(
+        ordered.fingerprint().expect("fingerprint should derive"),
+        "blake3.125c04aa64c9fed11fc92f149a0755d3e018ca84a82e9a5ee64e14e0be6f9974",
+    );
+    assert_ne!(
+        ordered.fingerprint().expect("fingerprint should derive"),
+        reversed.fingerprint().expect("fingerprint should derive"),
+    );
+    assert_ne!(
+        ordered.fingerprint().expect("fingerprint should derive"),
+        unordered.fingerprint().expect("fingerprint should derive"),
     );
 }
 
@@ -158,7 +205,7 @@ fn tier_a_generated_mutation_overlap_matches_independent_model() {
     let snapshot = generated_mutation_snapshot();
     let mut compared = 0_u32;
     let mut excluded = 0_u32;
-    for root_seed in TIER_A_MUTATION_ROOT_SEEDS {
+    for root_seed in TIER_A_ROOT_SEEDS {
         for case_index in 0..TIER_A_MUTATION_CASES_PER_ROOT {
             let sequence = generate_mutation_sequence(
                 &snapshot,

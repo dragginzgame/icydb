@@ -15,12 +15,8 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, record_exec_error_for_path},
 };
-pub(in crate::db::executor) use contracts::{
-    LoadExecutionSurface, LoadSurfaceMode, LoadTracingMode,
-};
-pub(in crate::db::executor::pipeline) use state::{
-    LoadExecutionContext, LoadExecutionPayload, LoadPayloadState,
-};
+pub(in crate::db::executor) use contracts::{LoadExecutionSurface, LoadSurfaceMode};
+pub(in crate::db::executor::pipeline) use state::{LoadExecutionPayload, LoadPayloadState};
 
 impl<E> LoadExecutor<E>
 where
@@ -34,10 +30,10 @@ where
         execution_mode: LoadSurfaceMode,
     ) -> Result<LoadExecutionSurface, InternalError> {
         let result = (|| {
-            let access_state = self.build_execution_context(plan, cursor, execution_mode)?;
-            let payload_state = Self::apply_grouping_projection(access_state)?;
+            let prepared_runtime =
+                self.prepare_load_surface_runtime(plan, cursor, execution_mode)?;
+            let payload_state = prepared_runtime.execute(execution_mode)?;
             let payload_state = payload_state.apply_paging()?;
-            let payload_state = payload_state.apply_tracing();
 
             payload_state.into_surface()
         })();

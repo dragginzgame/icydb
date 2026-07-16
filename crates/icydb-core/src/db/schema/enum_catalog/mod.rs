@@ -13,7 +13,7 @@ mod tests;
 mod value_wire;
 
 use crate::{
-    db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
+    db::schema::AcceptedFieldKind,
     model::{
         entity::EntityModel,
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
@@ -900,7 +900,6 @@ fn accepted_field_kind_from_model(
             target_entity_tag,
             target_store_path,
             key_kind,
-            enforcement,
         } => AcceptedFieldKind::Relation {
             target_path: target_path.to_string(),
             target_entity_name: target_entity_name.to_string(),
@@ -911,14 +910,6 @@ fn accepted_field_kind_from_model(
                 id_by_path,
                 depth.saturating_add(1),
             )?),
-            enforcement: match enforcement {
-                crate::model::field::RelationEnforcement::Enforced => {
-                    AcceptedRelationEnforcement::Enforced
-                }
-                crate::model::field::RelationEnforcement::Unchecked => {
-                    AcceptedRelationEnforcement::Unchecked
-                }
-            },
         },
         FieldKind::List(inner) => AcceptedFieldKind::List(Box::new(
             accepted_field_kind_from_model(*inner, id_by_path, depth.saturating_add(1))?,

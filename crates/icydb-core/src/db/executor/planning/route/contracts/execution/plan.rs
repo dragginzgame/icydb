@@ -9,7 +9,7 @@ use crate::db::{
         IndexLeafOrderPolicy,
         aggregate::AggregateFoldMode,
         route::{
-            LoadTerminalFastPathContract, PushdownApplicability,
+            PushdownApplicability,
             contracts::{
                 RouteCapabilityFacts, RouteContinuationPlan,
                 execution::{
@@ -21,7 +21,7 @@ use crate::db::{
             },
         },
     },
-    query::plan::GroupedPlanStrategy,
+    query::plan::{CoveringReadExecutionPlan, GroupedPlanStrategy},
 };
 
 ///
@@ -50,7 +50,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
     pub(in crate::db::executor) grouped_plan_strategy: Option<GroupedPlanStrategy>,
     pub(in crate::db::executor) grouped_execution_mode: Option<GroupedExecutionMode>,
-    pub(in crate::db::executor) load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+    pub(in crate::db::executor) load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 }
 
 impl ExecutionRoutePlan {
@@ -111,7 +111,7 @@ impl ExecutionRoutePlan {
     #[must_use]
     pub(in crate::db::executor) const fn load_terminal_fast_path(
         &self,
-    ) -> Option<&LoadTerminalFastPathContract> {
+    ) -> Option<&CoveringReadExecutionPlan> {
         self.load_terminal_fast_path.as_ref()
     }
 

@@ -20,8 +20,8 @@ the current accepted schema before publishing its commit marker.
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
 
-An explicitly `unchecked` relation opts out of referential-integrity checks. It
-does not opt out of field-kind, row-shape, key, encoding, or commit validation.
+Every declared relation participates in referential-integrity checks. Ordinary
+key-typed fields may store identifiers without declaring a relation.
 
 ## Accepted Field Contract
 
@@ -62,7 +62,7 @@ complete all fallible work required by that mutation, including:
 - primary-key shape, type, and row-identity validation;
 - field-kind, nullability, scalar-bound, decimal, text, enum, collection, and
   deterministic-encoding validation;
-- enforced-relation target-existence or delete-safety validation;
+- relation target-existence or delete-safety validation;
 - uniqueness, index, reverse-relation, and commit-row preparation;
 - request and response bounds that are part of the mutation's atomic result.
 
@@ -83,7 +83,7 @@ in the apply phase.
 | Typed `create`, `insert`, `update`, and `replace` | Materialize through the accepted row contract, run the typed preflight, then prepare the commit from the canonical row. |
 | Public structural mutation | Resolve field names and slots through the accepted layout, construct a complete canonical after-image, materialize it through the generated-compatible boundary, and run the same typed preflight. |
 | SQL `INSERT` and `UPDATE` | Decode literals and omissions against accepted field contracts, then enter the structural mutation pipeline. Trusted or generated SQL exposure policy never bypasses row admission. |
-| Typed, fluent, and SQL `DELETE` | Resolve selected rows through accepted authority, validate enforced-relation delete safety, and prepare row/index/relation removals before the marker. Deletes have no row after-image. |
+| Typed, fluent, and SQL `DELETE` | Resolve selected rows through accepted authority, validate relation delete safety, and prepare row/index/relation removals before the marker. Deletes have no row after-image. |
 | Atomic single-entity batches | Admit and stage every item before opening one commit window. One rejected item rejects the entire batch. |
 | Non-atomic single-entity batches | Apply the complete admission contract independently to each item. A previously committed prefix is not rolled back when a later item rejects. |
 | Defaults, generated values, and managed fields | Materialize only from accepted absence/write policy and pass normal canonical row admission. |
@@ -129,7 +129,7 @@ into an admitted write.
 
 The current durability contract covers internally produced interrupted state,
 not hostile import or arbitrary logical-corruption repair. A future promise to
-detect structurally valid but dangling enforced relations after recovery would
+detect structurally valid but dangling relations after recovery would
 require a separate global integrity check; it must not be described as replaying
 the original mutation validators.
 
@@ -172,7 +172,7 @@ Always-strict write admission does not imply:
 
 - SQL compatibility beyond `SQL_SUBSET.md`;
 - joins, cascades, or deferred constraints;
-- referential-integrity guarantees for explicitly `unchecked` relations;
+- referential-integrity guarantees for ordinary key-typed fields;
 - rerunning mutation validators during reads or recovery;
 - transaction scope wider than one documented IcyDB mutation operation;
 - acceptance of raw or cross-version persisted bytes as an import format.

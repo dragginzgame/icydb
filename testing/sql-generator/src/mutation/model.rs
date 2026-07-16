@@ -10,6 +10,10 @@ use std::{collections::BTreeSet, fmt::Write as _};
 /// Required native mutation-state budgets for the 0.204 Tier A lane.
 pub const TIER_A_MUTATION_BUDGETS: MutationBudgets = MutationBudgets::new(16, 8, 256, 512, 262_144);
 
+/// Required scheduled and closeout mutation-state budgets for the 0.204 Tier C lane.
+pub const TIER_C_MUTATION_BUDGETS: MutationBudgets =
+    MutationBudgets::new(64, 32, 4_096, 8_192, 1_048_576);
+
 ///
 /// MutationBudgets
 ///
@@ -360,8 +364,10 @@ impl MutationSnapshot {
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MutationRow {
+    #[serde(with = "crate::model::tagged_u64")]
     key: u64,
     text: String,
+    #[serde(with = "crate::model::tagged_u64")]
     number: u64,
 }
 
@@ -420,15 +426,18 @@ pub enum MutationPredicate {
     /// Match one exact primary key.
     KeyEqual {
         /// Required key.
+        #[serde(with = "crate::model::tagged_u64")]
         value: u64,
     },
 
     /// Match a half-open numeric range.
     NumberRange {
         /// Inclusive lower bound.
+        #[serde(with = "crate::model::tagged_u64")]
         min_inclusive: u64,
 
         /// Exclusive upper bound.
+        #[serde(with = "crate::model::tagged_u64")]
         max_exclusive: u64,
     },
 
@@ -516,6 +525,7 @@ pub enum MutationAssignment {
     /// Replace the numeric field.
     Number {
         /// New numeric value.
+        #[serde(with = "crate::model::tagged_u64")]
         value: u64,
     },
 
@@ -531,6 +541,7 @@ pub enum MutationAssignment {
         text: String,
 
         /// New numeric value.
+        #[serde(with = "crate::model::tagged_u64")]
         number: u64,
     },
 }
@@ -886,6 +897,16 @@ pub enum MutationExpectedRejection {
     DuplicateKey,
 }
 
+impl MutationExpectedRejection {
+    /// Return the stable replay identity for this modeled rejection class.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::DuplicateKey => "duplicate_key",
+        }
+    }
+}
+
 ///
 /// MutationStepOutcome
 ///
@@ -999,17 +1020,20 @@ pub enum MutationSqliteEligibility {
 pub struct GeneratedMutationIdentity {
     id: String,
     generator_version: u32,
+    family_id: String,
+    #[serde(with = "crate::model::tagged_u64")]
     root_seed: u64,
+    #[serde(with = "crate::model::tagged_u64")]
     sub_seed: u64,
+    #[serde(with = "crate::model::tagged_u64")]
     case_index: u64,
 }
 
 impl GeneratedMutationIdentity {
-    /// Build one deterministic identity.
-    #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         id: impl Into<String>,
         generator_version: u32,
+        family_id: String,
         root_seed: u64,
         sub_seed: u64,
         case_index: u64,
@@ -1017,6 +1041,7 @@ impl GeneratedMutationIdentity {
         Self {
             id: id.into(),
             generator_version,
+            family_id,
             root_seed,
             sub_seed,
             case_index,
@@ -1033,6 +1058,12 @@ impl GeneratedMutationIdentity {
     #[must_use]
     pub const fn generator_version(&self) -> u32 {
         self.generator_version
+    }
+
+    /// Borrow the independently seeded generator family identity.
+    #[must_use]
+    pub const fn family_id(&self) -> &str {
+        self.family_id.as_str()
     }
 
     /// Return the root seed.
@@ -1054,14 +1085,7 @@ impl GeneratedMutationIdentity {
     }
 
     fn validate(&self) -> Result<(), SqlGeneratorError> {
-        if self.id.is_empty() || self.generator_version == 0 {
-            return Err(SqlGeneratorError::new(
-                SqlGeneratorErrorKind::InvalidCase,
-                "mutation identity requires non-empty ID and non-zero generator version",
-            ));
-        }
-
-        Ok(())
+        crate::mutation::generator::validate_generated_mutation_identity(self)
     }
 }
 

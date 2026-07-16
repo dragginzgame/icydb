@@ -515,18 +515,6 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
 }
 
 ///
-/// RelationEnforcement
-///
-/// Explicit relation intent for save-time referential integrity.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RelationEnforcement {
-    Enforced,
-    Unchecked,
-}
-
-///
 /// FieldKind
 ///
 /// Minimal runtime type surface needed by planning, validation, and execution.
@@ -586,8 +574,7 @@ pub enum FieldKind {
     Ulid,
     Unit,
 
-    /// Typed relation; `key_kind` reflects the referenced key type.
-    /// `enforcement` encodes enforced vs. explicitly unchecked relation intent.
+    /// Enforced typed relation; `key_kind` reflects the referenced key type.
     Relation {
         /// Fully-qualified Rust type path for diagnostics.
         target_path: &'static str,
@@ -598,7 +585,6 @@ pub enum FieldKind {
         /// Data store path where the target entity is persisted.
         target_store_path: &'static str,
         key_kind: &'static Self,
-        enforcement: RelationEnforcement,
     },
 
     // Collections

@@ -5,7 +5,7 @@
 
 use crate::{
     node::{
-        Entity, RelationEnforcement,
+        Entity,
         field_list_arg::{
             field_or_fields_duplicate_message, parse_field_list_arg, parse_scalar_field_arg,
         },
@@ -23,7 +23,6 @@ use icydb_core::{
     model::{
         FieldKind as CoreFieldKind, FieldModel as CoreFieldModel,
         FieldStorageDecode as CoreFieldStorageDecode,
-        RelationEnforcement as CoreRelationEnforcement,
     },
     types::EntityTag as CoreEntityTag,
     value::Value as CoreValue,
@@ -645,10 +644,6 @@ fn generated_item_kind_for_predicate(item: &Item) -> Result<CoreFieldKind, Darli
         target_entity_tag: CoreEntityTag::new(0),
         target_store_path: "",
         key_kind: leak_core_field_kind(base_kind),
-        enforcement: match item.relation_enforcement() {
-            RelationEnforcement::Enforced => CoreRelationEnforcement::Enforced,
-            RelationEnforcement::Unchecked => CoreRelationEnforcement::Unchecked,
-        },
     })
 }
 

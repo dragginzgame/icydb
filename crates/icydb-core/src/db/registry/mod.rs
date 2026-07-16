@@ -14,8 +14,8 @@ pub(in crate::db::registry) use error::StoreRegistryError;
 pub(crate) use handle::StoreHandle;
 pub use handle::{
     StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
-    StoreCommitParticipation, StoreDurability, StoreLiveValidationCapability,
-    StoreRecoveryCapability, StoreRelationSourceCapability, StoreRelationTargetCapability,
-    StoreRuntimeStorageCapabilities, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
+    StoreCommitParticipation, StoreDurability, StoreRecoveryCapability,
+    StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
+    StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
 pub use registry::StoreRegistry;

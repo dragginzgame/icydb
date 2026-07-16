@@ -15,8 +15,8 @@ use super::terminal::derive_load_terminal_fast_path_contract;
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder, GroupedExecutionMode,
     GroupedExecutionModeContext, LOAD_FAST_PATH_ORDER, LoadOrderRouteDecision, LoadOrderRouteMode,
-    LoadOrderRouteReason, LoadTerminalFastPathContract, RouteCapabilityFacts, RouteExecutionMode,
-    RoutePlanRequest, RouteShapeKind, TopNSeekSpec, build_execution_route_plan,
+    LoadOrderRouteReason, RouteCapabilityFacts, RouteExecutionMode, RoutePlanRequest,
+    RouteShapeKind, TopNSeekSpec, build_execution_route_plan,
     capability_facts::{
         count_pushdown_existing_rows_shape_supported,
         index_multi_lookup_prefix_cardinality_preflight_shape_supported,
@@ -46,10 +46,11 @@ use crate::{
             ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGrouping,
         },
         query::plan::{
-            AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
-            DeleteSpec, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason, GroupSpec,
-            GroupedExecutionConfig, GroupedPlanAggregateFamily, GroupedPlanFallbackReason,
-            GroupedPlanStrategy, OrderDirection, OrderSpec, PageSpec, QueryMode,
+            AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadExecutionPlan,
+            CoveringReadFieldSource, DeleteSpec, FieldSlot, GroupAggregateSpec,
+            GroupDistinctPolicyReason, GroupSpec, GroupedExecutionConfig,
+            GroupedPlanAggregateFamily, GroupedPlanFallbackReason, GroupedPlanStrategy,
+            OrderDirection, OrderSpec, PageSpec, QueryMode,
             access_satisfies_deterministic_secondary_order_contract,
             expr::{FieldId, ProjectionSelection},
             group_aggregate_spec_expr, grouped_executor_handoff, grouped_having_compare_expr,
@@ -364,7 +365,7 @@ fn build_initial_load_route_plan(
 fn derive_load_terminal_fast_path_contract_for_test(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
-) -> Option<LoadTerminalFastPathContract> {
+) -> Option<CoveringReadExecutionPlan> {
     let authority = route_capability_authority();
     let finalized = finalized_plan_for_authority(authority.clone(), plan);
 

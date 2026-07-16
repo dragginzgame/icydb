@@ -1,0 +1,83 @@
+name: SQL Tier C Native Evidence
+
+on:
+  schedule:
+    - cron: "47 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sql-tier-c-native-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
+  CARGO_TERM_COLOR: always
+  RUST_CURRENT: "1.97.0"
+
+jobs:
+  shard:
+    name: Native shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - run: cargo fetch --locked
+      - name: Execute exact native Tier C shard
+        run: make test-sql-tier-c-shard TIER_C_SHARD=${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sql-tier-c-native-shard-${{ matrix.shard }}
+          path: |
+            artifacts/correctness/sql_tier_c/tier-c-shard-${{ matrix.shard }}.json
+            artifacts/correctness/sql_tier_c/failures/
+          if-no-files-found: error
+          retention-days: 14
+
+  merge:
+    name: Merge receipts and coverage
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sql-tier-c-native-shard-*
+          path: artifacts/correctness/sql_tier_c
+          merge-multiple: true
+      - run: cargo fetch --locked
+      - name: Merge all eight native receipts
+        run: make test-sql-tier-c-merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sql-tier-c-native-merged
+          path: |
+            artifacts/correctness/sql_tier_c/tier-c-merged.json
+            artifacts/correctness/sql_tier_c/tier-c-distribution.json
+          if-no-files-found: error
+          retention-days: 14

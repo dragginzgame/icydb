@@ -8,6 +8,7 @@ use crate::{
     sql_perf_environment::{
         PerfEnvironmentError, PerfEnvironmentIdentity, validate_perf_environment,
     },
+    sql_perf_measurement::{PerformanceMeasurementCoverage, current_measurement_coverage},
     sql_perf_phase::{PhaseOwnershipTable, current_phase_ownership},
     sql_perf_profile::PerformanceProfile,
     sql_perf_receipt::{
@@ -38,6 +39,8 @@ pub(crate) struct P1ShardReport {
     canister_wasm_profile: String,
     /// Versioned phase-ownership contract used by the samples.
     phase_ownership: PhaseOwnershipTable,
+    /// Canonical measured and explicitly unmeasured resource dimensions.
+    measurement_coverage: PerformanceMeasurementCoverage,
     /// Complete comparable environment and measured subject identity.
     environment: PerfEnvironmentIdentity,
     /// Exact membership and outcome receipt for this shard.
@@ -97,6 +100,7 @@ pub(crate) fn build_p1_shard_report(
         expected_scenario_set_hash: profile.expected_scenario_set_hash().to_string(),
         canister_wasm_profile: required_wasm_profile.to_string(),
         phase_ownership: current_phase_ownership(),
+        measurement_coverage: current_measurement_coverage(),
         environment,
         receipt,
         samples,
@@ -138,6 +142,9 @@ pub(crate) fn validate_p1_shard_report(
     }
     if report.phase_ownership != current_phase_ownership() {
         return Err(P1ShardReportValidationError::PhaseOwnershipDrift);
+    }
+    if report.measurement_coverage != current_measurement_coverage() {
+        return Err(P1ShardReportValidationError::MeasurementCoverageDrift);
     }
     validate_perf_environment(profile, &report.environment)
         .map_err(P1ShardReportValidationError::InvalidEnvironment)?;
@@ -362,6 +369,8 @@ pub(crate) enum P1ShardReportValidationError {
     UnsupportedWasmProfile(String),
     /// The report's phase-ownership table differs from the current schema.
     PhaseOwnershipDrift,
+    /// The report's measured/unmeasured resource table differs from current authority.
+    MeasurementCoverageDrift,
     /// The report's complete environment identity is invalid.
     InvalidEnvironment(PerfEnvironmentError),
     /// One sample's serialized reconciliation differs from its raw counters.
@@ -389,6 +398,9 @@ impl Display for P1ShardReportValidationError {
             Self::PhaseOwnershipDrift => {
                 formatter.write_str("P1 shard phase-ownership table drifted")
             }
+            Self::MeasurementCoverageDrift => {
+                formatter.write_str("P1 shard measurement coverage drifted")
+            }
             Self::InvalidEnvironment(error) => {
                 write!(formatter, "invalid P1 shard environment: {error}")
             }
@@ -414,6 +426,7 @@ impl Error for P1ShardReportValidationError {
             | Self::ScenarioSetHash { .. }
             | Self::UnsupportedWasmProfile(_)
             | Self::PhaseOwnershipDrift
+            | Self::MeasurementCoverageDrift
             | Self::PhaseReconciliationDrift(_)
             | Self::ReceiptDrift(_) => None,
         }

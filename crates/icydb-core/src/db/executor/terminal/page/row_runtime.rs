@@ -108,15 +108,13 @@ impl ScalarRowRuntimeState {
     }
 
     // Read one canonical structural data row and drop it early when the
-    // residual filter rejects it. The retained-slot layout is a scan-mode
-    // proof owned by the caller; raw-row filtering reads through RowLayout
-    // directly and therefore does not decode the retained layout here.
+    // residual filter rejects it. Raw-row filtering reads through RowLayout
+    // directly and therefore does not require retained-slot materialization.
     fn read_data_row_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
         key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
-        _retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<DataRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
@@ -328,14 +326,9 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         consistency: MissingRowPolicy,
         key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
-        retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<DataRow>, InternalError> {
-        self.state.read_data_row_with_filter_program(
-            consistency,
-            key,
-            filter_program,
-            retained_slot_layout,
-        )
+        self.state
+            .read_data_row_with_filter_program(consistency, key, filter_program)
     }
 
     /// Read one full structural row while retaining only one shared compact
@@ -393,41 +386,5 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
             filter_program,
             retained_slot_layout,
         )
-    }
-}
-
-///
-/// ResidualFilterScanMode
-///
-/// ResidualFilterScanMode keeps the scan-owned residual filter contract
-/// explicit instead of overloading a boolean with both logical presence and
-/// execution timing. The scalar kernel only needs to know whether no residual
-/// filter exists, whether scan must evaluate it while slot reads are
-/// available, or whether post-access must evaluate it later.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum ResidualFilterScanMode {
-    Absent,
-    AppliedDuringScan,
-    DeferredPostAccess,
-}
-
-impl ResidualFilterScanMode {
-    /// Select the executor scan contract from the logical residual-filter
-    /// presence plus the row payload capabilities already chosen for this lane.
-    #[must_use]
-    pub(in crate::db::executor) const fn from_plan_and_layout(
-        residual_filter_present: bool,
-        retained_slot_layout: Option<&RetainedSlotLayout>,
-        _residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-    ) -> Self {
-        if !residual_filter_present {
-            Self::Absent
-        } else if retained_slot_layout.is_some() {
-            Self::AppliedDuringScan
-        } else {
-            Self::DeferredPostAccess
-        }
     }
 }

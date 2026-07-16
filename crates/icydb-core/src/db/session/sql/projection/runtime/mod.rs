@@ -22,7 +22,7 @@ use crate::{
         Db,
         executor::{
             SharedPreparedExecutionPlan, StructuralProjectionRequest,
-            execute_structural_projection_result,
+            execute_structural_projection_rows,
         },
     },
     error::InternalError,
@@ -90,7 +90,7 @@ pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
 where
     C: CanisterKind,
 {
-    let result = execute_structural_projection_result(
+    let rows = execute_structural_projection_rows(
         db,
         StructuralProjectionRequest::new(
             debug,
@@ -99,8 +99,8 @@ where
             projection_materialization_metrics_recorder(),
         ),
     )?;
-    let row_count = result.row_count();
-    let projected = result.into_value_rows();
+    let row_count = rows.row_count();
+    let projected = rows.into_value_rows();
 
     Ok((projected, row_count))
 }

@@ -8,6 +8,7 @@ use crate::{
     sql_perf_environment::{
         PerfEnvironmentError, PerfEnvironmentIdentity, validate_perf_environment,
     },
+    sql_perf_measurement::{PerformanceMeasurementCoverage, current_measurement_coverage},
     sql_perf_p2::P2ScaleRepresentative,
     sql_perf_phase::{PhaseOwnershipTable, current_phase_ownership},
     sql_perf_profile::{PerformanceProfile, PerformanceProfileError, scenario_set_hash},
@@ -83,6 +84,9 @@ pub(crate) struct ScaleShardReport {
     /// Versioned phase-ownership contract used by every retained sample.
     phase_ownership: PhaseOwnershipTable,
 
+    /// Canonical measured and explicitly unmeasured resource dimensions.
+    measurement_coverage: PerformanceMeasurementCoverage,
+
     /// Complete comparable environment and measured subject identity.
     environment: PerfEnvironmentIdentity,
 
@@ -117,6 +121,9 @@ pub(crate) struct MergedScaleShardReports {
 
     /// Versioned phase-ownership contract used by every retained sample.
     phase_ownership: PhaseOwnershipTable,
+
+    /// Canonical measured and explicitly unmeasured resource dimensions.
+    measurement_coverage: PerformanceMeasurementCoverage,
 
     /// Exact environment shared by every independently produced shard.
     pub(crate) environment: PerfEnvironmentIdentity,
@@ -162,6 +169,7 @@ pub(crate) fn build_scale_shard_report(
         scale_scenario_set_hash,
         canister_wasm_profile: required_wasm_profile.to_string(),
         phase_ownership: current_phase_ownership(),
+        measurement_coverage: current_measurement_coverage(),
         environment,
         receipt,
         observations,
@@ -290,6 +298,9 @@ fn validate_scale_shard_identity(
     if report.phase_ownership != current_phase_ownership() {
         return Err(ScaleShardError::PhaseOwnershipDrift);
     }
+    if report.measurement_coverage != current_measurement_coverage() {
+        return Err(ScaleShardError::MeasurementCoverageDrift);
+    }
     validate_perf_environment(profile, &report.environment)
         .map_err(ScaleShardError::InvalidEnvironment)?;
     let shard_index = report.receipt.shard_index;
@@ -367,6 +378,7 @@ pub(crate) fn merge_scale_shard_reports(
         scale_scenario_set_hash: scale_declaration_hash(&declarations)?,
         canister_wasm_profile: required_wasm_profile.to_string(),
         phase_ownership: current_phase_ownership(),
+        measurement_coverage: current_measurement_coverage(),
         environment: environment.ok_or(ScaleShardError::MissingEnvironment)?,
         receipts,
         observations,
@@ -427,6 +439,9 @@ fn validate_merged_scale_identity(
     }
     if report.phase_ownership != current_phase_ownership() {
         return Err(ScaleShardError::PhaseOwnershipDrift);
+    }
+    if report.measurement_coverage != current_measurement_coverage() {
+        return Err(ScaleShardError::MeasurementCoverageDrift);
     }
     validate_perf_environment(profile, &report.environment)
         .map_err(ScaleShardError::InvalidEnvironment)?;
@@ -872,6 +887,9 @@ pub(crate) enum ScaleShardError {
         unexpected: Vec<String>,
     },
 
+    /// The report's measured/unmeasured resource table differs from current authority.
+    MeasurementCoverageDrift,
+
     /// One of the required eight shard reports is absent.
     MissingReport(u8),
 
@@ -1027,6 +1045,9 @@ impl Display for ScaleShardError {
                 formatter,
                 "scale shard {shard_index} membership drifted: missing {missing:?}, unexpected {unexpected:?}",
             ),
+            Self::MeasurementCoverageDrift => {
+                formatter.write_str("scale measurement coverage drifted")
+            }
             Self::MissingReport(shard_index) => {
                 write!(formatter, "missing scale shard report {shard_index}")
             }
@@ -1304,6 +1325,18 @@ pub(crate) mod tests {
             reports,
         )
         .expect("complete test shards should merge");
+        let mut coverage_drifted = merged.clone();
+        coverage_drifted.measurement_coverage.peak_heap_bytes =
+            crate::sql_perf_measurement::PerformanceMeasurementStatus::Measured;
+        assert!(matches!(
+            validate_merged_scale_report(
+                SQL_PERFORMANCE_PROFILE,
+                "wasm-release",
+                &p1_scenarios,
+                &coverage_drifted,
+            ),
+            Err(ScaleShardError::MeasurementCoverageDrift)
+        ));
         let path = std::env::temp_dir().join(format!(
             "icydb-sql-perf-scale-merged-{}.json",
             std::process::id(),

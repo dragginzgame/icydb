@@ -14,7 +14,7 @@ use crate::{
 use super::{
     plan::DirectDataRowPath,
     post_access::apply_data_row_page_window,
-    row_runtime::{ResidualFilterScanMode, ScalarRowRuntimeHandle},
+    row_runtime::ScalarRowRuntimeHandle,
     scan::{
         DirectDataRowScanResult, scan_direct_data_rows_with_residual_policy,
         scan_materialized_order_direct_data_rows,
@@ -51,18 +51,13 @@ pub(super) fn execute_direct_data_row_path(
     match direct_data_row_path {
         DirectDataRowPath::Plain { .. } => record_direct_data_row_path_hit(),
         DirectDataRowPath::Filtered { .. } => record_direct_filtered_data_row_path_hit(),
-        DirectDataRowPath::MaterializedOrder {
-            residual_filter_scan_mode,
-            ..
-        } => match residual_filter_scan_mode {
-            ResidualFilterScanMode::Absent => record_direct_data_row_path_hit(),
-            ResidualFilterScanMode::AppliedDuringScan => {
+        DirectDataRowPath::MaterializedOrder { filter_program, .. } => {
+            if filter_program.is_some() {
                 record_direct_filtered_data_row_path_hit();
+            } else {
+                record_direct_data_row_path_hit();
             }
-            ResidualFilterScanMode::DeferredPostAccess => {
-                return Err(InternalError::query_executor_invariant());
-            }
-        },
+        }
     }
 
     // Phase 2: run the direct scan through the shared residual-policy helper.
@@ -77,41 +72,31 @@ pub(super) fn execute_direct_data_row_path(
                     row_keep_cap,
                     row_skip_count,
                     consistency,
-                    ResidualFilterScanMode::Absent,
                     row_runtime,
-                    None,
                     None,
                 )
             }
             DirectDataRowPath::Filtered {
                 row_keep_cap,
                 filter_program,
-                retained_slot_layout,
             } => scan_direct_data_rows_with_residual_policy(
                 key_stream,
                 scan_budget_hint,
                 row_keep_cap,
                 row_skip_count,
                 consistency,
-                ResidualFilterScanMode::AppliedDuringScan,
                 row_runtime,
                 Some(filter_program),
-                Some(retained_slot_layout),
             ),
-            DirectDataRowPath::MaterializedOrder {
-                residual_filter_scan_mode,
-                filter_program,
-                retained_slot_layout,
-                ..
-            } => scan_materialized_order_direct_data_rows(
-                key_stream,
-                scan_budget_hint,
-                consistency,
-                residual_filter_scan_mode,
-                row_runtime,
-                filter_program,
-                retained_slot_layout,
-            ),
+            DirectDataRowPath::MaterializedOrder { filter_program, .. } => {
+                scan_materialized_order_direct_data_rows(
+                    key_stream,
+                    scan_budget_hint,
+                    consistency,
+                    row_runtime,
+                    filter_program,
+                )
+            }
         });
     #[cfg(not(feature = "diagnostics"))]
     let scan_result = match direct_data_row_path {
@@ -121,40 +106,30 @@ pub(super) fn execute_direct_data_row_path(
             row_keep_cap,
             row_skip_count,
             consistency,
-            ResidualFilterScanMode::Absent,
             row_runtime,
-            None,
             None,
         ),
         DirectDataRowPath::Filtered {
             row_keep_cap,
             filter_program,
-            retained_slot_layout,
         } => scan_direct_data_rows_with_residual_policy(
             key_stream,
             scan_budget_hint,
             row_keep_cap,
             row_skip_count,
             consistency,
-            ResidualFilterScanMode::AppliedDuringScan,
             row_runtime,
             Some(filter_program),
-            Some(retained_slot_layout),
         ),
-        DirectDataRowPath::MaterializedOrder {
-            residual_filter_scan_mode,
-            filter_program,
-            retained_slot_layout,
-            ..
-        } => scan_materialized_order_direct_data_rows(
-            key_stream,
-            scan_budget_hint,
-            consistency,
-            residual_filter_scan_mode,
-            row_runtime,
-            filter_program,
-            retained_slot_layout,
-        ),
+        DirectDataRowPath::MaterializedOrder { filter_program, .. } => {
+            scan_materialized_order_direct_data_rows(
+                key_stream,
+                scan_budget_hint,
+                consistency,
+                row_runtime,
+                filter_program,
+            )
+        }
     };
     let DirectDataRowScanResult {
         rows: mut data_rows,

@@ -98,7 +98,7 @@ impl ExpandedIndexPrefixFamily {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum IndexBranchLiveness {
-    ProvenEmpty(IndexBranchEmptyReason),
+    ProvenEmpty,
     PossiblyLive,
     UnknownConservative(IndexBranchUnknownReason),
 }
@@ -107,10 +107,7 @@ impl IndexBranchLiveness {
     #[must_use]
     pub(in crate::db::executor) const fn should_scan(self) -> bool {
         match self {
-            Self::ProvenEmpty(reason) => {
-                let _ = reason;
-                false
-            }
+            Self::ProvenEmpty => false,
             Self::PossiblyLive => true,
             Self::UnknownConservative(reason) => {
                 let _ = reason;
@@ -118,11 +115,6 @@ impl IndexBranchLiveness {
             }
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum IndexBranchEmptyReason {
-    ExactPrefixCardinalityZero,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -242,9 +234,7 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness_at_generation(
         cardinality_key.index_id(),
         cardinality_key.prefix_components(),
     ) {
-        Some(0) => {
-            IndexBranchLiveness::ProvenEmpty(IndexBranchEmptyReason::ExactPrefixCardinalityZero)
-        }
+        Some(0) => IndexBranchLiveness::ProvenEmpty,
         Some(_) => IndexBranchLiveness::PossiblyLive,
         None => IndexBranchLiveness::UnknownConservative(
             IndexBranchUnknownReason::MissingGenerationCompatibleCardinality,
@@ -455,7 +445,7 @@ mod tests {
                 7,
                 &liveness_spec(b"missing", IndexKeyKind::User),
             ),
-            IndexBranchLiveness::ProvenEmpty(IndexBranchEmptyReason::ExactPrefixCardinalityZero,),
+            IndexBranchLiveness::ProvenEmpty,
         );
     }
 

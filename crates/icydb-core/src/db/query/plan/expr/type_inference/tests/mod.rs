@@ -32,10 +32,7 @@ use crate::{
 };
 
 use super::{
-    ExprCoarseTypeFamily, ExprType, NumericSubtype, UnaryOp, dynamic_function_arg_coarse_family,
-    function_arg_coarse_family, function_is_compare_operand_coarse_family,
-    function_result_coarse_family, infer_case_result_exprs_coarse_family,
-    infer_dynamic_function_result_exprs_coarse_family, infer_expr_coarse_family, infer_expr_type,
+    ExprType, NumericSubtype, UnaryOp, function_is_compare_operand_coarse_family, infer_expr_type,
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
@@ -223,74 +220,6 @@ fn infer_literal_type_is_deterministic() {
 }
 
 #[test]
-fn infer_expr_coarse_family_projects_planner_types_for_boundary_consumers() {
-    let schema = schema();
-    let bool_expr = Expr::Literal(Value::Bool(true));
-    let text_expr = Expr::Field(FieldId::new("label"));
-    let numeric_expr = Expr::Field(FieldId::new("rank"));
-
-    assert_eq!(
-        infer_expr_coarse_family(&bool_expr, schema).expect("bool coarse family should infer"),
-        Some(ExprCoarseTypeFamily::Bool),
-    );
-    assert_eq!(
-        infer_expr_coarse_family(&text_expr, schema).expect("text coarse family should infer"),
-        Some(ExprCoarseTypeFamily::Text),
-    );
-    assert_eq!(
-        infer_expr_coarse_family(&numeric_expr, schema)
-            .expect("numeric coarse family should infer"),
-        Some(ExprCoarseTypeFamily::Numeric),
-    );
-}
-
-#[test]
-fn function_arg_coarse_family_matches_shared_scalar_signature_contracts() {
-    assert_eq!(
-        function_arg_coarse_family(Function::Lower, 0),
-        Some(ExprCoarseTypeFamily::Text),
-    );
-    assert_eq!(
-        function_arg_coarse_family(Function::Substring, 1),
-        Some(ExprCoarseTypeFamily::Numeric),
-    );
-    assert_eq!(function_arg_coarse_family(Function::Coalesce, 0), None);
-}
-
-#[test]
-fn function_result_coarse_family_matches_shared_scalar_signature_contracts() {
-    assert_eq!(
-        function_result_coarse_family(Function::Contains),
-        Some(ExprCoarseTypeFamily::Bool),
-    );
-    assert_eq!(
-        function_result_coarse_family(Function::Length),
-        Some(ExprCoarseTypeFamily::Numeric),
-    );
-    assert_eq!(
-        function_result_coarse_family(Function::Trim),
-        Some(ExprCoarseTypeFamily::Text),
-    );
-    assert_eq!(function_result_coarse_family(Function::NullIf), None);
-}
-
-#[test]
-fn dynamic_function_arg_coarse_family_reuses_resolved_result_family() {
-    assert_eq!(
-        dynamic_function_arg_coarse_family(Function::Coalesce, ExprCoarseTypeFamily::Numeric),
-        Some(ExprCoarseTypeFamily::Numeric),
-    );
-    assert_eq!(
-        dynamic_function_arg_coarse_family(Function::NullIf, ExprCoarseTypeFamily::Text),
-        Some(ExprCoarseTypeFamily::Text),
-    );
-    assert_eq!(
-        dynamic_function_arg_coarse_family(Function::Lower, ExprCoarseTypeFamily::Text),
-        None,
-    );
-}
-
-#[test]
 fn function_is_compare_operand_coarse_family_matches_shared_signature_table() {
     assert!(function_is_compare_operand_coarse_family(Function::Lower));
     assert!(function_is_compare_operand_coarse_family(Function::Length));
@@ -461,37 +390,6 @@ fn infer_searched_case_returns_shared_branch_type() {
     let inferred = infer_expr_type(&expr, schema).expect("searched CASE should infer");
 
     assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
-}
-
-#[test]
-fn infer_case_result_exprs_coarse_family_uses_planner_branch_unification() {
-    let schema = schema();
-    let result_exprs = [
-        Expr::Literal(Value::Int64(1)),
-        Expr::Literal(Value::Nat64(0)),
-        Expr::Literal(Value::Null),
-    ];
-
-    let inferred = infer_case_result_exprs_coarse_family(result_exprs.iter(), schema)
-        .expect("CASE result branches should project one shared coarse family");
-
-    assert_eq!(inferred, Some(ExprCoarseTypeFamily::Numeric));
-}
-
-#[test]
-fn infer_dynamic_function_result_exprs_coarse_family_uses_planner_unification() {
-    let schema = schema();
-    let args = [
-        Expr::Literal(Value::Int64(1)),
-        Expr::Literal(Value::Nat64(0)),
-        Expr::Literal(Value::Null),
-    ];
-
-    let inferred =
-        infer_dynamic_function_result_exprs_coarse_family(Function::Coalesce, &args, schema)
-            .expect("COALESCE result family should infer from lowerable planner arguments");
-
-    assert_eq!(inferred, Some(ExprCoarseTypeFamily::Numeric));
 }
 
 #[test]

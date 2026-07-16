@@ -45,30 +45,6 @@ pub(in crate::db::executor) enum CountTerminalFastPathContract {
     IndexCoveringExistingRows(Direction),
 }
 
-///
-/// ExistsTerminalFastPathContract
-///
-/// Route-owned `exists()` fast-path contract.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum ExistsTerminalFastPathContract {
-    IndexCoveringExistingRows(Direction),
-}
-
-///
-/// LoadTerminalFastPathContract
-///
-/// Route-owned scalar load terminal fast-path contract.
-/// This keeps planner-selected covering-read eligibility explicit so EXPLAIN
-/// and later runtime consumers do not rediscover it ad hoc.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum LoadTerminalFastPathContract {
-    CoveringRead(CoveringReadExecutionPlan),
-}
-
 /// Derive one route-owned `count()` terminal fast-path contract from structural plan state.
 ///
 /// Secondary index-covered COUNT still uses existing-row checks so stale
@@ -104,16 +80,14 @@ pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_mode
 
 /// Derive one route-owned `exists()` terminal fast-path contract from structural plan state.
 ///
-/// `0.70` intentionally leaves this path outside the new index-validity gate.
 /// `EXISTS` result sensitivity under missing rows is not the same invariant as
 /// probe-free covering window stability, so it must be classified separately.
-pub(in crate::db::executor) fn derive_exists_terminal_fast_path_contract_for_model(
+pub(in crate::db::executor) fn derive_exists_terminal_fast_path_direction_for_model(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
-) -> Option<ExistsTerminalFastPathContract> {
-    index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible).then_some(
-        ExistsTerminalFastPathContract::IndexCoveringExistingRows(Direction::Asc),
-    )
+) -> Option<Direction> {
+    index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
+        .then_some(Direction::Asc)
 }
 
 /// Derive one route-owned scalar load terminal fast-path contract from the
@@ -122,10 +96,8 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
-) -> Option<LoadTerminalFastPathContract> {
-    authority
-        .covering_read_execution_plan(plan, strict_predicate_compatible)
-        .map(LoadTerminalFastPathContract::CoveringRead)
+) -> Option<CoveringReadExecutionPlan> {
+    authority.covering_read_execution_plan(plan, strict_predicate_compatible)
 }
 
 /// Derive one route-owned scalar load terminal fast-path contract directly from
@@ -133,7 +105,7 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract(
 pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_plan(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
-) -> Option<LoadTerminalFastPathContract> {
+) -> Option<CoveringReadExecutionPlan> {
     if !plan.scalar_plan().mode.is_load() {
         return None;
     }

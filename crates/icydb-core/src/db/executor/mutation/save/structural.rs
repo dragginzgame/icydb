@@ -185,7 +185,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             let ctx = mutation_write_context::<E>(&self.db)?;
             let schema = self.accepted_schema_info();
             let schema_fingerprint = self.accepted_schema_fingerprint();
-            let validate_relations = schema.has_any_strong_relations();
+            let validate_relations = schema.has_any_relations();
             let mut entities = Vec::with_capacity(items.len());
             let mut marker_row_ops = Vec::with_capacity(items.len());
             let mut seen_row_keys = HashSet::with_capacity(items.len());
@@ -252,7 +252,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
                 let ctx = mutation_write_context::<E>(&self.db)?;
                 let schema = self.accepted_schema_info();
                 let schema_fingerprint = self.accepted_schema_fingerprint();
-                let validate_relations = schema.has_any_strong_relations();
+                let validate_relations = schema.has_any_relations();
                 let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
                     &ctx,
                     schema,

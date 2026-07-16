@@ -6,9 +6,8 @@
 use crate::{
     db::{
         access::{
-            AccessPath, AccessPlan, IndexBranchSetOrderedSuffix, IndexBranchSetSpec,
-            MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
-            SemanticIndexRangeSpec,
+            AccessPath, AccessPlan, IndexBranchSetSpec, MAX_INDEX_BRANCH_SET_VALUES,
+            SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexRangeSpec,
         },
         schema::{SchemaInfo, literal_matches_type},
     },
@@ -261,9 +260,6 @@ fn validate_index_branch_set(
     }
     if !values_are_canonical_set(spec.branch_values()) {
         return Err(AccessPlanError::IndexBranchSetNotCanonical);
-    }
-    match spec.ordered_suffix() {
-        IndexBranchSetOrderedSuffix::PrimaryKeyAsc => {}
     }
     let prefix_len = spec.branch_prefix_len();
     let index = spec.index();

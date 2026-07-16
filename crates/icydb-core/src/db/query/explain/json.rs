@@ -3,20 +3,17 @@
 //! Does not own: execution decision derivation or text-tree rendering.
 //! Boundary: deterministic JSON field ordering for execution explain output.
 
-use crate::db::{
-    TraceReuseArtifactClass,
-    query::{
-        admission::QueryAdmissionSummary,
-        explain::{
-            ExplainExecutionNodeDescriptor, FinalizedQueryDiagnostics,
-            access_projection::write_access_json,
-            execution::{execution_mode_label, ordering_source_label},
-            nodes::{
-                execution_mode_detail_label, fast_path_reason, fast_path_selected,
-                predicate_pushdown_mode,
-            },
-            writer::JsonWriter,
+use crate::db::query::{
+    admission::QueryAdmissionSummary,
+    explain::{
+        ExplainExecutionNodeDescriptor, FinalizedQueryDiagnostics,
+        access_projection::write_access_json,
+        execution::{execution_mode_label, ordering_source_label},
+        nodes::{
+            execution_mode_detail_label, fast_path_reason, fast_path_selected,
+            predicate_pushdown_mode,
         },
+        writer::JsonWriter,
     },
 };
 
@@ -53,14 +50,7 @@ impl FinalizedQueryDiagnostics {
                 return;
             };
             let mut reuse_object = JsonWriter::begin_object(out);
-            reuse_object.field_str(
-                "artifact",
-                match reuse.artifact_class() {
-                    TraceReuseArtifactClass::SharedPreparedQueryPlan => {
-                        "shared_prepared_query_plan"
-                    }
-                },
-            );
+            reuse_object.field_str("artifact", "shared_prepared_query_plan");
             reuse_object.field_str("outcome", if reuse.is_hit() { "hit" } else { "miss" });
             reuse_object.finish();
         });

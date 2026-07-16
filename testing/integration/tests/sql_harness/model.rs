@@ -3,6 +3,11 @@
 //! Does not own: SQL semantics, production planning, or classification derived from SQL text.
 //! Boundary: requires scenario producers to declare evidence intent independently of SQL payloads.
 
+use icydb_testing_sql_generator::{
+    EligibleProvider, EvidenceStrength, MutationKind, NullabilityClass, PredicateFamily,
+    QueryShape, RouteFamily, StatementFamily, ValueTypeFamily, WindowBehavior,
+};
+
 ///
 /// EvidenceClass
 ///
@@ -22,153 +27,20 @@ pub(crate) enum EvidenceClass {
     State,
 }
 
-///
-/// EvidenceStrength
-///
-/// Strength of the oracle or assertion supplied by one SQL evidence provider.
-/// Owned by the shared SQL harness and used by coverage validation and selection.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum EvidenceStrength {
-    BoundaryAssertion,
-    ContractAssertion,
-    MetamorphicInvariant,
-    ReferenceOracle,
-}
-
-///
-/// EligibleProvider
-///
-/// Reference or invariant provider eligible to judge one SQL scenario.
-/// Owned by the shared SQL harness and declared by correctness and performance runners.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum EligibleProvider {
-    ExecutionModeEquivalent,
-    FrontendEquivalent,
-    IcyDbContractOnly,
-    RejectionInvariant,
-    SqliteReference,
-    StateModelReference,
-}
-
-///
-/// StatementFamily
-///
-/// Top-level SQL statement family represented by a scenario.
-/// Owned by the shared SQL harness and used to stratify bounded test selections.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum StatementFamily {
-    Delete,
-    Describe,
-    Explain,
-    Insert,
-    Select,
-    Show,
-    Update,
-}
-
-///
-/// QueryShape
-///
-/// Semantic result shape exercised by a SQL scenario.
-/// Owned by the shared SQL harness and consumed by coverage and selection logic.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum QueryShape {
-    GlobalAggregate,
-    Grouped,
-    Metadata,
-    Mutation,
-    Scalar,
-}
-
-///
-/// ValueTypeFamily
-///
-/// Coarse value family exercised by a SQL scenario or projection.
-/// Owned by the shared SQL harness and used as a declared coverage stratum.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum ValueTypeFamily {
-    Blob,
-    Boolean,
-    Catalog,
-    Mixed,
-    Numeric,
-    Text,
-}
-
-///
-/// NullabilityClass
-///
-/// Nullability contract exercised by a scenario.
-/// Owned by the shared SQL harness and consumed by stratified selection.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum NullabilityClass {
-    NotApplicable,
-    NonNullable,
-    Nullable,
-}
-
-///
-/// PredicateFamily
-///
-/// Semantic predicate family declared for a SQL scenario.
-/// Owned by the shared SQL harness so runners never infer coverage from SQL text.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum PredicateFamily {
-    Boolean,
-    CasefoldPrefix,
-    Compound,
-    FieldComparison,
-    Membership,
-    None,
-    Prefix,
-    PrimaryKey,
-    Range,
-    SparseMembership,
-}
-
-///
-/// WindowBehavior
-///
-/// Ordering and bounding shape declared for a SQL scenario.
-/// Owned by the shared SQL harness and used by selection and route classification.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum WindowBehavior {
-    None,
-    Limit,
-    Ordered,
-    OrderedLimit,
-    OrderedLimitOffset,
-}
-
-///
-/// MutationKind
-///
-/// Mutation family exercised by a scenario, or `None` for reads.
-/// Owned by the shared SQL harness and used as a selection stratum.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum MutationKind {
-    Delete,
-    Insert,
-    None,
-    Update,
+impl EvidenceClass {
+    /// Return the stable machine-readable evidence-layer identity.
+    pub(crate) const fn code(self) -> &'static str {
+        match self {
+            Self::Boundary => "boundary",
+            Self::Execute => "execute",
+            Self::Lower => "lower",
+            Self::Parse => "parse",
+            Self::ReferenceDifferential => "reference_differential",
+            Self::Regression => "regression",
+            Self::Route => "route",
+            Self::State => "state",
+        }
+    }
 }
 
 ///
@@ -269,41 +141,6 @@ impl WindowSpec {
     pub(crate) fn read_bound(self) -> Option<u64> {
         let limit = self.limit?;
         u64::try_from(limit.saturating_add(self.offset).saturating_add(1)).ok()
-    }
-}
-
-///
-/// RouteFamily
-///
-/// Coarse execution-route family observed or required by a SQL scenario.
-/// Owned by the shared SQL harness and emitted in correctness and performance evidence.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum RouteFamily {
-    EqualityPrefixOrderedSuffix,
-    IncompatibleFilterFirstOrder,
-    MaterializedOrder,
-    NotOrderedOrNotPaginated,
-    PrimaryOrder,
-    ResidualFilterOrderedScan,
-    SecondaryOrder,
-    UnsupportedAccessKind,
-}
-
-impl RouteFamily {
-    /// Return the stable report code for this route family.
-    pub(crate) const fn code(self) -> &'static str {
-        match self {
-            Self::EqualityPrefixOrderedSuffix => "equality_prefix_ordered_suffix",
-            Self::IncompatibleFilterFirstOrder => "incompatible_filter_first_order",
-            Self::MaterializedOrder => "materialized_order",
-            Self::NotOrderedOrNotPaginated => "not_ordered_or_not_paginated",
-            Self::PrimaryOrder => "primary_order",
-            Self::ResidualFilterOrderedScan => "residual_filter_ordered_scan",
-            Self::SecondaryOrder => "secondary_order",
-            Self::UnsupportedAccessKind => "unsupported_access_kind",
-        }
     }
 }
 

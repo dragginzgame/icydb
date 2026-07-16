@@ -7,6 +7,7 @@ use crate::{
     sql_perf_environment::{
         PerfEnvironmentError, PerfEnvironmentIdentity, validate_perf_environment,
     },
+    sql_perf_measurement::{PerformanceMeasurementCoverage, current_measurement_coverage},
     sql_perf_profile::{PerformanceProfile, PerformanceProfileError},
 };
 
@@ -21,7 +22,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut instrumentation-calibration artifact version.
-const INSTRUMENTATION_CALIBRATION_VERSION: u32 = 1;
+const INSTRUMENTATION_CALIBRATION_VERSION: u32 = 2;
 
 /// Stable scenario selected as the narrowest trustworthy SQL attribution sentinel.
 pub(crate) const INSTRUMENTATION_SENTINEL_SCENARIO_ID: &str = "user.select.pk.all.pk_asc.limit1";
@@ -83,6 +84,9 @@ pub(crate) struct InstrumentationCalibrationReport {
     /// Full environment and measured raw-WASM subject identity.
     pub(crate) environment: PerfEnvironmentIdentity,
 
+    /// Canonical measured and explicitly unmeasured resource dimensions.
+    pub(crate) measurement_coverage: PerformanceMeasurementCoverage,
+
     /// Stable matrix scenario selected for calibration.
     sentinel_scenario_id: String,
 
@@ -143,6 +147,7 @@ pub(crate) fn build_instrumentation_calibration_report(
         performance_profile_version: profile.version(),
         canister_wasm_profile: required_wasm_profile.to_string(),
         environment,
+        measurement_coverage: current_measurement_coverage(),
         sentinel_scenario_id: INSTRUMENTATION_SENTINEL_SCENARIO_ID.to_string(),
         sentinel_sql: INSTRUMENTATION_SENTINEL_SQL.to_string(),
         sample_count_per_path: profile.cold_samples_per_confirmation(),
@@ -192,6 +197,9 @@ pub(crate) fn validate_instrumentation_calibration_report(
         return Err(InstrumentationCalibrationError::UnsupportedWasmProfile(
             report.canister_wasm_profile.clone(),
         ));
+    }
+    if report.measurement_coverage != current_measurement_coverage() {
+        return Err(InstrumentationCalibrationError::MeasurementCoverageDrift);
     }
     if report.sentinel_scenario_id != INSTRUMENTATION_SENTINEL_SCENARIO_ID
         || report.sentinel_sql != INSTRUMENTATION_SENTINEL_SQL
@@ -443,6 +451,9 @@ pub(crate) enum InstrumentationCalibrationError {
     /// One execution path has no samples.
     MissingSamples(InstrumentationPath),
 
+    /// The report's measured/unmeasured resource table differs from current authority.
+    MeasurementCoverageDrift,
+
     /// The artifact names a performance profile version other than current.
     ProfileVersion {
         /// Current profile version.
@@ -507,6 +518,9 @@ impl Display for InstrumentationCalibrationError {
             Self::MissingSamples(path) => {
                 write!(formatter, "instrumentation {path:?} path has no samples")
             }
+            Self::MeasurementCoverageDrift => {
+                formatter.write_str("instrumentation measurement coverage drifted")
+            }
             Self::ProfileVersion { expected, actual } => write!(
                 formatter,
                 "instrumentation profile version drifted: expected {expected}, observed {actual}",
@@ -545,6 +559,7 @@ impl Error for InstrumentationCalibrationError {
             | Self::DerivedSummaryDrift
             | Self::EmptyResultSignature { .. }
             | Self::MissingSamples(_)
+            | Self::MeasurementCoverageDrift
             | Self::ProfileVersion { .. }
             | Self::SampleCount { .. }
             | Self::SemanticDrift { .. }
@@ -742,6 +757,18 @@ mod tests {
         let mut encoded = serde_json::to_value(&report).expect("report should encode");
         encoded["legacy_overhead"] = serde_json::json!(1);
         assert!(serde_json::from_value::<InstrumentationCalibrationReport>(encoded).is_err());
+
+        let mut coverage_drifted = report.clone();
+        coverage_drifted.measurement_coverage.peak_heap_bytes =
+            crate::sql_perf_measurement::PerformanceMeasurementStatus::Measured;
+        assert!(matches!(
+            validate_instrumentation_calibration_report(
+                SQL_PERFORMANCE_PROFILE,
+                "wasm-release",
+                &coverage_drifted,
+            ),
+            Err(InstrumentationCalibrationError::MeasurementCoverageDrift)
+        ));
 
         let mut drifted = report;
         drifted.overhead_instructions += 1;

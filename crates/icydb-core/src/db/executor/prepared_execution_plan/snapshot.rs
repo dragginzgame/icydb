@@ -4,9 +4,7 @@ use crate::{
         codec::hex::encode_hex_lower,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, PreparedExecutionPlan,
-            planning::route::{
-                LoadTerminalFastPathContract, derive_load_terminal_fast_path_contract_for_plan,
-            },
+            planning::route::derive_load_terminal_fast_path_contract_for_plan,
         },
     },
     entity::{EntityKind, EntityValue},
@@ -57,7 +55,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             format!(
                 "load_terminal_fast_path={}",
                 match load_terminal_fast_path.as_ref() {
-                    Some(LoadTerminalFastPathContract::CoveringRead(_)) => "CoveringRead",
+                    Some(_) => "CoveringRead",
                     None => "Materialized",
                 }
             ),

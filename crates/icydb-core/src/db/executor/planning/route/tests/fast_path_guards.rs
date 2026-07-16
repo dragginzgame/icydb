@@ -55,7 +55,7 @@ fn terminal_fast_path_derivation_stays_route_owned() {
             ]),
         ),
         (
-            "derive_exists_terminal_fast_path_contract_for_model(",
+            "derive_exists_terminal_fast_path_direction_for_model(",
             BTreeSet::from([
                 "src/db/executor/aggregate/terminals.rs".to_string(),
                 "src/db/executor/planning/route/terminal.rs".to_string(),

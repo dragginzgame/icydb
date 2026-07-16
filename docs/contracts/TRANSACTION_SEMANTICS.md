@@ -144,9 +144,9 @@ For one `*_many_atomic` call:
 * Atomic lane: whole batch fails, no rows from that request are persisted
 * Non-atomic lane: already-committed prefix remains committed
 
-### Strong-relation checks and staged rows
+### Relation checks and staged rows
 
-Strong-relation validation is performed against currently persisted target
+Relation validation is performed against currently persisted target
 stores during pre-commit validation.
 
 Rows staged inside the same atomic batch are not treated as visible relation

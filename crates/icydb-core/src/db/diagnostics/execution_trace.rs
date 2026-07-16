@@ -77,7 +77,7 @@ impl ExecutionStats {
         }
     }
 
-    /// Return rows encountered before post-access predicate filtering.
+    /// Return rows encountered before runtime residual predicate filtering.
     #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn rows_scanned_pre_filter(&self) -> u64 {

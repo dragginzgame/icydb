@@ -425,34 +425,6 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_required_slot_reader(
     })
 }
 
-/// Evaluate one compiled boolean filter over a borrowed value row.
-pub(in crate::db) fn eval_compiled_filter_expr_with_value_ref_reader<'a>(
-    expr: &CompiledExpr,
-    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
-    _missing_slot_context: &str,
-) -> Result<bool, InternalError> {
-    let reader = ValueRefSlotReader {
-        read_slot: RefCell::new(read_slot),
-        field_path_missing_is_null: false,
-    };
-    let value = match expr.evaluate(&reader) {
-        Ok(value) => value.into_owned(),
-        Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
-        Err(err) => {
-            return Err(match err {
-                ProjectionEvalError::MissingFieldValue { .. } => {
-                    InternalError::query_invalid_logical_plan()
-                }
-                err => err.into_invalid_logical_plan_internal_error(),
-            });
-        }
-    };
-
-    collapse_true_only_boolean_admission(value, |_found| {
-        InternalError::query_invalid_logical_plan()
-    })
-}
-
 /// Evaluate one compiled boolean filter over a borrowed-or-owned value row.
 pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
     expr: &CompiledExpr,

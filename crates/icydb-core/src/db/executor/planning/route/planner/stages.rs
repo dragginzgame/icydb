@@ -11,11 +11,11 @@ use crate::db::{
         route::{
             AggregateRouteShape, AggregateSeekSpec, ExecutionRoutePlan, FastPathOrder,
             GroupedExecutionMode, GroupedExecutionModeContext, IndexRangeLimitSpec,
-            LoadTerminalFastPathContract, PushdownApplicability, RouteCapabilityFacts,
-            RouteContinuationPlan, RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
+            PushdownApplicability, RouteCapabilityFacts, RouteContinuationPlan, RouteExecutionMode,
+            RouteShapeKind, ScanHintPlan, TopNSeekSpec,
         },
     },
-    query::plan::GroupedPlanStrategy,
+    query::plan::{CoveringReadExecutionPlan, GroupedPlanStrategy},
 };
 
 ///
@@ -155,7 +155,7 @@ pub(super) fn assemble_execution_route_plan(
     intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
     execution_stage: RouteExecutionStage,
-    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 ) -> ExecutionRoutePlan {
     let RouteFeasibilityStage {
         continuation,
@@ -191,7 +191,7 @@ pub(super) fn assemble_execution_route_plan(
 pub(super) fn build_execution_route_plan_from_stages(
     intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
-    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+    load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 ) -> ExecutionRoutePlan {
     let execution_stage = derive_route_execution_stage(&intent_stage, &feasibility_stage);
 

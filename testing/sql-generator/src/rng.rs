@@ -119,7 +119,7 @@ impl SplitMix64 {
 ///
 /// Returns a typed invalid-case error when the family identifier cannot fit in
 /// the required unsigned 32-bit length prefix.
-pub(crate) fn derive_select_sub_seed(
+pub(crate) fn derive_sql_sub_seed(
     generator_version: u32,
     root_seed: u64,
     family_id: &str,
@@ -128,7 +128,7 @@ pub(crate) fn derive_select_sub_seed(
     let family_len = u32::try_from(family_id.len()).map_err(|_| {
         SqlGeneratorError::new(
             SqlGeneratorErrorKind::InvalidCase,
-            "SELECT generator family identifier exceeds the u32 length contract",
+            "SQL generator family identifier exceeds the u32 length contract",
         )
     })?;
     let mut input = Vec::with_capacity(SUB_SEED_DOMAIN.len() + 24 + family_id.len());

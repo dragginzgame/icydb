@@ -41,9 +41,8 @@ fn build_plan_model_rejects_map_field_predicates_before_planning() {
     assert!(query_error_is_predicate_validation_error(&err, |inner| {
         matches!(
             inner,
-            crate::db::schema::ValidateError::UnsupportedQueryFeature(
-                crate::db::predicate::UnsupportedQueryFeature::MapPredicate { field }
-            ) if field == "attributes"
+            crate::db::schema::ValidateError::MapPredicateUnsupported { field }
+                if field == "attributes"
         )
     }));
 }

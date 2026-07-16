@@ -50,19 +50,6 @@ pub(in crate::db::query::plan::expr) enum FunctionNullBehavior {
 }
 
 ///
-/// FunctionDeterminism
-///
-/// FunctionDeterminism keeps execution-stability classification on the
-/// planner-owned function registry even while the current surface only ships
-/// deterministic scalar functions.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query::plan::expr) enum FunctionDeterminism {
-    Deterministic,
-}
-
-///
 /// FunctionTypeInferenceShape
 ///
 /// FunctionTypeInferenceShape captures the canonical planner typing contract

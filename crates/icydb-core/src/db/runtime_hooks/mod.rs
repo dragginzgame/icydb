@@ -11,7 +11,7 @@ use crate::{
             prepare_commit_context_for_runtime_entity, prepare_row_commit_with_context,
         },
         data::RawDataStoreKey,
-        relation::StrongRelationDeleteValidateFn,
+        relation::RelationDeleteValidateFn,
     },
     entity::{EntityKind, EntityValue},
     error::InternalError,
@@ -25,7 +25,7 @@ use std::collections::BTreeSet;
 /// EntityRuntimeHooks
 ///
 /// Per-entity runtime callbacks used by commit preparation and delete-side
-/// strong relation validation. The registry keeps entity and store routing
+/// relation validation. The registry keeps entity and store routing
 /// metadata next to callback roots so runtime recovery and structural preflight
 /// can resolve typed behavior without reintroducing typed entity parameters.
 ///
@@ -35,7 +35,7 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub(in crate::db) model: &'static EntityModel,
     pub(in crate::db) entity_path: &'static str,
     pub(in crate::db) store_path: &'static str,
-    pub(in crate::db) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
+    pub(in crate::db) validate_delete_relations: RelationDeleteValidateFn<C>,
 }
 
 impl<C: CanisterKind> EntityRuntimeHooks<C> {
@@ -46,14 +46,14 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         model: &'static EntityModel,
         entity_path: &'static str,
         store_path: &'static str,
-        validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
+        validate_delete_relations: RelationDeleteValidateFn<C>,
     ) -> Self {
         Self {
             entity_tag,
             model,
             entity_path,
             store_path,
-            validate_delete_strong_relations,
+            validate_delete_relations,
         }
     }
 
@@ -68,7 +68,7 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
             E::MODEL,
             E::PATH,
             E::Store::PATH,
-            crate::db::relation::validate_delete_strong_relations_for_source::<E>,
+            crate::db::relation::validate_delete_relations_for_source::<E>,
         )
     }
 
@@ -180,8 +180,8 @@ pub(in crate::db) fn prepare_row_commit_with_hook<C: CanisterKind>(
     prepare_row_commit_with_context(db, op, &context, &store, &store)
 }
 
-/// Validate delete-side strong relation constraints through runtime hooks.
-pub(in crate::db) fn validate_delete_strong_relations_with_hooks<C: CanisterKind>(
+/// Validate delete-side relation constraints through runtime hooks.
+pub(in crate::db) fn validate_delete_relations_with_hooks<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
     target_path: &str,
@@ -194,9 +194,9 @@ pub(in crate::db) fn validate_delete_strong_relations_with_hooks<C: CanisterKind
 
     // Delegate delete-side relation validation to each entity runtime hook.
     // Each hook resolves its accepted source contract before deciding whether
-    // the source owns strong relations to the deleted target.
+    // the source owns relations to the deleted target.
     for hooks in entity_runtime_hooks {
-        (hooks.validate_delete_strong_relations)(db, target_path, deleted_target_keys)?;
+        (hooks.validate_delete_relations)(db, target_path, deleted_target_keys)?;
     }
 
     Ok(())

@@ -1,6 +1,5 @@
 //! Module: executor::delete::runtime
-//! Responsibility: delete runtime setup, candidate row resolution, and shared
-//! post-access filtering.
+//! Responsibility: delete runtime setup and candidate row resolution.
 //! Does not own: typed output packaging, SQL structural projection, or commit
 //! payload assembly.
 //! Boundary: prepares delete execution state and resolves candidate data rows.
@@ -10,8 +9,8 @@ use crate::{
         Db, PersistedRow,
         data::DataRow,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
-            ExecutionPreparation, OrderReadableRow, PreparedExecutionPlan, TraversalRuntime,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
+            OrderReadableRow, PreparedExecutionPlan, TraversalRuntime,
             mutation::{mutation_write_context, preflight_mutation_plan_for_authority},
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputContext,
@@ -35,7 +34,7 @@ use crate::{
 use std::sync::Arc;
 
 use crate::db::executor::delete::{
-    prepare_delete_commit,
+    apply_delete_post_access_rows, prepare_delete_commit,
     types::{
         DeleteExecutionAuthority, DeleteLeaf, PreparedDeleteExecutionState, PreparedDeleteOutput,
         validate_delete_plan_shape,
@@ -193,26 +192,6 @@ where
     }
 
     Ok((rows, rows_loaded))
-}
-
-// Apply the shared delete-only post-access contract once after the caller has
-// chosen its row representation.
-pub(in crate::db::executor::delete) fn apply_delete_post_access_rows<R>(
-    prepared: &PreparedDeleteExecutionState,
-    rows: &mut Vec<R>,
-) -> Result<(), InternalError>
-where
-    R: OrderReadableRow,
-{
-    let stats = ExecutionKernel::apply_delete_post_access_with_filter_program(
-        &prepared.logical_plan,
-        rows,
-        prepared.logical_plan.effective_runtime_filter_program(),
-    )?;
-    let _ = stats.delete_was_limited;
-    let _ = stats.rows_after_cursor;
-
-    Ok(())
 }
 
 // Apply delete post-access selection and then let the caller package the

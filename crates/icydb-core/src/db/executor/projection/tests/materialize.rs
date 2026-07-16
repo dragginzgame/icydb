@@ -109,7 +109,7 @@ fn field_path_projection_materialization_decodes_nested_values() {
         .collect();
     let prepared_projection = PreparedProjectionContract::from_test_inputs(
         projection,
-        PreparedProjectionPlan::Scalar(prepared_fields),
+        prepared_fields,
         false,
         None,
         None,
@@ -327,7 +327,7 @@ fn direct_rank_projection_contract_for_materialize_test() -> PreparedProjectionC
             expr: Expr::Field(FieldId::new("rank")),
             alias: None,
         }]),
-        PreparedProjectionPlan::Scalar(Vec::new()),
+        Vec::new(),
         false,
         Some(vec![1]),
         Some(vec![1]),
@@ -348,7 +348,7 @@ fn repeated_direct_rank_projection_contract_for_materialize_test() -> PreparedPr
                 alias: None,
             },
         ]),
-        PreparedProjectionPlan::Scalar(Vec::new()),
+        Vec::new(),
         false,
         Some(vec![1, 1]),
         Some(vec![1, 1]),
@@ -403,7 +403,7 @@ fn wide_scalar_fallback_projection_contract_for_materialize_test() -> PreparedPr
 
     PreparedProjectionContract::from_test_inputs(
         projection,
-        PreparedProjectionPlan::Scalar(prepared_fields),
+        prepared_fields,
         false,
         None,
         None,

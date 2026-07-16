@@ -285,7 +285,7 @@ fn explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
     );
     assert_eq!(
         diagnostics.get("diag.r.predicate_stage"),
-        Some(&"residual_post_access".to_string()),
+        Some(&"residual_runtime".to_string()),
         "verbose execution explain should freeze predicate-stage diagnostics",
     );
 }
@@ -391,7 +391,7 @@ fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
         "diag.r.top_n_seek=disabled",
         "diag.r.index_range_limit_pushdown=fetch(3)",
         "diag.r.limit_stop_after=disabled(residual_filter_blocks_direct_streaming)",
-        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.predicate_stage=residual_runtime",
         "diag.r.residual_filter_shape=predicate",
         "diag.r.projected_fields=[\"id\", \"code\", \"label\"]",
         "diag.r.load_order_route_mode=materialized_fallback",
@@ -1101,7 +1101,7 @@ fn explain_execution_verbose_non_strict_fallback_shape_snapshot_is_stable() {
         "diag.r.top_n_seek=disabled",
         "diag.r.index_range_limit_pushdown=disabled",
         "diag.r.limit_stop_after=disabled(no_limit)",
-        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.predicate_stage=residual_runtime",
         "diag.r.residual_filter_shape=predicate",
         "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
         "diag.r.load_order_route_mode=materialized_fallback",
@@ -1145,7 +1145,7 @@ fn explain_execution_verbose_fallback_reason_matrix() {
             "non-strict indexed compare",
             non_strict_predicate_fallback_diagnostics,
             "fallback(non_strict_compare_coercion)",
-            Some("residual_post_access"),
+            Some("residual_runtime"),
         ),
         (
             "primary-key is-null empty contract",
@@ -1163,7 +1163,7 @@ fn explain_execution_verbose_fallback_reason_matrix() {
             "empty-prefix starts-with",
             empty_prefix_starts_with_fallback_diagnostics,
             "fallback(starts_with_empty_prefix)",
-            Some("residual_post_access"),
+            Some("residual_runtime"),
         ),
         (
             "non-empty starts-with full scan",
@@ -1175,7 +1175,7 @@ fn explain_execution_verbose_fallback_reason_matrix() {
             "text contains-ci",
             text_contains_ci_fallback_diagnostics,
             "fallback(text_operator_full_scan)",
-            Some("residual_post_access"),
+            Some("residual_runtime"),
         ),
         (
             "strict ends-with",
@@ -1276,7 +1276,7 @@ fn explain_execution_verbose_is_null_fallback_shape_snapshot_is_stable() {
         "diag.r.top_n_seek=disabled",
         "diag.r.index_range_limit_pushdown=disabled",
         "diag.r.limit_stop_after=disabled(no_limit)",
-        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.predicate_stage=residual_runtime",
         "diag.r.residual_filter_shape=predicate",
         "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
         "diag.r.load_order_route_mode=materialized_fallback",

@@ -11,6 +11,7 @@ mod sql_harness;
 mod sql_perf_baseline;
 mod sql_perf_environment;
 mod sql_perf_instrumentation;
+mod sql_perf_measurement;
 mod sql_perf_p1_shard;
 mod sql_perf_p2;
 mod sql_perf_p2_confirmation;
@@ -64,6 +65,9 @@ use crate::sql_perf_instrumentation::{
     INSTRUMENTATION_SENTINEL_SCENARIO_ID, InstrumentationPathSample,
     build_instrumentation_calibration_report, read_instrumentation_calibration_report,
     write_instrumentation_calibration_report,
+};
+use crate::sql_perf_measurement::{
+    PerformanceMeasurementCoverage, PerformanceMeasurementStatus, current_measurement_coverage,
 };
 use crate::sql_perf_p1_shard::{
     P1ShardArtifactError, P1ShardMergeError, P1ShardReport, build_p1_shard_report,
@@ -529,6 +533,7 @@ struct MatrixReport {
     broad_scan_complete: bool,
     canister_wasm_profile: String,
     environment: PerfEnvironmentIdentity,
+    measurement_coverage: PerformanceMeasurementCoverage,
     declared_scenario_count: usize,
     successful_scenario_count: usize,
     failed_scenario_count: usize,
@@ -565,6 +570,8 @@ enum MatrixReportValidationError {
     InvalidEnvironment(crate::sql_perf_environment::PerfEnvironmentError),
     /// The report's phase-ownership table differs from the current schema.
     PhaseOwnershipDrift,
+    /// The report's measured/unmeasured resource table differs from current authority.
+    MeasurementCoverageDrift,
     /// One sample's serialized reconciliation differs from its raw counters.
     PhaseReconciliationDrift(String),
     /// The report's declared scenario count differs from the profile.
@@ -621,6 +628,9 @@ impl std::fmt::Display for MatrixReportValidationError {
             Self::PhaseOwnershipDrift => {
                 formatter.write_str("performance phase-ownership table drifted")
             }
+            Self::MeasurementCoverageDrift => {
+                formatter.write_str("performance measurement coverage drifted")
+            }
             Self::PhaseReconciliationDrift(scenario_id) => write!(
                 formatter,
                 "performance phase reconciliation drifted for scenario {scenario_id:?}",
@@ -659,6 +669,7 @@ impl std::error::Error for MatrixReportValidationError {
             | Self::IncompleteBroadScan
             | Self::UnsupportedWasmProfile(_)
             | Self::PhaseOwnershipDrift
+            | Self::MeasurementCoverageDrift
             | Self::PhaseReconciliationDrift(_)
             | Self::DeclaredScenarioCount { .. }
             | Self::SuccessfulScenarioCount { .. }
@@ -2873,6 +2884,7 @@ fn validate_matrix_report_for_publication(
     if report.phase_ownership != current_phase_ownership() {
         return Err(MatrixReportValidationError::PhaseOwnershipDrift);
     }
+    validate_matrix_measurement_coverage(report.measurement_coverage)?;
     if report.declared_scenario_count != profile.expected_scenario_count() {
         return Err(MatrixReportValidationError::DeclaredScenarioCount {
             expected: profile.expected_scenario_count(),
@@ -2936,6 +2948,16 @@ fn validate_matrix_report_for_publication(
             .map_err(MatrixReportValidationError::InvalidReceipts)?;
     if report.p1_shard_receipts != expected_receipts {
         return Err(MatrixReportValidationError::ReceiptOutcomeDrift);
+    }
+
+    Ok(())
+}
+
+fn validate_matrix_measurement_coverage(
+    coverage: PerformanceMeasurementCoverage,
+) -> Result<(), MatrixReportValidationError> {
+    if coverage != current_measurement_coverage() {
+        return Err(MatrixReportValidationError::MeasurementCoverageDrift);
     }
 
     Ok(())
@@ -3057,6 +3079,7 @@ fn matrix_markdown(report: &MatrixReport) -> String {
     .expect("write to string should succeed");
     writeln!(output).expect("write to string should succeed");
 
+    append_measurement_coverage_table(&mut output, report.measurement_coverage);
     append_phase_ownership_table(&mut output, &report.phase_ownership);
     append_p1_shard_receipt_table(&mut output, &report.p1_shard_receipts);
     append_instruction_hotspot_tables(&mut output, &report.samples);
@@ -3065,6 +3088,21 @@ fn matrix_markdown(report: &MatrixReport) -> String {
     append_failure_table(&mut output, &report.failures);
 
     output
+}
+
+fn append_measurement_coverage_table(
+    output: &mut String,
+    coverage: PerformanceMeasurementCoverage,
+) {
+    writeln!(output, "## Measurement Coverage").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(output, "| Dimension | Status |").expect("write to string should succeed");
+    writeln!(output, "|---|---|").expect("write to string should succeed");
+    for (dimension, status) in coverage.entries() {
+        writeln!(output, "| `{dimension}` | `{}` |", status.code())
+            .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
 }
 
 fn append_phase_ownership_table(output: &mut String, ownership: &PhaseOwnershipTable) {
@@ -4626,6 +4664,7 @@ fn test_matrix_report(samples: Vec<MatrixSample>, failures: Vec<MatrixFailure>) 
         broad_scan_complete: false,
         canister_wasm_profile: "wasm-release".to_string(),
         environment: crate::sql_perf_environment::tests::identity(),
+        measurement_coverage: current_measurement_coverage(),
         declared_scenario_count,
         successful_scenario_count: samples.len(),
         failed_scenario_count: failures.len(),
@@ -4668,6 +4707,17 @@ fn sql_perf_matrix_report_decoding_is_strict_and_size_bounded() {
 }
 
 #[test]
+fn sql_perf_matrix_markdown_reports_measured_and_unmeasured_resources() {
+    let markdown = matrix_markdown(&test_matrix_report(Vec::new(), Vec::new()));
+
+    assert!(markdown.contains("| `instruction_attribution` | `measured` |"));
+    assert!(markdown.contains("| `projected_blob_output_bytes` | `measured` |"));
+    assert!(markdown.contains("| `peak_heap_bytes` | `not_measured` |"));
+    assert!(markdown.contains("| `allocator_traffic_bytes` | `not_measured` |"));
+    assert!(markdown.contains("| `stable_memory_byte_volume` | `not_measured` |"));
+}
+
+#[test]
 fn sql_perf_matrix_publication_requires_complete_current_profile_evidence() {
     let scenarios = deterministic_matrix();
     let samples = scenarios
@@ -4699,6 +4749,7 @@ fn sql_perf_matrix_publication_requires_complete_current_profile_evidence() {
         broad_scan_complete: true,
         canister_wasm_profile: CanisterWasmProfile::WasmRelease.as_str().to_string(),
         environment: crate::sql_perf_environment::tests::identity(),
+        measurement_coverage: current_measurement_coverage(),
         declared_scenario_count: samples.len(),
         successful_scenario_count: samples.len(),
         failed_scenario_count: 0,
@@ -4710,6 +4761,12 @@ fn sql_perf_matrix_publication_requires_complete_current_profile_evidence() {
 
     validate_matrix_report_for_publication(&report)
         .expect("complete current-profile report should be publishable");
+    report.measurement_coverage.peak_heap_bytes = PerformanceMeasurementStatus::Measured;
+    assert!(matches!(
+        validate_matrix_report_for_publication(&report),
+        Err(MatrixReportValidationError::MeasurementCoverageDrift)
+    ));
+    report.measurement_coverage = current_measurement_coverage();
     report.samples[0]
         .total_phase_reconciliation
         .unaccounted_local_instructions = 1;
@@ -5466,6 +5523,7 @@ fn sql_perf_p1_merges_saved_shards() {
         broad_scan_complete: true,
         canister_wasm_profile: matrix_canister_wasm_profile().as_str().to_string(),
         environment: merged.environment.clone(),
+        measurement_coverage: current_measurement_coverage(),
         declared_scenario_count: declared_ids.len(),
         successful_scenario_count,
         failed_scenario_count,

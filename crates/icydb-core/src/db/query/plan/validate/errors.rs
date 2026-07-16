@@ -289,7 +289,7 @@ pub enum GroupPlanError {
         aggregate_count: usize,
     },
 
-    /// DISTINCT grouped terminal kinds are intentionally conservative in v1.
+    /// DISTINCT grouped terminal kinds outside the admitted set are unsupported.
     DistinctAggregateKindUnsupported {
         index: usize,
         kind: Option<AggregateKind>,
@@ -308,7 +308,7 @@ pub enum GroupPlanError {
     /// Global DISTINCT SUM requires a numeric field target.
     GlobalDistinctSumTargetNotNumeric { index: usize, field: String },
 
-    /// Field-target grouped terminals are not enabled in grouped execution v1.
+    /// Field-target grouped terminals are not enabled in grouped execution.
     FieldTargetAggregatesUnsupported {
         index: usize,
         kind: AggregateKind,

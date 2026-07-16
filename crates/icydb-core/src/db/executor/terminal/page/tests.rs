@@ -86,26 +86,6 @@ fn retained_slot_row_indexed_layout_uses_shared_slot_lookup() {
 }
 
 #[test]
-fn residual_filter_scan_mode_fails_closed_by_row_capability() {
-    assert_eq!(
-        ResidualFilterScanMode::from_plan_and_layout(false, None, None),
-        ResidualFilterScanMode::Absent
-    );
-    assert_eq!(
-        ResidualFilterScanMode::from_plan_and_layout(true, None, None),
-        ResidualFilterScanMode::DeferredPostAccess
-    );
-    assert_eq!(
-        ResidualFilterScanMode::from_plan_and_layout(
-            true,
-            Some(&RetainedSlotLayout::compile(2, vec![0])),
-            None,
-        ),
-        ResidualFilterScanMode::AppliedDuringScan
-    );
-}
-
-#[test]
 fn scalar_materialization_lane_metrics_capture_direct_and_kernel_paths() {
     let layout = RetainedSlotLayout::compile(8, vec![1, 3, 5]);
 

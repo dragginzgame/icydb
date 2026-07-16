@@ -72,8 +72,6 @@ pub(in crate::db::executor) use covering::{
     map_covering_projection_pairs,
 };
 pub(super) use delete::DeleteExecutor;
-#[cfg(feature = "sql")]
-pub(in crate::db) use delete::DeleteProjectionBounds;
 pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
 #[cfg(all(test, feature = "sql-explain"))]
@@ -137,8 +135,6 @@ pub(in crate::db::executor) use profiling::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) use projection::PreparedProjectionPlan;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 #[cfg(all(test, feature = "sql"))]
@@ -147,7 +143,7 @@ pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
-    StructuralProjectionRequest, execute_structural_projection_result,
+    StructuralProjectionRequest, execute_structural_projection_rows,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use projection::{

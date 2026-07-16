@@ -564,15 +564,6 @@ impl CompareFieldsPredicate {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "UnsupportedQueryFeature\n\nPolicy-level query features intentionally rejected by the engine."
-)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum UnsupportedQueryFeature {
-    MapPredicate { field: String },
-}
-
 ///
 /// TESTS
 ///

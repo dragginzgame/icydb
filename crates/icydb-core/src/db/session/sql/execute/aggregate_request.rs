@@ -17,11 +17,6 @@ use crate::db::{
     },
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SqlAggregateTerminalBuildError {
-    UnsupportedStrategyDrift,
-}
-
 pub(super) struct PreparedAggregateRequestBundle {
     request: StructuralAggregateRequest,
     projection: SqlProjectionContract,
@@ -37,10 +32,7 @@ impl PreparedAggregateRequestBundle {
             .strategies()
             .iter()
             .cloned()
-            .map(|strategy| {
-                build_structural_aggregate_terminal_from_sql_strategy(strategy)
-                    .map_err(|_err| QueryError::invariant())
-            })
+            .map(build_structural_aggregate_terminal_from_sql_strategy)
             .collect::<Result<Vec<_>, _>>()?;
         let request = StructuralAggregateRequest::new(
             terminals,
@@ -69,7 +61,7 @@ impl PreparedAggregateRequestBundle {
 // the session boundary so SQL lowering stays executor-neutral.
 fn build_structural_aggregate_terminal_from_sql_strategy(
     strategy: PreparedSqlScalarAggregateStrategy,
-) -> Result<StructuralAggregateTerminal, SqlAggregateTerminalBuildError> {
+) -> Result<StructuralAggregateTerminal, QueryError> {
     let (descriptor, target_slot, input_expr, filter_expr, distinct_input) =
         strategy.into_structural_terminal_inputs();
 
@@ -94,7 +86,7 @@ fn build_structural_aggregate_terminal_from_sql_strategy(
         } => StructuralAggregateTerminalKind::Max,
         PreparedSqlScalarAggregatePlanFragment::NumericField { .. }
         | PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField { .. } => {
-            return Err(SqlAggregateTerminalBuildError::UnsupportedStrategyDrift);
+            return Err(QueryError::invariant());
         }
     };
 

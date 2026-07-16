@@ -47,8 +47,7 @@ pub(super) fn record_grouped_plan_metrics(
     record_plan_choice_reason(entity_path, plan);
 }
 
-// Project the exact top-level access shape while the metrics sink keeps the
-// older coarse counter groups populated for existing dashboards.
+// Project the exact top-level access shape into the canonical metrics taxonomy.
 fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
     match access {
         AccessPlan::Path(path) => match path.kind() {

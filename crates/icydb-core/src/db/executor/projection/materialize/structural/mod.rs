@@ -43,10 +43,10 @@ impl MaterializedProjectionRows {
         Self(Vec::new())
     }
 
-    /// Return the number of materialized structural projection rows.
+    /// Return the number of materialized rows in the public response width.
     #[must_use]
-    pub(in crate::db::executor) const fn len(&self) -> usize {
-        self.0.len()
+    pub(in crate::db) fn row_count(&self) -> u32 {
+        u32::try_from(self.0.len()).unwrap_or(u32::MAX)
     }
 
     /// Borrow the materialized structural projection row values.

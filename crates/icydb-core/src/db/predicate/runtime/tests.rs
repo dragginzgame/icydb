@@ -338,11 +338,11 @@ fn scalar_predicate_not_bool_equality_treats_null_and_missing_as_not_true_or_fal
         "IS NOT FALSE should treat null as not false under the current predicate runtime",
     );
     assert!(
-        is_not_true_program.eval_with_slot_value_ref_reader(&mut |_| None),
+        is_not_true_program.eval_with_slot_value_cow_reader(&mut |_| None),
         "IS NOT TRUE should treat missing values as not true under the current predicate runtime",
     );
     assert!(
-        is_not_false_program.eval_with_slot_value_ref_reader(&mut |_| None),
+        is_not_false_program.eval_with_slot_value_cow_reader(&mut |_| None),
         "IS NOT FALSE should treat missing values as not false under the current predicate runtime",
     );
 }
@@ -427,21 +427,8 @@ fn predicate_program_accepts_mixed_cow_slot_readers() {
     assert!(program.eval_with_slot_value_cow_reader(&mut read_slot));
 }
 
-// Evaluate one compiled predicate through the generic borrowed-value executable
-// path. Scalar dispatch tests use this as the non-optimized baseline for the
-// same executable tree.
-fn eval_program_with_ref_values(program: &PredicateProgram, values: &[(usize, Value)]) -> bool {
-    let mut read_slot = |slot| {
-        values
-            .iter()
-            .find_map(|(candidate, value)| (*candidate == slot).then_some(value))
-    };
-
-    program.eval_with_slot_value_ref_reader(&mut read_slot)
-}
-
 // Evaluate one compiled predicate through the generic Cow executable path so
-// fallback predicates are locked against both generic row-reader variants.
+// fallback predicates are checked against the surviving mixed-value reader.
 fn eval_program_with_cow_values(program: &PredicateProgram, values: &[(usize, Value)]) -> bool {
     let mut read_slot = |slot| {
         values
@@ -548,7 +535,7 @@ fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
         let scalar_result = program
             .eval_with_structural_slot_reader(&slots)
             .unwrap_or_else(|err| panic!("{context} scalar evaluation should succeed: {err}"));
-        let generic_result = eval_program_with_ref_values(&program, &values);
+        let generic_result = eval_program_with_cow_values(&program, &values);
 
         assert_eq!(
             scalar_result, generic_result,
@@ -558,7 +545,7 @@ fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
 }
 
 #[test]
-fn generic_predicate_program_value_readers_match_for_fallback_shapes() {
+fn generic_predicate_program_cow_reader_executes_fallback_shapes() {
     let cases = [
         (
             "numeric widening fallback",
@@ -599,10 +586,9 @@ fn generic_predicate_program_value_readers_match_for_fallback_shapes() {
             "{context} should stay on generic predicate dispatch",
         );
 
-        assert_eq!(
-            eval_program_with_ref_values(&program, &values),
+        assert!(
             eval_program_with_cow_values(&program, &values),
-            "{context} borrowed and Cow generic readers should preserve the same predicate result",
+            "{context} should match through the generic Cow reader",
         );
     }
 }

@@ -10,7 +10,7 @@ pub use icydb_testing_test_fixtures::macro_test::relation::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::model::field::{FieldKind, RelationEnforcement};
+    use icydb::model::field::FieldKind;
     use icydb::traits::{EntityDeclaration, EntityKey};
 
     fn assert_entity_key_type<T>()
@@ -41,8 +41,8 @@ mod tests {
     }
 
     #[test]
-    fn relation_enforcement_defaults_to_enforced_and_requires_explicit_unchecked_opt_out() {
-        let relation_enforcement = |field_name| {
+    fn relation_declarations_retain_target_metadata() {
+        let relation_target = |field_name| {
             let field = HasRelation::MODEL
                 .fields()
                 .iter()
@@ -50,14 +50,16 @@ mod tests {
                 .expect("relation field should be present");
 
             match field.kind() {
-                FieldKind::Relation { enforcement, .. } => enforcement,
+                FieldKind::Relation {
+                    target_entity_name, ..
+                } => target_entity_name,
                 _ => panic!("relation field should retain relation metadata"),
             }
         };
 
-        assert_eq!(relation_enforcement("a_id"), RelationEnforcement::Enforced);
-        assert_eq!(relation_enforcement("b_id"), RelationEnforcement::Enforced);
-        assert_eq!(relation_enforcement("c_id"), RelationEnforcement::Unchecked);
+        assert_eq!(relation_target("a_id"), "EntityA");
+        assert_eq!(relation_target("b_id"), "EntityB");
+        assert_eq!(relation_target("c_id"), "EntityC");
     }
 
     #[test]

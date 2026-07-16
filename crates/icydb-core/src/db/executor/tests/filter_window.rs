@@ -1,6 +1,6 @@
-//! Module: db::executor::tests::post_access
-//! Covers post-access predicate filtering and paging behavior.
-//! Does not own: unrelated executor orchestration outside post-access filtering.
+//! Module: db::executor::tests::filter_window
+//! Covers load scan-time filtering and delete filter/order/window behavior.
+//! Does not own: unrelated executor orchestration outside these execution phases.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::support::*;
@@ -10,7 +10,7 @@ use crate::{
 };
 
 #[test]
-fn load_filter_after_access_with_optional_equality() {
+fn load_optional_equality_filter_keeps_only_matching_rows() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -71,7 +71,7 @@ fn load_filter_after_access_with_optional_equality() {
 }
 
 #[test]
-fn load_in_and_text_ops_respect_ordered_pagination() {
+fn load_combined_filters_respect_ordered_pagination() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -148,7 +148,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
 }
 
 #[test]
-fn load_contains_filters_after_by_id_access() {
+fn load_contains_filter_applies_to_primary_key_candidates() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 

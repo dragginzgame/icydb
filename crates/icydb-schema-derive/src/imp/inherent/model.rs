@@ -4,7 +4,7 @@
 //! Boundary: parsed nodes to impl tokens.
 
 use crate::{
-    node::{Field, Item, ItemTarget, RelationEnforcement, Value},
+    node::{Field, Item, ItemTarget, Value},
     prelude::quote_option,
 };
 use icydb_schema::types::{Cardinality, Primitive};
@@ -81,15 +81,6 @@ pub(crate) fn model_kind_from_item(item: &Item) -> TokenStream {
         return key_kind;
     };
 
-    let enforcement = match item.relation_enforcement() {
-        RelationEnforcement::Enforced => {
-            quote!(::icydb::model::field::RelationEnforcement::Enforced)
-        }
-        RelationEnforcement::Unchecked => {
-            quote!(::icydb::model::field::RelationEnforcement::Unchecked)
-        }
-    };
-
     quote! {
         ::icydb::model::field::FieldKind::Relation {
             target_path: <#target as ::icydb::__macro::Path>::PATH,
@@ -98,7 +89,6 @@ pub(crate) fn model_kind_from_item(item: &Item) -> TokenStream {
             target_store_path:
                 <<#target as ::icydb::__macro::EntityPlacement>::Store as ::icydb::__macro::Path>::PATH,
             key_kind: &#key_kind,
-            enforcement: #enforcement,
         }
     }
 }
@@ -185,31 +175,21 @@ fn model_kind_from_primitive(
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, Primitive, RelationEnforcement, model_kind_from_item};
+    use super::{Item, Primitive, model_kind_from_item};
 
-    fn relation_item(enforcement: Option<RelationEnforcement>) -> Item {
+    fn relation_item() -> Item {
         Item {
             primitive: Some(Primitive::Ulid),
             relation: Some(syn::parse_quote!(Target)),
-            enforcement,
             ..Item::default()
         }
     }
 
     #[test]
-    fn relation_model_kind_defaults_to_enforced() {
-        let tokens = model_kind_from_item(&relation_item(None)).to_string();
+    fn relation_model_kind_retains_target_metadata() {
+        let tokens = model_kind_from_item(&relation_item()).to_string();
 
-        assert!(tokens.contains("RelationEnforcement :: Enforced"));
-        assert!(!tokens.contains("RelationEnforcement :: Unchecked"));
-    }
-
-    #[test]
-    fn relation_model_kind_requires_explicit_unchecked_opt_out() {
-        let tokens =
-            model_kind_from_item(&relation_item(Some(RelationEnforcement::Unchecked))).to_string();
-
-        assert!(tokens.contains("RelationEnforcement :: Unchecked"));
-        assert!(!tokens.contains("RelationEnforcement :: Enforced"));
+        assert!(tokens.contains("FieldKind :: Relation"));
+        assert!(tokens.contains("target_entity_name"));
     }
 }

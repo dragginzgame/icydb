@@ -205,6 +205,81 @@ make fmt        # format workspace
 make build      # release workspace build; requires a clean worktree
 ```
 
+### SQL Evidence Commands
+
+Run the compact native generated and bundled-SQLite comparisons without the
+live canister boundary with:
+
+```bash
+cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::sqlite_reference
+cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::mutation_reference
+cargo test --locked -p icydb-testing-integration --test sql_correctness
+```
+
+Run the generated live-canister SQL boundary separately with:
+
+```bash
+make test-sql-canister-matrix
+```
+
+The complete Tier C native profile is a scheduled eight-shard lane. Run one
+exact shard locally with:
+
+```bash
+make test-sql-tier-c-shard TIER_C_SHARD=0
+```
+
+Run all shard indexes from `0` through `7` into the same
+`TIER_C_ARTIFACT_DIR`, then require their exact clean merge with:
+
+```bash
+make test-sql-tier-c-merge
+```
+
+When a generated SELECT or mutation case fails, the shard first writes its
+bounded minimized replay under `failures/failure.<blake3>.json`, then writes a
+red receipt referencing that exact identity, and finally fails the command.
+Keep the artifact directory when diagnosing a red shard. Merge reopens every
+referenced failure artifact and rejects scenario or content-identity drift.
+Reproduce one retained minimized failure, including its exact typed signature
+and provider outcomes, with:
+
+```bash
+make test-sql-tier-c-replay TIER_C_FAILURE_ARTIFACT=/path/to/failure.HEX_DIGEST.json
+```
+
+The replay command passes only while the minimized failure reproduces exactly.
+It fails when the defect no longer reproduces or its typed signature or outcomes
+have drifted.
+
+The merge does not execute missing scenarios or reconstruct missing receipts.
+It writes both the exact merged receipt and a strict coverage-distribution
+artifact recomputed from the same typed native catalog; mixed mutation sequences
+contribute every statement and mutation family they actually contain.
+
+Scheduled performance evidence is a separate workflow. Run all eight P1 and
+scale shards before the P1 merge, use its exact candidate artifact for all eight
+P2 shards, then merge P2:
+
+```bash
+make test-sql-perf-p1-shard P1_SHARD=0
+make test-sql-perf-scale-shard SCALE_SHARD=0
+make test-sql-perf-p1-merge
+make test-sql-perf-p2-shard P2_SHARD=0
+make test-sql-perf-p2-merge
+make test-sql-perf-instrumentation
+```
+
+Replace `0` with every shard index through `7` before each merge. Compare a
+reviewed baseline only after exact current P2 and scale reports exist:
+
+```bash
+make test-sql-perf-baseline P2_BASELINE_PATH=... SCALE_BASELINE_PATH=...
+```
+
+Performance artifacts and verdicts cannot satisfy correctness obligations, and
+correctness success cannot substitute for missing performance evidence.
+
 ## Local SQL Demo
 
 The repository includes a demo RPG canister with SQL-visible `character` and

@@ -14,8 +14,7 @@ use crate::{
         data::RawDataStoreKey,
         identity::EntityName,
         schema::{
-            AcceptedFieldKind, AcceptedRelationEnforcement, classify_accepted_field_kind,
-            ensure_accepted_schema_snapshot,
+            AcceptedFieldKind, classify_accepted_field_kind, ensure_accepted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -34,16 +33,16 @@ pub(in crate::db) use metadata::{
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
 };
-pub(in crate::db) use save_validate::validate_save_strong_relations_with_accepted_contract;
-pub(in crate::db) use validate::validate_delete_strong_relations_for_source;
+pub(in crate::db) use save_validate::validate_save_relations_with_accepted_contract;
+pub(in crate::db) use validate::validate_delete_relations_for_source;
 
 ///
-/// StrongRelationDeleteValidateFn
+/// RelationDeleteValidateFn
 ///
-/// Function-pointer contract for delete-side strong relation validators.
+/// Function-pointer contract for delete-side relation validators.
 ///
 
-pub(in crate::db) type StrongRelationDeleteValidateFn<C> =
+pub(in crate::db) type RelationDeleteValidateFn<C> =
     fn(&Db<C>, &str, &BTreeSet<RawDataStoreKey>) -> Result<(), InternalError>;
 
 ///
@@ -91,7 +90,6 @@ struct AcceptedRelationTargetMetadata<'a> {
     target_entity_tag: EntityTag,
     target_store_path: &'a str,
     scalar_target_key_kind: &'a AcceptedFieldKind,
-    enforcement: AcceptedRelationEnforcement,
     cardinality: AcceptedRelationCardinality,
 }
 
@@ -148,7 +146,7 @@ where
         accepted_relation_target_contract(db, source_path, relation_name, target_path)?;
     let target_kinds = target_contract.primary_key_kinds();
     if local_components.len() != target_kinds.len() {
-        return Err(InternalError::strong_relation_target_identity_mismatch(
+        return Err(InternalError::relation_target_identity_mismatch(
             source_path,
             relation_name,
             target_path,
@@ -163,7 +161,7 @@ where
     for (local, target_kind) in local_components.iter().zip(target_kinds) {
         let local_kind = relation_local_component_key_kind(local.kind);
         if local_kind != target_kind {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
+            return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 relation_name,
                 target_path,
@@ -194,7 +192,7 @@ impl AcceptedRelationScalarTargetDescriptor {
     }
 }
 
-fn accepted_strong_scalar_relation_target_descriptor<C>(
+fn accepted_scalar_relation_target_descriptor<C>(
     db: &Db<C>,
     source_path: &str,
     diagnostic_relation_name: &str,
@@ -208,9 +206,6 @@ where
     let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
         return Ok(None);
     };
-    if target.enforcement != AcceptedRelationEnforcement::Enforced {
-        return Ok(None);
-    }
     if let Some(edge_target_path) = expected_edge_target_path
         && target.target_path != edge_target_path
     {
@@ -307,7 +302,7 @@ fn validate_accepted_relation_primary_key_kinds(
     accepted_key_kinds: &[AcceptedFieldKind],
 ) -> Result<(), InternalError> {
     if accepted_key_kinds.len() != relation_key_kinds.len() {
-        return Err(InternalError::strong_relation_target_identity_mismatch(
+        return Err(InternalError::relation_target_identity_mismatch(
             source_path,
             relation_name,
             target_path,
@@ -322,7 +317,7 @@ fn validate_accepted_relation_primary_key_kinds(
     for (accepted_key_kind, relation_key_kind) in accepted_key_kinds.iter().zip(relation_key_kinds)
     {
         if accepted_key_kind != relation_key_kind {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
+            return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 relation_name,
                 target_path,
@@ -349,7 +344,6 @@ fn accepted_relation_target_metadata_from_kind(
             target_entity_tag,
             target_store_path,
             key_kind,
-            enforcement,
         } = kind
         else {
             return None;
@@ -361,7 +355,6 @@ fn accepted_relation_target_metadata_from_kind(
             target_entity_tag: *target_entity_tag,
             target_store_path,
             scalar_target_key_kind: key_kind.as_ref(),
-            enforcement: *enforcement,
             cardinality,
         })
     }
@@ -424,7 +417,7 @@ impl AcceptedRelationTargetAuthority {
         target_store_path: &str,
     ) -> Result<Self, InternalError> {
         let entity_name = EntityName::try_from_str(target_entity_name).map_err(|err| {
-            InternalError::strong_relation_target_name_invalid(
+            InternalError::relation_target_name_invalid(
                 source_path,
                 field_name,
                 target_path,
@@ -473,7 +466,7 @@ impl AcceptedRelationTargetAuthority {
         let hook = db
             .runtime_hook_for_entity_tag(self.entity_tag)
             .map_err(|err| {
-                InternalError::strong_relation_target_identity_mismatch(
+                InternalError::relation_target_identity_mismatch(
                     source_path,
                     field_name,
                     self.path.as_str(),
@@ -485,7 +478,7 @@ impl AcceptedRelationTargetAuthority {
             })?;
 
         if hook.entity_path != self.path {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
+            return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 field_name,
                 self.path.as_str(),
@@ -499,7 +492,7 @@ impl AcceptedRelationTargetAuthority {
         }
 
         if hook.model.name() != self.entity_name.as_str() {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
+            return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 field_name,
                 self.path.as_str(),
@@ -513,7 +506,7 @@ impl AcceptedRelationTargetAuthority {
         }
 
         if hook.store_path != self.store_path {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
+            return Err(InternalError::relation_target_identity_mismatch(
                 source_path,
                 field_name,
                 self.path.as_str(),
@@ -542,8 +535,8 @@ impl InternalError {
         Self::executor_unsupported()
     }
 
-    /// Construct the canonical strong-relation invalid target-name error.
-    pub(in crate::db::relation) fn strong_relation_target_name_invalid(
+    /// Construct the canonical relation invalid target-name error.
+    pub(in crate::db::relation) fn relation_target_name_invalid(
         _source_path: &str,
         _field_name: &str,
         _target_path: &str,
@@ -553,8 +546,8 @@ impl InternalError {
         Self::executor_internal()
     }
 
-    /// Construct the canonical strong-relation target identity mismatch error.
-    pub(in crate::db::relation) fn strong_relation_target_identity_mismatch(
+    /// Construct the canonical relation target identity mismatch error.
+    pub(in crate::db::relation) fn relation_target_identity_mismatch(
         _source_path: &str,
         _field_name: &str,
         _target_path: &str,
@@ -563,8 +556,8 @@ impl InternalError {
         Self::executor_internal()
     }
 
-    /// Construct the canonical save-time strong-relation missing-target error.
-    pub(in crate::db::relation) fn strong_relation_target_missing(
+    /// Construct the canonical save-time relation missing-target error.
+    pub(in crate::db::relation) fn relation_target_missing(
         _source_path: &'static str,
         _field_name: &str,
         _target_path: &str,
@@ -573,20 +566,8 @@ impl InternalError {
         Self::executor_unsupported()
     }
 
-    /// Construct the canonical save-time strong-relation missing-store error.
-    pub(in crate::db::relation) fn strong_relation_target_store_missing(
-        _source_path: &'static str,
-        _field_name: &str,
-        _target_path: &str,
-        _target_store_path: &str,
-        _value: &Value,
-        _err: impl Display,
-    ) -> Self {
-        Self::executor_internal()
-    }
-
-    /// Construct the canonical capability-based strong relation target policy error.
-    pub(in crate::db::relation) fn strong_relation_volatile_target_unsupported(
+    /// Construct the canonical capability-based relation target policy error.
+    pub(in crate::db::relation) fn relation_volatile_target_unsupported(
         _source_path: &'static str,
         _field_name: &str,
         _target_path: &str,
@@ -626,11 +607,7 @@ mod tests {
     use super::{
         validate_accepted_relation_primary_key_kinds, validate_relation_primary_key_component_kind,
     };
-    use crate::{
-        db::schema::{AcceptedFieldKind, AcceptedRelationEnforcement},
-        error::ErrorClass,
-        types::EntityTag,
-    };
+    use crate::{db::schema::AcceptedFieldKind, error::ErrorClass, types::EntityTag};
 
     fn relation_key_kind(key_kind: AcceptedFieldKind) -> AcceptedFieldKind {
         AcceptedFieldKind::Relation {
@@ -639,7 +616,6 @@ mod tests {
             target_entity_tag: EntityTag::new(11),
             target_store_path: "TargetStore".to_string(),
             key_kind: Box::new(key_kind),
-            enforcement: AcceptedRelationEnforcement::Enforced,
         }
     }
 

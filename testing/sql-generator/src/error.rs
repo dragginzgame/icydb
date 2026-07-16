@@ -20,6 +20,9 @@ pub enum SqlGeneratorErrorKind {
     /// A configured artifact, fixture, expression, or evaluation budget was exceeded.
     Budget,
 
+    /// Checked-in regression corpus JSON was malformed, stale, or non-canonical.
+    CanonicalCorpus,
+
     /// Canonical replay JSON was malformed, non-canonical, or used an unknown version.
     CanonicalReplay,
 

@@ -73,7 +73,6 @@ fn compile_retained_slot_layout(
 ) -> Result<Option<RetainedSlotLayout>, InternalError> {
     let row_layout = authority.row_layout_ref()?;
     let mut required_slots = RetainedSlotRequirements::new(row_layout.field_count());
-    let residual_filter_program = plan.effective_runtime_filter_program();
 
     // Phase 1: projection validation needs complete values for diagnostics.
     // Retained-slot projection materialization can keep exact
@@ -114,16 +113,6 @@ fn compile_retained_slot_layout(
         && let Some(index_compile_targets) = plan.index_compile_targets()
     {
         required_slots.mark_index_compile_target_slots(index_compile_targets);
-    }
-
-    // Phase 4: scan-time residual filters read directly from the opened raw
-    // row. Only retain filter slots as a compatibility fallback when no later
-    // slot consumer would otherwise create a retained layout for the scan.
-    if let Some(filter_program) = residual_filter_program
-        && !retain_slot_rows
-        && required_slots.is_empty()
-    {
-        filter_program.mark_referenced_slots(required_slots.flags_mut());
     }
 
     let (required_slots, value_modes) = required_slots.into_slots_and_value_modes();
@@ -206,12 +195,6 @@ impl RetainedSlotRequirements {
         }
     }
 
-    // Borrow the raw bitset when an existing helper already knows how to mark
-    // referenced slots in place.
-    const fn flags_mut(&mut self) -> &mut [bool] {
-        self.flags.as_mut_slice()
-    }
-
     // Mark one iterator of already-resolved field slots as required.
     fn mark_slots(&mut self, slots: impl IntoIterator<Item = usize>) {
         for slot in slots {
@@ -221,7 +204,7 @@ impl RetainedSlotRequirements {
 
     // Mark one slot as requiring normal value materialization. Normal wins
     // over length-only materialization when another phase needs the real
-    // scalar value for filtering, ordering, cursor emission, or validation.
+    // scalar value for projection, ordering, cursor emission, or validation.
     fn mark_slot(&mut self, slot: usize) {
         if let Some(required) = self.flags.get_mut(slot) {
             *required = true;
@@ -243,15 +226,6 @@ impl RetainedSlotRequirements {
         if let Some(octet_length) = self.octet_length_flags.get_mut(slot) {
             *octet_length = true;
         }
-    }
-
-    // Return whether the layout currently retains no slot values.
-    fn is_empty(&self) -> bool {
-        self.flags.iter().all(|required| !required)
-            && self
-                .octet_length_flags
-                .iter()
-                .all(|octet_length| !octet_length)
     }
 
     // Mark the slots needed to reconstruct index-range cursor anchors from the

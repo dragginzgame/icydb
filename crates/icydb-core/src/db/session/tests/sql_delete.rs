@@ -567,11 +567,7 @@ fn delete_returning_structural_row_bound_rejects_before_commit() {
         .expect("DELETE RETURNING query plan should prepare");
     let result = session
         .delete_executor::<SessionSqlEntity>()
-        .execute_structural_projection_with_bounds(
-            plan,
-            crate::db::executor::DeleteProjectionBounds::max_rows(1),
-            |_| Ok(()),
-        );
+        .execute_structural_projection_with_bounds(plan, Some(1), |_| Ok(()));
     let Err(err) = result else {
         panic!("row-bound DELETE RETURNING should reject before commit");
     };

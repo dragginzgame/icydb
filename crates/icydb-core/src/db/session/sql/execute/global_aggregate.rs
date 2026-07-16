@@ -56,13 +56,12 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_info = catalog.accepted_schema_info_for::<E>();
         let bundle = PreparedAggregateRequestBundle::from_global_command(command, schema_info)?;
         let (request, projection) = bundle.into_parts();
-        let result = self
+        let rows = self
             .with_metrics(|| {
                 self.load_executor::<E>()
-                    .execute_structural_aggregate_result(prepared_plan, request)
+                    .execute_structural_aggregate_rows(prepared_plan, request)
             })
             .map_err(QueryError::execute)?;
-        let rows = result.into_value_rows();
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
         let (columns, fixed_scales) = projection.into_components();
 

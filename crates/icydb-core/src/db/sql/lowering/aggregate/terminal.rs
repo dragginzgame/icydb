@@ -1,11 +1,12 @@
 use crate::db::{
     query::{
         builder::AggregateExpr,
-        plan::{AggregateKind, expr::aggregate_count_input_expr_is_non_null_literal},
+        plan::{
+            AggregateKind, AggregateSemanticKey,
+            expr::aggregate_count_input_expr_is_non_null_literal,
+        },
     },
-    sql::lowering::{
-        AnalyzedLoweredExpr, SqlLoweringError, aggregate::semantics::AggregateTerminalSemanticKey,
-    },
+    sql::lowering::{AnalyzedLoweredExpr, SqlLoweringError},
 };
 
 ///
@@ -31,7 +32,7 @@ pub(in crate::db::sql::lowering::aggregate) enum LoweredAggregateInput {
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminal {
-    semantic_key: AggregateTerminalSemanticKey,
+    semantic_key: AggregateSemanticKey,
     input: LoweredAggregateInput,
     filter_expr: Option<AnalyzedLoweredExpr>,
 }
@@ -39,7 +40,7 @@ pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerm
 impl LoweredSqlGlobalAggregateTerminal {
     pub(in crate::db::sql::lowering::aggregate) fn count_rows() -> Self {
         let aggregate_expr = crate::db::query::builder::aggregate::count();
-        let semantic_key = AggregateTerminalSemanticKey::from_aggregate_expr(&aggregate_expr);
+        let semantic_key = AggregateSemanticKey::from_aggregate_expr(&aggregate_expr);
 
         Self {
             semantic_key,
@@ -53,11 +54,11 @@ impl LoweredSqlGlobalAggregateTerminal {
     // aggregate identity so projection lookup and runtime terminals agree.
     pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr_with_semantic_key(
         aggregate_expr: &AggregateExpr,
-        semantic_key: AggregateTerminalSemanticKey,
+        semantic_key: AggregateSemanticKey,
     ) -> Result<Self, SqlLoweringError> {
         debug_assert_eq!(
             semantic_key,
-            AggregateTerminalSemanticKey::from_aggregate_expr(aggregate_expr),
+            AggregateSemanticKey::from_aggregate_expr(aggregate_expr),
             "global aggregate terminal semantic key must match its aggregate expression",
         );
 
@@ -77,7 +78,7 @@ impl LoweredSqlGlobalAggregateTerminal {
     pub(in crate::db::sql::lowering::aggregate) fn into_parts(
         self,
     ) -> (
-        AggregateTerminalSemanticKey,
+        AggregateSemanticKey,
         LoweredAggregateInput,
         Option<AnalyzedLoweredExpr>,
     ) {

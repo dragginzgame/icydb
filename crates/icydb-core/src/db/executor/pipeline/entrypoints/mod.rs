@@ -17,7 +17,7 @@ use crate::{
             CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
             pipeline::{
                 contracts::{LoadExecutor, StructuralGroupedProjectionResult},
-                orchestrator::{LoadExecutionContext, LoadExecutionPayload, LoadPayloadState},
+                orchestrator::{LoadExecutionPayload, LoadPayloadState},
             },
             terminal::decode_data_rows_into_entity_response,
         },
@@ -27,9 +27,7 @@ use crate::{
     error::InternalError,
 };
 
-pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
-    LoadSurfaceMode, LoadTracingMode,
-};
+pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::LoadSurfaceMode;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use grouped::{GroupedCountAttribution, GroupedExecutePhaseAttribution};
 pub(in crate::db::executor) use grouped::{
@@ -102,11 +100,11 @@ impl PreparedLoadRouteRuntime {
     // scalar or grouped route runtime envelope.
     pub(in crate::db::executor::pipeline) fn execute(
         self,
-        context: LoadExecutionContext,
+        mode: LoadSurfaceMode,
     ) -> Result<LoadPayloadState, InternalError> {
         let (payload, trace) = self.execute_payload()?;
 
-        Ok(LoadPayloadState::new(context, payload, trace))
+        Ok(LoadPayloadState::new(mode, payload, trace))
     }
 }
 
@@ -118,7 +116,7 @@ fn resolve_grouped_perf_cursor(
     crate::db::executor::LoadCursorResolver::resolve_load_cursor_context(
         plan,
         cursor,
-        LoadSurfaceMode::grouped_paged(LoadTracingMode::Enabled),
+        LoadSurfaceMode::GroupedPage,
     )
 }
 

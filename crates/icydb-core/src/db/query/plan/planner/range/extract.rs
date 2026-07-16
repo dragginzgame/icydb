@@ -30,7 +30,7 @@ use std::cmp::Ordering;
 // primary-key subset of one canonical AND-group.
 //
 // Phase 1 intentionally keeps the same safe lower/upper-bound contract as the
-// older PK-range path, but no longer requires unrelated conjuncts to disappear
+// direct PK-range path, but no longer requires unrelated conjuncts to disappear
 // first. That lets mixed `AND` planning keep the valid primary-key range
 // candidate visible when sibling clauses still need residual or secondary-index
 // handling.

@@ -89,7 +89,6 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
                 vec![
                     relation.field().to_string(),
                     relation.target_entity_name().to_string(),
-                    format!("{:?}", relation.enforcement()),
                     format!("{:?}", relation.cardinality()),
                 ]
             })
@@ -99,7 +98,6 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
             &[
                 "field".to_string(),
                 "target".to_string(),
-                "enforcement".to_string(),
                 "cardinality".to_string(),
             ],
             &relation_rows,

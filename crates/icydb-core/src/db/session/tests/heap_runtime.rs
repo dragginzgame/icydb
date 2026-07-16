@@ -239,7 +239,7 @@ fn heap_backed_session_reinit_loses_rows_and_indexes_but_reconciles_live_schema(
 }
 
 #[test]
-fn durable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
+fn durable_source_relation_to_heap_target_rejects_at_runtime_boundary() {
     reset_mixed_heap_relation_stores();
     let session = mixed_heap_relation_sql_session();
     seed_heap_session_entities(&session);
@@ -251,7 +251,7 @@ fn durable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
                 target_id: 1,
             })
         });
-    let err = result.expect_err("durable source strong relation to heap target should fail closed");
+    let err = result.expect_err("durable source relation to heap target should fail closed");
     assert_eq!(err.class(), ErrorClass::Unsupported);
     assert_eq!(
         classes,
@@ -274,45 +274,7 @@ fn durable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
 }
 
 #[test]
-fn durable_source_unchecked_relation_to_heap_target_remains_non_enforcing() {
-    reset_mixed_heap_relation_stores();
-    let session = mixed_heap_relation_sql_session();
-
-    let (result, classes) = capture_mutation_commit_classes(
-        DurableSessionSqlUncheckedSourceToHeapTargetEntity::PATH,
-        || {
-            session.insert(DurableSessionSqlUncheckedSourceToHeapTargetEntity {
-                id: 11,
-                target_id: 9_999,
-            })
-        },
-    );
-    result.expect("unchecked durable-source relation to heap target should remain non-enforcing");
-    assert_eq!(
-        classes,
-        vec![MutationCommitClass::DurableOnly],
-        "a non-enforcing heap target reference must not make the durable source write live-only or mixed",
-    );
-
-    let persisted = session
-        .load::<DurableSessionSqlUncheckedSourceToHeapTargetEntity>()
-        .trusted_read_unchecked()
-        .execute()
-        .and_then(crate::db::LoadQueryResult::into_rows)
-        .expect("unchecked durable-source relation load should succeed")
-        .entities();
-    assert_eq!(
-        persisted,
-        vec![DurableSessionSqlUncheckedSourceToHeapTargetEntity {
-            id: 11,
-            target_id: 9_999,
-        }],
-        "non-strong relation behavior should stay independent of target durability",
-    );
-}
-
-#[test]
-fn heap_source_strong_relation_to_heap_target_keeps_live_validation_semantics() {
+fn heap_source_relation_to_heap_target_keeps_live_validation_semantics() {
     reset_heap_session_sql_store();
     let session = heap_sql_session();
     seed_heap_session_entities(&session);

@@ -3677,7 +3677,7 @@ fn execute_sql_statement_update_unique_conflict_is_statement_atomic() {
 }
 
 #[test]
-fn execute_sql_statement_insert_strong_relation_same_statement_target_stays_committed_only() {
+fn execute_sql_statement_insert_relation_same_statement_target_stays_committed_only() {
     reset_session_sql_store();
     let session = sql_session();
     session
@@ -3691,14 +3691,14 @@ fn execute_sql_statement_insert_strong_relation_same_statement_target_stays_comm
         &session,
         "INSERT INTO SessionSqlSelfRelationEntity (id, parent) VALUES (2, 1)",
         1,
-        "committed strong relation target insert",
+        "committed relation target insert",
     );
 
     execute_sql_statement_for_tests::<SessionSqlSelfRelationEntity>(
         &session,
         "INSERT INTO SessionSqlSelfRelationEntity (id, parent) VALUES (3, 1), (4, 3)",
     )
-    .expect_err("same-statement strong relation target should still be rejected");
+    .expect_err("same-statement relation target should still be rejected");
 
     let persisted = statement_projection_rows::<SessionSqlSelfRelationEntity>(
         &session,

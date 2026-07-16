@@ -41,7 +41,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             &self.db,
             schema_fingerprint,
         )?;
-        let validate_relations = schema.has_any_strong_relations();
+        let validate_relations = schema.has_any_relations();
         let write_context = Self::save_write_context(mode, Timestamp::now());
         let preflight = SavePreflightInputs {
             schema,
@@ -213,7 +213,7 @@ impl<E: PersistedRow> SaveExecutor<E> {
             let mut seen_row_keys = HashSet::with_capacity(reserve_rows);
             let schema = self.accepted_schema_info();
             let schema_fingerprint = self.accepted_schema_fingerprint();
-            let validate_relations = schema.has_any_strong_relations();
+            let validate_relations = schema.has_any_relations();
             let write_context = Self::save_write_context(
                 match save_rule {
                     SaveRule::RequireAbsent => SaveMode::Insert,

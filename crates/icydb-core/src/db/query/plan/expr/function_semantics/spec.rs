@@ -4,9 +4,9 @@ use crate::db::query::plan::expr::{
     Function,
     function_semantics::types::{
         AggregateInputConstantFoldShape, BinaryNumericFunctionKind, BooleanFunctionShape,
-        FieldPredicateFunctionKind, FunctionCategory, FunctionDeterminism, FunctionNullBehavior,
-        FunctionSurface, FunctionTypeInferenceShape, LeftRightTextFunctionKind,
-        NullTestFunctionKind, NumericScaleFunctionKind, NumericSubtype, ScalarEvalFunctionShape,
+        FieldPredicateFunctionKind, FunctionCategory, FunctionNullBehavior, FunctionSurface,
+        FunctionTypeInferenceShape, LeftRightTextFunctionKind, NullTestFunctionKind,
+        NumericScaleFunctionKind, NumericSubtype, ScalarEvalFunctionShape,
         TextPredicateFunctionKind, UnaryNumericFunctionKind, UnaryTextFunctionKind,
     },
 };
@@ -17,15 +17,14 @@ use crate::value::Value;
 /// FunctionSpec
 ///
 /// FunctionSpec is the planner-owned semantic registry entry for one scalar
-/// function identity. It carries the canonical category, null behavior,
-/// determinism, and typing shape used by downstream planner consumers.
+/// function identity. It carries the canonical category, null behavior, typing
+/// shape, and admitted surfaces used by downstream planner consumers.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::query::plan::expr) struct FunctionSpec {
     pub(in crate::db::query::plan::expr) category: FunctionCategory,
     pub(in crate::db::query::plan::expr) null_behavior: FunctionNullBehavior,
-    pub(in crate::db::query::plan::expr) determinism: FunctionDeterminism,
     pub(in crate::db::query::plan::expr) type_inference_shape: FunctionTypeInferenceShape,
     pub(in crate::db::query::plan::expr) allowed_surfaces: &'static [FunctionSurface],
 }
@@ -60,14 +59,12 @@ impl FunctionSpec {
     pub(in crate::db::query::plan::expr) const fn new(
         category: FunctionCategory,
         null_behavior: FunctionNullBehavior,
-        determinism: FunctionDeterminism,
         type_inference_shape: FunctionTypeInferenceShape,
         allowed_surfaces: &'static [FunctionSurface],
     ) -> Self {
         Self {
             category,
             null_behavior,
-            determinism,
             type_inference_shape,
             allowed_surfaces,
         }
@@ -79,7 +76,6 @@ impl FunctionSpec {
         Self::new(
             FunctionCategory::Text,
             FunctionNullBehavior::Strict,
-            FunctionDeterminism::Deterministic,
             FunctionTypeInferenceShape::TextResult {
                 text_positions: &[0],
                 numeric_positions: &[],
@@ -98,7 +94,6 @@ impl FunctionSpec {
         Self::new(
             FunctionCategory::Text,
             FunctionNullBehavior::Strict,
-            FunctionDeterminism::Deterministic,
             FunctionTypeInferenceShape::TextResult {
                 text_positions,
                 numeric_positions,
@@ -113,7 +108,6 @@ impl FunctionSpec {
         Self::new(
             FunctionCategory::Text,
             FunctionNullBehavior::Strict,
-            FunctionDeterminism::Deterministic,
             FunctionTypeInferenceShape::BoolResult { text_positions },
             GENERAL_SCALAR_FUNCTION_SURFACES,
         )
@@ -129,7 +123,6 @@ impl FunctionSpec {
         Self::new(
             FunctionCategory::Numeric,
             FunctionNullBehavior::Strict,
-            FunctionDeterminism::Deterministic,
             FunctionTypeInferenceShape::NumericResult {
                 text_positions,
                 numeric_positions,
@@ -145,7 +138,6 @@ impl FunctionSpec {
         Self::new(
             FunctionCategory::BooleanPredicate,
             FunctionNullBehavior::NullObserving,
-            FunctionDeterminism::Deterministic,
             FunctionTypeInferenceShape::UnaryBoolPredicate,
             BOOLEAN_FUNCTION_SURFACES,
         )
@@ -189,14 +181,12 @@ impl Function {
             Self::Coalesce => FunctionSpec::new(
                 FunctionCategory::NullHandling,
                 FunctionNullBehavior::NullIgnoring,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::DynamicCoalesce,
                 GENERAL_SCALAR_FUNCTION_SURFACES,
             ),
             Self::CollectionContains => FunctionSpec::new(
                 FunctionCategory::Collection,
                 FunctionNullBehavior::NullObserving,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::CollectionContains,
                 BOOLEAN_FUNCTION_SURFACES,
             ),
@@ -206,7 +196,6 @@ impl Function {
             Self::InList => FunctionSpec::new(
                 FunctionCategory::Collection,
                 FunctionNullBehavior::NullObserving,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::Membership,
                 GENERAL_SCALAR_FUNCTION_SURFACES,
             ),
@@ -217,7 +206,6 @@ impl Function {
             Self::Length => FunctionSpec::new(
                 FunctionCategory::Text,
                 FunctionNullBehavior::Strict,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::NumericResult {
                     text_positions: &[0],
                     numeric_positions: &[],
@@ -228,7 +216,6 @@ impl Function {
             Self::OctetLength => FunctionSpec::new(
                 FunctionCategory::Numeric,
                 FunctionNullBehavior::Strict,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::ByteLengthResult,
                 GENERAL_SCALAR_FUNCTION_SURFACES,
             ),
@@ -241,14 +228,12 @@ impl Function {
             Self::NullIf => FunctionSpec::new(
                 FunctionCategory::NullHandling,
                 FunctionNullBehavior::NullIgnoring,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::DynamicNullIf,
                 GENERAL_SCALAR_FUNCTION_SURFACES,
             ),
             Self::Position => FunctionSpec::new(
                 FunctionCategory::Text,
                 FunctionNullBehavior::Strict,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::NumericResult {
                     text_positions: &[0, 1],
                     numeric_positions: &[],
@@ -260,7 +245,6 @@ impl Function {
             Self::Round | Self::Trunc => FunctionSpec::new(
                 FunctionCategory::Numeric,
                 FunctionNullBehavior::Strict,
-                FunctionDeterminism::Deterministic,
                 FunctionTypeInferenceShape::NumericScaleResult,
                 ROUND_FUNCTION_SURFACES,
             ),

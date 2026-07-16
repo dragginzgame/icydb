@@ -3,13 +3,11 @@ use crate::{
         cursor::CursorBoundary,
         data::DataRow,
         executor::{
-            ExecutionKernel, apply_offset_limit_window as apply_delete_window,
-            apply_structural_order_window, compare_orderable_row_with_boundary,
-            projection::eval_effective_runtime_filter_program_with_value_ref_reader,
+            ExecutionKernel, apply_structural_order_window, compare_orderable_row_with_boundary,
             record_rows_after_predicate, route::access_order_satisfied_by_route_mode,
             terminal::page::KernelRow,
         },
-        query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
+        query::plan::{AccessPlannedQuery, ResolvedOrder},
     },
     error::InternalError,
 };
@@ -19,34 +17,18 @@ use super::metrics::{
     measure_kernel_row_phase, record_kernel_row_order_window_local_instructions,
     record_kernel_row_page_window_local_instructions,
 };
-use super::plan::{PostAccessPredicateStrategy, PostAccessStrategy};
-
-// Run canonical post-access phases over kernel rows.
+// Run canonical load post-access phases over kernel rows.
 pub(super) fn apply_post_access_to_kernel_rows_dyn(
     plan: &AccessPlannedQuery,
     rows: &mut Vec<KernelRow>,
     cursor: Option<&CursorBoundary>,
-    post_access_strategy: PostAccessStrategy<'_>,
+    defer_retained_slot_distinct_window: bool,
 ) -> Result<usize, InternalError> {
     let logical = plan.scalar_plan();
 
-    // Phase 1: predicate filtering.
-    let filtered = match post_access_strategy.predicate_strategy {
-        PostAccessPredicateStrategy::NotPresent => false,
-        PostAccessPredicateStrategy::AppliedDuringScan => true,
-        PostAccessPredicateStrategy::Deferred { filter_program } => {
-            if rows.is_empty() {
-                record_rows_after_predicate(0);
-                return Ok(0);
-            }
-
-            compact_kernel_rows_in_place_result(rows, |row| {
-                row_matches_filter_program(row, filter_program)
-            })?;
-
-            true
-        }
-    };
+    // Phase 1: residual predicates are always applied while the raw row is
+    // open. Post-access records the resulting cardinality but never re-runs
+    // semantic filtering against a second row representation.
     record_rows_after_predicate(rows.len());
 
     // Phase 2: ordering.
@@ -55,14 +37,6 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     if let Some(order) = logical.order.as_ref()
         && !order.fields.is_empty()
     {
-        if post_access_strategy
-            .predicate_strategy
-            .requires_post_access_filtering()
-            && !filtered
-        {
-            return Err(InternalError::scalar_page_ordering_after_filtering_required());
-        }
-
         ordered = true;
         if !access_order_satisfied_by_route_mode(plan) {
             let resolved_order = plan.require_resolved_order()?;
@@ -83,7 +57,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     }
 
     // Phase 3: continuation boundary.
-    let rows_after_cursor = if logical.mode.is_load() {
+    let rows_after_cursor = {
         if cursor.is_some() {
             if logical.order.is_none() {
                 return Err(InternalError::scalar_page_cursor_boundary_order_required());
@@ -99,7 +73,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
         {
             return Err(InternalError::scalar_page_pagination_after_ordering_required());
         }
-        if post_access_strategy.defer_retained_slot_distinct_window {
+        if defer_retained_slot_distinct_window {
             rows_after_order
         } else {
             let resolved_order = cursor.map(|_| plan.require_resolved_order()).transpose()?;
@@ -113,19 +87,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
                 logical.page.as_ref().and_then(|page| page.limit),
             )?
         }
-    } else {
-        rows_after_order
     };
-
-    // Phase 4: apply the ordered delete window.
-    if logical.mode.is_delete()
-        && let Some(delete_window) = logical.delete_limit.as_ref()
-    {
-        if logical.order.is_some() && !ordered {
-            return Err(InternalError::scalar_page_delete_limit_after_ordering_required());
-        }
-        apply_delete_window(rows, delete_window.offset, delete_window.limit);
-    }
 
     Ok(rows_after_cursor)
 }
@@ -165,19 +127,6 @@ fn apply_measured_load_cursor_and_pagination_window(
     apply_load_cursor_and_pagination_window(rows, cursor, offset, limit)
 }
 
-// Evaluate one planner-frozen residual scalar filter program against one
-// materialized kernel row.
-fn row_matches_filter_program(
-    row: &KernelRow,
-    filter_program: &EffectiveRuntimeFilterProgram,
-) -> Result<bool, InternalError> {
-    eval_effective_runtime_filter_program_with_value_ref_reader(
-        filter_program,
-        &mut |slot| row.slot_ref(slot),
-        "scalar filter expression could not read slot",
-    )
-}
-
 // Apply one simple cursorless load page window directly on canonical data
 // rows when route order is already final and no later slot-aware phase exists.
 pub(super) fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut Vec<DataRow>) {
@@ -211,34 +160,8 @@ pub(super) fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut V
     rows.truncate(kept);
 }
 
-// Compact kernel rows in place under one fallible keep predicate so deferred
-// residual filter evaluation can preserve runtime errors instead of treating
-// them as row rejections.
-fn compact_kernel_rows_in_place_result(
-    rows: &mut Vec<KernelRow>,
-    mut keep_row: impl FnMut(&KernelRow) -> Result<bool, InternalError>,
-) -> Result<usize, InternalError> {
-    let mut kept = 0usize;
-
-    for read_index in 0..rows.len() {
-        if !keep_row(&rows[read_index])? {
-            continue;
-        }
-
-        if kept != read_index {
-            rows.swap(kept, read_index);
-        }
-        kept = kept.saturating_add(1);
-    }
-
-    rows.truncate(kept);
-
-    Ok(kept)
-}
-
-// Keep the test-only infallible compaction helper around so the page module
-// can still pin the straight-line compaction behavior independently from the
-// deferred residual-filter error path.
+// Keep the test-only compaction helper around so the page module can pin the
+// straight-line row compaction behavior independently.
 #[cfg(test)]
 pub(super) fn compact_kernel_rows_in_place(
     rows: &mut Vec<KernelRow>,
